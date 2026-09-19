@@ -1,0 +1,51 @@
+name: HTDTCapture
+
+options:
+  minimumXcodeGenVersion: 2.42.0
+  deploymentTarget:
+    iOS: "17.0"
+
+packages:
+  HTDTCapturePackage:
+    path: .
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+
+targets:
+  HTDTCapture:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: App
+    dependencies:
+      - package: HTDTCapturePackage
+        product: HTDTCaptureCore
+      - package: HTDTCapturePackage
+        product: HTDTCapturePlatform
+      - package: HTDTCapturePackage
+        product: HTDTCaptureAppShell
+    settings:
+      base:
+        PRODUCT_NAME: HTDTCapture
+        PRODUCT_BUNDLE_IDENTIFIER: com.hometheaterdigitaltwin.capture
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_FILE: App/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTS_MACCATALYST: NO
+
+schemes:
+  HTDTCapture:
+    build:
+      targets:
+        HTDTCapture: all
+    run:
+      config: Debug
+    archive:
+      config: Release
