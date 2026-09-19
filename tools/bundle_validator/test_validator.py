@@ -9,7 +9,8 @@ import unittest
 import warnings
 import zipfile
 
-from tools.bundle_validator.archive_bundle import create_archive\nfrom tools.bundle_validator.validator import (
+from tools.bundle_validator.archive_bundle import create_archive
+from tools.bundle_validator.validator import (
     ValidationError,
     canonical_json_bytes,
     validate_bundle,
