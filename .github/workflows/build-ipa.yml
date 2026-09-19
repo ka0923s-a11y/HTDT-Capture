@@ -1,0 +1,91 @@
+name: Build unsigned IPA
+
+on:
+  push:
+    paths:
+      - "App/**"
+      - "project.yml"
+      - "Package.swift"
+      - "Sources/**"
+      - ".github/workflows/build-ipa.yml"
+  pull_request:
+    paths:
+      - "App/**"
+      - "project.yml"
+      - "Package.swift"
+      - "Sources/**"
+      - ".github/workflows/build-ipa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-unsigned-ipa:
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+
+      - name: Resolve package dependencies
+        run: |
+          xcodebuild \
+            -project HTDTCapture.xcodeproj \
+            -scheme HTDTCapture \
+            -resolvePackageDependencies
+
+      - name: Archive unsigned app
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project HTDTCapture.xcodeproj \
+            -scheme HTDTCapture \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/HTDTCapture.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            archive | tee build-xcode.log
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          APP="$PWD/build/HTDTCapture.xcarchive/Products/Applications/HTDTCapture.app"
+          test -d "$APP"
+          rm -rf "$PWD/build/Payload"
+          mkdir -p "$PWD/build/Payload"
+          cp -R "$APP" "$PWD/build/Payload/"
+          cd "$PWD/build"
+          /usr/bin/zip -qry HTDT-Capture-unsigned.ipa Payload
+          shasum -a 256 HTDT-Capture-unsigned.ipa > HTDT-Capture-unsigned.ipa.sha256
+          unzip -l HTDT-Capture-unsigned.ipa | head -80
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
+            Payload/HTDTCapture.app/Info.plist
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HTDT-Capture-unsigned-ipa
+          path: |
+            build/HTDT-Capture-unsigned.ipa
+            build/HTDT-Capture-unsigned.ipa.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Xcode archive on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HTDT-Capture-ipa-build-diagnostics
+          path: |
+            build-xcode.log
+            project.yml
+          if-no-files-found: ignore
+          retention-days: 7
