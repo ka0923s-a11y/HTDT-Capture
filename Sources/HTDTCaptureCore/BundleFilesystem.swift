@@ -97,7 +97,7 @@ public enum BundleDirectoryScanner {
                 .isSymbolicLinkKey,
                 .fileSizeKey,
             ],
-            options: [.skipsHiddenFiles]
+            options: []
         ) else {
             throw BundleFilesystemError.invalidRoot
         }
