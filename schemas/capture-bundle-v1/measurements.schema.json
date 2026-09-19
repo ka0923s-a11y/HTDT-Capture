@@ -19,102 +19,162 @@
     "measurements": {
       "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "measurement_id",
-          "quantity_type",
-          "value",
-          "unit",
-          "acquisition_method",
-          "user_attestation",
-          "provenance_class"
-        ],
-        "properties": {
-          "measurement_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-          },
-          "quantity_type": {
+        "$ref": "#/$defs/measurement"
+      }
+    }
+  },
+  "$defs": {
+    "instrument": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "instrument_class": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "make_model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "calibration_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "calibration_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        }
+      }
+    },
+    "measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "measurement_id",
+        "quantity_type",
+        "value",
+        "unit",
+        "endpoint_refs",
+        "acquisition_method",
+        "user_attestation",
+        "provenance_class",
+        "evidence_refs"
+      ],
+      "properties": {
+        "measurement_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "quantity_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "number"
+              }
+            }
+          ]
+        },
+        "unit": {
+          "enum": [
+            "m",
+            "rad",
+            "1"
+          ]
+        },
+        "coordinate_space_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "endpoint_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
             "type": "string",
             "minLength": 1
-          },
-          "value": {
-            "type": [
-              "number",
-              "array"
-            ]
-          },
-          "unit": {
+          }
+        },
+        "acquisition_method": {
+          "enum": [
+            "tape_measure",
+            "laser_distance_meter",
+            "manufacturer_specification",
+            "lidar_derived",
+            "roomplan_derived",
+            "other"
+          ]
+        },
+        "instrument": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/instrument"
+            }
+          ]
+        },
+        "stated_uncertainty": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "user_attestation": {
+          "enum": [
+            "not_attested",
+            "attested"
+          ]
+        },
+        "provenance_class": {
+          "enum": [
+            "user_attested_measurement",
+            "apple_roomplan_inference",
+            "arkit_mesh_reconstruction",
+            "imported_reference"
+          ]
+        },
+        "source_value_text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
             "type": "string",
             "minLength": 1
-          },
-          "coordinate_space_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-          },
-          "endpoint_refs": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "acquisition_method": {
-            "enum": [
-              "tape_measure",
-              "laser_distance_meter",
-              "manufacturer_specification",
-              "lidar_derived",
-              "roomplan_derived",
-              "other"
-            ]
-          },
-          "instrument_class": {
-            "type": "string"
-          },
-          "instrument_make_model": {
-            "type": "string"
-          },
-          "calibration_status": {
-            "type": "string"
-          },
-          "calibration_date": {
-            "type": "string",
-            "format": "date"
-          },
-          "stated_uncertainty": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "minimum": 0
-          },
-          "observed_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "user_attestation": {
-            "enum": [
-              "not_attested",
-              "attested"
-            ]
-          },
-          "provenance_class": {
-            "enum": [
-              "user_attested_measurement",
-              "apple_roomplan_inference",
-              "arkit_mesh_reconstruction",
-              "imported_reference"
-            ]
-          },
-          "evidence_refs": {
-            "type": "array",
-            "uniqueItems": true,
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
           }
         }
       }
