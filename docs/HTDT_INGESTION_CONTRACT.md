@@ -100,3 +100,76 @@ Import fails closed for:
 - invalid identity/coordinate references.
 
 No partial evidence promotion survives a failed import transaction.
+
+
+## 10. Reference ingestion plan v1
+
+The capture repository provides a deterministic reference implementation at
+`tools/htdt_ingestion/reference_ingestor.py`.
+
+It produces `htdt.capture.ingestion-plan` schema version `1.0.0` only
+after the full Capture Bundle v1 validator succeeds.
+
+The plan is a source-lineage handoff contract. It does not create
+`SemanticAcousticGeometry`, choose solver boundaries, repair canonical
+mesh evidence, or resolve conflicting measurements.
+
+## 11. Deterministic lineage identifiers
+
+For reference ingestor v1.0.0, deterministic IDs are SHA-256
+domain-separated hashes over exact UTF-8 inputs:
+
+```text
+source_evidence_id =
+  SHA256("htdt.capture.source-evidence.v1" || 0x00
+         || bundle_digest || 0x00
+         || logical_path || 0x00
+         || payload_sha256)
+
+raw_visual_mesh_handoff_id =
+  SHA256("htdt.capture.raw-visual-mesh-handoff.v1" || 0x00
+         || bundle_digest || 0x00
+         || anchor_id || 0x00
+         || geometry_payload_sha256)
+
+authority_record_handoff_id =
+  SHA256("htdt.capture.authority-record.v1" || 0x00
+         || bundle_digest || 0x00
+         || source_payload_sha256 || 0x00
+         || record_kind || 0x00
+         || record_id)
+```
+
+These IDs are content/lineage identities, not signatures.
+
+Changing the ingestor version, ID domain string, or configuration requires
+an explicit contract/version change.
+
+## 12. Transaction boundary
+
+Production HTDT ingestion should treat the generated plan as a transaction
+input:
+
+1. validate the Capture Bundle;
+2. build/validate the ingestion plan;
+3. stage source evidence and exact handoffs;
+4. commit all source authorities atomically;
+5. only then allow later backend derivation.
+
+No partial source-evidence registry or RawVisualMesh promotion may survive a
+failed import.
+
+## 13. Frozen compatibility fixture
+
+`samples/phase6-integration` is the pinned v1 integration fixture.
+
+Expected logical bundle digest:
+
+`925108a1b3c1b432182efe1b7e18ccb0f1d98f4f17c939ca66a6095b0cc28550`
+
+Expected reference-ingestor v1.0.0 lineage digest:
+
+`729a7590fb1d1e2142c196187ef11a9078522326daa1ef2fd2364b8fd1ef6bf1`
+
+CI verifies that directory and `.htdtcapture` archive wrappers produce the
+same canonical ingestion plan for this fixture.

@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/htdt-ingestion-plan-v1.schema.json",
+  "title": "HTDT Capture Ingestion Plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "ingestor",
+    "bundle",
+    "source_evidence",
+    "roomplan_records",
+    "raw_visual_mesh_handoffs",
+    "authority_records",
+    "lineage_digest"
+  ],
+  "properties": {
+    "schema": {"const": "htdt.capture.ingestion-plan"},
+    "schema_version": {"const": "1.0.0"},
+    "ingestor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "configuration_digest"],
+      "properties": {
+        "name": {"const": "htdt-capture-reference-ingestor"},
+        "version": {"type": "string", "minLength": 1},
+        "configuration_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "bundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bundle_digest",
+        "capture_schema",
+        "capture_schema_version",
+        "capture_series_id",
+        "capture_revision_id",
+        "parent_revision_id",
+        "capture_session_ids",
+        "coordinate_space_ids"
+      ],
+      "properties": {
+        "bundle_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "capture_schema": {"const": "htdt.capture.bundle"},
+        "capture_schema_version": {"const": "1.0.0"},
+        "capture_series_id": {"type": "string"},
+        "capture_revision_id": {"type": "string"},
+        "parent_revision_id": {"type": ["string", "null"]},
+        "capture_session_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string"}
+        },
+        "coordinate_space_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "source_evidence": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/sourceEvidence"}
+    },
+    "roomplan_records": {
+      "type": "array",
+      "items": {"type": "object"}
+    },
+    "raw_visual_mesh_handoffs": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/rawVisualMeshHandoff"}
+    },
+    "authority_records": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/authorityRecord"}
+    },
+    "lineage_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "$defs": {
+    "sourceEvidence": {
+      "type": "object",
+      "required": [
+        "source_evidence_id",
+        "bundle_digest",
+        "capture_revision_id",
+        "path",
+        "payload_sha256",
+        "bytes",
+        "media_type",
+        "producer",
+        "provenance_class",
+        "role",
+        "source_refs"
+      ]
+    },
+    "rawVisualMeshHandoff": {
+      "type": "object",
+      "required": [
+        "raw_visual_mesh_handoff_id",
+        "bundle_digest",
+        "anchor_id",
+        "anchor_record_locator",
+        "anchor_index_source_evidence_id",
+        "geometry_source_evidence_id",
+        "geometry_path",
+        "geometry_sha256",
+        "capture_session_id",
+        "coordinate_space_id",
+        "T_world_from_mesh_anchor",
+        "vertex_count",
+        "face_count"
+      ]
+    },
+    "authorityRecord": {
+      "type": "object",
+      "required": [
+        "authority_record_handoff_id",
+        "record_kind",
+        "record_id",
+        "record_locator",
+        "provenance_class",
+        "source_evidence_id",
+        "source_payload_sha256"
+      ]
+    }
+  }
+}
