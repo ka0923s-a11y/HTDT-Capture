@@ -51,41 +51,108 @@ Source Metal/ARGeometry stride/offset metadata may be retained as metadata, but 
 
 Magic: `HTDTPXL1`
 
-The associated frame JSON contains:
+The fixed header is 32 bytes:
 
-- pixel format/fourcc;
-- plane count;
-- native width/height;
-- source row stride per plane;
-- canonical packed row byte count;
-- per-plane dimensions and payload offsets.
+| Offset | Size | Field |
+|---:|---:|---|
+| 0 | 8 | magic |
+| 8 | 2 | major version uint16 LE |
+| 10 | 2 | minor version uint16 LE |
+| 12 | 4 | total header byte length uint32 LE |
+| 16 | 4 | full image width uint32 LE |
+| 20 | 4 | full image height uint32 LE |
+| 24 | 4 | CoreVideo pixel-format FourCC uint32 LE |
+| 28 | 2 | plane count uint16 LE |
+| 30 | 2 | reserved, zero |
 
-The binary file contains only defined active pixel bytes, row-by-row and plane-by-plane.
+Each plane then contributes a 24-byte descriptor inside the header:
 
-Allocator padding between active row bytes and source `bytesPerRow` is deliberately excluded.
+| Relative | Size | Field |
+|---:|---:|---|
+| +0 | 4 | plane width uint32 LE |
+| +4 | 4 | plane height uint32 LE |
+| +8 | 4 | source bytes-per-row uint32 LE |
+| +12 | 4 | canonical packed bytes-per-row uint32 LE |
+| +16 | 4 | absolute payload offset uint32 LE |
+| +20 | 4 | payload byte count uint32 LE |
 
-For common bi-planar YCbCr input, luma and chroma planes remain separate and retain their pixel format semantics; HTDT-Capture does not silently convert them to RGB for canonical evidence.
+Therefore:
+
+```text
+header_length = 32 + plane_count * 24
+```
+
+Plane payloads immediately follow the descriptor table in descriptor order, with no gaps.
+
+Canonical pixel payload rules:
+
+- only defined active row bytes are copied;
+- source allocator padding is excluded;
+- source row stride is retained as metadata only;
+- plane payload byte count must equal `height * packed_bytes_per_row`;
+- payload offsets must be contiguous;
+- trailing bytes are rejected.
+
+The current iOS adapter formally supports:
+
+- `kCVPixelFormatType_420YpCbCr8BiPlanarFullRange`;
+- `kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange`;
+- `kCVPixelFormatType_32BGRA`.
+
+For bi-planar 4:2:0, luma is packed at one byte per plane pixel and interleaved chroma at two bytes per plane pixel. Unknown formats fail closed rather than being converted heuristically.
 
 ## 4. Depth: `.depthbin`
 
 Magic: `HTDTDPT1`
 
-V1 depth payload:
+The v1 header is 32 bytes:
 
-- width, uint32;
-- height, uint32;
-- component type enum;
-- tightly packed row-major depth values.
+| Offset | Size | Field |
+|---:|---:|---|
+| 0 | 8 | magic |
+| 8 | 2 | major version uint16 LE |
+| 10 | 2 | minor version uint16 LE |
+| 12 | 4 | header length uint32 LE = 32 |
+| 16 | 4 | width uint32 LE |
+| 20 | 4 | height uint32 LE |
+| 24 | 1 | component type = 1, float32 meters |
+| 25 | 1 | flags; bit 0 = validity mask present |
+| 26 | 2 | reserved, zero |
+| 28 | 4 | reserved, zero |
 
-Preferred canonical component type is IEEE-754 float32 meters when that matches the ARDepthData depth-map interpretation.
+Payload order:
 
-No NaN/infinity is accepted as valid numeric evidence; invalid samples require an explicit validity policy/metadata rather than transport-level ambiguity.
+1. tightly packed row-major IEEE-754 float32 depth values in meters;
+2. when flag bit 0 is present, one uint8 validity value per depth sample.
+
+Validity values are exactly `0` or `1`.
+
+Non-finite source depth values are not serialized as NaN/infinity. The iOS adapter serializes numeric zero for that sample and sets validity to `0`, preserving the fact that the source sample was invalid without making transport interpretation depend on NaN payload semantics.
+
+Finite zero is not automatically declared invalid; the adapter does not invent an ARKit validity policy beyond finite/non-finite transport normalization.
 
 ## 5. Confidence: `.confidencebin`
 
 Magic: `HTDTCNF1`
 
-V1 confidence payload is one uint8 confidence code per depth sample, tightly packed row-major, with dimensions required to match its associated depth observation.
+The v1 header is 32 bytes:
+
+| Offset | Size | Field |
+|---:|---:|---|
+| 0 | 8 | magic |
+| 8 | 2 | major version uint16 LE |
+| 10 | 2 | minor version uint16 LE |
+| 12 | 4 | header length uint32 LE = 32 |
+| 16 | 4 | width uint32 LE |
+| 20 | 4 | height uint32 LE |
+| 24 | 1 | component type = 1, uint8 confidence code |
+| 25 | 1 | reserved, zero |
+| 26 | 2 | reserved, zero |
+| 28 | 4 | reserved, zero |
+
+The payload is exactly one uint8 code per depth sample, tightly packed row-major.
+
+The iOS adapter requires the confidence map dimensions to equal the corresponding depth map dimensions. Confidence codes are preserved without remapping so downstream logic can interpret them against the recorded ARKit/runtime provenance.
 
 ## 6. Hashing
 
