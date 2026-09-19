@@ -107,6 +107,65 @@ def _array(document: dict, key: str) -> list:
     return value
 
 
+def _required_text(document: dict, key: str, label: str) -> str:
+    value = document.get(key)
+    if not isinstance(value, str) or not value:
+        raise BenchmarkError(f"{label}.{key} must be a non-empty string")
+    return value
+
+
+def _validate_observation_metadata(observations: dict) -> None:
+    device = observations.get("device_metadata")
+    protocol = observations.get("capture_protocol")
+    instrument = observations.get("reference_instrument")
+    if not isinstance(device, dict):
+        raise BenchmarkError("device_metadata must be an object")
+    if not isinstance(protocol, dict):
+        raise BenchmarkError("capture_protocol must be an object")
+    if not isinstance(instrument, dict):
+        raise BenchmarkError("reference_instrument must be an object")
+
+    for key in (
+        "device_model_identifier",
+        "os_version",
+        "app_version",
+        "app_build",
+        "capability_profile_ref",
+        "ar_configuration_profile_hash",
+    ):
+        _required_text(device, key, "device_metadata")
+
+    configuration_hash = device["ar_configuration_profile_hash"]
+    if (
+        len(configuration_hash) != 64
+        or any(character not in "0123456789abcdef" for character in configuration_hash)
+    ):
+        raise BenchmarkError(
+            "device_metadata.ar_configuration_profile_hash "
+            "must be lowercase SHA-256 hex"
+        )
+
+    for key in ("trajectory", "operator_id", "room_scale"):
+        _required_text(protocol, key, "capture_protocol")
+    repeated_scan_count = protocol.get("repeated_scan_count")
+    if not isinstance(repeated_scan_count, int) or repeated_scan_count < 1:
+        raise BenchmarkError(
+            "capture_protocol.repeated_scan_count must be a positive integer"
+        )
+
+    for key in (
+        "instrument_class",
+        "make_model",
+        "calibration_status",
+        "calibration_date",
+    ):
+        _required_text(instrument, key, "reference_instrument")
+    _nonnegative(
+        instrument.get("stated_uncertainty_m"),
+        "reference_instrument.stated_uncertainty_m",
+    )
+
+
 def _gate(
     code: str,
     value: float | None,
@@ -580,6 +639,8 @@ def build_report(
         schema=RULESET_SCHEMA,
         label="ruleset",
     )
+
+    _validate_observation_metadata(observations)
 
     if not isinstance(observations.get("benchmark_id"), str):
         raise BenchmarkError("benchmark_id is required")
