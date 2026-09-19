@@ -123,7 +123,7 @@ func frameDescriptorKeepsExplicitDepthStatusAndLineage() throws {
     let confidenceHash = try EvidenceSHA256(
         String(repeating: "c", count: 64)
     )
-    let depth = DepthEvidenceReference(
+    let depth = try DepthEvidenceReference(
         kind: .discreteSceneDepth,
         depthRelativePath: "evidence/depth/frame.depthbin",
         depthByteCount: 64,
@@ -203,6 +203,23 @@ func frameDescriptorRejectsDepthStatusMismatch() throws {
             pixelSHA256: hash,
             depthStatus: .capturedDiscrete,
             depth: nil
+        )
+    }
+}
+
+
+@Test
+func depthReferenceRejectsPartialConfidenceTriplet() throws {
+    let hash = try EvidenceSHA256(String(repeating: "f", count: 64))
+    #expect(throws: DepthEvidenceReferenceError.self) {
+        _ = try DepthEvidenceReference(
+            kind: .discreteSceneDepth,
+            depthRelativePath: "evidence/depth/x.depthbin",
+            depthByteCount: 32,
+            depthSHA256: hash,
+            confidenceRelativePath: "evidence/depth/x.confidencebin",
+            confidenceByteCount: nil,
+            confidenceSHA256: nil
         )
     }
 }
