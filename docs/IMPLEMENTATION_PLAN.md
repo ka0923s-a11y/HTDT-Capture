@@ -2,7 +2,7 @@
 
 Status: Reviewed v2  
 Review date: 2026-09-20  
-Target repository: \`bolph71656-ai/HTDT-Capture\`  
+Target repository: `bolph71656-ai/HTDT-Capture`  
 Primary platform: LiDAR-capable iPhone / iPad  
 Primary integration target: HTDT (Home Theater Digital Twin)
 
@@ -18,11 +18,11 @@ The canonical product is therefore **not a GLB/USDZ model**. It is an evidence-p
 
 The bundle should preserve, where supported:
 
-- RoomPlan \`CapturedRoomData\` raw scan result for later reprocessing;
-- post-processed \`CapturedRoom\` / later \`CapturedStructure\` outputs;
+- RoomPlan `CapturedRoomData` raw scan result for later reprocessing;
+- post-processed `CapturedRoom` / later `CapturedStructure` outputs;
 - ARKit scene-reconstruction mesh snapshots;
 - selected camera-frame evidence with exact pose/intrinsics metadata;
-- selected \`sceneDepth\` and confidence maps;
+- selected `sceneDepth` and confidence maps;
 - user-attested dimensions;
 - HTDT-specific annotations such as speakers, subwoofers, screen, listening positions, and acoustic treatments;
 - device/session/framework metadata;
@@ -58,16 +58,16 @@ Different information sources must remain independently identifiable.
 
 Initial provenance classes:
 
-- \`arkit_frame_observation\`
-- \`arkit_scene_depth_observation\`
-- \`arkit_mesh_reconstruction\`
-- \`apple_roomplan_raw_scan\`
-- \`apple_roomplan_inference\`
-- \`user_attested_measurement\`
-- \`user_annotation\`
-- \`imported_reference\`
-- \`capture_app_derived\`
-- \`backend_derived\`
+- `arkit_frame_observation`
+- `arkit_scene_depth_observation`
+- `arkit_mesh_reconstruction`
+- `apple_roomplan_raw_scan`
+- `apple_roomplan_inference`
+- `user_attested_measurement`
+- `user_annotation`
+- `imported_reference`
+- `capture_app_derived`
+- `backend_derived`
 
 A provenance class does not by itself imply numerical superiority.
 
@@ -90,11 +90,11 @@ A finalized capture revision is immutable.
 
 Use distinct IDs for distinct concepts:
 
-- \`capture_series_id\`: logical lineage of captures/revisions for one room project;
-- \`capture_revision_id\`: immutable finalized bundle revision;
-- \`capture_session_id\`: one active sensor-capture session;
-- \`coordinate_space_id\`: one AR world coordinate frame;
-- \`parent_revision_id\`: previous finalized revision when applicable.
+- `capture_series_id`: logical lineage of captures/revisions for one room project;
+- `capture_revision_id`: immutable finalized bundle revision;
+- `capture_session_id`: one active sensor-capture session;
+- `coordinate_space_id`: one AR world coordinate frame;
+- `parent_revision_id`: previous finalized revision when applicable.
 
 A re-scan performed in a new ARSession creates a **new coordinate space** unless an explicit alignment authority is produced. It must never be assumed to share coordinates with an earlier session.
 
@@ -151,15 +151,15 @@ The exact deployment target and SDK baseline are a Phase 0 decision, recorded in
 
 The implementation plan relies on these current Apple platform behaviors:
 
-- RoomPlan can be created with an app-owned \`ARSession\`, and RoomPlan preserves the session settings.
-- \`CapturedRoomData\` is a Codable opaque raw RoomPlan scan result that can be stored and processed later by \`RoomBuilder\`.
-- \`CapturedRoom\` is post-processed and separately Codable/exportable.
+- RoomPlan can be created with an app-owned `ARSession`, and RoomPlan preserves the session settings.
+- `CapturedRoomData` is a Codable opaque raw RoomPlan scan result that can be stored and processed later by `RoomBuilder`.
+- `CapturedRoom` is post-processed and separately Codable/exportable.
 - ARKit world space is right-handed.
-- \`ARCamera.transform\` represents camera pose in world space.
-- \`ARAnchor.transform\` represents anchor pose relative to AR world space.
+- `ARCamera.transform` represents camera pose in world space.
+- `ARAnchor.transform` represents anchor pose relative to AR world space.
 - scene reconstruction must be capability-checked.
-- \`sceneDepth\` and its confidence map are capability-gated and are associated with the captured image for that AR frame.
-- \`ARFrame\` provides captured image, frame timestamp, camera transform, camera intrinsics, image resolution, and EXIF metadata.
+- `sceneDepth` and its confidence map are capability-gated and are associated with the captured image for that AR frame.
+- `ARFrame` provides captured image, frame timestamp, camera transform, camera intrinsics, image resolution, and EXIF metadata.
 
 These facts must be rechecked against the SDK used for each implementation slice rather than copied indefinitely as assumptions.
 
@@ -169,8 +169,8 @@ These facts must be rechecked against the SDK used for each implementation slice
 
 - runtime capability matrix;
 - RoomPlan scan using an explicit app-owned ARSession;
-- preservation of \`CapturedRoomData\`;
-- preservation of post-processed \`CapturedRoom\`;
+- preservation of `CapturedRoomData`;
+- preservation of post-processed `CapturedRoom`;
 - ARKit scene-reconstruction mesh collection;
 - selected AR camera-frame evidence;
 - selected scene-depth/confidence evidence when supported;
@@ -182,7 +182,7 @@ These facts must be rechecked against the SDK used for each implementation slice
   - secondary listening positions;
 - user-attested dimensions and measurement metadata;
 - capture quality/completeness diagnostics;
-- immutable \`.htdtcapture\` logical bundle;
+- immutable `.htdtcapture` logical bundle;
 - manifest-based integrity;
 - local validation and export;
 - accuracy/calibration benchmark harness and protocol;
@@ -343,14 +343,14 @@ For the MVP canonical AR coordinate space:
 - meters;
 - homogeneous 4x4 transforms;
 - storage order explicitly documented as 16 IEEE-754 binary32 values in column-major SIMD semantic order;
-- transform names use \`T_<destination>_from_<source>\`;
+- transform names use `T_<destination>_from_<source>`;
 - no ambiguous arrow notation in schemas or code.
 
 Examples:
 
-- \`T_world_from_camera\`
-- \`T_world_from_mesh_anchor\`
-- \`T_world_from_annotation\`
+- `T_world_from_camera`
+- `T_world_from_mesh_anchor`
+- `T_world_from_annotation`
 
 Apple values are stored with their original semantic meaning.
 
@@ -391,7 +391,7 @@ Use AR frame/session timestamps for synchronization inside a capture session.
 
 Store:
 
-- \`session_timestamp_s\`;
+- `session_timestamp_s`;
 - source clock identifier/description;
 - capture-session ID.
 
@@ -454,18 +454,18 @@ capture-<capture-revision-id>.htdtcapture/
 
 Notes:
 
-- \`captured-room-data.json\` is canonical RoomPlan raw scan output.
-- \`captured-room.json\` is a post-processed derivative that remains valuable and independently versioned.
-- USD/USDZ under \`roomplan/exports/\` is derived.
-- \`preview.heic\` is a convenience derivative unless the implementation proves bit-preserving source semantics.
-- \`pixelbin\` is intended to preserve selected ARFrame pixel-plane bytes plus enough layout metadata to reconstruct the pixel buffer representation. Phase 0 must define the exact binary format before implementation.
+- `captured-room-data.json` is canonical RoomPlan raw scan output.
+- `captured-room.json` is a post-processed derivative that remains valuable and independently versioned.
+- USD/USDZ under `roomplan/exports/` is derived.
+- `preview.heic` is a convenience derivative unless the implementation proves bit-preserving source semantics.
+- `pixelbin` is intended to preserve selected ARFrame pixel-plane bytes plus enough layout metadata to reconstruct the pixel buffer representation. Phase 0 must define the exact binary format before implementation.
 - ZIP with a custom extension may wrap the logical directory, but archive bytes are not themselves the integrity authority.
 
 ## 10. Manifest and integrity model
 
 Avoid circular hashing.
 
-\`manifest.json\` is the canonical integrity root document and contains:
+`manifest.json` is the canonical integrity root document and contains:
 
 - schema name/version;
 - capture-series ID;
@@ -494,7 +494,7 @@ bundle_digest = SHA256(canonical_bytes(manifest.json))
 
 Because each canonical payload digest is inside the manifest, the bundle digest commits to the logical bundle contents without recursion.
 
-A human-readable \`checksums.sha256\` may be generated as a convenience derivative, but it is not the root authority.
+A human-readable `checksums.sha256` may be generated as a convenience derivative, but it is not the root authority.
 
 Phase 0 must select and test a canonical JSON encoding strategy, with fixed test vectors.
 
@@ -504,7 +504,7 @@ Preserve two different layers.
 
 ### 11.1 Raw RoomPlan scan
 
-Persist encoded \`CapturedRoomData\` immediately after RoomPlan session completion.
+Persist encoded `CapturedRoomData` immediately after RoomPlan session completion.
 
 Record:
 
@@ -520,14 +520,14 @@ This is the preferred artifact for future reprocessing.
 
 ### 11.2 Post-processed room
 
-Generate/preserve \`CapturedRoom\` separately.
+Generate/preserve `CapturedRoom` separately.
 
 Record:
 
-- input \`CapturedRoomData\` hash;
+- input `CapturedRoomData` hash;
 - RoomBuilder configuration/options if exposed;
 - producing OS/framework context;
-- \`CapturedRoom.version\`;
+- `CapturedRoom.version`;
 - serialization hash.
 
 Do not overwrite the raw RoomPlan scan when users correct semantic labels or dimensions. Corrections become HTDT annotations/measurements or a new capture revision.
@@ -541,7 +541,7 @@ For each active ARMeshAnchor at finalization preserve:
 - anchor UUID;
 - capture-session ID;
 - coordinate-space ID;
-- \`T_world_from_mesh_anchor\`;
+- `T_world_from_mesh_anchor`;
 - observation/update session timestamp;
 - vertex count;
 - canonical float32 vertex positions;
@@ -569,9 +569,9 @@ For each frame:
 - frame UUID;
 - capture-session ID;
 - coordinate-space ID;
-- \`session_timestamp_s\`;
+- `session_timestamp_s`;
 - UTC correlation-derived capture time when useful;
-- \`T_world_from_camera\`;
+- `T_world_from_camera`;
 - 3x3 intrinsics;
 - native image resolution;
 - pixel format;
@@ -585,30 +585,30 @@ If high-resolution AR frame capture is adopted, its output must be treated as a 
 
 ### 13.2 Depth
 
-When \`sceneDepth\` is supported and enabled, a selected evidence frame should preserve:
+When `sceneDepth` is supported and enabled, a selected evidence frame should preserve:
 
 - depth map float format and dimensions;
 - confidence map format and dimensions;
 - frame association;
 - camera intrinsics and transform from the associated ARFrame;
-- whether depth is discrete \`sceneDepth\` or temporally averaged \`smoothedSceneDepth\`.
+- whether depth is discrete `sceneDepth` or temporally averaged `smoothedSceneDepth`.
 
-Prefer discrete \`sceneDepth\` for canonical evidence. Smoothed depth may be stored as an additional derived/processed observation.
+Prefer discrete `sceneDepth` for canonical evidence. Smoothed depth may be stored as an additional derived/processed observation.
 
 ## 14. Annotation model
 
 Initial entity types:
 
-- \`speaker\`
-- \`subwoofer\`
-- \`display\`
-- \`projection_screen\`
-- \`listening_position\`
-- \`seat\`
-- \`acoustic_treatment\`
-- \`equipment_rack\`
-- \`reference_point\`
-- \`custom\`
+- `speaker`
+- `subwoofer`
+- `display`
+- `projection_screen`
+- `listening_position`
+- `seat`
+- `acoustic_treatment`
+- `equipment_rack`
+- `reference_point`
+- `custom`
 
 Each entity requires:
 
@@ -636,7 +636,7 @@ Capture:
 - up-axis convention;
 - channel/role;
 - optional acoustic-center offset;
-- optional HTDT \`EquipmentDefinition\` reference;
+- optional HTDT `EquipmentDefinition` reference;
 - orientation capture method;
 - supporting images/measurements.
 
@@ -699,7 +699,7 @@ Record explicit diagnostics:
 - bundle integrity result;
 - accuracy benchmark references where applicable.
 
-A \`ready_for_htdt_ingestion\` result can be derived only from versioned explicit rules.
+A `ready_for_htdt_ingestion` result can be derived only from versioned explicit rules.
 
 ## 17. Capture protocol and UX
 
@@ -913,7 +913,7 @@ Exit criteria:
 - no ambiguous transform direction;
 - no ambiguous timestamp domain;
 - no circular integrity definition;
-- raw \`CapturedRoomData\` has a canonical location;
+- raw `CapturedRoomData` has a canonical location;
 - canonical vs derived files are explicit;
 - re-scan/new-coordinate-space behavior is explicit;
 - schema test vectors exist.
@@ -943,8 +943,8 @@ Exit criteria:
 Deliverables:
 
 - RoomPlan integration with app-owned ARSession;
-- raw \`CapturedRoomData\` persistence;
-- \`CapturedRoom\` generation/persistence;
+- raw `CapturedRoomData` persistence;
+- `CapturedRoom` generation/persistence;
 - ARMeshAnchor lifecycle capture;
 - canonical mesh serialization;
 - physical-device alignment benchmark.
@@ -1125,8 +1125,8 @@ The PoC is successful only when one supported LiDAR iPhone can:
 
 1. pass runtime capability checks;
 2. start an app-owned ARSession used by RoomPlan and mesh capture;
-3. capture and persist \`CapturedRoomData\`;
-4. regenerate/persist \`CapturedRoom\` from that raw RoomPlan result;
+3. capture and persist `CapturedRoomData`;
+4. regenerate/persist `CapturedRoom` from that raw RoomPlan result;
 5. persist final ARMeshAnchor geometry in the same declared coordinate space;
 6. capture one evidence ARFrame with pose/intrinsics/native image metadata;
 7. persist scene depth + confidence for that frame when supported;
@@ -1134,7 +1134,7 @@ The PoC is successful only when one supported LiDAR iPhone can:
 9. record one user-attested measurement with method metadata;
 10. finalize an immutable revision;
 11. compute a manifest-rooted bundle digest;
-12. export and reopen \`.htdtcapture\`;
+12. export and reopen `.htdtcapture`;
 13. pass validator/tamper checks;
 14. run the documented geometric benchmark and record measured errors.
 
@@ -1163,15 +1163,15 @@ Proceed in this order:
 
 Apple primary documentation should be rechecked at implementation time:
 
-- RoomPlan \`RoomCaptureView.init(frame:arSession:)\`
-- RoomPlan \`RoomCaptureSession.init(arSession:)\`
-- RoomPlan \`CapturedRoomData\`
-- RoomPlan \`CapturedRoom\`
-- ARKit \`ARCamera.transform\`
-- ARKit \`ARAnchor.transform\`
+- RoomPlan `RoomCaptureView.init(frame:arSession:)`
+- RoomPlan `RoomCaptureSession.init(arSession:)`
+- RoomPlan `CapturedRoomData`
+- RoomPlan `CapturedRoom`
+- ARKit `ARCamera.transform`
+- ARKit `ARAnchor.transform`
 - ARKit scene reconstruction
-- ARKit \`ARFrame\`
-- ARKit \`sceneDepth\` / confidence
+- ARKit `ARFrame`
+- ARKit `sceneDepth` / confidence
 
 Accuracy protocol should remain informed by independent measurement literature, including studies showing strong dependence on acquisition software, trajectory, scene, and processing.
 
