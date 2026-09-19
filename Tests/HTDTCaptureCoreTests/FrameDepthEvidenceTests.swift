@@ -132,7 +132,7 @@ func frameDescriptorKeepsExplicitDepthStatusAndLineage() throws {
         confidenceByteCount: 32,
         confidenceSHA256: confidenceHash
     )
-    let descriptor = FrameEvidenceDescriptor(
+    let descriptor = try FrameEvidenceDescriptor(
         captureSessionID: CaptureSessionID(),
         coordinateSpaceID: CoordinateSpaceID(),
         sessionTimestampSeconds: 1.25,
@@ -156,4 +156,53 @@ func frameDescriptorKeepsExplicitDepthStatusAndLineage() throws {
     #expect(descriptor.depth?.kind == .discreteSceneDepth)
     #expect(descriptor.depth?.depthSHA256 == depthHash)
     #expect(descriptor.depth?.confidenceSHA256 == confidenceHash)
+}
+
+
+@Test
+func evidenceSHA256CodableIsPlainHexString() throws {
+    let hash = try EvidenceSHA256(String(repeating: "d", count: 64))
+    let encoded = try JSONEncoder().encode(hash)
+    #expect(
+        String(decoding: encoded, as: UTF8.self)
+            == "\"" + String(repeating: "d", count: 64) + "\""
+    )
+}
+
+@Test
+func matrixJSONCarriesRepresentationTag() throws {
+    let data = try JSONEncoder().encode(Matrix4x4F.identity)
+    let json = try #require(
+        JSONSerialization.jsonObject(with: data) as? [String: Any]
+    )
+    #expect(
+        json["representation"] as? String
+            == "column_major_4x4_f32"
+    )
+}
+
+@Test
+func frameDescriptorRejectsDepthStatusMismatch() throws {
+    let hash = try EvidenceSHA256(String(repeating: "e", count: 64))
+    #expect(throws: FrameEvidenceDescriptorError.self) {
+        _ = try FrameEvidenceDescriptor(
+            captureSessionID: CaptureSessionID(),
+            coordinateSpaceID: CoordinateSpaceID(),
+            sessionTimestampSeconds: 1,
+            worldFromCamera: .identity,
+            intrinsics: CameraIntrinsics3x3(values: [
+                1, 0, 0,
+                0, 1, 0,
+                0, 0, 1,
+            ]),
+            imageWidth: 10,
+            imageHeight: 10,
+            pixelFormatFourCC: 1,
+            pixelRelativePath: "evidence/frames/x.pixelbin",
+            pixelByteCount: 32,
+            pixelSHA256: hash,
+            depthStatus: .capturedDiscrete,
+            depth: nil
+        )
+    }
 }
