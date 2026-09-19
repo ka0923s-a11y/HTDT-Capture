@@ -9,6 +9,7 @@ Schema family:
 - `device.schema.json`
 - `capabilities.schema.json`
 - `timing.schema.json`
+- `frame.schema.json`
 - `entities.schema.json`
 - `measurements.schema.json`
 - `quality.schema.json`
