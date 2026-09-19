@@ -173,6 +173,49 @@ References:
 - https://developer.apple.com/documentation/roomplan/roomcapturesession/issupported
 - https://developer.apple.com/documentation/arkit/arworldtrackingconfiguration/scenereconstruction
 
+### 12. Make ARSession lifetime an explicit spatial contract
+
+RoomPlan completion and ARSession lifetime are separate concerns. HTDT follow-up annotation and evidence capture must not accidentally start in a new world frame.
+
+Decision:
+
+- one app-owned ARSession remains the coordinate-space authority while same-frame work continues;
+- RoomPlan stop/pause behavior is selected deliberately and verified on the target SDK/device;
+- no incidental reset/world-origin change during UI navigation;
+- any unavoidable reset creates a new `coordinate_space_id`.
+
+### 13. Record the exact AR configuration, not only capability booleans
+
+A device may advertise individual capabilities without the intended RoomPlan + reconstruction + depth combination being operationally acceptable.
+
+Decision:
+
+- persist exact world alignment, reconstruction mode, frame semantics, video format, RoomPlan options, and relevant tracking configuration;
+- physically probe the intended combined mode;
+- use explicit capture modes if a combination is unsupported/unstable rather than silently toggling configuration.
+
+### 14. Canonicalize pixel planes without allocator padding
+
+Persisting full `bytesPerRow` blindly can include unspecified padding bytes, making evidence nondeterministic and potentially exposing unrelated memory.
+
+Decision:
+
+- copy only defined active image bytes row-by-row/plane-by-plane;
+- serialize into a documented packed layout;
+- retain source stride metadata separately.
+
+### 15. Treat .htdtcapture as hostile input until validated
+
+The first plan covered checksums but not archive parser security.
+
+Decision:
+
+- normalized relative paths only;
+- reject absolute paths, traversal, links, duplicate/case-colliding entries;
+- cap file count, expanded sizes, and decompression ratio;
+- stage extraction and promote only after digest/length/schema validation;
+- distinguish SHA-256 integrity from cryptographic authenticity/signing.
+
 ## Accuracy review
 
 Published work does not support a single universal accuracy value for smartphone LiDAR.
@@ -224,6 +267,9 @@ Critical dimensions may still require user-attested external measurements.
 - selected discrete depth + confidence;
 - bundle-root integrity model;
 - storage/backpressure rules;
+- explicit ARSession lifetime/configuration contract;
+- canonical pixel-plane packing without padding;
+- archive/parser security limits;
 - accuracy benchmark protocol.
 
 ### Still deferred
@@ -248,7 +294,9 @@ v2 requires the following contracts to be frozen first:
 4. mesh binary format;
 5. frame/depth binary format;
 6. revision/session/coordinate identity model;
-7. accuracy validation protocol.
+7. accuracy validation protocol;
+8. ARSession lifetime and exact configuration profile;
+9. archive safety policy and adversarial fixtures.
 
 Only then should sensor-specific persistence be implemented.
 
@@ -264,6 +312,9 @@ The v2 plan corrects the main risks before code exists, particularly:
 - timestamp ambiguity;
 - integrity recursion;
 - silent coordinate reuse across re-scans;
-- unvalidated spatial accuracy.
+- unvalidated spatial accuracy;
+- accidental world-frame invalidation after RoomPlan completion;
+- nondeterministic/potentially unsafe pixel-buffer padding capture;
+- archive path traversal / decompression abuse during import.
 
 No production code existed at review time, so these changes are low-cost and should be adopted before Phase 0 implementation.
