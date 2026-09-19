@@ -6,7 +6,7 @@ The project is designed to preserve real-room capture evidence and provenance ra
 
 ## Current status
 
-Planning / foundation.
+Phase 0 contract and validator foundation in progress.
 
 The implementation baseline is documented in:
 
@@ -40,3 +40,15 @@ GLB/USDZ/OBJ/PLY exports are derived convenience outputs, not the canonical auth
 8. HTDT ingestion integration
 
 See the implementation plan for architecture, scope, acceptance criteria, testing strategy, and risk controls.
+
+
+## Phase 0 contracts
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Capture Bundle v1](docs/CAPTURE_BUNDLE_V1.md)
+- [Coordinate and time contract](docs/COORDINATE_AND_TIME_CONTRACT.md)
+- [Binary formats v1](docs/BINARY_FORMATS_V1.md)
+- [Accuracy validation protocol](docs/ACCURACY_VALIDATION_PROTOCOL.md)
+- [HTDT ingestion contract](docs/HTDT_INGESTION_CONTRACT.md)
+- [JSON schemas](schemas/capture-bundle-v1/)
+- [Reference bundle validator](tools/bundle_validator/README.md)

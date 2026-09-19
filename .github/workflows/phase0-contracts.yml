@@ -1,0 +1,38 @@
+name: Phase 0 contracts
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile validator
+        run: python -m py_compile tools/bundle_validator/validator.py tools/bundle_validator/test_validator.py
+      - name: Validate JSON schema files parse
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in sorted(Path("schemas/capture-bundle-v1").glob("*.json")):
+              with path.open("r", encoding="utf-8") as f:
+                  json.load(f)
+              print(path)
+          PY
+      - name: Run validator tests
+        run: python -m unittest tools.bundle_validator.test_validator -v
+      - name: Validate frozen minimal fixture
+        run: |
+          python tools/bundle_validator/validator.py samples/minimal-capture \
+            --expect-digest 1e29f755ce8f3557de60fa45f2c01a81936d3eca8db510cae795ba58170f035f

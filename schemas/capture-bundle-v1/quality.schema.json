@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/quality.schema.json",
+  "title": "HTDT Capture Quality v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "ruleset_version",
+    "ready_for_htdt_ingestion"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.quality"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "ruleset_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ready_for_htdt_ingestion": {
+      "type": "boolean"
+    },
+    "tracking_events": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "roomplan_status": {
+      "type": "string"
+    },
+    "active_mesh_anchor_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "evidence_frame_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "depth_evidence_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "annotation_completeness": {
+      "type": "object"
+    },
+    "measurement_completeness": {
+      "type": "object"
+    },
+    "resource_events": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "integrity_status": {
+      "enum": [
+        "not_checked",
+        "pass",
+        "fail"
+      ]
+    },
+    "benchmark_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "code",
+          "severity"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
