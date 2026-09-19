@@ -21,18 +21,29 @@ No native Swift/Metal struct padding is serialized.
 
 Magic: `HTDTMSH1`
 
-After the common header, the v1 logical sections are:
+After the 16-byte common prefix, the implemented v1 mesh header is:
 
-- vertex count, uint32;
-- face count, uint32;
-- index component width, uint8: 2 or 4 bytes;
-- flags bitset for normals/classifications;
+| Offset | Size | Field |
+|---:|---:|---|
+| 16 | 4 | vertex count, uint32 LE |
+| 20 | 4 | face count, uint32 LE |
+| 24 | 1 | index component width |
+| 25 | 1 | flags: bit 0 normals, bit 1 classifications |
+| 26 | 2 | reserved, zero |
+| 28 | 4 | reserved, zero |
+
+The implemented encoder emits index component width `4` (UInt32). The decoder rejects other widths for v1 rather than guessing.
+
+Payload order after byte 31:
+
 - positions: tightly packed xyz float32 meters;
-- normals when present: tightly packed xyz float32;
-- triangle indices: tightly packed uint16/uint32;
-- classification bytes when present: one uint8 per face.
+- normals when flag bit 0 is present: tightly packed xyz float32;
+- triangle indices: tightly packed uint32 LE;
+- classification bytes when flag bit 1 is present: one uint8 per face.
 
 The anchor transform is not duplicated inside the geometry payload; it resides in `mesh/anchors.json` as `T_world_from_mesh_anchor`.
+
+The current v1 decoder requires the common-header `header byte length` to equal 32 for mesh payloads and rejects trailing bytes.
 
 Source Metal/ARGeometry stride/offset metadata may be retained as metadata, but source buffer padding is never canonical payload.
 
