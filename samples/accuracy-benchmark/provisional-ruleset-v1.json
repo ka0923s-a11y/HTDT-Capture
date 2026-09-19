@@ -1,0 +1,23 @@
+{
+  "schema": "htdt.capture.accuracy-benchmark-ruleset",
+  "schema_version": "1.0.0",
+  "ruleset_version": "engineering-provisional-1",
+  "threshold_notice": "provisional_engineering_gate_not_product_claim",
+  "minimum_repeat_scans": 3,
+  "thresholds": {
+    "dimension_max_abs_error_m": 0.03,
+    "dimension_rmse_m": 0.02,
+    "repeatability_population_sd_m": 0.015,
+    "plane_residual_rmse_m": 0.015,
+    "roomplan_mesh_alignment_rmse_m": 0.025,
+    "loop_closure_error_m": 0.03,
+    "annotation_position_repeatability_rmse_m": 0.02,
+    "speaker_orientation_max_error_deg": 3.0
+  },
+  "depth_buckets": [
+    {"min_m": 0.0, "max_m": 1.0, "max_rmse_m": 0.025, "minimum_samples": 3},
+    {"min_m": 1.0, "max_m": 2.0, "max_rmse_m": 0.035, "minimum_samples": 3},
+    {"min_m": 2.0, "max_m": 3.0, "max_rmse_m": 0.05, "minimum_samples": 3},
+    {"min_m": 3.0, "max_m": 5.0, "max_rmse_m": 0.08, "minimum_samples": 3}
+  ]
+}

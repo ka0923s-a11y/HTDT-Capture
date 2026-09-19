@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/accuracy-benchmark-observations-v1.schema.json",
+  "title": "HTDT-Capture Accuracy Benchmark Observations v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "schema_version", "benchmark_id", "protocol_version",
+    "device_metadata", "capture_protocol", "reference_instrument",
+    "dimension_observations", "plane_residual_observations",
+    "roomplan_mesh_alignment_observations", "loop_closure_observations",
+    "annotation_position_observations", "speaker_orientation_observations",
+    "depth_observations"
+  ],
+  "properties": {
+    "schema": {"const": "htdt.capture.accuracy-benchmark-observations"},
+    "schema_version": {"const": "1.0.0"},
+    "benchmark_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "protocol_version": {"const": "1.0.0"},
+    "device_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "device_model_identifier", "os_version", "app_version", "app_build",
+        "capability_profile_ref", "ar_configuration_profile_hash"
+      ],
+      "properties": {
+        "device_model_identifier": {"type": "string", "minLength": 1},
+        "os_version": {"type": "string", "minLength": 1},
+        "app_version": {"type": "string", "minLength": 1},
+        "app_build": {"type": "string", "minLength": 1},
+        "capability_profile_ref": {"type": "string", "minLength": 1},
+        "ar_configuration_profile_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "capture_protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trajectory", "operator_id", "repeated_scan_count", "room_scale"
+      ],
+      "properties": {
+        "trajectory": {"type": "string", "minLength": 1},
+        "operator_id": {"type": "string", "minLength": 1},
+        "repeated_scan_count": {"type": "integer", "minimum": 1},
+        "room_scale": {"type": "string", "minLength": 1}
+      }
+    },
+    "reference_instrument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instrument_class", "make_model", "calibration_status",
+        "calibration_date", "stated_uncertainty_m"
+      ],
+      "properties": {
+        "instrument_class": {"type": "string", "minLength": 1},
+        "make_model": {"type": "string", "minLength": 1},
+        "calibration_status": {"type": "string", "minLength": 1},
+        "calibration_date": {"type": "string", "minLength": 1},
+        "stated_uncertainty_m": {"type": "number", "minimum": 0}
+      }
+    },
+    "dimension_observations": {"type": "array", "items": {"type": "object"}},
+    "plane_residual_observations": {"type": "array", "items": {"type": "object"}},
+    "roomplan_mesh_alignment_observations": {"type": "array", "items": {"type": "object"}},
+    "loop_closure_observations": {"type": "array", "items": {"type": "object"}},
+    "annotation_position_observations": {"type": "array", "items": {"type": "object"}},
+    "speaker_orientation_observations": {"type": "array", "items": {"type": "object"}},
+    "depth_observations": {"type": "array", "items": {"type": "object"}}
+  }
+}
