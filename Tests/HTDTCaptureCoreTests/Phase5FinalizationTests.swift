@@ -285,7 +285,7 @@ func finalizationIsAtomicValidatedAndNoOverwrite() async throws {
         at: secondStaging,
         withIntermediateDirectories: true
     )
-    #expect(throws: BundleFinalizationError.self) {
+    await #expect(throws: BundleFinalizationError.self) {
         try await finalizer.finalize(
             stagingDirectory: secondStaging,
             destinationDirectory: destination,
@@ -334,7 +334,7 @@ func finalizerRejectsUnreadyQualityBeforeWritingManifest() async throws {
     )
 
     let finalizer = BundleRevisionFinalizer()
-    #expect(throws: BundleFinalizationError.self) {
+    await #expect(throws: BundleFinalizationError.self) {
         try await finalizer.finalize(
             stagingDirectory: staging,
             destinationDirectory: root.appendingPathComponent("finalized"),
