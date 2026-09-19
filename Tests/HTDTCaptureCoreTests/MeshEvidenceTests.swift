@@ -78,6 +78,41 @@ func meshCodecRejectsTrailingBytes() throws {
 }
 
 @Test
+func meshCodecRejectsNonZeroReservedHeader() throws {
+    let geometry = try MeshGeometryPayload(
+        vertices: [
+            Float3(0, 0, 0),
+            Float3(1, 0, 0),
+            Float3(0, 1, 0),
+        ],
+        triangleIndices: [0, 1, 2]
+    )
+    var encoded = try MeshBinaryCodec.encode(geometry)
+    encoded[26] = 1
+
+    #expect(throws: MeshBinaryCodecError.self) {
+        _ = try MeshBinaryCodec.decode(encoded)
+    }
+}
+
+@Test
+func meshCodecPreflightsDeclaredPayloadBeforeAllocation() throws {
+    var encoded = Data("HTDTMSH1".utf8)
+    encoded.append(contentsOf: [
+        1, 0, 0, 0,
+        32, 0, 0, 0,
+        255, 255, 255, 255,
+        0, 0, 0, 0,
+        4, 0, 0, 0,
+        0, 0, 0, 0,
+    ])
+
+    #expect(throws: MeshBinaryCodecError.self) {
+        _ = try MeshBinaryCodec.decode(encoded)
+    }
+}
+
+@Test
 func roomPlanProcessedEvidenceKeepsRawLineage() throws {
     let rawHash = try EvidenceSHA256(
         String(repeating: "a", count: 64)
