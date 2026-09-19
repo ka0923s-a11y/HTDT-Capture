@@ -54,7 +54,7 @@ public enum ARFrameArtifactAdapter {
             selection: depthSelection
         )
 
-        let descriptor = FrameEvidenceDescriptor(
+        let descriptor = try FrameEvidenceDescriptor(
             frameID: frameID,
             captureSessionID: captureSessionID,
             coordinateSpaceID: coordinateSpaceID,
