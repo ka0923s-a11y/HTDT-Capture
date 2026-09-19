@@ -1,217 +1,327 @@
 # HTDT-Capture Implementation Plan
 
-Status: Draft v1  
+Status: Reviewed v2  
+Review date: 2026-09-20  
 Target repository: `bolph71656-ai/HTDT-Capture`  
-Primary platform: iPhone / iPadOS with LiDAR  
+Primary platform: LiDAR-capable iPhone / iPad  
 Primary integration target: HTDT (Home Theater Digital Twin)
 
 ## 1. Mission
 
 HTDT-Capture is not a generic 3D-scanner application.
 
-Its purpose is to produce a reproducible, provenance-preserving capture of a real home-theater environment that HTDT can ingest as evidence and convert into its own versioned authorities.
+Its purpose is to produce a reproducible, provenance-preserving capture of a real home-theater environment that HTDT can ingest as evidence and convert into its own immutable/versioned authorities.
 
-The canonical product of the app is therefore **not a GLB/USDZ model**. The canonical product is a lossless, versioned capture bundle that preserves:
+The canonical product is therefore **not a GLB/USDZ model**. It is an evidence-preserving, versioned capture bundle that retains the highest-fidelity artifacts available through supported Apple APIs plus HTDT-specific annotations and provenance.
 
-- RoomPlan semantic/parametric output
-- ARKit scene-reconstruction mesh evidence
-- camera image evidence with synchronized pose and intrinsics
-- optional depth/confidence evidence
-- user-verified dimensions
-- HTDT-specific annotations such as speakers, subwoofers, screen, listening positions, and acoustic treatments
-- device/session metadata
-- coordinate-system metadata
-- checksums and provenance
-- explicit separation between measured, inferred, user-declared, and derived values
+"Evidence-preserving" is intentionally used instead of "lossless physical-room capture". RoomPlan and ARKit already produce processed reconstructions, and encoded image exports may be transformed from the camera pixel buffer. HTDT-Capture must never claim to retain inaccessible raw LiDAR sensor samples unless it actually does so.
 
-Derived visualization formats such as USDZ, OBJ, PLY, glTF, or GLB may be exported, but must not replace the canonical evidence bundle.
+The bundle should preserve, where supported:
 
-## 2. Design principles
+- RoomPlan `CapturedRoomData` raw scan result for later reprocessing;
+- post-processed `CapturedRoom` / later `CapturedStructure` outputs;
+- ARKit scene-reconstruction mesh snapshots;
+- selected camera-frame evidence with exact pose/intrinsics metadata;
+- selected `sceneDepth` and confidence maps;
+- user-attested dimensions;
+- HTDT-specific annotations such as speakers, subwoofers, screen, listening positions, and acoustic treatments;
+- device/session/framework metadata;
+- explicit coordinate and time models;
+- cryptographic integrity metadata;
+- separation between observed, inferred, user-attested, imported, and derived values.
 
-### 2.1 Evidence first
+Derived visualization formats such as USD/USDZ, OBJ, PLY, glTF, or GLB may be exported, but must not replace canonical capture evidence.
 
-Raw or minimally processed capture evidence must be retained whenever technically possible.
+## 2. Non-negotiable design principles
 
-Processing must be layered:
+### 2.1 Evidence before interpretation
 
-```text
+Processing remains layered:
+
+~~~text
 Physical room
-  -> capture evidence
-  -> HTDT-Capture bundle
-  -> backend ingestion
+  -> Apple capture APIs + explicit user input
+  -> immutable HTDT-Capture revision
+  -> HTDT ingestion
+  -> source evidence registry
   -> RawVisualMesh / semantic evidence
   -> SemanticAcousticGeometry
   -> SceneRevision
   -> solver-specific compiled authorities
-```
+~~~
 
-### 2.2 Authority separation
+Capture code must not silently "repair" or simplify canonical mesh evidence.
 
-The application must not silently collapse different information sources into one "truth".
+### 2.2 Authority and provenance separation
 
-Every value that can affect downstream geometry or acoustics should retain an authority class such as:
+Different information sources must remain independently identifiable.
 
-- `sensor_observation`
-- `apple_roomplan_inference`
+Initial provenance classes:
+
+- `arkit_frame_observation`
+- `arkit_scene_depth_observation`
 - `arkit_mesh_reconstruction`
-- `user_verified_measurement`
+- `apple_roomplan_raw_scan`
+- `apple_roomplan_inference`
+- `user_attested_measurement`
 - `user_annotation`
+- `imported_reference`
+- `capture_app_derived`
 - `backend_derived`
+
+A provenance class does not by itself imply numerical superiority.
 
 Example:
 
-```text
-table diameter:
-  RoomPlan estimate: 1.08 m
-  user verified:     1.10 m
-```
+~~~text
+table diameter
+  apple_roomplan_inference: 1.08 m
+  user_attested_measurement:
+    value: 1.10 m
+    method: tape_measure
+    uncertainty: unknown
+~~~
 
-The verified value may be selected for downstream use, but the original estimate must remain preserved.
+The backend may choose an authority according to an explicit policy, but the capture bundle must preserve disagreement.
 
-### 2.3 Deterministic export
+### 2.3 Immutable finalization and revision lineage
 
-Given the same captured evidence and bundle version, serialization should be deterministic where practical:
+A finalized capture revision is immutable.
 
-- stable file naming
-- stable IDs
-- normalized JSON encoding
-- explicit units
-- explicit coordinate frames
-- cryptographic checksums
-- versioned schemas
+Use distinct IDs for distinct concepts:
 
-### 2.4 Revision instead of mutation
+- `capture_series_id`: logical lineage of captures/revisions for one room project;
+- `capture_revision_id`: immutable finalized bundle revision;
+- `capture_session_id`: one active sensor-capture session;
+- `coordinate_space_id`: one AR world coordinate frame;
+- `parent_revision_id`: previous finalized revision when applicable.
 
-A completed capture is immutable.
+A re-scan performed in a new ARSession creates a **new coordinate space** unless an explicit alignment authority is produced. It must never be assumed to share coordinates with an earlier session.
 
-Corrections, additional measurements, re-scans, and relocalized scans create new capture revisions or linked sessions rather than mutating historical evidence.
+MVP supports one primary AR coordinate space per sensor-capture session. Cross-session alignment is deferred.
+
+### 2.4 Deterministic logical serialization
+
+"Deterministic" means that reserializing the same logical capture revision with the same schema and already-assigned IDs produces the same canonical metadata bytes and payload digests.
+
+It does **not** mean that independent scans receive the same IDs.
+
+Requirements:
+
+- stable IDs after creation;
+- canonical JSON encoding;
+- explicit numeric units and scalar widths;
+- explicit byte order for binary payloads;
+- stable file ordering;
+- no locale-dependent number/date serialization;
+- deterministic integrity calculation.
+
+ZIP byte-for-byte reproducibility is not required for MVP because archive metadata/compression implementations may vary. Integrity is defined over logical bundle content, not ZIP wrapper bytes.
 
 ### 2.5 Local-first privacy
 
-Room scans and interior photos are sensitive spatial data.
+Room geometry and interior imagery are sensitive.
 
-The default architecture should be:
+Default behavior:
 
-- on-device capture
-- local bundle creation
-- explicit user-controlled export/upload
-- no mandatory cloud processing for core capture
-- no silent telemetry containing room imagery or spatial geometry
+- capture into the app-private container;
+- no mandatory cloud dependency;
+- no automatic upload;
+- explicit export/share action;
+- no telemetry containing imagery, geometry, measurements, or annotation coordinates;
+- transient capture data is deletable;
+- finalized captures are deletable;
+- working data should not be implicitly synchronized to cloud backup unless explicitly designed and disclosed.
 
-## 3. Initial scope
+### 2.6 Capability-gated behavior
 
-### In scope for MVP
+Never infer support from a marketing device name.
 
-- LiDAR capability detection
-- RoomPlan scan
-- shared/custom ARSession where supported
-- ARKit scene-reconstruction mesh collection
-- RoomPlan semantic object capture
-- captured camera-frame evidence with pose/intrinsics metadata
+Runtime gates must use framework capabilities such as:
+
+- RoomPlan support;
+- AR world-tracking support;
+- scene-reconstruction support;
+- scene-depth frame semantic support;
+- high-resolution frame capture support where used.
+
+The exact deployment target and SDK baseline are a Phase 0 decision, recorded in an ADR after API compatibility review.
+
+## 3. Platform facts verified before implementation
+
+The implementation plan relies on these current Apple platform behaviors:
+
+- RoomPlan can be created with an app-owned `ARSession`, and RoomPlan preserves the session settings.
+- `CapturedRoomData` is a Codable opaque raw RoomPlan scan result that can be stored and processed later by `RoomBuilder`.
+- `CapturedRoom` is post-processed and separately Codable/exportable.
+- ARKit world space is right-handed.
+- `ARCamera.transform` represents camera pose in world space.
+- `ARAnchor.transform` represents anchor pose relative to AR world space.
+- scene reconstruction must be capability-checked.
+- `sceneDepth` and its confidence map are capability-gated and are associated with the captured image for that AR frame.
+- `ARFrame` provides captured image, frame timestamp, camera transform, camera intrinsics, image resolution, and EXIF metadata.
+
+These facts must be rechecked against the SDK used for each implementation slice rather than copied indefinitely as assumptions.
+
+## 4. MVP scope
+
+### In scope
+
+- runtime capability matrix;
+- RoomPlan scan using an explicit app-owned ARSession;
+- preservation of `CapturedRoomData`;
+- preservation of post-processed `CapturedRoom`;
+- ARKit scene-reconstruction mesh collection;
+- selected AR camera-frame evidence;
+- selected scene-depth/confidence evidence when supported;
 - explicit annotation workflow for:
-  - speakers
-  - subwoofers
-  - display/screen
-  - primary listening position
-  - secondary listening positions
-- manual dimension verification
-- capture quality/completeness review
-- immutable `.htdtcapture` bundle generation
-- SHA-256 manifest
-- local export through iOS share sheet
-- bundle validation utility in repository
-- schema documentation
-- backend ingestion contract documentation
+  - speakers;
+  - subwoofers;
+  - display / projection screen;
+  - primary listening position;
+  - secondary listening positions;
+- user-attested dimensions and measurement metadata;
+- capture quality/completeness diagnostics;
+- immutable `.htdtcapture` logical bundle;
+- manifest-based integrity;
+- local validation and export;
+- accuracy/calibration benchmark harness and protocol;
+- backend ingestion contract documentation.
 
-### Deferred from MVP
+### Deferred
 
-- automated speaker brand/model recognition
-- automated acoustic material recognition as an authority
-- automatic acoustic-center inference
-- production-grade multi-room scan merging
-- cloud account system
-- automatic upload to HTDT
-- photogrammetric texture reconstruction
-- TSDF/fusion pipeline replacing Apple's reconstruction
-- scan-to-BIM
-- solver execution
-- audio impulse-response measurement
+- automatic equipment manufacturer/model recognition as authority;
+- automatic acoustic-material recognition as authority;
+- automatic acoustic-center inference as authority;
+- cross-session spatial alignment;
+- production multi-room merging;
+- cloud accounts;
+- automatic backend upload;
+- photogrammetric texture reconstruction;
+- custom TSDF/fusion replacing Apple's reconstruction;
+- scan-to-BIM;
+- acoustic solver execution;
+- impulse-response measurement.
 
-These are intentionally deferred to avoid coupling raw capture with high-level interpretation.
-
-## 4. Technical architecture
-
-## 4.1 iOS application layers
+## 5. iOS architecture
 
 Recommended module boundaries:
 
-```text
+~~~text
 HTDTCaptureApp
 |
 +-- AppShell
 |   +-- navigation
 |   +-- permissions
-|   +-- device capability gate
+|   +-- capability presentation
+|
++-- PlatformCapabilities
+|   +-- RoomPlan support
+|   +-- world tracking support
+|   +-- scene reconstruction support
+|   +-- scene depth support
+|   +-- capture-format capabilities
 |
 +-- CaptureSession
-|   +-- shared ARSession ownership
+|   +-- app-owned ARSession
 |   +-- session state machine
 |   +-- interruption/recovery handling
+|   +-- coordinate-space identity
+|   +-- monotonic time correlation
 |
 +-- RoomPlanCapture
-|   +-- RoomCaptureSession integration
-|   +-- CapturedRoom serialization
-|   +-- optional CapturedStructure support later
+|   +-- RoomCaptureSession / RoomCaptureView adapter
+|   +-- CapturedRoomData preservation
+|   +-- RoomBuilder post-processing
+|   +-- CapturedRoom preservation
 |
 +-- MeshCapture
-|   +-- ARMeshAnchor tracking
-|   +-- vertices/faces/normals
-|   +-- classifications
-|   +-- anchor transforms
+|   +-- ARMeshAnchor lifecycle
+|   +-- final active-anchor snapshot
+|   +-- canonical geometry serialization
 |
 +-- EvidenceCapture
-|   +-- camera image capture
-|   +-- timestamp
-|   +-- camera transform
-|   +-- intrinsics
-|   +-- optional depth/confidence maps
+|   +-- selected ARFrame snapshot
+|   +-- pixel-buffer preservation/encoding
+|   +-- pose/intrinsics
+|   +-- sceneDepth/confidence
+|   +-- EXIF/format metadata
 |
 +-- Annotation
-|   +-- equipment markers
-|   +-- reference positions
-|   +-- orientation capture
-|   +-- manual dimensions
+|   +-- equipment/reference entities
+|   +-- orientation
+|   +-- measurement records
+|   +-- evidence links
 |
 +-- CaptureQuality
-|   +-- coverage diagnostics
-|   +-- missing surfaces
-|   +-- tracking quality
-|   +-- capture completeness
+|   +-- tracking diagnostics
+|   +-- coverage/completeness
+|   +-- resource/thermal events
+|   +-- accuracy benchmark hooks
+|
++-- CaptureStore
+|   +-- bounded asynchronous writes
+|   +-- atomic artifact commits
+|   +-- streamed hashing
+|   +-- revision finalization
 |
 +-- Bundle
 |   +-- schema models
-|   +-- manifest generation
-|   +-- hashing
-|   +-- deterministic serialization
-|   +-- archive/export
+|   +-- canonical JSON
+|   +-- integrity manifest
+|   +-- archive/export adapter
 |
 +-- Review
     +-- 3D/2D review
-    +-- evidence inspection
-    +-- verification workflow
-```
+    +-- conflict review
+    +-- finalization gate
+~~~
 
-SwiftUI should own application UI/state presentation.
+### 5.1 Concurrency rule
 
-ARKit/RoomPlan objects should be kept behind narrow adapters rather than spread through views.
+ARSession delegate callbacks must not perform expensive serialization, image encoding, or hashing inline.
 
-## 4.2 Session state machine
+Sensor buffers that need persistence must be copied or retained according to documented lifetime guarantees, then handed to a bounded writer actor/serial queue.
 
-Define an explicit capture-session state machine.
+The writer must provide backpressure and explicit failure when storage cannot keep up. Silent frame/evidence loss is unacceptable.
+
+### 5.2 ARSession ownership and lifetime
+
+The app-owned `ARSession` is the coordinate-space authority for a capture session.
+
+Requirements:
+
+- keep the same ARSession alive while RoomPlan capture, mesh capture, coverage review, equipment annotation, and evidence snapshots need one shared world frame;
+- stopping RoomPlan must not implicitly terminate or reset the underlying ARSession when subsequent same-frame work remains;
+- if the framework API provides a choice such as pausing the ARSession when RoomPlan stops, the app must choose and record the behavior deliberately;
+- never call a world-origin/session reset as an incidental UI transition;
+- any reset/relocalization event that changes spatial authority must be recorded explicitly;
+- if continuity cannot be maintained, start a new `coordinate_space_id` instead of pretending the old frame survived.
+
+Physical-device tests must verify the exact RoomPlan stop/pause behavior against the SDK used by the app.
+
+### 5.3 Exact capture-configuration profile
+
+Capability support is not the same as a validated combined configuration.
+
+Persist an exact session configuration profile covering, where applicable:
+
+- `worldAlignment`;
+- plane detection;
+- scene-reconstruction mode;
+- enabled frame semantics;
+- selected video format/resolution/frame rate;
+- autofocus or other relevant tracking options;
+- RoomPlan configuration/options;
+- OS and SDK/runtime context.
+
+Phase 1 must probe the intended combined RoomPlan + scene reconstruction + scene-depth configuration on supported hardware. If the combination is unsupported or operationally unstable, introduce explicit capture modes with declared coordinate/alignment consequences rather than silently changing AR configuration.
+
+## 6. Session state machine
 
 Suggested states:
 
-```text
+~~~text
 idle
  -> capability_check
  -> permissions
@@ -223,86 +333,147 @@ idle
  -> validating
  -> finalized
  -> exported
-```
+~~~
 
-Error/interruption substates must preserve whether the session can be resumed or must be restarted.
+Orthogonal status dimensions should track:
 
-Important interruptions:
+- tracking quality;
+- RoomPlan status;
+- storage pressure;
+- memory pressure;
+- thermal state;
+- interruption state;
+- persistence backlog;
+- recoverability.
 
-- camera permission denied
-- unsupported LiDAR device
-- thermal pressure
-- memory pressure
-- AR tracking degradation
-- app interruption
-- RoomPlan failure
-- low storage
-- bundle serialization failure
+Important failure events:
 
-The state machine should be modeled independently of SwiftUI views.
+- camera permission denied;
+- RoomPlan unsupported;
+- scene reconstruction unsupported;
+- requested scene depth unsupported;
+- AR tracking limited/not available;
+- RoomPlan failure;
+- session interruption;
+- thermal pressure;
+- memory warning;
+- insufficient free storage;
+- persistence backlog overflow;
+- serialization/hash failure.
 
-## 5. Canonical coordinate model
+The state machine belongs to the domain layer, not SwiftUI view state.
 
-Coordinate ambiguity is a critical failure mode.
+## 7. Coordinate contract
 
-The bundle must specify every transform explicitly.
+Coordinate ambiguity is a release-blocking defect.
 
-### 5.1 Canonical frame
+### 7.1 Canonical convention
 
-For MVP:
+For the MVP canonical AR coordinate space:
 
-- right-handed 3D frame
-- meters as canonical unit
-- world frame defined by the active ARSession at capture start
-- transforms stored as 4x4 matrices using a documented matrix layout
-- quaternion included where orientation is semantically important
-- no implicit axis conversion during capture serialization
+- right-handed;
+- meters;
+- homogeneous 4x4 transforms;
+- storage order explicitly documented as 16 IEEE-754 binary32 values in column-major SIMD semantic order;
+- transform names use `T_<destination>_from_<source>`;
+- no ambiguous arrow notation in schemas or code.
 
-### 5.2 Required transform relationships
+Examples:
 
-At minimum preserve:
+- `T_world_from_camera`
+- `T_world_from_mesh_anchor`
+- `T_world_from_annotation`
 
-- AR world -> camera
-- AR world -> ARMeshAnchor
-- AR world -> RoomPlan objects
-- AR world -> HTDT annotations
-- image camera pose
-- any export-format transform applied later
+Apple values are stored with their original semantic meaning.
 
-If a derived GLB/USDZ requires axis conversion, that conversion must be represented as a derived export transform rather than altering canonical evidence.
+### 7.2 Camera basis and image orientation
 
-## 6. Capture bundle v1
+The camera transform is independent from UI orientation.
 
-Proposed directory structure:
+For every saved camera frame preserve:
 
-```text
-capture-<capture-id>.htdtcapture/
+- AR camera transform;
+- intrinsics;
+- native captured-image dimensions;
+- pixel format;
+- source orientation semantics;
+- any display transform used only for UI preview.
+
+A portrait preview transformation must never be baked into canonical camera extrinsics.
+
+### 7.3 Cross-format conversions
+
+USD/glTF/GLB/OBJ conversions are derived exports.
+
+Every derived export must record:
+
+- source coordinate space;
+- destination coordinate convention;
+- exact conversion transform;
+- units conversion if any;
+- export tool/version.
+
+## 8. Time contract
+
+Two time domains are required.
+
+### 8.1 Session monotonic time
+
+Use AR frame/session timestamps for synchronization inside a capture session.
+
+Store:
+
+- `session_timestamp_s`;
+- source clock identifier/description;
+- capture-session ID.
+
+### 8.2 Wall-clock time
+
+Store UTC wall-clock timestamps only for audit/user chronology.
+
+At session start and end, record a correlation sample between:
+
+- monotonic process/session time;
+- UTC wall clock.
+
+Do not treat an AR frame timestamp as an RFC3339 wall-clock time.
+
+## 9. Canonical Capture Bundle v1
+
+Proposed logical structure:
+
+~~~text
+capture-<capture-revision-id>.htdtcapture/
 |
 +-- manifest.json
-+-- checksums.sha256
 |
 +-- session/
-|   +-- session.json
+|   +-- capture-session.json
 |   +-- device.json
 |   +-- capabilities.json
+|   +-- timing.json
 |
 +-- roomplan/
+|   +-- captured-room-data.json
 |   +-- captured-room.json
-|   +-- captured-room.usdz
-|   +-- metadata.json
+|   +-- captured-room-metadata.json
+|   +-- exports/
+|       +-- roomplan-mesh.usd[z]
 |
 +-- mesh/
 |   +-- anchors.json
 |   +-- geometry/
-|       +-- <anchor-id>.bin
+|       +-- <anchor-id>.meshbin
 |
 +-- evidence/
 |   +-- frames/
-|   |   +-- <frame-id>.heic
-|   |   +-- <frame-id>.json
+|   |   +-- <frame-id>.frame.json
+|   |   +-- <frame-id>.pixelbin
+|   |   +-- <frame-id>.preview.heic
 |   +-- depth/
-|       +-- <frame-id>.bin
-|       +-- <frame-id>.json
+|       +-- <frame-id>.depthbin
+|       +-- <frame-id>.confidencebin
+|       +-- <frame-id>.depth.json
 |
 +-- annotations/
 |   +-- entities.json
@@ -310,53 +481,176 @@ capture-<capture-id>.htdtcapture/
 |
 +-- quality/
     +-- capture-quality.json
-```
+    +-- benchmark-observations.json
+~~~
 
-The physical archive container format can initially be ZIP with a custom extension.
+Notes:
 
-The logical schema must remain independent of the archive implementation.
+- `captured-room-data.json` is canonical RoomPlan raw scan output.
+- `captured-room.json` is a post-processed derivative that remains valuable and independently versioned.
+- USD/USDZ under `roomplan/exports/` is derived.
+- `preview.heic` is a convenience derivative unless the implementation proves bit-preserving source semantics.
+- `pixelbin` is intended to preserve selected ARFrame pixel-plane bytes plus enough layout metadata to reconstruct the pixel buffer representation. Phase 0 must define the exact binary format before implementation.
+- ZIP with a custom extension may wrap the logical directory, but archive bytes are not themselves the integrity authority.
+- Phase 0 should define a custom Apple Uniform Type Identifier/content type for `.htdtcapture` and its filename extension, while keeping the logical schema independent from the archive wrapper.
 
-## 7. Manifest v1
+## 10. Manifest and integrity model
 
-Minimum manifest fields:
+Avoid circular hashing.
 
-```json
-{
-  "schema": "htdt.capture.bundle",
-  "schema_version": "1.0.0",
-  "capture_id": "uuid",
-  "revision_id": "uuid",
-  "created_at": "RFC3339",
-  "app": {
-    "name": "HTDT-Capture",
-    "version": "semver",
-    "build": "string"
-  },
-  "device_ref": "session/device.json",
-  "session_ref": "session/session.json",
-  "roomplan_ref": "roomplan/captured-room.json",
-  "mesh_ref": "mesh/anchors.json",
-  "annotations_ref": "annotations/entities.json",
-  "measurements_ref": "annotations/measurements.json",
-  "quality_ref": "quality/capture-quality.json",
-  "files": []
-}
-```
+`manifest.json` is the canonical integrity root document and contains:
 
-Each file entry should include:
+- schema name/version;
+- capture-series ID;
+- capture-revision ID;
+- parent revision ID;
+- capture-session IDs;
+- coordinate-space IDs;
+- creation/finalization time;
+- app version/build;
+- OS/framework/device metadata references;
+- every canonical payload path;
+- byte length;
+- media/type identifier;
+- SHA-256 digest;
+- provenance class;
+- optional source relationship;
+- canonical/derived role.
 
-- relative path
-- byte length
-- media/type identifier
-- SHA-256
-- creation timestamp where relevant
-- producing subsystem
-- authority class
-- optional source relationship
+The manifest does **not** include its own hash.
 
-## 8. Annotation model
+Define:
 
-HTDT-specific annotations must be first-class, not encoded as arbitrary free text.
+~~~text
+bundle_digest = SHA256(canonical_bytes(manifest.json))
+~~~
+
+Because each canonical payload digest is inside the manifest, the bundle digest commits to the logical bundle contents without recursion.
+
+A human-readable `checksums.sha256` may be generated as a convenience derivative, but it is not the root authority.
+
+Phase 0 must select and test a canonical JSON encoding strategy, with fixed test vectors.
+
+SHA-256 provides content integrity/identity, not origin authenticity. The app and backend must not describe an unsigned bundle digest as a digital signature. Optional bundle signing can be introduced later as a separate authority.
+
+### 10.1 Archive and validator safety
+
+A `.htdtcapture` archive is untrusted input until validation succeeds.
+
+The validator/importer must:
+
+- accept only normalized relative POSIX-style paths declared by the manifest;
+- reject absolute paths, `..` traversal, NUL-containing names, symlinks/hardlinks, and entries escaping the extraction root;
+- reject duplicate archive entries, duplicate manifest paths, and case-colliding paths;
+- apply explicit limits to file count, per-file expanded size, total expanded size, and decompression ratio;
+- reject unsupported schema versions unless an explicit migration path exists;
+- verify declared byte lengths and SHA-256 digests before promoting files to trusted evidence;
+- extract through a staging directory and atomically promote only after full validation;
+- ignore or reject undeclared canonical payloads according to a versioned policy.
+
+Security limits belong to the bundle format/validator contract and require fixed adversarial fixtures.
+
+## 11. RoomPlan evidence model
+
+Preserve two different layers.
+
+### 11.1 Raw RoomPlan scan
+
+Persist encoded `CapturedRoomData` immediately after RoomPlan session completion.
+
+Record:
+
+- producing OS version/build;
+- app version/build;
+- RoomPlan-relevant configuration;
+- capture-session ID;
+- coordinate-space ID;
+- serialization format/version;
+- SHA-256.
+
+This is the preferred artifact for future reprocessing.
+
+### 11.2 Post-processed room
+
+Generate/preserve `CapturedRoom` separately.
+
+Record:
+
+- input `CapturedRoomData` hash;
+- RoomBuilder configuration/options if exposed;
+- producing OS/framework context;
+- `CapturedRoom.version`;
+- serialization hash.
+
+Do not overwrite the raw RoomPlan scan when users correct semantic labels or dimensions. Corrections become HTDT annotations/measurements or a new capture revision.
+
+## 12. Mesh evidence model
+
+The ARKit mesh is a reconstructed estimate, not raw LiDAR samples.
+
+For each active ARMeshAnchor at finalization preserve:
+
+- anchor UUID;
+- capture-session ID;
+- coordinate-space ID;
+- `T_world_from_mesh_anchor`;
+- observation/update session timestamp;
+- vertex count;
+- canonical float32 vertex positions;
+- canonical float32 normals where available;
+- face count;
+- canonical face indices with explicit integer width;
+- face classification bytes where available;
+- source descriptors needed to interpret copied values;
+- serialization format version.
+
+Prefer a canonical portable representation over dumping implementation-specific MTLBuffer padding.
+
+An optional mesh-anchor update journal may be added later. MVP canonical state is the finalized active-anchor snapshot plus capture diagnostics.
+
+A merged mesh is derived only.
+
+## 13. Camera-frame evidence
+
+### 13.1 Selected snapshots
+
+MVP records explicit evidence snapshots rather than every video frame.
+
+For each frame:
+
+- frame UUID;
+- capture-session ID;
+- coordinate-space ID;
+- `session_timestamp_s`;
+- UTC correlation-derived capture time when useful;
+- `T_world_from_camera`;
+- 3x3 intrinsics;
+- native image resolution;
+- pixel format;
+- plane count;
+- plane dimensions/row strides;
+- raw selected pixel-plane payload reference;
+- source and canonical plane layout/stride metadata;
+- EXIF metadata after privacy review;
+- optional preview encoding reference.
+
+Canonical pixel serialization must copy **only defined active image bytes** from each pixel-buffer row/plane into a specified packed representation. It must not persist allocator padding or unspecified bytes merely because they are covered by `bytesPerRow`. This prevents nondeterministic hashes and possible disclosure of unrelated memory contents.
+
+If high-resolution AR frame capture is adopted, its output must be treated as a distinct frame with its own intrinsics/resolution rather than substituted into a normal-frame record.
+
+### 13.2 Depth
+
+When `sceneDepth` is supported and enabled, a selected evidence frame should preserve:
+
+- depth map float format and dimensions;
+- confidence map format and dimensions;
+- frame association;
+- camera intrinsics and transform from the associated ARFrame;
+- whether depth is discrete `sceneDepth` or temporally averaged `smoothedSceneDepth`.
+
+Prefer discrete `sceneDepth` for canonical evidence. Smoothed depth may be stored as an additional derived/processed observation.
+
+## 14. Annotation model
 
 Initial entity types:
 
@@ -371,205 +665,264 @@ Initial entity types:
 - `reference_point`
 - `custom`
 
-Each entity needs:
+Each entity requires:
 
-- stable UUID
-- type
-- position
-- orientation where meaningful
-- reference-point semantics
-- label
-- optional HTDT equipment reference
-- evidence links
-- user verification status
-- provenance
+- stable UUID;
+- entity type;
+- coordinate-space ID;
+- position/transform;
+- orientation when meaningful;
+- reference-point semantics;
+- label;
+- optional exact HTDT equipment reference;
+- evidence links;
+- creation/revision metadata;
+- provenance class;
+- verification state;
+- placement method;
+- optional raycast/hit-test target or source semantic entity ID when placement is surface-derived.
 
-For speakers, position alone is insufficient.
+### 14.1 Speaker-specific requirements
 
-Capture at minimum:
+Position alone is insufficient.
 
-- device location reference point
-- front-facing orientation
-- up axis
-- optional acoustic-center offset
-- role/channel label such as L/C/R/SL/SR
-- optional exact HTDT EquipmentDefinition reference
+Capture:
 
-## 9. Measurement model
+- reference point used for placement;
+- front-axis convention;
+- up-axis convention;
+- channel/role;
+- optional acoustic-center offset;
+- optional HTDT `EquipmentDefinition` reference;
+- orientation capture method;
+- supporting images/measurements.
 
-Manual measurements must be modeled as independent authorities.
+The app must not pretend that a visual cabinet center is the acoustic center unless an explicit authority supplies that relationship.
+
+## 15. Measurement model
+
+Replace ambiguous "verified measurement" semantics with **user-attested measurement authority**.
 
 Minimum fields:
 
-- measurement ID
-- measurement type
-- scalar/vector value
-- unit
-- endpoint/reference IDs
-- method
-- source
-- uncertainty if known
-- timestamp
-- user verification flag
+- measurement ID;
+- measured quantity type;
+- scalar/vector value;
+- SI unit;
+- endpoint/reference IDs;
+- coordinate-space ID if spatial;
+- acquisition method;
+- instrument class;
+- instrument make/model if provided;
+- calibration status/date if provided;
+- stated uncertainty/tolerance if known;
+- observation timestamp;
+- user-attestation state;
+- provenance;
+- evidence links.
 
-Example methods:
+Methods may include:
 
-- tape measure
-- laser distance meter
-- user-entered manufacturer dimension
-- LiDAR-derived
-- RoomPlan-derived
+- tape measure;
+- laser distance meter;
+- manufacturer specification;
+- LiDAR-derived;
+- RoomPlan-derived;
+- other.
 
-The schema must allow disagreement between measurements without destructive overwrite.
+User attestation means "the user confirms this record represents the measurement they entered/observed"; it does not imply metrological certification.
 
-## 10. Mesh evidence
+Conflicting measurements remain separate records.
 
-ARMeshAnchor evidence should preserve source segmentation instead of immediately fusing everything into one mesh.
+## 16. Capture quality model
 
-Per anchor preserve:
+Do not compress capture quality into a single opaque score.
 
-- anchor UUID
-- anchor transform
-- vertex buffer
-- vertex stride/format
-- face indices
-- normals if available
-- face classifications if available
-- timestamp / last update information where practical
+Record explicit diagnostics:
 
-A derived merged mesh may be generated for preview, but the original anchor-level representation remains canonical.
+- AR tracking state history;
+- RoomPlan completion/errors/instructions;
+- active mesh-anchor count;
+- mesh update statistics;
+- observed surface coverage estimates;
+- weak/unobserved region hints;
+- evidence frame count;
+- depth availability;
+- annotation completeness;
+- required measurement completeness;
+- resource/thermal interruptions;
+- storage backlog/failures;
+- session interruptions;
+- bundle integrity result;
+- accuracy benchmark references where applicable.
 
-This aligns with HTDT's downstream RawVisualMesh pipeline, where diagnostics and bounded repair should occur after ingestion.
+A `ready_for_htdt_ingestion` result can be derived only from versioned explicit rules.
 
-## 11. Camera evidence
+## 17. Capture protocol and UX
 
-MVP evidence capture should support explicit snapshots rather than recording every video frame.
+Recommended MVP workflow:
 
-For every evidence image preserve:
+1. **Capability / privacy check**
+   - framework support;
+   - permissions;
+   - available storage;
+   - local-data notice.
 
-- image bytes
-- frame ID
-- capture timestamp
-- camera transform
-- camera intrinsics
-- image resolution
-- orientation
-- exposure metadata where practical
-- links to nearby annotations/surfaces when explicitly created for that purpose
+2. **Scan preparation**
+   - remove/limit moving people;
+   - identify reflective/transparent/problem areas;
+   - coach user on range and overlap;
+   - encourage a closed-loop scan path where practical.
 
-Later phases may add sampled continuous frame capture if storage/performance permits.
+3. **Room scan**
+   - RoomPlan coaching enabled where useful;
+   - AR mesh collection;
+   - live tracking/resource diagnostics.
 
-## 12. Capture-quality model
+4. **Coverage review**
+   - unresolved walls/openings;
+   - weak geometry regions;
+   - explicit re-scan prompts.
 
-The app should not reduce scan quality to a single opaque score.
+5. **Equipment annotation**
+   - speaker/subwoofer/screen/MLP;
+   - role;
+   - orientation;
+   - reference-point semantics.
 
-Capture quality should be represented by explicit diagnostics such as:
+6. **Precision measurements**
+   - room reference dimensions;
+   - screen dimensions;
+   - speaker/reference distances when important;
+   - method/instrument metadata.
 
-- tracking state history
-- RoomPlan completion status
-- mesh-anchor count
-- observed surface coverage
-- unobserved/low-confidence region hints
-- number of evidence images
-- annotation completeness
-- required manual measurements pending
-- relocalization status
-- thermal/memory interruptions
-- bundle integrity validation
+7. **Evidence snapshots**
+   - ambiguous/important surfaces;
+   - each major equipment item;
+   - reference measurement endpoints;
+   - depth/confidence retained when supported.
 
-A final `ready_for_htdt_ingestion` decision may be derived from explicit rules.
+8. **Conflict review**
+   - RoomPlan vs user-attested dimensions;
+   - missing orientation;
+   - unattached evidence.
 
-## 13. UX flow
+9. **Finalize**
+   - freeze IDs;
+   - canonicalize metadata;
+   - hash payloads;
+   - write manifest;
+   - validate;
+   - atomically mark revision finalized.
 
-Recommended MVP wizard:
+10. **Export**
+    - user-controlled share/files flow;
+    - backend upload is later work.
 
-1. **Device check**
-   - LiDAR availability
-   - supported OS
-   - camera permission
-   - storage check
+## 18. Storage and resource policy
 
-2. **Room scan**
-   - RoomPlan-guided capture
-   - AR mesh collection in same session
-   - visible tracking/capture diagnostics
+Raw evidence can be large.
 
-3. **Coverage review**
-   - missing wall/ceiling/floor regions
-   - unresolved openings
-   - prompt to rescan weak areas
+Requirements:
 
-4. **Equipment annotation**
-   - speaker/subwoofer/screen/MLP placement
-   - channel/role assignment
-   - orientation confirmation
+- preflight free-space check;
+- configurable minimum free-space reserve;
+- bounded in-memory queues;
+- streamed file writes;
+- streamed SHA-256 hashing;
+- atomic temp-file -> final-file commit;
+- explicit incomplete-artifact cleanup;
+- no unbounded continuous camera recording in MVP;
+- selected evidence snapshot count/size visible to the user;
+- capture must fail closed if a requested canonical artifact cannot be persisted.
 
-5. **Precision measurements**
-   - optional but strongly encouraged user-verified dimensions
-   - known reference lengths
-   - screen dimensions
-   - critical room dimensions
+## 19. HTDT backend ingestion contract
 
-6. **Evidence photos**
-   - guided photos of ambiguous/important areas
-   - photo linkage to annotations
+HTDT-Capture does not create solver-specific authority objects.
 
-7. **Final review**
-   - inspect semantic plan
-   - inspect mesh
-   - inspect annotations
-   - inspect measurement conflicts
+Conceptual mapping:
 
-8. **Finalize**
-   - freeze revision
-   - generate hashes
-   - run bundle validator
-
-9. **Export**
-   - Files/share sheet
-   - backend upload in a later phase
-
-## 14. HTDT backend ingestion contract
-
-HTDT-Capture should not directly construct HTDT solver authority objects.
-
-Instead, ingestion should expose enough exact evidence for backend adapters.
-
-Proposed conceptual mapping:
-
-```text
-HTDT-Capture bundle
+~~~text
+HTDT-Capture revision
   -> CaptureBundleIngestion
-  -> source asset/evidence registry
+  -> source evidence registry
+  -> RoomPlan raw/postprocessed evidence
+  -> ARKit reconstructed mesh evidence
   -> RawVisualMesh
   -> diagnostics / bounded repair
   -> SemanticAcousticGeometry
   -> equipment/reference bindings
   -> SceneRevision
-```
+~~~
 
-Important constraints:
+Backend requirements:
 
-- retain original capture bundle hash
-- retain per-file hashes
-- retain capture schema version
-- retain mapping from derived HTDT entities to source evidence IDs
-- preserve authority type for manual/user/inferred values
-- do not overwrite original capture evidence after ingestion
+- retain bundle digest;
+- retain manifest schema version;
+- retain per-file hashes;
+- retain source capture/revision/session/coordinate IDs;
+- preserve source-to-derived lineage;
+- never treat a convenience GLB/USDZ export as canonical truth when source evidence is available;
+- distinguish Apple inference, ARKit reconstruction, user attestation, and backend derivation;
+- same finalized bundle + same ingestion software version must produce deterministic identity/lineage results where specified.
 
-## 15. Repository structure
+## 20. Accuracy and calibration program
 
-Initial target repository structure:
+Consumer LiDAR accuracy must be measured for the actual HTDT workflow.
 
-```text
+Published studies report results varying from centimeter-level measurements under some conditions to errors on the order of 10 cm in others, with software and trajectory/drift handling materially affecting results. Therefore HTDT-Capture must not advertise a fixed spatial accuracy based only on hardware.
+
+### 20.1 Benchmark fixtures
+
+Create at least:
+
+- small-room geometric fixture with independently measured wall/reference distances;
+- known planar surfaces;
+- known speaker/reference marker positions;
+- closed-loop scan route;
+- repeat scans by the same operator;
+- repeat scans by different operators if practical.
+
+Reference measurements should use a more trustworthy method, such as calibrated laser distance measurement or an independently surveyed model.
+
+### 20.2 Metrics
+
+Measure:
+
+- absolute dimension error;
+- signed bias;
+- RMSE;
+- repeatability across captures;
+- plane residual;
+- RoomPlan vs mesh alignment;
+- loop-closure/drift error;
+- annotation placement repeatability;
+- orientation error for speakers;
+- depth error by range/confidence bucket.
+
+### 20.3 Promotion gate
+
+Do not set marketing accuracy claims before benchmark evidence exists.
+
+Phase 0/PoC must define provisional engineering thresholds, then Phase 2 physical-device testing must either demonstrate them or explicitly revise them with recorded rationale.
+
+Critical downstream dimensions can require user-attested measurement even when scan geometry passes general capture quality.
+
+## 21. Repository structure
+
+~~~text
 /
 +-- README.md
 +-- docs/
 |   +-- IMPLEMENTATION_PLAN.md
+|   +-- PLAN_REVIEW_2026-09-20.md
 |   +-- ARCHITECTURE.md
 |   +-- CAPTURE_BUNDLE_V1.md
+|   +-- COORDINATE_AND_TIME_CONTRACT.md
+|   +-- ACCURACY_VALIDATION_PROTOCOL.md
 |   +-- HTDT_INGESTION_CONTRACT.md
 |   +-- RESEARCH_NOTES.md
+|   +-- adr/
 |
 +-- app/
 |   +-- HTDTCapture/
@@ -583,285 +936,328 @@ Initial target repository structure:
 |
 +-- samples/
 |   +-- minimal-capture/
+|   +-- benchmark-fixtures/
 |
 +-- .github/
     +-- workflows/
-```
+~~~
 
-The repository should keep design decisions in version control.
+Major authority/schema decisions require ADRs.
 
-Major authority/schema changes should be documented as ADRs under `docs/adr/` once implementation begins.
+## 22. Implementation phases
 
-## 16. Implementation phases
-
-## Phase 0 - Foundation and contracts
+### Phase 0 - Contracts and foundation
 
 Deliverables:
 
-- repository bootstrap
-- implementation plan
-- architecture document
-- capture bundle v1 draft schema
-- coding conventions
-- CI skeleton
-- ADR template
-- issue decomposition
+- reviewed implementation plan;
+- deployment-target/API-baseline ADR;
+- architecture document;
+- Capture Bundle v1 schema;
+- coordinate/time contract;
+- provenance vocabulary;
+- integrity/canonical JSON contract;
+- archive/validator security contract and adversarial fixtures;
+- custom `.htdtcapture` content type/UTType decision;
+- exact AR capture-configuration schema;
+- RoomPlan raw/postprocessed distinction;
+- mesh binary format;
+- evidence-frame binary format;
+- accuracy validation protocol;
+- validator skeleton;
+- minimal synthetic fixture;
+- CI skeleton.
 
 Exit criteria:
 
-- canonical bundle concept is documented
-- coordinate conventions are explicit
-- authority/provenance classes are explicit
-- no ambiguity remains about what constitutes source evidence vs derived output
+- no ambiguous transform direction;
+- no ambiguous timestamp domain;
+- no circular integrity definition;
+- archive traversal/collision/bomb limits are explicit and testable;
+- raw `CapturedRoomData` has a canonical location;
+- canonical vs derived files are explicit;
+- re-scan/new-coordinate-space behavior is explicit;
+- schema test vectors exist.
 
-## Phase 1 - Device and AR session foundation
+### Phase 1 - App shell and AR session foundation
 
 Deliverables:
 
-- SwiftUI app shell
-- capability detection
-- camera permission flow
-- shared ARSession owner
-- explicit session state machine
-- interruption handling
-- diagnostic UI
+- SwiftUI shell;
+- capability matrix;
+- permission flow;
+- app-owned ARSession;
+- exact capture-configuration profile;
+- RoomPlan stop/pause and ARSession-lifetime policy;
+- combined-feature physical-device probe;
+- state machine;
+- interruption/resource monitoring;
+- capture working directory;
+- bounded CaptureStore.
 
 Exit criteria:
 
-- supported LiDAR device can start/stop a stable AR session
-- unsupported device receives a deterministic unsupported state
-- session state survives ordinary SwiftUI navigation changes
+- support is decided by runtime capability APIs;
+- state is independent of transient views;
+- storage/resource failure paths are explicit;
+- one session receives stable capture-session and coordinate-space IDs;
+- RoomPlan can end without accidentally invalidating the world frame needed for follow-up annotation/evidence;
+- unsupported or unstable combined feature sets produce explicit capture modes, not silent configuration mutation.
 
-## Phase 2 - RoomPlan + raw mesh capture
+### Phase 2 - RoomPlan + mesh dual capture
 
 Deliverables:
 
-- RoomPlan integration
-- custom/shared ARSession integration
-- ARMeshAnchor collection
-- anchor serialization
-- RoomPlan serialization
-- local capture working directory
+- RoomPlan integration with app-owned ARSession;
+- raw `CapturedRoomData` persistence;
+- `CapturedRoom` generation/persistence;
+- ARMeshAnchor lifecycle capture;
+- canonical mesh serialization;
+- physical-device alignment benchmark.
 
 Exit criteria:
 
-- one scan produces both RoomPlan and ARMesh evidence in one common AR world frame
-- raw anchor transforms and geometry survive serialize/deserialize round-trip
-- RoomPlan result is retained independently of mesh evidence
+- RoomPlan and AR mesh belong to the same declared coordinate space;
+- raw RoomPlan scan survives reopen/reprocessing;
+- mesh geometry/transform round trips;
+- benchmark report is produced rather than relying on visual inspection.
 
-## Phase 3 - Evidence photos and provenance
+### Phase 3 - Camera + depth evidence
 
 Deliverables:
 
-- evidence photo capture
-- pose/intrinsics metadata
-- evidence indexing
-- per-file hashing
-- device/session metadata
-- immutable capture revision ID
+- selected ARFrame evidence;
+- canonical packed pixel-plane serialization excluding allocator padding;
+- pose/intrinsics/native orientation metadata;
+- EXIF allowlist;
+- sceneDepth/confidence persistence when supported;
+- optional preview HEIC;
+- per-payload hashes.
 
 Exit criteria:
 
-- every saved image can be reconstructed in the AR world frame from stored metadata
-- bundle validator detects missing or modified evidence files
+- canonical frame payload is reconstructable according to its recorded layout;
+- stored camera pose/intrinsics correspond to the same frame record;
+- depth/confidence is linked to the correct frame;
+- validator catches modified/missing payloads.
 
-## Phase 4 - HTDT annotation workflow
+### Phase 4 - HTDT annotations and measurements
 
 Deliverables:
 
-- entity annotation UI
-- orientation capture
-- speaker role/channel assignment
-- listening position support
-- manual measurement authority
-- evidence linkage
+- entity annotation UI;
+- orientation capture;
+- speaker role/channel;
+- listening positions;
+- user-attested measurement records;
+- instrument/uncertainty metadata;
+- evidence linkage.
 
 Exit criteria:
 
-- user can represent at least a 3.x.x / 5.x.x theater layout without free-text geometry hacks
-- verified dimensions remain distinct from inferred dimensions
-- annotations serialize deterministically
+- 3.x.x / 5.x.x room topology can be represented without free-text geometry hacks;
+- speaker orientation/reference semantics are explicit;
+- conflicting measurements coexist;
+- no inferred value is overwritten by attestation.
 
-## Phase 5 - Review, quality, and bundle finalization
+### Phase 5 - Review, quality, finalization, export
 
 Deliverables:
 
-- capture review UI
-- explicit quality diagnostics
-- completeness gate
-- bundle exporter
-- local validator
-- sample bundles
+- semantic/mesh/evidence review;
+- explicit quality diagnostics;
+- conflict review;
+- finalization transaction;
+- canonical manifest;
+- bundle digest;
+- local validator;
+- export wrapper;
+- frozen sample bundle.
 
 Exit criteria:
 
-- finalization creates an immutable `.htdtcapture`
-- all files validate against checksums
-- manifest references are resolvable
-- incomplete captures show concrete diagnostics rather than an opaque failure
+- finalization is atomic;
+- finalized revision is immutable;
+- manifest validates all canonical payloads;
+- incomplete captures report concrete diagnostics;
+- logical bundle survives archive/unarchive without digest change;
+- malicious/path-traversal/duplicate-entry/archive-bomb fixtures fail closed before evidence promotion.
 
-## Phase 6 - HTDT integration
+### Phase 6 - HTDT integration
 
 Deliverables:
 
-- versioned ingestion contract
-- backend-side fixture bundle
-- exact mapping documentation
-- compatibility tests against HTDT ingestion implementation
+- versioned ingestion contract;
+- frozen integration fixture;
+- source lineage mapping;
+- RawVisualMesh adapter;
+- compatibility verification.
 
 Exit criteria:
 
-- HTDT can ingest a frozen sample bundle
-- derived RawVisualMesh retains lineage to source bundle and anchor evidence
-- semantic/manual authorities retain provenance
-- re-ingestion is deterministic for the same bundle
+- original bundle digest and payload hashes remain traceable;
+- RawVisualMesh lineage points to exact mesh source evidence;
+- RoomPlan/user/ARKit authorities remain distinct;
+- re-ingestion with the same versions is deterministic where contractually required.
 
-## Phase 7 - Advanced capture
+### Phase 7 - Advanced capture
 
 Candidates:
 
-- multi-room / CapturedStructure
-- ARWorldMap relocalization
-- capture resume across sessions
-- scan-diff/revision comparison
-- improved coverage heatmaps
-- depth/confidence preservation
-- photo-to-surface association
-- acoustic-treatment-specific capture workflow
-- optional calibration/reference targets
-- external laser/tape measurement integration
+- CapturedStructure/multi-room workflow;
+- ARWorldMap or equivalent relocalization research;
+- cross-session alignment authority;
+- scan-diff/revision comparison;
+- improved coverage heatmaps;
+- sampled continuous evidence capture;
+- calibration targets/fiducials;
+- external measurement-device integration;
+- treatment-specific workflow.
 
-These should not block MVP.
+## 23. Testing strategy
 
-## 17. Testing strategy
-
-Tests should exist where they validate non-trivial contracts.
+Write tests for non-trivial contracts, not reversible presentation changes.
 
 Priority tests:
 
-- manifest/schema encode-decode round trip
-- stable IDs / deterministic serialization
-- coordinate-transform conversion
-- mesh binary serialization
-- checksum generation/verification
-- annotation schema round trip
-- bundle validation
-- capture state machine transitions
+- canonical JSON test vectors;
+- manifest digest calculation;
+- schema encode/decode;
+- transform convention and inverse tests;
+- timestamp-domain serialization;
+- RoomPlan encoded artifact fixture decode when platform-testable;
+- mesh binary round trip;
+- frame/depth binary round trip;
+- annotation/measurement round trip;
+- state-machine transitions;
+- failure-closed finalization;
+- bundle validation;
+- mutation/tamper detection;
+- path traversal / absolute path rejection;
+- duplicate and case-colliding path rejection;
+- archive expansion-limit enforcement;
+- unknown-schema fail-closed behavior;
+- pixel-plane padding exclusion test vectors.
 
-Avoid redundant UI snapshot tests for reversible low-impact presentation changes.
+Physical-device validation is required for:
 
-Physical-device verification is required for:
+- RoomPlan;
+- scene reconstruction;
+- scene depth;
+- shared/app-owned ARSession;
+- camera evidence synchronization;
+- tracking/interruption behavior;
+- benchmark accuracy/repeatability;
+- thermal/storage behavior.
 
-- RoomPlan
-- LiDAR scene reconstruction
-- ARSession sharing
-- tracking/relocalization
-- thermal and performance behavior
+Simulator CI must not be reported as validation of hardware capture behavior.
 
-Where possible, preserve anonymized fixture data so non-device tests can run in CI.
+## 24. CI strategy
 
-## 18. CI
+CI should run only meaningful checks for the current slice:
 
-Initial CI should eventually run:
+- build supported non-hardware targets;
+- unit tests for contracts/state;
+- schema validation;
+- validator tests;
+- fixture integrity;
+- deterministic canonicalization test vectors.
 
-- Swift build
-- unit tests that do not require LiDAR hardware
-- schema validation
-- bundle validator tests
-- fixture integrity checks
+Do not repeatedly broaden/re-run successful checks without a change that justifies it.
 
-Hardware-dependent behavior cannot be treated as validated by simulator CI.
+## 25. Primary technical risks
 
-## 19. Primary technical risks
+### Cross-modal coordinate error
+Mitigation: explicit transform semantics, one ARSession owner, physical reference benchmark.
 
-### Risk: RoomPlan and raw AR mesh do not remain perfectly aligned
+### Drift / large-room error
+Mitigation: capture protocol, closed-loop guidance, benchmark drift metrics, future cross-session alignment authority.
 
-Mitigation:
+### Consumer LiDAR insufficient for critical dimensions
+Mitigation: user-attested/reference measurements, uncertainty metadata, no fixed accuracy claim without evidence.
 
-- one explicit ARSession owner
-- preserve all transforms unchanged
-- generate alignment diagnostics
-- test with reference geometry
+### Raw evidence storage pressure
+Mitigation: selected frames, binary payloads, streamed writes/hashing, free-space gate.
 
-### Risk: consumer LiDAR geometry is not sufficiently precise for critical dimensions
+### Buffer lifetime/concurrency bugs
+Mitigation: copy/retain data before asynchronous persistence as required; bounded writer; no heavy delegate work; copy only defined active pixel bytes into canonical packed payloads.
 
-Mitigation:
+### Combined Apple feature configuration instability
+Mitigation: capability checks plus real-device combined-mode probe; exact configuration recording; explicit degraded capture modes rather than silent toggles; preserve coordinate-space lineage across any mode transition.
 
-- treat LiDAR as evidence, not unquestionable authority
-- support user-verified dimensions
-- later support external reference measurements
-- preserve uncertainty/source metadata
+### Untrusted archive ingestion
+Mitigation: staged extraction, normalized relative paths, entry/size/ratio limits, no links, digest/length verification, fail-closed schema handling.
 
-### Risk: bundle size becomes excessive
+### Apple API evolution
+Mitigation: adapters, raw RoomPlan artifact preservation, OS/framework provenance, versioned schemas.
 
-Mitigation:
+### Semantic overreach
+Mitigation: inference and attestation separated; capture app does not invent acoustic properties.
 
-- explicit snapshot capture for MVP
-- binary geometry representation
-- separate source evidence from derived preview
-- compression at archive layer without lossy source modification
+### Privacy leakage
+Mitigation: app-private local capture, explicit export, metadata allowlist, no spatial telemetry.
 
-### Risk: Apple's APIs evolve
+## 26. First vertical PoC acceptance criteria
 
-Mitigation:
+The PoC is successful only when one supported LiDAR iPhone can:
 
-- adapter boundaries around RoomPlan/ARKit
-- versioned capture schema
-- avoid exposing Apple-specific object graphs directly as HTDT backend contracts
-- retain exported Apple artifacts as evidence but normalize metadata into HTDT-Capture schema
+1. pass runtime capability checks;
+2. start an app-owned ARSession used by RoomPlan and mesh capture;
+3. capture and persist `CapturedRoomData`;
+4. regenerate/persist `CapturedRoom` from that raw RoomPlan result;
+5. persist final ARMeshAnchor geometry in the same declared coordinate space;
+6. capture one evidence ARFrame with pose/intrinsics/native image metadata;
+7. persist scene depth + confidence for that frame when supported;
+8. stop RoomPlan capture while deliberately preserving the same AR world frame for follow-up evidence/annotation, or explicitly create a new coordinate-space authority if the SDK/device cannot support that continuity;
+9. create one speaker annotation with explicit orientation and placement provenance;
+10. record one user-attested measurement with method metadata;
+11. finalize an immutable revision;
+12. compute a manifest-rooted bundle digest;
+13. export and reopen `.htdtcapture`;
+14. pass validator/tamper/archive-safety checks;
+15. run the documented geometric benchmark and record measured errors.
 
-### Risk: accidental semantic overreach
+The PoC does not need to generate final acoustic geometry.
 
-Mitigation:
+A visually plausible 3D model alone is not a PoC pass.
 
-- no automatic material/equipment identification becomes authoritative without explicit evidence
-- keep inference and verification states separate
-- do not derive acoustic properties in the capture app
+## 27. Immediate next work
 
-## 20. PoC acceptance criteria
+Proceed in this order:
 
-The first physical-device PoC is successful when one supported LiDAR iPhone can:
+1. freeze Phase 0 contracts;
+2. write coordinate/time contract and schema test vectors;
+3. define mesh/frame/depth binary formats;
+4. define benchmark protocol;
+5. bootstrap SwiftUI app/session/store foundation;
+6. implement RoomPlan raw + postprocessed preservation;
+7. implement AR mesh capture;
+8. implement camera/depth evidence;
+9. add annotations/measurements;
+10. add finalization/validator;
+11. create frozen real-device fixture;
+12. connect HTDT ingestion.
 
-1. start a shared AR/RoomPlan capture session;
-2. capture a room through RoomPlan;
-3. retain ARMeshAnchor geometry from the same world frame;
-4. take at least one evidence image with camera pose and intrinsics;
-5. create at least one speaker annotation with orientation;
-6. record one user-verified measurement;
-7. finalize an immutable local capture revision;
-8. export a `.htdtcapture` archive;
-9. pass the repository's bundle validator;
-10. prove that all canonical source artifacts are still present after reopening the archive.
+## 28. Primary references for implementation
 
-The PoC does **not** need to produce final acoustic geometry.
+Apple primary documentation should be rechecked at implementation time:
 
-## 21. Immediate next work
+- RoomPlan `RoomCaptureView.init(frame:arSession:)`
+- RoomPlan `RoomCaptureSession.init(arSession:)`
+- RoomPlan `CapturedRoomData`
+- RoomPlan `CapturedRoom`
+- ARKit `ARCamera.transform`
+- ARKit `ARAnchor.transform`
+- ARKit scene reconstruction
+- ARKit `ARFrame`
+- ARKit `sceneDepth` / confidence
 
-After this plan is accepted as the repository baseline, implementation should proceed in this order:
+Accuracy protocol should remain informed by independent measurement literature, including studies showing strong dependence on acquisition software, trajectory, scene, and processing.
 
-1. bootstrap README and repository conventions;
-2. define Capture Bundle v1 schemas before writing sensor-specific serialization;
-3. create SwiftUI application shell and ARSession state machine;
-4. implement RoomPlan + ARMesh dual capture;
-5. add evidence photo capture;
-6. add annotations and verified measurements;
-7. add validator/finalization;
-8. establish frozen sample bundle;
-9. connect to HTDT ingestion.
+## 29. Architectural conclusion
 
-This ordering intentionally establishes the data contract before large volumes of capture code are written.
+The reviewed architecture is:
 
-## 22. Research baseline
+**Use Apple RoomPlan/ARKit directly; preserve raw RoomPlan scan output plus reconstructed mesh, selected image/depth evidence, exact coordinate/time metadata, and user-attested measurements in HTDT-owned versioned schemas; treat all visualization/repair/semantic reconciliation as explicit downstream derivation.**
 
-Implementation should cross-check current behavior against primary sources before each Apple-framework-specific slice, especially:
-
-- Apple RoomPlan documentation
-- Apple ARKit scene reconstruction documentation
-- Apple's RoomPlan WWDC sessions covering custom ARSession, continuous scanning, relocalization, and CapturedStructure
-- relevant Apple sample code
-
-Reference OSS can be used to learn implementation patterns, but HTDT-Capture should avoid making a third-party scanner framework part of the canonical evidence path unless its license, maintenance status, serialization semantics, and data-loss behavior have been explicitly reviewed.
-
-The principal architectural choice is therefore:
-
-**Use Apple capture frameworks directly, preserve their outputs plus raw evidence, and keep HTDT's provenance/revision semantics in our own versioned schema.**
+This is stricter than a generic scanner app, but it matches HTDT's requirement that a Digital Twin remain auditable, revisable, and reprocessable.
