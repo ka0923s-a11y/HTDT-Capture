@@ -39,6 +39,84 @@ public enum PlacementMethod: String, Codable, Sendable {
     case other
 }
 
+public struct ReferencePointSemantics: RawRepresentable, Codable, Hashable,
+    Sendable, CustomStringConvertible
+{
+    public let rawValue: String
+
+    public init?(rawValue: String) {
+        guard !rawValue.isEmpty,
+              rawValue == rawValue.lowercased(),
+              rawValue.allSatisfy({
+                  $0.isASCII
+                      && ($0.isLetter || $0.isNumber || $0 == "_")
+              })
+        else {
+            return nil
+        }
+        self.rawValue = rawValue
+    }
+
+    public var description: String { rawValue }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        guard let value = Self(rawValue: raw) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Invalid reference-point semantics token"
+            )
+        }
+        self = value
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    public static let cabinetReferencePoint =
+        Self(rawValue: "cabinet_reference_point")!
+    public static let acousticCenter =
+        Self(rawValue: "acoustic_center")!
+    public static let earCenter =
+        Self(rawValue: "ear_center")!
+    public static let screenCenter =
+        Self(rawValue: "screen_center")!
+    public static let displayCenter =
+        Self(rawValue: "display_center")!
+    public static let seatReferencePoint =
+        Self(rawValue: "seat_reference_point")!
+    public static let userReferencePoint =
+        Self(rawValue: "user_reference_point")!
+}
+
+public struct HTDTEquipmentReference: Codable, Sendable, Equatable {
+    public let equipmentID: String
+    public let equipmentVersion: String
+    public let equipmentHash: EvidenceSHA256
+
+    public init(
+        equipmentID: String,
+        equipmentVersion: String,
+        equipmentHash: EvidenceSHA256
+    ) throws {
+        guard !equipmentID.isEmpty, !equipmentVersion.isEmpty else {
+            throw AnnotationModelError.emptyAuthorityReference
+        }
+        self.equipmentID = equipmentID
+        self.equipmentVersion = equipmentVersion
+        self.equipmentHash = equipmentHash
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case equipmentID = "equipment_id"
+        case equipmentVersion = "equipment_version"
+        case equipmentHash = "equipment_hash"
+    }
+}
+
 public enum AnnotationModelError: Error, Sendable, Equatable {
     case emptyLabel
     case emptyReferenceSemantics
@@ -271,7 +349,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
     public let type: AnnotationEntityType
     public let coordinateSpaceID: CoordinateSpaceID
     public let worldFromAnnotation: Matrix4x4F
-    public let referencePointSemantics: String
+    public let referencePointSemantics: ReferencePointSemantics
     public let label: String
     public let provenanceClass: AnnotationProvenanceClass
     public let verificationState: AnnotationVerificationState
@@ -279,7 +357,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
     public let orientation: OrientationAxes?
     public let channelRole: ChannelRole?
     public let acousticCenter: AcousticCenterOffsetAuthority?
-    public let equipmentRef: String?
+    public let equipmentRef: HTDTEquipmentReference?
     public let evidenceRefs: [String]
 
     public init(
@@ -287,7 +365,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         type: AnnotationEntityType,
         coordinateSpaceID: CoordinateSpaceID,
         worldFromAnnotation: Matrix4x4F,
-        referencePointSemantics: String,
+        referencePointSemantics: ReferencePointSemantics,
         label: String,
         provenanceClass: AnnotationProvenanceClass = .userAnnotation,
         verificationState: AnnotationVerificationState = .unverified,
@@ -295,14 +373,11 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         orientation: OrientationAxes? = nil,
         channelRole: ChannelRole? = nil,
         acousticCenter: AcousticCenterOffsetAuthority? = nil,
-        equipmentRef: String? = nil,
+        equipmentRef: HTDTEquipmentReference? = nil,
         evidenceRefs: [String] = []
     ) throws {
         guard !label.isEmpty else {
             throw AnnotationModelError.emptyLabel
-        }
-        guard !referencePointSemantics.isEmpty else {
-            throw AnnotationModelError.emptyReferenceSemantics
         }
         let uniqueEvidence = Set(evidenceRefs)
         guard uniqueEvidence.count == evidenceRefs.count else {
