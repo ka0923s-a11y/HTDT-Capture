@@ -176,7 +176,8 @@
         },
         "reference_point_semantics": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "^[a-z0-9_]+$"
         },
         "label": {
           "type": "string",
@@ -227,9 +228,13 @@
           ]
         },
         "equipment_ref": {
-          "type": [
-            "string",
-            "null"
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/equipmentRef"
+            }
           ]
         },
         "evidence_refs": {
@@ -270,6 +275,29 @@
           }
         }
       ]
+    },
+    "equipmentRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "equipment_id",
+        "equipment_version",
+        "equipment_hash"
+      ],
+      "properties": {
+        "equipment_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "equipment_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "equipment_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
     }
   }
 }
