@@ -22,6 +22,8 @@ public enum Matrix4x4FError: Error, Sendable, Equatable {
 }
 
 public struct Matrix4x4F: Codable, Sendable, Equatable {
+    public static let representation = "column_major_4x4_f32"
+
     public let values: [Float]
 
     public init(values: [Float]) throws {
@@ -41,6 +43,38 @@ public struct Matrix4x4F: Codable, Sendable, Equatable {
             0, 0, 1, 0,
             0, 0, 0, 1,
         ])
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case representation
+        case values
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let representation = try container.decode(
+            String.self,
+            forKey: .representation
+        )
+        guard representation == Self.representation else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .representation,
+                in: container,
+                debugDescription: "Unsupported matrix representation"
+            )
+        }
+        try self.init(
+            values: container.decode([Float].self, forKey: .values)
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(
+            Self.representation,
+            forKey: .representation
+        )
+        try container.encode(values, forKey: .values)
     }
 }
 
