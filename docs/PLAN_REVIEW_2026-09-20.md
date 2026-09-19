@@ -13,20 +13,20 @@ The original v1 plan had the correct overall direction:
 
 However, the review identified several issues that should be corrected **before implementation**.
 
-The revised plan is now \`docs/IMPLEMENTATION_PLAN.md\` (Reviewed v2).
+The revised plan is now `docs/IMPLEMENTATION_PLAN.md` (Reviewed v2).
 
 ## Critical changes
 
-### 1. Preserve RoomPlan \`CapturedRoomData\`, not only \`CapturedRoom\`
+### 1. Preserve RoomPlan `CapturedRoomData`, not only `CapturedRoom`
 
 The original plan retained post-processed RoomPlan output but omitted the framework's raw scan object.
 
-Apple documents \`CapturedRoomData\` as an opaque raw scan result that conforms to Codable and can be serialized and processed later with \`RoomBuilder\`.
+Apple documents `CapturedRoomData` as an opaque raw scan result that conforms to Codable and can be serialized and processed later with `RoomBuilder`.
 
 Decision:
 
-- \`roomplan/captured-room-data.json\` becomes canonical evidence.
-- \`CapturedRoom\` is preserved separately as post-processed evidence.
+- `roomplan/captured-room-data.json` becomes canonical evidence.
+- `CapturedRoom` is preserved separately as post-processed evidence.
 - USD/USDZ remains derived.
 
 References:
@@ -38,12 +38,12 @@ References:
 
 The v1 plan used phrases such as "AR world -> camera", which are easy to interpret in the wrong direction.
 
-Apple's \`ARCamera.transform\` describes camera pose in world space, and \`ARAnchor.transform\` describes the anchor relative to world space.
+Apple's `ARCamera.transform` describes camera pose in world space, and `ARAnchor.transform` describes the anchor relative to world space.
 
 Decision:
 
-- use \`T_destination_from_source\` names;
-- canonical examples are \`T_world_from_camera\` and \`T_world_from_mesh_anchor\`;
+- use `T_destination_from_source` names;
+- canonical examples are `T_world_from_camera` and `T_world_from_mesh_anchor`;
 - explicitly define handedness, units, scalar type, matrix layout, image orientation handling.
 
 References:
@@ -83,14 +83,14 @@ A manifest that contains its own digest or a checksum file that hashes itself cr
 
 Decision:
 
-- \`manifest.json\` lists hashes for canonical payloads;
-- \`bundle_digest = SHA256(canonical_bytes(manifest.json))\`;
+- `manifest.json` lists hashes for canonical payloads;
+- `bundle_digest = SHA256(canonical_bytes(manifest.json))`;
 - the manifest does not include its own digest;
 - optional human-readable checksum files are derived convenience outputs.
 
 ### 6. Promote scene depth + confidence to selected MVP evidence
 
-Apple exposes discrete \`sceneDepth\` with a corresponding confidence map when supported.
+Apple exposes discrete `sceneDepth` with a corresponding confidence map when supported.
 
 Decision:
 
@@ -111,22 +111,22 @@ The ARKit mesh is a reconstructed scene estimate, not raw LiDAR.
 
 Decision:
 
-- preserve final active \`ARMeshAnchor\` snapshots;
+- preserve final active `ARMeshAnchor` snapshots;
 - retain anchor identity and transforms;
 - serialize portable canonical arrays rather than implementation-specific buffer padding;
 - a merged mesh is derived.
 
 ### 8. Separate capture series, revision, session, and coordinate-space identity
 
-The original \`capture_id\` / \`revision_id\` model was insufficient for re-scan semantics.
+The original `capture_id` / `revision_id` model was insufficient for re-scan semantics.
 
 Decision:
 
-- \`capture_series_id\`;
-- \`capture_revision_id\`;
-- \`capture_session_id\`;
-- \`coordinate_space_id\`;
-- \`parent_revision_id\`.
+- `capture_series_id`;
+- `capture_revision_id`;
+- `capture_session_id`;
+- `coordinate_space_id`;
+- `parent_revision_id`.
 
 A fresh ARSession creates a fresh coordinate space unless an explicit alignment authority is produced.
 
@@ -217,7 +217,7 @@ Critical dimensions may still require user-attested external measurements.
 
 ### Added to MVP
 
-- raw \`CapturedRoomData\`;
+- raw `CapturedRoomData`;
 - explicit coordinate contract;
 - explicit time contract;
 - selected raw camera pixel payload;
