@@ -6,6 +6,8 @@ public enum MeshBinaryCodecError: Error, Sendable, Equatable {
     case invalidHeaderLength(UInt32)
     case unsupportedIndexWidth(UInt8)
     case invalidFlags(UInt8)
+    case nonZeroReserved
+    case declaredPayloadExceedsAvailableBytes
     case truncated
     case trailingBytes(Int)
     case invalidGeometry
@@ -107,8 +109,27 @@ public enum MeshBinaryCodec {
             throw MeshBinaryCodecError.invalidFlags(flags)
         }
 
-        _ = try reader.readUInt16()
-        _ = try reader.readUInt32()
+        let reserved16 = try reader.readUInt16()
+        let reserved32 = try reader.readUInt32()
+        guard reserved16 == 0, reserved32 == 0 else {
+            throw MeshBinaryCodecError.nonZeroReserved
+        }
+
+        let vertexBytes = try checkedMultiply(vertexCount, 12)
+        let normalsBytes = flags & flagNormals != 0
+            ? try checkedMultiply(vertexCount, 12)
+            : 0
+        let indexBytes = try checkedMultiply(faceCount, 12)
+        let classificationBytes = flags & flagClassifications != 0
+            ? faceCount
+            : 0
+        let requiredPayloadBytes = try checkedAdd(
+            try checkedAdd(vertexBytes, normalsBytes),
+            try checkedAdd(indexBytes, classificationBytes)
+        )
+        guard reader.remaining >= requiredPayloadBytes else {
+            throw MeshBinaryCodecError.declaredPayloadExceedsAvailableBytes
+        }
 
         var vertices: [Float3] = []
         vertices.reserveCapacity(vertexCount)
@@ -164,6 +185,28 @@ public enum MeshBinaryCodec {
         } catch {
             throw MeshBinaryCodecError.invalidGeometry
         }
+    }
+
+    private static func checkedMultiply(
+        _ lhs: Int,
+        _ rhs: Int
+    ) throws -> Int {
+        let result = lhs.multipliedReportingOverflow(by: rhs)
+        guard !result.overflow else {
+            throw MeshBinaryCodecError.countOverflow
+        }
+        return result.partialValue
+    }
+
+    private static func checkedAdd(
+        _ lhs: Int,
+        _ rhs: Int
+    ) throws -> Int {
+        let result = lhs.addingReportingOverflow(rhs)
+        guard !result.overflow else {
+            throw MeshBinaryCodecError.countOverflow
+        }
+        return result.partialValue
     }
 
     private static func appendUInt16(_ value: UInt16, to data: inout Data) {
