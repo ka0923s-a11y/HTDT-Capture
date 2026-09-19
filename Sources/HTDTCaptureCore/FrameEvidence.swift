@@ -11,6 +11,8 @@ public enum CameraIntrinsicsError: Error, Sendable, Equatable {
 }
 
 public struct CameraIntrinsics3x3: Codable, Sendable, Equatable {
+    public static let representation = "column_major_3x3_f32"
+
     public let values: [Float]
 
     public init(values: [Float]) throws {
@@ -21,6 +23,38 @@ public struct CameraIntrinsics3x3: Codable, Sendable, Equatable {
             throw CameraIntrinsicsError.nonFinite
         }
         self.values = values
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case representation
+        case values
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let representation = try container.decode(
+            String.self,
+            forKey: .representation
+        )
+        guard representation == Self.representation else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .representation,
+                in: container,
+                debugDescription: "Unsupported intrinsics representation"
+            )
+        }
+        try self.init(
+            values: container.decode([Float].self, forKey: .values)
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(
+            Self.representation,
+            forKey: .representation
+        )
+        try container.encode(values, forKey: .values)
     }
 }
 
@@ -64,6 +98,14 @@ public struct DepthEvidenceReference: Codable, Sendable, Equatable {
     }
 }
 
+public enum FrameEvidenceDescriptorError: Error, Sendable, Equatable {
+    case invalidTimestamp
+    case invalidImageDimensions
+    case invalidPixelByteCount
+    case emptyPixelPath
+    case depthStatusMismatch
+}
+
 public struct FrameEvidenceDescriptor: Codable, Sendable, Equatable {
     public let frameID: EvidenceFrameID
     public let captureSessionID: CaptureSessionID
@@ -97,7 +139,37 @@ public struct FrameEvidenceDescriptor: Codable, Sendable, Equatable {
         exifAllowlisted: [String: String] = [:],
         depthStatus: FrameDepthStatus = .notRequested,
         depth: DepthEvidenceReference? = nil
-    ) {
+    ) throws {
+        guard sessionTimestampSeconds.isFinite,
+              sessionTimestampSeconds >= 0
+        else {
+            throw FrameEvidenceDescriptorError.invalidTimestamp
+        }
+        guard imageWidth > 0, imageHeight > 0 else {
+            throw FrameEvidenceDescriptorError.invalidImageDimensions
+        }
+        guard pixelByteCount > 0 else {
+            throw FrameEvidenceDescriptorError.invalidPixelByteCount
+        }
+        guard !pixelRelativePath.isEmpty else {
+            throw FrameEvidenceDescriptorError.emptyPixelPath
+        }
+
+        let depthMatchesStatus: Bool
+        switch (depthStatus, depth?.kind) {
+        case (.notRequested, nil), (.unavailable, nil):
+            depthMatchesStatus = true
+        case (.capturedDiscrete, .discreteSceneDepth):
+            depthMatchesStatus = true
+        case (.capturedSmoothed, .smoothedSceneDepth):
+            depthMatchesStatus = true
+        default:
+            depthMatchesStatus = false
+        }
+        guard depthMatchesStatus else {
+            throw FrameEvidenceDescriptorError.depthStatusMismatch
+        }
+
         self.frameID = frameID
         self.captureSessionID = captureSessionID
         self.coordinateSpaceID = coordinateSpaceID
@@ -113,5 +185,23 @@ public struct FrameEvidenceDescriptor: Codable, Sendable, Equatable {
         self.exifAllowlisted = exifAllowlisted
         self.depthStatus = depthStatus
         self.depth = depth
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case frameID = "frame_id"
+        case captureSessionID = "capture_session_id"
+        case coordinateSpaceID = "coordinate_space_id"
+        case sessionTimestampSeconds = "session_timestamp_s"
+        case worldFromCamera = "T_world_from_camera"
+        case intrinsics
+        case imageWidth = "image_width"
+        case imageHeight = "image_height"
+        case pixelFormatFourCC = "pixel_format_fourcc"
+        case pixelRelativePath = "pixel_relative_path"
+        case pixelByteCount = "pixel_byte_count"
+        case pixelSHA256 = "pixel_sha256"
+        case exifAllowlisted = "exif_allowlisted"
+        case depthStatus = "depth_status"
+        case depth
     }
 }
