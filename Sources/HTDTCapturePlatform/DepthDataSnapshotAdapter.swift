@@ -12,6 +12,7 @@ public enum DepthDataSnapshotAdapterError: Error {
     case unexpectedPlaneCount(Int)
     case unavailableBaseAddress
     case sourceStrideTooSmall
+    case confidenceDimensionsMismatch
 }
 
 public struct DepthArtifactSnapshot: Sendable {
@@ -34,6 +35,11 @@ public enum DepthDataSnapshotAdapter {
     ) throws -> DepthArtifactSnapshot {
         let depth = try copyDepth(depthData.depthMap)
         let confidence = try depthData.confidenceMap.map(copyConfidence)
+        if let confidence,
+           (confidence.width != depth.width || confidence.height != depth.height)
+        {
+            throw DepthDataSnapshotAdapterError.confidenceDimensionsMismatch
+        }
         return DepthArtifactSnapshot(
             depth: depth,
             confidence: confidence
