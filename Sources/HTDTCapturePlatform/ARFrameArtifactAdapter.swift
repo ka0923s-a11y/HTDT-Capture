@@ -133,7 +133,7 @@ public enum ARFrameArtifactAdapter {
             confidenceHash = EvidenceIntegrity.sha256(of: encoded)
         }
 
-        let reference = DepthEvidenceReference(
+        let reference = try DepthEvidenceReference(
             kind: selected.1,
             depthRelativePath: depthPath,
             depthByteCount: depthPayload.count,
