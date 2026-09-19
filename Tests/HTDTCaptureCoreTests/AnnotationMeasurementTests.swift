@@ -10,7 +10,7 @@ private func canonicalSpeaker(
         type: .speaker,
         coordinateSpaceID: space,
         worldFromAnnotation: .identity,
-        referencePointSemantics: "cabinet_reference_point",
+        referencePointSemantics: .cabinetReferencePoint,
         label: role.rawValue,
         verificationState: .evidenceLinked,
         placement: PlacementProvenance(
@@ -36,7 +36,7 @@ func speakerRequiresOrientationAndChannelRole() throws {
             type: .speaker,
             coordinateSpaceID: space,
             worldFromAnnotation: .identity,
-            referencePointSemantics: "cabinet_reference_point",
+            referencePointSemantics: .cabinetReferencePoint,
             label: "Left",
             placement: placement,
             orientation: nil,
@@ -49,7 +49,7 @@ func speakerRequiresOrientationAndChannelRole() throws {
             type: .speaker,
             coordinateSpaceID: space,
             worldFromAnnotation: .identity,
-            referencePointSemantics: "cabinet_reference_point",
+            referencePointSemantics: .cabinetReferencePoint,
             label: "Left",
             placement: placement,
             orientation: OrientationAxes(
@@ -94,7 +94,7 @@ func fiveChannelTopologyIsRepresentableWithoutGeometryFreeText() throws {
         type: .subwoofer,
         coordinateSpaceID: space,
         worldFromAnnotation: .identity,
-        referencePointSemantics: "cabinet_reference_point",
+        referencePointSemantics: .cabinetReferencePoint,
         label: "Subwoofer",
         placement: PlacementProvenance(method: .manualNumeric),
         channelRole: .lfe
@@ -103,7 +103,7 @@ func fiveChannelTopologyIsRepresentableWithoutGeometryFreeText() throws {
         type: .listeningPosition,
         coordinateSpaceID: space,
         worldFromAnnotation: .identity,
-        referencePointSemantics: "ear_center",
+        referencePointSemantics: .earCenter,
         label: "MLP",
         placement: PlacementProvenance(method: .manualNumeric)
     )
@@ -243,4 +243,52 @@ func measurementJSONPreservesInstrumentAndSourceText() throws {
             == "3.400 m"
     )
     #expect(measurements[0]["instrument"] != nil)
+}
+
+
+@Test
+func exactEquipmentReferenceCarriesIDVersionAndHash() throws {
+    let hash = try EvidenceSHA256(String(repeating: "a", count: 64))
+    let reference = try HTDTEquipmentReference(
+        equipmentID: "eq-speaker-left",
+        equipmentVersion: "3",
+        equipmentHash: hash
+    )
+    let entity = try CaptureAnnotationEntity(
+        type: .speaker,
+        coordinateSpaceID: CoordinateSpaceID(),
+        worldFromAnnotation: .identity,
+        referencePointSemantics: .cabinetReferencePoint,
+        label: "Left",
+        placement: PlacementProvenance(method: .manualNumeric),
+        orientation: OrientationAxes(
+            frontAxisLocal: SpatialVector3F.unit(0, 0, -1),
+            upAxisLocal: SpatialVector3F.unit(0, 1, 0)
+        ),
+        channelRole: .left,
+        equipmentRef: reference
+    )
+
+    let data = try JSONEncoder().encode(entity)
+    let json = try #require(
+        JSONSerialization.jsonObject(with: data) as? [String: Any]
+    )
+    let equipment = try #require(
+        json["equipment_ref"] as? [String: Any]
+    )
+    #expect(equipment["equipment_id"] as? String == "eq-speaker-left")
+    #expect(equipment["equipment_version"] as? String == "3")
+    #expect(
+        equipment["equipment_hash"] as? String
+            == String(repeating: "a", count: 64)
+    )
+}
+
+@Test
+func referencePointSemanticsRejectsFreeFormText() {
+    #expect(ReferencePointSemantics(rawValue: "speaker center") == nil)
+    #expect(
+        ReferencePointSemantics(rawValue: "cabinet_reference_point")
+            == .cabinetReferencePoint
+    )
 }
