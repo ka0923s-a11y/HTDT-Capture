@@ -9,6 +9,7 @@ import unittest
 import warnings
 import zipfile
 
+from tools.bundle_validator.archive_bundle import create_archive
 from tools.bundle_validator.validator import (
     ValidationError,
     canonical_json_bytes,
@@ -116,6 +117,21 @@ class ValidatorTests(unittest.TestCase):
                     zf.writestr("manifest.json", b"{}")
             with self.assertRaisesRegex(ValidationError, "duplicate archive entry"):
                 validate_bundle(archive)
+
+    def test_archive_wrapper_preserves_logical_bundle_digest(self):
+        source_report = validate_bundle(FIXTURE)
+        with tempfile.TemporaryDirectory() as td:
+            archive = Path(td) / "fixture.htdtcapture"
+            archive_report = create_archive(FIXTURE, archive)
+            self.assertTrue(archive.exists())
+            self.assertEqual(
+                archive_report["bundle_digest"],
+                source_report["bundle_digest"],
+            )
+            self.assertEqual(
+                validate_bundle(archive)["bundle_digest"],
+                source_report["bundle_digest"],
+            )
 
     def test_zip_high_compression_ratio_fails(self):
         with tempfile.TemporaryDirectory() as td:
