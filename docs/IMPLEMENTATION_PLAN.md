@@ -285,6 +285,38 @@ Sensor buffers that need persistence must be copied or retained according to doc
 
 The writer must provide backpressure and explicit failure when storage cannot keep up. Silent frame/evidence loss is unacceptable.
 
+### 5.2 ARSession ownership and lifetime
+
+The app-owned `ARSession` is the coordinate-space authority for a capture session.
+
+Requirements:
+
+- keep the same ARSession alive while RoomPlan capture, mesh capture, coverage review, equipment annotation, and evidence snapshots need one shared world frame;
+- stopping RoomPlan must not implicitly terminate or reset the underlying ARSession when subsequent same-frame work remains;
+- if the framework API provides a choice such as pausing the ARSession when RoomPlan stops, the app must choose and record the behavior deliberately;
+- never call a world-origin/session reset as an incidental UI transition;
+- any reset/relocalization event that changes spatial authority must be recorded explicitly;
+- if continuity cannot be maintained, start a new `coordinate_space_id` instead of pretending the old frame survived.
+
+Physical-device tests must verify the exact RoomPlan stop/pause behavior against the SDK used by the app.
+
+### 5.3 Exact capture-configuration profile
+
+Capability support is not the same as a validated combined configuration.
+
+Persist an exact session configuration profile covering, where applicable:
+
+- `worldAlignment`;
+- plane detection;
+- scene-reconstruction mode;
+- enabled frame semantics;
+- selected video format/resolution/frame rate;
+- autofocus or other relevant tracking options;
+- RoomPlan configuration/options;
+- OS and SDK/runtime context.
+
+Phase 1 must probe the intended combined RoomPlan + scene reconstruction + scene-depth configuration on supported hardware. If the combination is unsupported or operationally unstable, introduce explicit capture modes with declared coordinate/alignment consequences rather than silently changing AR configuration.
+
 ## 6. Session state machine
 
 Suggested states:
@@ -460,6 +492,7 @@ Notes:
 - `preview.heic` is a convenience derivative unless the implementation proves bit-preserving source semantics.
 - `pixelbin` is intended to preserve selected ARFrame pixel-plane bytes plus enough layout metadata to reconstruct the pixel buffer representation. Phase 0 must define the exact binary format before implementation.
 - ZIP with a custom extension may wrap the logical directory, but archive bytes are not themselves the integrity authority.
+- Phase 0 should define a custom Apple Uniform Type Identifier/content type for `.htdtcapture` and its filename extension, while keeping the logical schema independent from the archive wrapper.
 
 ## 10. Manifest and integrity model
 
@@ -497,6 +530,25 @@ Because each canonical payload digest is inside the manifest, the bundle digest 
 A human-readable `checksums.sha256` may be generated as a convenience derivative, but it is not the root authority.
 
 Phase 0 must select and test a canonical JSON encoding strategy, with fixed test vectors.
+
+SHA-256 provides content integrity/identity, not origin authenticity. The app and backend must not describe an unsigned bundle digest as a digital signature. Optional bundle signing can be introduced later as a separate authority.
+
+### 10.1 Archive and validator safety
+
+A `.htdtcapture` archive is untrusted input until validation succeeds.
+
+The validator/importer must:
+
+- accept only normalized relative POSIX-style paths declared by the manifest;
+- reject absolute paths, `..` traversal, NUL-containing names, symlinks/hardlinks, and entries escaping the extraction root;
+- reject duplicate archive entries, duplicate manifest paths, and case-colliding paths;
+- apply explicit limits to file count, per-file expanded size, total expanded size, and decompression ratio;
+- reject unsupported schema versions unless an explicit migration path exists;
+- verify declared byte lengths and SHA-256 digests before promoting files to trusted evidence;
+- extract through a staging directory and atomically promote only after full validation;
+- ignore or reject undeclared canonical payloads according to a versioned policy.
+
+Security limits belong to the bundle format/validator contract and require fixed adversarial fixtures.
 
 ## 11. RoomPlan evidence model
 
@@ -578,8 +630,11 @@ For each frame:
 - plane count;
 - plane dimensions/row strides;
 - raw selected pixel-plane payload reference;
+- source and canonical plane layout/stride metadata;
 - EXIF metadata after privacy review;
 - optional preview encoding reference.
+
+Canonical pixel serialization must copy **only defined active image bytes** from each pixel-buffer row/plane into a specified packed representation. It must not persist allocator padding or unspecified bytes merely because they are covered by `bytesPerRow`. This prevents nondeterministic hashes and possible disclosure of unrelated memory contents.
 
 If high-resolution AR frame capture is adopted, its output must be treated as a distinct frame with its own intrinsics/resolution rather than substituted into a normal-frame record.
 
@@ -623,7 +678,9 @@ Each entity requires:
 - evidence links;
 - creation/revision metadata;
 - provenance class;
-- verification state.
+- verification state;
+- placement method;
+- optional raycast/hit-test target or source semantic entity ID when placement is surface-derived.
 
 ### 14.1 Speaker-specific requirements
 
@@ -900,6 +957,9 @@ Deliverables:
 - coordinate/time contract;
 - provenance vocabulary;
 - integrity/canonical JSON contract;
+- archive/validator security contract and adversarial fixtures;
+- custom `.htdtcapture` content type/UTType decision;
+- exact AR capture-configuration schema;
 - RoomPlan raw/postprocessed distinction;
 - mesh binary format;
 - evidence-frame binary format;
@@ -913,6 +973,7 @@ Exit criteria:
 - no ambiguous transform direction;
 - no ambiguous timestamp domain;
 - no circular integrity definition;
+- archive traversal/collision/bomb limits are explicit and testable;
 - raw `CapturedRoomData` has a canonical location;
 - canonical vs derived files are explicit;
 - re-scan/new-coordinate-space behavior is explicit;
@@ -926,6 +987,9 @@ Deliverables:
 - capability matrix;
 - permission flow;
 - app-owned ARSession;
+- exact capture-configuration profile;
+- RoomPlan stop/pause and ARSession-lifetime policy;
+- combined-feature physical-device probe;
 - state machine;
 - interruption/resource monitoring;
 - capture working directory;
@@ -936,7 +1000,9 @@ Exit criteria:
 - support is decided by runtime capability APIs;
 - state is independent of transient views;
 - storage/resource failure paths are explicit;
-- one session receives stable capture-session and coordinate-space IDs.
+- one session receives stable capture-session and coordinate-space IDs;
+- RoomPlan can end without accidentally invalidating the world frame needed for follow-up annotation/evidence;
+- unsupported or unstable combined feature sets produce explicit capture modes, not silent configuration mutation.
 
 ### Phase 2 - RoomPlan + mesh dual capture
 
@@ -961,7 +1027,7 @@ Exit criteria:
 Deliverables:
 
 - selected ARFrame evidence;
-- raw pixel-plane serialization;
+- canonical packed pixel-plane serialization excluding allocator padding;
 - pose/intrinsics/native orientation metadata;
 - EXIF allowlist;
 - sceneDepth/confidence persistence when supported;
@@ -1014,7 +1080,8 @@ Exit criteria:
 - finalized revision is immutable;
 - manifest validates all canonical payloads;
 - incomplete captures report concrete diagnostics;
-- logical bundle survives archive/unarchive without digest change.
+- logical bundle survives archive/unarchive without digest change;
+- malicious/path-traversal/duplicate-entry/archive-bomb fixtures fail closed before evidence promotion.
 
 ### Phase 6 - HTDT integration
 
@@ -1065,7 +1132,12 @@ Priority tests:
 - state-machine transitions;
 - failure-closed finalization;
 - bundle validation;
-- mutation/tamper detection.
+- mutation/tamper detection;
+- path traversal / absolute path rejection;
+- duplicate and case-colliding path rejection;
+- archive expansion-limit enforcement;
+- unknown-schema fail-closed behavior;
+- pixel-plane padding exclusion test vectors.
 
 Physical-device validation is required for:
 
@@ -1108,7 +1180,13 @@ Mitigation: user-attested/reference measurements, uncertainty metadata, no fixed
 Mitigation: selected frames, binary payloads, streamed writes/hashing, free-space gate.
 
 ### Buffer lifetime/concurrency bugs
-Mitigation: copy/retain data before asynchronous persistence as required; bounded writer; no heavy delegate work.
+Mitigation: copy/retain data before asynchronous persistence as required; bounded writer; no heavy delegate work; copy only defined active pixel bytes into canonical packed payloads.
+
+### Combined Apple feature configuration instability
+Mitigation: capability checks plus real-device combined-mode probe; exact configuration recording; explicit degraded capture modes rather than silent toggles; preserve coordinate-space lineage across any mode transition.
+
+### Untrusted archive ingestion
+Mitigation: staged extraction, normalized relative paths, entry/size/ratio limits, no links, digest/length verification, fail-closed schema handling.
 
 ### Apple API evolution
 Mitigation: adapters, raw RoomPlan artifact preservation, OS/framework provenance, versioned schemas.
@@ -1130,13 +1208,14 @@ The PoC is successful only when one supported LiDAR iPhone can:
 5. persist final ARMeshAnchor geometry in the same declared coordinate space;
 6. capture one evidence ARFrame with pose/intrinsics/native image metadata;
 7. persist scene depth + confidence for that frame when supported;
-8. create one speaker annotation with explicit orientation;
-9. record one user-attested measurement with method metadata;
-10. finalize an immutable revision;
-11. compute a manifest-rooted bundle digest;
-12. export and reopen `.htdtcapture`;
-13. pass validator/tamper checks;
-14. run the documented geometric benchmark and record measured errors.
+8. stop RoomPlan capture while deliberately preserving the same AR world frame for follow-up evidence/annotation, or explicitly create a new coordinate-space authority if the SDK/device cannot support that continuity;
+9. create one speaker annotation with explicit orientation and placement provenance;
+10. record one user-attested measurement with method metadata;
+11. finalize an immutable revision;
+12. compute a manifest-rooted bundle digest;
+13. export and reopen `.htdtcapture`;
+14. pass validator/tamper/archive-safety checks;
+15. run the documented geometric benchmark and record measured errors.
 
 The PoC does not need to generate final acoustic geometry.
 
