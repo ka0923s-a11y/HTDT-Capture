@@ -1,0 +1,74 @@
+name: Phase 6 ingestion
+
+on:
+  pull_request:
+    paths:
+      - "tools/htdt_ingestion/**"
+      - "tools/bundle_validator/**"
+      - "samples/phase6-integration/**"
+      - "schemas/capture-bundle-v1/mesh-anchors.schema.json"
+      - "schemas/htdt-ingestion-plan-v1.schema.json"
+      - "docs/HTDT_INGESTION_CONTRACT.md"
+      - "docs/PHASE6_INGESTION_INTEGRATION.md"
+      - ".github/workflows/phase6-ingestion.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "tools/htdt_ingestion/**"
+      - "tools/bundle_validator/**"
+      - "samples/phase6-integration/**"
+      - "schemas/capture-bundle-v1/mesh-anchors.schema.json"
+      - "schemas/htdt-ingestion-plan-v1.schema.json"
+      - "docs/HTDT_INGESTION_CONTRACT.md"
+      - "docs/PHASE6_INGESTION_INTEGRATION.md"
+      - ".github/workflows/phase6-ingestion.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile integration tooling
+        run: |
+          python -m py_compile \
+            tools/htdt_ingestion/reference_ingestor.py \
+            tools/htdt_ingestion/test_reference_ingestor.py
+      - name: Parse integration schemas
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          for path in [
+              Path("schemas/capture-bundle-v1/mesh-anchors.schema.json"),
+              Path("schemas/htdt-ingestion-plan-v1.schema.json"),
+          ]:
+              json.loads(path.read_text(encoding="utf-8"))
+              print(path)
+          PY
+      - name: Validate frozen integration bundle
+        run: |
+          python tools/bundle_validator/validator.py \
+            samples/phase6-integration \
+            --expect-digest 925108a1b3c1b432182efe1b7e18ccb0f1d98f4f17c939ca66a6095b0cc28550
+      - name: Run deterministic ingestion tests
+        run: python -m unittest tools.htdt_ingestion.test_reference_ingestor -v
+      - name: Build frozen ingestion plan
+        run: |
+          python tools/htdt_ingestion/reference_ingestor.py \
+            samples/phase6-integration \
+            --output /tmp/phase6-ingestion-plan.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          plan = json.loads(Path("/tmp/phase6-ingestion-plan.json").read_text())
+          assert plan["lineage_digest"] == "729a7590fb1d1e2142c196187ef11a9078522326daa1ef2fd2364b8fd1ef6bf1"
+          print(plan["lineage_digest"])
+          PY
