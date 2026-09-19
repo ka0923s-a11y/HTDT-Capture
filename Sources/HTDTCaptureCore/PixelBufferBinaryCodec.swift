@@ -193,9 +193,12 @@ public enum PixelBufferBinaryCodec {
         planes.reserveCapacity(planeCount)
         do {
             for descriptor in descriptors {
-                let payloadRange = descriptor.payloadOffset
-                    ..<(descriptor.payloadOffset + descriptor.payloadBytes)
-                let bytes = data.subdata(in: payloadRange)
+                let payloadStart = descriptor.payloadOffset
+                let payloadEnd =
+                    descriptor.payloadOffset + descriptor.payloadBytes
+                let bytes = data.subdata(
+                    in: payloadStart..<payloadEnd
+                )
                 planes.append(
                     try PackedPixelPlane(
                         width: descriptor.width,
