@@ -90,7 +90,9 @@ public struct MeshGeometryPayload: Codable, Sendable, Equatable {
             throw MeshGeometryError.indexCountNotTriangles(triangleIndices.count)
         }
 
-        let vertexCount = UInt32(vertices.count)
+        guard let vertexCount = UInt32(exactly: vertices.count) else {
+            throw MeshGeometryError.noVertices
+        }
         for index in triangleIndices where index >= vertexCount {
             throw MeshGeometryError.indexOutOfBounds(index)
         }
