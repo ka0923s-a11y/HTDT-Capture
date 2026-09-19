@@ -18,6 +18,24 @@ public struct EvidenceSHA256: Codable, Hashable, Sendable, CustomStringConvertib
     }
 
     public var description: String { value }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        do {
+            try self.init(value)
+        } catch {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Expected 64 lowercase hexadecimal SHA-256 characters"
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(value)
+    }
 }
 
 public struct CaptureRuntimeProvenance: Codable, Sendable, Equatable {
