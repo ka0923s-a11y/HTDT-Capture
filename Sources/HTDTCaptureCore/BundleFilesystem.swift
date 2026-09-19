@@ -116,18 +116,18 @@ public enum BundleDirectoryScanner {
                 ]
             )
 
-            let relative = String(
-                url.path.dropFirst(root.path.count)
-            ).trimmingCharacters(
-                in: CharacterSet(charactersIn: "/")
+            let rootComponents = root.standardizedFileURL.pathComponents
+            let fileComponents = url.standardizedFileURL.pathComponents
+            guard fileComponents.starts(with: rootComponents) else {
+                throw BundleFilesystemError.invalidPath(url.path)
+            }
+            let relativeComponents = fileComponents.dropFirst(
+                rootComponents.count
             )
-            if relative.isEmpty {
+            if relativeComponents.isEmpty {
                 continue
             }
-            let normalized = relative.replacingOccurrences(
-                of: "\\",
-                with: "/"
-            )
+            let normalized = relativeComponents.joined(separator: "/")
             try BundleLogicalPath.validate(normalized)
 
             if values.isSymbolicLink == true {
