@@ -70,6 +70,13 @@ public enum FrameDepthStatus: String, Codable, Sendable, Equatable {
     case capturedSmoothed = "captured_smoothed_scene_depth"
 }
 
+public enum DepthEvidenceReferenceError: Error, Sendable, Equatable {
+    case emptyDepthPath
+    case invalidDepthByteCount
+    case incompleteConfidenceReference
+    case invalidConfidenceReference
+}
+
 public struct DepthEvidenceReference: Codable, Sendable, Equatable {
     public let kind: DepthEvidenceKind
     public let depthRelativePath: String
@@ -87,7 +94,30 @@ public struct DepthEvidenceReference: Codable, Sendable, Equatable {
         confidenceRelativePath: String? = nil,
         confidenceByteCount: Int? = nil,
         confidenceSHA256: EvidenceSHA256? = nil
-    ) {
+    ) throws {
+        guard !depthRelativePath.isEmpty else {
+            throw DepthEvidenceReferenceError.emptyDepthPath
+        }
+        guard depthByteCount > 0 else {
+            throw DepthEvidenceReferenceError.invalidDepthByteCount
+        }
+
+        let confidenceValues = (
+            confidenceRelativePath,
+            confidenceByteCount,
+            confidenceSHA256
+        )
+        switch confidenceValues {
+        case (nil, nil, nil):
+            break
+        case let (.some(path), .some(count), .some):
+            guard !path.isEmpty, count > 0 else {
+                throw DepthEvidenceReferenceError.invalidConfidenceReference
+            }
+        default:
+            throw DepthEvidenceReferenceError.incompleteConfidenceReference
+        }
+
         self.kind = kind
         self.depthRelativePath = depthRelativePath
         self.depthByteCount = depthByteCount
@@ -95,6 +125,16 @@ public struct DepthEvidenceReference: Codable, Sendable, Equatable {
         self.confidenceRelativePath = confidenceRelativePath
         self.confidenceByteCount = confidenceByteCount
         self.confidenceSHA256 = confidenceSHA256
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case depthRelativePath = "depth_relative_path"
+        case depthByteCount = "depth_byte_count"
+        case depthSHA256 = "depth_sha256"
+        case confidenceRelativePath = "confidence_relative_path"
+        case confidenceByteCount = "confidence_byte_count"
+        case confidenceSHA256 = "confidence_sha256"
     }
 }
 
