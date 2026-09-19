@@ -29,6 +29,13 @@ public enum DepthEvidenceKind: String, Codable, Sendable, Equatable {
     case smoothedSceneDepth = "smoothed_scene_depth"
 }
 
+public enum FrameDepthStatus: String, Codable, Sendable, Equatable {
+    case notRequested = "not_requested"
+    case unavailable
+    case capturedDiscrete = "captured_scene_depth"
+    case capturedSmoothed = "captured_smoothed_scene_depth"
+}
+
 public struct DepthEvidenceReference: Codable, Sendable, Equatable {
     public let kind: DepthEvidenceKind
     public let depthRelativePath: String
@@ -71,6 +78,7 @@ public struct FrameEvidenceDescriptor: Codable, Sendable, Equatable {
     public let pixelByteCount: Int
     public let pixelSHA256: EvidenceSHA256
     public let exifAllowlisted: [String: String]
+    public let depthStatus: FrameDepthStatus
     public let depth: DepthEvidenceReference?
 
     public init(
@@ -87,6 +95,7 @@ public struct FrameEvidenceDescriptor: Codable, Sendable, Equatable {
         pixelByteCount: Int,
         pixelSHA256: EvidenceSHA256,
         exifAllowlisted: [String: String] = [:],
+        depthStatus: FrameDepthStatus = .notRequested,
         depth: DepthEvidenceReference? = nil
     ) {
         self.frameID = frameID
@@ -102,6 +111,7 @@ public struct FrameEvidenceDescriptor: Codable, Sendable, Equatable {
         self.pixelByteCount = pixelByteCount
         self.pixelSHA256 = pixelSHA256
         self.exifAllowlisted = exifAllowlisted
+        self.depthStatus = depthStatus
         self.depth = depth
     }
 }
