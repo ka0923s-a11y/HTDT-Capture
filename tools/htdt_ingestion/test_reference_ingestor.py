@@ -5,6 +5,8 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -145,6 +147,34 @@ class ReferenceIngestorTests(unittest.TestCase):
             records["measurement"]["provenance_class"],
             "user_attested_measurement",
         )
+
+    def test_direct_cli_execution_builds_expected_plan(self):
+        with tempfile.TemporaryDirectory() as td:
+            output = Path(td) / "plan.json"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(
+                        REPO_ROOT
+                        / "tools"
+                        / "htdt_ingestion"
+                        / "reference_ingestor.py"
+                    ),
+                    str(FIXTURE),
+                    "--output",
+                    str(output),
+                ],
+                cwd=REPO_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            plan = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(
+                plan["lineage_digest"],
+                EXPECTED_LINEAGE_DIGEST,
+            )
 
     def test_archive_and_directory_produce_identical_ingestion_plan(self):
         directory_plan = build_ingestion_plan(FIXTURE)
