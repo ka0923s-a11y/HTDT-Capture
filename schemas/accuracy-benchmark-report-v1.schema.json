@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/accuracy-benchmark-report-v1.schema.json",
+  "title": "HTDT-Capture Accuracy Benchmark Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "schema_version", "benchmark_id", "protocol_version",
+    "ruleset_version", "threshold_notice", "source_observations_sha256",
+    "source_ruleset_sha256", "engineering_gate_status", "metrics", "gates"
+  ],
+  "properties": {
+    "schema": {"const": "htdt.capture.accuracy-benchmark-report"},
+    "schema_version": {"const": "1.0.0"},
+    "benchmark_id": {"type": "string"},
+    "protocol_version": {"type": "string"},
+    "ruleset_version": {"type": "string"},
+    "threshold_notice": {
+      "const": "provisional_engineering_gate_not_product_claim"
+    },
+    "source_observations_sha256": {
+      "type": "string", "pattern": "^[0-9a-f]{64}$"
+    },
+    "source_ruleset_sha256": {
+      "type": "string", "pattern": "^[0-9a-f]{64}$"
+    },
+    "engineering_gate_status": {
+      "enum": ["pass", "fail", "insufficient_data"]
+    },
+    "metrics": {"type": "object"},
+    "gates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code", "status", "value", "threshold", "comparison", "unit"
+        ],
+        "properties": {
+          "code": {"type": "string", "minLength": 1},
+          "status": {"enum": ["pass", "fail", "insufficient_data"]},
+          "value": {"type": ["number", "null"]},
+          "threshold": {"type": "number", "minimum": 0},
+          "comparison": {"const": "<="},
+          "unit": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}
