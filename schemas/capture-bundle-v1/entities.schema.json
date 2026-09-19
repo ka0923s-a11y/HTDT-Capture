@@ -19,97 +19,7 @@
     "entities": {
       "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "entity_id",
-          "type",
-          "coordinate_space_id",
-          "label",
-          "provenance_class",
-          "verification_state",
-          "placement_method"
-        ],
-        "properties": {
-          "entity_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-          },
-          "type": {
-            "enum": [
-              "speaker",
-              "subwoofer",
-              "display",
-              "projection_screen",
-              "listening_position",
-              "seat",
-              "acoustic_treatment",
-              "equipment_rack",
-              "reference_point",
-              "custom"
-            ]
-          },
-          "coordinate_space_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-          },
-          "label": {
-            "type": "string"
-          },
-          "provenance_class": {
-            "enum": [
-              "user_annotation",
-              "imported_reference",
-              "capture_app_derived"
-            ]
-          },
-          "verification_state": {
-            "enum": [
-              "unverified",
-              "user_attested",
-              "evidence_linked"
-            ]
-          },
-          "placement_method": {
-            "enum": [
-              "manual_numeric",
-              "raycast",
-              "mesh_hit_test",
-              "roomplan_binding",
-              "imported_reference",
-              "other"
-            ]
-          },
-          "T_world_from_annotation": {
-            "$ref": "#/$defs/matrix4f"
-          },
-          "front_axis_local": {
-            "$ref": "#/$defs/vector3f"
-          },
-          "up_axis_local": {
-            "$ref": "#/$defs/vector3f"
-          },
-          "acoustic_center_offset_local_m": {
-            "$ref": "#/$defs/vector3f"
-          },
-          "channel_role": {
-            "type": "string"
-          },
-          "equipment_ref": {
-            "type": "string"
-          },
-          "source_semantic_entity_id": {
-            "type": "string"
-          },
-          "evidence_refs": {
-            "type": "array",
-            "uniqueItems": true,
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        }
+        "$ref": "#/$defs/entity"
       }
     }
   },
@@ -140,6 +50,252 @@
           "items": {
             "type": "number"
           }
+        }
+      }
+    },
+    "orientation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "front_axis_local",
+        "up_axis_local"
+      ],
+      "properties": {
+        "front_axis_local": {
+          "$ref": "#/$defs/vector3f"
+        },
+        "up_axis_local": {
+          "$ref": "#/$defs/vector3f"
+        }
+      }
+    },
+    "acousticCenter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "offset_local_m",
+        "authority_ref"
+      ],
+      "properties": {
+        "offset_local_m": {
+          "$ref": "#/$defs/vector3f"
+        },
+        "authority_ref": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "source_evidence_refs"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "manual_numeric",
+            "raycast",
+            "mesh_hit_test",
+            "roomplan_binding",
+            "imported_reference",
+            "other"
+          ]
+        },
+        "source_semantic_entity_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_mesh_anchor_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "source_roomplan_object_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "entity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entity_id",
+        "type",
+        "coordinate_space_id",
+        "T_world_from_annotation",
+        "reference_point_semantics",
+        "label",
+        "provenance_class",
+        "verification_state",
+        "placement",
+        "evidence_refs"
+      ],
+      "properties": {
+        "entity_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "type": {
+          "enum": [
+            "speaker",
+            "subwoofer",
+            "display",
+            "projection_screen",
+            "listening_position",
+            "seat",
+            "acoustic_treatment",
+            "equipment_rack",
+            "reference_point",
+            "custom"
+          ]
+        },
+        "coordinate_space_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "T_world_from_annotation": {
+          "$ref": "#/$defs/matrix4f"
+        },
+        "reference_point_semantics": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provenance_class": {
+          "enum": [
+            "user_annotation",
+            "imported_reference",
+            "capture_app_derived"
+          ]
+        },
+        "verification_state": {
+          "enum": [
+            "unverified",
+            "user_attested",
+            "evidence_linked"
+          ]
+        },
+        "placement": {
+          "$ref": "#/$defs/placement"
+        },
+        "orientation": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/orientation"
+            }
+          ]
+        },
+        "channel_role": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[A-Z0-9_]+$"
+        },
+        "acoustic_center": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/acousticCenter"
+            }
+          ]
+        },
+        "equipment_ref": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/equipmentRef"
+            }
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "speaker"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "orientation",
+              "channel_role"
+            ],
+            "properties": {
+              "orientation": {
+                "$ref": "#/$defs/orientation"
+              },
+              "channel_role": {
+                "type": "string",
+                "pattern": "^[A-Z0-9_]+$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "equipmentRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "equipment_id",
+        "equipment_version",
+        "equipment_hash"
+      ],
+      "properties": {
+        "equipment_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "equipment_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "equipment_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         }
       }
     }
