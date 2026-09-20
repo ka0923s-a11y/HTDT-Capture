@@ -75,6 +75,7 @@ public struct CaptureRootView: View {
     public let scanCoverage: ScanCoverageSummary
     public let observationStability: ObservationStabilitySummary
     public let spatialCoverage: SpatialScanCoverageSummary
+    public let motionGuidance: ScanMotionGuidance?
     public let derivedShapePreview: DerivedShapePreviewSnapshot
     public let scanEvidenceFrameCount: Int
     public let actions: CaptureRootActions
@@ -95,6 +96,7 @@ public struct CaptureRootView: View {
         scanCoverage: ScanCoverageSummary = .empty,
         observationStability: ObservationStabilitySummary = .empty,
         spatialCoverage: SpatialScanCoverageSummary = .empty,
+        motionGuidance: ScanMotionGuidance? = nil,
         derivedShapePreview: DerivedShapePreviewSnapshot = .empty,
         scanEvidenceFrameCount: Int = 0,
         actions: CaptureRootActions = CaptureRootActions()
@@ -116,6 +118,7 @@ public struct CaptureRootView: View {
         self.scanCoverage = scanCoverage
         self.observationStability = observationStability
         self.spatialCoverage = spatialCoverage
+        self.motionGuidance = motionGuidance
         self.derivedShapePreview = derivedShapePreview
         self.scanEvidenceFrameCount = scanEvidenceFrameCount
         self.actions = actions
@@ -131,6 +134,7 @@ public struct CaptureRootView: View {
                     coverage: scanCoverage,
                     observation: observationStability,
                     spatialCoverage: spatialCoverage,
+                    motionGuidance: motionGuidance,
                     derivedPreview: derivedShapePreview,
                     evidenceFrameCount: scanEvidenceFrameCount,
                     captureEvidenceFrame:
