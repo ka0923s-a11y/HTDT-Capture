@@ -419,11 +419,25 @@ public final class SharedARSessionController {
             throw PlatformCaptureError.currentFrameUnavailable
         }
 
+        let cameraPosition = frame.camera.transform.columns.3
         let anchors = frame.anchors
             .compactMap { $0 as? ARMeshAnchor }
-            .sorted {
-                $0.identifier.uuidString.lowercased()
-                    < $1.identifier.uuidString.lowercased()
+            .sorted { lhs, rhs in
+                let lhsPosition = lhs.transform.columns.3
+                let rhsPosition = rhs.transform.columns.3
+                let lhsDistance =
+                    pow(lhsPosition.x - cameraPosition.x, 2)
+                    + pow(lhsPosition.y - cameraPosition.y, 2)
+                    + pow(lhsPosition.z - cameraPosition.z, 2)
+                let rhsDistance =
+                    pow(rhsPosition.x - cameraPosition.x, 2)
+                    + pow(rhsPosition.y - cameraPosition.y, 2)
+                    + pow(rhsPosition.z - cameraPosition.z, 2)
+                if abs(lhsDistance - rhsDistance) > 0.000_001 {
+                    return lhsDistance < rhsDistance
+                }
+                return lhs.identifier.uuidString.lowercased()
+                    < rhs.identifier.uuidString.lowercased()
             }
 
         guard !anchors.isEmpty else {
@@ -657,7 +671,12 @@ public final class SharedARSessionController {
                     classificationPointer
                         .assumingMemoryBound(to: UInt8.self)
                         .pointee
-                guard Int(rawClassification) == classification.rawValue else {
+                guard rawClassification
+                        == UInt8(
+                            truncatingIfNeeded:
+                                classification.rawValue
+                        )
+                else {
                     continue
                 }
 
