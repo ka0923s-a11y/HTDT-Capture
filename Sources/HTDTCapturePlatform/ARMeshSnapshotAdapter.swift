@@ -75,7 +75,8 @@ public enum ARMeshSnapshotAdapter {
                 case 4:
                     indices.append(readUInt32LE(pointer))
                 default:
-                    fatalError("validated above")
+                    throw ARMeshSnapshotAdapterError
+                        .unsupportedIndexWidth(faces.bytesPerIndex)
                 }
             }
         }
