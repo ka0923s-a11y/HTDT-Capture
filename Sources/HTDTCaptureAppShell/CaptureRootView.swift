@@ -167,6 +167,7 @@ public struct CaptureRootView: View {
                     coordinateSpaceID: coordinateSpaceID,
                     availableEvidenceRefs:
                         annotationEvidenceRefs,
+                    statusMessage: workingSetStatus,
                     captureRaycastPlacement:
                         actions.captureRaycastPlacement,
                     captureSpeakerOrientation:
