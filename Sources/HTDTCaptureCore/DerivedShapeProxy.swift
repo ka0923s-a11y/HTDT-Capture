@@ -727,14 +727,21 @@ public enum DerivedShapeProxyFitter {
             if angle < 0 {
                 angle += 2 * Double.pi
             }
-            let rawIndex =
-                Int(
-                    floor(
-                        angle
-                        / (2 * Double.pi)
-                        * Double(angularBinCount)
+
+            // Center the bins on the nominal ray directions. Without the
+            // half-bin offset, numerically identical rays from multiple
+            // depth rings can straddle a bin boundary and let an interior
+            // sample replace the true outer boundary.
+            let fullTurn = 2 * Double.pi
+            let binWidth =
+                fullTurn / Double(angularBinCount)
+            let centeredAngle =
+                (angle + binWidth / 2)
+                    .truncatingRemainder(
+                        dividingBy: fullTurn
                     )
-                )
+            let rawIndex =
+                Int(floor(centeredAngle / binWidth))
             let index = min(
                 angularBinCount - 1,
                 max(0, rawIndex)
