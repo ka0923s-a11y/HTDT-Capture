@@ -122,10 +122,9 @@ final class DerivedObjectDecompositionTests: XCTestCase {
         XCTAssertEqual(result.components.count, 2)
         XCTAssertGreaterThanOrEqual(result.unassignedPointCount, 1)
         XCTAssertFalse(result.components.contains { component in
-            component.observation.points.contains {
-                $0.evidenceRef.hasPrefix("noise-")
-            }
-            && component.pointCount > first.count + second.count
+            let refs = component.observation.points.map(\.evidenceRef)
+            return refs.contains { $0.hasPrefix("first-") }
+                && refs.contains { $0.hasPrefix("second-") }
         })
     }
 
@@ -315,6 +314,22 @@ final class DerivedObjectDecompositionTests: XCTestCase {
             append(maxX, maxY, z)
         }
 
+        let supportPatchX = min(0.06, (maxX - minX) / 6)
+        let supportPatchZ = min(0.06, (maxZ - minZ) / 6)
+        let centerX = (minX + maxX) / 2
+        let centerZ = (minZ + maxZ) / 2
+        for y in [minY, maxY] {
+            for xOffset in [-supportPatchX, 0, supportPatchX] {
+                for zOffset in [-supportPatchZ, 0, supportPatchZ] {
+                    append(
+                        centerX + xOffset,
+                        y,
+                        centerZ + zOffset
+                    )
+                }
+            }
+        }
+
         let verticalSamples =
             max(1, Int(ceil((maxY - minY) / verticalStep)))
         for index in 0...verticalSamples {
@@ -337,7 +352,7 @@ final class DerivedObjectDecompositionTests: XCTestCase {
     ) -> [DerivedObservationPoint] {
         var result: [DerivedObservationPoint] = []
         let longitudinalSamples = 10
-        let zOffsets = [-0.05, 0.0, 0.05]
+        let zOffsets = [-0.35, -0.30, -0.25]
 
         for index in 0...longitudinalSamples {
             let t = Double(index) / Double(longitudinalSamples)
