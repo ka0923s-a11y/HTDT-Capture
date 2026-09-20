@@ -711,6 +711,7 @@ public final class SharedARSessionController {
                                 x: Double(point.x),
                                 y: Double(point.z)
                             ),
+                            verticalY: Double(point.y),
                             evidenceRef: evidenceRef,
                             evidenceKind: .mesh
                         )
@@ -756,6 +757,7 @@ public final class SharedARSessionController {
                             x: Double(edge.firstPoint.x),
                             y: Double(edge.firstPoint.z)
                         ),
+                        verticalY: Double(edge.firstPoint.y),
                         evidenceRef: edge.evidenceRef,
                         evidenceKind: .mesh
                     ),
@@ -764,6 +766,7 @@ public final class SharedARSessionController {
                             x: Double(edge.secondPoint.x),
                             y: Double(edge.secondPoint.z)
                         ),
+                        verticalY: Double(edge.secondPoint.y),
                         evidenceRef: edge.evidenceRef,
                         evidenceKind: .mesh
                     ),
@@ -915,11 +918,18 @@ public final class SharedARSessionController {
             if $0.position.y != $1.position.y {
                 return $0.position.y < $1.position.y
             }
+            if $0.verticalY != $1.verticalY {
+                return ($0.verticalY ?? -.infinity)
+                    < ($1.verticalY ?? -.infinity)
+            }
             return $0.evidenceRef < $1.evidenceRef
         }) {
             let key = LiveDerivedVoxelKey(
                 x: Int(floor(point.position.x / voxelSizeMeters)),
-                y: Int(floor(point.position.y / voxelSizeMeters))
+                z: Int(floor(point.position.y / voxelSizeMeters)),
+                y: point.verticalY.map {
+                    Int(floor($0 / voxelSizeMeters))
+                } ?? Int.min
             )
             if cells[key] == nil {
                 cells[key] = point
@@ -932,6 +942,10 @@ public final class SharedARSessionController {
             }
             if $0.position.y != $1.position.y {
                 return $0.position.y < $1.position.y
+            }
+            if $0.verticalY != $1.verticalY {
+                return ($0.verticalY ?? -.infinity)
+                    < ($1.verticalY ?? -.infinity)
             }
             return $0.evidenceRef < $1.evidenceRef
         }
@@ -1032,6 +1046,7 @@ private struct LiveDerivedMeshEdgeRecord {
 
 private struct LiveDerivedVoxelKey: Hashable {
     let x: Int
+    let z: Int
     let y: Int
 }
 
