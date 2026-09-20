@@ -43,6 +43,8 @@ private struct HTDTCaptureHostView: View {
             scanCoverage: coordinator.scanCoverage,
             observationStability:
                 coordinator.observationStability,
+            derivedShapePreview:
+                coordinator.derivedShapePreview,
             scanEvidenceFrameCount:
                 coordinator.scanEvidenceFrameCount,
             actions: CaptureRootActions(
@@ -96,6 +98,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var scanCoverage: ScanCoverageSummary = .empty
     @Published private(set)
     var observationStability: ObservationStabilitySummary = .empty
+    @Published private(set)
+    var derivedShapePreview: DerivedShapePreviewSnapshot = .empty
     @Published private(set)
     var scanEvidenceFrameCount = 0
 
@@ -152,6 +156,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             ObservationStabilityTracker()
         observationStability =
             observationStabilityTracker.summary()
+        derivedShapePreview = .empty
         scanEvidenceFrameCount = 0
         resourceMonitor?.stop()
         resourceMonitor = nil
@@ -577,6 +582,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             ObservationStabilityTracker()
         observationStability =
             observationStabilityTracker.summary()
+        derivedShapePreview = .empty
         scanEvidenceFrameCount = 0
         resourceMonitor?.stop()
         resourceMonitor = nil
@@ -1007,6 +1013,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
+            var derivedPreviewTick = 0
             while !Task.isCancelled {
                 guard self.captureGeneration == generation,
                       self.state == .scanning
@@ -1024,6 +1031,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         self.observationStabilityTracker.record(
                             sample
                         )
+
+                    derivedPreviewTick += 1
+                    if derivedPreviewTick == 1
+                        || derivedPreviewTick.isMultiple(of: 4)
+                    {
+                        self.derivedShapePreview =
+                            (
+                                try? self.sessionController
+                                    .snapshotDerivedShapePreview()
+                            ) ?? .empty
+                    }
                 }
 
                 try? await Task.sleep(

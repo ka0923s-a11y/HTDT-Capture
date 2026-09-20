@@ -245,6 +245,70 @@ public final class SharedARSessionController {
         return try snapshotMeshAnchors(from: frame)
     }
 
+    public func snapshotDerivedShapePreview()
+        throws -> DerivedShapePreviewSnapshot
+    {
+        guard let frame = arSession.currentFrame else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        let snapshots = try snapshotMeshAnchors(from: frame)
+        let tableClassification = UInt8(
+            truncatingIfNeeded: ARMeshClassification.table.rawValue
+        )
+        let wallClassification = UInt8(
+            truncatingIfNeeded: ARMeshClassification.wall.rawValue
+        )
+
+        var objectProxies: [DerivedShapeProxy] = []
+        if let tableObservation =
+            try MeshDerivedShapeObservationBuilder.build(
+                snapshots: snapshots,
+                allowedFaceClassifications: [tableClassification],
+                voxelSizeMeters: 0.035,
+                maxPoints: 384
+            )
+        {
+            let components =
+                DerivedShapeProxyFitter.connectedComponents(
+                    in: tableObservation,
+                    maxLinkDistance: 0.30,
+                    minimumPointCount: 8
+                )
+            objectProxies = Array(
+                components.prefix(3).map {
+                    DerivedShapeProxyFitter.fit(
+                        observation: $0
+                    )
+                }
+            )
+        }
+
+        var wallChain: DerivedWallChainProxy?
+        if let wallObservation =
+            try MeshDerivedShapeObservationBuilder.build(
+                snapshots: snapshots,
+                allowedFaceClassifications: [wallClassification],
+                voxelSizeMeters: 0.06,
+                maxPoints: 512
+            )
+        {
+            wallChain = DerivedShapeProxyFitter.wallChain(
+                observation: wallObservation
+            )
+        }
+
+        return DerivedShapePreviewSnapshot(
+            objectProxies: objectProxies,
+            wallChain: wallChain,
+            disagreements:
+                DerivedShapeDisagreementEvaluator.evaluate(
+                    objectProxies: objectProxies,
+                    wallChain: wallChain
+                )
+        )
+    }
+
     public func snapshotHorizontalCameraHeading(
         depthSelection: FrameDepthSelection = .discrete
     ) throws -> CapturedSpeakerOrientation {

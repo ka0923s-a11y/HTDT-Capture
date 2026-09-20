@@ -6,16 +6,19 @@ public struct CaptureScanningView: View {
     public let preview: AnyView
     public let coverage: ScanCoverageSummary
     public let observation: ObservationStabilitySummary
+    public let derivedPreview: DerivedShapePreviewSnapshot
     public let evidenceFrameCount: Int
     public let captureEvidenceFrame: () -> Void
     public let endScan: () -> Void
 
     @State private var showingEndScanReview = false
+    @State private var derivedPreviewMode: DerivedPreviewMode = .overlay
 
     public init(
         preview: AnyView,
         coverage: ScanCoverageSummary,
         observation: ObservationStabilitySummary,
+        derivedPreview: DerivedShapePreviewSnapshot,
         evidenceFrameCount: Int,
         captureEvidenceFrame: @escaping () -> Void,
         endScan: @escaping () -> Void
@@ -23,6 +26,7 @@ public struct CaptureScanningView: View {
         self.preview = preview
         self.coverage = coverage
         self.observation = observation
+        self.derivedPreview = derivedPreview
         self.evidenceFrameCount = evidenceFrameCount
         self.captureEvidenceFrame = captureEvidenceFrame
         self.endScan = endScan
@@ -35,11 +39,25 @@ public struct CaptureScanningView: View {
 
             preview
                 .ignoresSafeArea()
+                .opacity(
+                    derivedPreviewMode == .observation
+                    ? 0.18
+                    : 1
+                )
 
             VStack(spacing: 0) {
                 scanStatusHUD
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
+
+                if derivedPreview.hasEvidence {
+                    DerivedShapePreviewPanel(
+                        snapshot: derivedPreview,
+                        mode: $derivedPreviewMode
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                }
 
                 Spacer(minLength: 12)
 
