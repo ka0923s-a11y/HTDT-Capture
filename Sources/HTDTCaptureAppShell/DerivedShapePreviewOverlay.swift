@@ -16,7 +16,7 @@ enum DerivedPreviewMode: String, CaseIterable, Identifiable {
         case .observation:
             return "Observed shape"
         case .overlay:
-            return "Overlay"
+            return "Compare"
         }
     }
 }
