@@ -145,3 +145,13 @@
 "Manual entries are persisted as user-attested measurements; derived LiDAR/RoomPlan values should use their dedicated evidence path instead." = "手入力値はユーザー確認済みの計測値として保存されます。LiDAR / RoomPlan から導出した値は専用の証拠経路を使用してください。";
 "Linked evidence frames" = "関連する証拠フレーム";
 "Links reference exact canonical frame descriptors already persisted in this working revision." = "リンクは、この作業リビジョンに保存済みの正規フレーム記述子を正確に参照します。";
+
+"Catalog import failed: " = "カタログの読み込みに失敗しました: ";
+"RoomPlan capture has not completed successfully." = "RoomPlan のキャプチャが正常に完了していません。";
+"Active mesh anchor count is below the required minimum." = "有効なメッシュアンカー数が必要な最小値を下回っています。";
+"Evidence frame count is below the required minimum." = "証拠フレーム数が必要な最小値を下回っています。";
+"This quality ruleset requires at least one depth observation." = "この品質ルールでは、少なくとも1件の深度観測が必要です。";
+"AR tracking became unavailable during the capture." = "キャプチャ中に AR トラッキングが利用できなくなりました。";
+"AR tracking was limited during part of the capture." = "キャプチャ中の一部区間で AR トラッキングが制限されました。";
+"Bundle integrity must pass before finalization." = "確定前にバンドル整合性チェックへ合格する必要があります。";
+"Bundle integrity validation failed." = "バンドル整合性の検証に失敗しました。";
