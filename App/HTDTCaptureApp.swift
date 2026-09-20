@@ -1667,8 +1667,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            var meshSnapshotUnavailable =
-                pending.prepared.meshSnapshotUnavailable
             if let meshPackage = pending.prepared.meshPackage {
                 self.workingSetStatus = HostLocalization.text(
                     "Saving available mesh evidence",
@@ -1677,7 +1675,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 do {
                     try await store.persistMeshPackage(meshPackage)
                 } catch {
-                    meshSnapshotUnavailable = true
                     await store.recordResourceEvent(
                         CaptureResourceEvent(
                             kind: .persistenceFailure,
@@ -1688,11 +1685,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     )
                 }
             }
-
-            await self.refreshQuality(
-                store: store,
-                generation: generation
-            )
 
             guard self.captureGeneration == generation,
                   self.state == .scanning,
@@ -1719,27 +1711,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             self.isEndingScan = false
-            if meshSnapshotUnavailable {
-                self.workingSetStatus = HostLocalization.text(
-                    "Reviewing; frame/depth evidence was retained, but the mesh snapshot was unavailable",
-                    "確認中：フレーム／深度証拠は保存しましたが、メッシュスナップショットは取得できませんでした"
-                )
-            } else if raw == nil {
-                self.workingSetStatus =
-                    HostLocalization.text(
-                        "Reviewing; processed RoomPlan and depth evidence were retained. Apple raw RoomPlan serialization was unavailable.",
-                        "確認中：処理済み RoomPlan と深度証拠は保持しました。Apple の RoomPlan 生データシリアライズのみ利用できませんでした。"
-                    )
-                    + " ["
-                    + (rawSerializationDiagnostic
-                        ?? "encoding_failed")
-                    + "]"
-            } else {
-                self.workingSetStatus = HostLocalization.text(
-                    "Reviewing; required end evidence and RoomPlan result were saved",
-                    "確認中：終了に必要な証拠データと RoomPlan 結果を保存しました"
-                )
-            }
+
+            // Quality publication is review-state authority. Before #91 this
+            // ran while still scanning and refreshQuality intentionally
+            // discarded the report, leaving Review unable to finalize.
+            await self.refreshQuality(
+                store: store,
+                generation: generation
+            )
         }
     }
 
