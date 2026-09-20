@@ -516,7 +516,11 @@ public final class SharedARSessionController {
                 max(maxObjectPoints * 2, 256),
                 512
             ),
-            cropFraction: 0.92,
+            // Derived object fitting is intentionally more focused than
+            // whole-room spatial coverage. A broad crop mixes nearby floor,
+            // chairs and cabinets into one projected footprint and biases
+            // curved furniture toward coarse polygons/rectangles.
+            cropFraction: 0.82,
             minimumDepthMeters: 0.18,
             maximumDepthMeters: 4.5
         )
@@ -534,12 +538,15 @@ public final class SharedARSessionController {
             )
 
         let objectObservation: DerivedShapeObservation?
-        if let meshObjectObservation,
-           meshObjectObservation.points.count >= 8
+        if let depthVolumeObservation,
+           depthVolumeObservation.points.count >= 8
         {
-            objectObservation = meshObjectObservation
-        } else {
+            // Scene depth preserves the observed contour of round/curved and
+            // multi-level furniture substantially better than RoomPlan/ARMesh
+            // semantic reconstruction. Keep ARMesh as a bounded fallback only.
             objectObservation = depthVolumeObservation
+        } else {
+            objectObservation = meshObjectObservation
         }
 
         return DerivedShapeLiveObservationSet(
