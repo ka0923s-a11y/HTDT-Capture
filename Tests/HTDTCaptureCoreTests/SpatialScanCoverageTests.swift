@@ -253,7 +253,7 @@ final class SpatialScanCoverageTests: XCTestCase {
             SpatialCoverageSample(
                 sessionTimestampSeconds: 2,
                 cameraPositionWorld:
-                    SpatialCoveragePoint3D(x: 0.6, y: 1.5, z: 0),
+                    SpatialCoveragePoint3D(x: 2.0, y: 1.5, z: 0),
                 cameraYawRadians: 0,
                 trackingState: .normal,
                 hasSceneDepth: true,
