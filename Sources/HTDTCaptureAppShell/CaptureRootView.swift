@@ -387,6 +387,10 @@ public struct CaptureRootView: View {
                 "Prepare .htdtcapture",
                 action: actions.prepareExport
             )
+            Button(
+                "Start new capture",
+                action: actions.resetCapture
+            )
 
         case .exported:
             VStack(alignment: .leading, spacing: 8) {
