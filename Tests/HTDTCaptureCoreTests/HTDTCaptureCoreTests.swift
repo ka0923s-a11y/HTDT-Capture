@@ -30,6 +30,17 @@ func stateMachineHappyPath() throws {
 }
 
 @Test
+func validationFailureReturnsToReviewForRetry() throws {
+    var machine = CaptureStateMachine(state: .reviewing)
+    try machine.apply(.beginValidation)
+    #expect(machine.state == .validating)
+
+    try machine.apply(.validationFailed)
+    #expect(machine.state == .reviewing)
+    #expect(machine.lastFailure == nil)
+}
+
+@Test
 func stateMachineRejectsInvalidTransition() {
     var machine = CaptureStateMachine()
     #expect(throws: CaptureStateMachineError.self) {
