@@ -86,6 +86,12 @@ public enum SpatialCoverageClassification: String, Sendable, Equatable {
     case observed
 }
 
+public enum SpatialCoverageEvidenceSource: String, Sendable, Equatable {
+    case none
+    case mesh
+    case sceneDepth = "scene_depth"
+}
+
 public struct SpatialCoverageCellKey:
     Sendable,
     Hashable,
@@ -174,6 +180,7 @@ public struct SpatialCoverageSample: Sendable {
     public let trackingState: TrackingQualityState
     public let hasSceneDepth: Bool
     public let meshAvailability: MeshAvailabilityDiagnostic
+    public let surfaceEvidenceSource: SpatialCoverageEvidenceSource
     public let surfacePointsWorld: [SpatialCoveragePoint3D]
 
     public init(
@@ -183,6 +190,7 @@ public struct SpatialCoverageSample: Sendable {
         trackingState: TrackingQualityState,
         hasSceneDepth: Bool,
         meshAvailability: MeshAvailabilityDiagnostic,
+        surfaceEvidenceSource: SpatialCoverageEvidenceSource = .mesh,
         surfacePointsWorld: [SpatialCoveragePoint3D]
     ) {
         self.sessionTimestampSeconds = sessionTimestampSeconds
@@ -191,6 +199,7 @@ public struct SpatialCoverageSample: Sendable {
         self.trackingState = trackingState
         self.hasSceneDepth = hasSceneDepth
         self.meshAvailability = meshAvailability
+        self.surfaceEvidenceSource = surfaceEvidenceSource
         self.surfacePointsWorld = surfacePointsWorld
     }
 }
@@ -258,6 +267,11 @@ public struct SpatialScanCoverageSummary: Sendable, Equatable {
 
     public var knownRegionCount: Int {
         regions.count
+    }
+
+    public var usesDepthFallback: Bool {
+        meshAvailability.state != .anchorsObserved
+            && regions.contains { $0.depthObservationCount > 0 }
     }
 
     public var displayUnknownRegionCount: Int {
@@ -403,7 +417,13 @@ public struct SpatialScanCoverageTracker: Sendable {
             region.observationCount += 1
             region.lastObservedTimestampSeconds =
                 sample.sessionTimestampSeconds
-            region.meshSupportCount += 1
+
+            switch sample.surfaceEvidenceSource {
+            case .mesh:
+                region.meshSupportCount += 1
+            case .sceneDepth, .none:
+                break
+            }
 
             let dx = cameraRelative.x - relative.x
             let dz = cameraRelative.z - relative.z
@@ -471,10 +491,15 @@ public struct SpatialScanCoverageTracker: Sendable {
     ) -> SpatialCoverageClassification {
         let angleDiversity = region.viewAngleBucketMask.nonzeroBitCount
 
+        let geometricSupportCount = max(
+            region.meshSupportCount,
+            region.depthObservationCount
+        )
+
         if region.normalTrackingObservationCount
                 >= minimumNormalObservations,
            angleDiversity >= minimumViewAngleBuckets,
-           region.meshSupportCount >= minimumNormalObservations
+           geometricSupportCount >= minimumNormalObservations
         {
             return .observed
         }
