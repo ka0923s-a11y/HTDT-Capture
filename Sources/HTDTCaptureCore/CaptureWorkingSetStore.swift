@@ -368,6 +368,271 @@ public actor CaptureWorkingSetStore {
         processedRoomPlanDescriptor = processed.descriptor
     }
 
+    public func rollbackAcceptedEndTransaction(
+        removeOwnedMesh: Bool
+    ) async throws {
+        guard sessionFoundation != nil,
+              let expectedTiming = timingDocument,
+              let expectedRaw = rawRoomPlanDescriptor,
+              let expectedProcessed = processedRoomPlanDescriptor,
+              expectedProcessed.sourceRawSHA256
+                == expectedRaw.sha256,
+              expectedProcessed.captureSessionID
+                == expectedRaw.captureSessionID,
+              expectedProcessed.coordinateSpaceID
+                == expectedRaw.coordinateSpaceID
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        func payloadURL(_ path: String) throws -> URL {
+            try BundleLogicalPath.validate(path)
+            return path
+                .split(separator: "/")
+                .reduce(rootDirectory) {
+                    url,
+                    component in
+                    url.appendingPathComponent(
+                        String(component),
+                        isDirectory: false
+                    )
+                }
+        }
+
+        let timingData = try Data(
+            contentsOf: payloadURL(
+                CaptureTimingPackage.path
+            )
+        )
+        guard
+            let decodedTiming = try? JSONDecoder().decode(
+                CaptureTimingDocument.self,
+                from: timingData
+            ),
+            decodedTiming == expectedTiming
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        let rawData = try Data(
+            contentsOf: payloadURL(expectedRaw.relativePath)
+        )
+        guard
+            rawData.count == expectedRaw.byteCount,
+            EvidenceIntegrity.sha256(of: rawData)
+                == expectedRaw.sha256
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        let processedData = try Data(
+            contentsOf: payloadURL(
+                expectedProcessed.relativePath
+            )
+        )
+        guard
+            processedData.count
+                == expectedProcessed.byteCount,
+            EvidenceIntegrity.sha256(of: processedData)
+                == expectedProcessed.sha256
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        let timingDeclaration =
+            BundlePayloadDeclaration(
+                path: CaptureTimingPackage.path,
+                mediaType: "application/json",
+                producer: "capture_session",
+                provenanceClass: .captureAppDerived,
+                role: .canonical
+            )
+        let rawDeclaration =
+            BundlePayloadDeclaration(
+                path: expectedRaw.relativePath,
+                mediaType: "application/json",
+                producer: "roomplan_capture",
+                provenanceClass: .appleRoomPlanRawScan,
+                role: .canonical
+            )
+        let processedDeclaration =
+            BundlePayloadDeclaration(
+                path: expectedProcessed.relativePath,
+                mediaType: "application/json",
+                producer: "roomplan_builder",
+                provenanceClass: .appleRoomPlanInference,
+                role: .canonical,
+                sourceRefs: [
+                    "sha256:"
+                        + expectedRaw.sha256.description
+                ]
+            )
+
+        var declarationsToRemove = [
+            timingDeclaration,
+            rawDeclaration,
+            processedDeclaration,
+        ]
+        var removals: [CaptureFileWriteRequest] = try [
+            CaptureFileWriteRequest(
+                data: timingData,
+                path: CaptureStorePath(
+                    CaptureTimingPackage.path
+                )
+            ),
+            CaptureFileWriteRequest(
+                data: rawData,
+                path: CaptureStorePath(
+                    expectedRaw.relativePath
+                )
+            ),
+            CaptureFileWriteRequest(
+                data: processedData,
+                path: CaptureStorePath(
+                    expectedProcessed.relativePath
+                )
+            ),
+        ]
+
+        let expectedMesh = removeOwnedMesh
+            ? meshIndex
+            : nil
+        if removeOwnedMesh,
+           let expectedMesh
+        {
+            let indexData = try Data(
+                contentsOf: payloadURL(
+                    MeshEvidencePackage.indexPath
+                )
+            )
+            guard
+                let decodedIndex =
+                    try? JSONDecoder().decode(
+                        MeshAnchorEvidenceIndex.self,
+                        from: indexData
+                    ),
+                decodedIndex == expectedMesh
+            else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+
+            var geometryRefs: [String] = []
+            for record in expectedMesh.anchors {
+                let data = try Data(
+                    contentsOf: payloadURL(
+                        record.geometryPath
+                    )
+                )
+                guard
+                    EvidenceIntegrity.sha256(of: data)
+                        == record.geometrySHA256
+                else {
+                    throw CaptureWorkingSetError
+                        .integrityVerificationFailed
+                }
+                removals.append(
+                    try CaptureFileWriteRequest(
+                        data: data,
+                        path: CaptureStorePath(
+                            record.geometryPath
+                        )
+                    )
+                )
+                declarationsToRemove.append(
+                    BundlePayloadDeclaration(
+                        path: record.geometryPath,
+                        mediaType:
+                            "application/vnd.htdt.meshbin",
+                        producer: "mesh_capture",
+                        provenanceClass:
+                            .arkitMeshReconstruction,
+                        role: .canonical
+                    )
+                )
+                geometryRefs.append(
+                    "path:" + record.geometryPath
+                )
+            }
+
+            removals.append(
+                try CaptureFileWriteRequest(
+                    data: indexData,
+                    path: CaptureStorePath(
+                        MeshEvidencePackage.indexPath
+                    )
+                )
+            )
+            declarationsToRemove.append(
+                BundlePayloadDeclaration(
+                    path: MeshEvidencePackage.indexPath,
+                    mediaType: "application/json",
+                    producer: "mesh_capture",
+                    provenanceClass:
+                        .arkitMeshReconstruction,
+                    role: .canonical,
+                    sourceRefs:
+                        geometryRefs.isEmpty
+                        ? nil
+                        : geometryRefs.sorted()
+                )
+            )
+        } else if removeOwnedMesh,
+                  meshIndex != nil
+        {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        for declaration in declarationsToRemove {
+            guard declarations[declaration.path]
+                    == declaration
+            else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+        }
+
+        try await writer.removeBatchIfIdentical(removals)
+
+        // Re-check logical authority after the writer-actor suspension. The
+        // owned files are now absent from the bundle root, so any in-memory
+        // mutation across this await is unsafe and must fail closed.
+        guard timingDocument == expectedTiming,
+              rawRoomPlanDescriptor == expectedRaw,
+              processedRoomPlanDescriptor
+                == expectedProcessed,
+              (
+                !removeOwnedMesh
+                || meshIndex == expectedMesh
+              ),
+              declarationsToRemove.allSatisfy({
+                  declarations[$0.path] == $0
+              })
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        for declaration in declarationsToRemove {
+            declarations.removeValue(
+                forKey: declaration.path
+            )
+        }
+        timingDocument = nil
+        rawRoomPlanDescriptor = nil
+        processedRoomPlanDescriptor = nil
+
+        if removeOwnedMesh {
+            meshIndex = nil
+            meshAnchorCount = nil
+        }
+    }
+
     public func persistRawRoomPlan(
         _ payload: RoomPlanRawArtifactPayload
     ) async throws {
