@@ -45,6 +45,8 @@ private struct HTDTCaptureHostView: View {
                 coordinator.observationStability,
             spatialCoverage:
                 coordinator.spatialCoverage,
+            derivedShapePreview:
+                coordinator.derivedShapePreview,
             scanEvidenceFrameCount:
                 coordinator.scanEvidenceFrameCount,
             actions: CaptureRootActions(
@@ -100,6 +102,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var observationStability: ObservationStabilitySummary = .empty
     @Published private(set)
     var spatialCoverage: SpatialScanCoverageSummary = .empty
+    @Published private(set)
+    var derivedShapePreview: DerivedShapePreviewSnapshot = .empty
     @Published private(set)
     var scanEvidenceFrameCount = 0
 
@@ -161,6 +165,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverageAggregator =
             SpatialScanCoverageAggregator()
         spatialCoverage = .empty
+        derivedShapePreview = .empty
         scanEvidenceFrameCount = 0
         resourceMonitor?.stop()
         resourceMonitor = nil
@@ -589,6 +594,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverageAggregator =
             SpatialScanCoverageAggregator()
         spatialCoverage = .empty
+        derivedShapePreview = .empty
         scanEvidenceFrameCount = 0
         resourceMonitor?.stop()
         resourceMonitor = nil
@@ -1016,6 +1022,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverageAggregator =
             SpatialScanCoverageAggregator()
         spatialCoverage = .empty
+        derivedShapePreview = .empty
 
         scanCoverageTask = Task { @MainActor [weak self] in
             guard let self else {
@@ -1056,6 +1063,32 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         return
                     }
                     self.spatialCoverage = spatialSummary
+
+                    if sampleIndex.isMultiple(of: 4) {
+                        if spatialSummary.meshAvailability.state
+                            == .anchorsObserved,
+                           let observations =
+                            try? self.sessionController
+                                .currentDerivedShapeObservations()
+                        {
+                            let preview = await Task.detached(
+                                priority: .utility
+                            ) {
+                                Self.buildDerivedShapePreview(
+                                    observations
+                                )
+                            }.value
+                            guard self.captureGeneration
+                                    == generation,
+                                  self.state == .scanning
+                            else {
+                                return
+                            }
+                            self.derivedShapePreview = preview
+                        } else {
+                            self.derivedShapePreview = .empty
+                        }
+                    }
                 }
 
                 sampleIndex += 1
@@ -1064,6 +1097,43 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             }
         }
+    }
+
+    nonisolated private static func buildDerivedShapePreview(
+        _ observations: DerivedShapeLiveObservationSet
+    ) -> DerivedShapePreviewSnapshot {
+        var objectProxies: [DerivedShapeProxy] = []
+        if let objectObservation = observations.objectObservation {
+            let components =
+                DerivedShapeProxyFitter.connectedComponents(
+                    in: objectObservation,
+                    maxLinkDistance: 0.30,
+                    minimumPointCount: 8
+                )
+            objectProxies = Array(
+                components.prefix(3).map {
+                    DerivedShapeProxyFitter.fit(
+                        observation: $0
+                    )
+                }
+            )
+        }
+
+        let wallChain = observations.wallObservation.flatMap {
+            DerivedShapeProxyFitter.wallChain(
+                observation: $0
+            )
+        }
+
+        return DerivedShapePreviewSnapshot(
+            objectProxies: objectProxies,
+            wallChain: wallChain,
+            disagreements:
+                DerivedShapeDisagreementEvaluator.evaluate(
+                    objectProxies: objectProxies,
+                    wallChain: wallChain
+                )
+        )
     }
 
     private func waitForActiveConfiguration()
