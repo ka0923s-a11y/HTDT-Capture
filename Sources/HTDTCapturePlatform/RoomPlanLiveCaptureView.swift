@@ -28,7 +28,6 @@ public struct RoomPlanLiveCaptureView: UIViewRepresentable {
 
     public func makeUIView(context: Context) -> RoomCaptureView {
         let view = controller.roomCaptureView
-        view.isModelEnabled = true
         controller.markLiveRoomCaptureViewMounted(view)
         return view
     }
@@ -37,7 +36,8 @@ public struct RoomPlanLiveCaptureView: UIViewRepresentable {
         _ uiView: RoomCaptureView,
         context: Context
     ) {
-        uiView.isModelEnabled = true
+        // The controller is the single authority for model-rendering policy.
+        // Do not silently undo memory/thermal pressure mitigation here.
         controller.markLiveRoomCaptureViewMounted(uiView)
     }
 
