@@ -144,6 +144,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var acceptedEndMeshWasPersisted = false
     private var pendingEndAttempt: PendingEndScanAttempt?
     private var roomPlanCompletionInFlight = false
+    private var reviewOperationInFlight = false
     private var spatialAuthoritySealedForFinalization = false
     private var scanCoverageTracker =
         AdvisoryScanCoverageTracker()
@@ -254,6 +255,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         acceptedEndMeshWasPersisted = false
         pendingEndAttempt = nil
         roomPlanCompletionInFlight = false
+        reviewOperationInFlight = false
         spatialAuthoritySealedForFinalization = false
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
@@ -525,6 +527,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     func continueScanningFromReview() {
         guard state == .reviewing,
+              !reviewOperationInFlight,
               !annotationAuthorityCommitted,
               !spatialAuthoritySealedForFinalization,
               acceptedRoomPlanRawSHA256 != nil,
@@ -533,6 +536,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        reviewOperationInFlight = true
         let generation = captureGeneration
         let removeOwnedMesh = acceptedEndMeshWasPersisted
         workingSetStatus = HostLocalization.text(
@@ -590,6 +594,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
+            self.reviewOperationInFlight = false
             self.acceptedRoomPlanRawSHA256 = nil
             self.acceptedEndMeshWasPersisted = false
             self.qualityReport = nil
@@ -616,6 +621,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     func beginAnnotation() {
         guard state == .reviewing,
+              !reviewOperationInFlight,
               !annotationAuthorityCommitted
         else {
             return
@@ -865,11 +871,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     func finalizeCapture() {
         guard state == .reviewing,
+              !reviewOperationInFlight,
               let store = workingSetStore
         else {
             return
         }
 
+        reviewOperationInFlight = true
         let generation = captureGeneration
         Task { @MainActor [weak self] in
             guard let self,
@@ -934,6 +942,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                   quality.readyForHTDTIngestion,
                   quality.integrityStatus == .pass
             else {
+                self.reviewOperationInFlight = false
                 self.workingSetStatus = HostLocalization.text(
                     "Review quality changed before finalization; resolve the diagnostics and retry",
                     "確定直前に品質状態が変化しました。診断内容を確認して解消し、再試行してください"
@@ -961,6 +970,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
+            self.reviewOperationInFlight = false
             self.workingSetStatus = HostLocalization.text(
                 "Persisting quality and finalizing revision",
                 "品質情報を保存し、リビジョンを確定中"
@@ -1115,6 +1125,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         captureStartTimingCorrelation = nil
         acceptedRoomPlanRawSHA256 = nil
         acceptedEndMeshWasPersisted = false
+        reviewOperationInFlight = false
         spatialAuthoritySealedForFinalization = false
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
@@ -2859,6 +2870,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private func fail(_ code: CaptureFailureCode) {
+        reviewOperationInFlight = false
         guard state != .finalized,
               state != .exported
         else {
