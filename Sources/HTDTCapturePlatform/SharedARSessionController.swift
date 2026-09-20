@@ -353,7 +353,9 @@ public final class SharedARSessionController {
                 }
 
                 let vertices = anchor.geometry.vertices
-                guard vertices.count > 0 else {
+                guard vertices.count > 0,
+                      liveFloat3SourceIsReadable(vertices)
+                else {
                     continue
                 }
 
