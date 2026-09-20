@@ -32,8 +32,13 @@ public enum RoomPlanArtifactEncoder {
     }
 
     public static func diagnosticToken(_ error: Error) -> String {
-        if case EncodingError.invalidValue = error {
-            return "encoding_invalid_value"
+        if let encodingError = error as? EncodingError {
+            switch encodingError {
+            case .invalidValue:
+                return "encoding_invalid_value"
+            @unknown default:
+                return "encoding_failed"
+            }
         }
 
         let nsError = error as NSError
