@@ -447,7 +447,20 @@ public final class SharedARSessionController {
         let objectObservation =
             liveDerivedShapeObservation(
                 anchors: anchors,
-                classification: .table,
+                classificationRawValues: [
+                    UInt8(
+                        truncatingIfNeeded:
+                            ARMeshClassification.table.rawValue
+                    ),
+                    UInt8(
+                        truncatingIfNeeded:
+                            ARMeshClassification.seat.rawValue
+                    ),
+                    UInt8(
+                        truncatingIfNeeded:
+                            ARMeshClassification.none.rawValue
+                    ),
+                ],
                 sessionTimestampSeconds: frame.timestamp,
                 voxelSizeMeters: 0.035,
                 maxPoints: maxObjectPoints,
@@ -456,7 +469,12 @@ public final class SharedARSessionController {
         let wallObservation =
             liveDerivedShapeObservation(
                 anchors: anchors,
-                classification: .wall,
+                classificationRawValues: [
+                    UInt8(
+                        truncatingIfNeeded:
+                            ARMeshClassification.wall.rawValue
+                    ),
+                ],
                 sessionTimestampSeconds: frame.timestamp,
                 voxelSizeMeters: 0.06,
                 maxPoints: maxWallPoints,
@@ -627,7 +645,7 @@ public final class SharedARSessionController {
 
     private func liveDerivedShapeObservation(
         anchors: [ARMeshAnchor],
-        classification: ARMeshClassification,
+        classificationRawValues: Set<UInt8>,
         sessionTimestampSeconds: Double,
         voxelSizeMeters: Double,
         maxPoints: Int,
@@ -671,12 +689,9 @@ public final class SharedARSessionController {
                     classificationPointer
                         .assumingMemoryBound(to: UInt8.self)
                         .pointee
-                guard rawClassification
-                        == UInt8(
-                            truncatingIfNeeded:
-                                classification.rawValue
-                        )
-                else {
+                guard classificationRawValues.contains(
+                    rawClassification
+                ) else {
                     continue
                 }
 
