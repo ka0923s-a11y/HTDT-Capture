@@ -138,7 +138,7 @@ its logical bundle digest matches the finalizer result.
 - exercise finalization and export against a real captured-room working set;
 - measure storage/thermal/backpressure behavior on device.
 
-The archive attack boundary remains enforced by the Phase 0 reference validator and adversarial tests.
+The archive attack boundary is now enforced both by the Phase 0 reference validator and by the native Swift import path.
 
 
 See `docs/PHASE5_LIVE_QUALITY_FINALIZATION.md` for the integrity semantics and
@@ -163,3 +163,31 @@ chooses the actual destination.
 
 Existing export destinations are not overwritten. A new capture revision gets a
 new revision UUID and therefore a distinct archive path.
+
+
+## Native untrusted archive import
+
+The Swift core now has a staged importer for untrusted `.htdtcapture` files.
+
+The importer intentionally supports only the same bounded classic
+`ZIP_STORED` profile produced by the native exporter. Before any extraction it
+requires the archive validator to pass. This rejects:
+
+- absolute/traversal/backslash/NUL/non-NFC logical paths;
+- duplicate or case-colliding entries;
+- compression methods (including deflate), data descriptors and extra fields;
+- Zip64 and unsupported classic-ZIP structures;
+- file-count, per-file expanded-size and total expanded-size limit violations;
+- CRC mismatch, manifest/payload mismatch, non-canonical manifest, unknown
+  Capture Bundle schema and payload SHA-256 tamper.
+
+Because compressed entries are not accepted, decompression-ratio attacks are
+outside the accepted transport profile rather than being conditionally
+expanded.
+
+Extraction then occurs only into a unique sibling staging directory. The
+resulting directory is independently scanned and validated again. Its logical
+`bundle_digest` must equal the digest from the pre-extraction archive
+validation. Only then is the complete directory atomically moved to the caller's
+destination. Existing destinations are never overwritten, and failed imports
+clean up the staging directory.
