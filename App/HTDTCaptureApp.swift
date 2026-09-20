@@ -2181,6 +2181,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 fail(.persistenceFailure)
                 return
             }
+
+            guard captureGeneration == generation,
+                  state == .scanning,
+                  isEndingScan
+            else {
+                return
+            }
         }
 
         await store.recordResourceEvent(
@@ -2192,6 +2199,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     + diagnostic
             )
         )
+
+        guard captureGeneration == generation,
+              state == .scanning,
+              isEndingScan
+        else {
+            return
+        }
 
         do {
             try sessionController.startRoomPlan()
