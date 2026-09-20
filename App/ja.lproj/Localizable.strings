@@ -302,3 +302,5 @@
 "Polygon" = "多角形";
 "Structure estimate and observed shape differ" = "構造推定と観測形状に差があります";
 "The views are separate evidence representations; neither is promoted as canonical geometry here." = "両者は別々の証拠表現です。この表示では、どちらも正規形状として確定しません。";
+
+"Compare" = "比較";
