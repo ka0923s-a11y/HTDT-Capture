@@ -1668,6 +1668,19 @@ public enum DerivedShapeProxyFitter {
             rectangle.metrics.normalizedResidual
         )
 
+        if let polygonCandidate = candidates.first(where: {
+            $0.kind == .polygon
+        }),
+           case let .polygon(polygon) = polygonCandidate.geometry,
+           polygon.vertices.count <= 6,
+           polygonCandidate.metrics.normalizedResidual + 0.010
+                < bestResidual
+        {
+            // A compact, strongly supported straight-edged polygon is better
+            // evidence than a secondary circle-vs-rectangle ambiguity.
+            return false
+        }
+
         return circle.metrics.supportScore >= 0.35
             && rectangle.metrics.supportScore >= 0.35
             && abs(circleCost - rectangleCost) < 0.025
