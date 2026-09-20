@@ -1637,17 +1637,53 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             // RoomPlan's callback does not carry this End attempt UUID.
-            // Restarting here could let a late callback from this unresolved
-            // stop be consumed by a later End attempt. Keep the attempt
-            // pending until RoomPlan actually resolves it.
+            // Restarting the same RoomCaptureSession here could let a late
+            // callback from this unresolved stop be consumed by a later End
+            // attempt. Keep waiting briefly, but never leave the operator in
+            // an unbounded pseudo-scanning state.
             self.workingSetStatus = HostLocalization.text(
                 "RoomPlan is still producing the final result",
                 "RoomPlan の最終結果を引き続き生成中です"
             )
             self.endScanGuidance = HostLocalization.text(
-                "Final RoomPlan processing is taking longer than usual. Keep the app in the foreground and wait; another End attempt will not be started.",
-                "RoomPlan の終了処理に通常より時間がかかっています。アプリを前面にしたまま待ってください。別の終了処理は開始しません。"
+                "Final RoomPlan processing is taking longer than usual. Keep the app in the foreground; HTDT will stop this unresolved attempt if RoomPlan does not complete.",
+                "RoomPlan の終了処理に通常より時間がかかっています。アプリを前面にしたまま待ってください。完了しない場合は、この未解決の終了処理を HTDT が停止します。"
             )
+
+            try? await Task.sleep(for: .seconds(22))
+            guard self.captureGeneration == generation,
+                  self.state == .scanning,
+                  self.isEndingScan,
+                  !self.roomPlanCompletionInFlight,
+                  self.pendingEndAttempt?.id == attemptID
+            else {
+                return
+            }
+
+            await store.recordResourceEvent(
+                CaptureResourceEvent(
+                    kind: .interruption,
+                    severity: .error,
+                    detail:
+                        "RoomPlan final completion callback was not observed within the bounded 30-second End window."
+                )
+            )
+
+            guard self.captureGeneration == generation,
+                  self.state == .scanning,
+                  self.isEndingScan,
+                  !self.roomPlanCompletionInFlight,
+                  self.pendingEndAttempt?.id == attemptID
+            else {
+                return
+            }
+
+            self.workingSetStatus = HostLocalization.text(
+                "RoomPlan did not return a final result within the safe End window; retained evidence remains on disk",
+                "RoomPlan が安全な終了待機時間内に最終結果を返しませんでした。保存済みの証拠データは端末上に保持されています"
+            )
+            self.endScanGuidance = nil
+            self.fail(.roomPlanFailure)
         }
     }
 
