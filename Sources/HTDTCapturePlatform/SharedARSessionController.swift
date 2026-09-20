@@ -17,7 +17,7 @@ private final class RoomPlanSessionDelegateBridge:
     @preconcurrency RoomCaptureSessionDelegate
 {
     var completionHandler: (
-        (CapturedRoomData, (any Error)?) -> Void
+        @MainActor (CapturedRoomData, (any Error)?) -> Void
     )?
 
     func captureSession(
@@ -48,7 +48,7 @@ public final class SharedARSessionController {
     }
 
     public func setRoomPlanCompletionHandler(
-        _ handler: @escaping (
+        _ handler: @escaping @MainActor (
             CapturedRoomData,
             (any Error)?
         ) -> Void
