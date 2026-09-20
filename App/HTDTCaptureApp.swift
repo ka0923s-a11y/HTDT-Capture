@@ -191,9 +191,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
                 self.workingSetStatus =
-                    "Scanning; "
-                    + String(snapshot.evidenceFrameCount)
-                    + " evidence frame(s) persisted"
+                    HostLocalization.isJapanese
+                    ? "スキャン中：証拠フレームを "
+                        + String(snapshot.evidenceFrameCount)
+                        + " 件保存しました"
+                    : "Scanning; "
+                        + String(snapshot.evidenceFrameCount)
+                        + " evidence frame(s) persisted"
             } catch {
                 self.fail(.persistenceFailure)
             }
@@ -612,8 +616,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         workingSetStore = prepared.store
         captureGeneration = prepared.generation
         workingSetStatus =
-            "Prepared revision "
-            + prepared.identity.captureRevisionID.description
+            HostLocalization.isJapanese
+            ? "リビジョンを準備しました: "
+                + prepared.identity.captureRevisionID.description
+            : "Prepared revision "
+                + prepared.identity.captureRevisionID.description
 
         let context = sessionController.context
         let runtime = PlatformRuntimeProvenance.current()
@@ -946,17 +953,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         if report.readyForHTDTIngestion {
             workingSetStatus =
-                "Ready to finalize; "
-                + String(snapshot.payloadDeclarations.count)
-                + " evidence payloads passed preflight"
+                HostLocalization.isJapanese
+                ? "確定可能："
+                    + String(snapshot.payloadDeclarations.count)
+                    + " 件の証拠データが事前確認に合格しました"
+                : "Ready to finalize; "
+                    + String(snapshot.payloadDeclarations.count)
+                    + " evidence payloads passed preflight"
         } else {
             let errorCount = report.diagnostics.filter {
                 $0.severity == .error
             }.count
             workingSetStatus =
-                "Reviewing; "
-                + String(errorCount)
-                + " blocking quality diagnostic(s)"
+                HostLocalization.isJapanese
+                ? "確認中："
+                    + String(errorCount)
+                    + " 件の品質エラーがあります"
+                : "Reviewing; "
+                    + String(errorCount)
+                    + " blocking quality diagnostic(s)"
         }
     }
 
@@ -1013,8 +1028,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             exportURL = nil
             try transition(.finalize)
             workingSetStatus =
-                "Finalized revision; bundle digest "
-                + validation.bundleDigest.description
+                HostLocalization.isJapanese
+                ? "リビジョンを確定しました。バンドルダイジェスト: "
+                    + validation.bundleDigest.description
+                : "Finalized revision; bundle digest "
+                    + validation.bundleDigest.description
         } catch {
             fail(.persistenceFailure)
         }
