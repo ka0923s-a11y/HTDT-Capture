@@ -155,15 +155,17 @@ public struct CaptureScanningView: View {
 
                 Spacer(minLength: 8)
 
-                VStack(spacing: 3) {
-                    Text("Next direction")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                if motionGuidance?.targetGap != nil {
+                    VStack(spacing: 3) {
+                        Text("Next direction")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
 
-                    RelativeGuidanceCompass(
-                        coverage: coverage
-                    )
-                    .frame(width: 74, height: 74)
+                        RelativeGuidanceCompass(
+                            coverage: coverage
+                        )
+                        .frame(width: 74, height: 74)
+                    }
                 }
             }
 
@@ -287,11 +289,11 @@ public struct CaptureScanningView: View {
             .frame(height: 42)
 
             HStack {
-                Text("← Left")
+                Text("← Look left")
                 Spacer()
                 Text("Start direction")
                 Spacer()
-                Text("Right →")
+                Text("Look right →")
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
@@ -615,8 +617,9 @@ public struct CaptureScanningView: View {
         }
 
         if coverage.referenceYawRadians == nil {
-            return String(
-                localized: "Move slowly and scan the whole room from different heights and angles."
+            return ScanMotionGuidanceCopy.prompt(
+                for: ScanMotionGuidance(action: .holdObserve),
+                language: ScanMotionGuidanceCopy.preferredLanguage
             )
         }
 
