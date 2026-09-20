@@ -128,11 +128,12 @@ individual boundary vertices remain traceable to observation support.
 
 No step in this slice constructs a room-wide axis-aligned rectangle.
 
-The disagreement advisory can flag non-rectangular observed object evidence,
-non-orthogonal wall headings, and multi-segment boundaries. It uses only
-HTDT-visible evidence and does not manufacture an exact RoomPlan discrepancy
-metric when public RoomPlan geometry is unavailable. The UI explicitly states
-that limitation and does not declare either representation correct.
+The disagreement-risk advisory can flag non-rectangular observed object
+evidence, non-orthogonal wall headings, and multi-segment boundaries. Because
+the live public RoomPlan view does not expose exact semantic geometry here, the
+UI does not claim that an exact RoomPlan discrepancy was measured. It says the
+observed geometry may differ and asks the operator to compare the two visible
+representations. No unavailable RoomPlan discrepancy metric is inferred.
 
 ## Preview UI
 
