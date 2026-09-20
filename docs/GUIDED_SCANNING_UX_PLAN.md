@@ -381,7 +381,11 @@ does not silently fall back to direction coverage.
 ### 11.2 Bounded spatial representation
 
 The live path samples at most 96 representative ARMesh vertices per spatial
-update. It does not serialize or clone canonical mesh payloads at UI rate.
+update and only accumulates candidates inside a bounded approximation of the
+current camera frustum (0.15–6 m). This prevents retained ARMesh anchors outside
+the current view from gaining observation count merely because they remain in
+the AR session. It does not serialize or clone canonical mesh payloads at UI
+rate.
 
 The deterministic core aggregator uses:
 
