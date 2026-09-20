@@ -88,14 +88,12 @@ final class DerivedShapeProxyTests: XCTestCase {
             let s = sin(t)
             let exponent = 4.0
             return DerivedPoint2D(
-                x: copysign(
-                    pow(abs(c), 2 / exponent),
-                    c
-                ),
-                y: copysign(
-                    pow(abs(s), 2 / exponent),
-                    s
-                )
+                x: c >= 0
+                    ? pow(abs(c), 2 / exponent)
+                    : -pow(abs(c), 2 / exponent),
+                y: s >= 0
+                    ? pow(abs(s), 2 / exponent)
+                    : -pow(abs(s), 2 / exponent)
             )
         }
 
