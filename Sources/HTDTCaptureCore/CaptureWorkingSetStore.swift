@@ -284,41 +284,57 @@ public actor CaptureWorkingSetStore {
             }
         }
 
-        let writes: [(Data, CaptureStorePath)] = try [
-            (
-                timingPackage.data,
-                CaptureStorePath(CaptureTimingPackage.path)
+        let writes: [CaptureFileWriteRequest] = try [
+            CaptureFileWriteRequest(
+                data: timingPackage.data,
+                path: CaptureStorePath(
+                    CaptureTimingPackage.path
+                )
             ),
-            (
-                raw.data,
-                CaptureStorePath(raw.descriptor.relativePath)
+            CaptureFileWriteRequest(
+                data: raw.data,
+                path: CaptureStorePath(
+                    raw.descriptor.relativePath
+                )
             ),
-            (
-                processed.data,
-                CaptureStorePath(
+            CaptureFileWriteRequest(
+                data: processed.data,
+                path: CaptureStorePath(
                     processed.descriptor.relativePath
                 )
             ),
         ]
 
-        do {
-            for (data, path) in writes {
-                try await writer.writeIfIdentical(
-                    data,
-                    to: path
-                )
+        try await writer.writeBatchIfIdentical(writes)
+
+        // The store actor may re-enter while awaiting the writer actor.
+        // Another exact transaction can commit first; accept only that exact
+        // replay. Any different logical authority remains fail-closed.
+        if let existingTiming = timingDocument,
+           let existingRaw = rawRoomPlanDescriptor,
+           let existingProcessed = processedRoomPlanDescriptor
+        {
+            if existingTiming == timingPackage.document,
+               existingRaw == raw.descriptor,
+               existingProcessed == processed.descriptor
+            {
+                return
             }
-        } catch {
-            // None of these paths is canonical until all required final
-            // artifacts are durable. Remove only byte-identical files from
-            // this attempt; never delete conflicting external data.
-            for (data, path) in writes.reversed() {
-                _ = try? await writer.removeIfIdentical(
-                    data,
-                    at: path
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    CaptureTimingPackage.path
                 )
-            }
-            throw error
+        }
+
+        guard timingDocument == nil,
+              rawRoomPlanDescriptor == nil,
+              processedRoomPlanDescriptor == nil,
+              transactionDeclarations.allSatisfy({
+                  declarations[$0.path] == nil
+              })
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
         }
 
         // There are no suspension points after this line. Commit the logical
