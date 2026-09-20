@@ -1,7 +1,7 @@
 # Guided Scanning UX Plan
 
-Status: implementation plan for Issue #46  
-Scope: scanner-first iOS UX; no Capture Bundle schema promotion in this slice.
+Status: G100A/G100B implemented by PR #47; G100C implemented by Issue #48 branch; physical-device acceptance and G100D remain open.  
+Scope: scanner-first iOS UX; no Capture Bundle schema promotion in these slices.
 
 ## 1. Problem statement
 
@@ -202,15 +202,20 @@ The plan for subsequent recovery work is:
 
 ## 7. End-scan completeness review
 
-The first implementation keeps the existing explicit **End scan and review**
-action. A later slice should add a confirmation sheet when advisory coverage
-contains large gaps:
+When **End scan** is selected with substantial advisory gaps, the scanner
+presents a non-blocking coverage review sheet.
 
-- show low / level / high coverage;
-- identify under-observed compass sectors;
-- allow **Continue scanning** or **End anyway**;
-- never block export solely on the advisory heuristic until physical benchmark
-  evidence justifies a normative threshold.
+Implemented behavior:
+
+- overall plus low / level / high coverage percentages;
+- the most under-observed relative compass directions;
+- **Continue scanning** as the safe recovery path;
+- explicit **End anyway** because the heuristic is not canonical authority;
+- no bundle-schema or finalization-gate change.
+
+The sheet is shown when overall coverage is below 75%, or low/high coverage is
+below 50%. These are UX prompting thresholds only; they are not accuracy or
+ingestion requirements.
 
 ## 8. Localization
 
@@ -228,14 +233,14 @@ Raw enum/debug tokens may remain English only in developer diagnostics.
 
 ## 9. Implementation slices
 
-### G100A — live scanner foundation
+### G100A — live scanner foundation — implemented
 
 - make `RoomCaptureView` the exact RoomPlan capture session view;
 - SwiftUI bridge for the shared capture view;
 - scanning-state full-screen camera UI;
 - preserve existing raw RoomPlan completion pipeline.
 
-### G100B — advisory coverage telemetry
+### G100B — advisory coverage telemetry — implemented
 
 - deterministic core coverage tracker;
 - platform ARFrame observation adapter;
@@ -243,7 +248,7 @@ Raw enum/debug tokens may remain English only in developer diagnostics.
 - coverage compass and tracking HUD;
 - Japanese/English copy.
 
-### G100C — end-scan gap review
+### G100C — end-scan gap review — implemented
 
 - gap summary sheet;
 - continue/end decision;
@@ -255,7 +260,7 @@ Raw enum/debug tokens may remain English only in developer diagnostics.
 - recover only when coordinate continuity can be demonstrated;
 - fail closed otherwise.
 
-## 10. Acceptance criteria for G100A/B
+## 10. Acceptance criteria for G100A/B/C
 
 Automated:
 

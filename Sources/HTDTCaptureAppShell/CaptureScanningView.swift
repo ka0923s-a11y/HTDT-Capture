@@ -9,6 +9,8 @@ public struct CaptureScanningView: View {
     public let captureEvidenceFrame: () -> Void
     public let endScan: () -> Void
 
+    @State private var showingEndScanReview = false
+
     public init(
         preview: AnyView,
         coverage: ScanCoverageSummary,
@@ -44,6 +46,19 @@ public struct CaptureScanningView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $showingEndScanReview) {
+            ScanCoverageEndReview(
+                coverage: coverage,
+                continueScanning: {
+                    showingEndScanReview = false
+                },
+                endAnyway: {
+                    showingEndScanReview = false
+                    endScan()
+                }
+            )
+            .presentationDetents([.medium, .large])
+        }
     }
 
     private var scanStatusHUD: some View {
@@ -165,7 +180,7 @@ public struct CaptureScanningView: View {
                 }
                 .buttonStyle(.borderedProminent)
 
-                Button(action: endScan) {
+                Button(action: requestEndScan) {
                     Label(
                         "End scan",
                         systemImage: "checkmark.circle.fill"
@@ -206,6 +221,20 @@ public struct CaptureScanningView: View {
                         .foregroundStyle(.black.opacity(0.75))
                 }
             }
+    }
+
+    private func requestEndScan() {
+        if shouldReviewCoverageBeforeEnding {
+            showingEndScanReview = true
+        } else {
+            endScan()
+        }
+    }
+
+    private var shouldReviewCoverageBeforeEnding: Bool {
+        coverage.coverageFraction < 0.75
+        || coverage.pitchBandCoverageFraction(.low) < 0.50
+        || coverage.pitchBandCoverageFraction(.high) < 0.50
     }
 
     private var coveragePercent: Int {
@@ -339,6 +368,213 @@ public struct CaptureScanningView: View {
             ((sectorIndex % coverage.sectorCount)
              + coverage.sectorCount)
             % coverage.sectorCount
+
+        switch normalized {
+        case 0:
+            return String(localized: "Front")
+        case 1, 2:
+            return String(localized: "Front right")
+        case 3:
+            return String(localized: "Right")
+        case 4, 5:
+            return String(localized: "Rear right")
+        case 6:
+            return String(localized: "Rear")
+        case 7, 8:
+            return String(localized: "Rear left")
+        case 9:
+            return String(localized: "Left")
+        default:
+            return String(localized: "Front left")
+        }
+    }
+}
+
+
+private struct ScanCoverageEndReview: View {
+    let coverage: ScanCoverageSummary
+    let continueScanning: () -> Void
+    let endAnyway: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    LabeledContent(
+                        "Overall coverage",
+                        value: percent(coverage.coverageFraction)
+                    )
+                    LabeledContent(
+                        "Lower room",
+                        value: percent(
+                            coverage.pitchBandCoverageFraction(.low)
+                        )
+                    )
+                    LabeledContent(
+                        "Level view",
+                        value: percent(
+                            coverage.pitchBandCoverageFraction(.level)
+                        )
+                    )
+                    LabeledContent(
+                        "Upper room",
+                        value: percent(
+                            coverage.pitchBandCoverageFraction(.high)
+                        )
+                    )
+                } header: {
+                    Text("Advisory scan coverage")
+                } footer: {
+                    Text(
+                        "This is a trajectory-based guide, not a geometric completeness measurement."
+                    )
+                }
+
+                if !gapSectors.isEmpty {
+                    Section("Most under-observed directions") {
+                        ForEach(
+                            Array(gapSectors.prefix(4)),
+                            id: \.self
+                        ) { sectorIndex in
+                            VStack(
+                                alignment: .leading,
+                                spacing: 4
+                            ) {
+                                HStack {
+                                    Text(
+                                        directionLabel(sectorIndex)
+                                    )
+                                    Spacer()
+                                    Text(
+                                        String(
+                                            format: String(
+                                                localized:
+                                                    "%d of 3 angles"
+                                            ),
+                                            coverage
+                                                .observedPitchBandCount(
+                                                    sectorIndex:
+                                                        sectorIndex
+                                                )
+                                        )
+                                    )
+                                    .foregroundStyle(.secondary)
+                                }
+
+                                Text(
+                                    String(
+                                        format: String(
+                                            localized: "Missing: %@"
+                                        ),
+                                        missingBandLabels(
+                                            sectorIndex
+                                        )
+                                    )
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                Section {
+                    Button(action: continueScanning) {
+                        Label(
+                            "Continue scanning",
+                            systemImage: "camera.viewfinder"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button(
+                        role: .destructive,
+                        action: endAnyway
+                    ) {
+                        Label(
+                            "End anyway",
+                            systemImage: "checkmark.circle"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                } footer: {
+                    Text(
+                        "Ending is always allowed because advisory coverage is not a canonical finalization gate."
+                    )
+                }
+            }
+            .navigationTitle("Review scan coverage")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Back") {
+                        continueScanning()
+                    }
+                }
+            }
+        }
+    }
+
+    private var gapSectors: [Int] {
+        (0..<coverage.sectorCount)
+            .filter {
+                coverage.observedPitchBandCount(
+                    sectorIndex: $0
+                ) < ScanCoveragePitchBand.allCases.count
+            }
+            .sorted {
+                let lhs = coverage.observedPitchBandCount(
+                    sectorIndex: $0
+                )
+                let rhs = coverage.observedPitchBandCount(
+                    sectorIndex: $1
+                )
+                if lhs != rhs {
+                    return lhs < rhs
+                }
+                return $0 < $1
+            }
+    }
+
+    private func missingBandLabels(
+        _ sectorIndex: Int
+    ) -> String {
+        let missing = ScanCoveragePitchBand.allCases
+            .filter {
+                !coverage.isObserved(
+                    sectorIndex: sectorIndex,
+                    pitchBand: $0
+                )
+            }
+            .map(pitchBandLabel)
+
+        return missing.joined(separator: " · ")
+    }
+
+    private func pitchBandLabel(
+        _ band: ScanCoveragePitchBand
+    ) -> String {
+        switch band {
+        case .low:
+            return String(localized: "Low")
+        case .level:
+            return String(localized: "Level")
+        case .high:
+            return String(localized: "High")
+        }
+    }
+
+    private func percent(_ fraction: Double) -> String {
+        String(
+            format: "%d%%",
+            Int((fraction * 100).rounded())
+        )
+    }
+
+    private func directionLabel(_ sectorIndex: Int) -> String {
+        let count = max(coverage.sectorCount, 1)
+        let normalized =
+            ((sectorIndex % count) + count) % count
 
         switch normalized {
         case 0:
