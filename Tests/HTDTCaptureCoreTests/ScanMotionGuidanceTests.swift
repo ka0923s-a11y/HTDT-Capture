@@ -38,7 +38,7 @@ final class ScanMotionGuidanceTests: XCTestCase {
         XCTAssertEqual(result?.verticalDirection, .up)
     }
 
-    func testBroadDirectionCoverageCanPrioritizeTranslationOverRemainingRotationGap() {
+    func testRemainingDirectionGapStaysAheadOfSpatialTranslation() {
         var tracker = ScanMotionGuidanceTracker(
             configuration: ScanMotionGuidanceConfiguration(
                 minimumRepeatedWeakObservations: 1,
@@ -68,8 +68,8 @@ final class ScanMotionGuidanceTests: XCTestCase {
             observation: .empty
         )
 
-        XCTAssertEqual(result?.action, .translate)
-        XCTAssertNotNil(result?.translationDirection)
+        XCTAssertEqual(result?.action, .rotate)
+        XCTAssertNil(result?.translationDirection)
     }
 
     func testRepeatedSamePositionWeakRegionProducesTranslation() {
