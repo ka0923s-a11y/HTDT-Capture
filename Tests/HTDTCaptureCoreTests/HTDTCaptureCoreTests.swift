@@ -212,12 +212,11 @@ func atomicWriterAllowsOnlyByteIdenticalReplay() async throws {
         )
     }
 
-    #expect(
-        try Data(
-            contentsOf:
-                root.appendingPathComponent("session/replay.bin")
-        ) == payload
+    let stored = try Data(
+        contentsOf:
+            root.appendingPathComponent("session/replay.bin")
     )
+    #expect(stored == payload)
 }
 
 @Test
