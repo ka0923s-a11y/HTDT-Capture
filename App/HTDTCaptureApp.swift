@@ -1746,6 +1746,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
         }
 
+        if !hasDepth,
+           meshPackage == nil
+        {
+            endScanGuidance = HostLocalization.text(
+                "Cannot end yet: AR mesh anchors were observed, but they could not be converted into valid retained mesh evidence and no Scene Depth fallback exists. Keep scanning a nearby surface until depth evidence is retained, then try End again.",
+                "まだ終了できません：AR メッシュアンカーは観測されていますが、有効な保存用メッシュ証拠へ変換できず、Scene Depth の代替証拠もありません。近くの面を追加スキャンして深度証拠が保存されてから、もう一度「終了」を押してください。"
+            )
+            return nil
+        }
+
         endScanGuidance = nil
         succeeded = true
         return PreparedEndScanAttempt(
@@ -1930,15 +1940,58 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             do {
                 try await store.persistMeshPackage(meshPackage)
             } catch {
+                let diagnostic =
+                    Self.persistenceDiagnostic(error)
+
+                if error is CaptureWorkingSetError
+                    || error is CaptureFileWriterError
+                {
+                    workingSetStatus =
+                        HostLocalization.text(
+                            "Mesh persistence hit a canonical capture-authority conflict and cannot fall back safely",
+                            "メッシュ保存で正規キャプチャ authority の競合が発生し、安全に代替処理へ進めません"
+                        )
+                        + " ["
+                        + diagnostic
+                        + "]"
+                    fail(.persistenceFailure)
+                    return
+                }
+
                 meshSnapshotUnavailable = true
                 await store.recordResourceEvent(
                     CaptureResourceEvent(
                         kind: .persistenceFailure,
                         severity: .warning,
                         detail:
-                            "Optional pre-stop mesh persistence failed; retained frame/depth evidence will be used as the bounded geometry fallback."
+                            "Optional pre-stop mesh persistence failed: "
+                            + diagnostic
+                            + "; retained frame/depth evidence is required for bounded fallback."
                     )
                 )
+
+                guard captureGeneration == generation,
+                      state == .scanning
+                else {
+                    return
+                }
+
+                if frameSnapshot.depthEvidenceCount == 0 {
+                    workingSetStatus =
+                        HostLocalization.text(
+                            "End was not committed because mesh evidence could not be saved and no retained Scene Depth fallback exists",
+                            "メッシュ証拠を保存できず、保存済み Scene Depth の代替証拠もないため終了していません"
+                        )
+                        + " ["
+                        + diagnostic
+                        + "]"
+                    endScanGuidance = HostLocalization.text(
+                        "This scan is still active. Keep a nearby surface in view until depth evidence is retained, then try End again.",
+                        "このキャプチャはまだ継続中です。近くの面を画面内に保ち、深度証拠が保存されてからもう一度「終了」を押してください。"
+                    )
+                    endScanPreflightBlocked = true
+                    return
+                }
             }
         }
 
