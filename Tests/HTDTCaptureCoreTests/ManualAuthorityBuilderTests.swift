@@ -71,3 +71,31 @@ func manualScalarMeasurementRemainsUserAttested() throws {
             == .userAttestedMeasurement
     )
 }
+
+
+@Test
+func manualAuthoritiesPreserveSelectedEvidenceReferences() throws {
+    let reference =
+        "path:evidence/frames/"
+        + "30000000-0000-4000-8000-000000000009.json"
+    let entity = try ManualAuthorityBuilder.annotation(
+        type: .referencePoint,
+        label: "Reference",
+        xMeters: 0,
+        yMeters: 0,
+        zMeters: 0,
+        coordinateSpaceID: CoordinateSpaceID(),
+        evidenceRefs: [reference]
+    )
+    let measurement =
+        try ManualAuthorityBuilder.scalarMeasurement(
+            quantityType: "screen_width",
+            value: 2.4,
+            unit: .meter,
+            acquisitionMethod: .laserDistanceMeter,
+            evidenceRefs: [reference]
+        )
+
+    #expect(entity.evidenceRefs == [reference])
+    #expect(measurement.evidenceRefs == [reference])
+}

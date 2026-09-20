@@ -4,6 +4,7 @@ import HTDTCaptureCore
 
 public struct CaptureAnnotationWorkspaceView: View {
     public let coordinateSpaceID: CoordinateSpaceID
+    public let availableEvidenceRefs: [String]
     public let onCommit: (
         [CaptureAnnotationEntity],
         [CaptureMeasurement]
@@ -17,6 +18,7 @@ public struct CaptureAnnotationWorkspaceView: View {
 
     public init(
         coordinateSpaceID: CoordinateSpaceID,
+        availableEvidenceRefs: [String] = [],
         onCommit: @escaping (
             [CaptureAnnotationEntity],
             [CaptureMeasurement]
@@ -24,6 +26,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         onCancel: @escaping () -> Void
     ) {
         self.coordinateSpaceID = coordinateSpaceID
+        self.availableEvidenceRefs = availableEvidenceRefs.sorted()
         self.onCommit = onCommit
         self.onCancel = onCancel
     }
@@ -97,7 +100,8 @@ public struct CaptureAnnotationWorkspaceView: View {
         .sheet(isPresented: $addingAnnotation) {
             NavigationStack {
                 ManualAnnotationForm(
-                    coordinateSpaceID: coordinateSpaceID
+                    coordinateSpaceID: coordinateSpaceID,
+                    availableEvidenceRefs: availableEvidenceRefs
                 ) { entity in
                     annotations.append(entity)
                 }
@@ -105,7 +109,9 @@ public struct CaptureAnnotationWorkspaceView: View {
         }
         .sheet(isPresented: $addingMeasurement) {
             NavigationStack {
-                ManualMeasurementForm { measurement in
+                ManualMeasurementForm(
+                    availableEvidenceRefs: availableEvidenceRefs
+                ) { measurement in
                     measurements.append(measurement)
                 }
             }
@@ -136,6 +142,7 @@ public struct CaptureAnnotationWorkspaceView: View {
 
 private struct ManualAnnotationForm: View {
     let coordinateSpaceID: CoordinateSpaceID
+    let availableEvidenceRefs: [String]
     let onAdd: (CaptureAnnotationEntity) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -152,6 +159,7 @@ private struct ManualAnnotationForm: View {
     @State private var equipmentID = ""
     @State private var equipmentVersion = ""
     @State private var equipmentHash = ""
+    @State private var selectedEvidenceRefs = Set<String>()
 
     @State private var errorText: String?
 
@@ -186,6 +194,15 @@ private struct ManualAnnotationForm: View {
                         text: $yawText
                     )
                 }
+            }
+
+            if !availableEvidenceRefs.isEmpty {
+                EvidenceReferenceSelector(
+                    availableEvidenceRefs:
+                        availableEvidenceRefs,
+                    selectedEvidenceRefs:
+                        $selectedEvidenceRefs
+                )
             }
 
             Section("Pinned HTDT equipment authority") {
@@ -275,7 +292,8 @@ private struct ManualAnnotationForm: View {
                     type == .speaker ? channelRole : nil,
                 speakerYawDegrees:
                     type == .speaker ? Double(yawText) : nil,
-                equipmentReference: equipment
+                equipmentReference: equipment,
+                evidenceRefs: selectedEvidenceRefs.sorted()
             )
             onAdd(entity)
             dismiss()
@@ -286,6 +304,7 @@ private struct ManualAnnotationForm: View {
 }
 
 private struct ManualMeasurementForm: View {
+    let availableEvidenceRefs: [String]
     let onAdd: (CaptureMeasurement) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -299,6 +318,7 @@ private struct ManualMeasurementForm: View {
     @State private var sourceValueText = ""
     @State private var instrumentClass = ""
     @State private var instrumentModel = ""
+    @State private var selectedEvidenceRefs = Set<String>()
     @State private var errorText: String?
 
     private let units: [MeasurementUnit] = [
@@ -334,6 +354,15 @@ private struct ManualMeasurementForm: View {
                         Text($0.rawValue).tag($0)
                     }
                 }
+            }
+
+            if !availableEvidenceRefs.isEmpty {
+                EvidenceReferenceSelector(
+                    availableEvidenceRefs:
+                        availableEvidenceRefs,
+                    selectedEvidenceRefs:
+                        $selectedEvidenceRefs
+                )
             }
 
             Section("Evidence details") {
@@ -429,12 +458,64 @@ private struct ManualMeasurementForm: View {
                     statedUncertainty: uncertainty,
                     sourceValueText:
                         sourceValueText.isEmpty
-                        ? nil : sourceValueText
+                        ? nil : sourceValueText,
+                    evidenceRefs:
+                        selectedEvidenceRefs.sorted()
                 )
             onAdd(measurement)
             dismiss()
         } catch {
             errorText = String(describing: error)
         }
+    }
+}
+
+
+private struct EvidenceReferenceSelector: View {
+    let availableEvidenceRefs: [String]
+    @Binding var selectedEvidenceRefs: Set<String>
+
+    var body: some View {
+        Section("Linked evidence frames") {
+            ForEach(availableEvidenceRefs, id: \.self) { reference in
+                Toggle(
+                    isOn: Binding(
+                        get: {
+                            selectedEvidenceRefs.contains(reference)
+                        },
+                        set: { selected in
+                            if selected {
+                                selectedEvidenceRefs.insert(reference)
+                            } else {
+                                selectedEvidenceRefs.remove(reference)
+                            }
+                        }
+                    )
+                ) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(frameLabel(reference))
+                        Text(reference)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Text(
+                "Links reference exact canonical frame descriptors already "
+                + "persisted in this working revision."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private func frameLabel(_ reference: String) -> String {
+        let path = reference.hasPrefix("path:")
+            ? String(reference.dropFirst(5))
+            : reference
+        return URL(fileURLWithPath: path)
+            .deletingPathExtension()
+            .lastPathComponent
     }
 }

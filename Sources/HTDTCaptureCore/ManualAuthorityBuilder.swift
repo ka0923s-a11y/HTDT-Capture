@@ -20,7 +20,8 @@ public enum ManualAuthorityBuilder {
         coordinateSpaceID: CoordinateSpaceID,
         speakerChannelRole: String? = nil,
         speakerYawDegrees: Double? = nil,
-        equipmentReference: HTDTEquipmentReference? = nil
+        equipmentReference: HTDTEquipmentReference? = nil,
+        evidenceRefs: [String] = []
     ) throws -> CaptureAnnotationEntity {
         guard xMeters.isFinite,
               yMeters.isFinite,
@@ -100,7 +101,8 @@ public enum ManualAuthorityBuilder {
             ),
             orientation: orientation,
             channelRole: channelRole,
-            equipmentRef: equipmentReference
+            equipmentRef: equipmentReference,
+            evidenceRefs: evidenceRefs
         )
     }
 
@@ -111,7 +113,8 @@ public enum ManualAuthorityBuilder {
         acquisitionMethod: MeasurementAcquisitionMethod,
         instrument: MeasurementInstrument? = nil,
         statedUncertainty: Double? = nil,
-        sourceValueText: String? = nil
+        sourceValueText: String? = nil,
+        evidenceRefs: [String] = []
     ) throws -> CaptureMeasurement {
         try CaptureMeasurement(
             quantityType: quantityType,
@@ -122,7 +125,8 @@ public enum ManualAuthorityBuilder {
             statedUncertainty: statedUncertainty,
             userAttestation: .attested,
             provenanceClass: .userAttestedMeasurement,
-            sourceValueText: sourceValueText
+            sourceValueText: sourceValueText,
+            evidenceRefs: evidenceRefs
         )
     }
 }

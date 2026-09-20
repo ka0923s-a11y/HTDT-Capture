@@ -110,7 +110,7 @@ Issue #5 remains open for:
 - interactive annotation placement UI;
 - real raycast/mesh-hit-test source binding on device;
 - orientation capture UX;
-- evidence photo linkage UX;
+- evidence photo linkage UX (canonical frame linkage is now implemented; external photo capture remains deferred);
 - exact HTDT EquipmentDefinition selection UI;
 - physical repeatability measurements under Issue #9.
 
@@ -165,6 +165,25 @@ Still not claimed by this slice:
 - live camera/3D raycast placement;
 - mesh-hit placement provenance;
 - physical speaker-orientation capture;
-- evidence-photo linkage;
+- external photo capture beyond the canonical ARFrame evidence linkage;
 - connected HTDT equipment-catalog picker;
 - physical placement/repeatability benchmark.
+
+
+## Canonical evidence-frame linkage
+
+The review authoring UI now receives the exact canonical frame-descriptor
+references already persisted in the active working revision.
+
+Annotations and user-attested measurements can select one or more of those
+frames. The resulting record keeps references such as:
+
+`path:evidence/frames/<frame-id>.json`
+
+The link points to the exact frame descriptor, which in turn binds the camera
+pixels, pose, intrinsics, timestamp and any captured depth/confidence evidence.
+The UI does not copy image bytes or create an untracked preview-only photo.
+
+Only evidence already present in the same working revision is offered for
+selection. This slice does not add external Photos-library imports or claim a
+separate photographic provenance class.

@@ -53,6 +53,7 @@ public struct CaptureRootView: View {
     public let validationReport: BundleValidationReport?
     public let exportURL: URL?
     public let annotationCoordinateSpaceID: CoordinateSpaceID?
+    public let annotationEvidenceRefs: [String]
     public let annotationAuthorityCommitted: Bool
     public let actions: CaptureRootActions
 
@@ -66,6 +67,7 @@ public struct CaptureRootView: View {
         validationReport: BundleValidationReport? = nil,
         exportURL: URL? = nil,
         annotationCoordinateSpaceID: CoordinateSpaceID? = nil,
+        annotationEvidenceRefs: [String] = [],
         annotationAuthorityCommitted: Bool = false,
         actions: CaptureRootActions = CaptureRootActions()
     ) {
@@ -79,6 +81,7 @@ public struct CaptureRootView: View {
         self.exportURL = exportURL
         self.annotationCoordinateSpaceID =
             annotationCoordinateSpaceID
+        self.annotationEvidenceRefs = annotationEvidenceRefs
         self.annotationAuthorityCommitted =
             annotationAuthorityCommitted
         self.actions = actions
@@ -92,6 +95,8 @@ public struct CaptureRootView: View {
             {
                 CaptureAnnotationWorkspaceView(
                     coordinateSpaceID: coordinateSpaceID,
+                    availableEvidenceRefs:
+                        annotationEvidenceRefs,
                     onCommit:
                         actions.commitAnnotationAuthority,
                     onCancel: actions.cancelAnnotation

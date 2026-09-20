@@ -46,6 +46,7 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
     public let meshAnchorCount: Int?
     public let evidenceFrameCount: Int
     public let depthEvidenceCount: Int
+    public let evidenceFrameRefs: [String]
 
     public init(
         identity: CaptureWorkingSetIdentity,
@@ -57,7 +58,8 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         processedRoomPlanDescriptor: RoomPlanProcessedEvidenceDescriptor?,
         meshAnchorCount: Int?,
         evidenceFrameCount: Int,
-        depthEvidenceCount: Int
+        depthEvidenceCount: Int,
+        evidenceFrameRefs: [String]
     ) {
         self.identity = identity
         self.rootDirectory = rootDirectory
@@ -69,6 +71,7 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         self.meshAnchorCount = meshAnchorCount
         self.evidenceFrameCount = evidenceFrameCount
         self.depthEvidenceCount = depthEvidenceCount
+        self.evidenceFrameRefs = evidenceFrameRefs
     }
 }
 
@@ -501,7 +504,14 @@ public actor CaptureWorkingSetStore {
             processedRoomPlanDescriptor: processedRoomPlanDescriptor,
             meshAnchorCount: meshAnchorCount,
             evidenceFrameCount: evidenceFrameCount,
-            depthEvidenceCount: depthEvidenceCount
+            depthEvidenceCount: depthEvidenceCount,
+            evidenceFrameRefs: frameDescriptors
+                .map {
+                    "path:evidence/frames/"
+                        + $0.frameID.description
+                        + ".json"
+                }
+                .sorted()
         )
     }
 
