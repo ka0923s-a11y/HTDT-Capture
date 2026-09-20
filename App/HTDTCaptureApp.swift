@@ -2562,7 +2562,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let report = await store.evaluateQuality(
             requirements: qualityRequirements
         )
+        let snapshot = await store.snapshot()
 
+        // Publish Review UI only after every store-actor suspension has
+        // completed. A failure/reset/reopen may invalidate this generation
+        // while either call is suspended.
         guard captureGeneration == generation,
               state == .reviewing
         else {
@@ -2570,7 +2574,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         qualityReport = report
-        let snapshot = await store.snapshot()
         annotationEvidenceRefs = snapshot.evidenceFrameRefs
 
         if report.readyForHTDTIngestion {
