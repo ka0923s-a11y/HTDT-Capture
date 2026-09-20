@@ -1135,20 +1135,25 @@ public struct ScanMotionGuidanceTracker: Sendable {
             return
         }
 
-        guard let key = guidance.targetRegionKey,
-              let region = spatialCoverage.region(at: key),
+        guard let key = guidance.targetRegionKey else {
+            return
+        }
+
+        // The global budget counts every completed spatial action, including
+        // actions that successfully turn a weak region into observed (or make
+        // the target disappear from the bounded map). This guarantees a hard
+        // upper bound on operator movement prompts for one scan.
+        completedSpatialGuidanceAttemptCount += 1
+
+        guard let region = spatialCoverage.region(at: key),
               region.classification == .weak
         else {
             return
         }
 
-        completedSpatialGuidanceAttemptCount += 1
-
         // Per-region retry saturation represents *no-progress* attempts.
-        // A successful translation, new view angle, or useful distance change
-        // should advance guidance without consuming that region's failure
-        // budget. The global budget still counts the action so the full scan
-        // remains bounded.
+        // Successful progress advances guidance without consuming that
+        // region's failure budget.
         if !guidanceMadeProgress(
             guidance,
             region: region,
