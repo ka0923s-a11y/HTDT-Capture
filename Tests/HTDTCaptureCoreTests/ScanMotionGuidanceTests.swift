@@ -471,6 +471,42 @@ final class ScanMotionGuidanceTests: XCTestCase {
         XCTAssertNil(saturated)
     }
 
+    func testStationaryOnlyModeConvertsEarlyRecheckToInPlaceObservation() {
+        var tracker = ScanMotionGuidanceTracker(
+            configuration: ScanMotionGuidanceConfiguration(
+                spatialGuidanceActivationCoverageFraction: 0.80
+            )
+        )
+        tracker.setMovementCapability(.stationaryOnly)
+
+        let recheck = ObservationStabilitySummary(
+            sectorCount: 12,
+            referenceYawRadians: 0,
+            currentSectorIndex: 0,
+            state: .accumulating,
+            stabilityScore: 0.4,
+            normalObservationCount: 8,
+            viewAngleDiversityCount: 1,
+            depthSupportFraction: 0.4,
+            meshSupportFraction: 0,
+            movementConsistencyFraction: 0.9,
+            recheckReason: .supportingEvidenceWeak
+        )
+
+        let result = tracker.record(
+            timestampSeconds: 0,
+            coverage: coverage(
+                gap: nil,
+                observedCellCount: 20
+            ),
+            spatialCoverage: .empty,
+            observation: recheck
+        )
+
+        XCTAssertEqual(result?.action, .holdObserve)
+        XCTAssertNil(result?.translationDirection)
+    }
+
     func testStationaryOnlyModeSuppressesPhysicalMovementGuidanceAndCanComplete() {
         var tracker = ScanMotionGuidanceTracker(
             configuration: ScanMotionGuidanceConfiguration(
