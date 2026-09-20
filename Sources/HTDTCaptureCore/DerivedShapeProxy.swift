@@ -1663,8 +1663,8 @@ public enum DerivedShapeProxyFitter {
                     $0.position.x - current.x,
                     $0.position.y - current.y
                 ) <= vertexRadius
-            }.prefix(4).count
-            guard nearbyCount >= 4 else {
+            }.prefix(2).count
+            guard nearbyCount >= 2 else {
                 return false
             }
 
