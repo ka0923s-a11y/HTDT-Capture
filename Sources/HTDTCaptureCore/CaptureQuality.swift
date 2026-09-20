@@ -94,6 +94,8 @@ public enum CaptureResourceEventKind: String, Codable, Sendable {
     case storagePressure = "storage_pressure"
     case persistenceBacklog = "persistence_backlog"
     case persistenceFailure = "persistence_failure"
+    case roomPlanRawSerializationUnavailable =
+        "roomplan_raw_serialization_unavailable"
     case interruption
 }
 
