@@ -304,3 +304,8 @@
 "The views are separate evidence representations; neither is promoted as canonical geometry here." = "両者は別々の証拠表現です。この表示では、どちらも正規形状として確定しません。";
 
 "Compare" = "比較";
+
+
+/* Camera-first compact scanner HUD */
+"Details" = "詳細";
+"Close" = "閉じる";
