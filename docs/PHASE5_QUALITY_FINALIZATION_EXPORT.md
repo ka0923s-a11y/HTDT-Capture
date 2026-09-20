@@ -1,7 +1,7 @@
 # Phase 5 Quality, Finalization, and Export Implementation Record
 
-Status: In progress  
-Issue: #6
+Status: Software implementation complete  
+Issue: #6 (closed)
 
 ## Implemented
 
@@ -132,13 +132,21 @@ reviewing
 The host does not enter `finalized` until the promoted directory validates and
 its logical bundle digest matches the finalizer result.
 
-## Remaining Phase 5 work
+## Remaining physical acceptance
 
-- connect live annotation/measurement authorities into the same working set;
-- exercise finalization and export against a real captured-room working set;
-- measure storage/thermal/backpressure behavior on device.
+Phase 5 software acceptance is complete, including live annotation/measurement
+integration, atomic finalization, validated share/export, and native untrusted
+archive import.
 
-The archive attack boundary is now enforced both by the Phase 0 reference validator and by the native Swift import path.
+Still to be exercised on physical hardware:
+
+- a complete real RoomPlan capture -> review -> finalization -> archive/share;
+- storage/thermal/backpressure behavior under sustained capture.
+
+Those device observations remain tracked by the cross-cutting hardware issues;
+they are not missing Phase 5 software plumbing.
+
+The archive attack boundary is enforced both by the Phase 0 reference validator and by the native Swift import path.
 
 
 See `docs/PHASE5_LIVE_QUALITY_FINALIZATION.md` for the integrity semantics and

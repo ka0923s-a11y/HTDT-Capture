@@ -1,7 +1,7 @@
 # Phase 4 Annotation + Measurement Implementation Record
 
-Status: In progress  
-Issue: #5
+Status: Software implementation complete; physical acceptance remains under Issue #9  
+Issue: #5 (closed)
 
 ## Implemented in this slice
 
@@ -103,16 +103,21 @@ Core tests cover:
 - conflicting measurement coexistence;
 - instrument/source-text preservation.
 
-## Remaining hardware/UI work
+## Remaining physical acceptance
 
-Issue #5 remains open for:
+The software paths requested by Issue #5 are implemented: manual authoring,
+canonical frame evidence linkage, live ARKit raycast placement, explicit
+speaker-heading capture, and exact EquipmentDefinition catalog selection.
 
-- interactive annotation placement UI;
-- real raycast/mesh-hit-test source binding on device;
-- orientation capture UX;
-- evidence photo linkage UX (canonical frame linkage is now implemented; external photo capture remains deferred);
-- exact HTDT EquipmentDefinition selection UI;
-- physical repeatability measurements under Issue #9.
+Remaining validation is physical evidence rather than missing authority/UI
+plumbing:
+
+- verify live raycast behavior and placement accuracy on the target LiDAR device;
+- verify speaker-heading repeatability;
+- benchmark placement/orientation error under Issue #9.
+
+External Photos-library import remains intentionally outside the MVP because
+canonical ARFrame evidence already supplies an exact pose-linked photo source.
 
 
 ## Manual authority authoring UI
@@ -158,16 +163,17 @@ The editor supports user-attested scalar measurements with:
 These records remain distinct from LiDAR/RoomPlan-derived measurement
 authorities.
 
-### Remaining hardware/UI gates
+### Remaining hardware gates
 
-Still not claimed by this slice:
+Still not claimed by software CI:
 
-- live camera/3D raycast placement;
-- mesh-hit placement provenance;
-- physical speaker-orientation capture;
-- external photo capture beyond the canonical ARFrame evidence linkage;
-- connected HTDT equipment-catalog picker;
-- physical placement/repeatability benchmark.
+- physical verification of live raycast placement;
+- physical verification of speaker-heading capture;
+- physical placement/orientation repeatability benchmark under Issue #9.
+
+The current raycast authority intentionally records ARKit raycast provenance
+without inventing a mesh-anchor identity. External Photos-library capture
+remains deferred.
 
 
 ## Canonical evidence-frame linkage

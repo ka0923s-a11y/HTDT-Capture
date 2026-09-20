@@ -33,9 +33,12 @@ persistence and feed the quality completeness authority.
 
 The repository includes an unsigned IPA build workflow, and the software paths
 above are compiled/tested in GitHub Actions. **Physical-device success is not
-implied by CI.** Real LiDAR RoomPlan/ARMesh/frame/depth behavior, alignment,
-interruption/resource behavior, interactive placement UX, native
-`.htdtcapture` share/export, and the physical accuracy benchmark remain open.
+implied by CI.** Real LiDAR RoomPlan/ARMesh/frame/depth behavior, spatial
+alignment, interruption/relocalization behavior, resource behavior, and the
+physical accuracy benchmark remain open. Manual authoring, evidence-linked
+raycast placement, speaker-heading capture, exact equipment selection,
+validated `.htdtcapture` share/export, and staged untrusted archive import are
+implemented software paths.
 
 The implementation baseline is documented in:
 
@@ -68,10 +71,10 @@ GLB/USDZ/OBJ/PLY exports are derived convenience outputs, not the canonical auth
 2. SwiftUI / ARSession foundation — concrete host workflow integrated; physical-device recovery/resource verification open
 3. RoomPlan + ARMesh dual capture — raw/postprocessed lineage + final active mesh persistence wired; real capture/alignment verification open
 4. Pose-linked image/depth evidence — scan-end live working-set path wired; real-device pixel/depth behavior verification open
-5. HTDT-specific equipment/reference annotations — typed authority + working-set persistence implemented; interactive placement/equipment UI open
-6. User-attested measurement authority — typed authority + working-set persistence implemented; entry/edit UX open
-7. Bundle validation/finalization/export — live quality + atomic finalization wired; native validated `.htdtcapture` share/export open
-8. HTDT ingestion integration — deterministic reference contract implemented; production HTDT mesh adapter implemented; full backend transaction integration in progress
+5. HTDT-specific equipment/reference annotations — typed authority, manual authoring, canonical evidence linkage, live raycast placement, speaker-heading capture, and exact equipment-catalog selection implemented; physical repeatability remains open
+6. User-attested measurement authority — typed authority + live staged entry/persistence implemented
+7. Bundle validation/finalization/export — live quality, atomic finalization, validated share/export, archive validation, and staged untrusted import implemented; real-device end-to-end exercise remains open
+8. HTDT ingestion integration — deterministic reference contract, production atomic backend ingestion, RawVisualMesh binding, and explicit semantic promotion implemented
 9. Spatial accuracy benchmark — protocol/analyzer implemented; physical benchmark open
 
 See the implementation plan for architecture, scope, acceptance criteria, testing strategy, and risk controls.
