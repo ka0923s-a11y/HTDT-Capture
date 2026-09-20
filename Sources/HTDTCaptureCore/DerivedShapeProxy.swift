@@ -952,8 +952,10 @@ public enum DerivedShapeProxyFitter {
             )
 
             let referenceExtent = max(
-                max(lhs.bounds.width, lhs.bounds.depth),
-                max(rhs.bounds.width, rhs.bounds.depth),
+                max(
+                    max(lhs.bounds.width, lhs.bounds.depth),
+                    max(rhs.bounds.width, rhs.bounds.depth)
+                ),
                 0.001
             )
             let centerShift = hypot(
