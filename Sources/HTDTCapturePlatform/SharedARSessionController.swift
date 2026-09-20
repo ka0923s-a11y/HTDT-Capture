@@ -58,18 +58,22 @@ public struct CaptureReviewEvidenceSnapshot: Sendable {
 public struct DerivedShapeLiveObservationSet: Sendable {
     public let objectObservation: DerivedShapeObservation?
     public let wallObservation: DerivedShapeObservation?
+    public let floorReferenceY: Double?
 
     public init(
         objectObservation: DerivedShapeObservation?,
-        wallObservation: DerivedShapeObservation?
+        wallObservation: DerivedShapeObservation?,
+        floorReferenceY: Double? = nil
     ) {
         self.objectObservation = objectObservation
         self.wallObservation = wallObservation
+        self.floorReferenceY = floorReferenceY
     }
 
     public static let empty = DerivedShapeLiveObservationSet(
         objectObservation: nil,
-        wallObservation: nil
+        wallObservation: nil,
+        floorReferenceY: nil
     )
 }
 
@@ -447,7 +451,7 @@ public final class SharedARSessionController {
         let objectObservation =
             liveDerivedShapeObservation(
                 anchors: anchors,
-                classification: .table,
+                classifications: [.table, .seat],
                 sessionTimestampSeconds: frame.timestamp,
                 voxelSizeMeters: 0.035,
                 maxPoints: maxObjectPoints,
@@ -456,16 +460,22 @@ public final class SharedARSessionController {
         let wallObservation =
             liveDerivedShapeObservation(
                 anchors: anchors,
-                classification: .wall,
+                classifications: [.wall],
                 sessionTimestampSeconds: frame.timestamp,
                 voxelSizeMeters: 0.06,
                 maxPoints: maxWallPoints,
                 maxInspectedFaces: 12_000
             )
+        let floorReferenceY = liveFloorReferenceY(
+            anchors: anchors,
+            maxInspectedFaces: 2_500,
+            maxSamples: 192
+        )
 
         return DerivedShapeLiveObservationSet(
             objectObservation: objectObservation,
-            wallObservation: wallObservation
+            wallObservation: wallObservation,
+            floorReferenceY: floorReferenceY
         )
     }
 
@@ -627,7 +637,7 @@ public final class SharedARSessionController {
 
     private func liveDerivedShapeObservation(
         anchors: [ARMeshAnchor],
-        classification: ARMeshClassification,
+        classifications requestedClassifications: [ARMeshClassification],
         sessionTimestampSeconds: Double,
         voxelSizeMeters: Double,
         maxPoints: Int,
@@ -647,7 +657,7 @@ public final class SharedARSessionController {
 
         outer: for anchor in anchors {
             let geometry = anchor.geometry
-            guard let classifications = geometry.classification,
+            guard let geometryClassifications = geometry.classification,
                   geometry.faces.indexCountPerPrimitive == 3,
                   geometry.faces.bytesPerIndex == 2
                     || geometry.faces.bytesPerIndex == 4
@@ -662,21 +672,19 @@ public final class SharedARSessionController {
                 inspectedFaces += 1
 
                 let classificationPointer =
-                    classifications.buffer.contents().advanced(
+                    geometryClassifications.buffer.contents().advanced(
                         by:
-                            classifications.offset
-                            + faceIndex * classifications.stride
+                            geometryClassifications.offset
+                            + faceIndex * geometryClassifications.stride
                     )
                 let rawClassification =
                     classificationPointer
                         .assumingMemoryBound(to: UInt8.self)
                         .pointee
-                guard rawClassification
-                        == UInt8(
-                            truncatingIfNeeded:
-                                classification.rawValue
-                        )
-                else {
+                guard requestedClassifications.contains(where: {
+                    rawClassification
+                        == UInt8(truncatingIfNeeded: $0.rawValue)
+                }) else {
                     continue
                 }
 
@@ -712,7 +720,8 @@ public final class SharedARSessionController {
                                 y: Double(point.z)
                             ),
                             evidenceRef: evidenceRef,
-                            evidenceKind: .mesh
+                            evidenceKind: .mesh,
+                            verticalPositionMeters: Double(point.y)
                         )
                     )
                 }
@@ -757,7 +766,8 @@ public final class SharedARSessionController {
                             y: Double(edge.firstPoint.z)
                         ),
                         evidenceRef: edge.evidenceRef,
-                        evidenceKind: .mesh
+                        evidenceKind: .mesh,
+                        verticalPositionMeters: Double(edge.firstPoint.y)
                     ),
                     DerivedObservationPoint(
                         position: DerivedPoint2D(
@@ -765,7 +775,8 @@ public final class SharedARSessionController {
                             y: Double(edge.secondPoint.z)
                         ),
                         evidenceRef: edge.evidenceRef,
-                        evidenceKind: .mesh
+                        evidenceKind: .mesh,
+                        verticalPositionMeters: Double(edge.secondPoint.y)
                     ),
                 ]
             }
@@ -790,6 +801,87 @@ public final class SharedARSessionController {
             observationStartSeconds: sessionTimestampSeconds,
             observationEndSeconds: sessionTimestampSeconds
         )
+    }
+
+    private func liveFloorReferenceY(
+        anchors: [ARMeshAnchor],
+        maxInspectedFaces: Int,
+        maxSamples: Int
+    ) -> Double? {
+        guard maxInspectedFaces > 0, maxSamples > 0 else {
+            return nil
+        }
+
+        var inspectedFaces = 0
+        var samples: [Double] = []
+        samples.reserveCapacity(maxSamples)
+
+        outer: for anchor in anchors {
+            let geometry = anchor.geometry
+            guard let classifications = geometry.classification,
+                  geometry.faces.indexCountPerPrimitive == 3
+            else {
+                continue
+            }
+
+            for faceIndex in 0..<geometry.faces.count {
+                if inspectedFaces >= maxInspectedFaces
+                    || samples.count >= maxSamples
+                {
+                    break outer
+                }
+                inspectedFaces += 1
+
+                let pointer = classifications.buffer.contents().advanced(
+                    by:
+                        classifications.offset
+                        + faceIndex * classifications.stride
+                )
+                let rawClassification = pointer
+                    .assumingMemoryBound(to: UInt8.self)
+                    .pointee
+                guard rawClassification
+                        == UInt8(
+                            truncatingIfNeeded:
+                                ARMeshClassification.floor.rawValue
+                        ),
+                      let indices = liveMeshFaceIndices(
+                        geometry: geometry,
+                        faceIndex: faceIndex
+                      )
+                else {
+                    continue
+                }
+
+                let vertices = indices.compactMap {
+                    liveMeshWorldVertex(
+                        geometry: geometry,
+                        vertexIndex: Int($0),
+                        transform: anchor.transform
+                    )
+                }
+                guard vertices.count == 3 else {
+                    continue
+                }
+
+                samples.append(
+                    Double(
+                        (vertices[0].y + vertices[1].y + vertices[2].y)
+                        / 3
+                    )
+                )
+            }
+        }
+
+        let finite = samples.filter(\.isFinite).sorted()
+        guard !finite.isEmpty else {
+            return nil
+        }
+        let middle = finite.count / 2
+        if finite.count.isMultiple(of: 2) {
+            return (finite[middle - 1] + finite[middle]) / 2
+        }
+        return finite[middle]
     }
 
     private func liveMeshFaceIndices(
@@ -915,11 +1007,18 @@ public final class SharedARSessionController {
             if $0.position.y != $1.position.y {
                 return $0.position.y < $1.position.y
             }
+            if $0.verticalPositionMeters != $1.verticalPositionMeters {
+                return ($0.verticalPositionMeters ?? -.infinity)
+                    < ($1.verticalPositionMeters ?? -.infinity)
+            }
             return $0.evidenceRef < $1.evidenceRef
         }) {
             let key = LiveDerivedVoxelKey(
                 x: Int(floor(point.position.x / voxelSizeMeters)),
-                y: Int(floor(point.position.y / voxelSizeMeters))
+                z: Int(floor(point.position.y / voxelSizeMeters)),
+                y: point.verticalPositionMeters.map {
+                    Int(floor($0 / voxelSizeMeters))
+                } ?? Int.min
             )
             if cells[key] == nil {
                 cells[key] = point
@@ -932,6 +1031,10 @@ public final class SharedARSessionController {
             }
             if $0.position.y != $1.position.y {
                 return $0.position.y < $1.position.y
+            }
+            if $0.verticalPositionMeters != $1.verticalPositionMeters {
+                return ($0.verticalPositionMeters ?? -.infinity)
+                    < ($1.verticalPositionMeters ?? -.infinity)
             }
             return $0.evidenceRef < $1.evidenceRef
         }
@@ -1032,6 +1135,7 @@ private struct LiveDerivedMeshEdgeRecord {
 
 private struct LiveDerivedVoxelKey: Hashable {
     let x: Int
+    let z: Int
     let y: Int
 }
 
