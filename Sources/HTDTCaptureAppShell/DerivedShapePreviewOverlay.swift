@@ -72,38 +72,68 @@ struct DerivedShapePreviewPanel: View {
                     )
                     Spacer()
                     if let metrics = primaryMetrics {
-                        Text(
-                            String(
-                                format:
-                                    String(
-                                        localized: "Residual %.3f · support %d%%"
-                                    ),
-                                metrics.normalizedResidual,
-                                Int(
-                                    (
-                                        metrics.supportScore * 100
-                                    ).rounded()
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(
+                                String(
+                                    format:
+                                        String(
+                                            localized: "Residual %.3f · support %d%%"
+                                        ),
+                                    metrics.normalizedResidual,
+                                    Int(
+                                        (
+                                            metrics.supportScore * 100
+                                        ).rounded()
+                                    )
                                 )
                             )
-                        )
-                        .monospacedDigit()
+                            .monospacedDigit()
+
+                            if let angularSupport =
+                                metrics.angularSupport
+                            {
+                                Text(
+                                    String(
+                                        format:
+                                            String(
+                                                localized: "Angular support %d%%"
+                                            ),
+                                        Int(
+                                            (
+                                                angularSupport * 100
+                                            ).rounded()
+                                        )
+                                    )
+                                )
+                                .monospacedDigit()
+                            }
+                        }
                     }
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+
+                if primaryConcavityUnresolved {
+                    Label(
+                        "Concavity unresolved; showing convex observed boundary",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
             }
 
             if !snapshot.disagreements.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
                     Label(
-                        "Structure estimate and observed shape differ",
+                        "Observed geometry may differ from structural approximation",
                         systemImage: "arrow.triangle.branch"
                     )
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.orange)
 
                     Text(
-                        "The views are separate evidence representations; neither is promoted as canonical geometry here."
+                        "This advisory uses only HTDT-visible evidence; it does not infer unavailable RoomPlan geometry. Neither representation is promoted as canonical geometry here."
                     )
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -126,6 +156,15 @@ struct DerivedShapePreviewPanel: View {
 
     private var primaryMetrics: DerivedShapeFitMetrics? {
         primaryProxy?.selected?.metrics
+    }
+
+    private var primaryConcavityUnresolved: Bool {
+        guard let selected = primaryProxy?.selected,
+              case let .polygon(polygon) = selected.geometry
+        else {
+            return false
+        }
+        return polygon.concavityResolution == .unresolved
     }
 
     private var primaryShapeLabel: String {
