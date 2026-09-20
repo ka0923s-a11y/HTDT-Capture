@@ -126,7 +126,7 @@ struct DerivedShapePreviewPanel: View {
             if !snapshot.disagreements.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
                     Label(
-                        "Structural approximation and observed shape differ",
+                        "Observed geometry may differ from structural approximation",
                         systemImage: "arrow.triangle.branch"
                     )
                     .font(.caption.weight(.semibold))
