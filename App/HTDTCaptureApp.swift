@@ -1207,6 +1207,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 runtime: runtime
             )
         } catch {
+            workingSetStatus = HostLocalization.text(
+                "Raw RoomPlan evidence could not be encoded",
+                "RoomPlan の生データをエンコードできませんでした"
+            )
             fail(.persistenceFailure)
             return
         }
