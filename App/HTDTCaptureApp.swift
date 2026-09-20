@@ -1525,10 +1525,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            await self.recoverRoomPlanEndAttempt(
-                diagnostic: "roomplan_completion_timeout",
-                store: store,
-                generation: generation
+            // RoomPlan does not expose HTDT's stop-attempt token in its
+            // completion callback. Auto-restarting here would allow a late
+            // completion from this stop to be consumed by a later End
+            // attempt. Keep this stop unresolved until its callback/error is
+            // actually observed; only update the operator-facing status.
+            self.workingSetStatus = HostLocalization.text(
+                "RoomPlan is still producing the final result",
+                "RoomPlan の最終結果を引き続き生成中です"
+            )
+            self.endScanGuidance = HostLocalization.text(
+                "Final RoomPlan processing is taking longer than usual. Keep the app in the foreground and wait; do not start another End attempt.",
+                "RoomPlan の終了処理に通常より時間がかかっています。アプリを前面にしたまま待ってください。別の終了処理は開始しません。"
             )
         }
     }
