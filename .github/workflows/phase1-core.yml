@@ -29,11 +29,17 @@ jobs:
         run: swift --version
       - name: Run core tests
         run: swift test
-      - name: Compile iOS platform target
+      - name: Compile iOS platform and AppShell targets
         run: |
           xcodebuild \
             -scheme HTDTCapturePlatform \
             -destination 'generic/platform=iOS' \
-            -derivedDataPath .build/xcode-ios \
+            -derivedDataPath .build/xcode-ios-platform \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+          xcodebuild \
+            -scheme HTDTCaptureAppShell \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath .build/xcode-ios-appshell \
             CODE_SIGNING_ALLOWED=NO \
             build
