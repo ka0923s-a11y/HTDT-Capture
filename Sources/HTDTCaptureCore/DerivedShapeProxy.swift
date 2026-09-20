@@ -821,15 +821,6 @@ public enum DerivedShapeProxyFitter {
             return $0.kind.rawValue < $1.kind.rawValue
         }
 
-        if hasCircleRectangleAmbiguity(candidates) {
-            return unresolvedProxy(
-                resolution: .ambiguousEvidence,
-                observation: observation,
-                candidates: candidates,
-                sample: sample
-            )
-        }
-
         let footprintAngularSupport = angularSupport(
             points: points.map(\.position),
             center: meanPoint(points.map(\.position))
@@ -837,6 +828,15 @@ public enum DerivedShapeProxyFitter {
         if footprintAngularSupport < 0.70 {
             return unresolvedProxy(
                 resolution: .insufficientEvidence,
+                observation: observation,
+                candidates: candidates,
+                sample: sample
+            )
+        }
+
+        if hasCircleRectangleAmbiguity(candidates) {
+            return unresolvedProxy(
+                resolution: .ambiguousEvidence,
                 observation: observation,
                 candidates: candidates,
                 sample: sample
