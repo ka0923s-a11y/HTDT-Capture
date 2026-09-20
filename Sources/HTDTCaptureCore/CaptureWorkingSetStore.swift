@@ -6,6 +6,8 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     case processedRoomPlanRequiresRaw
     case processedRoomPlanLineageMismatch
     case invalidMeshPackage
+    case invalidAnnotationPackage
+    case invalidMeasurementPackage
     case authorityMismatch
     case qualityReportNotReady
     case qualityReportIntegrityMissing
@@ -82,6 +84,10 @@ public actor CaptureWorkingSetStore {
     private var meshAnchorCount: Int?
     private var meshIndex: MeshAnchorEvidenceIndex?
     private var frameDescriptors: [FrameEvidenceDescriptor] = []
+    private var annotationCollection: CaptureAnnotationCollection?
+    private var measurementCollection: CaptureMeasurementCollection?
+    private var annotationKeysPresent: Set<String> = []
+    private var measurementQuantityTypesPresent: Set<String> = []
     private var evidenceFrameCount = 0
     private var depthEvidenceCount = 0
 
@@ -278,6 +284,94 @@ public actor CaptureWorkingSetStore {
         depthEvidenceCount += package.capturedDepthCount
     }
 
+    public func persistAnnotationPackage(
+        _ package: AnnotationEvidencePackage
+    ) async throws {
+        guard
+            let decoded = try? JSONDecoder().decode(
+                CaptureAnnotationCollection.self,
+                from: package.data
+            ),
+            decoded == package.collection
+        else {
+            throw CaptureWorkingSetError.invalidAnnotationPackage
+        }
+
+        let spaces = Set(
+            package.collection.entities.map(\.coordinateSpaceID)
+        )
+        guard spaces.count <= 1 else {
+            throw CaptureWorkingSetError.invalidAnnotationPackage
+        }
+        if let space = spaces.first {
+            try bindCoordinateAuthority(space)
+        }
+
+        try await writer.write(
+            package.data,
+            to: CaptureStorePath(AnnotationEvidencePackage.path)
+        )
+        try register(
+            BundlePayloadDeclaration(
+                path: AnnotationEvidencePackage.path,
+                mediaType: "application/json",
+                producer: "annotation",
+                provenanceClass: .userAnnotation,
+                role: .canonical
+            )
+        )
+
+        annotationCollection = package.collection
+        annotationKeysPresent = Set(
+            package.collection.entities.map(annotationQualityKey)
+        )
+    }
+
+    public func persistMeasurementPackage(
+        _ package: MeasurementEvidencePackage
+    ) async throws {
+        guard
+            let decoded = try? JSONDecoder().decode(
+                CaptureMeasurementCollection.self,
+                from: package.data
+            ),
+            decoded == package.collection
+        else {
+            throw CaptureWorkingSetError.invalidMeasurementPackage
+        }
+
+        let spaces = Set(
+            package.collection.measurements.compactMap(
+                \.coordinateSpaceID
+            )
+        )
+        guard spaces.count <= 1 else {
+            throw CaptureWorkingSetError.invalidMeasurementPackage
+        }
+        if let space = spaces.first {
+            try bindCoordinateAuthority(space)
+        }
+
+        try await writer.write(
+            package.data,
+            to: CaptureStorePath(MeasurementEvidencePackage.path)
+        )
+        try register(
+            BundlePayloadDeclaration(
+                path: MeasurementEvidencePackage.path,
+                mediaType: "application/json",
+                producer: "measurement",
+                provenanceClass: .userAttestedMeasurement,
+                role: .canonical
+            )
+        )
+
+        measurementCollection = package.collection
+        measurementQuantityTypesPresent = Set(
+            package.collection.measurements.map(\.quantityType)
+        )
+    }
+
     public func evaluateQuality(
         requirements: CaptureQualityRequirements = .init()
     ) -> CaptureQualityReport {
@@ -307,6 +401,9 @@ public actor CaptureWorkingSetStore {
                 activeMeshAnchorCount: meshAnchorCount ?? 0,
                 evidenceFrameCount: evidenceFrameCount,
                 depthEvidenceCount: depthEvidenceCount,
+                annotationKeysPresent: annotationKeysPresent,
+                measurementQuantityTypesPresent:
+                    measurementQuantityTypesPresent,
                 integrityStatus: integrityStatus
             ),
             requirements: requirements
@@ -438,6 +535,34 @@ public actor CaptureWorkingSetStore {
             }
         }
 
+        if let annotationCollection {
+            guard let file =
+                    actualByPath[AnnotationEvidencePackage.path],
+                  let data = try? Data(contentsOf: file.url),
+                  let decoded = try? JSONDecoder().decode(
+                    CaptureAnnotationCollection.self,
+                    from: data
+                  ),
+                  decoded == annotationCollection
+            else {
+                throw CaptureWorkingSetError.integrityVerificationFailed
+            }
+        }
+
+        if let measurementCollection {
+            guard let file =
+                    actualByPath[MeasurementEvidencePackage.path],
+                  let data = try? Data(contentsOf: file.url),
+                  let decoded = try? JSONDecoder().decode(
+                    CaptureMeasurementCollection.self,
+                    from: data
+                  ),
+                  decoded == measurementCollection
+            else {
+                throw CaptureWorkingSetError.integrityVerificationFailed
+            }
+        }
+
         for descriptor in frameDescriptors {
             let descriptorPath =
                 "evidence/frames/\(descriptor.frameID).json"
@@ -497,6 +622,28 @@ public actor CaptureWorkingSetStore {
         else {
             throw CaptureWorkingSetError.integrityVerificationFailed
         }
+    }
+
+    private func annotationQualityKey(
+        _ entity: CaptureAnnotationEntity
+    ) -> String {
+        if entity.type == .speaker,
+           let role = entity.channelRole
+        {
+            return "speaker:\(role.rawValue)"
+        }
+        return entity.type.rawValue + ":" + entity.label
+    }
+
+    private func bindCoordinateAuthority(
+        _ coordinateSpaceID: CoordinateSpaceID
+    ) throws {
+        if let existing = self.coordinateSpaceID,
+           existing != coordinateSpaceID
+        {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        self.coordinateSpaceID = coordinateSpaceID
     }
 
     private func bindAuthority(
