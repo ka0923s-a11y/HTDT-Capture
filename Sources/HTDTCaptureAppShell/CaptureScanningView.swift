@@ -228,6 +228,7 @@ public struct CaptureScanningView: View {
                 .frame(minHeight: 38)
             }
             .buttonStyle(.bordered)
+            .tint(scanGuidanceComplete ? .green : nil)
             .controlSize(.regular)
             .accessibilityLabel(
                 String(localized: "End scan")
@@ -529,6 +530,13 @@ public struct CaptureScanningView: View {
     }
 
     private var actionSentence: String {
+        if scanGuidanceComplete {
+            return String(
+                localized:
+                    "Scan guidance complete. You can end now or continue for more detail."
+            )
+        }
+
         if let motionGuidance {
             return ScanMotionGuidanceCopy.prompt(
                 for: motionGuidance,
@@ -715,6 +723,20 @@ public struct CaptureScanningView: View {
         if let decomposition = derivedPreview.objectDecomposition,
            decomposition.components.count > 1
         {
+            if let selected =
+                derivedPreview.objectProxies
+                    .compactMap(\.selected)
+                    .first
+            {
+                return String(
+                    format: String(
+                        localized: "%@ · %d candidates"
+                    ),
+                    shapeKindLabel(selected.kind),
+                    decomposition.components.count
+                )
+            }
+
             return String(
                 format: String(localized: "Observed shape candidates %d"),
                 decomposition.components.count
@@ -747,16 +769,7 @@ public struct CaptureScanningView: View {
                 }
             }
 
-            switch selected.kind {
-            case .orientedRectangle:
-                return String(localized: "Oriented rectangle")
-            case .circle:
-                return String(localized: "Circle")
-            case .ellipse:
-                return String(localized: "Ellipse")
-            case .polygon:
-                return String(localized: "Polygon")
-            }
+            return shapeKindLabel(selected.kind)
         }
 
         if derivedPreview.wallChain != nil {
@@ -764,6 +777,28 @@ public struct CaptureScanningView: View {
         }
 
         return String(localized: "No bounded shape evidence yet")
+    }
+
+    private var scanGuidanceComplete: Bool {
+        coverage.coverageFraction >= 0.95
+            && coverage.latestTrackingState == .normal
+            && motionGuidance == nil
+            && spatialCoverage.observedRegionCount > 0
+    }
+
+    private func shapeKindLabel(
+        _ kind: DerivedShapeKind
+    ) -> String {
+        switch kind {
+        case .orientedRectangle:
+            return String(localized: "Oriented rectangle")
+        case .circle:
+            return String(localized: "Circle")
+        case .ellipse:
+            return String(localized: "Ellipse")
+        case .polygon:
+            return String(localized: "Polygon")
+        }
     }
 
     private var meshAvailabilityLabel: String {
