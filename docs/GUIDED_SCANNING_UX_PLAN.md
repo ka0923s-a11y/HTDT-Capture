@@ -147,6 +147,26 @@ Keep only primary scan actions on the camera screen:
 Secondary status/debug information remains available after the scan or in
 diagnostic views rather than displacing the camera.
 
+## 4.5 Live-view lifecycle requirement
+
+Physical-device acceptance found a black preview even while the shared
+`ARSession` reported normal tracking and advisory coverage advanced. The
+renderer lifecycle is therefore part of the scanner contract, not merely a
+presentation detail.
+
+The host must:
+
+1. transition into the scanning presentation so the exact
+   `RoomCaptureView` is mounted in the window hierarchy;
+2. verify that the mounted view has a non-empty laid-out bounds;
+3. only then call that view's `captureSession.run(...)`;
+4. fail closed if the live capture view does not attach within the bounded
+   presentation window.
+
+Starting RoomPlan while the framework-provided view is still detached is not
+an accepted host sequence. A second camera/AR session must not be introduced as
+a workaround because that would split the capture and display authorities.
+
 ## 5. Coverage model v1
 
 ### 5.1 Sampling
