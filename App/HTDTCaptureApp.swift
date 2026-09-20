@@ -266,7 +266,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     maximumFrameCount: 6,
                     maximumAgeSeconds: 24,
                     voxelSizeMeters: 0.055,
-                    maximumPointCount: 384
+                    maximumPointCount: 384,
+                    maximumObservationCenterShiftMeters: 0.65
                 )
             )
         derivedVolumeFusionTracker =
@@ -275,7 +276,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     maximumFrameCount: 6,
                     maximumAgeSeconds: 24,
                     voxelSizeMeters: 0.055,
-                    maximumPointCount: 384
+                    maximumPointCount: 384,
+                    maximumObservationCenterShiftMeters: 0.65
                 )
             )
         derivedWallFusionTracker =
@@ -770,7 +772,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     maximumFrameCount: 6,
                     maximumAgeSeconds: 24,
                     voxelSizeMeters: 0.055,
-                    maximumPointCount: 384
+                    maximumPointCount: 384,
+                    maximumObservationCenterShiftMeters: 0.65
                 )
             )
         derivedVolumeFusionTracker =
@@ -779,7 +782,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     maximumFrameCount: 6,
                     maximumAgeSeconds: 24,
                     voxelSizeMeters: 0.055,
-                    maximumPointCount: 384
+                    maximumPointCount: 384,
+                    maximumObservationCenterShiftMeters: 0.65
                 )
             )
         derivedWallFusionTracker =
@@ -1724,7 +1728,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     maximumFrameCount: 6,
                     maximumAgeSeconds: 24,
                     voxelSizeMeters: 0.055,
-                    maximumPointCount: 384
+                    maximumPointCount: 384,
+                    maximumObservationCenterShiftMeters: 0.65
                 )
             )
         derivedVolumeFusionTracker =
@@ -1733,7 +1738,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     maximumFrameCount: 6,
                     maximumAgeSeconds: 24,
                     voxelSizeMeters: 0.055,
-                    maximumPointCount: 384
+                    maximumPointCount: 384,
+                    maximumObservationCenterShiftMeters: 0.65
                 )
             )
         derivedWallFusionTracker =
