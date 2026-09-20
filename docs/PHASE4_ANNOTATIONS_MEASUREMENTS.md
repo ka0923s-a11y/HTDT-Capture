@@ -187,3 +187,29 @@ The UI does not copy image bytes or create an untracked preview-only photo.
 Only evidence already present in the same working revision is offered for
 selection. This slice does not add external Photos-library imports or claim a
 separate photographic provenance class.
+
+
+## Live evidence-linked raycast placement
+
+The review annotation editor now has an explicit **Use live center raycast**
+action while the app-owned ARSession is still alive after the RoomPlan scan
+boundary.
+
+The path is:
+
+`current ARFrame camera center ray -> ARSession raycast -> exact hit position -> persist that same ARFrame as canonical evidence -> annotation placement authority`.
+
+The placement authority stores a translation-only
+`T_world_from_annotation`; it does not adopt plane orientation as speaker
+orientation. Speaker front-axis authority remains an independent explicit input.
+
+Raycast provenance is only asserted when a real ARKit raycast returns a hit.
+The supporting canonical frame descriptor is recorded in both placement
+`source_evidence_refs` and entity `evidence_refs`. The adapter does not guess
+that an ARKit plane hit corresponds to a particular mesh anchor.
+
+If annotation editing is cancelled, staged annotation/measurement records are
+not written. Any ARFrame explicitly captured by a raycast action remains valid
+canonical evidence in the working revision rather than being silently deleted.
+
+Physical placement accuracy and repeatability remain Issue #9 hardware gates.

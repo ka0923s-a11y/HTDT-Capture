@@ -7,6 +7,8 @@ public struct CaptureRootActions {
     public let beginReview: () -> Void
     public let captureEvidenceFrame: () -> Void
     public let beginAnnotation: () -> Void
+    public let captureRaycastPlacement:
+        () async throws -> AnnotationPlacementAuthority
     public let commitAnnotationAuthority: (
         [CaptureAnnotationEntity],
         [CaptureMeasurement]
@@ -21,6 +23,10 @@ public struct CaptureRootActions {
         beginReview: @escaping () -> Void = {},
         captureEvidenceFrame: @escaping () -> Void = {},
         beginAnnotation: @escaping () -> Void = {},
+        captureRaycastPlacement: @escaping
+            () async throws -> AnnotationPlacementAuthority = {
+                throw ManualAuthorityBuilderError.invalidPosition
+            },
         commitAnnotationAuthority: @escaping (
             [CaptureAnnotationEntity],
             [CaptureMeasurement]
@@ -34,6 +40,7 @@ public struct CaptureRootActions {
         self.beginReview = beginReview
         self.captureEvidenceFrame = captureEvidenceFrame
         self.beginAnnotation = beginAnnotation
+        self.captureRaycastPlacement = captureRaycastPlacement
         self.commitAnnotationAuthority =
             commitAnnotationAuthority
         self.cancelAnnotation = cancelAnnotation
@@ -97,6 +104,8 @@ public struct CaptureRootView: View {
                     coordinateSpaceID: coordinateSpaceID,
                     availableEvidenceRefs:
                         annotationEvidenceRefs,
+                    captureRaycastPlacement:
+                        actions.captureRaycastPlacement,
                     onCommit:
                         actions.commitAnnotationAuthority,
                     onCancel: actions.cancelAnnotation

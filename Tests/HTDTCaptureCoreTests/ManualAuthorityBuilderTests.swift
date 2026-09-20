@@ -99,3 +99,41 @@ func manualAuthoritiesPreserveSelectedEvidenceReferences() throws {
     #expect(entity.evidenceRefs == [reference])
     #expect(measurement.evidenceRefs == [reference])
 }
+
+
+@Test
+func evidenceLinkedRaycastPlacementOverridesManualPosition() throws {
+    let reference =
+        "path:evidence/frames/"
+        + "30000000-0000-4000-8000-000000000010.json"
+    let transform = try Matrix4x4F(values: [
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        4, 5, 6, 1,
+    ])
+    let authority = try AnnotationPlacementAuthority(
+        worldFromAnnotation: transform,
+        placement: try PlacementProvenance(
+            method: .raycast,
+            sourceEvidenceRefs: [reference]
+        ),
+        evidenceRefs: [reference]
+    )
+
+    let entity = try ManualAuthorityBuilder.annotation(
+        type: .referencePoint,
+        label: "Raycast point",
+        xMeters: 99,
+        yMeters: 99,
+        zMeters: 99,
+        coordinateSpaceID: CoordinateSpaceID(),
+        placementAuthority: authority
+    )
+
+    #expect(entity.worldFromAnnotation == transform)
+    #expect(entity.placement.method == .raycast)
+    #expect(entity.placement.sourceEvidenceRefs == [reference])
+    #expect(entity.evidenceRefs == [reference])
+    #expect(entity.verificationState == .evidenceLinked)
+}
