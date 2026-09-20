@@ -143,8 +143,18 @@ public final class SharedARSessionController {
             frame: .zero,
             arSession: arSession
         )
-        self.roomCaptureView.isModelEnabled = false
+        self.roomCaptureView.isModelEnabled = true
         self.roomCaptureView.delegate = roomPlanDelegateBridge
+    }
+
+    public func setRoomPlanModelRenderingEnabled(
+        _ enabled: Bool
+    ) {
+        guard roomCaptureView.isModelEnabled != enabled else {
+            return
+        }
+        roomCaptureView.isModelEnabled = enabled
+        roomCaptureView.setNeedsLayout()
     }
 
     func markLiveRoomCaptureViewMounted(
