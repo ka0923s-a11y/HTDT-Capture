@@ -581,9 +581,7 @@ public actor CaptureWorkingSetStore {
                         : geometryRefs.sorted()
                 )
             )
-        } else if removeOwnedMesh,
-                  meshIndex != nil
-        {
+        } else if removeOwnedMesh {
             throw CaptureWorkingSetError
                 .integrityVerificationFailed
         }
