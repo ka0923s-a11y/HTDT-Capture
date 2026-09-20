@@ -56,9 +56,20 @@ A fused mesh may be produced only as a derived authority with lineage to all con
 
 ## 5. RoomPlan mapping
 
-HTDT stores raw `CapturedRoomData` and postprocessed `CapturedRoom` as distinct evidence records.
+When Apple raw serialization is available, HTDT stores raw `CapturedRoomData`
+and postprocessed `CapturedRoom` as distinct evidence records. The
+postprocessed record retains the exact source raw RoomPlan payload hash.
 
-The postprocessed record retains its source raw RoomPlan payload hash and producing framework/runtime context.
+If `CapturedRoomData` cannot be serialized but the same in-memory completion
+is successfully processed by `RoomBuilder`, Capture Bundle v1 may contain
+only the postprocessed `CapturedRoom`. That record must carry both:
+
+- `capture_session:<uuid>`, resolving to a manifest capture-session authority;
+- `roomplan_raw_serialization:unavailable`.
+
+No raw payload or raw hash is fabricated. Reference ingestion rejects an
+unknown capture-session marker, a processed-only marker when raw RoomPlan is
+also present, or unsupported source-ref prefixes.
 
 User corrections do not mutate either Apple artifact.
 

@@ -70,7 +70,7 @@ Examples:
 | packed selected camera frame | canonical |
 | discrete sceneDepth/confidence | canonical when captured |
 | user-attested measurements | canonical |
-| postprocessed CapturedRoom | canonical evidence, but explicitly derived from CapturedRoomData |
+| postprocessed CapturedRoom | canonical Apple inference evidence; normally hash-bound to CapturedRoomData, or explicitly marked `roomplan_raw_serialization:unavailable` when the same in-memory completion could be processed but raw Codable serialization was unavailable |
 | HEIC preview | derived |
 | USD/USDZ/GLB preview/export | derived |
 | merged mesh preview | derived |

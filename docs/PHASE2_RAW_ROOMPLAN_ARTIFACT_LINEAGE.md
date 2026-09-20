@@ -5,17 +5,30 @@ Issue: #3
 
 ## Purpose
 
-This slice establishes the exact authority path from RoomPlan scan completion to
-raw and postprocessed evidence without allowing postprocessing failure to erase
-the raw scan authority.
+This slice establishes the authority path from RoomPlan scan completion to
+raw and postprocessed evidence without fabricating evidence when Apple's raw
+Codable serialization is unavailable.
+
+Preferred path:
 
 ```text
-RoomCaptureSessionDelegate.didEndWith(CapturedRoomData)
+RoomCaptureViewDelegate completion(CapturedRoomData)
   -> exact Codable raw bytes
   -> raw evidence digest/descriptor
   -> RoomBuilder.capturedRoom(from: same CapturedRoomData)
   -> exact Codable processed bytes
   -> processed descriptor bound to raw SHA-256
+```
+
+Bounded fallback:
+
+```text
+RoomCaptureViewDelegate completion(CapturedRoomData)
+  -> raw Codable serialization unavailable
+  -> RoomBuilder.capturedRoom(from: same in-memory CapturedRoomData)
+  -> exact Codable processed bytes
+  -> processed descriptor with sourceRawSerializationStatus=unavailable
+  -> manifest source_refs bind the exact capture-session authority
 ```
 
 ## Session completion boundary
@@ -28,11 +41,11 @@ The callback returns the exact `CapturedRoomData` supplied by RoomPlan together
 with any framework error. It does not reinterpret an error as successful
 evidence.
 
-## Raw-first authority
+## Raw authority when serializable
 
 `RoomPlanArtifactProcessor.encodeRaw` serializes the exact
-`CapturedRoomData` through the existing RoomPlan Codable encoder and creates a
-`RoomPlanRawArtifactPayload`.
+`CapturedRoomData` through the RoomPlan Codable encoder and creates a
+`RoomPlanRawArtifactPayload` when that serialization succeeds.
 
 The raw artifact is a complete authority on its own. It has:
 
@@ -44,7 +57,8 @@ The raw artifact is a complete authority on its own. It has:
 - runtime provenance.
 
 A later `RoomBuilder` failure does not invalidate or overwrite this raw
-artifact.
+artifact. Conversely, a raw serialization failure does not imply that the
+in-memory `CapturedRoomData` is unusable by `RoomBuilder`.
 
 ## Postprocessed lineage
 
@@ -53,16 +67,26 @@ artifact.
 the encoded `CapturedRoom` is represented by
 `RoomPlanProcessedArtifactPayload`.
 
-Its descriptor contains `sourceRawSHA256` equal to the exact raw artifact hash,
-plus the same capture-session and coordinate-space identities.
+When raw serialization succeeded, its descriptor contains `sourceRawSHA256`
+equal to the exact raw artifact hash, plus the same capture-session and
+coordinate-space identities.
+
+When raw serialization was unavailable, the processed descriptor instead has
+`sourceRawSerializationStatus=unavailable` and no raw hash. The final manifest
+records `capture_session:<uuid>` and
+`roomplan_raw_serialization:unavailable`. This is an explicit loss of one
+evidence representation, not a synthetic raw authority.
 
 ## Verification
 
-Core tests verify:
+Core and ingestion tests verify:
 
 - raw evidence can be constructed independently of postprocessing;
 - exact raw bytes determine the raw SHA-256;
-- processed evidence is hash-bound to the raw evidence;
+- raw-backed processed evidence is hash-bound to the raw evidence;
+- processed-only fallback carries an explicit raw-unavailable marker and exact
+  capture-session authority;
+- unknown or inconsistent fallback source refs fail closed;
 - session and coordinate-space identities are preserved across derivation.
 
 The iOS CI compile validates the RoomPlan delegate and RoomBuilder API surface.
