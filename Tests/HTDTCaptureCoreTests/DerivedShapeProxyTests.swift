@@ -132,6 +132,32 @@ final class DerivedShapeProxyTests: XCTestCase {
         XCTAssertEqual(proxy.selected?.kind, .circle)
     }
 
+    func testWellSupportedImperfectCircleCanBeatFlexiblePolygon() {
+        let points = (0..<96).map { index -> DerivedPoint2D in
+            let angle =
+                2 * Double.pi * Double(index) / 96.0
+            let radius =
+                1.0
+                + 0.035 * sin(3 * angle)
+                + 0.012 * cos(7 * angle)
+            return DerivedPoint2D(
+                x: radius * cos(angle),
+                y: radius * sin(angle)
+            )
+        }
+
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: observation(points)
+        )
+
+        XCTAssertEqual(proxy.resolution, .resolved)
+        XCTAssertEqual(proxy.selected?.kind, .circle)
+        XCTAssertGreaterThan(
+            proxy.selected?.metrics.angularSupport ?? 0,
+            0.85
+        )
+    }
+
     func testPartialCircleArcRemainsUnresolved() {
         let points = (0..<72).map { index -> DerivedPoint2D in
             let t =
