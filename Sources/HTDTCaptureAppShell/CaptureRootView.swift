@@ -71,6 +71,9 @@ public struct CaptureRootView: View {
     public let annotationCoordinateSpaceID: CoordinateSpaceID?
     public let annotationEvidenceRefs: [String]
     public let annotationAuthorityCommitted: Bool
+    public let scanningPreview: AnyView?
+    public let scanCoverage: ScanCoverageSummary
+    public let scanEvidenceFrameCount: Int
     public let actions: CaptureRootActions
 
     public init(
@@ -85,6 +88,9 @@ public struct CaptureRootView: View {
         annotationCoordinateSpaceID: CoordinateSpaceID? = nil,
         annotationEvidenceRefs: [String] = [],
         annotationAuthorityCommitted: Bool = false,
+        scanningPreview: AnyView? = nil,
+        scanCoverage: ScanCoverageSummary = .empty,
+        scanEvidenceFrameCount: Int = 0,
         actions: CaptureRootActions = CaptureRootActions()
     ) {
         self.state = state
@@ -100,11 +106,27 @@ public struct CaptureRootView: View {
         self.annotationEvidenceRefs = annotationEvidenceRefs
         self.annotationAuthorityCommitted =
             annotationAuthorityCommitted
+        self.scanningPreview = scanningPreview
+        self.scanCoverage = scanCoverage
+        self.scanEvidenceFrameCount = scanEvidenceFrameCount
         self.actions = actions
     }
 
     public var body: some View {
-        NavigationStack {
+        Group {
+            if state == .scanning,
+               let scanningPreview
+            {
+                CaptureScanningView(
+                    preview: scanningPreview,
+                    coverage: scanCoverage,
+                    evidenceFrameCount: scanEvidenceFrameCount,
+                    captureEvidenceFrame:
+                        actions.captureEvidenceFrame,
+                    endScan: actions.beginReview
+                )
+            } else {
+                NavigationStack {
             if state == .annotating,
                let coordinateSpaceID =
                     annotationCoordinateSpaceID
@@ -231,6 +253,8 @@ public struct CaptureRootView: View {
                 }
             }
                 .navigationTitle("HTDT Capture")
+            }
+                }
             }
         }
     }
