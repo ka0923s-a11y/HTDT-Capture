@@ -871,6 +871,17 @@ public final class SharedARSessionController {
                 CVPixelBufferGetBaseAddress($0)
             }
 
+        let minimumDepthRowBytes =
+            width * MemoryLayout<Float>.size
+        guard depthBytesPerRow >= minimumDepthRowBytes else {
+            return []
+        }
+        if confidenceMap != nil,
+           confidenceBytesPerRow < width
+        {
+            return []
+        }
+
         var depthSamples: [DepthGridSample] = []
         depthSamples.reserveCapacity(maxPoints)
 
