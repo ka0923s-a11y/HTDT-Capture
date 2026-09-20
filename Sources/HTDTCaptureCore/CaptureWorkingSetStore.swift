@@ -203,7 +203,10 @@ public actor CaptureWorkingSetStore {
         )
 
         let path = try CaptureStorePath(descriptor.relativePath)
-        try await writer.write(payload.data, to: path)
+        try await writer.writeIfIdentical(
+            payload.data,
+            to: path
+        )
 
         let declaration = BundlePayloadDeclaration(
             path: descriptor.relativePath,
@@ -258,7 +261,10 @@ public actor CaptureWorkingSetStore {
         }
 
         let path = try CaptureStorePath(descriptor.relativePath)
-        try await writer.write(payload.data, to: path)
+        try await writer.writeIfIdentical(
+            payload.data,
+            to: path
+        )
 
         let declaration = BundlePayloadDeclaration(
             path: descriptor.relativePath,
@@ -898,7 +904,10 @@ public actor CaptureWorkingSetStore {
     private func register(
         _ declaration: BundlePayloadDeclaration
     ) throws {
-        if declarations[declaration.path] != nil {
+        if let existing = declarations[declaration.path] {
+            if existing == declaration {
+                return
+            }
             throw CaptureWorkingSetError
                 .duplicatePayloadDeclaration(declaration.path)
         }
