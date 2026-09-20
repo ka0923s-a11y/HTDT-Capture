@@ -129,6 +129,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         SpatialScanCoverageAggregator()
     private var motionGuidanceTracker =
         ScanMotionGuidanceTracker()
+    private var derivedObjectFusionTracker =
+        DerivedShapeTemporalFusionTracker()
+    private var derivedVolumeFusionTracker =
+        DerivedShapeTemporalFusionTracker()
+    private var derivedWallFusionTracker =
+        DerivedShapeTemporalFusionTracker(
+            configuration: DerivedShapeTemporalFusionConfiguration(
+                maximumFrameCount: 4,
+                maximumAgeSeconds: 8,
+                voxelSizeMeters: 0.07,
+                maximumPointCount: 640
+            )
+        )
     private var scanCoverageTask: Task<Void, Never>?
     private let qualityRequirements = CaptureQualityRequirements()
 
@@ -173,6 +186,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverage = .empty
         motionGuidanceTracker = ScanMotionGuidanceTracker()
         motionGuidance = nil
+        derivedObjectFusionTracker =
+            DerivedShapeTemporalFusionTracker()
+        derivedVolumeFusionTracker =
+            DerivedShapeTemporalFusionTracker()
+        derivedWallFusionTracker =
+            DerivedShapeTemporalFusionTracker(
+                configuration: DerivedShapeTemporalFusionConfiguration(
+                    maximumFrameCount: 4,
+                    maximumAgeSeconds: 8,
+                    voxelSizeMeters: 0.07,
+                    maximumPointCount: 640
+                )
+            )
         derivedShapePreview = .empty
         scanEvidenceFrameCount = 0
         resourceMonitor?.stop()
@@ -604,6 +630,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverage = .empty
         motionGuidanceTracker = ScanMotionGuidanceTracker()
         motionGuidance = nil
+        derivedObjectFusionTracker =
+            DerivedShapeTemporalFusionTracker()
+        derivedVolumeFusionTracker =
+            DerivedShapeTemporalFusionTracker()
+        derivedWallFusionTracker =
+            DerivedShapeTemporalFusionTracker(
+                configuration: DerivedShapeTemporalFusionConfiguration(
+                    maximumFrameCount: 4,
+                    maximumAgeSeconds: 8,
+                    voxelSizeMeters: 0.07,
+                    maximumPointCount: 640
+                )
+            )
         derivedShapePreview = .empty
         scanEvidenceFrameCount = 0
         resourceMonitor?.stop()
@@ -1133,6 +1172,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverage = .empty
         motionGuidanceTracker = ScanMotionGuidanceTracker()
         motionGuidance = nil
+        derivedObjectFusionTracker =
+            DerivedShapeTemporalFusionTracker()
+        derivedVolumeFusionTracker =
+            DerivedShapeTemporalFusionTracker()
+        derivedWallFusionTracker =
+            DerivedShapeTemporalFusionTracker(
+                configuration: DerivedShapeTemporalFusionConfiguration(
+                    maximumFrameCount: 4,
+                    maximumAgeSeconds: 8,
+                    voxelSizeMeters: 0.07,
+                    maximumPointCount: 640
+                )
+            )
         derivedShapePreview = .empty
 
         scanCoverageTask = Task { @MainActor [weak self] in
@@ -1193,21 +1245,53 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                                 self.observationStability
                         )
 
-                    if sampleIndex.isMultiple(of: 4) {
-                        if (
-                            spatialSummary.meshAvailability.state
-                                == .anchorsObserved
-                            || spatialSummary.latestHasSceneDepth
-                        ),
+                    if sampleIndex.isMultiple(of: 8) {
+                        let thermalState =
+                            ProcessInfo.processInfo.thermalState
+                        let derivedWorkAllowed =
+                            thermalState != .serious
+                            && thermalState != .critical
+
+                        if derivedWorkAllowed,
+                           (
+                                spatialSummary.meshAvailability.state
+                                    == .anchorsObserved
+                                || spatialSummary.latestHasSceneDepth
+                           ),
                            let observations =
                             try? self.sessionController
-                                .currentDerivedShapeObservations()
+                                .currentDerivedShapeObservations(
+                                    maxObjectPoints: 256,
+                                    maxWallPoints: 320
+                                )
                         {
+                            let timestamp =
+                                spatialSample.sessionTimestampSeconds
+                            let fused = DerivedShapeLiveObservationSet(
+                                objectObservation:
+                                    self.derivedObjectFusionTracker.record(
+                                        observations.objectObservation,
+                                        timestampSeconds: timestamp
+                                    ),
+                                objectVolumeObservation:
+                                    self.derivedVolumeFusionTracker.record(
+                                        observations.objectVolumeObservation,
+                                        timestampSeconds: timestamp
+                                    ),
+                                wallObservation:
+                                    self.derivedWallFusionTracker.record(
+                                        observations.wallObservation,
+                                        timestampSeconds: timestamp
+                                    ),
+                                floorReferenceY:
+                                    observations.floorReferenceY
+                            )
+
                             let preview = await Task.detached(
                                 priority: .utility
                             ) {
                                 Self.buildDerivedShapePreview(
-                                    observations
+                                    fused
                                 )
                             }.value
                             guard self.captureGeneration
@@ -1217,8 +1301,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                                 return
                             }
                             self.derivedShapePreview = preview
-                        } else {
-                            self.derivedShapePreview = .empty
                         }
                     }
                 }
@@ -1249,8 +1331,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             objectDecomposition = decomposition
 
             if decomposition.state != .unresolvedDecomposition {
-                objectProxies = Array(
-                    decomposition.components.prefix(4).map {
+                let proxies =
+                    decomposition.components.prefix(6).map {
                         let componentObservation = $0.observation
                         let fittingObservation:
                             DerivedShapeObservation
@@ -1258,10 +1340,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         if componentObservation.points.contains(where: {
                             $0.evidenceKind == .sceneDepth
                         }) {
+                            let representative =
+                                DerivedShapeProxyFitter
+                                    .representativeHorizontalSliceObservation(
+                                        from: componentObservation
+                                    )
                             fittingObservation =
                                 DerivedShapeProxyFitter
                                     .boundaryObservation(
-                                        from: componentObservation
+                                        from: representative
                                     )
                         } else {
                             fittingObservation = componentObservation
@@ -1271,6 +1358,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             observation: fittingObservation
                         )
                     }
+
+                objectProxies = Array(
+                    proxies.sorted { lhs, rhs in
+                        let lhsResolved = lhs.selected != nil
+                        let rhsResolved = rhs.selected != nil
+                        if lhsResolved != rhsResolved {
+                            return lhsResolved && !rhsResolved
+                        }
+                        let lhsScore =
+                            lhs.selected?.metrics.fitScore
+                            ?? lhs.provenance.fitScore
+                            ?? 0
+                        let rhsScore =
+                            rhs.selected?.metrics.fitScore
+                            ?? rhs.provenance.fitScore
+                            ?? 0
+                        return lhsScore > rhsScore
+                    }
+                    .prefix(4)
                 )
             } else {
                 let fittingObservation:
@@ -1278,9 +1384,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 if objectObservation.points.contains(where: {
                     $0.evidenceKind == .sceneDepth
                 }) {
+                    let representative =
+                        DerivedShapeProxyFitter
+                            .representativeHorizontalSliceObservation(
+                                from: objectObservation
+                            )
                     fittingObservation =
                         DerivedShapeProxyFitter.boundaryObservation(
-                            from: objectObservation
+                            from: representative
                         )
                 } else {
                     fittingObservation = objectObservation
