@@ -144,12 +144,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 let destination = try exportDestination(
                     for: finalizedRevision
                 )
-                let result =
+                let result = try await Task.detached(
+                    priority: .userInitiated
+                ) {
                     try CaptureBundleArchiveExporter.export(
                         finalizedDirectory:
                             finalizedRevision.directory,
                         destination: destination
                     )
+                }.value
                 guard result.bundleDigest
                         == finalizedRevision.bundleDigest
                 else {
