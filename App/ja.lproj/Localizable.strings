@@ -232,3 +232,34 @@
 "Allow camera access in iOS Settings, then start a new capture." = "iOS の設定でカメラアクセスを許可してから、新しいキャプチャを開始してください。";
 "Use a supported LiDAR-capable iPhone or iPad for this capture workflow." = "このキャプチャには対応する LiDAR 搭載 iPhone または iPad を使用してください。";
 "Discard the failed capture and retry. If the error repeats, record the screen state before resetting." = "失敗したキャプチャを破棄してやり直してください。同じエラーが続く場合は、リセット前に画面状態を記録してください。";
+
+
+/* G110 spatial advisory coverage */
+"Direction coverage" = "方向カバレッジ";
+"Direction coverage is trajectory guidance only and does not prove geometric completeness." = "方向カバレッジはカメラ軌跡に基づく案内であり、形状の完全性を証明するものではありません。";
+"Spatial observation" = "空間観測";
+"Observed" = "観測あり";
+"Weak" = "弱い";
+"Unknown" = "unknown";
+"%d observed · %d weak" = "観測 %d · 弱い %d";
+"Mesh unavailable" = "メッシュ利用不可";
+"Mesh enabled · no anchors yet" = "メッシュ有効 · アンカー未取得";
+"Mesh anchors %d" = "メッシュアンカー %d";
+"Unknown configuration" = "不明な構成";
+"Active AR configuration (%@) has scene reconstruction disabled. RoomPlan may have changed the session configuration; spatial coverage will not silently fall back." = "実行中の AR 構成（%@）では scene reconstruction が無効です。RoomPlan が共有セッションの構成を変更した可能性があります。空間カバレッジは暗黙に代替しません。";
+"Scene reconstruction is enabled, but no ARMesh anchors have been observed yet." = "scene reconstruction は有効ですが、ARMesh アンカーはまだ観測されていません。";
+"ARMesh evidence is unavailable in the active session. Direction coverage remains separate." = "実行中のセッションでは ARMesh 証拠を利用できません。方向カバレッジとは別に扱います。";
+"Unknown means no observation authority; it is not a missing wall or surface." = "unknown は観測 authority がないことを示し、壁や面の欠損を意味しません。";
+"Mesh availability" = "メッシュ利用状況";
+"Observed regions" = "観測済み領域";
+"Weak regions" = "弱い領域";
+"Unknown map cells" = "unknown 領域";
+"Enabled, no anchors yet" = "有効・アンカー未取得";
+"%d anchors observed" = "%d アンカー観測";
+"Weak: %@" = "弱い: %@";
+"Unknown: %@" = "unknown: %@";
+"Spatial coverage" = "空間カバレッジ";
+"Spatial coverage is advisory. Unknown means no observation authority, not a missing wall, and it is never a finalization gate." = "空間カバレッジは参考情報です。unknown は観測 authority がないことを示し、壁の欠損ではありません。確定条件にも使用しません。";
+"%@ region" = "%@領域";
+"Waiting for spatial observation…" = "空間観測を待っています…";
+"Start-relative spatial observation map" = "開始方向基準の空間観測マップ";
