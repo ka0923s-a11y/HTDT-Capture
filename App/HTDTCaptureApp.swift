@@ -1427,20 +1427,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             endScanPreflightBlocked = true
             return
-            workingSetStatus =
-                HostLocalization.text(
-                    "Capture timing could not be saved; this scan is still active",
-                    "キャプチャ時刻を保存できなかったため終了していません。現在のスキャンは継続中です"
-                )
-                + " ["
-                + diagnostic
-                + "]"
-            endScanGuidance = HostLocalization.text(
-                "This scan is still active. Check device storage, continue scanning if needed, then try End again.",
-                "このキャプチャはまだ継続中です。空き容量を確認し、必要なら追加スキャンを行ってから、もう一度「終了」を押してください。"
-            )
-            endScanPreflightBlocked = true
-            return
         }
 
         guard captureGeneration == generation,
