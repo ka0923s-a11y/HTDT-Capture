@@ -685,7 +685,7 @@ public enum MeshDerivedShapeObservationBuilder {
 
 public enum DerivedShapeProxyFitter {
     public static let algorithm = "htdt-derived-footprint-fit"
-    public static let version = "1.1.0"
+    public static let version = "1.2.0"
 
     public static func representativeHorizontalSliceObservation(
         from observation: DerivedShapeObservation,
@@ -1013,6 +1013,190 @@ public enum DerivedShapeProxyFitter {
                     observation.observationEndSeconds
             )
         }
+    }
+
+    public static func representativeHorizontalLayerObservations(
+        from observation: DerivedShapeObservation,
+        sliceHeightMeters: Double = 0.08,
+        horizontalVoxelMeters: Double = 0.06,
+        minimumPointCount: Int = 8,
+        minimumLayerSeparationMeters: Double = 0.14,
+        maximumLayerCount: Int = 3
+    ) -> [DerivedShapeObservation] {
+        guard sliceHeightMeters.isFinite,
+              sliceHeightMeters > 0,
+              horizontalVoxelMeters.isFinite,
+              horizontalVoxelMeters > 0,
+              minimumPointCount > 0,
+              minimumLayerSeparationMeters.isFinite,
+              minimumLayerSeparationMeters > 0,
+              maximumLayerCount > 0
+        else {
+            return []
+        }
+
+        let points = observation.points.filter {
+            guard let y = $0.verticalPositionMeters else {
+                return false
+            }
+            return $0.position.x.isFinite
+                && $0.position.y.isFinite
+                && y.isFinite
+        }
+        guard points.count >= minimumPointCount else {
+            return []
+        }
+
+        struct SliceKey: Hashable {
+            let value: Int
+        }
+        struct HorizontalCell: Hashable {
+            let x: Int
+            let z: Int
+        }
+        struct LayerCandidate {
+            let key: SliceKey
+            let points: [DerivedObservationPoint]
+            let cellCount: Int
+            let centerY: Double
+            let minX: Double
+            let maxX: Double
+            let minZ: Double
+            let maxZ: Double
+        }
+
+        var pointsBySlice: [SliceKey: [DerivedObservationPoint]] = [:]
+        var cellsBySlice: [SliceKey: Set<HorizontalCell>] = [:]
+
+        for point in points {
+            guard let y = point.verticalPositionMeters else {
+                continue
+            }
+            let key = SliceKey(
+                value: Int(floor(y / sliceHeightMeters))
+            )
+            pointsBySlice[key, default: []].append(point)
+            cellsBySlice[key, default: []].insert(
+                HorizontalCell(
+                    x: Int(floor(point.position.x / horizontalVoxelMeters)),
+                    z: Int(floor(point.position.y / horizontalVoxelMeters))
+                )
+            )
+        }
+
+        var candidates: [LayerCandidate] = []
+        for key in pointsBySlice.keys {
+            guard let slicePoints = pointsBySlice[key],
+                  slicePoints.count >= minimumPointCount
+            else {
+                continue
+            }
+            let cellCount = cellsBySlice[key]?.count ?? 0
+            guard cellCount >= max(6, minimumPointCount / 2),
+                  let first = slicePoints.first
+            else {
+                continue
+            }
+
+            var minX = first.position.x
+            var maxX = first.position.x
+            var minZ = first.position.y
+            var maxZ = first.position.y
+            var sumY = 0.0
+            var yCount = 0
+            for point in slicePoints {
+                minX = min(minX, point.position.x)
+                maxX = max(maxX, point.position.x)
+                minZ = min(minZ, point.position.y)
+                maxZ = max(maxZ, point.position.y)
+                if let y = point.verticalPositionMeters {
+                    sumY += y
+                    yCount += 1
+                }
+            }
+            guard yCount > 0 else {
+                continue
+            }
+
+            candidates.append(
+                LayerCandidate(
+                    key: key,
+                    points: slicePoints,
+                    cellCount: cellCount,
+                    centerY: sumY / Double(yCount),
+                    minX: minX,
+                    maxX: maxX,
+                    minZ: minZ,
+                    maxZ: maxZ
+                )
+            )
+        }
+
+        candidates.sort { lhs, rhs in
+            if lhs.cellCount != rhs.cellCount {
+                return lhs.cellCount > rhs.cellCount
+            }
+            if lhs.points.count != rhs.points.count {
+                return lhs.points.count > rhs.points.count
+            }
+            return lhs.centerY > rhs.centerY
+        }
+
+        func nearDuplicate(
+            _ candidate: LayerCandidate,
+            _ selected: LayerCandidate
+        ) -> Bool {
+            let cw = max(0.001, candidate.maxX - candidate.minX)
+            let cd = max(0.001, candidate.maxZ - candidate.minZ)
+            let sw = max(0.001, selected.maxX - selected.minX)
+            let sd = max(0.001, selected.maxZ - selected.minZ)
+            let widthDelta = abs(cw - sw) / max(cw, sw)
+            let depthDelta = abs(cd - sd) / max(cd, sd)
+            let ccx = (candidate.minX + candidate.maxX) / 2
+            let ccz = (candidate.minZ + candidate.maxZ) / 2
+            let scx = (selected.minX + selected.maxX) / 2
+            let scz = (selected.minZ + selected.maxZ) / 2
+            let centerDistance = hypot(ccx - scx, ccz - scz)
+            return widthDelta < 0.10
+                && depthDelta < 0.10
+                && centerDistance < 0.08
+        }
+
+        var selected: [LayerCandidate] = []
+        for candidate in candidates {
+            guard selected.count < maximumLayerCount else {
+                break
+            }
+            guard selected.allSatisfy({
+                abs($0.centerY - candidate.centerY)
+                    >= minimumLayerSeparationMeters
+            }) else {
+                continue
+            }
+            guard !selected.contains(where: {
+                nearDuplicate(candidate, $0)
+            }) else {
+                continue
+            }
+            selected.append(candidate)
+        }
+
+        return selected
+            .sorted { $0.centerY < $1.centerY }
+            .map { candidate in
+                let ordered =
+                    candidate.points.sorted(by: observationPointLess)
+                return DerivedShapeObservation(
+                    coordinateSpaceID: observation.coordinateSpaceID,
+                    points: ordered,
+                    sourceEvidenceRefs:
+                        Array(Set(ordered.map(\.evidenceRef))).sorted(),
+                    observationStartSeconds:
+                        observation.observationStartSeconds,
+                    observationEndSeconds:
+                        observation.observationEndSeconds
+                )
+            }
     }
 
     public static func boundaryObservation(
@@ -1750,9 +1934,9 @@ public enum DerivedShapeProxyFitter {
         let curved = candidates.filter { candidate in
             guard candidate.kind == .circle
                     || candidate.kind == .ellipse,
-                  candidate.metrics.supportScore >= 0.70,
-                  candidate.metrics.normalizedResidual <= 0.040,
-                  (candidate.metrics.angularSupport ?? 0) >= 0.88
+                  candidate.metrics.supportScore >= 0.66,
+                  candidate.metrics.normalizedResidual <= 0.052,
+                  (candidate.metrics.angularSupport ?? 0) >= 0.80
             else {
                 return false
             }
@@ -1780,7 +1964,7 @@ public enum DerivedShapeProxyFitter {
                 // credible smooth primitive without turning rounded squares,
                 // polygons, or mixed circle/square evidence into circles.
                 if candidate.metrics.normalizedResidual
-                    > polygon.metrics.normalizedResidual + 0.015
+                    > polygon.metrics.normalizedResidual + 0.020
                 {
                     return false
                 }
