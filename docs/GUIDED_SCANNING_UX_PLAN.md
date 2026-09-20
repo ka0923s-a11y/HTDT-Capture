@@ -423,3 +423,95 @@ Physical-device gate:
 - Japanese UI is legible on the target iPhone.
 
 CI success is not evidence that these physical-device requirements passed.
+
+
+## 11. G110 spatial / surface-aware advisory coverage
+
+G110 adds a second advisory coverage authority alongside the existing
+12-azimuth × 3-pitch trajectory coverage and G100E observation confidence.
+It does not replace either layer and is not promoted into the Capture Bundle
+or finalization gates.
+
+### 11.1 Mesh availability authority
+
+The live scanner diagnoses the active ARSession configuration rather than
+showing only a raw mesh count. The states are:
+
+- **mesh unavailable**: supported scene reconstruction is not enabled in the
+  active configuration;
+- **mesh enabled, no anchors yet**: reconstruction is enabled but the current
+  frame contains no ARMeshAnchor;
+- **mesh anchors observed**: at least one current mesh anchor is present.
+
+When the device supports scene reconstruction but the active configuration has
+it disabled, the UI explicitly reports a configuration mismatch and notes that
+RoomPlan may have changed the shared session configuration. Spatial coverage
+does not silently fall back to direction coverage.
+
+### 11.2 Bounded spatial representation
+
+The live path samples at most 96 representative ARMesh vertices per spatial
+update and only accumulates candidates inside a bounded approximation of the
+current camera frustum (0.15–6 m). This prevents retained ARMesh anchors outside
+the current view from gaining observation count merely because they remain in
+the AR session. It does not serialize or clone canonical mesh payloads at UI
+rate.
+
+The deterministic core aggregator uses:
+
+- start-position / start-heading-relative XZ coordinates;
+- fixed 0.5 m cells;
+- maximum 256 retained regions with deterministic oldest-region eviction;
+- a maximum 13 × 13 display window around the current camera;
+- approximately 2 Hz spatial updates, while direction/observation sampling
+  remains approximately 4 Hz;
+- actor-isolated aggregation so cell classification work does not execute on
+  the main actor.
+
+Each retained region tracks observation count, last observation time,
+normal/limited tracking counts, 8-bin view-angle diversity, camera-distance
+bucket, depth-presence count, and mesh-support count.
+
+### 11.3 Classification semantics
+
+- **unknown**: no spatial observation authority exists for that display cell;
+- **weak**: mesh-backed observation exists but normal-tracking count and/or
+  view-angle diversity is insufficient;
+- **observed**: at least three normal-tracking observations from at least two
+  view-angle buckets support the region.
+
+Limited-tracking samples can keep a region weak but cannot promote it to
+observed. Tracking-unavailable samples are rejected from spatial accumulation.
+
+Unknown is deliberately neutral. It must not be rendered or described as a
+missing wall, missing furniture, or failed geometry reconstruction.
+
+### 11.4 Scanner and end-review UX
+
+The scanner includes a collapsible start-relative top-down map showing:
+
+- current camera position and heading;
+- observed regions;
+- weak regions;
+- unknown/no-authority cells.
+
+The mesh diagnostic distinguishes the three availability states above. The
+existing end-scan review now has separate **Direction coverage** and **Spatial
+coverage** sections. Spatial labels are relative regions such as
+**Rear right region**; no furniture semantic is guessed.
+
+### 11.5 Authority and performance boundaries
+
+G110 remains ephemeral advisory UX:
+
+- it never synthesizes unseen geometry;
+- unknown does not mean missing wall/surface;
+- it never replaces canonical ARMesh snapshots;
+- it is not a finalization gate;
+- it makes no accuracy claim before physical benchmark evidence;
+- it keeps bounded memory and bounded per-update mesh sampling.
+
+Automated acceptance covers deterministic aggregation tests, core tests, iOS
+compile, and unsigned IPA generation. Physical LiDAR validation remains a
+separate gate for mesh-availability truthfulness, heatmap motion, weak/unknown
+distinction, camera-follow behavior, and RoomPlan capture performance.

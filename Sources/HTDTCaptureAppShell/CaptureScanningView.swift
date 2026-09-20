@@ -6,16 +6,19 @@ public struct CaptureScanningView: View {
     public let preview: AnyView
     public let coverage: ScanCoverageSummary
     public let observation: ObservationStabilitySummary
+    public let spatialCoverage: SpatialScanCoverageSummary
     public let evidenceFrameCount: Int
     public let captureEvidenceFrame: () -> Void
     public let endScan: () -> Void
 
     @State private var showingEndScanReview = false
+    @State private var showingSpatialMap = true
 
     public init(
         preview: AnyView,
         coverage: ScanCoverageSummary,
         observation: ObservationStabilitySummary,
+        spatialCoverage: SpatialScanCoverageSummary,
         evidenceFrameCount: Int,
         captureEvidenceFrame: @escaping () -> Void,
         endScan: @escaping () -> Void
@@ -23,6 +26,7 @@ public struct CaptureScanningView: View {
         self.preview = preview
         self.coverage = coverage
         self.observation = observation
+        self.spatialCoverage = spatialCoverage
         self.evidenceFrameCount = evidenceFrameCount
         self.captureEvidenceFrame = captureEvidenceFrame
         self.endScan = endScan
@@ -65,6 +69,7 @@ public struct CaptureScanningView: View {
         .sheet(isPresented: $showingEndScanReview) {
             ScanCoverageEndReview(
                 coverage: coverage,
+                spatialCoverage: spatialCoverage,
                 continueScanning: {
                     showingEndScanReview = false
                 },
@@ -153,11 +158,8 @@ public struct CaptureScanningView: View {
 
             HStack(spacing: 14) {
                 Label(
-                    String(
-                        format: String(localized: "Mesh %d"),
-                        coverage.latestMeshAnchorCount
-                    ),
-                    systemImage: "square.3.layers.3d"
+                    meshAvailabilityLabel,
+                    systemImage: meshAvailabilitySystemImage
                 )
                 Label(
                     String(
@@ -175,6 +177,16 @@ public struct CaptureScanningView: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+
+            if let meshDiagnosticText {
+                Text(meshDiagnosticText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(
+                        horizontal: false,
+                        vertical: true
+                    )
+            }
         }
         .padding(12)
         .background(
@@ -233,7 +245,7 @@ public struct CaptureScanningView: View {
     private var coveragePanel: some View {
         VStack(spacing: 10) {
             HStack {
-                Text("Look-around coverage")
+                Text("Direction coverage")
                     .font(.subheadline.weight(.semibold))
                 Spacer()
                 Text("Advisory")
@@ -274,11 +286,47 @@ public struct CaptureScanningView: View {
             .foregroundStyle(.secondary)
 
             Text(
-                "Coverage is guidance only and does not prove geometric completeness."
+                "Direction coverage is trajectory guidance only and does not prove geometric completeness."
             )
             .font(.caption2)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            DisclosureGroup(
+                isExpanded: $showingSpatialMap
+            ) {
+                VStack(spacing: 8) {
+                    SpatialCoverageMapView(summary: spatialCoverage)
+                        .frame(height: 116)
+
+                    HStack(spacing: 10) {
+                        spatialLegend("Observed", color: .green)
+                        spatialLegend("Weak", color: .orange)
+                        spatialLegend("Unknown", color: .gray)
+                    }
+                    .font(.caption2)
+
+                    Text(
+                        "Unknown means no observation authority; it is not a missing wall or surface."
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .leading
+                    )
+                }
+                .padding(.top, 6)
+            } label: {
+                HStack {
+                    Text("Spatial observation")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Text(spatialCoverageCounts)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
 
             HStack(spacing: 10) {
                 Button(action: captureEvidenceFrame) {
@@ -360,6 +408,84 @@ public struct CaptureScanningView: View {
             )
     }
 
+    @ViewBuilder
+    private func spatialLegend(
+        _ label: LocalizedStringKey,
+        color: Color
+    ) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+            Text(label)
+        }
+    }
+
+    private var spatialCoverageCounts: String {
+        String(
+            format: String(localized: "%d observed · %d weak"),
+            spatialCoverage.observedRegionCount,
+            spatialCoverage.weakRegionCount
+        )
+    }
+
+    private var meshAvailabilityLabel: String {
+        switch spatialCoverage.meshAvailability.state {
+        case .unavailable:
+            return String(localized: "Mesh unavailable")
+        case .enabledNoAnchors:
+            return String(localized: "Mesh enabled · no anchors yet")
+        case .anchorsObserved:
+            return String(
+                format: String(localized: "Mesh anchors %d"),
+                spatialCoverage.meshAvailability.activeMeshAnchorCount
+            )
+        }
+    }
+
+    private var meshAvailabilitySystemImage: String {
+        switch spatialCoverage.meshAvailability.state {
+        case .unavailable:
+            return "square.slash"
+        case .enabledNoAnchors:
+            return "square.3.layers.3d"
+        case .anchorsObserved:
+            return "square.3.layers.3d.top.filled"
+        }
+    }
+
+    private var meshDiagnosticText: String? {
+        let diagnostic = spatialCoverage.meshAvailability
+
+        if diagnostic.configurationMismatchSuspected {
+            let configuration =
+                diagnostic.activeConfigurationName
+                ?? String(localized: "Unknown configuration")
+            return String(
+                format: String(
+                    localized:
+                        "Active AR configuration (%@) has scene reconstruction disabled. RoomPlan may have changed the session configuration; spatial coverage will not silently fall back."
+                ),
+                configuration
+            )
+        }
+
+        switch diagnostic.state {
+        case .enabledNoAnchors:
+            return String(
+                localized:
+                    "Scene reconstruction is enabled, but no ARMesh anchors have been observed yet."
+            )
+        case .unavailable:
+            return String(
+                localized:
+                    "ARMesh evidence is unavailable in the active session. Direction coverage remains separate."
+            )
+        case .anchorsObserved:
+            return nil
+        }
+    }
+
     private func requestEndScan() {
         if shouldReviewCoverageBeforeEnding {
             showingEndScanReview = true
@@ -372,6 +498,7 @@ public struct CaptureScanningView: View {
         coverage.coverageFraction < 0.75
         || coverage.pitchBandCoverageFraction(.low) < 0.50
         || coverage.pitchBandCoverageFraction(.high) < 0.50
+        || spatialCoverage.weakRegionCount > 0
     }
 
     private var coveragePercent: Int {
@@ -735,6 +862,7 @@ private struct RelativeGuidanceCompass: View {
 
 private struct ScanCoverageEndReview: View {
     let coverage: ScanCoverageSummary
+    let spatialCoverage: SpatialScanCoverageSummary
     let continueScanning: () -> Void
     let endAnyway: () -> Void
 
@@ -765,10 +893,61 @@ private struct ScanCoverageEndReview: View {
                         )
                     )
                 } header: {
-                    Text("Advisory scan coverage")
+                    Text("Direction coverage")
                 } footer: {
                     Text(
                         "This is a trajectory-based guide, not a geometric completeness measurement."
+                    )
+                }
+
+                Section {
+                    LabeledContent(
+                        "Mesh availability",
+                        value: meshAvailabilityReviewLabel
+                    )
+                    LabeledContent(
+                        "Observed regions",
+                        value: String(spatialCoverage.observedRegionCount)
+                    )
+                    LabeledContent(
+                        "Weak regions",
+                        value: String(spatialCoverage.weakRegionCount)
+                    )
+                    LabeledContent(
+                        "Unknown map cells",
+                        value: String(
+                            spatialCoverage.displayUnknownRegionCount
+                        )
+                    )
+
+                    if !weakSpatialLabels.isEmpty {
+                        Text(
+                            String(
+                                format: String(localized: "Weak: %@"),
+                                weakSpatialLabels
+                                    .prefix(4)
+                                    .joined(separator: " · ")
+                            )
+                        )
+                        .font(.caption)
+                    }
+
+                    if !unknownSpatialLabels.isEmpty {
+                        Text(
+                            String(
+                                format: String(localized: "Unknown: %@"),
+                                unknownSpatialLabels
+                                    .prefix(4)
+                                    .joined(separator: " · ")
+                            )
+                        )
+                        .font(.caption)
+                    }
+                } header: {
+                    Text("Spatial coverage")
+                } footer: {
+                    Text(
+                        "Spatial coverage is advisory. Unknown means no observation authority, not a missing wall, and it is never a finalization gate."
                     )
                 }
 
@@ -857,6 +1036,98 @@ private struct ScanCoverageEndReview: View {
         }
     }
 
+    private var meshAvailabilityReviewLabel: String {
+        switch spatialCoverage.meshAvailability.state {
+        case .unavailable:
+            return String(localized: "Unavailable")
+        case .enabledNoAnchors:
+            return String(localized: "Enabled, no anchors yet")
+        case .anchorsObserved:
+            return String(
+                format: String(localized: "%d anchors observed"),
+                spatialCoverage.meshAvailability.activeMeshAnchorCount
+            )
+        }
+    }
+
+    private var weakSpatialLabels: [String] {
+        spatialLabels(for: .weak)
+    }
+
+    private var unknownSpatialLabels: [String] {
+        spatialLabels(for: .unknown)
+    }
+
+    private func spatialLabels(
+        for classification: SpatialCoverageClassification
+    ) -> [String] {
+        guard let bounds = spatialCoverage.displayBounds else {
+            return []
+        }
+
+        var labels: Set<String> = []
+        for z in bounds.minZ...bounds.maxZ {
+            for x in bounds.minX...bounds.maxX {
+                let key = SpatialCoverageCellKey(x: x, z: z)
+                guard spatialCoverage.classification(at: key)
+                        == classification
+                else {
+                    continue
+                }
+                labels.insert(spatialRegionLabel(key))
+            }
+        }
+        return labels.sorted()
+    }
+
+    private func spatialRegionLabel(
+        _ key: SpatialCoverageCellKey
+    ) -> String {
+        let x =
+            (Double(key.x) + 0.5)
+            * spatialCoverage.cellSizeMeters
+        let z =
+            (Double(key.z) + 0.5)
+            * spatialCoverage.cellSizeMeters
+        let angle = atan2(x, z)
+        let fullTurn = 2 * Double.pi
+        let shifted =
+            (angle + Double.pi / 8)
+                .truncatingRemainder(dividingBy: fullTurn)
+        let positive =
+            shifted >= 0
+            ? shifted
+            : shifted + fullTurn
+        let sector = Int(
+            floor(positive / (Double.pi / 4))
+        ) % 8
+
+        let direction: String
+        switch sector {
+        case 0:
+            direction = String(localized: "Front")
+        case 1:
+            direction = String(localized: "Front right")
+        case 2:
+            direction = String(localized: "Right")
+        case 3:
+            direction = String(localized: "Rear right")
+        case 4:
+            direction = String(localized: "Rear")
+        case 5:
+            direction = String(localized: "Rear left")
+        case 6:
+            direction = String(localized: "Left")
+        default:
+            direction = String(localized: "Front left")
+        }
+
+        return String(
+            format: String(localized: "%@ region"),
+            direction
+        )
+    }
+
     private var gapSectors: [Int] {
         (0..<coverage.sectorCount)
             .filter {
@@ -936,5 +1207,130 @@ private struct ScanCoverageEndReview: View {
         default:
             return String(localized: "Front left")
         }
+    }
+}
+
+
+private struct SpatialCoverageMapView: View {
+    let summary: SpatialScanCoverageSummary
+
+    var body: some View {
+        GeometryReader { _ in
+            Canvas { context, size in
+                guard let bounds = summary.displayBounds else {
+                    return
+                }
+
+                let columns = CGFloat(bounds.columnCount)
+                let rows = CGFloat(bounds.rowCount)
+                let cell = min(
+                    size.width / columns,
+                    size.height / rows
+                )
+                let mapWidth = columns * cell
+                let mapHeight = rows * cell
+                let originX = (size.width - mapWidth) / 2
+                let originY = (size.height - mapHeight) / 2
+
+                for z in bounds.minZ...bounds.maxZ {
+                    for x in bounds.minX...bounds.maxX {
+                        let key = SpatialCoverageCellKey(x: x, z: z)
+                        let column = CGFloat(x - bounds.minX)
+                        let row = CGFloat(bounds.maxZ - z)
+                        let rect = CGRect(
+                            x: originX + column * cell + 0.5,
+                            y: originY + row * cell + 0.5,
+                            width: max(0, cell - 1),
+                            height: max(0, cell - 1)
+                        )
+
+                        let color: Color
+                        switch summary.classification(at: key) {
+                        case .observed:
+                            color = .green.opacity(0.72)
+                        case .weak:
+                            color = .orange.opacity(0.72)
+                        case .unknown:
+                            color = .gray.opacity(0.18)
+                        }
+
+                        context.fill(
+                            Path(rect),
+                            with: .color(color)
+                        )
+                    }
+                }
+
+                if let camera = summary.currentCameraPosition {
+                    let gridX =
+                        camera.x
+                        / summary.cellSizeMeters
+                        - Double(bounds.minX)
+                    let gridZ =
+                        Double(bounds.maxZ + 1)
+                        - camera.z
+                            / summary.cellSizeMeters
+                    let center = CGPoint(
+                        x: originX + CGFloat(gridX) * cell,
+                        y: originY + CGFloat(gridZ) * cell
+                    )
+                    let radius = max(3, min(6, cell * 0.28))
+
+                    context.fill(
+                        Path(
+                            ellipseIn: CGRect(
+                                x: center.x - radius,
+                                y: center.y - radius,
+                                width: radius * 2,
+                                height: radius * 2
+                            )
+                        ),
+                        with: .color(.white)
+                    )
+
+                    if let heading =
+                        summary.currentRelativeHeadingRadians
+                    {
+                        let length = max(8, cell * 0.9)
+                        let end = CGPoint(
+                            x:
+                                center.x
+                                + CGFloat(sin(heading))
+                                    * length,
+                            y:
+                                center.y
+                                - CGFloat(cos(heading))
+                                    * length
+                        )
+                        var path = Path()
+                        path.move(to: center)
+                        path.addLine(to: end)
+                        context.stroke(
+                            path,
+                            with: .color(.white),
+                            lineWidth: 2
+                        )
+                    }
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if summary.displayBounds == nil {
+                    Text("Waiting for spatial observation…")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(8)
+                }
+            }
+        }
+        .background(
+            Color.black.opacity(0.2),
+            in: RoundedRectangle(
+                cornerRadius: 10,
+                style: .continuous
+            )
+        )
+        .accessibilityLabel(
+            "Start-relative spatial observation map"
+        )
     }
 }

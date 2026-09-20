@@ -43,6 +43,8 @@ private struct HTDTCaptureHostView: View {
             scanCoverage: coordinator.scanCoverage,
             observationStability:
                 coordinator.observationStability,
+            spatialCoverage:
+                coordinator.spatialCoverage,
             scanEvidenceFrameCount:
                 coordinator.scanEvidenceFrameCount,
             actions: CaptureRootActions(
@@ -97,6 +99,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set)
     var observationStability: ObservationStabilitySummary = .empty
     @Published private(set)
+    var spatialCoverage: SpatialScanCoverageSummary = .empty
+    @Published private(set)
     var scanEvidenceFrameCount = 0
 
     private var stateMachine = CaptureStateMachine()
@@ -113,6 +117,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         AdvisoryScanCoverageTracker()
     private var observationStabilityTracker =
         ObservationStabilityTracker()
+    private var spatialCoverageAggregator =
+        SpatialScanCoverageAggregator()
     private var scanCoverageTask: Task<Void, Never>?
     private let qualityRequirements = CaptureQualityRequirements()
 
@@ -152,6 +158,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             ObservationStabilityTracker()
         observationStability =
             observationStabilityTracker.summary()
+        spatialCoverageAggregator =
+            SpatialScanCoverageAggregator()
+        spatialCoverage = .empty
         scanEvidenceFrameCount = 0
         resourceMonitor?.stop()
         resourceMonitor = nil
@@ -577,6 +586,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             ObservationStabilityTracker()
         observationStability =
             observationStabilityTracker.summary()
+        spatialCoverageAggregator =
+            SpatialScanCoverageAggregator()
+        spatialCoverage = .empty
         scanEvidenceFrameCount = 0
         resourceMonitor?.stop()
         resourceMonitor = nil
@@ -1001,12 +1013,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             ObservationStabilityTracker()
         observationStability =
             observationStabilityTracker.summary()
+        spatialCoverageAggregator =
+            SpatialScanCoverageAggregator()
+        spatialCoverage = .empty
 
         scanCoverageTask = Task { @MainActor [weak self] in
             guard let self else {
                 return
             }
 
+            var sampleIndex = 0
             while !Task.isCancelled {
                 guard self.captureGeneration == generation,
                       self.state == .scanning
@@ -1026,6 +1042,23 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         )
                 }
 
+                if sampleIndex.isMultiple(of: 2),
+                   let spatialSample =
+                    try? self.sessionController
+                        .currentSpatialCoverageSample()
+                {
+                    let spatialSummary =
+                        await self.spatialCoverageAggregator
+                            .record(spatialSample)
+                    guard self.captureGeneration == generation,
+                          self.state == .scanning
+                    else {
+                        return
+                    }
+                    self.spatialCoverage = spatialSummary
+                }
+
+                sampleIndex += 1
                 try? await Task.sleep(
                     for: .milliseconds(250)
                 )
