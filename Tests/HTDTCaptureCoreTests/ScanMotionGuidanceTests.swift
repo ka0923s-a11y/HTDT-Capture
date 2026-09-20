@@ -618,6 +618,91 @@ final class ScanMotionGuidanceTests: XCTestCase {
         XCTAssertEqual(progress.actionableWeakRegionCount, 1)
     }
 
+    func testSuccessfulSpatialActionStillConsumesGlobalBudget() {
+        var tracker = ScanMotionGuidanceTracker(
+            configuration: ScanMotionGuidanceConfiguration(
+                minimumRepeatedWeakObservations: 1,
+                maximumActionDurationSeconds: 1.0,
+                maximumWeakRegionGuidanceAttempts: 5,
+                maximumSpatialGuidanceAttempts: 1,
+                completionDirectionCoverageFraction: 0.95
+            )
+        )
+        let keyA = SpatialCoverageCellKey(x: 2, z: 2)
+        let keyB = SpatialCoverageCellKey(x: 4, z: 2)
+        let fullDirection = coverage(
+            gap: nil,
+            observedCellCount: 36
+        )
+
+        let first = spatial(
+            cameraX: 0,
+            cameraZ: 0,
+            region: region(
+                key: keyA,
+                observations: 4,
+                diversity: 1,
+                distance: .medium,
+                classification: .weak
+            )
+        )
+        XCTAssertNotNil(
+            tracker.record(
+                timestampSeconds: 0,
+                coverage: fullDirection,
+                spatialCoverage: first,
+                observation: .empty
+            )
+        )
+
+        let firstResolved = spatial(
+            cameraX: 0.30,
+            cameraZ: 0,
+            region: region(
+                key: keyA,
+                observations: 5,
+                diversity: 2,
+                distance: .medium,
+                classification: .observed
+            )
+        )
+        _ = tracker.record(
+            timestampSeconds: 0.5,
+            coverage: fullDirection,
+            spatialCoverage: firstResolved,
+            observation: .empty
+        )
+
+        let secondWeak = spatial(
+            cameraX: 0.30,
+            cameraZ: 0,
+            region: region(
+                key: keyB,
+                observations: 5,
+                diversity: 1,
+                distance: .medium,
+                classification: .weak
+            )
+        )
+        let afterSuccessfulBudget = tracker.record(
+            timestampSeconds: 1.0,
+            coverage: fullDirection,
+            spatialCoverage: secondWeak,
+            observation: .empty
+        )
+        let progress = tracker.progress(
+            coverage: fullDirection,
+            spatialCoverage: secondWeak
+        )
+
+        XCTAssertNil(afterSuccessfulBudget)
+        XCTAssertEqual(
+            progress.completedSpatialGuidanceAttemptCount,
+            1
+        )
+        XCTAssertTrue(progress.isComplete)
+    }
+
     func testGlobalSpatialGuidanceBudgetCompletesEvenAcrossDifferentWeakRegions() {
         var tracker = ScanMotionGuidanceTracker(
             configuration: ScanMotionGuidanceConfiguration(
