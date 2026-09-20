@@ -134,6 +134,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var captureGeneration = UUID()
     private var isEndingScan = false
     private var isCapturingEvidenceFrame = false
+    private var endScanPreflightBlocked = false
     private var captureStartTimingCorrelation:
         CaptureTimingCorrelation?
     private var acceptedRoomPlanRawSHA256: EvidenceSHA256?
@@ -288,6 +289,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         scanEvidenceFrameCount = 0
         scanDepthEvidenceCount = 0
         endScanGuidance = nil
+        endScanPreflightBlocked = false
         resourceMonitor?.stop()
         resourceMonitor = nil
 
@@ -793,6 +795,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         scanEvidenceFrameCount = 0
         scanDepthEvidenceCount = 0
         endScanGuidance = nil
+        endScanPreflightBlocked = false
         resourceMonitor?.stop()
         resourceMonitor = nil
         workingSetStatus =
@@ -1027,6 +1030,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private func updateLiveEndScanGuidance() {
+        guard !endScanPreflightBlocked else {
+            return
+        }
+
         guard state == .scanning else {
             endScanGuidance = nil
             return
@@ -1070,6 +1077,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private func preflightEndScan() async -> Bool {
+        endScanPreflightBlocked = false
+        var succeeded = false
+        defer {
+            endScanPreflightBlocked = !succeeded
+        }
+
         guard let store = workingSetStore else {
             endScanGuidance = HostLocalization.text(
                 "Cannot end yet: capture working data is unavailable. Start a fresh capture.",
@@ -1183,6 +1196,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         endScanGuidance = nil
+        succeeded = true
         return true
     }
 
