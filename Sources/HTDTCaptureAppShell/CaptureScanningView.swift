@@ -867,10 +867,14 @@ public struct CaptureScanningView: View {
     }
 
     private var shouldReviewCoverageBeforeEnding: Bool {
-        coverage.coverageFraction < 0.75
-        || coverage.pitchBandCoverageFraction(.low) < 0.50
-        || coverage.pitchBandCoverageFraction(.high) < 0.50
-        || spatialCoverage.weakRegionCount > 0
+        if scanGuidanceComplete {
+            return false
+        }
+
+        return coverage.coverageFraction < 0.75
+            || coverage.pitchBandCoverageFraction(.low) < 0.50
+            || coverage.pitchBandCoverageFraction(.high) < 0.50
+            || spatialCoverage.weakRegionCount > 0
     }
 
     private var coveragePercent: Int {
