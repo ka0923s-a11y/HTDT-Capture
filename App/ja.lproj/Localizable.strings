@@ -302,5 +302,14 @@
 "Polygon" = "多角形";
 "Structure estimate and observed shape differ" = "構造推定と観測形状に差があります";
 "The views are separate evidence representations; neither is promoted as canonical geometry here." = "両者は別々の証拠表現です。この表示では、どちらも正規形状として確定しません。";
+"%d observed supports" = "観測支持部 %d";
+"Observed body reaches floor" = "本体が床まで連続して観測されています";
+"Lower support unresolved" = "下部支持構造は未確定";
+"Height evidence insufficient" = "高さ方向の観測証拠が不足";
+"Open lower volume" = "下部空間を保持";
+"Solid to floor" = "床まで実体あり";
+"Unresolved" = "未確定";
+"Show the lower part of the furniture" = "家具の下部を映してください";
+"Show the lower part from another angle" = "家具の下側を別角度から映してください";
 
 "Compare" = "比較";
