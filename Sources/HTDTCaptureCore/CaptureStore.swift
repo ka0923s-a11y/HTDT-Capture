@@ -112,6 +112,17 @@ public struct CaptureStorePath: Hashable, Sendable, CustomStringConvertible {
 
 public enum CaptureFileWriterError: Error, Sendable, Equatable {
     case alreadyExists(String)
+    case batchRollbackFailed(String)
+}
+
+public struct CaptureFileWriteRequest: Sendable, Equatable {
+    public let data: Data
+    public let path: CaptureStorePath
+
+    public init(data: Data, path: CaptureStorePath) {
+        self.data = data
+        self.path = path
+    }
 }
 
 public actor AtomicCaptureFileWriter {
@@ -153,6 +164,100 @@ public actor AtomicCaptureFileWriter {
             throw error
         }
     }
+    public func writeBatchIfIdentical(
+        _ requests: [CaptureFileWriteRequest]
+    ) throws {
+        var uniqueByPath: [String: Data] = [:]
+        for request in requests {
+            if let existing = uniqueByPath[request.path.description] {
+                guard existing == request.data else {
+                    throw CaptureFileWriterError.alreadyExists(
+                        request.path.description
+                    )
+                }
+                continue
+            }
+            uniqueByPath[request.path.description] = request.data
+        }
+
+        var created: [(url: URL, path: String)] = []
+        do {
+            for request in requests {
+                let target = request.path.description
+                    .split(separator: "/")
+                    .reduce(rootDirectory) { url, component in
+                        url.appendingPathComponent(
+                            String(component),
+                            isDirectory: false
+                        )
+                    }
+
+                if fileManager.fileExists(atPath: target.path) {
+                    let existing = try Data(contentsOf: target)
+                    guard existing == request.data else {
+                        throw CaptureFileWriterError.alreadyExists(
+                            request.path.description
+                        )
+                    }
+                    continue
+                }
+
+                let parent = target.deletingLastPathComponent()
+                try fileManager.createDirectory(
+                    at: parent,
+                    withIntermediateDirectories: true
+                )
+
+                let temporary = parent.appendingPathComponent(
+                    ".tmp-\(UUID().uuidString)"
+                )
+                do {
+                    try request.data.write(to: temporary)
+                    try fileManager.moveItem(
+                        at: temporary,
+                        to: target
+                    )
+                } catch {
+                    try? fileManager.removeItem(at: temporary)
+
+                    // A writer outside this actor may have won the path race.
+                    // Accept it only when it produced the exact same bytes.
+                    if fileManager.fileExists(atPath: target.path),
+                       let existing = try? Data(contentsOf: target),
+                       existing == request.data
+                    {
+                        continue
+                    }
+                    throw error
+                }
+
+                created.append(
+                    (target, request.path.description)
+                )
+            }
+        } catch {
+            var rollbackFailure: String?
+            for item in created.reversed() {
+                guard fileManager.fileExists(atPath: item.url.path) else {
+                    continue
+                }
+                do {
+                    try fileManager.removeItem(at: item.url)
+                } catch {
+                    if rollbackFailure == nil {
+                        rollbackFailure = item.path
+                    }
+                }
+            }
+            if let rollbackFailure {
+                throw CaptureFileWriterError.batchRollbackFailed(
+                    rollbackFailure
+                )
+            }
+            throw error
+        }
+    }
+
     public func writeIfIdentical(
         _ data: Data,
         to path: CaptureStorePath
