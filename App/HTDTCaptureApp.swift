@@ -146,6 +146,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var roomPlanCompletionInFlight = false
     private var annotationCommitInFlight = false
     private var reviewOperationInFlight = false
+    private var exportOperationInFlight = false
     private var spatialAuthoritySealedForFinalization = false
     private var scanCoverageTracker =
         AdvisoryScanCoverageTracker()
@@ -258,6 +259,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         roomPlanCompletionInFlight = false
         annotationCommitInFlight = false
         reviewOperationInFlight = false
+        exportOperationInFlight = false
         spatialAuthoritySealedForFinalization = false
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
@@ -1112,6 +1114,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     func prepareExport() {
         guard state == .finalized,
+              !exportOperationInFlight,
               let finalizedRevision,
               let validationReport,
               validationReport.bundleDigest
@@ -1120,25 +1123,35 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        exportOperationInFlight = true
         workingSetStatus = HostLocalization.text(
             "Creating validated .htdtcapture archive",
             "検証済み .htdtcapture アーカイブを作成中"
         )
         let generation = captureGeneration
 
-        Task {
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            defer {
+                if self.captureGeneration == generation {
+                    self.exportOperationInFlight = false
+                }
+            }
+
             let destination: URL
             do {
-                destination = try exportDestination(
+                destination = try self.exportDestination(
                     for: finalizedRevision
                 )
             } catch {
-                guard captureGeneration == generation,
-                      state == .finalized
+                guard self.captureGeneration == generation,
+                      self.state == .finalized
                 else {
                     return
                 }
-                workingSetStatus =
+                self.workingSetStatus =
                     HostLocalization.text(
                         "Archive destination could not be prepared. The finalized revision is preserved and export can be retried.",
                         "アーカイブの保存先を準備できませんでした。確定済みリビジョンは保持されているため、書き出しを再試行できます。"
@@ -1149,8 +1162,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            do {
-                let result = try await Task.detached(
+            func exportFreshArchive() async throws
+                -> CaptureBundleArchiveExportResult
+            {
+                try await Task.detached(
                     priority: .userInitiated
                 ) {
                     try CaptureBundleArchiveExporter.export(
@@ -1159,57 +1174,100 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         destination: destination
                     )
                 }.value
+            }
+
+            do {
+                var result: CaptureBundleArchiveExportResult
+                do {
+                    result = try await exportFreshArchive()
+                } catch {
+                    guard self.captureGeneration == generation,
+                          self.state == .finalized
+                    else {
+                        return
+                    }
+
+                    guard case CaptureBundleArchiveError
+                        .destinationAlreadyExists = error
+                    else {
+                        throw error
+                    }
+
+                    if let existingValidation =
+                        try? StoredCaptureBundleArchiveValidator
+                            .validate(archive: destination),
+                       existingValidation.bundleDigest
+                        == finalizedRevision.bundleDigest
+                    {
+                        self.exportURL = destination
+                        try self.transition(.export)
+                        self.workingSetStatus = HostLocalization.text(
+                            "Existing validated archive recovered and is ready to share",
+                            "既存の検証済みアーカイブを復旧し、共有できる状態にしました"
+                        )
+                        return
+                    }
+
+                    // The destination is app-owned derived transport output.
+                    // A corrupt or digest-mismatched wrapper is not capture
+                    // authority; remove only that wrapper and rebuild once
+                    // from the immutable finalized directory.
+                    do {
+                        try FileManager.default.removeItem(
+                            at: destination
+                        )
+                    } catch {
+                        self.workingSetStatus =
+                            HostLocalization.text(
+                                "A stale export archive blocks rebuilding and could not be removed. The finalized revision is unchanged.",
+                                "古い書き出しアーカイブが再作成を妨げていますが、削除できませんでした。確定済みリビジョン自体は変更されていません。"
+                            )
+                            + " ["
+                            + Self.persistenceDiagnostic(error)
+                            + "]"
+                        return
+                    }
+
+                    result = try await exportFreshArchive()
+                }
+
                 guard result.bundleDigest
                         == finalizedRevision.bundleDigest
                 else {
                     throw CaptureBundleArchiveError
                         .archiveLogicalDigestMismatch
                 }
-                guard captureGeneration == generation,
-                      state == .finalized
+
+                let validation =
+                    try StoredCaptureBundleArchiveValidator
+                        .validate(archive: result.archiveURL)
+                guard validation.bundleDigest
+                        == finalizedRevision.bundleDigest
+                else {
+                    throw CaptureBundleArchiveError
+                        .archiveLogicalDigestMismatch
+                }
+
+                guard self.captureGeneration == generation,
+                      self.state == .finalized
                 else {
                     return
                 }
 
-                exportURL = result.archiveURL
-                try transition(.export)
-                workingSetStatus = HostLocalization.text(
+                self.exportURL = result.archiveURL
+                try self.transition(.export)
+                self.workingSetStatus = HostLocalization.text(
                     "Validated share-ready archive created",
                     "検証済みの共有用アーカイブを作成しました"
                 )
             } catch {
-                guard captureGeneration == generation,
-                      state == .finalized
+                guard self.captureGeneration == generation,
+                      self.state == .finalized
                 else {
                     return
                 }
 
-                if case CaptureBundleArchiveError
-                    .destinationAlreadyExists = error,
-                   let existingValidation =
-                    try? StoredCaptureBundleArchiveValidator
-                        .validate(archive: destination),
-                   existingValidation.bundleDigest
-                    == finalizedRevision.bundleDigest
-                {
-                    exportURL = destination
-                    do {
-                        try transition(.export)
-                        workingSetStatus = HostLocalization.text(
-                            "Existing validated archive recovered and is ready to share",
-                            "既存の検証済みアーカイブを復旧し、共有できる状態にしました"
-                        )
-                    } catch {
-                        workingSetStatus =
-                            HostLocalization.text(
-                                "Validated archive exists, but the export state could not be committed",
-                                "検証済みアーカイブは存在しますが、書き出し状態を確定できませんでした"
-                            )
-                    }
-                    return
-                }
-
-                workingSetStatus =
+                self.workingSetStatus =
                     HostLocalization.text(
                         "Archive export failed. The finalized revision is preserved; retry export when ready.",
                         "アーカイブの書き出しに失敗しました。確定済みリビジョンは保持されているため、準備ができたら再試行してください。"
@@ -1253,6 +1311,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         acceptedEndMeshWasPersisted = false
         annotationCommitInFlight = false
         reviewOperationInFlight = false
+        exportOperationInFlight = false
         spatialAuthoritySealedForFinalization = false
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
