@@ -1515,31 +1515,48 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             objectDecomposition = decomposition
 
             if decomposition.state != .unresolvedDecomposition {
-                let proxies =
+                let rankedProxies =
                     decomposition.components.prefix(6).flatMap {
+                        component in
                         Self.fitDerivedObjectProfiles(
-                            $0.observation
-                        )
+                            component.observation
+                        ).map {
+                            (
+                                proxy: $0,
+                                pointCount: component.pointCount
+                            )
+                        }
                     }
 
                 objectProxies = Array(
-                    proxies.sorted { lhs, rhs in
-                        let lhsResolved = lhs.selected != nil
-                        let rhsResolved = rhs.selected != nil
+                    rankedProxies.sorted { lhs, rhs in
+                        let lhsResolved =
+                            lhs.proxy.selected != nil
+                        let rhsResolved =
+                            rhs.proxy.selected != nil
                         if lhsResolved != rhsResolved {
                             return lhsResolved && !rhsResolved
                         }
+
+                        // A tiny geometrically perfect fragment should not
+                        // become the compact HUD's primary shape ahead of a
+                        // substantially better-supported furniture surface.
+                        if lhs.pointCount != rhs.pointCount {
+                            return lhs.pointCount > rhs.pointCount
+                        }
+
                         let lhsScore =
-                            lhs.selected?.metrics.fitScore
-                            ?? lhs.provenance.fitScore
+                            lhs.proxy.selected?.metrics.fitScore
+                            ?? lhs.proxy.provenance.fitScore
                             ?? 0
                         let rhsScore =
-                            rhs.selected?.metrics.fitScore
-                            ?? rhs.provenance.fitScore
+                            rhs.proxy.selected?.metrics.fitScore
+                            ?? rhs.proxy.provenance.fitScore
                             ?? 0
                         return lhsScore > rhsScore
                     }
                     .prefix(4)
+                    .map(\.proxy)
                 )
             } else {
                 objectProxies = Self.fitDerivedObjectProfiles(
