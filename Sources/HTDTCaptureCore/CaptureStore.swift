@@ -153,6 +153,59 @@ public actor AtomicCaptureFileWriter {
             throw error
         }
     }
+    public func writeIfIdentical(
+        _ data: Data,
+        to path: CaptureStorePath
+    ) throws {
+        let target = path.description
+            .split(separator: "/")
+            .reduce(rootDirectory) { url, component in
+                url.appendingPathComponent(
+                    String(component),
+                    isDirectory: false
+                )
+            }
+
+        if fileManager.fileExists(atPath: target.path) {
+            let existing = try Data(contentsOf: target)
+            guard existing == data else {
+                throw CaptureFileWriterError
+                    .alreadyExists(path.description)
+            }
+            return
+        }
+
+        let parent = target.deletingLastPathComponent()
+        try fileManager.createDirectory(
+            at: parent,
+            withIntermediateDirectories: true
+        )
+
+        let temporary = parent.appendingPathComponent(
+            ".tmp-\(UUID().uuidString)"
+        )
+        do {
+            try data.write(to: temporary)
+            try fileManager.moveItem(
+                at: temporary,
+                to: target
+            )
+        } catch {
+            try? fileManager.removeItem(at: temporary)
+
+            // A same-payload replay can reach this actor after another
+            // caller won the atomic move. Accept only byte-identical
+            // evidence; never overwrite or accept a conflicting payload.
+            if fileManager.fileExists(atPath: target.path),
+               let existing = try? Data(contentsOf: target),
+               existing == data
+            {
+                return
+            }
+            throw error
+        }
+    }
+
     public func removeIfPresent(_ path: CaptureStorePath) throws {
         let target = path.description
             .split(separator: "/")
