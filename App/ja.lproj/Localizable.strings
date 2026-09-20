@@ -304,3 +304,8 @@
 "The views are separate evidence representations; neither is promoted as canonical geometry here." = "両者は別々の証拠表現です。この表示では、どちらも正規形状として確定しません。";
 
 "Compare" = "比較";
+
+"← Look left" = "← 見る方向：左";
+"Look right →" = "見る方向：右 →";
+"Guidance" = "ガイダンス";
+"Supporting observation is still weak; follow the current guidance." = "観測根拠がまだ弱いため、現在のガイダンスに従ってください。";
