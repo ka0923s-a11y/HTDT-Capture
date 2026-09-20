@@ -117,6 +117,14 @@ final class CaptureWorkingSetStoreTests: XCTestCase {
         XCTAssertEqual(snapshot.meshAnchorCount, 1)
         XCTAssertEqual(snapshot.evidenceFrameCount, 1)
         XCTAssertEqual(snapshot.depthEvidenceCount, 0)
+        XCTAssertEqual(
+            snapshot.evidenceFrameRefs,
+            [
+                "path:evidence/frames/"
+                    + frameID.description
+                    + ".json",
+            ]
+        )
         XCTAssertEqual(snapshot.captureSessionIDs, [sessionID])
         XCTAssertEqual(snapshot.coordinateSpaceIDs, [coordinateID])
         XCTAssertEqual(
