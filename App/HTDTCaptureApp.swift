@@ -1243,6 +1243,33 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         scanCoverageTask = nil
         resourceMonitor?.stop()
         resourceMonitor = nil
+
+        // Invalidate all in-flight callbacks before stopping RoomPlan. A
+        // terminal failure must not accept late evidence into the failed
+        // coordinate authority.
+        captureGeneration = UUID()
+
+        if code == .interrupted {
+            workingSetStatus = HostLocalization.text(
+                "Capture stopped because the app left the foreground",
+                "アプリがバックグラウンドに移動したためキャプチャを停止しました"
+            )
+        } else if code == .thermalPressure {
+            workingSetStatus = HostLocalization.text(
+                "Capture stopped because the device reached a critical thermal state",
+                "端末温度が危険な状態になったためキャプチャを停止しました"
+            )
+        } else if code == .storagePressure {
+            workingSetStatus = HostLocalization.text(
+                "Capture stopped because available storage fell below the safe threshold",
+                "安全に保存できる空き容量を下回ったためキャプチャを停止しました"
+            )
+        }
+
+        // A terminal failure must not leave a hidden RoomPlan / AR session
+        // running. Restart creates a fresh session and coordinate authority.
+        sessionController.stopAndPauseARSession()
+
         do {
             try transition(.fail(code))
         } catch {

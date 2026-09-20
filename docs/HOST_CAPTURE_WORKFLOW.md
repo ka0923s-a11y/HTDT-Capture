@@ -107,6 +107,24 @@ The platform package exposes a typed `CameraPermissionStatus` and a bounded
 camera-only permission request adapter. The host does not advance from
 `permissions` to `preparing` unless camera access is authorized.
 
+## Terminal interruption behavior
+
+A terminal capture failure cancels advisory coverage sampling, stops resource
+monitoring, invalidates the active callback generation, and then stops/pauses
+the shared RoomPlan / AR session. Late RoomPlan/evidence callbacks from the
+failed generation are ignored rather than being admitted into a failed
+coordinate authority. The host does not silently resume a failed scan.
+
+When the application enters the background during active capture, the working
+status is replaced with an explicit interruption reason. The failure UI explains
+that HTDT no longer assumes the same AR coordinate space remains valid and
+requires the operator to discard the failed working revision before beginning a
+fresh capture.
+
+This is deliberately fail-closed. Same-session resume or relocalization must
+only be added after a concrete mechanism (for example an independently verified
+ARWorldMap/relocalization workflow) demonstrates coordinate continuity.
+
 ## Still not completed
 
 The following remain implementation and/or physical-device gates:
@@ -121,7 +139,9 @@ The following remain implementation and/or physical-device gates:
 - live annotation placement and raycast provenance;
 - quality report generation from the complete live working set;
 - review -> validation -> atomic finalization -> share/export wiring;
-- interruption, thermal, storage, and persistence-pressure behavior;
+- physical-device interruption/background acceptance and future proven
+  relocalization/resume behavior;
+- thermal/storage/persistence-pressure acceptance on physical devices;
 - physical accuracy benchmark under Issue #9.
 
 No capability or accuracy claim is promoted from a successful CI build.

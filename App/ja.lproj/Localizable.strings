@@ -210,3 +210,25 @@
 "Ending is always allowed because advisory coverage is not a canonical finalization gate." = "カバレッジは補助指標のため、未取得箇所があっても明示的に終了できます。";
 "Review scan coverage" = "カバレッジを確認";
 "Back" = "戻る";
+
+/* Terminal capture failure guidance */
+"Recovery" = "対処";
+"Discard failed capture" = "失敗したキャプチャを破棄";
+"The app left the foreground during an active capture. HTDT no longer assumes the same AR coordinate space is valid." = "キャプチャ中にアプリがバックグラウンドへ移動しました。HTDT は同じ AR 座標空間が有効なままとはみなしません。";
+"AR tracking or the current camera frame became unavailable during capture." = "キャプチャ中に AR トラッキングまたは現在のカメラフレームを利用できなくなりました。";
+"RoomPlan could not start or continue the room scan reliably." = "RoomPlan が部屋スキャンを正常に開始または継続できませんでした。";
+"Available storage fell below the safe capture threshold." = "空きストレージ容量が安全なキャプチャ閾値を下回りました。";
+"The device reached a critical thermal state during capture." = "キャプチャ中に端末温度が危険な状態になりました。";
+"Required capture evidence could not be written safely." = "必要なキャプチャ証拠データを安全に保存できませんでした。";
+"Camera access is required to capture RoomPlan and AR evidence." = "RoomPlan と AR 証拠データの取得にはカメラアクセスが必要です。";
+"This device does not provide the required RoomPlan and mesh capture capabilities." = "この端末は必要な RoomPlan / メッシュ取得機能に対応していません。";
+"The capture stopped because of an unexpected error." = "予期しないエラーのためキャプチャを停止しました。";
+"This scan is not silently resumed. Discard the failed capture and start a new scan so a fresh coordinate-space authority is created." = "このスキャンは自動的には再開しません。失敗したキャプチャを破棄し、新しい座標空間としてスキャンを開始してください。";
+"Move to a well-lit area with visible room features, then discard this failed capture and start a new scan." = "明るく、壁や角などの特徴が見える場所で、失敗したキャプチャを破棄して新しいスキャンを開始してください。";
+"Discard this failed capture and start again. Move slowly and keep walls, corners, and furniture edges in view." = "失敗したキャプチャを破棄してやり直してください。ゆっくり動き、壁・角・家具の輪郭を画面内に保ってください。";
+"Free device storage before starting another capture." = "空き容量を確保してから新しいキャプチャを開始してください。";
+"Let the device cool before starting another capture." = "端末を十分に冷ましてから新しいキャプチャを開始してください。";
+"Check free storage and retry with a new capture. HTDT does not continue when canonical evidence persistence is uncertain." = "空き容量を確認して新しいキャプチャでやり直してください。正規の証拠データ保存が不確かな場合、HTDT はキャプチャを継続しません。";
+"Allow camera access in iOS Settings, then start a new capture." = "iOS の設定でカメラアクセスを許可してから、新しいキャプチャを開始してください。";
+"Use a supported LiDAR-capable iPhone or iPad for this capture workflow." = "このキャプチャには対応する LiDAR 搭載 iPhone または iPad を使用してください。";
+"Discard the failed capture and retry. If the error repeats, record the screen state before resetting." = "失敗したキャプチャを破棄してやり直してください。同じエラーが続く場合は、リセット前に画面状態を記録してください。";
