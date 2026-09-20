@@ -538,3 +538,158 @@ only when G110 reports active mesh anchors, face inspection and point counts are
 capped, and numerical fitting runs off the main actor. Physical LiDAR acceptance
 is still required for circular tables, oblique walls, polygonal boundaries,
 performance, and operator comprehension.
+
+
+## 12. Typed rotation / translation / revisit guidance
+
+This slice extends G100F/G110 from "which way should the camera face?" into a
+typed operator-advisory action. The guidance authority consumes only existing
+ephemeral scanner evidence:
+
+- 12 x 3 direction/pitch coverage and current-relative yaw/pitch error;
+- G110 weak-region observation count, view-angle diversity, and distance bucket;
+- bounded recent camera-position history from the G110 start-relative frame;
+- G100E observation-stability/recheck state;
+- live tracking quality.
+
+It does not infer an obstacle-free walking path or a furniture identity.
+
+### 12.1 Guidance types
+
+The core model distinguishes the action before presentation copy is selected:
+
+- `trackingRecovery`: suppress movement and recover AR tracking;
+- `rotate`: turn left/right **in place**;
+- `tilt`: show the upper/lower area without requesting translation;
+- `translate`: move slightly left/right/forward/backward;
+- `approach` / `retreat`: change camera-to-region distance only when G110's
+  observed distance bucket provides evidence;
+- `orbit`: move around a weak region after position baseline exists but
+  view-angle diversity remains insufficient;
+- `reobserveAnotherAngle`: revisit from another angle when observation
+  stability requests a recheck;
+- `holdObserve`: keep the current direction/region in view while evidence
+  accumulates.
+
+The UI uses separate visual grammar for these classes. Rotation uses curved
+turn symbols, translation uses heavy movement arrows, orbit/reobserve uses a
+ring symbol, and hold/observe uses a target symbol. A bare "right" label is not
+shared between turning and walking.
+
+### 12.2 Deterministic priority policy
+
+One operator instruction is selected at a time. The implemented priority is:
+
+1. tracking recovery;
+2. gross yaw/rotation gap;
+3. pitch gap;
+4. remaining smaller yaw alignment gap;
+5. repeated local G110 weak region requiring translation;
+6. insufficient view-angle diversity requiring orbit/reobserve;
+7. evidence-backed approach/retreat;
+8. hold/observe.
+
+The small-yaw alignment step is kept ahead of translation so a nearly aligned
+direction target is not misread as a request to walk. Once direction/pitch
+alignment no longer explains the gap, G110 spatial evidence may promote a
+movement instruction.
+
+### 12.3 Translation and orbit heuristic
+
+Movement is not derived from a single frame. A weak G110 region must have
+repeated mesh-backed observations before movement is promoted. The tracker then
+uses the bounded recent camera-position baseline and the region's view-angle
+diversity.
+
+- repeated weak region + insufficient angle diversity + insufficient camera
+  baseline -> `translate`;
+- repeated weak region + insufficient angle diversity + established baseline ->
+  `orbit`;
+- new view-angle diversity or an `observed` classification completes the
+  current revisit action and advances/clears guidance.
+
+The region is selected deterministically from weak regions in the current G110
+display window, preferring the closest region to the camera and then stable
+cell-key ordering. Guidance remains region-based; furniture names are never
+guessed.
+
+### 12.4 Approach / retreat evidence boundary
+
+`approach` and `retreat` are emitted only for a repeatedly weak G110 region
+after view-angle diversity is no longer the primary deficit and G110 already
+has a camera-distance bucket for that observed region. The operator copy remains
+qualitative ("move slightly closer/farther"). No object-specific ideal distance,
+exact meter target, or step count is created.
+
+### 12.5 Guidance stability
+
+All motion-guidance thresholds live in
+`ScanMotionGuidanceConfiguration`. The tracker applies:
+
+- minimum guidance dwell before switching to a lower-priority action;
+- immediate promotion to a higher-priority recovery/alignment action;
+- completion criteria specific to each action;
+- target-region / target-cell persistence;
+- bounded camera-position history;
+- movement completion from measured camera displacement rather than elapsed
+  time alone;
+- orbit/reobserve completion when angle diversity increases;
+- approach/retreat completion when the G110 distance bucket changes.
+
+This prevents rapid rotate/walk/rotate oscillation while still allowing tracking
+recovery to preempt movement immediately.
+
+### 12.6 Japanese / English operator copy
+
+The typed guidance copy includes Japanese and English fallback for the required
+actions, including:
+
+- `その場で右を向いてください` / `その場で左を向いてください`;
+- `上側を映してください` / `下側を映してください`;
+- `少し右へ移動してください` / `少し左へ移動してください`;
+- `少し前へ進んでください` / `少し下がってください`;
+- `別角度から映してください`;
+- `この領域の反対側へ回り込んでください`;
+- `この方向をゆっくり映してください`.
+
+Automated tests reject digit/step-count wording in the typed movement prompts.
+
+### 12.7 Authority and safety boundary
+
+Motion guidance is operator advisory only:
+
+- not canonical geometry;
+- not measurement authority;
+- not persisted Capture Bundle truth;
+- not a finalization gate;
+- not proof that the room has been completely observed;
+- not an obstacle detector or a guarantee that operator movement is safe.
+
+The software therefore does not issue exact walking distances or step counts.
+RoomPlan coaching remains framework-owned and visible; HTDT guidance should be
+read as one bounded advisory action at a time.
+
+### 12.8 Acceptance
+
+Automated acceptance:
+
+- direction gap -> rotate;
+- pitch gap -> tilt;
+- repeated same-position weak region -> translate/orbit;
+- added angle diversity / observed region -> advance or clear;
+- limited tracking suppresses movement;
+- deterministic guidance dwell/hysteresis;
+- wrapped yaw uses the shortest signed direction;
+- operator copy contains no exact step-count instruction;
+- existing Swift core tests pass;
+- iOS Platform/AppShell compile succeeds;
+- unsigned IPA generation succeeds.
+
+Physical-device acceptance remains open and is not replaced by CI:
+
+- turning versus walking is distinguishable at a glance;
+- rotation-only gaps do not request walking;
+- repeated same-position weak observation requests another position/angle;
+- guidance does not visibly oscillate;
+- RoomPlan coaching and HTDT guidance do not create extreme operator confusion;
+- movement instructions remain sensible around real obstacles and furniture.
