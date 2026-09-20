@@ -343,3 +343,8 @@
 "Layer %d" = "第%d層";
 "%d preview-only support relation candidate(s)" = "補助表示のみの支持関係候補 %d件";
 "Re-observe this region from another angle" = "この領域を別角度から再観測してください";
+"Direction %d%%" = "方向 %d%%";
+"Save evidence" = "証拠保存";
+"End" = "終了";
+"Spatial observation · depth" = "空間観測・深度";
+"Scene-depth fallback active" = "シーン深度による観測を使用中";
