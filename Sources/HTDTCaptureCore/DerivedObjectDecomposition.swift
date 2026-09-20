@@ -135,7 +135,7 @@ public struct DerivedObjectDecompositionConfiguration: Sendable, Equatable {
         maxVerticalLinkMeters: Double = 0.045,
         sameEvidenceVerticalBonusMeters: Double = 0.16,
         sameEvidenceHorizontalBonusMeters: Double = 0.06,
-        minimumCoreNeighborCount: Int = 4,
+        minimumCoreNeighborCount: Int = 3,
         minimumComponentPointCount: Int = 8,
         maximumInputPointCount: Int = 512,
         maximumComponentCount: Int = 6,
