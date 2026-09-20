@@ -55,6 +55,24 @@ public struct CaptureReviewEvidenceSnapshot: Sendable {
     }
 }
 
+public struct DerivedShapeLiveObservationSet: Sendable {
+    public let objectObservation: DerivedShapeObservation?
+    public let wallObservation: DerivedShapeObservation?
+
+    public init(
+        objectObservation: DerivedShapeObservation?,
+        wallObservation: DerivedShapeObservation?
+    ) {
+        self.objectObservation = objectObservation
+        self.wallObservation = wallObservation
+    }
+
+    public static let empty = DerivedShapeLiveObservationSet(
+        objectObservation: nil,
+        wallObservation: nil
+    )
+}
+
 @available(iOS 17.0, *)
 @MainActor
 @objc(HTDTRoomPlanViewDelegateBridge)
@@ -393,6 +411,64 @@ public final class SharedARSessionController {
         )
     }
 
+    public func currentDerivedShapeObservations(
+        maxObjectPoints: Int = 384,
+        maxWallPoints: Int = 512
+    ) throws -> DerivedShapeLiveObservationSet {
+        guard let frame = arSession.currentFrame else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        let cameraPosition = frame.camera.transform.columns.3
+        let anchors = frame.anchors
+            .compactMap { $0 as? ARMeshAnchor }
+            .sorted { lhs, rhs in
+                let lhsPosition = lhs.transform.columns.3
+                let rhsPosition = rhs.transform.columns.3
+                let lhsDistance =
+                    pow(lhsPosition.x - cameraPosition.x, 2)
+                    + pow(lhsPosition.y - cameraPosition.y, 2)
+                    + pow(lhsPosition.z - cameraPosition.z, 2)
+                let rhsDistance =
+                    pow(rhsPosition.x - cameraPosition.x, 2)
+                    + pow(rhsPosition.y - cameraPosition.y, 2)
+                    + pow(rhsPosition.z - cameraPosition.z, 2)
+                if abs(lhsDistance - rhsDistance) > 0.000_001 {
+                    return lhsDistance < rhsDistance
+                }
+                return lhs.identifier.uuidString.lowercased()
+                    < rhs.identifier.uuidString.lowercased()
+            }
+
+        guard !anchors.isEmpty else {
+            return .empty
+        }
+
+        let objectObservation =
+            liveDerivedShapeObservation(
+                anchors: anchors,
+                classification: .table,
+                sessionTimestampSeconds: frame.timestamp,
+                voxelSizeMeters: 0.035,
+                maxPoints: maxObjectPoints,
+                maxInspectedFaces: 8_000
+            )
+        let wallObservation =
+            liveDerivedShapeObservation(
+                anchors: anchors,
+                classification: .wall,
+                sessionTimestampSeconds: frame.timestamp,
+                voxelSizeMeters: 0.06,
+                maxPoints: maxWallPoints,
+                maxInspectedFaces: 12_000
+            )
+
+        return DerivedShapeLiveObservationSet(
+            objectObservation: objectObservation,
+            wallObservation: wallObservation
+        )
+    }
+
     public func snapshotActiveMeshAnchors() throws -> [MeshAnchorSnapshot] {
         guard let frame = arSession.currentFrame else {
             throw PlatformCaptureError.currentFrameUnavailable
@@ -549,6 +625,327 @@ public final class SharedARSessionController {
         )
     }
 
+    private func liveDerivedShapeObservation(
+        anchors: [ARMeshAnchor],
+        classification: ARMeshClassification,
+        sessionTimestampSeconds: Double,
+        voxelSizeMeters: Double,
+        maxPoints: Int,
+        maxInspectedFaces: Int
+    ) -> DerivedShapeObservation? {
+        guard maxPoints > 0,
+              maxInspectedFaces > 0,
+              voxelSizeMeters.isFinite,
+              voxelSizeMeters > 0
+        else {
+            return nil
+        }
+
+        var edges: [LiveDerivedMeshEdgeKey: LiveDerivedMeshEdgeRecord] = [:]
+        var fallbackPoints: [DerivedObservationPoint] = []
+        var inspectedFaces = 0
+
+        outer: for anchor in anchors {
+            let geometry = anchor.geometry
+            guard let classifications = geometry.classification,
+                  geometry.faces.indexCountPerPrimitive == 3,
+                  geometry.faces.bytesPerIndex == 2
+                    || geometry.faces.bytesPerIndex == 4
+            else {
+                continue
+            }
+
+            for faceIndex in 0..<geometry.faces.count {
+                if inspectedFaces >= maxInspectedFaces {
+                    break outer
+                }
+                inspectedFaces += 1
+
+                let classificationPointer =
+                    classifications.buffer.contents().advanced(
+                        by:
+                            classifications.offset
+                            + faceIndex * classifications.stride
+                    )
+                let rawClassification =
+                    classificationPointer
+                        .assumingMemoryBound(to: UInt8.self)
+                        .pointee
+                guard rawClassification
+                        == UInt8(
+                            truncatingIfNeeded:
+                                classification.rawValue
+                        )
+                else {
+                    continue
+                }
+
+                guard let indices = liveMeshFaceIndices(
+                    geometry: geometry,
+                    faceIndex: faceIndex
+                ) else {
+                    continue
+                }
+
+                let vertices = indices.compactMap {
+                    liveMeshWorldVertex(
+                        geometry: geometry,
+                        vertexIndex: Int($0),
+                        transform: anchor.transform
+                    )
+                }
+                guard vertices.count == 3 else {
+                    continue
+                }
+
+                let evidenceRef =
+                    "live-mesh:"
+                    + anchor.identifier.uuidString.lowercased()
+                    + ":face:"
+                    + String(faceIndex)
+
+                for point in vertices {
+                    fallbackPoints.append(
+                        DerivedObservationPoint(
+                            position: DerivedPoint2D(
+                                x: Double(point.x),
+                                y: Double(point.z)
+                            ),
+                            evidenceRef: evidenceRef,
+                            evidenceKind: .mesh
+                        )
+                    )
+                }
+
+                recordLiveDerivedEdge(
+                    anchorID: anchor.identifier,
+                    firstIndex: indices[0],
+                    firstPoint: vertices[0],
+                    secondIndex: indices[1],
+                    secondPoint: vertices[1],
+                    evidenceRef: evidenceRef,
+                    into: &edges
+                )
+                recordLiveDerivedEdge(
+                    anchorID: anchor.identifier,
+                    firstIndex: indices[1],
+                    firstPoint: vertices[1],
+                    secondIndex: indices[2],
+                    secondPoint: vertices[2],
+                    evidenceRef: evidenceRef,
+                    into: &edges
+                )
+                recordLiveDerivedEdge(
+                    anchorID: anchor.identifier,
+                    firstIndex: indices[2],
+                    firstPoint: vertices[2],
+                    secondIndex: indices[0],
+                    secondPoint: vertices[0],
+                    evidenceRef: evidenceRef,
+                    into: &edges
+                )
+            }
+        }
+
+        let boundaryPoints = edges.values
+            .filter { $0.count == 1 }
+            .flatMap { edge in
+                [
+                    DerivedObservationPoint(
+                        position: DerivedPoint2D(
+                            x: Double(edge.firstPoint.x),
+                            y: Double(edge.firstPoint.z)
+                        ),
+                        evidenceRef: edge.evidenceRef,
+                        evidenceKind: .mesh
+                    ),
+                    DerivedObservationPoint(
+                        position: DerivedPoint2D(
+                            x: Double(edge.secondPoint.x),
+                            y: Double(edge.secondPoint.z)
+                        ),
+                        evidenceRef: edge.evidenceRef,
+                        evidenceKind: .mesh
+                    ),
+                ]
+            }
+
+        let sourcePoints =
+            boundaryPoints.count >= 8
+            ? boundaryPoints
+            : fallbackPoints
+
+        let reduced = reduceLiveDerivedPoints(
+            sourcePoints,
+            voxelSizeMeters: voxelSizeMeters,
+            maxPoints: maxPoints
+        )
+        guard !reduced.isEmpty else {
+            return nil
+        }
+
+        return DerivedShapeObservation(
+            coordinateSpaceID: context.coordinateSpaceID,
+            points: reduced,
+            observationStartSeconds: sessionTimestampSeconds,
+            observationEndSeconds: sessionTimestampSeconds
+        )
+    }
+
+    private func liveMeshFaceIndices(
+        geometry: ARMeshGeometry,
+        faceIndex: Int
+    ) -> [UInt32]? {
+        let faces = geometry.faces
+        guard faceIndex >= 0,
+              faceIndex < faces.count,
+              faces.indexCountPerPrimitive == 3,
+              faces.bytesPerIndex == 2
+                || faces.bytesPerIndex == 4
+        else {
+            return nil
+        }
+
+        var result: [UInt32] = []
+        result.reserveCapacity(3)
+        for localIndex in 0..<3 {
+            let flatIndex = faceIndex * 3 + localIndex
+            let pointer = faces.buffer.contents().advanced(
+                by: flatIndex * faces.bytesPerIndex
+            )
+            let bytes = pointer.assumingMemoryBound(to: UInt8.self)
+            if faces.bytesPerIndex == 2 {
+                result.append(
+                    UInt32(bytes[0])
+                    | (UInt32(bytes[1]) << 8)
+                )
+            } else {
+                result.append(
+                    UInt32(bytes[0])
+                    | (UInt32(bytes[1]) << 8)
+                    | (UInt32(bytes[2]) << 16)
+                    | (UInt32(bytes[3]) << 24)
+                )
+            }
+        }
+        return result
+    }
+
+    private func liveMeshWorldVertex(
+        geometry: ARMeshGeometry,
+        vertexIndex: Int,
+        transform: simd_float4x4
+    ) -> SIMD3<Float>? {
+        let source = geometry.vertices
+        guard vertexIndex >= 0,
+              vertexIndex < source.count
+        else {
+            return nil
+        }
+
+        let pointer = source.buffer.contents().advanced(
+            by: source.offset + vertexIndex * source.stride
+        )
+        let values = pointer.assumingMemoryBound(to: Float.self)
+        let local = SIMD4<Float>(
+            values[0],
+            values[1],
+            values[2],
+            1
+        )
+        let world = transform * local
+        guard world.x.isFinite,
+              world.y.isFinite,
+              world.z.isFinite
+        else {
+            return nil
+        }
+        return SIMD3<Float>(world.x, world.y, world.z)
+    }
+
+    private func recordLiveDerivedEdge(
+        anchorID: UUID,
+        firstIndex: UInt32,
+        firstPoint: SIMD3<Float>,
+        secondIndex: UInt32,
+        secondPoint: SIMD3<Float>,
+        evidenceRef: String,
+        into edges: inout [
+            LiveDerivedMeshEdgeKey:
+                LiveDerivedMeshEdgeRecord
+        ]
+    ) {
+        let lowIndex = min(firstIndex, secondIndex)
+        let highIndex = max(firstIndex, secondIndex)
+        let key = LiveDerivedMeshEdgeKey(
+            anchorID: anchorID,
+            lowVertexIndex: lowIndex,
+            highVertexIndex: highIndex
+        )
+
+        if var existing = edges[key] {
+            existing.count += 1
+            edges[key] = existing
+            return
+        }
+
+        let firstIsLow = firstIndex == lowIndex
+        edges[key] = LiveDerivedMeshEdgeRecord(
+            count: 1,
+            firstPoint: firstIsLow ? firstPoint : secondPoint,
+            secondPoint: firstIsLow ? secondPoint : firstPoint,
+            evidenceRef: evidenceRef
+        )
+    }
+
+    private func reduceLiveDerivedPoints(
+        _ points: [DerivedObservationPoint],
+        voxelSizeMeters: Double,
+        maxPoints: Int
+    ) -> [DerivedObservationPoint] {
+        var cells: [
+            LiveDerivedVoxelKey:
+                DerivedObservationPoint
+        ] = [:]
+
+        for point in points.sorted(by: {
+            if $0.position.x != $1.position.x {
+                return $0.position.x < $1.position.x
+            }
+            if $0.position.y != $1.position.y {
+                return $0.position.y < $1.position.y
+            }
+            return $0.evidenceRef < $1.evidenceRef
+        }) {
+            let key = LiveDerivedVoxelKey(
+                x: Int(floor(point.position.x / voxelSizeMeters)),
+                y: Int(floor(point.position.y / voxelSizeMeters))
+            )
+            if cells[key] == nil {
+                cells[key] = point
+            }
+        }
+
+        let reduced = cells.values.sorted {
+            if $0.position.x != $1.position.x {
+                return $0.position.x < $1.position.x
+            }
+            if $0.position.y != $1.position.y {
+                return $0.position.y < $1.position.y
+            }
+            return $0.evidenceRef < $1.evidenceRef
+        }
+
+        guard reduced.count > maxPoints else {
+            return reduced
+        }
+
+        let stride = Double(reduced.count) / Double(maxPoints)
+        return (0..<maxPoints).map {
+            reduced[Int(Double($0) * stride)]
+        }
+    }
+
     private func trackingQualityEvent(
         from frame: ARFrame
     ) -> TrackingQualityEvent {
@@ -620,5 +1017,23 @@ public final class SharedARSessionController {
             sessionTimestampSeconds: sessionTimestampSeconds
         )
     }
+private struct LiveDerivedMeshEdgeKey: Hashable {
+    let anchorID: UUID
+    let lowVertexIndex: UInt32
+    let highVertexIndex: UInt32
+}
+
+private struct LiveDerivedMeshEdgeRecord {
+    var count: Int
+    let firstPoint: SIMD3<Float>
+    let secondPoint: SIMD3<Float>
+    let evidenceRef: String
+}
+
+private struct LiveDerivedVoxelKey: Hashable {
+    let x: Int
+    let y: Int
+}
+
 }
 #endif

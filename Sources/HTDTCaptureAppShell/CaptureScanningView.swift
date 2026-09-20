@@ -7,18 +7,22 @@ public struct CaptureScanningView: View {
     public let coverage: ScanCoverageSummary
     public let observation: ObservationStabilitySummary
     public let spatialCoverage: SpatialScanCoverageSummary
+    public let derivedPreview: DerivedShapePreviewSnapshot
     public let evidenceFrameCount: Int
     public let captureEvidenceFrame: () -> Void
     public let endScan: () -> Void
 
     @State private var showingEndScanReview = false
     @State private var showingSpatialMap = true
+    @State private var showingDerivedPreview = false
+    @State private var derivedPreviewMode: DerivedPreviewMode = .observation
 
     public init(
         preview: AnyView,
         coverage: ScanCoverageSummary,
         observation: ObservationStabilitySummary,
         spatialCoverage: SpatialScanCoverageSummary,
+        derivedPreview: DerivedShapePreviewSnapshot,
         evidenceFrameCount: Int,
         captureEvidenceFrame: @escaping () -> Void,
         endScan: @escaping () -> Void
@@ -27,6 +31,7 @@ public struct CaptureScanningView: View {
         self.coverage = coverage
         self.observation = observation
         self.spatialCoverage = spatialCoverage
+        self.derivedPreview = derivedPreview
         self.evidenceFrameCount = evidenceFrameCount
         self.captureEvidenceFrame = captureEvidenceFrame
         self.endScan = endScan
@@ -328,6 +333,27 @@ public struct CaptureScanningView: View {
                 }
             }
 
+            if derivedPreview.hasEvidence {
+                DisclosureGroup(
+                    isExpanded: $showingDerivedPreview
+                ) {
+                    DerivedShapePreviewPanel(
+                        snapshot: derivedPreview,
+                        mode: $derivedPreviewMode
+                    )
+                    .padding(.top, 6)
+                } label: {
+                    HStack {
+                        Text("Observed geometry preview")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Text(primaryDerivedShapeLabel)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
             HStack(spacing: 10) {
                 Button(action: captureEvidenceFrame) {
                     Label(
@@ -427,6 +453,38 @@ public struct CaptureScanningView: View {
             spatialCoverage.observedRegionCount,
             spatialCoverage.weakRegionCount
         )
+    }
+
+    private var primaryDerivedShapeLabel: String {
+        if let proxy = derivedPreview.objectProxies.first {
+            guard let selected = proxy.selected else {
+                switch proxy.resolution {
+                case .resolved:
+                    return String(localized: "Shape unresolved")
+                case .insufficientEvidence:
+                    return String(localized: "Shape unresolved")
+                case .ambiguousEvidence:
+                    return String(localized: "Shape ambiguous")
+                }
+            }
+
+            switch selected.kind {
+            case .orientedRectangle:
+                return String(localized: "Oriented rectangle")
+            case .circle:
+                return String(localized: "Circle")
+            case .ellipse:
+                return String(localized: "Ellipse")
+            case .polygon:
+                return String(localized: "Polygon")
+            }
+        }
+
+        if derivedPreview.wallChain != nil {
+            return String(localized: "Observed wall chain")
+        }
+
+        return String(localized: "No bounded shape evidence yet")
     }
 
     private var meshAvailabilityLabel: String {
