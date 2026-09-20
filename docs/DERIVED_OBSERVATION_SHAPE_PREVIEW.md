@@ -129,11 +129,14 @@ The scanning view adds a distinct derived-geometry panel with three modes:
 - **RoomPlan structure** — framework semantic view only;
 - **Observed shape** — RoomPlan is visually deemphasized and the HTDT derived
   top-down proxy is shown;
-- **Overlay** — both are shown together.
+- **Compare** — keeps the live RoomPlan camera/structure visible while showing
+  the separate top-down HTDT-derived proxy for side-by-side comparison.
 
-Derived object geometry uses an orange dashed outline. Derived wall chains use
-a cyan line with supported vertices. They intentionally do not look like the
-RoomPlan white structure lines.
+This slice does not claim a camera-registered 3D overlay because the public
+RoomPlan live view does not expose the semantic geometry needed to align a
+second renderer safely. Derived object geometry uses an orange dashed outline.
+Derived wall chains use a cyan line with supported vertices. They intentionally
+do not look like the RoomPlan white structure lines.
 
 When evidence is insufficient or ambiguous, the panel displays an unresolved
 state and observation samples rather than drawing a fabricated rectangle.
