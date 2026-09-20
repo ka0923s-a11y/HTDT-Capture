@@ -934,10 +934,21 @@ public struct CaptureScanningView: View {
             return false
         }
 
+        // Spatial weak/unknown cells are advisory. Once the operator has
+        // completed broad directional capture under normal tracking, pressing
+        // End must not be turned into another effectively mandatory spatial
+        // loop.
+        if coverage.latestTrackingState == .normal,
+           coverage.coverageFraction >= 0.95,
+           coverage.pitchBandCoverageFraction(.low) >= 0.75,
+           coverage.pitchBandCoverageFraction(.high) >= 0.75
+        {
+            return false
+        }
+
         return coverage.coverageFraction < 0.75
             || coverage.pitchBandCoverageFraction(.low) < 0.50
             || coverage.pitchBandCoverageFraction(.high) < 0.50
-            || spatialCoverage.weakRegionCount > 0
     }
 
     private var coveragePercent: Int {
