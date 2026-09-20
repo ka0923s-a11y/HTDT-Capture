@@ -128,6 +128,7 @@ public enum BundleManifestError: Error, Sendable, Equatable {
     case duplicateSessionID
     case duplicateCoordinateSpaceID
     case duplicatePayloadPath(String)
+    case caseCollidingPayloadPath(String, String)
     case manifestSelfDeclaration
     case invalidTimestamp(String)
 }
@@ -205,13 +206,26 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         }
 
         var seen = Set<String>()
+        var collisionMap: [String: String] = [:]
         for file in files {
             if file.path == "manifest.json" {
                 throw BundleManifestError.manifestSelfDeclaration
             }
+            try BundleLogicalPath.validate(file.path)
             if !seen.insert(file.path).inserted {
                 throw BundleManifestError.duplicatePayloadPath(file.path)
             }
+
+            let collisionKey =
+                BundleLogicalPath.collisionKey(file.path)
+            if let prior = collisionMap[collisionKey] {
+                throw BundleManifestError
+                    .caseCollidingPayloadPath(
+                        prior,
+                        file.path
+                    )
+            }
+            collisionMap[collisionKey] = file.path
         }
 
         self.schema = "htdt.capture.bundle"
