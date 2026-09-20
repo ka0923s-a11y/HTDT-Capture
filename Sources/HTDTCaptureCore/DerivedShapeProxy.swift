@@ -1498,36 +1498,60 @@ public enum DerivedShapeProxyFitter {
     private static func preferredCurvedCandidate(
         _ candidates: [DerivedShapeCandidate]
     ) -> DerivedShapeCandidate? {
-        let curved = candidates.filter {
-            guard $0.kind == .circle || $0.kind == .ellipse else {
+        let rectangle = candidates.first {
+            $0.kind == .orientedRectangle
+        }
+        let polygon = candidates.first {
+            $0.kind == .polygon
+        }
+
+        let curved = candidates.filter { candidate in
+            guard candidate.kind == .circle
+                    || candidate.kind == .ellipse,
+                  candidate.metrics.supportScore >= 0.70,
+                  candidate.metrics.normalizedResidual <= 0.040,
+                  (candidate.metrics.angularSupport ?? 0) >= 0.88
+            else {
                 return false
             }
-            return $0.metrics.supportScore >= 0.58
-                && $0.metrics.normalizedResidual <= 0.060
-                && ($0.metrics.angularSupport ?? 0) >= 0.82
+
+            // A genuinely straight-edged footprint should keep its simpler
+            // straight-edge model when that fit is materially better.
+            if let rectangle,
+               rectangle.metrics.normalizedResidual + 0.015
+                    < candidate.metrics.normalizedResidual
+            {
+                return false
+            }
+
+            if let polygon {
+                if case let .polygon(geometry) = polygon.geometry,
+                   geometry.vertices.count <= 6,
+                   polygon.metrics.normalizedResidual
+                        <= candidate.metrics.normalizedResidual + 0.010
+                {
+                    return false
+                }
+
+                // Flexible polygons will usually fit a sampled curve a little
+                // better. Permit only a small residual gap; this favors a
+                // credible smooth primitive without turning rounded squares,
+                // polygons, or mixed circle/square evidence into circles.
+                if candidate.metrics.normalizedResidual
+                    > polygon.metrics.normalizedResidual + 0.015
+                {
+                    return false
+                }
+            }
+
+            return true
         }
         guard !curved.isEmpty else {
             return nil
         }
 
-        let competingResidual = candidates
-            .filter {
-                $0.kind == .polygon
-                    || $0.kind == .orientedRectangle
-            }
-            .map { $0.metrics.normalizedResidual }
-            .min() ?? .infinity
-
-        let credible = curved.filter {
-            $0.metrics.normalizedResidual
-                <= competingResidual + 0.025
-        }
-        guard !credible.isEmpty else {
-            return nil
-        }
-
-        let circle = credible.first { $0.kind == .circle }
-        let ellipse = credible.first { $0.kind == .ellipse }
+        let circle = curved.first { $0.kind == .circle }
+        let ellipse = curved.first { $0.kind == .ellipse }
 
         if let circle,
            let ellipse,
@@ -1544,7 +1568,7 @@ public enum DerivedShapeProxyFitter {
             }
         }
 
-        return credible.min {
+        return curved.min {
             let lhs = selectionCost($0)
             let rhs = selectionCost($1)
             if abs(lhs - rhs) > 0.000_000_1 {
