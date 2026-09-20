@@ -103,6 +103,34 @@ class ValidatorTests(unittest.TestCase):
             with self.assertRaisesRegex(ValidationError, "unsupported schema version"):
                 validate_bundle(dest)
 
+    def test_malformed_manifest_timestamp_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, dest)
+            path = dest / "manifest.json"
+            value = json.loads(path.read_text(encoding="utf-8"))
+            value["created_at"] = "not-a-dateTgarbageZ"
+            path.write_bytes(canonical_json_bytes(value))
+            with self.assertRaisesRegex(
+                ValidationError,
+                "UTC RFC3339",
+            ):
+                validate_bundle(dest)
+
+    def test_fractional_utc_manifest_timestamp_validates(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, dest)
+            path = dest / "manifest.json"
+            value = json.loads(path.read_text(encoding="utf-8"))
+            value["created_at"] = "2026-09-20T12:34:56.123Z"
+            path.write_bytes(canonical_json_bytes(value))
+
+            # Manifest bytes changed, but no payload declaration/digest
+            # depends on manifest bytes themselves.
+            report = validate_bundle(dest)
+            self.assertTrue(report["valid"])
+
     def test_zip_path_traversal_fails(self):
         with tempfile.TemporaryDirectory() as td:
             archive = Path(td) / "bad.htdtcapture"
