@@ -806,13 +806,11 @@ public struct CaptureScanningView: View {
                     .compactMap(\.selected)
                     .first
             {
-                return String(
-                    format: String(
-                        localized: "%@ · %d candidates"
-                    ),
-                    shapeKindLabel(selected.kind),
-                    decomposition.components.count
-                )
+                // The compact HUD reports the best resolved observed shape.
+                // Component/candidate count remains available in Details so
+                // a resolved circle/ellipse is not visually presented as
+                // unresolved just because several bounded components exist.
+                return shapeKindLabel(selected.kind)
             }
 
             return String(
