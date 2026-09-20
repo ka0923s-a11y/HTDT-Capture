@@ -38,6 +38,8 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
     public let rawRoomPlanDescriptor: RoomPlanRawEvidenceDescriptor?
     public let processedRoomPlanDescriptor: RoomPlanProcessedEvidenceDescriptor?
     public let meshAnchorCount: Int?
+    public let evidenceFrameCount: Int
+    public let depthEvidenceCount: Int
 
     public init(
         identity: CaptureWorkingSetIdentity,
@@ -47,7 +49,9 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         payloadDeclarations: [BundlePayloadDeclaration],
         rawRoomPlanDescriptor: RoomPlanRawEvidenceDescriptor?,
         processedRoomPlanDescriptor: RoomPlanProcessedEvidenceDescriptor?,
-        meshAnchorCount: Int?
+        meshAnchorCount: Int?,
+        evidenceFrameCount: Int,
+        depthEvidenceCount: Int
     ) {
         self.identity = identity
         self.rootDirectory = rootDirectory
@@ -57,6 +61,8 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         self.rawRoomPlanDescriptor = rawRoomPlanDescriptor
         self.processedRoomPlanDescriptor = processedRoomPlanDescriptor
         self.meshAnchorCount = meshAnchorCount
+        self.evidenceFrameCount = evidenceFrameCount
+        self.depthEvidenceCount = depthEvidenceCount
     }
 }
 
@@ -71,6 +77,8 @@ public actor CaptureWorkingSetStore {
     private var rawRoomPlanDescriptor: RoomPlanRawEvidenceDescriptor?
     private var processedRoomPlanDescriptor: RoomPlanProcessedEvidenceDescriptor?
     private var meshAnchorCount: Int?
+    private var evidenceFrameCount = 0
+    private var depthEvidenceCount = 0
 
     public init(
         identity: CaptureWorkingSetIdentity = CaptureWorkingSetIdentity(),
@@ -246,6 +254,23 @@ public actor CaptureWorkingSetStore {
         meshAnchorCount = package.index.anchors.count
     }
 
+    public func persistFramePackage(
+        _ package: FrameEvidencePackage
+    ) async throws {
+        try bindAuthority(
+            captureSessionID: package.descriptor.captureSessionID,
+            coordinateSpaceID: package.descriptor.coordinateSpaceID
+        )
+
+        try await package.persist(using: writer)
+        for declaration in package.payloadDeclarations {
+            try register(declaration)
+        }
+
+        evidenceFrameCount += 1
+        depthEvidenceCount += package.capturedDepthCount
+    }
+
     public func snapshot() -> CaptureWorkingSetSnapshot {
         CaptureWorkingSetSnapshot(
             identity: identity,
@@ -257,7 +282,9 @@ public actor CaptureWorkingSetStore {
             },
             rawRoomPlanDescriptor: rawRoomPlanDescriptor,
             processedRoomPlanDescriptor: processedRoomPlanDescriptor,
-            meshAnchorCount: meshAnchorCount
+            meshAnchorCount: meshAnchorCount,
+            evidenceFrameCount: evidenceFrameCount,
+            depthEvidenceCount: depthEvidenceCount
         )
     }
 

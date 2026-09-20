@@ -70,6 +70,44 @@ final class CaptureWorkingSetStoreTests: XCTestCase {
         )
         try await store.persistMeshPackage(mesh)
 
+        let pixel = Data([1, 2, 3, 4])
+        let frameID = EvidenceFrameID(
+            rawValue: UUID(
+                uuidString:
+                    "10000000-0000-4000-8000-000000000006"
+            )!
+        )
+        let frameDescriptor = try FrameEvidenceDescriptor(
+            frameID: frameID,
+            captureSessionID: sessionID,
+            coordinateSpaceID: coordinateID,
+            sessionTimestampSeconds: 12.5,
+            worldFromCamera: .identity,
+            intrinsics: try CameraIntrinsics3x3(
+                values: [
+                    1, 0, 0,
+                    0, 1, 0,
+                    0, 0, 1,
+                ]
+            ),
+            imageWidth: 1,
+            imageHeight: 1,
+            pixelFormatFourCC: 0,
+            pixelRelativePath:
+                "evidence/frames/\(frameID).pixelbin",
+            pixelByteCount: pixel.count,
+            pixelSHA256: EvidenceIntegrity.sha256(of: pixel),
+            depthStatus: .unavailable
+        )
+        try await store.persistFramePackage(
+            try FrameEvidencePackageBuilder.build(
+                descriptor: frameDescriptor,
+                pixelPayload: pixel,
+                depthPayload: nil,
+                confidencePayload: nil
+            )
+        )
+
         let snapshot = await store.snapshot()
         XCTAssertEqual(snapshot.rawRoomPlanDescriptor, raw.descriptor)
         XCTAssertEqual(
@@ -77,11 +115,15 @@ final class CaptureWorkingSetStoreTests: XCTestCase {
             lineage.processed?.descriptor
         )
         XCTAssertEqual(snapshot.meshAnchorCount, 1)
+        XCTAssertEqual(snapshot.evidenceFrameCount, 1)
+        XCTAssertEqual(snapshot.depthEvidenceCount, 0)
         XCTAssertEqual(snapshot.captureSessionIDs, [sessionID])
         XCTAssertEqual(snapshot.coordinateSpaceIDs, [coordinateID])
         XCTAssertEqual(
             snapshot.payloadDeclarations.map(\.path),
             [
+                "evidence/frames/10000000-0000-4000-8000-000000000006.json",
+                "evidence/frames/10000000-0000-4000-8000-000000000006.pixelbin",
                 "mesh/anchors.json",
                 "mesh/geometry/10000000-0000-4000-8000-000000000005.meshbin",
                 "roomplan/captured-room-data.json",
