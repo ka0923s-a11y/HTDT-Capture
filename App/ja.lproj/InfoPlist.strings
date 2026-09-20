@@ -1,0 +1,2 @@
+"NSCameraUsageDescription" = "HTDT Capture は、ホームシアターのデジタルツイン作成に必要な部屋形状と証拠データを取得するため、カメラと LiDAR センサーを使用します。";
+"CFBundleDisplayName" = "HTDT Capture";
