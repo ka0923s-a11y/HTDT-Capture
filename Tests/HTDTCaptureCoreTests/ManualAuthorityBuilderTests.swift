@@ -137,3 +137,58 @@ func evidenceLinkedRaycastPlacementOverridesManualPosition() throws {
     #expect(entity.evidenceRefs == [reference])
     #expect(entity.verificationState == .evidenceLinked)
 }
+
+
+@Test
+func evidenceLinkedSpeakerOrientationOverridesManualYaw() throws {
+    let reference =
+        "path:evidence/frames/"
+        + "30000000-0000-4000-8000-000000000011.json"
+    let orientation = try OrientationAxes(
+        frontAxisLocal: .unit(0.6, 0, -0.8),
+        upAxisLocal: .unit(0, 1, 0)
+    )
+    let authority = try AnnotationOrientationAuthority(
+        orientation: orientation,
+        evidenceRefs: [reference]
+    )
+
+    let speaker = try ManualAuthorityBuilder.annotation(
+        type: .speaker,
+        label: "Center",
+        xMeters: 0,
+        yMeters: 0,
+        zMeters: 1,
+        coordinateSpaceID: CoordinateSpaceID(),
+        speakerChannelRole: "C",
+        speakerYawDegrees: nil,
+        orientationAuthority: authority
+    )
+
+    #expect(speaker.orientation == orientation)
+    #expect(speaker.evidenceRefs == [reference])
+    #expect(speaker.verificationState == .evidenceLinked)
+}
+
+@Test
+func capturedOrientationCannotBeAppliedToNonSpeaker() throws {
+    let authority = try AnnotationOrientationAuthority(
+        orientation: try OrientationAxes(
+            frontAxisLocal: .unit(0, 0, -1),
+            upAxisLocal: .unit(0, 1, 0)
+        ),
+        evidenceRefs: ["path:evidence/frames/example.json"]
+    )
+
+    #expect(throws: ManualAuthorityBuilderError.orientationOnlyForSpeaker) {
+        try ManualAuthorityBuilder.annotation(
+            type: .referencePoint,
+            label: "Not a speaker",
+            xMeters: 0,
+            yMeters: 0,
+            zMeters: 0,
+            coordinateSpaceID: CoordinateSpaceID(),
+            orientationAuthority: authority
+        )
+    }
+}

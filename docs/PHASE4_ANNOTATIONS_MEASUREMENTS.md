@@ -213,3 +213,23 @@ not written. Any ARFrame explicitly captured by a raycast action remains valid
 canonical evidence in the working revision rather than being silently deleted.
 
 Physical placement accuracy and repeatability remain Issue #9 hardware gates.
+
+
+## Evidence-linked speaker orientation capture
+
+The speaker editor now supports an explicit **Capture current camera heading**
+action. The user is instructed to point the phone in the intended speaker-front
+direction before capture.
+
+The adapter reads the same live ARSession world frame, projects the camera
+forward vector onto the horizontal X/Z plane, rejects a near-vertical pose where
+heading is undefined, and normalizes the result. +Y remains the explicit up
+axis.
+
+The exact ARFrame used for the heading is persisted as canonical evidence and
+linked to the speaker entity. Captured heading overrides manual yaw only when
+the user explicitly selects it. Position raycast and orientation capture remain
+independent authorities.
+
+This establishes the software path; speaker-orientation accuracy and
+repeatability remain physical benchmark gates under Issue #9.

@@ -9,6 +9,8 @@ public struct CaptureRootActions {
     public let beginAnnotation: () -> Void
     public let captureRaycastPlacement:
         () async throws -> AnnotationPlacementAuthority
+    public let captureSpeakerOrientation:
+        () async throws -> AnnotationOrientationAuthority
     public let commitAnnotationAuthority: (
         [CaptureAnnotationEntity],
         [CaptureMeasurement]
@@ -27,6 +29,10 @@ public struct CaptureRootActions {
             () async throws -> AnnotationPlacementAuthority = {
                 throw ManualAuthorityBuilderError.invalidPosition
             },
+        captureSpeakerOrientation: @escaping
+            () async throws -> AnnotationOrientationAuthority = {
+                throw ManualAuthorityBuilderError.invalidSpeakerYaw
+            },
         commitAnnotationAuthority: @escaping (
             [CaptureAnnotationEntity],
             [CaptureMeasurement]
@@ -41,6 +47,8 @@ public struct CaptureRootActions {
         self.captureEvidenceFrame = captureEvidenceFrame
         self.beginAnnotation = beginAnnotation
         self.captureRaycastPlacement = captureRaycastPlacement
+        self.captureSpeakerOrientation =
+            captureSpeakerOrientation
         self.commitAnnotationAuthority =
             commitAnnotationAuthority
         self.cancelAnnotation = cancelAnnotation
@@ -106,6 +114,8 @@ public struct CaptureRootView: View {
                         annotationEvidenceRefs,
                     captureRaycastPlacement:
                         actions.captureRaycastPlacement,
+                    captureSpeakerOrientation:
+                        actions.captureSpeakerOrientation,
                     onCommit:
                         actions.commitAnnotationAuthority,
                     onCancel: actions.cancelAnnotation
