@@ -268,7 +268,7 @@ public struct CaptureScanningView: View {
             }
         } label: {
             HStack(spacing: 5) {
-                Text("Spatial observation")
+                Text(spatialObservationTitle)
                     .fontWeight(.semibold)
                 Text(spatialCoverageCounts)
                     .monospacedDigit()
@@ -348,11 +348,20 @@ public struct CaptureScanningView: View {
                             )
                         }
                         .font(.caption2)
+
+                        if spatialCoverage.usesDepthFallback {
+                            Label(
+                                "Scene-depth fallback active",
+                                systemImage: "viewfinder"
+                            )
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.cyan)
+                        }
                     }
                     .padding(.top, 6)
                 } label: {
                     HStack {
-                        Text("Spatial observation")
+                        Text(spatialObservationTitle)
                             .font(
                                 .subheadline
                                     .weight(.semibold)
@@ -686,6 +695,12 @@ public struct CaptureScanningView: View {
                 .frame(width: 7, height: 7)
             Text(label)
         }
+    }
+
+    private var spatialObservationTitle: String {
+        spatialCoverage.usesDepthFallback
+            ? String(localized: "Spatial observation · depth")
+            : String(localized: "Spatial observation")
     }
 
     private var spatialCoverageCounts: String {
@@ -1281,7 +1296,7 @@ private struct ScanCoverageEndReview: View {
             List {
                 Section {
                     LabeledContent(
-                        "Overall coverage",
+                        "Direction coverage",
                         value: percent(coverage.coverageFraction)
                     )
                     LabeledContent(
