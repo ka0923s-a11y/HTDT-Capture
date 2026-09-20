@@ -161,10 +161,31 @@ public actor CaptureWorkingSetStore {
             throw CaptureWorkingSetError.invalidTimingPackage
         }
 
-        try await writer.write(
+        if let existing = timingDocument {
+            if existing == package.document {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    CaptureTimingPackage.path
+                )
+        }
+
+        try await writer.writeIfIdentical(
             package.data,
             to: CaptureStorePath(CaptureTimingPackage.path)
         )
+
+        if let existing = timingDocument {
+            if existing == package.document {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    CaptureTimingPackage.path
+                )
+        }
+
         try register(package.payloadDeclaration)
         timingDocument = package.document
     }
