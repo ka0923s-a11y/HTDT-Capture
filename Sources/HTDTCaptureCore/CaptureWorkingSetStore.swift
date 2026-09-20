@@ -396,17 +396,64 @@ public actor CaptureWorkingSetStore {
             coordinateSpaceID: package.descriptor.coordinateSpaceID
         )
 
-        try await package.persist(using: writer)
-        for declaration in package.payloadDeclarations {
+        if let existing = frameDescriptors.first(where: {
+            $0.frameID == package.descriptor.frameID
+        }) {
+            if existing == package.descriptor {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(package.descriptorPath)
+        }
+
+        try await package.persistCanonical(using: writer)
+
+        // The actor can re-enter while the file-writer actor is awaited.
+        // If another identical call committed this frame first, do not double
+        // count it. Conflicting bytes were already rejected by the writer.
+        if let existing = frameDescriptors.first(where: {
+            $0.frameID == package.descriptor.frameID
+        }) {
+            if existing == package.descriptor {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(package.descriptorPath)
+        }
+
+        for declaration in package.canonicalPayloadDeclarations {
             try register(declaration)
         }
 
         frameDescriptors.append(package.descriptor)
-        if let preview = package.preview {
-            framePreviews.append(preview)
-        }
         evidenceFrameCount += 1
         depthEvidenceCount += package.capturedDepthCount
+
+        if let preview = package.preview {
+            do {
+                try await package.persistPreview(using: writer)
+                if let declaration =
+                    package.previewPayloadDeclaration
+                {
+                    try register(declaration)
+                }
+                if !framePreviews.contains(preview) {
+                    framePreviews.append(preview)
+                }
+            } catch {
+                // Preview HEIC is derived convenience evidence. Never destroy
+                // an otherwise complete canonical pixel/depth frame because a
+                // preview-only write failed.
+                resourceEvents.append(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "Derived frame preview could not be persisted; canonical frame/depth evidence remains valid."
+                    )
+                )
+            }
+        }
     }
 
     public func persistAnnotationPackage(
