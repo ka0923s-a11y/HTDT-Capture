@@ -110,8 +110,10 @@ camera-only permission request adapter. The host does not advance from
 ## Terminal interruption behavior
 
 A terminal capture failure cancels advisory coverage sampling, stops resource
-monitoring, and stops/pauses the shared RoomPlan / AR session. The host does not
-silently resume a failed scan.
+monitoring, invalidates the active callback generation, and then stops/pauses
+the shared RoomPlan / AR session. Late RoomPlan/evidence callbacks from the
+failed generation are ignored rather than being admitted into a failed
+coordinate authority. The host does not silently resume a failed scan.
 
 When the application enters the background during active capture, the working
 status is replaced with an explicit interruption reason. The failure UI explains
