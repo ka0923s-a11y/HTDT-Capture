@@ -37,6 +37,8 @@ public struct ScanMotionGuidanceConfiguration: Sendable, Equatable {
     public let minimumTranslationBaselineMeters: Double
     public let translationCompletionMeters: Double
     public let spatialGuidanceActivationCoverageFraction: Double
+    public let maximumActionDurationSeconds: Double
+    public let maximumWeakRegionGuidanceAttempts: Int
     public let cameraHistoryLimit: Int
 
     public init(
@@ -47,6 +49,8 @@ public struct ScanMotionGuidanceConfiguration: Sendable, Equatable {
         minimumTranslationBaselineMeters: Double = 0.30,
         translationCompletionMeters: Double = 0.25,
         spatialGuidanceActivationCoverageFraction: Double = 0.55,
+        maximumActionDurationSeconds: Double = 8.0,
+        maximumWeakRegionGuidanceAttempts: Int = 3,
         cameraHistoryLimit: Int = 12
     ) {
         precondition(
@@ -75,6 +79,11 @@ public struct ScanMotionGuidanceConfiguration: Sendable, Equatable {
                 && spatialGuidanceActivationCoverageFraction >= 0
                 && spatialGuidanceActivationCoverageFraction <= 1
         )
+        precondition(
+            maximumActionDurationSeconds.isFinite
+                && maximumActionDurationSeconds > 0
+        )
+        precondition(maximumWeakRegionGuidanceAttempts > 0)
         precondition(cameraHistoryLimit > 1)
 
         self.grossRotationThresholdRadians =
@@ -91,6 +100,10 @@ public struct ScanMotionGuidanceConfiguration: Sendable, Equatable {
             translationCompletionMeters
         self.spatialGuidanceActivationCoverageFraction =
             spatialGuidanceActivationCoverageFraction
+        self.maximumActionDurationSeconds =
+            maximumActionDurationSeconds
+        self.maximumWeakRegionGuidanceAttempts =
+            maximumWeakRegionGuidanceAttempts
         self.cameraHistoryLimit = cameraHistoryLimit
     }
 
@@ -269,6 +282,8 @@ public struct ScanMotionGuidanceTracker: Sendable {
     private var cameraHistoryTargetKey: SpatialCoverageCellKey?
     private var weakObservationCounts:
         [SpatialCoverageCellKey: Int] = [:]
+    private var weakGuidanceAttempts:
+        [SpatialCoverageCellKey: Int] = [:]
 
     public init(
         configuration: ScanMotionGuidanceConfiguration = .standard
@@ -309,14 +324,24 @@ public struct ScanMotionGuidanceTracker: Sendable {
         if isComplete(
             currentGuidance,
             coverage: coverage,
-            spatialCoverage: spatialCoverage
+            spatialCoverage: spatialCoverage,
+            timestampSeconds: timestamp
         ) {
+            recordCompletedGuidanceAttempt(
+                currentGuidance,
+                spatialCoverage: spatialCoverage
+            )
+            let refreshedCandidate = candidateGuidance(
+                coverage: coverage,
+                spatialCoverage: spatialCoverage,
+                observation: observation
+            )
             select(
-                candidate,
+                refreshedCandidate,
                 timestampSeconds: timestamp,
                 spatialCoverage: spatialCoverage
             )
-            return candidate
+            return refreshedCandidate
         }
 
         guard let candidate else {
@@ -452,8 +477,16 @@ public struct ScanMotionGuidanceTracker: Sendable {
                 weakObservationCounts.removeValue(
                     forKey: region.key
                 )
+                weakGuidanceAttempts.removeValue(
+                    forKey: region.key
+                )
             }
         }
+
+        weakGuidanceAttempts =
+            weakGuidanceAttempts.filter {
+                currentKeys.contains($0.key)
+            }
     }
 
     private func candidateGuidance(
@@ -470,15 +503,28 @@ public struct ScanMotionGuidanceTracker: Sendable {
             break
         }
 
-        if coverage.coverageFraction
+        let spatialGuidanceActive =
+            coverage.coverageFraction
                 >= configuration
-                    .spatialGuidanceActivationCoverageFraction,
+                    .spatialGuidanceActivationCoverageFraction
+        if spatialGuidanceActive,
            let spatialGuidance = spatialMovementCandidate(
                 spatialCoverage: spatialCoverage,
                 observation: observation
            )
         {
             return spatialGuidance
+        }
+
+        if spatialGuidanceActive,
+           spatialCoverage.knownRegionCount > 0,
+           preferredWeakRegion(spatialCoverage) == nil
+        {
+            // Direction coverage is already broad and every remaining weak
+            // region has either become observed or exhausted its bounded
+            // retry budget. Stop issuing movement guidance rather than
+            // creating an endless re-observation loop.
+            return nil
         }
 
         if let direction = coverage.recommendedGuidance {
@@ -614,13 +660,11 @@ public struct ScanMotionGuidanceTracker: Sendable {
         observation: ObservationStabilitySummary
     ) -> ScanMotionGuidance? {
         guard let region = preferredWeakRegion(spatialCoverage) else {
-            if observation.recheckSuggested,
-               spatialCoverage.knownRegionCount > 0
-            {
-                return ScanMotionGuidance(
-                    action: .reobserveAnotherAngle
-                )
-            }
+            // Once broad direction coverage activates spatial guidance, a
+            // global recheck flag must not recreate an unbounded targetless
+            // re-observation loop after every weak region has exhausted its
+            // retry budget. Targetless recheck guidance remains available in
+            // the pre-spatial path below.
             return nil
         }
 
@@ -696,6 +740,9 @@ public struct ScanMotionGuidanceTracker: Sendable {
         return spatialCoverage.regions
             .filter {
                 $0.classification == .weak
+                    && (weakGuidanceAttempts[$0.key] ?? 0)
+                        < configuration
+                            .maximumWeakRegionGuidanceAttempts
                     && (spatialCoverage.displayBounds?
                         .contains($0.key) ?? true)
             }
@@ -796,8 +843,16 @@ public struct ScanMotionGuidanceTracker: Sendable {
     private func isComplete(
         _ guidance: ScanMotionGuidance,
         coverage: ScanCoverageSummary,
-        spatialCoverage: SpatialScanCoverageSummary
+        spatialCoverage: SpatialScanCoverageSummary,
+        timestampSeconds: Double
     ) -> Bool {
+        let elapsed = max(
+            0,
+            timestampSeconds
+                - (currentSelectedAtSeconds ?? timestampSeconds)
+        )
+        let timedOut =
+            elapsed >= configuration.maximumActionDurationSeconds
         switch guidance.action {
         case .trackingRecovery:
             return coverage.latestTrackingState == .normal
@@ -843,6 +898,9 @@ public struct ScanMotionGuidanceTracker: Sendable {
                     .alignedPitchToleranceRadians
 
         case .translate:
+            if timedOut {
+                return true
+            }
             if targetRegionCompleted(
                 guidance.targetRegionKey,
                 spatialCoverage: spatialCoverage
@@ -861,6 +919,9 @@ public struct ScanMotionGuidanceTracker: Sendable {
             ) >= configuration.translationCompletionMeters
 
         case .orbit, .reobserveAnotherAngle:
+            if timedOut {
+                return true
+            }
             if targetRegionCompleted(
                 guidance.targetRegionKey,
                 spatialCoverage: spatialCoverage
@@ -876,6 +937,9 @@ public struct ScanMotionGuidanceTracker: Sendable {
             return region.viewAngleDiversityCount > initial
 
         case .approach, .retreat:
+            if timedOut {
+                return true
+            }
             if targetRegionCompleted(
                 guidance.targetRegionKey,
                 spatialCoverage: spatialCoverage
@@ -891,6 +955,9 @@ public struct ScanMotionGuidanceTracker: Sendable {
             return region.latestDistanceBucket != initial
 
         case .holdObserve:
+            if timedOut {
+                return true
+            }
             if let gap = guidance.targetGap {
                 return coverage.isObserved(
                     sectorIndex: gap.sectorIndex,
@@ -902,6 +969,32 @@ public struct ScanMotionGuidanceTracker: Sendable {
                 spatialCoverage: spatialCoverage
             )
         }
+    }
+
+    private mutating func recordCompletedGuidanceAttempt(
+        _ guidance: ScanMotionGuidance,
+        spatialCoverage: SpatialScanCoverageSummary
+    ) {
+        switch guidance.action {
+        case .translate,
+             .orbit,
+             .reobserveAnotherAngle,
+             .approach,
+             .retreat,
+             .holdObserve:
+            break
+        case .trackingRecovery, .rotate, .tilt:
+            return
+        }
+
+        guard let key = guidance.targetRegionKey,
+              let region = spatialCoverage.region(at: key),
+              region.classification == .weak
+        else {
+            return
+        }
+
+        weakGuidanceAttempts[key, default: 0] += 1
     }
 
     private func targetRegionCompleted(

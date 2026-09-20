@@ -348,3 +348,5 @@
 "End" = "終了";
 "Spatial observation · depth" = "空間観測・深度";
 "Scene-depth fallback active" = "シーン深度による観測を使用中";
+"Scan guidance complete. You can end now or continue for more detail." = "スキャン案内は完了しました。終了するか、必要ならさらに詳しく観測できます。";
+"%@ · %d candidates" = "%@・%d候補";

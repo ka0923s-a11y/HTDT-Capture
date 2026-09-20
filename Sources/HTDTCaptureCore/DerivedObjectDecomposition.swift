@@ -122,6 +122,7 @@ public struct DerivedObjectDecompositionConfiguration: Sendable, Equatable {
     public let maxVerticalLinkMeters: Double
     public let sameEvidenceVerticalBonusMeters: Double
     public let sameEvidenceHorizontalBonusMeters: Double
+    public let sceneDepthNeighborLinkMeters: Double
     public let minimumCoreNeighborCount: Int
     public let minimumComponentPointCount: Int
     public let maximumInputPointCount: Int
@@ -135,6 +136,7 @@ public struct DerivedObjectDecompositionConfiguration: Sendable, Equatable {
         maxVerticalLinkMeters: Double = 0.045,
         sameEvidenceVerticalBonusMeters: Double = 0.16,
         sameEvidenceHorizontalBonusMeters: Double = 0.06,
+        sceneDepthNeighborLinkMeters: Double = 0.14,
         minimumCoreNeighborCount: Int = 3,
         minimumComponentPointCount: Int = 8,
         maximumInputPointCount: Int = 512,
@@ -147,6 +149,7 @@ public struct DerivedObjectDecompositionConfiguration: Sendable, Equatable {
         self.maxVerticalLinkMeters = maxVerticalLinkMeters
         self.sameEvidenceVerticalBonusMeters = sameEvidenceVerticalBonusMeters
         self.sameEvidenceHorizontalBonusMeters = sameEvidenceHorizontalBonusMeters
+        self.sceneDepthNeighborLinkMeters = sceneDepthNeighborLinkMeters
         self.minimumCoreNeighborCount = minimumCoreNeighborCount
         self.minimumComponentPointCount = minimumComponentPointCount
         self.maximumInputPointCount = maximumInputPointCount
@@ -171,6 +174,8 @@ public enum DerivedObjectDecomposer {
               configuration.maxHorizontalLinkMeters > 0,
               configuration.maxVerticalLinkMeters.isFinite,
               configuration.maxVerticalLinkMeters > 0,
+              configuration.sceneDepthNeighborLinkMeters.isFinite,
+              configuration.sceneDepthNeighborLinkMeters > 0,
               configuration.minimumCoreNeighborCount > 1,
               configuration.minimumComponentPointCount > 0,
               configuration.maximumInputPointCount > 0,
@@ -400,9 +405,33 @@ public enum DerivedObjectDecomposer {
                     continue
                 }
 
+                let dx = first.position.x - second.position.x
+                let dz = first.position.y - second.position.y
+                let verticalDistance = abs(firstY - secondY)
+
+                if first.evidenceKind == .sceneDepth,
+                   second.evidenceKind == .sceneDepth
+                {
+                    // Scene-depth samples are independent pixels, so exact
+                    // evidence-ref equality is not a useful connectivity
+                    // signal. Use a local 3D continuity radius instead. This
+                    // lets sloped/curved observed surfaces connect through
+                    // nearby samples without bridging an actual spatial gap.
+                    let distanceSquared =
+                        dx * dx
+                        + dz * dz
+                        + verticalDistance * verticalDistance
+                    let limit =
+                        configuration.sceneDepthNeighborLinkMeters
+                    if distanceSquared <= limit * limit {
+                        result[firstIndex].append(secondIndex)
+                        result[secondIndex].append(firstIndex)
+                    }
+                    continue
+                }
+
                 let sameObservedElement =
                     first.evidenceRef == second.evidenceRef
-                let verticalDistance = abs(firstY - secondY)
                 let verticalLimit =
                     configuration.maxVerticalLinkMeters
                     + (sameObservedElement
@@ -412,8 +441,6 @@ public enum DerivedObjectDecomposer {
                     continue
                 }
 
-                let dx = first.position.x - second.position.x
-                let dz = first.position.y - second.position.y
                 let horizontalDistanceSquared = dx * dx + dz * dz
                 var horizontalLimit =
                     configuration.maxHorizontalLinkMeters

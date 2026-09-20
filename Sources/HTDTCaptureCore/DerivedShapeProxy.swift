@@ -687,6 +687,97 @@ public enum DerivedShapeProxyFitter {
     public static let algorithm = "htdt-derived-footprint-fit"
     public static let version = "1.1.0"
 
+    public static func representativeHorizontalSliceObservation(
+        from observation: DerivedShapeObservation,
+        sliceHeightMeters: Double = 0.08,
+        horizontalVoxelMeters: Double = 0.06,
+        minimumPointCount: Int = 8
+    ) -> DerivedShapeObservation {
+        guard sliceHeightMeters.isFinite,
+              sliceHeightMeters > 0,
+              horizontalVoxelMeters.isFinite,
+              horizontalVoxelMeters > 0,
+              minimumPointCount > 0
+        else {
+            return observation
+        }
+
+        let points = observation.points.filter {
+            guard let y = $0.verticalPositionMeters else {
+                return false
+            }
+            return $0.position.x.isFinite
+                && $0.position.y.isFinite
+                && y.isFinite
+        }
+        guard points.count >= minimumPointCount else {
+            return observation
+        }
+
+        struct SliceKey: Hashable {
+            let value: Int
+        }
+        struct HorizontalCell: Hashable {
+            let x: Int
+            let z: Int
+        }
+
+        var pointsBySlice: [SliceKey: [DerivedObservationPoint]] = [:]
+        var cellsBySlice: [SliceKey: Set<HorizontalCell>] = [:]
+
+        for point in points {
+            guard let y = point.verticalPositionMeters else {
+                continue
+            }
+            let key = SliceKey(
+                value: Int(floor(y / sliceHeightMeters))
+            )
+            pointsBySlice[key, default: []].append(point)
+            cellsBySlice[key, default: []].insert(
+                HorizontalCell(
+                    x: Int(floor(point.position.x / horizontalVoxelMeters)),
+                    z: Int(floor(point.position.y / horizontalVoxelMeters))
+                )
+            )
+        }
+
+        guard let bestKey = pointsBySlice.keys.max(by: { lhs, rhs in
+            let lhsCells = cellsBySlice[lhs]?.count ?? 0
+            let rhsCells = cellsBySlice[rhs]?.count ?? 0
+            if lhsCells != rhsCells {
+                return lhsCells < rhsCells
+            }
+
+            let lhsCount = pointsBySlice[lhs]?.count ?? 0
+            let rhsCount = pointsBySlice[rhs]?.count ?? 0
+            if lhsCount != rhsCount {
+                return lhsCount < rhsCount
+            }
+
+            // Prefer the higher equally-supported band. Furniture tops and
+            // seat/body surfaces are a better footprint authority than legs
+            // or sparse lower supports.
+            return lhs.value < rhs.value
+        }),
+        let selected = pointsBySlice[bestKey],
+        selected.count >= minimumPointCount
+        else {
+            return observation
+        }
+
+        let ordered = selected.sorted(by: observationPointLess)
+        return DerivedShapeObservation(
+            coordinateSpaceID: observation.coordinateSpaceID,
+            points: ordered,
+            sourceEvidenceRefs:
+                Array(Set(ordered.map(\.evidenceRef))).sorted(),
+            observationStartSeconds:
+                observation.observationStartSeconds,
+            observationEndSeconds:
+                observation.observationEndSeconds
+        )
+    }
+
     public static func boundaryObservation(
         from observation: DerivedShapeObservation,
         angularBinCount: Int = 48,

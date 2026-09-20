@@ -65,6 +65,73 @@ final class DerivedShapeProxyTests: XCTestCase {
         XCTAssertEqual(proxy.selected?.kind, .circle)
     }
 
+    func testRepresentativeHorizontalSliceIgnoresLegsForRoundTableFootprint() {
+        var points: [DerivedObservationPoint] = []
+
+        for index in 0..<64 {
+            let angle =
+                2 * Double.pi * Double(index) / 64.0
+            points.append(
+                DerivedObservationPoint(
+                    position: DerivedPoint2D(
+                        x: cos(angle),
+                        y: sin(angle)
+                    ),
+                    evidenceRef: "top-" + String(index),
+                    evidenceKind: .sceneDepth,
+                    verticalPositionMeters: 0.76
+                )
+            )
+        }
+
+        let legCenters = [
+            DerivedPoint2D(x: -0.55, y: -0.55),
+            DerivedPoint2D(x: 0.55, y: -0.55),
+            DerivedPoint2D(x: -0.55, y: 0.55),
+            DerivedPoint2D(x: 0.55, y: 0.55),
+        ]
+        var legIndex = 0
+        for center in legCenters {
+            for sample in 0..<10 {
+                points.append(
+                    DerivedObservationPoint(
+                        position: center,
+                        evidenceRef:
+                            "leg-"
+                            + String(legIndex)
+                            + "-"
+                            + String(sample),
+                        evidenceKind: .sceneDepth,
+                        verticalPositionMeters:
+                            0.08 + 0.06 * Double(sample)
+                    )
+                )
+            }
+            legIndex += 1
+        }
+
+        let input = DerivedShapeObservation(
+            coordinateSpaceID: testCoordinateSpaceID,
+            points: points
+        )
+        let slice =
+            DerivedShapeProxyFitter
+                .representativeHorizontalSliceObservation(
+                    from: input
+                )
+        let boundary =
+            DerivedShapeProxyFitter.boundaryObservation(
+                from: slice
+            )
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: boundary
+        )
+
+        XCTAssertLessThan(slice.points.count, points.count)
+        XCTAssertEqual(proxy.resolution, .resolved)
+        XCTAssertEqual(proxy.selected?.kind, .circle)
+    }
+
     func testPartialCircleArcRemainsUnresolved() {
         let points = (0..<72).map { index -> DerivedPoint2D in
             let t =
