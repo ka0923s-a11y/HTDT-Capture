@@ -241,13 +241,13 @@ public enum DerivedObjectDecomposer {
         }
 
         var rawComponents: [[DerivedObservationPoint]] = grouped
-            .filter { key, indices in
-                key >= 0
-                    && indices.count
+            .filter { entry in
+                entry.key >= 0
+                    && entry.value.count
                         >= configuration.minimumComponentPointCount
             }
-            .map { _, indices in
-                indices.map { points3D[$0] }.sorted(by: pointLess)
+            .map { entry in
+                entry.value.map { points3D[$0] }.sorted(by: pointLess)
             }
 
         rawComponents.sort(by: componentLess)
