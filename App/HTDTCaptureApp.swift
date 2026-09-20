@@ -346,11 +346,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
         } catch PlatformCaptureError.currentFrameUnavailable {
             isCapturingEvidenceFrame = false
-            fail(.trackingUnavailable)
+            workingSetStatus = HostLocalization.text(
+                "Evidence frame was not captured because the current AR frame is temporarily unavailable; this scan is still active",
+                "現在の AR フレームを一時的に取得できないため証拠フレームを保存しませんでした。現在のスキャンは継続中です"
+            )
+            endScanGuidance = HostLocalization.text(
+                "Hold the phone steady on previously scanned features until tracking is normal, then retry Evidence Save or continue scanning.",
+                "既に撮影した特徴へ向けて iPhone を静止し、トラッキングが正常になってから「証拠保存」を再試行するか、そのままスキャンを続けてください。"
+            )
             return
         } catch {
             isCapturingEvidenceFrame = false
-            fail(.persistenceFailure)
+            workingSetStatus =
+                HostLocalization.text(
+                    "Evidence frame could not be prepared; this scan is still active",
+                    "証拠フレームを準備できませんでしたが、現在のスキャンは継続中です"
+                )
+                + " ["
+                + Self.persistenceDiagnostic(error)
+                + "]"
             return
         }
 
@@ -367,48 +381,112 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
+            let package: FrameEvidencePackage
             do {
-                let package = try FrameEvidencePackageBuilder.build(
+                package = try FrameEvidencePackageBuilder.build(
                     descriptor: artifacts.descriptor,
                     pixelPayload: artifacts.pixelPayload,
                     depthPayload: artifacts.depthPayload,
                     confidencePayload: artifacts.confidencePayload,
                     previewPayload: artifacts.previewPayload
                 )
-                try await store.persistFramePackage(package)
-                let snapshot = await store.snapshot()
-                guard self.captureGeneration == generation,
-                      self.state == .scanning
-                else {
-                    return
-                }
-                self.scanEvidenceFrameCount =
-                    snapshot.evidenceFrameCount
-                self.scanDepthEvidenceCount =
-                    snapshot.depthEvidenceCount
-                self.updateLiveEndScanGuidance()
+            } catch {
                 self.workingSetStatus =
-                    HostLocalization.isJapanese
-                    ? "スキャン中：証拠フレームを "
-                        + String(snapshot.evidenceFrameCount)
-                        + " 件保存しました"
-                    : "Scanning; "
-                        + String(snapshot.evidenceFrameCount)
-                        + " evidence frame(s) persisted"
+                    HostLocalization.text(
+                        "Evidence frame package could not be built; this scan is still active",
+                        "証拠フレームのパッケージを作成できませんでしたが、現在のスキャンは継続中です"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+                return
+            }
+
+            do {
+                try await store.persistFramePackage(package)
             } catch {
                 guard self.captureGeneration == generation,
                       self.state == .scanning
                 else {
-                    // An in-flight manual evidence save must not terminate a
-                    // review that has already begun.
                     return
                 }
-                self.workingSetStatus = HostLocalization.text(
-                    "Evidence frame/depth could not be saved",
-                    "証拠フレーム／深度を保存できませんでした"
+
+                let diagnostic =
+                    Self.persistenceDiagnostic(error)
+
+                if error is CaptureWorkingSetError {
+                    self.workingSetStatus =
+                        HostLocalization.text(
+                            "Evidence-frame persistence hit a capture-authority conflict and cannot continue safely",
+                            "証拠フレームの保存でキャプチャ authority の競合が発生し、安全に継続できません"
+                        )
+                        + " ["
+                        + diagnostic
+                        + "]"
+                    self.fail(.persistenceFailure)
+                    return
+                }
+
+                do {
+                    try await store.discardUncommittedFramePackage(
+                        package
+                    )
+                } catch {
+                    self.workingSetStatus =
+                        HostLocalization.text(
+                            "Evidence-frame persistence failed and partial canonical files could not be rolled back safely",
+                            "証拠フレームの保存に失敗し、部分保存された正規データを安全に取り消せませんでした"
+                        )
+                        + " ["
+                        + diagnostic
+                        + "]"
+                    self.fail(.persistenceFailure)
+                    return
+                }
+
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "Recoverable manual evidence-frame persistence failure: "
+                            + diagnostic
+                    )
                 )
-                self.fail(.persistenceFailure)
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "Evidence frame was not committed; this scan is still active",
+                        "証拠フレームは確定されませんでしたが、現在のスキャンは継続中です"
+                    )
+                    + " ["
+                    + diagnostic
+                    + "]"
+                self.endScanGuidance = HostLocalization.text(
+                    "Continue scanning or retry Evidence Save. End remains available after the required end evidence can be persisted.",
+                    "スキャンを続けるか「証拠保存」を再試行してください。終了時に必要な証拠データを保存できれば、そのまま「終了」できます。"
+                )
+                return
             }
+
+            let snapshot = await store.snapshot()
+            guard self.captureGeneration == generation,
+                  self.state == .scanning
+            else {
+                return
+            }
+            self.scanEvidenceFrameCount =
+                snapshot.evidenceFrameCount
+            self.scanDepthEvidenceCount =
+                snapshot.depthEvidenceCount
+            self.updateLiveEndScanGuidance()
+            self.workingSetStatus =
+                HostLocalization.isJapanese
+                ? "スキャン中：証拠フレームを "
+                    + String(snapshot.evidenceFrameCount)
+                    + " 件保存しました"
+                : "Scanning; "
+                    + String(snapshot.evidenceFrameCount)
+                    + " evidence frame(s) persisted"
         }
     }
 
