@@ -3,7 +3,7 @@
 Status: In progress  
 Issue: #3
 
-## Implemented in this slice
+## Implemented
 
 - Separate raw RoomPlan and postprocessed RoomPlan evidence descriptors.
 - Explicit processed -> raw SHA-256 lineage.
@@ -25,9 +25,24 @@ Issue: #3
   - normalizes index data to UInt32;
   - preserves per-face raw ARKit classification bytes;
   - does not serialize MTLBuffer padding.
-- Round-trip mesh codec tests.
+- Shared-ARSession final active-mesh snapshot adapter that:
+  - reads the current AR frame without installing a competing session delegate;
+  - filters the active `ARMeshAnchor` set;
+  - binds every anchor to the exact capture-session and coordinate-space IDs;
+  - preserves one exact frame timestamp across the snapshot.
+- Deterministic Capture Bundle v1 mesh evidence package builder:
+  - rejects duplicate/non-v4 anchor identities;
+  - rejects missing/non-finite/negative timestamps;
+  - emits exact `HTDTMSH1` bytes;
+  - hashes each geometry payload;
+  - emits deterministic lowercase geometry paths;
+  - emits sorted `mesh/anchors.json` records;
+  - can persist through the existing atomic no-overwrite writer.
+- Round-trip and fail-closed mesh evidence tests.
 
-## Canonical mesh binary layout implemented
+See `docs/PHASE2_FINAL_ACTIVE_MESH_EVIDENCE.md` for the latest slice boundary.
+
+## Canonical mesh binary layout
 
 `HTDTMSH1`, version 1.0:
 
@@ -46,17 +61,18 @@ Issue: #3
 - UInt32 triangle indices;
 - optional one-byte-per-face classification channel.
 
-The decoder rejects unsupported versions/index widths/flags, invalid geometry, truncation, and trailing bytes.
+The decoder rejects unsupported versions/index widths/flags, invalid geometry,
+truncation, and trailing bytes.
 
 ## Not yet complete
 
-The following remain hardware-gated:
+The following remain hardware/integration gated:
 
 - acquire a real `CapturedRoomData` from RoomPlan and persist/reopen it;
 - regenerate a real `CapturedRoom` from preserved raw data;
-- acquire real ARMeshAnchor snapshots during the same RoomPlan-owned world frame;
+- persist a real final active ARMeshAnchor evidence package from the host working set;
 - prove RoomPlan/mesh alignment on reference geometry;
 - collect the Issue #9 physical accuracy benchmark;
 - prove session/world resets generate explicit coordinate lineage in real interruption cases.
 
-Issue #3 must remain open until those are demonstrated.
+Issue #3 remains open until those are demonstrated.

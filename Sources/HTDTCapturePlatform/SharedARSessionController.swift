@@ -6,6 +6,7 @@ import RoomPlan
 
 public enum PlatformCaptureError: Error {
     case roomPlanUnsupported
+    case currentFrameUnavailable
 }
 
 @available(iOS 17.0, *)
@@ -43,6 +44,28 @@ public final class SharedARSessionController {
     public func stopAndPauseARSession() {
         roomCaptureSession?.stop(pauseARSession: true)
         roomCaptureSession = nil
+    }
+
+    public func snapshotActiveMeshAnchors() throws -> [MeshAnchorSnapshot] {
+        guard let frame = arSession.currentFrame else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        let anchors = frame.anchors
+            .compactMap { $0 as? ARMeshAnchor }
+            .sorted {
+                $0.identifier.uuidString.lowercased()
+                    < $1.identifier.uuidString.lowercased()
+            }
+
+        return try anchors.map { anchor in
+            try ARMeshSnapshotAdapter.snapshot(
+                anchor: anchor,
+                captureSessionID: context.captureSessionID,
+                coordinateSpaceID: context.coordinateSpaceID,
+                sessionTimestampSeconds: frame.timestamp
+            )
+        }
     }
 
     @discardableResult
