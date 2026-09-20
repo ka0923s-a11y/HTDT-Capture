@@ -471,6 +471,41 @@ final class ScanMotionGuidanceTests: XCTestCase {
         XCTAssertNil(saturated)
     }
 
+    func testStationaryOnlyStillFinishesRemainingDirectionGaps() {
+        var tracker = ScanMotionGuidanceTracker(
+            configuration: ScanMotionGuidanceConfiguration(
+                spatialGuidanceActivationCoverageFraction: 0.55,
+                completionDirectionCoverageFraction: 0.95
+            )
+        )
+        tracker.setMovementCapability(.stationaryOnly)
+
+        let result = tracker.record(
+            timestampSeconds: 0,
+            coverage: coverage(
+                gap: ScanCoverageGap(
+                    sectorIndex: 3,
+                    pitchBand: .level
+                ),
+                observedCellCount: 22
+            ),
+            spatialCoverage: spatial(
+                cameraX: 0,
+                cameraZ: 0,
+                region: region(
+                    observations: 5,
+                    diversity: 1,
+                    distance: .medium,
+                    classification: .weak
+                )
+            ),
+            observation: .empty
+        )
+
+        XCTAssertEqual(result?.action, .rotate)
+        XCTAssertNil(result?.translationDirection)
+    }
+
     func testStationaryOnlyModeConvertsEarlyRecheckToInPlaceObservation() {
         var tracker = ScanMotionGuidanceTracker(
             configuration: ScanMotionGuidanceConfiguration(
