@@ -282,3 +282,23 @@
 "%@ region" = "%@領域";
 "Waiting for spatial observation…" = "空間観測を待っています…";
 "Start-relative spatial observation map" = "開始方向基準の空間観測マップ";
+
+/* Derived observation shape preview */
+"Observed geometry preview" = "観測形状プレビュー";
+"Geometry preview" = "形状プレビュー";
+"Derived · advisory" = "観測由来・補助表示";
+"RoomPlan structure" = "RoomPlan 構造";
+"Observed shape" = "観測形状";
+"Overlay" = "重ね合わせ";
+"The camera view is showing the RoomPlan semantic structure. HTDT observed geometry is hidden." = "カメラ画面には RoomPlan のセマンティック構造を表示しています。HTDT の観測形状は非表示です。";
+"Residual %.3f · support %d%%" = "残差 %.3f・支持 %d%%";
+"No bounded shape evidence yet" = "形状を判断できる観測証拠がまだありません";
+"Observed wall chain" = "観測壁面チェーン";
+"Shape unresolved" = "形状未確定";
+"Shape ambiguous" = "形状候補が競合";
+"Oriented rectangle" = "回転矩形";
+"Circle" = "円";
+"Ellipse" = "楕円";
+"Polygon" = "多角形";
+"Structure estimate and observed shape differ" = "構造推定と観測形状に差があります";
+"The views are separate evidence representations; neither is promoted as canonical geometry here." = "両者は別々の証拠表現です。この表示では、どちらも正規形状として確定しません。";
