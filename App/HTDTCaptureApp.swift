@@ -168,6 +168,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var scanCoverageTask: Task<Void, Never>?
     private var memoryWarningCancellable: AnyCancellable?
     private var derivedPreviewSuspendedForMemoryPressure = false
+    private var roomPlanModelRenderingEnabled = true
     private let qualityRequirements = CaptureQualityRequirements()
 
     init() {
@@ -189,6 +190,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         self.derivedPreviewSuspendedForMemoryPressure =
                             true
                         self.derivedShapePreview = .empty
+                        self.setRoomPlanModelRenderingEnabled(false)
                     }
                 }
         #endif
@@ -197,6 +199,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var scanSessionController: SharedARSessionController {
         sessionController
     }
+
+    private func setRoomPlanModelRenderingEnabled(
+        _ enabled: Bool
+    ) {
+        guard roomPlanModelRenderingEnabled != enabled else {
+            return
+        }
+        roomPlanModelRenderingEnabled = enabled
+        sessionController.setRoomPlanModelRenderingEnabled(enabled)
+    }
+
 
     var annotationCoordinateSpaceID: CoordinateSpaceID? {
         guard state == .reviewing || state == .annotating else {
@@ -260,6 +273,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         derivedShapePreview = .empty
         derivedPreviewSuspendedForMemoryPressure = false
+        setRoomPlanModelRenderingEnabled(true)
         scanEvidenceFrameCount = 0
         resourceMonitor?.stop()
         resourceMonitor = nil
@@ -1364,11 +1378,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     if sampleIndex.isMultiple(of: 16) {
                         let thermalState =
                             ProcessInfo.processInfo.thermalState
-                        let derivedWorkAllowed =
-                            !self
-                                .derivedPreviewSuspendedForMemoryPressure
-                            && thermalState != .serious
-                            && thermalState != .critical
+                        let resourcePressure =
+                            self.derivedPreviewSuspendedForMemoryPressure
+                            || thermalState == .serious
+                            || thermalState == .critical
+                        self.setRoomPlanModelRenderingEnabled(
+                            !resourcePressure
+                        )
+                        let derivedWorkAllowed = !resourcePressure
 
                         if derivedWorkAllowed,
                            (
