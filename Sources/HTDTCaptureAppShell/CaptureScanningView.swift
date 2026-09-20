@@ -436,17 +436,44 @@ private struct ScanCoverageEndReview: View {
                             Array(gapSectors.prefix(4)),
                             id: \.self
                         ) { sectorIndex in
-                            LabeledContent(
-                                directionLabel(sectorIndex),
-                                value: String(
-                                    format: String(
-                                        localized: "%d of 3 angles"
-                                    ),
-                                    coverage.observedPitchBandCount(
-                                        sectorIndex: sectorIndex
+                            VStack(
+                                alignment: .leading,
+                                spacing: 4
+                            ) {
+                                HStack {
+                                    Text(
+                                        directionLabel(sectorIndex)
+                                    )
+                                    Spacer()
+                                    Text(
+                                        String(
+                                            format: String(
+                                                localized:
+                                                    "%d of 3 angles"
+                                            ),
+                                            coverage
+                                                .observedPitchBandCount(
+                                                    sectorIndex:
+                                                        sectorIndex
+                                                )
+                                        )
+                                    )
+                                    .foregroundStyle(.secondary)
+                                }
+
+                                Text(
+                                    String(
+                                        format: String(
+                                            localized: "Missing: %@"
+                                        ),
+                                        missingBandLabels(
+                                            sectorIndex
+                                        )
                                     )
                                 )
-                            )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -507,6 +534,34 @@ private struct ScanCoverageEndReview: View {
                 }
                 return $0 < $1
             }
+    }
+
+    private func missingBandLabels(
+        _ sectorIndex: Int
+    ) -> String {
+        let missing = ScanCoveragePitchBand.allCases
+            .filter {
+                !coverage.isObserved(
+                    sectorIndex: sectorIndex,
+                    pitchBand: $0
+                )
+            }
+            .map(pitchBandLabel)
+
+        return missing.joined(separator: " · ")
+    }
+
+    private func pitchBandLabel(
+        _ band: ScanCoveragePitchBand
+    ) -> String {
+        switch band {
+        case .low:
+            return String(localized: "Low")
+        case .level:
+            return String(localized: "Level")
+        case .high:
+            return String(localized: "High")
+        }
     }
 
     private func percent(_ fraction: Double) -> String {
