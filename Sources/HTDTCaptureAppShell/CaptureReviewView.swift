@@ -102,7 +102,7 @@ public struct CaptureReviewView: View {
 
     @ViewBuilder
     private func completenessRow(
-        _ title: String,
+        _ title: LocalizedStringKey,
         status: CompletenessStatus
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
