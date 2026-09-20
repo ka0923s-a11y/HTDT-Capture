@@ -393,15 +393,21 @@ public struct CaptureRootView: View {
     }
 
     private func localizedAvailability(_ available: Bool) -> String {
-        String(localized: available ? "Available" : "Unavailable")
+        available
+            ? String(localized: "Available")
+            : String(localized: "Unavailable")
     }
 
     private func localizedReadiness(_ ready: Bool) -> String {
-        String(localized: ready ? "Ready" : "Not ready")
+        ready
+            ? String(localized: "Ready")
+            : String(localized: "Not ready")
     }
 
     private func localizedPassFail(_ pass: Bool) -> String {
-        String(localized: pass ? "Pass" : "Fail")
+        pass
+            ? String(localized: "Pass")
+            : String(localized: "Fail")
     }
 
     private func localizedIntegrity(
