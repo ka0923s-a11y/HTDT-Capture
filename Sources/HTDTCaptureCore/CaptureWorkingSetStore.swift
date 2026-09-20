@@ -461,6 +461,67 @@ public actor CaptureWorkingSetStore {
         }
     }
 
+    public func discardUncommittedFramePackage(
+        _ package: FrameEvidencePackage
+    ) async throws {
+        if let existing = frameDescriptors.first(where: {
+            $0.frameID == package.descriptor.frameID
+        }) {
+            if existing == package.descriptor {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(package.descriptorPath)
+        }
+
+        let canonicalPaths = Set(
+            package.canonicalPayloadDeclarations.map(\.path)
+        )
+        guard !declarations.keys.contains(where: {
+            canonicalPaths.contains($0)
+        }) else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        var payloads: [(Data, String)] = [
+            (package.descriptorData, package.descriptorPath),
+            (
+                package.pixelPayload,
+                package.descriptor.pixelRelativePath
+            ),
+        ]
+
+        if let depth = package.descriptor.depth,
+           let depthPayload = package.depthPayload
+        {
+            payloads.append(
+                (depthPayload, depth.depthRelativePath)
+            )
+        }
+
+        if let confidencePath =
+            package.descriptor.depth?.confidenceRelativePath,
+           let confidencePayload = package.confidencePayload
+        {
+            payloads.append(
+                (confidencePayload, confidencePath)
+            )
+        }
+
+        for (data, path) in payloads {
+            let removedOrAbsent =
+                try await writer.removeIfIdentical(
+                    data,
+                    at: CaptureStorePath(path)
+                )
+            guard removedOrAbsent else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+        }
+    }
+
     public func persistAnnotationPackage(
         _ package: AnnotationEvidencePackage
     ) async throws {

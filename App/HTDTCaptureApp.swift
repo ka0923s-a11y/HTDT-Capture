@@ -417,8 +417,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            let ready = await self.preflightEndScan()
-            guard ready,
+            guard let prepared = await self.prepareEndScan(),
                   self.state == .scanning
             else {
                 self.isEndingScan = false
@@ -426,9 +425,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             self.endScanGuidance = nil
-            self.scanCoverageTask?.cancel()
-            self.scanCoverageTask = nil
-            await self.endScanForReview()
+            await self.endScanForReview(prepared)
         }
     }
 
@@ -1076,7 +1073,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         endScanGuidance = nil
     }
 
-    private func preflightEndScan() async -> Bool {
+    private struct PreparedEndScanAttempt {
+        let evidence: CaptureReviewEvidenceSnapshot
+        let framePackage: FrameEvidencePackage
+        let meshPackage: MeshEvidencePackage?
+        let meshSnapshotUnavailable: Bool
+    }
+
+    private func prepareEndScan() async -> PreparedEndScanAttempt? {
         endScanPreflightBlocked = false
         var succeeded = false
         defer {
@@ -1088,15 +1092,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 "Cannot end yet: capture working data is unavailable. Start a fresh capture.",
                 "まだ終了できません：キャプチャ作業データを利用できません。新しいキャプチャを開始してください。"
             )
-            return false
+            return nil
         }
 
-        guard captureStartTimingCorrelation != nil else {
+        guard let startTiming = captureStartTimingCorrelation else {
             endScanGuidance = HostLocalization.text(
                 "Cannot end yet: capture timing has not initialized. Keep the phone steady for a moment; if this does not clear, restart the capture.",
                 "まだ終了できません：キャプチャ時刻が初期化されていません。iPhone を少し静止し、解消しない場合はキャプチャをやり直してください。"
             )
-            return false
+            return nil
         }
 
         let snapshot = await store.snapshot()
@@ -1113,16 +1117,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         "Cannot end safely: device storage is below the capture safety threshold. Free storage, then try End again.",
                         "安全に終了できません：端末の空き容量がキャプチャ安全閾値を下回っています。空き容量を増やしてから、もう一度「終了」を押してください。"
                     )
-                    return false
+                    return nil
                 }
             }
         } catch {
             // Failure to query free space is not itself a proven capture
-            // failure. The normal persistence path remains authoritative.
+            // failure. The real pre-stop persistence attempt below remains
+            // authoritative.
         }
 
         guard state == .scanning else {
-            return false
+            return nil
         }
 
         let evidence: CaptureReviewEvidenceSnapshot
@@ -1135,13 +1140,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 "Cannot end yet: there is no current AR frame. Hold the phone steady and point it at previously scanned features until tracking is normal, then try End again.",
                 "まだ終了できません：現在の AR フレームを取得できません。iPhone を静止して既に撮影した特徴へ向け、トラッキングが正常になってからもう一度「終了」を押してください。"
             )
-            return false
+            return nil
         } catch {
             endScanGuidance = HostLocalization.text(
                 "Cannot end yet: the selected camera/depth frame could not be prepared. Hold the phone steady on the target for 1–2 seconds, then try End again.",
                 "まだ終了できません：終了用のカメラ／深度フレームを準備できません。対象へ向けたまま 1〜2 秒静止してから、もう一度「終了」を押してください。"
             )
-            return false
+            return nil
         }
 
         if evidence.trackingQualityEvent.state == .unavailable {
@@ -1149,7 +1154,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 "Cannot end yet: AR tracking is unavailable in the frame that would be saved. Hold the phone steady on previously scanned room features until tracking returns to normal, then try End again.",
                 "まだ終了できません：終了時に保存されるフレームで AR トラッキングが利用不可です。既に撮影した壁・角・家具へ向けて静止し、トラッキングが正常に戻ってからもう一度「終了」を押してください。"
             )
-            return false
+            return nil
         }
 
         let endTiming: CaptureTimingCorrelation
@@ -1160,11 +1165,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 "Cannot end yet: the current AR frame cannot be correlated to capture time. Keep the phone steady until tracking recovers, then try End again.",
                 "まだ終了できません：現在の AR フレームとキャプチャ時刻を対応付けできません。トラッキングが回復するまで静止してから、もう一度「終了」を押してください。"
             )
-            return false
+            return nil
         }
 
+        let framePackage: FrameEvidencePackage
         do {
-            _ = try FrameEvidencePackageBuilder.build(
+            framePackage = try FrameEvidencePackageBuilder.build(
                 descriptor: evidence.frameArtifacts.descriptor,
                 pixelPayload: evidence.frameArtifacts.pixelPayload,
                 depthPayload: evidence.frameArtifacts.depthPayload,
@@ -1173,9 +1179,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 previewPayload:
                     evidence.frameArtifacts.previewPayload
             )
-            guard let startTiming = captureStartTimingCorrelation else {
-                return false
-            }
             _ = try CaptureTimingPackageBuilder.build(
                 start: startTiming,
                 end: endTiming
@@ -1185,7 +1188,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 "Cannot end yet: the final evidence package is not internally valid. Keep the phone steady and try End again; if it repeats, save one evidence frame before ending.",
                 "まだ終了できません：終了用の証拠パッケージが内部検証に通りません。iPhone を静止して再度「終了」を押し、繰り返す場合は終了前に「証拠保存」を1回実行してください。"
             )
-            return false
+            return nil
         }
 
         let hasDepth =
@@ -1200,15 +1203,38 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 "Cannot end yet: this capture has no retained depth evidence and no mesh anchors. Keep a nearby surface in view and move slowly until Scene Depth observation appears, then try End again.",
                 "まだ終了できません：このキャプチャには保存済み深度証拠もメッシュアンカーもありません。近くの面を画面内に保ってゆっくり動かし、「シーン深度による観測」が有効になってからもう一度「終了」を押してください。"
             )
-            return false
+            return nil
+        }
+
+        var meshPackage: MeshEvidencePackage?
+        var meshSnapshotUnavailable =
+            !evidence.meshSnapshotSucceeded
+            || evidence.meshAnchors.isEmpty
+        if evidence.meshSnapshotSucceeded,
+           !evidence.meshAnchors.isEmpty
+        {
+            do {
+                meshPackage = try MeshEvidencePackageBuilder.build(
+                    snapshots: evidence.meshAnchors
+                )
+            } catch {
+                meshSnapshotUnavailable = true
+            }
         }
 
         endScanGuidance = nil
         succeeded = true
-        return true
+        return PreparedEndScanAttempt(
+            evidence: evidence,
+            framePackage: framePackage,
+            meshPackage: meshPackage,
+            meshSnapshotUnavailable: meshSnapshotUnavailable
+        )
     }
 
-    private func endScanForReview() async {
+    private func endScanForReview(
+        _ prepared: PreparedEndScanAttempt
+    ) async {
         defer {
             isEndingScan = false
         }
@@ -1222,83 +1248,238 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        resourceMonitor?.sampleStorage()
+        let generation = captureGeneration
         guard state == .scanning else {
             return
         }
 
-        let evidence: CaptureReviewEvidenceSnapshot
+        // Do the real canonical frame/depth write while RoomPlan and AR are
+        // still active. A physical filesystem failure must not become an
+        // irreversible scan boundary merely because the in-memory preflight
+        // succeeded.
+        workingSetStatus = HostLocalization.text(
+            "Checking that selected frame and depth evidence can be saved before ending",
+            "終了前に選択フレームと深度証拠を安全に保存できるか確認中"
+        )
+
+        var framePersisted = false
         do {
-            evidence =
-                try sessionController.snapshotReviewEvidence(
-                    depthSelection: .discrete
-                )
-        } catch PlatformCaptureError.currentFrameUnavailable {
-            workingSetStatus = HostLocalization.text(
-                "No current AR frame was available at scan end",
-                "スキャン終了時の AR フレームを取得できませんでした"
+            try await store.persistFramePackage(
+                prepared.framePackage
             )
-            fail(.trackingUnavailable)
-            return
+            framePersisted = true
         } catch {
+            guard captureGeneration == generation,
+                  state == .scanning
+            else {
+                return
+            }
+
             workingSetStatus = HostLocalization.text(
-                "Selected frame/depth evidence could not be prepared",
-                "選択フレーム／深度証拠を準備できませんでした"
+                "Retrying selected frame/depth evidence save before ending",
+                "終了前の選択フレーム／深度証拠保存を再試行中"
             )
-            fail(.persistenceFailure)
-            return
-        }
+            try? await Task.sleep(for: .milliseconds(120))
 
-        let endTimingCorrelation: CaptureTimingCorrelation
-        do {
-            endTimingCorrelation =
-                try sessionController.snapshotTimingCorrelation()
-        } catch {
-            workingSetStatus = HostLocalization.text(
-                "Capture end timing could not be correlated",
-                "キャプチャ終了時刻を AR フレームと対応付けできませんでした"
-            )
-            fail(.trackingUnavailable)
-            return
-        }
+            guard captureGeneration == generation,
+                  state == .scanning
+            else {
+                return
+            }
 
-        let framePackage: FrameEvidencePackage
-        do {
-            framePackage = try FrameEvidencePackageBuilder.build(
-                descriptor: evidence.frameArtifacts.descriptor,
-                pixelPayload: evidence.frameArtifacts.pixelPayload,
-                depthPayload: evidence.frameArtifacts.depthPayload,
-                confidencePayload:
-                    evidence.frameArtifacts.confidencePayload,
-                previewPayload:
-                    evidence.frameArtifacts.previewPayload
-            )
-        } catch {
-            workingSetStatus = HostLocalization.text(
-                "Selected frame/depth package validation failed",
-                "選択フレーム／深度パッケージの検証に失敗しました"
-            )
-            fail(.persistenceFailure)
-            return
-        }
-
-        var meshPackage: MeshEvidencePackage?
-        var meshSnapshotUnavailable =
-            !evidence.meshSnapshotSucceeded
-            || evidence.meshAnchors.isEmpty
-
-        if evidence.meshSnapshotSucceeded,
-           !evidence.meshAnchors.isEmpty
-        {
             do {
-                meshPackage = try MeshEvidencePackageBuilder.build(
-                    snapshots: evidence.meshAnchors
+                try await store.persistFramePackage(
+                    prepared.framePackage
                 )
+                framePersisted = true
             } catch {
-                meshSnapshotUnavailable = true
+                let diagnostic =
+                    Self.persistenceDiagnostic(error)
+
+                if error is CaptureWorkingSetError {
+                    workingSetStatus =
+                        HostLocalization.text(
+                            "End-frame persistence hit a capture-authority conflict and cannot continue safely",
+                            "終了用フレームの保存でキャプチャ権限データの競合が発生し、安全に継続できません"
+                        )
+                        + " ["
+                        + diagnostic
+                        + "]"
+                    fail(.persistenceFailure)
+                    return
+                }
+
+                do {
+                    try await store.discardUncommittedFramePackage(
+                        prepared.framePackage
+                    )
+                } catch {
+                    workingSetStatus =
+                        HostLocalization.text(
+                            "End-frame persistence failed and its partial files could not be rolled back safely",
+                            "終了用フレームの保存に失敗し、部分保存データを安全に取り消せませんでした"
+                        )
+                        + " ["
+                        + diagnostic
+                        + "]"
+                    fail(.persistenceFailure)
+                    return
+                }
+
+                guard captureGeneration == generation,
+                      state == .scanning
+                else {
+                    return
+                }
+
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "Recoverable pre-stop end-frame persistence failure: "
+                            + diagnostic
+                    )
+                )
+                workingSetStatus =
+                    HostLocalization.text(
+                        "End was not committed because the selected frame/depth evidence could not be saved; this scan is still active",
+                        "選択フレーム／深度証拠を保存できなかったため終了していません。現在のスキャンは継続中です"
+                    )
+                    + " ["
+                    + diagnostic
+                    + "]"
+                endScanGuidance = HostLocalization.text(
+                    "This scan is still active. Check device storage, keep scanning or save another evidence frame if useful, then try End again.",
+                    "このキャプチャはまだ継続中です。空き容量を確認し、必要なら追加スキャンや「証拠保存」を行ってから、もう一度「終了」を押してください。"
+                )
+                endScanPreflightBlocked = true
+                return
             }
         }
 
+        guard framePersisted,
+              captureGeneration == generation,
+              state == .scanning
+        else {
+            return
+        }
+
+        let frameSnapshot = await store.snapshot()
+        guard captureGeneration == generation,
+              state == .scanning
+        else {
+            return
+        }
+        scanEvidenceFrameCount = frameSnapshot.evidenceFrameCount
+        scanDepthEvidenceCount = frameSnapshot.depthEvidenceCount
+
+        // Re-correlate the end time after the real frame write so the
+        // canonical timing boundary remains adjacent to the actual RoomPlan
+        // stop, even when persistence took noticeable time.
+        let timingPackage: CaptureTimingPackage
+        do {
+            guard let startTiming = captureStartTimingCorrelation else {
+                throw CaptureSessionMetadataError
+                    .invalidCorrelationOrder
+            }
+            let endTiming =
+                try sessionController.snapshotTimingCorrelation()
+            timingPackage =
+                try CaptureTimingPackageBuilder.build(
+                    start: startTiming,
+                    end: endTiming
+                )
+        } catch {
+            guard captureGeneration == generation,
+                  state == .scanning
+            else {
+                return
+            }
+            workingSetStatus =
+                HostLocalization.text(
+                    "End timing could not be prepared; this scan is still active",
+                    "終了時刻を準備できなかったため終了していません。現在のスキャンは継続中です"
+                )
+            endScanGuidance = HostLocalization.text(
+                "This scan is still active. Hold the phone steady until tracking is normal, then try End again.",
+                "このキャプチャはまだ継続中です。トラッキングが正常になるまで iPhone を静止してから、もう一度「終了」を押してください。"
+            )
+            endScanPreflightBlocked = true
+            return
+        }
+
+        // Timing is also persisted before stopping RoomPlan. Atomic writer
+        // failures other than a pre-existing canonical path leave no target
+        // file behind, so those failures can remain recoverable.
+        workingSetStatus = HostLocalization.text(
+            "Saving capture timing before ending",
+            "終了前にキャプチャ時刻を保存中"
+        )
+        do {
+            try await store.persistTimingPackage(
+                timingPackage
+            )
+        } catch let writerError as CaptureFileWriterError {
+            workingSetStatus =
+                HostLocalization.text(
+                    "Capture timing authority already exists and cannot be replaced safely",
+                    "キャプチャ時刻の正規データが既に存在し、安全に置き換えできません"
+                )
+                + " ["
+                + Self.persistenceDiagnostic(writerError)
+                + "]"
+            fail(.persistenceFailure)
+            return
+        } catch let workingSetError as CaptureWorkingSetError {
+            workingSetStatus =
+                HostLocalization.text(
+                    "Capture timing authority is inconsistent and cannot continue safely",
+                    "キャプチャ時刻の権限データが不整合のため、安全に継続できません"
+                )
+                + " ["
+                + Self.persistenceDiagnostic(workingSetError)
+                + "]"
+            fail(.persistenceFailure)
+            return
+        } catch {
+            let diagnostic =
+                Self.persistenceDiagnostic(error)
+            workingSetStatus =
+                HostLocalization.text(
+                    "Capture timing could not be saved; this scan is still active",
+                    "キャプチャ時刻を保存できなかったため終了していません。現在のスキャンは継続中です"
+                )
+                + " ["
+                + diagnostic
+                + "]"
+            endScanGuidance = HostLocalization.text(
+                "This scan is still active. Check device storage, continue scanning if needed, then try End again.",
+                "このキャプチャはまだ継続中です。空き容量を確認し、必要なら追加スキャンを行ってから、もう一度「終了」を押してください。"
+            )
+            endScanPreflightBlocked = true
+            return
+        }
+
+        guard captureGeneration == generation,
+              state == .scanning
+        else {
+            return
+        }
+
+        await store.recordTrackingEvent(
+            prepared.evidence.trackingQualityEvent
+        )
+
+        guard captureGeneration == generation,
+              state == .scanning
+        else {
+            return
+        }
+
+        // Only now create the irreversible RoomPlan scan boundary.
+        scanCoverageTask?.cancel()
+        scanCoverageTask = nil
         sessionController.stopRoomPlanPreservingARSession()
 
         do {
@@ -1308,96 +1489,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        let timingPackage: CaptureTimingPackage
-        do {
-            guard let startTimingCorrelation =
-                captureStartTimingCorrelation
-            else {
-                throw CaptureSessionMetadataError
-                    .invalidCorrelationOrder
-            }
-            timingPackage =
-                try CaptureTimingPackageBuilder.build(
-                    start: startTimingCorrelation,
-                    end: endTimingCorrelation
-                )
-        } catch {
-            workingSetStatus = HostLocalization.text(
-                "Capture timing metadata could not be prepared",
-                "キャプチャ時刻メタデータを準備できませんでした"
-            )
-            fail(.persistenceFailure)
+        guard captureGeneration == generation,
+              state == .reviewing
+        else {
             return
         }
 
-        workingSetStatus = HostLocalization.text(
-            "Saving capture timing",
-            "キャプチャ時刻を保存中"
-        )
-        do {
-            try await store.persistTimingPackage(timingPackage)
-        } catch {
-            workingSetStatus = HostLocalization.text(
-                "Capture timing metadata could not be saved",
-                "キャプチャ時刻メタデータを保存できませんでした"
-            )
-            fail(.persistenceFailure)
-            return
-        }
-
-        await store.recordTrackingEvent(
-            evidence.trackingQualityEvent
-        )
-
-        workingSetStatus = HostLocalization.text(
-            "Saving selected frame and depth evidence",
-            "選択フレームと深度証拠を保存中"
-        )
-        do {
-            try await store.persistFramePackage(framePackage)
-        } catch {
-            // Frame/depth persistence consists of several canonical files.
-            // The core store is replay-safe, so one bounded retry can recover
-            // from an interrupted/partial filesystem write without inventing
-            // or overwriting evidence.
-            workingSetStatus = HostLocalization.text(
-                "Retrying selected frame/depth evidence save",
-                "選択フレーム／深度証拠の保存を再試行中"
-            )
-            try? await Task.sleep(for: .milliseconds(120))
-
-            guard state == .reviewing else {
-                return
-            }
-
-            do {
-                try await store.persistFramePackage(framePackage)
-            } catch {
-                let diagnostic =
-                    Self.persistenceDiagnostic(error)
-                workingSetStatus =
-                    HostLocalization.text(
-                        "Selected frame/depth evidence could not be saved after retry",
-                        "選択フレーム／深度証拠を再試行しても保存できませんでした"
-                    )
-                    + " ["
-                    + diagnostic
-                    + "]"
-                await store.recordResourceEvent(
-                    CaptureResourceEvent(
-                        kind: .persistenceFailure,
-                        severity: .error,
-                        detail:
-                            "End-selected frame/depth persistence failed after bounded retry: "
-                            + diagnostic
-                    )
-                )
-                fail(.persistenceFailure)
-                return
-            }
-        }
-
-        if let meshPackage {
+        var meshSnapshotUnavailable =
+            prepared.meshSnapshotUnavailable
+        if let meshPackage = prepared.meshPackage {
             workingSetStatus = HostLocalization.text(
                 "Saving available mesh evidence",
                 "利用可能なメッシュ証拠を保存中"
@@ -1405,11 +1505,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             do {
                 try await store.persistMeshPackage(meshPackage)
             } catch {
+                guard captureGeneration == generation,
+                      state == .reviewing
+                else {
+                    return
+                }
+
                 // Frame/depth evidence has already been durably persisted.
-                // ARMesh is an optional geometric accelerator at this stage;
-                // do not destroy an otherwise valid capture when its snapshot
-                // cannot be written. Quality evaluation will accept the
-                // explicit scene-depth fallback only when depth really exists.
+                // ARMesh is an optional geometric accelerator at this stage.
                 meshSnapshotUnavailable = true
                 await store.recordResourceEvent(
                     CaptureResourceEvent(
@@ -1422,14 +1525,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
         }
 
+        guard captureGeneration == generation,
+              state == .reviewing
+        else {
+            return
+        }
+
         await refreshQuality(
             store: store,
-            generation: captureGeneration
+            generation: generation
         )
 
-        if meshSnapshotUnavailable,
-           state == .reviewing
-        {
+        guard captureGeneration == generation,
+              state == .reviewing
+        else {
+            return
+        }
+
+        if meshSnapshotUnavailable {
             workingSetStatus = HostLocalization.text(
                 "Reviewing; frame/depth evidence was retained, but the mesh snapshot was unavailable",
                 "確認中：フレーム／深度証拠は保存しましたが、メッシュスナップショットは取得できませんでした"
