@@ -131,6 +131,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var workingSetStore: CaptureWorkingSetStore?
     private var finalizedRevision: FinalizedCaptureRevision?
     private var resourceMonitor: CaptureResourceMonitor?
+    private var resourceEventTask: Task<Void, Never>?
     private var captureGeneration = UUID()
     private var isEndingScan = false
     private var isCapturingEvidenceFrame = false
@@ -302,6 +303,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         endScanPreflightBlocked = false
         resourceMonitor?.stop()
         resourceMonitor = nil
+        resourceEventTask = nil
 
         do {
             try transition(.beginCapabilityCheck)
@@ -782,6 +784,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
+            // Drain every monitor event that was already accepted on the
+            // MainActor before sampling final storage. The event chain also
+            // refreshes Review quality after each warning.
+            let pendingBeforeStorage = self.resourceEventTask
+            await pendingBeforeStorage?.value
+
+            guard self.captureGeneration == generation,
+                  self.state == .reviewing
+            else {
+                return
+            }
+
             // Final storage sampling is part of the quality authority, not a
             // fire-and-forget side channel. Record it first, then recompute
             // quality so the payload promoted into the immutable revision is
@@ -810,6 +824,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             }
 
+            // A warning/background/thermal callback can arrive while the
+            // store actor is awaited above. Drain the latest accepted event
+            // chain once more. When this await returns we are back on the
+            // MainActor; there is no suspension point before monitor.stop(),
+            // so no later callback can slip into the immutable quality
+            // authority.
+            let pendingAfterStorage = self.resourceEventTask
+            await pendingAfterStorage?.value
+
             guard self.captureGeneration == generation,
                   self.state == .reviewing,
                   let quality = self.qualityReport,
@@ -829,6 +852,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // callback cannot race revision promotion with stale authority.
             self.resourceMonitor?.stop()
             self.resourceMonitor = nil
+            self.resourceEventTask = nil
             self.spatialAuthoritySealedForFinalization = true
             self.sessionController.stopAndPauseARSession()
 
@@ -970,6 +994,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         let failedWorkingSet =
             state == .failed ? workingSetStore : nil
+        let pendingResourceEvents = resourceEventTask
+        resourceEventTask = nil
 
         captureGeneration = UUID()
         sessionController.stopAndPauseARSession()
@@ -1059,6 +1085,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         if let failedWorkingSet {
             Task { @MainActor [weak self] in
+                await pendingResourceEvents?.value
                 do {
                     try await failedWorkingSet
                         .discardIncompleteRevision()
@@ -2508,6 +2535,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     ) {
         resourceMonitor?.stop()
 
+        resourceEventTask = nil
+
         let monitor = CaptureResourceMonitor(
             rootDirectory: rootDirectory
         ) { [weak self] event, failure in
@@ -2517,8 +2546,20 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            Task {
+            // Keep resource provenance ordered. Finalization can await this
+            // chain before it freezes quality authority, and reset can drain
+            // it before deleting an incomplete working set.
+            let predecessor = self.resourceEventTask
+            let task = Task { @MainActor [weak self] in
+                await predecessor?.value
                 await store.recordResourceEvent(event)
+
+                guard let self,
+                      self.captureGeneration == generation
+                else {
+                    return
+                }
+
                 if self.state == .reviewing {
                     await self.refreshQuality(
                         store: store,
@@ -2526,6 +2567,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     )
                 }
             }
+            self.resourceEventTask = task
 
             if let failure,
                self.state != .failed,
