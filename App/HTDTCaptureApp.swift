@@ -768,44 +768,85 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     func finalizeCapture() {
         guard state == .reviewing,
-              let qualityReport,
-              qualityReport.readyForHTDTIngestion,
-              qualityReport.integrityStatus == .pass,
               let store = workingSetStore
         else {
             return
         }
 
-        resourceMonitor?.sampleStorage()
-        guard state == .reviewing else {
-            return
-        }
-
-        // Committing a ready Review to validation closes spatial capture
-        // authority. Resource/background callbacks must not invalidate the
-        // generation while revision promotion is in flight.
-        resourceMonitor?.stop()
-        resourceMonitor = nil
-        spatialAuthoritySealedForFinalization = true
-        sessionController.stopAndPauseARSession()
-
-        do {
-            try transition(.beginValidation)
-        } catch {
-            fail(.unknown)
-            return
-        }
-
-        workingSetStatus = HostLocalization.text(
-            "Persisting quality and finalizing revision",
-            "品質情報を保存し、リビジョンを確定中"
-        )
-
         let generation = captureGeneration
-        Task {
-            await performFinalization(
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.captureGeneration == generation,
+                  self.state == .reviewing
+            else {
+                return
+            }
+
+            // Final storage sampling is part of the quality authority, not a
+            // fire-and-forget side channel. Record it first, then recompute
+            // quality so the payload promoted into the immutable revision is
+            // exactly the one that observed the last storage condition.
+            if let assessment =
+                self.resourceMonitor?.currentStorageAssessment()
+            {
+                await store.recordResourceEvent(
+                    assessment.event
+                )
+
+                guard self.captureGeneration == generation,
+                      self.state == .reviewing
+                else {
+                    return
+                }
+
+                if let failure = assessment.failure {
+                    self.fail(failure)
+                    return
+                }
+
+                await self.refreshQuality(
+                    store: store,
+                    generation: generation
+                )
+            }
+
+            guard self.captureGeneration == generation,
+                  self.state == .reviewing,
+                  let quality = self.qualityReport,
+                  quality.readyForHTDTIngestion,
+                  quality.integrityStatus == .pass
+            else {
+                self.workingSetStatus = HostLocalization.text(
+                    "Review quality changed before finalization; resolve the diagnostics and retry",
+                    "確定直前に品質状態が変化しました。診断内容を確認して解消し、再試行してください"
+                )
+                return
+            }
+
+            // Committing a ready Review to validation closes spatial capture
+            // authority. There are no awaits between this final state check
+            // and stopping the monitor/AR session, so a background/thermal
+            // callback cannot race revision promotion with stale authority.
+            self.resourceMonitor?.stop()
+            self.resourceMonitor = nil
+            self.spatialAuthoritySealedForFinalization = true
+            self.sessionController.stopAndPauseARSession()
+
+            do {
+                try self.transition(.beginValidation)
+            } catch {
+                self.fail(.unknown)
+                return
+            }
+
+            self.workingSetStatus = HostLocalization.text(
+                "Persisting quality and finalizing revision",
+                "品質情報を保存し、リビジョンを確定中"
+            )
+
+            await self.performFinalization(
                 store: store,
-                quality: qualityReport,
+                quality: quality,
                 generation: generation
             )
         }
