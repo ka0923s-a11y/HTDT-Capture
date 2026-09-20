@@ -7,6 +7,9 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     case processedRoomPlanLineageMismatch
     case invalidMeshPackage
     case authorityMismatch
+    case qualityReportNotReady
+    case qualityReportIntegrityMissing
+    case integrityVerificationFailed
     case duplicatePayloadDeclaration(String)
 }
 
@@ -77,6 +80,8 @@ public actor CaptureWorkingSetStore {
     private var rawRoomPlanDescriptor: RoomPlanRawEvidenceDescriptor?
     private var processedRoomPlanDescriptor: RoomPlanProcessedEvidenceDescriptor?
     private var meshAnchorCount: Int?
+    private var meshIndex: MeshAnchorEvidenceIndex?
+    private var frameDescriptors: [FrameEvidenceDescriptor] = []
     private var evidenceFrameCount = 0
     private var depthEvidenceCount = 0
 
@@ -252,6 +257,7 @@ public actor CaptureWorkingSetStore {
             )
         )
         meshAnchorCount = package.index.anchors.count
+        meshIndex = package.index
     }
 
     public func persistFramePackage(
@@ -267,8 +273,75 @@ public actor CaptureWorkingSetStore {
             try register(declaration)
         }
 
+        frameDescriptors.append(package.descriptor)
         evidenceFrameCount += 1
         depthEvidenceCount += package.capturedDepthCount
+    }
+
+    public func evaluateQuality(
+        requirements: CaptureQualityRequirements = .init()
+    ) -> CaptureQualityReport {
+        let integrityStatus: BundleIntegrityStatus
+        do {
+            try verifyIntegrity()
+            integrityStatus = .pass
+        } catch {
+            integrityStatus = .fail
+        }
+
+        let roomPlanStatus: RoomPlanQualityStatus
+        if processedRoomPlanDescriptor != nil {
+            roomPlanStatus = .completed
+        } else if rawRoomPlanDescriptor != nil
+                    || meshAnchorCount != nil
+                    || evidenceFrameCount > 0
+        {
+            roomPlanStatus = .running
+        } else {
+            roomPlanStatus = .notStarted
+        }
+
+        return CaptureQualityEvaluator.evaluate(
+            CaptureQualityObservation(
+                roomPlanStatus: roomPlanStatus,
+                activeMeshAnchorCount: meshAnchorCount ?? 0,
+                evidenceFrameCount: evidenceFrameCount,
+                depthEvidenceCount: depthEvidenceCount,
+                integrityStatus: integrityStatus
+            ),
+            requirements: requirements
+        )
+    }
+
+    public func persistQualityReport(
+        _ report: CaptureQualityReport
+    ) async throws {
+        guard report.readyForHTDTIngestion else {
+            throw CaptureWorkingSetError.qualityReportNotReady
+        }
+        guard report.integrityStatus == .pass else {
+            throw CaptureWorkingSetError
+                .qualityReportIntegrityMissing
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(report)
+        let path = "quality/capture-quality.json"
+
+        try await writer.write(
+            data,
+            to: CaptureStorePath(path)
+        )
+        try register(
+            BundlePayloadDeclaration(
+                path: path,
+                mediaType: "application/json",
+                producer: "capture_quality",
+                provenanceClass: .captureAppDerived,
+                role: .canonical
+            )
+        )
     }
 
     public func snapshot() -> CaptureWorkingSetSnapshot {
@@ -286,6 +359,144 @@ public actor CaptureWorkingSetStore {
             evidenceFrameCount: evidenceFrameCount,
             depthEvidenceCount: depthEvidenceCount
         )
+    }
+
+    private func verifyIntegrity() throws {
+        let manifestURL = rootDirectory.appendingPathComponent(
+            "manifest.json",
+            isDirectory: false
+        )
+        guard !FileManager.default.fileExists(
+            atPath: manifestURL.path
+        ) else {
+            throw CaptureWorkingSetError.integrityVerificationFailed
+        }
+
+        let scanned = try BundleDirectoryScanner.scan(
+            root: rootDirectory
+        )
+        let actualByPath = Dictionary(
+            uniqueKeysWithValues: scanned.map {
+                ($0.path, $0)
+            }
+        )
+        guard Set(actualByPath.keys) == Set(declarations.keys) else {
+            throw CaptureWorkingSetError.integrityVerificationFailed
+        }
+
+        for file in scanned {
+            _ = try BundleFileHasher.sha256(url: file.url)
+        }
+
+        if let rawRoomPlanDescriptor {
+            try verifyFile(
+                path: rawRoomPlanDescriptor.relativePath,
+                byteCount: rawRoomPlanDescriptor.byteCount,
+                sha256: rawRoomPlanDescriptor.sha256,
+                actualByPath: actualByPath
+            )
+        }
+
+        if let processedRoomPlanDescriptor {
+            guard let rawRoomPlanDescriptor,
+                  processedRoomPlanDescriptor.sourceRawSHA256
+                    == rawRoomPlanDescriptor.sha256
+            else {
+                throw CaptureWorkingSetError.integrityVerificationFailed
+            }
+            try verifyFile(
+                path: processedRoomPlanDescriptor.relativePath,
+                byteCount: processedRoomPlanDescriptor.byteCount,
+                sha256: processedRoomPlanDescriptor.sha256,
+                actualByPath: actualByPath
+            )
+        }
+
+        if let meshIndex {
+            guard let indexFile =
+                actualByPath[MeshEvidencePackage.indexPath],
+                  let indexData = try? Data(
+                    contentsOf: indexFile.url
+                  ),
+                  let decoded = try? JSONDecoder().decode(
+                    MeshAnchorEvidenceIndex.self,
+                    from: indexData
+                  ),
+                  decoded == meshIndex
+            else {
+                throw CaptureWorkingSetError.integrityVerificationFailed
+            }
+
+            for record in meshIndex.anchors {
+                guard let file = actualByPath[record.geometryPath],
+                      try BundleFileHasher.sha256(url: file.url)
+                        == record.geometrySHA256
+                else {
+                    throw CaptureWorkingSetError
+                        .integrityVerificationFailed
+                }
+            }
+        }
+
+        for descriptor in frameDescriptors {
+            let descriptorPath =
+                "evidence/frames/\(descriptor.frameID).json"
+            guard let descriptorFile = actualByPath[descriptorPath],
+                  let descriptorData = try? Data(
+                    contentsOf: descriptorFile.url
+                  ),
+                  let decoded = try? JSONDecoder().decode(
+                    FrameEvidenceDescriptor.self,
+                    from: descriptorData
+                  ),
+                  decoded == descriptor
+            else {
+                throw CaptureWorkingSetError.integrityVerificationFailed
+            }
+
+            try verifyFile(
+                path: descriptor.pixelRelativePath,
+                byteCount: descriptor.pixelByteCount,
+                sha256: descriptor.pixelSHA256,
+                actualByPath: actualByPath
+            )
+
+            if let depth = descriptor.depth {
+                try verifyFile(
+                    path: depth.depthRelativePath,
+                    byteCount: depth.depthByteCount,
+                    sha256: depth.depthSHA256,
+                    actualByPath: actualByPath
+                )
+
+                if let confidencePath = depth.confidenceRelativePath,
+                   let confidenceByteCount =
+                        depth.confidenceByteCount,
+                   let confidenceSHA256 = depth.confidenceSHA256
+                {
+                    try verifyFile(
+                        path: confidencePath,
+                        byteCount: confidenceByteCount,
+                        sha256: confidenceSHA256,
+                        actualByPath: actualByPath
+                    )
+                }
+            }
+        }
+    }
+
+    private func verifyFile(
+        path: String,
+        byteCount: Int,
+        sha256: EvidenceSHA256,
+        actualByPath: [String: ScannedBundleFile]
+    ) throws {
+        guard let file = actualByPath[path],
+              Int64(byteCount) == file.bytes,
+              try BundleFileHasher.sha256(url: file.url) == sha256
+        else {
+            throw CaptureWorkingSetError.integrityVerificationFailed
+        }
     }
 
     private func bindAuthority(
