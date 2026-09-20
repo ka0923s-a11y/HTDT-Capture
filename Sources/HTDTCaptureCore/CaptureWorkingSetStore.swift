@@ -642,8 +642,13 @@ public actor CaptureWorkingSetStore {
                 // preview-only write failed. Remove a conflicting/stale
                 // preview path so bundle integrity does not see an undeclared
                 // derived file.
-                if let previewPath = try? CaptureStorePath(preview.path) {
-                    try? await writer.removeIfPresent(previewPath)
+                if let previewPayload = package.previewPayload,
+                   let previewPath = try? CaptureStorePath(preview.path)
+                {
+                    _ = try? await writer.removeIfIdentical(
+                        previewPayload,
+                        at: previewPath
+                    )
                 }
                 resourceEvents.append(
                     CaptureResourceEvent(
@@ -718,6 +723,162 @@ public actor CaptureWorkingSetStore {
         }
     }
 
+    public func persistAnnotationAndMeasurementPackages(
+        annotationPackage: AnnotationEvidencePackage,
+        measurementPackage: MeasurementEvidencePackage
+    ) async throws {
+        guard
+            let decodedAnnotations = try? JSONDecoder().decode(
+                CaptureAnnotationCollection.self,
+                from: annotationPackage.data
+            ),
+            decodedAnnotations == annotationPackage.collection
+        else {
+            throw CaptureWorkingSetError.invalidAnnotationPackage
+        }
+        guard
+            let decodedMeasurements = try? JSONDecoder().decode(
+                CaptureMeasurementCollection.self,
+                from: measurementPackage.data
+            ),
+            decodedMeasurements == measurementPackage.collection
+        else {
+            throw CaptureWorkingSetError.invalidMeasurementPackage
+        }
+
+        let annotationSpaces = Set(
+            annotationPackage.collection.entities.map(
+                \.coordinateSpaceID
+            )
+        )
+        let measurementSpaces = Set(
+            measurementPackage.collection.measurements.compactMap(
+                \.coordinateSpaceID
+            )
+        )
+        guard annotationSpaces.count <= 1,
+              measurementSpaces.count <= 1,
+              annotationSpaces.union(measurementSpaces).count <= 1
+        else {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        if let space =
+            annotationSpaces.union(measurementSpaces).first
+        {
+            try bindCoordinateAuthority(space)
+        }
+
+        if let existing = annotationCollection,
+           existing != annotationPackage.collection
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    AnnotationEvidencePackage.path
+                )
+        }
+        if let existing = measurementCollection,
+           existing != measurementPackage.collection
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    MeasurementEvidencePackage.path
+                )
+        }
+
+        let annotationDeclaration =
+            BundlePayloadDeclaration(
+                path: AnnotationEvidencePackage.path,
+                mediaType: "application/json",
+                producer: "annotation",
+                provenanceClass: .userAnnotation,
+                role: .canonical
+            )
+        let measurementDeclaration =
+            BundlePayloadDeclaration(
+                path: MeasurementEvidencePackage.path,
+                mediaType: "application/json",
+                producer: "measurement",
+                provenanceClass: .userAttestedMeasurement,
+                role: .canonical
+            )
+        let expectedDeclarations = [
+            annotationDeclaration,
+            measurementDeclaration,
+        ]
+        for declaration in expectedDeclarations {
+            if let existing = declarations[declaration.path],
+               existing != declaration
+            {
+                throw CaptureWorkingSetError
+                    .duplicatePayloadDeclaration(
+                        declaration.path
+                    )
+            }
+        }
+
+        try await writer.writeBatchIfIdentical([
+            try CaptureFileWriteRequest(
+                data: annotationPackage.data,
+                path: CaptureStorePath(
+                    AnnotationEvidencePackage.path
+                )
+            ),
+            try CaptureFileWriteRequest(
+                data: measurementPackage.data,
+                path: CaptureStorePath(
+                    MeasurementEvidencePackage.path
+                )
+            ),
+        ])
+
+        // Re-check after actor suspension. This also repairs a compatible
+        // legacy partial commit without accepting conflicting authority.
+        if let existing = annotationCollection,
+           existing != annotationPackage.collection
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    AnnotationEvidencePackage.path
+                )
+        }
+        if let existing = measurementCollection,
+           existing != measurementPackage.collection
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    MeasurementEvidencePackage.path
+                )
+        }
+        for declaration in expectedDeclarations {
+            if let existing = declarations[declaration.path],
+               existing != declaration
+            {
+                throw CaptureWorkingSetError
+                    .duplicatePayloadDeclaration(
+                        declaration.path
+                    )
+            }
+        }
+
+        declarations[annotationDeclaration.path] =
+            annotationDeclaration
+        declarations[measurementDeclaration.path] =
+            measurementDeclaration
+        annotationCollection = annotationPackage.collection
+        annotationKeysPresent = Set(
+            annotationPackage.collection.entities.map(
+                annotationQualityKey
+            )
+        )
+        measurementCollection =
+            measurementPackage.collection
+        measurementQuantityTypesPresent = Set(
+            measurementPackage.collection.measurements.map(
+                \.quantityType
+            )
+        )
+    }
+
     public func persistAnnotationPackage(
         _ package: AnnotationEvidencePackage
     ) async throws {
@@ -741,7 +902,7 @@ public actor CaptureWorkingSetStore {
             try bindCoordinateAuthority(space)
         }
 
-        try await writer.write(
+        try await writer.writeIfIdentical(
             package.data,
             to: CaptureStorePath(AnnotationEvidencePackage.path)
         )
@@ -786,7 +947,7 @@ public actor CaptureWorkingSetStore {
             try bindCoordinateAuthority(space)
         }
 
-        try await writer.write(
+        try await writer.writeIfIdentical(
             package.data,
             to: CaptureStorePath(MeasurementEvidencePackage.path)
         )
