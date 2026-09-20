@@ -4,6 +4,7 @@ import HTDTCaptureCore
 import ARKit
 import Foundation
 import RoomPlan
+import simd
 
 public enum PlatformCaptureError: Error {
     case roomPlanUnsupported
@@ -235,6 +236,160 @@ public final class SharedARSessionController {
             hasSceneDepth:
                 frame.sceneDepth != nil
                 || frame.smoothedSceneDepth != nil
+        )
+    }
+
+    public func currentSpatialCoverageSample(
+        maxSurfacePoints: Int = 96
+    ) throws -> SpatialCoverageSample {
+        guard let frame = arSession.currentFrame else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        let camera = frame.camera.transform
+        let cameraFromWorld = simd_inverse(camera)
+        let cameraPosition = SpatialCoveragePoint3D(
+            x: Double(camera.columns.3.x),
+            y: Double(camera.columns.3.y),
+            z: Double(camera.columns.3.z)
+        )
+        let forward = SIMD3<Double>(
+            Double(-camera.columns.2.x),
+            Double(-camera.columns.2.y),
+            Double(-camera.columns.2.z)
+        )
+        let yaw = atan2(forward.x, -forward.z)
+        let tracking = trackingQualityEvent(from: frame)
+
+        let anchors = frame.anchors
+            .compactMap { $0 as? ARMeshAnchor }
+            .sorted {
+                $0.identifier.uuidString.lowercased()
+                    < $1.identifier.uuidString.lowercased()
+            }
+
+        let sceneReconstructionSupported =
+            ARWorldTrackingConfiguration
+                .supportsSceneReconstruction(.mesh)
+        let activeConfigurationName =
+            arSession.configuration.map {
+                String(describing: type(of: $0))
+            }
+
+        let sceneReconstructionEnabled: Bool
+        if let worldConfiguration =
+            arSession.configuration as? ARWorldTrackingConfiguration
+        {
+            sceneReconstructionEnabled =
+                !worldConfiguration.sceneReconstruction.isEmpty
+        } else {
+            sceneReconstructionEnabled = false
+        }
+
+        let meshAvailability = MeshAvailabilityDiagnostic(
+            sceneReconstructionSupported:
+                sceneReconstructionSupported,
+            sceneReconstructionEnabled:
+                sceneReconstructionEnabled,
+            activeMeshAnchorCount: anchors.count,
+            activeConfigurationName:
+                activeConfigurationName,
+            configurationMismatchSuspected:
+                sceneReconstructionSupported
+                && !sceneReconstructionEnabled
+        )
+
+        let budget = min(max(maxSurfacePoints, 0), 128)
+        var points: [SpatialCoveragePoint3D] = []
+        points.reserveCapacity(budget)
+
+        if budget > 0, !anchors.isEmpty {
+            let perAnchorBudget =
+                max(1, budget / anchors.count)
+
+            for anchor in anchors.prefix(budget) {
+                guard points.count < budget else {
+                    break
+                }
+
+                let vertices = anchor.geometry.vertices
+                guard vertices.count > 0 else {
+                    continue
+                }
+
+                let anchorBudget = min(
+                    perAnchorBudget,
+                    budget - points.count
+                )
+                let vertexStride = max(
+                    1,
+                    vertices.count / max(anchorBudget, 1)
+                )
+
+                var index = 0
+                var sampled = 0
+                while index < vertices.count,
+                      points.count < budget,
+                      sampled < anchorBudget
+                {
+                    let address =
+                        vertices.buffer.contents()
+                            .advanced(
+                                by:
+                                    vertices.offset
+                                    + index * vertices.stride
+                            )
+                    let local = address
+                        .assumingMemoryBound(
+                            to: SIMD3<Float>.self
+                        )
+                        .pointee
+                    let world =
+                        anchor.transform
+                        * SIMD4<Float>(
+                            local.x,
+                            local.y,
+                            local.z,
+                            1
+                        )
+                    let cameraLocal =
+                        cameraFromWorld * world
+                    let forwardDepth =
+                        -cameraLocal.z
+                    let isCurrentViewCandidate =
+                        forwardDepth >= 0.15
+                        && forwardDepth <= 6.0
+                        && abs(cameraLocal.x)
+                            <= forwardDepth * 0.95
+                        && abs(cameraLocal.y)
+                            <= forwardDepth * 0.85
+
+                    if isCurrentViewCandidate {
+                        points.append(
+                            SpatialCoveragePoint3D(
+                                x: Double(world.x),
+                                y: Double(world.y),
+                                z: Double(world.z)
+                            )
+                        )
+                    }
+
+                    index += vertexStride
+                    sampled += 1
+                }
+            }
+        }
+
+        return SpatialCoverageSample(
+            sessionTimestampSeconds: frame.timestamp,
+            cameraPositionWorld: cameraPosition,
+            cameraYawRadians: yaw,
+            trackingState: tracking.state,
+            hasSceneDepth:
+                frame.sceneDepth != nil
+                || frame.smoothedSceneDepth != nil,
+            meshAvailability: meshAvailability,
+            surfacePointsWorld: points
         )
     }
 
