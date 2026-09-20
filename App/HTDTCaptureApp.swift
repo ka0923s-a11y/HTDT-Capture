@@ -2374,6 +2374,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             switch writerError {
             case let .alreadyExists(path):
                 return "file_conflict:" + path
+            case let .batchRollbackFailed(path):
+                return "batch_rollback_failed:" + path
             }
         }
 
