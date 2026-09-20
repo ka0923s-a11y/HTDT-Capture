@@ -1903,6 +1903,31 @@ public enum DerivedShapeProxyFitter {
 
         let circleCost = selectionCost(circle)
         let rectangleCost = selectionCost(rectangle)
+
+        // Broad, strongly supported curved evidence must not be downgraded to
+        // circle-vs-rectangle ambiguity merely because a bounding rectangle
+        // can approximate a partial physical view. This is the common
+        // multi-view round-table case. A material residual advantage is
+        // required, so mixed circle/square and rounded-square evidence still
+        // falls through to the fail-closed ambiguity path.
+        let strongestCurved = candidates
+            .filter {
+                ($0.kind == .circle || $0.kind == .ellipse)
+                    && $0.metrics.supportScore >= 0.66
+                    && ($0.metrics.angularSupport ?? 0) >= 0.80
+                    && $0.metrics.normalizedResidual <= 0.052
+            }
+            .min {
+                $0.metrics.normalizedResidual
+                    < $1.metrics.normalizedResidual
+            }
+        if let strongestCurved,
+           strongestCurved.metrics.normalizedResidual + 0.008
+                < rectangle.metrics.normalizedResidual
+        {
+            return false
+        }
+
         let bestResidual = min(
             circle.metrics.normalizedResidual,
             rectangle.metrics.normalizedResidual
