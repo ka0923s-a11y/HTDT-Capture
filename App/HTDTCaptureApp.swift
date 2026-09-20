@@ -170,6 +170,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var derivedPreviewSuspendedForMemoryPressure = false
     private var roomPlanModelRenderingEnabled = true
     private let qualityRequirements = CaptureQualityRequirements(
+        rulesetVersion: "1.1.0",
         allowDepthEvidenceAsMeshFallback: true
     )
 
