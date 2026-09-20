@@ -843,7 +843,7 @@ public actor CaptureWorkingSetStore {
         let data = try encoder.encode(report)
         let path = "quality/capture-quality.json"
 
-        try await writer.write(
+        try await writer.writeIfIdentical(
             data,
             to: CaptureStorePath(path)
         )
