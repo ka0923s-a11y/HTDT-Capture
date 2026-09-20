@@ -1165,9 +1165,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             do {
                 try await store.persistFramePackage(framePackage)
             } catch {
-                workingSetStatus = HostLocalization.text(
-                    "Selected frame/depth evidence could not be saved after retry",
-                    "選択フレーム／深度証拠を再試行しても保存できませんでした"
+                let diagnostic =
+                    Self.persistenceDiagnostic(error)
+                workingSetStatus =
+                    HostLocalization.text(
+                        "Selected frame/depth evidence could not be saved after retry",
+                        "選択フレーム／深度証拠を再試行しても保存できませんでした"
+                    )
+                    + " ["
+                    + diagnostic
+                    + "]"
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .error,
+                        detail:
+                            "End-selected frame/depth persistence failed after bounded retry: "
+                            + diagnostic
+                    )
                 )
                 fail(.persistenceFailure)
                 return
@@ -1905,6 +1920,57 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 snapshot.identity.captureRevisionID.description,
                 isDirectory: true
             )
+    }
+
+    nonisolated private static func persistenceDiagnostic(
+        _ error: Error
+    ) -> String {
+        if let writerError = error as? CaptureFileWriterError {
+            switch writerError {
+            case let .alreadyExists(path):
+                return "file_conflict:" + path
+            }
+        }
+
+        if let workingSetError =
+            error as? CaptureWorkingSetError
+        {
+            switch workingSetError {
+            case let .duplicatePayloadDeclaration(path):
+                return "declaration_conflict:" + path
+            case .authorityMismatch:
+                return "authority_mismatch"
+            case .integrityVerificationFailed:
+                return "integrity_verification_failed"
+            default:
+                return "working_set:"
+                    + String(describing: workingSetError)
+            }
+        }
+
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain {
+            if nsError.code == CocoaError.fileWriteOutOfSpace.rawValue {
+                return "storage_full"
+            }
+            if nsError.code == CocoaError.fileWriteNoPermission.rawValue {
+                return "write_permission_denied"
+            }
+            return "cocoa:" + String(nsError.code)
+        }
+
+        if nsError.domain == NSPOSIXErrorDomain {
+            if nsError.code == Int(ENOSPC) {
+                return "storage_full"
+            }
+            return "posix:" + String(nsError.code)
+        }
+
+        return String(reflecting: type(of: error))
+            + ":"
+            + nsError.domain
+            + ":"
+            + String(nsError.code)
     }
 
     private func transition(_ event: CaptureEvent) throws {
