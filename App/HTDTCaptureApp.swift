@@ -845,6 +845,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         guard let store = workingSetStore else {
+            workingSetStatus = HostLocalization.text(
+                "Capture working set is unavailable",
+                "キャプチャ作業データを利用できません"
+            )
             fail(.persistenceFailure)
             return
         }
@@ -854,21 +858,43 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        let meshPackage: MeshEvidencePackage
-        let framePackage: FrameEvidencePackage
-        let trackingEvent: TrackingQualityEvent
-        let endTimingCorrelation: CaptureTimingCorrelation
+        let evidence: CaptureReviewEvidenceSnapshot
         do {
-            let evidence =
+            evidence =
                 try sessionController.snapshotReviewEvidence(
                     depthSelection: .discrete
                 )
-            trackingEvent = evidence.trackingQualityEvent
+        } catch PlatformCaptureError.currentFrameUnavailable {
+            workingSetStatus = HostLocalization.text(
+                "No current AR frame was available at scan end",
+                "スキャン終了時の AR フレームを取得できませんでした"
+            )
+            fail(.trackingUnavailable)
+            return
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "Selected frame/depth evidence could not be prepared",
+                "選択フレーム／深度証拠を準備できませんでした"
+            )
+            fail(.persistenceFailure)
+            return
+        }
+
+        let endTimingCorrelation: CaptureTimingCorrelation
+        do {
             endTimingCorrelation =
                 try sessionController.snapshotTimingCorrelation()
-            meshPackage = try MeshEvidencePackageBuilder.build(
-                snapshots: evidence.meshAnchors
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "Capture end timing could not be correlated",
+                "キャプチャ終了時刻を AR フレームと対応付けできませんでした"
             )
+            fail(.trackingUnavailable)
+            return
+        }
+
+        let framePackage: FrameEvidencePackage
+        do {
             framePackage = try FrameEvidencePackageBuilder.build(
                 descriptor: evidence.frameArtifacts.descriptor,
                 pixelPayload: evidence.frameArtifacts.pixelPayload,
@@ -878,12 +904,27 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 previewPayload:
                     evidence.frameArtifacts.previewPayload
             )
-        } catch PlatformCaptureError.currentFrameUnavailable {
-            fail(.trackingUnavailable)
-            return
         } catch {
+            workingSetStatus = HostLocalization.text(
+                "Selected frame/depth package validation failed",
+                "選択フレーム／深度パッケージの検証に失敗しました"
+            )
             fail(.persistenceFailure)
             return
+        }
+
+        var meshPackage: MeshEvidencePackage?
+        var meshSnapshotUnavailable =
+            !evidence.meshSnapshotSucceeded
+
+        if evidence.meshSnapshotSucceeded {
+            do {
+                meshPackage = try MeshEvidencePackageBuilder.build(
+                    snapshots: evidence.meshAnchors
+                )
+            } catch {
+                meshSnapshotUnavailable = true
+            }
         }
 
         sessionController.stopRoomPlanPreservingARSession()
@@ -895,11 +936,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        workingSetStatus = HostLocalization.text(
-            "Persisting final mesh and selected frame evidence",
-            "最終メッシュと選択フレームを保存中"
-        )
-
+        let timingPackage: CaptureTimingPackage
         do {
             guard let startTimingCorrelation =
                 captureStartTimingCorrelation
@@ -907,21 +944,83 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 throw CaptureSessionMetadataError
                     .invalidCorrelationOrder
             }
-            let timingPackage =
+            timingPackage =
                 try CaptureTimingPackageBuilder.build(
                     start: startTimingCorrelation,
                     end: endTimingCorrelation
                 )
-            try await store.persistTimingPackage(timingPackage)
-            await store.recordTrackingEvent(trackingEvent)
-            try await store.persistMeshPackage(meshPackage)
-            try await store.persistFramePackage(framePackage)
-            await refreshQuality(
-                store: store,
-                generation: captureGeneration
-            )
         } catch {
+            workingSetStatus = HostLocalization.text(
+                "Capture timing metadata could not be prepared",
+                "キャプチャ時刻メタデータを準備できませんでした"
+            )
             fail(.persistenceFailure)
+            return
+        }
+
+        workingSetStatus = HostLocalization.text(
+            "Saving capture timing",
+            "キャプチャ時刻を保存中"
+        )
+        do {
+            try await store.persistTimingPackage(timingPackage)
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "Capture timing metadata could not be saved",
+                "キャプチャ時刻メタデータを保存できませんでした"
+            )
+            fail(.persistenceFailure)
+            return
+        }
+
+        await store.recordTrackingEvent(
+            evidence.trackingQualityEvent
+        )
+
+        workingSetStatus = HostLocalization.text(
+            "Saving selected frame and depth evidence",
+            "選択フレームと深度証拠を保存中"
+        )
+        do {
+            try await store.persistFramePackage(framePackage)
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "Selected frame/depth evidence could not be saved",
+                "選択フレーム／深度証拠を保存できませんでした"
+            )
+            fail(.persistenceFailure)
+            return
+        }
+
+        if let meshPackage {
+            workingSetStatus = HostLocalization.text(
+                "Saving available mesh evidence",
+                "利用可能なメッシュ証拠を保存中"
+            )
+            do {
+                try await store.persistMeshPackage(meshPackage)
+            } catch {
+                workingSetStatus = HostLocalization.text(
+                    "Mesh evidence could not be saved",
+                    "メッシュ証拠を保存できませんでした"
+                )
+                fail(.persistenceFailure)
+                return
+            }
+        }
+
+        await refreshQuality(
+            store: store,
+            generation: captureGeneration
+        )
+
+        if meshSnapshotUnavailable,
+           state == .reviewing
+        {
+            workingSetStatus = HostLocalization.text(
+                "Reviewing; frame/depth evidence was retained, but the mesh snapshot was unavailable",
+                "確認中：フレーム／深度証拠は保存しましたが、メッシュスナップショットは取得できませんでした"
+            )
         }
     }
 
