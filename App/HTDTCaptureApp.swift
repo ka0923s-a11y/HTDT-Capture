@@ -50,6 +50,8 @@ private struct HTDTCaptureHostView: View {
                 coordinator.spatialCoverage,
             motionGuidance:
                 coordinator.motionGuidance,
+            scanGuidanceProgress:
+                coordinator.scanGuidanceProgress,
             derivedShapePreview:
                 coordinator.derivedShapePreview,
             scanEvidenceFrameCount:
@@ -58,6 +60,8 @@ private struct HTDTCaptureHostView: View {
                 beginCapture: coordinator.beginCapture,
                 beginReview: coordinator.beginReview,
                 captureEvidenceFrame: coordinator.captureEvidenceFrame,
+                setScanMovementCapability:
+                    coordinator.setScanMovementCapability,
                 beginAnnotation: coordinator.beginAnnotation,
                 captureRaycastPlacement:
                     coordinator.captureRaycastPlacement,
@@ -109,6 +113,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var spatialCoverage: SpatialScanCoverageSummary = .empty
     @Published private(set)
     var motionGuidance: ScanMotionGuidance?
+    @Published private(set)
+    var scanGuidanceProgress: ScanGuidanceProgress = .empty
     @Published private(set)
     var derivedShapePreview: DerivedShapePreviewSnapshot = .empty
     @Published private(set)
@@ -210,6 +216,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverage = .empty
         motionGuidanceTracker = ScanMotionGuidanceTracker()
         motionGuidance = nil
+        scanGuidanceProgress = .empty
         derivedObjectFusionTracker =
             DerivedShapeTemporalFusionTracker()
         derivedVolumeFusionTracker =
@@ -239,6 +246,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         Task {
             await continueBeginCapture()
         }
+    }
+
+    func setScanMovementCapability(
+        _ capability: ScanMovementCapability
+    ) {
+        guard state == .scanning else {
+            return
+        }
+
+        motionGuidanceTracker.setMovementCapability(capability)
+        motionGuidance = motionGuidanceTracker.guidance()
+        scanGuidanceProgress = motionGuidanceTracker.progress(
+            coverage: scanCoverage,
+            spatialCoverage: spatialCoverage
+        )
     }
 
     func captureEvidenceFrame() {
@@ -655,6 +677,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverage = .empty
         motionGuidanceTracker = ScanMotionGuidanceTracker()
         motionGuidance = nil
+        scanGuidanceProgress = .empty
         derivedObjectFusionTracker =
             DerivedShapeTemporalFusionTracker()
         derivedVolumeFusionTracker =
@@ -1198,6 +1221,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverage = .empty
         motionGuidanceTracker = ScanMotionGuidanceTracker()
         motionGuidance = nil
+        scanGuidanceProgress = .empty
         derivedObjectFusionTracker =
             DerivedShapeTemporalFusionTracker()
         derivedVolumeFusionTracker =
@@ -1245,6 +1269,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             observation:
                                 self.observationStability
                         )
+                    self.scanGuidanceProgress =
+                        self.motionGuidanceTracker.progress(
+                            coverage: self.scanCoverage,
+                            spatialCoverage: self.spatialCoverage
+                        )
                 }
 
                 if sampleIndex.isMultiple(of: 2),
@@ -1269,6 +1298,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             spatialCoverage: spatialSummary,
                             observation:
                                 self.observationStability
+                        )
+                    self.scanGuidanceProgress =
+                        self.motionGuidanceTracker.progress(
+                            coverage: self.scanCoverage,
+                            spatialCoverage: spatialSummary
                         )
 
                     if sampleIndex.isMultiple(of: 8) {
