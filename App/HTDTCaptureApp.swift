@@ -1103,20 +1103,23 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         _ observations: DerivedShapeLiveObservationSet
     ) -> DerivedShapePreviewSnapshot {
         var objectProxies: [DerivedShapeProxy] = []
+        var objectDecomposition: DerivedObjectDecomposition?
+
         if let objectObservation = observations.objectObservation {
-            let components =
-                DerivedShapeProxyFitter.connectedComponents(
-                    in: objectObservation,
-                    maxLinkDistance: 0.30,
-                    minimumPointCount: 8
-                )
-            objectProxies = Array(
-                components.prefix(3).map {
-                    DerivedShapeProxyFitter.fit(
-                        observation: $0
-                    )
-                }
+            let decomposition = DerivedObjectDecomposer.decompose(
+                observation: objectObservation
             )
+            objectDecomposition = decomposition
+
+            if decomposition.state != .unresolvedDecomposition {
+                objectProxies = Array(
+                    decomposition.components.prefix(4).map {
+                        DerivedShapeProxyFitter.fit(
+                            observation: $0.observation
+                        )
+                    }
+                )
+            }
         }
 
         let wallChain = observations.wallObservation.flatMap {
@@ -1127,6 +1130,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         return DerivedShapePreviewSnapshot(
             objectProxies: objectProxies,
+            objectDecomposition: objectDecomposition,
             wallChain: wallChain,
             disagreements:
                 DerivedShapeDisagreementEvaluator.evaluate(
