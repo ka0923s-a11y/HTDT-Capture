@@ -140,6 +140,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var acceptedRoomPlanRawSHA256: EvidenceSHA256?
     private var pendingEndAttempt: PendingEndScanAttempt?
     private var roomPlanCompletionInFlight = false
+    private var spatialAuthoritySealedForFinalization = false
     private var scanCoverageTracker =
         AdvisoryScanCoverageTracker()
     private var observationStabilityTracker =
@@ -225,7 +226,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
 
     var annotationCoordinateSpaceID: CoordinateSpaceID? {
-        guard state == .reviewing || state == .annotating else {
+        guard !spatialAuthoritySealedForFinalization,
+              state == .reviewing || state == .annotating
+        else {
             return nil
         }
         return sessionController.context.coordinateSpaceID
@@ -246,6 +249,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         acceptedRoomPlanRawSHA256 = nil
         pendingEndAttempt = nil
         roomPlanCompletionInFlight = false
+        spatialAuthoritySealedForFinalization = false
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
         scanCoverageTracker = AdvisoryScanCoverageTracker()
@@ -731,6 +735,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // generation while revision promotion is in flight.
         resourceMonitor?.stop()
         resourceMonitor = nil
+        spatialAuthoritySealedForFinalization = true
         sessionController.stopAndPauseARSession()
 
         do {
@@ -893,6 +898,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         annotationEvidenceRefs = []
         captureStartTimingCorrelation = nil
         acceptedRoomPlanRawSHA256 = nil
+        spatialAuthoritySealedForFinalization = false
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
         scanCoverageTracker = AdvisoryScanCoverageTracker()
