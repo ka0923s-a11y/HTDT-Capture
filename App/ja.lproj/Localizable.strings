@@ -304,3 +304,10 @@
 "The views are separate evidence representations; neither is promoted as canonical geometry here." = "両者は別々の証拠表現です。この表示では、どちらも正規形状として確定しません。";
 
 "Compare" = "比較";
+
+"Observed shape: %@" = "観測形状: %@";
+"Tap for details" = "タップで詳細";
+"Angular support %d%%" = "角度支持 %d%%";
+"Concavity unresolved; showing convex observed boundary" = "凹形状は未確定です。観測された凸境界を表示します";
+"Structural approximation and observed shape differ" = "構造近似と観測形状に差があります";
+"This advisory uses only HTDT-visible evidence; it does not infer unavailable RoomPlan geometry. Neither representation is promoted as canonical geometry here." = "この案内はHTDTから利用できる証拠だけを使用し、取得できないRoomPlan形状を推測しません。どちらの表現もここでは正規形状として確定しません。";

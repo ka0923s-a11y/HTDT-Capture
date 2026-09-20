@@ -343,12 +343,36 @@ public struct CaptureScanningView: View {
                     )
                     .padding(.top, 6)
                 } label: {
-                    HStack {
-                        Text("Observed geometry preview")
-                            .font(.subheadline.weight(.semibold))
+                    HStack(spacing: 8) {
+                        Label(
+                            String(
+                                format:
+                                    String(
+                                        localized: "Observed shape: %@"
+                                    ),
+                                primaryDerivedShapeLabel
+                            ),
+                            systemImage: "viewfinder.circle"
+                        )
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(
+                            Color.orange.opacity(0.20),
+                            in: Capsule()
+                        )
+                        .overlay {
+                            Capsule()
+                                .strokeBorder(
+                                    Color.orange.opacity(0.65),
+                                    lineWidth: 1
+                                )
+                        }
+
                         Spacer()
-                        Text(primaryDerivedShapeLabel)
-                            .font(.caption)
+
+                        Text("Tap for details")
+                            .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
                 }

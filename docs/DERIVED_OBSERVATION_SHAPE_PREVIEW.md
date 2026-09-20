@@ -95,17 +95,29 @@ For each bounded observation, the fitter evaluates:
 - bounded concave-capable polygon footprint.
 
 Each candidate reports normalized residual, support score, and fit score.
+Circle and ellipse candidates additionally report angular support. A closed
+object proxy is not resolved unless the observation surrounds the fitted
+footprint sufficiently: partial/single-direction arcs remain
+insufficientEvidence even when their local radial residual is low.
 
-Selection adds a deterministic model-complexity penalty so a polygon does not
-win merely because it has more degrees of freedom. Strong parametric evidence
-therefore wins when appropriate, while pentagonal/L-like evidence can still
-select a polygon.
+Selection uses a deterministic model-complexity penalty, but the rectangle is
+not a privileged fallback. The relative penalty was rebalanced so a supported
+five-plus-vertex polygon is not suppressed merely for having more vertices.
+Strong parametric evidence still wins when appropriate. Weak or competing
+evidence resolves only as resolved, insufficientEvidence, or ambiguousEvidence;
+there is no "unknown -> rectangle" path.
+
+Concavity is treated as a separate evidence question. A concave polygon is
+retained only when reflex vertices and both adjacent boundary segments have
+local observation support. Otherwise the preview uses the bounded convex
+observed boundary and records concavityResolution=unresolved. It never invents
+hidden concavity from sparse evidence.
 
 A candidate is not selected when there are too few usable points, spatial
-extent is too small, the best residual/support is outside bounded acceptance
-thresholds, or the top candidates are materially ambiguous. This is deliberate:
-the preview reports an unresolved shape instead of pretending that a rectangle
-is authoritative.
+extent is too small, angular support is insufficient, the best
+residual/support is outside bounded acceptance thresholds, or the top
+candidates are materially ambiguous. This is deliberate: the preview reports
+an unresolved shape instead of pretending that a rectangle is authoritative.
 
 ## Wall / boundary behavior
 
@@ -116,11 +128,11 @@ individual boundary vertices remain traceable to observation support.
 
 No step in this slice constructs a room-wide axis-aligned rectangle.
 
-The disagreement detector can flag non-rectangular observed object shape versus
-a rectangle-compatible semantic approximation, non-orthogonal wall headings,
-and multi-segment boundaries. The UI wording states only that the semantic
-estimate and observed shape differ. It does not declare either representation
-correct.
+The disagreement advisory can flag non-rectangular observed object evidence,
+non-orthogonal wall headings, and multi-segment boundaries. It uses only
+HTDT-visible evidence and does not manufacture an exact RoomPlan discrepancy
+metric when public RoomPlan geometry is unavailable. The UI explicitly states
+that limitation and does not declare either representation correct.
 
 ## Preview UI
 
@@ -138,8 +150,22 @@ second renderer safely. Derived object geometry uses an orange dashed outline.
 Derived wall chains use a cyan line with supported vertices. They intentionally
 do not look like the RoomPlan white structure lines.
 
+When derived evidence exists, the collapsed scanner control exposes a compact
+operator-visible badge such as Observed shape: Circle / Ellipse / Polygon or an
+unresolved state. Tapping expands the detailed preview. This keeps the live
+camera first while making evidence-backed non-rectangular observations visible
+without requiring the operator to discover an expanded panel.
+
 When evidence is insufficient or ambiguous, the panel displays an unresolved
 state and observation samples rather than drawing a fabricated rectangle.
+Polygon detail also states when concavity is unresolved.
+
+RoomPlan semantic approximation, HTDT observed derived shape, and canonical
+geometry are three distinct authorities:
+
+    RoomPlan semantic approximation
+        != HTDT observed derived shape
+        != canonical geometry
 
 ## Scope boundaries
 
@@ -159,10 +185,11 @@ shape evidence needed for fitting.
 
 ## Automated acceptance
 
-The core test suite includes synthetic fixtures for perfect circle, ellipse,
-rotated rectangle, pentagon, L-like concave polygon, noisy circle, insufficient
-points, ambiguous circle-vs-square evidence, non-orthogonal wall chain,
-deterministic output, and ARMesh boundary extraction/point bounding.
+The core test suite includes synthetic fixtures for perfect circle, noisy
+circle, partial circle arc, ellipse, near-square rounded shape, rotated
+rectangle, pentagon, supported L-like concavity, sparse/unresolved concavity,
+insufficient points, ambiguous circle-vs-square evidence, non-orthogonal wall
+chain, deterministic output, and ARMesh boundary extraction/point bounding.
 
 Repository CI additionally compiles the iOS platform/app targets and builds the
 unsigned IPA.

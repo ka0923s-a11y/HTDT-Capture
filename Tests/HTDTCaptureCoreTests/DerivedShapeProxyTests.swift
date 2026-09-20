@@ -19,6 +19,39 @@ final class DerivedShapeProxyTests: XCTestCase {
             proxy.selected?.metrics.normalizedResidual ?? 1,
             0.01
         )
+        XCTAssertGreaterThan(
+            proxy.selected?.metrics.angularSupport ?? 0,
+            0.90
+        )
+    }
+
+    func testPartialCircleArcRemainsUnresolved() {
+        let points = (0..<72).map { index -> DerivedPoint2D in
+            let t =
+                -Double.pi / 3
+                + (2 * Double.pi / 3)
+                    * Double(index) / 71
+            return DerivedPoint2D(
+                x: cos(t),
+                y: sin(t)
+            )
+        }
+
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: observation(points)
+        )
+
+        XCTAssertEqual(
+            proxy.resolution,
+            .insufficientEvidence
+        )
+        XCTAssertNil(proxy.selected)
+        XCTAssertTrue(
+            proxy.candidates.contains {
+                $0.kind == .circle
+                    && ($0.metrics.angularSupport ?? 1) < 0.70
+            }
+        )
     }
 
     func testEllipseSelectsEllipse() {
@@ -42,6 +75,36 @@ final class DerivedShapeProxyTests: XCTestCase {
             proxy.selected?.metrics.normalizedResidual ?? 1,
             0.02
         )
+        XCTAssertGreaterThan(
+            proxy.selected?.metrics.angularSupport ?? 0,
+            0.90
+        )
+    }
+
+    func testNearSquareRoundedShapeDoesNotResolveAsCircle() {
+        let points = (0..<96).map { index -> DerivedPoint2D in
+            let t = 2 * Double.pi * Double(index) / 96
+            let c = cos(t)
+            let s = sin(t)
+            let exponent = 4.0
+            return DerivedPoint2D(
+                x: copysign(
+                    pow(abs(c), 2 / exponent),
+                    c
+                ),
+                y: copysign(
+                    pow(abs(s), 2 / exponent),
+                    s
+                )
+            )
+        }
+
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: observation(points)
+        )
+
+        XCTAssertNotEqual(proxy.selected?.kind, .circle)
+        XCTAssertNotEqual(proxy.selected?.kind, .ellipse)
     }
 
     func testRotatedRectangleSelectsOrientedRectangle() {
@@ -127,6 +190,42 @@ final class DerivedShapeProxyTests: XCTestCase {
             return XCTFail("Expected polygon geometry")
         }
         XCTAssertTrue(polygon.isConcave)
+        XCTAssertEqual(
+            polygon.concavityResolution,
+            .resolvedConcave
+        )
+    }
+
+    func testSparseConcavityFallsBackToConvexAndMarksUnresolved() {
+        let sparse = [
+            DerivedPoint2D(x: 0, y: 0),
+            DerivedPoint2D(x: 2, y: 0),
+            DerivedPoint2D(x: 2, y: 0.8),
+            DerivedPoint2D(x: 0.8, y: 0.8),
+            DerivedPoint2D(x: 0.8, y: 2),
+            DerivedPoint2D(x: 0, y: 2),
+            DerivedPoint2D(x: 0.02, y: 0.02),
+            DerivedPoint2D(x: 1.98, y: 0.02),
+        ]
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: observation(sparse)
+        )
+
+        guard let polygonCandidate =
+            proxy.candidates.first(where: {
+                $0.kind == .polygon
+            }),
+            case let .polygon(polygon) =
+                polygonCandidate.geometry
+        else {
+            return XCTFail("Expected polygon candidate")
+        }
+
+        XCTAssertFalse(polygon.isConcave)
+        XCTAssertEqual(
+            polygon.concavityResolution,
+            .unresolved
+        )
     }
 
     func testNoisyCircleStillSelectsCircleWithBoundedResidual() {
@@ -150,6 +249,10 @@ final class DerivedShapeProxyTests: XCTestCase {
         XCTAssertLessThan(
             proxy.selected?.metrics.normalizedResidual ?? 1,
             0.03
+        )
+        XCTAssertGreaterThan(
+            proxy.selected?.metrics.angularSupport ?? 0,
+            0.90
         )
         XCTAssertTrue(
             proxy.candidates.allSatisfy {
