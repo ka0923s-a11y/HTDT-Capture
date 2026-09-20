@@ -344,13 +344,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 try sessionController.snapshotFrameEvidence(
                     depthSelection: .discrete
                 )
-        } catch PlatformCaptureError.currentFrameUnavailable {
-            isCapturingEvidenceFrame = false
-            fail(.trackingUnavailable)
-            return
         } catch {
             isCapturingEvidenceFrame = false
-            fail(.persistenceFailure)
+            guard captureGeneration == generation,
+                  state == .scanning
+            else {
+                return
+            }
+
+            // No canonical evidence has been mutated yet. A transient frame
+            // miss must not destroy an otherwise valid RoomPlan/AR capture.
+            workingSetStatus = HostLocalization.text(
+                "Evidence was not saved; the live scan is still active",
+                "証拠保存は完了しませんでしたが、ライブスキャンは継続中です"
+            )
+            endScanGuidance = HostLocalization.text(
+                "Hold the phone steady on previously scanned features, then save evidence again or continue scanning.",
+                "既に撮影した壁・角・家具へ向けて iPhone を静止し、もう一度「証拠保存」を押すか、そのまま追加スキャンしてください。"
+            )
+            endScanPreflightBlocked = true
             return
         }
 
@@ -367,14 +379,29 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
+            let package: FrameEvidencePackage
             do {
-                let package = try FrameEvidencePackageBuilder.build(
+                package = try FrameEvidencePackageBuilder.build(
                     descriptor: artifacts.descriptor,
                     pixelPayload: artifacts.pixelPayload,
                     depthPayload: artifacts.depthPayload,
                     confidencePayload: artifacts.confidencePayload,
                     previewPayload: artifacts.previewPayload
                 )
+            } catch {
+                self.workingSetStatus = HostLocalization.text(
+                    "Evidence package could not be prepared; the live scan is still active",
+                    "証拠パッケージを準備できませんでしたが、ライブスキャンは継続中です"
+                )
+                self.endScanGuidance = HostLocalization.text(
+                    "Keep scanning and try Save evidence again after tracking is stable.",
+                    "トラッキングが安定してから追加スキャンを続け、もう一度「証拠保存」を押してください。"
+                )
+                self.endScanPreflightBlocked = true
+                return
+            }
+
+            do {
                 try await store.persistFramePackage(package)
                 let snapshot = await store.snapshot()
                 guard self.captureGeneration == generation,
@@ -386,6 +413,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     snapshot.evidenceFrameCount
                 self.scanDepthEvidenceCount =
                     snapshot.depthEvidenceCount
+                self.endScanPreflightBlocked = false
+                self.endScanGuidance = nil
                 self.updateLiveEndScanGuidance()
                 self.workingSetStatus =
                     HostLocalization.isJapanese
@@ -399,15 +428,73 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 guard self.captureGeneration == generation,
                       self.state == .scanning
                 else {
-                    // An in-flight manual evidence save must not terminate a
-                    // review that has already begun.
                     return
                 }
-                self.workingSetStatus = HostLocalization.text(
-                    "Evidence frame/depth could not be saved",
-                    "証拠フレーム／深度を保存できませんでした"
+
+                // Semantic/authority conflicts are not retryable within the
+                // same capture. They remain fail-closed.
+                if error is CaptureWorkingSetError {
+                    self.workingSetStatus =
+                        HostLocalization.text(
+                            "Evidence authority conflict prevented safe continuation",
+                            "証拠データの authority 競合により安全に継続できません"
+                        )
+                        + " ["
+                        + Self.persistenceDiagnostic(error)
+                        + "]"
+                    self.fail(.persistenceFailure)
+                    return
+                }
+
+                do {
+                    try await store.discardUncommittedFramePackage(
+                        package
+                    )
+                } catch {
+                    guard self.captureGeneration == generation,
+                          self.state == .scanning
+                    else {
+                        return
+                    }
+                    self.workingSetStatus =
+                        HostLocalization.text(
+                            "Evidence save failed and partial canonical files could not be rolled back safely",
+                            "証拠保存に失敗し、部分保存された正規データを安全に取り消せませんでした"
+                        )
+                    self.fail(.persistenceFailure)
+                    return
+                }
+
+                guard self.captureGeneration == generation,
+                      self.state == .scanning
+                else {
+                    return
+                }
+
+                let diagnostic =
+                    Self.persistenceDiagnostic(error)
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "Recoverable manual evidence persistence failure: "
+                            + diagnostic
+                    )
                 )
-                self.fail(.persistenceFailure)
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "Evidence was not saved; the same capture is still active",
+                        "証拠保存は完了しませんでしたが、同じキャプチャは継続中です"
+                    )
+                    + " ["
+                    + diagnostic
+                    + "]"
+                self.endScanGuidance = HostLocalization.text(
+                    "The scan is still active. Continue scanning and try Save evidence again; if storage is low, free space first.",
+                    "スキャンは継続中です。そのまま追加スキャンして「証拠保存」を再試行してください。空き容量が少ない場合は先に容量を確保してください。"
+                )
+                self.endScanPreflightBlocked = true
             }
         }
     }
