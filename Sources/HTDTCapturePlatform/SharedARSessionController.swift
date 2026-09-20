@@ -278,14 +278,8 @@ public final class SharedARSessionController {
         if let worldConfiguration =
             arSession.configuration as? ARWorldTrackingConfiguration
         {
-            switch worldConfiguration.sceneReconstruction {
-            case .mesh, .meshWithClassification:
-                sceneReconstructionEnabled = true
-            case .none:
-                sceneReconstructionEnabled = false
-            @unknown default:
-                sceneReconstructionEnabled = false
-            }
+            sceneReconstructionEnabled =
+                !worldConfiguration.sceneReconstruction.isEmpty
         } else {
             sceneReconstructionEnabled = false
         }
