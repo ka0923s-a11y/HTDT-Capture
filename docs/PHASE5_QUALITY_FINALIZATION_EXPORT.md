@@ -83,9 +83,9 @@ A SwiftUI review surface displays:
 - concrete diagnostics;
 - integrity result and logical bundle digest.
 
-The iOS host workflow now has a real `reviewing` transition after RoomPlan is
-stopped with the underlying ARSession preserved. The live captured working set is
-not yet connected to `CaptureReviewView`.
+The iOS host now derives quality directly from the persisted live working set.
+The review surface exposes explicit diagnostics and only enables finalization
+when the report is ready and the re-read working-set integrity preflight passes.
 
 ### Export type and app registration
 
@@ -108,13 +108,32 @@ ZIP bytes are not logical identity. The reference archiver validates the finaliz
 
 SHA-256 is used for content integrity and logical identity only. It is not a signature and does not authenticate the bundle author.
 
+### Live host finalization
+
+The concrete host now executes:
+
+```text
+reviewing
+  -> re-read integrity preflight + quality evaluation
+  -> validating
+  -> persist quality/capture-quality.json
+  -> canonical manifest + complete bundle validator
+  -> same-volume atomic working -> finalized promotion
+  -> finalized
+```
+
+The host does not enter `finalized` until the promoted directory validates and
+its logical bundle digest matches the finalizer result.
+
 ## Remaining Phase 5 work
 
-- assemble the live capture working set from RoomPlan/mesh/frame/depth/annotation evidence;
-- derive the quality report from that live working set;
-- wire reviewing -> validating -> atomic finalization in the host workflow;
+- connect live annotation/measurement authorities into the same working set;
 - invoke validated `.htdtcapture` export from the iOS share/export UI;
 - exercise finalization and export against a real captured-room working set;
 - measure storage/thermal/backpressure behavior on device.
 
 The archive attack boundary remains enforced by the Phase 0 reference validator and adversarial tests.
+
+
+See `docs/PHASE5_LIVE_QUALITY_FINALIZATION.md` for the integrity semantics and
+request-binding details of the live finalization path.

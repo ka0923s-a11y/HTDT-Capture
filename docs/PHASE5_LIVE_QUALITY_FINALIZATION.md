@@ -80,3 +80,28 @@ Core tests exercise:
 - atomic finalization;
 - finalized bundle revalidation and logical bundle digest;
 - post-write camera evidence tamper -> integrity failure -> not ready.
+
+
+## iOS host integration
+
+The host refreshes quality after both scan-end mesh/frame persistence and
+RoomPlan postprocessing persistence. This makes callback ordering irrelevant:
+the report becomes ready only once all required persisted authorities are
+present and the re-read preflight passes.
+
+The finalization control is disabled until the report is ready. On activation
+the host:
+
+1. transitions `reviewing -> validating`;
+2. persists the exact ready quality report;
+3. snapshots the updated declaration set;
+4. creates a finalization request from the exact revision/session/coordinate
+   authority;
+5. atomically promotes the working directory under Application Support from
+   `working/<revision-id>` to `finalized/<revision-id>`;
+6. revalidates the promoted bundle;
+7. transitions to `finalized` only when the returned and revalidated logical
+   bundle digests agree.
+
+A failure leaves the revision outside the finalized authority and moves the host
+to the typed failed state.
