@@ -2180,6 +2180,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             self.isEndingScan = false
+
+            // A background/thermal/storage event may have sealed spatial
+            // continuation while Review quality was being refreshed. In that
+            // case the ordered resource-event path owns the recovery status;
+            // do not overwrite it with the generic End-success message.
+            guard !self.spatialAuthoritySealedForFinalization else {
+                return
+            }
+
             if meshSnapshotUnavailable {
                 self.workingSetStatus = HostLocalization.text(
                     "Reviewing; frame/depth evidence was retained, but the mesh snapshot was unavailable",
