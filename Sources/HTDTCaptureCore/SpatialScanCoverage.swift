@@ -28,15 +28,17 @@ public struct MeshAvailabilityDiagnostic: Sendable, Equatable {
     }
 
     public var state: MeshAvailabilityState {
+        if activeMeshAnchorCount > 0 {
+            return .anchorsObserved
+        }
+
         guard sceneReconstructionSupported,
               sceneReconstructionEnabled
         else {
             return .unavailable
         }
 
-        return activeMeshAnchorCount > 0
-            ? .anchorsObserved
-            : .enabledNoAnchors
+        return .enabledNoAnchors
     }
 
     public static let unavailable = MeshAvailabilityDiagnostic(
