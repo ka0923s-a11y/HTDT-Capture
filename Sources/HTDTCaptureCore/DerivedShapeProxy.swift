@@ -326,7 +326,9 @@ public struct DerivedShapePreviewSnapshot: Codable, Sendable, Equatable {
     public static let empty = DerivedShapePreviewSnapshot()
 
     public var hasEvidence: Bool {
-        !objectProxies.isEmpty || wallChain != nil
+        !objectProxies.isEmpty
+            || objectDecomposition?.components.isEmpty == false
+            || wallChain != nil
     }
 }
 
