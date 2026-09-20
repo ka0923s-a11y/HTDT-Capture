@@ -85,6 +85,19 @@ component and fitting work runs off the main actor. This keeps G110 and derived
 shape preview complementary rather than duplicating a second unbounded live
 mesh pipeline.
 
+## 3D object decomposition
+
+The next preview-only decomposition slice is documented in
+[`DERIVED_OBJECT_DECOMPOSITION.md`](DERIVED_OBJECT_DECOMPOSITION.md).
+
+Before per-component footprint fitting, live object observations preserve world
+Y and run a bounded 3D density/connectivity segmentation. Equal X/Z projection
+alone is not merge authority. Vertically separated candidates retain min/max/
+centroid/extent height bands, sparse bridges do not automatically join dense
+components, and ambiguous object count remains typed as unresolved/possible
+multiple components with a re-observation advisory. Preview-only support
+relations do not infer semantic object identity.
+
 ## Shape fitting and selection
 
 For each bounded observation, the fitter evaluates:
