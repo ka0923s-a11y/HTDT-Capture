@@ -40,7 +40,13 @@ final class CaptureSessionFoundationTests: XCTestCase {
                 context: context,
                 capabilities: capabilities,
                 configurationProfile: profile,
-                startedAtUTC: "2026-09-20T01:00:00Z"
+                startedAtUTC: "2026-09-20T01:00:00Z",
+                device: try CaptureDeviceDocument(
+                    osVersion: "iOS 20.0",
+                    hardwareModel: "iPhone99,1",
+                    appVersion: "0.1.0",
+                    appBuild: "1"
+                )
             )
 
         XCTAssertEqual(
@@ -51,6 +57,11 @@ final class CaptureSessionFoundationTests: XCTestCase {
             package.session.configurationRef,
             "session/capture-configuration.json"
         )
+        XCTAssertEqual(
+            package.session.timingRef,
+            "session/timing.json"
+        )
+        XCTAssertEqual(package.device.hardwareModel, "iPhone99,1")
         let configurationJSON = try XCTUnwrap(
             JSONSerialization.jsonObject(
                 with: package.configurationData
@@ -70,6 +81,19 @@ final class CaptureSessionFoundationTests: XCTestCase {
             rootDirectory: root
         )
         try await store.persistSessionFoundation(package)
+        let timing = try CaptureTimingPackageBuilder.build(
+            start: try CaptureTimingCorrelation(
+                monotonicSeconds: 1.0,
+                utc: "2026-09-20T01:00:00Z",
+                method: "fixture"
+            ),
+            end: try CaptureTimingCorrelation(
+                monotonicSeconds: 5.0,
+                utc: "2026-09-20T01:00:04Z",
+                method: "fixture"
+            )
+        )
+        try await store.persistTimingPackage(timing)
 
         let snapshot = await store.snapshot()
         XCTAssertEqual(
@@ -86,6 +110,8 @@ final class CaptureSessionFoundationTests: XCTestCase {
                 "session/capabilities.json",
                 "session/capture-configuration.json",
                 "session/capture-session.json",
+                "session/device.json",
+                "session/timing.json",
             ]
         )
 
@@ -122,7 +148,13 @@ final class CaptureSessionFoundationTests: XCTestCase {
                         worldAlignment: "gravity",
                         sceneReconstruction: "mesh"
                     ),
-                startedAtUTC: "2026-09-20T01:00:00Z"
+                startedAtUTC: "2026-09-20T01:00:00Z",
+                device: try CaptureDeviceDocument(
+                    osVersion: "iOS 20.0",
+                    hardwareModel: "iPhone99,1",
+                    appVersion: "0.1.0",
+                    appBuild: "1"
+                )
             )
         let store = try CaptureWorkingSetStore(
             rootDirectory: root
@@ -144,5 +176,77 @@ final class CaptureSessionFoundationTests: XCTestCase {
             )
         )
         XCTAssertEqual(quality.integrityStatus, .fail)
+    }
+}
+
+
+extension CaptureSessionFoundationTests {
+    func testFoundationWithoutTimingFailsIntegrityPreflight()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let package =
+            try CaptureSessionFoundationPackageBuilder.build(
+                context: CaptureSessionContext(),
+                capabilities: CaptureCapabilityMatrix(
+                    roomPlanSupported: true,
+                    worldTrackingSupported: true,
+                    sceneReconstructionSupported: true,
+                    sceneDepthSupported: false
+                ),
+                configurationProfile:
+                    CaptureConfigurationProfile(
+                        captureMode: .roomPlanMesh,
+                        worldAlignment: "gravity",
+                        sceneReconstruction: "mesh"
+                    ),
+                startedAtUTC: "2026-09-20T01:00:00Z",
+                device: try CaptureDeviceDocument(
+                    osVersion: "iOS 20.0",
+                    hardwareModel: "iPhone99,1",
+                    appVersion: "0.1.0",
+                    appBuild: "1"
+                )
+            )
+        let store = try CaptureWorkingSetStore(
+            rootDirectory: root
+        )
+        try await store.persistSessionFoundation(package)
+
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                requireCompletedRoomPlan: false,
+                minimumActiveMeshAnchors: 0,
+                minimumEvidenceFrames: 0
+            )
+        )
+        XCTAssertEqual(quality.integrityStatus, .fail)
+    }
+
+    func testTimingRejectsReverseMonotonicOrder() throws {
+        XCTAssertThrowsError(
+            try CaptureTimingPackageBuilder.build(
+                start: try CaptureTimingCorrelation(
+                    monotonicSeconds: 10,
+                    utc: "2026-09-20T01:00:10Z",
+                    method: "fixture"
+                ),
+                end: try CaptureTimingCorrelation(
+                    monotonicSeconds: 9,
+                    utc: "2026-09-20T01:00:11Z",
+                    method: "fixture"
+                )
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? CaptureSessionMetadataError,
+                .invalidCorrelationOrder
+            )
+        }
     }
 }

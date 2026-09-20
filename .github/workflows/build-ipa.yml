@@ -68,6 +68,10 @@ jobs:
           unzip -l HTDT-Capture-unsigned.ipa | head -80
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
             Payload/HTDTCapture.app/Info.plist
+          test -f Payload/HTDTCapture.app/PrivacyInfo.xcprivacy
+          /usr/libexec/PlistBuddy \
+            -c 'Print :NSPrivacyAccessedAPITypes:0:NSPrivacyAccessedAPIType' \
+            Payload/HTDTCapture.app/PrivacyInfo.xcprivacy
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4

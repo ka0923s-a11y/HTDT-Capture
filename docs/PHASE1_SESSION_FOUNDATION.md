@@ -140,3 +140,28 @@ from `exported` therefore performs no working-set deletion.
 
 A cleanup failure does not silently broaden deletion scope; the app returns to
 idle and reports that the prior incomplete revision could not be cleaned up.
+
+
+## Device and session-time authorities
+
+The live host now persists the Bundle v1 metadata that was previously only
+specified by contract:
+
+- `session/device.json` records OS/app provenance and the Darwin hardware model
+  identifier reported by the running device;
+- `session/timing.json` records two monotonic-to-UTC correlation samples in
+  the exact ARKit `ARFrame.timestamp` clock domain.
+
+A timing sample brackets the current ARFrame read with two UTC wall-clock
+samples. The midpoint becomes the correlation UTC value and half of the bracket
+duration is retained as estimated uncertainty. The first usable sample is
+required immediately after the RoomPlan session starts; the second is taken at
+the scan boundary. Reverse monotonic order fails closed.
+
+`capture-session.json` references `session/timing.json`, and working-set
+integrity cannot pass while the timing authority is absent or modified.
+
+The iOS app bundle now also contains `PrivacyInfo.xcprivacy` for the existing
+available-disk-space API used by capture resource backpressure. The declaration
+uses the approved reason for checking whether sufficient storage remains for
+writes; no tracking declaration is enabled.
