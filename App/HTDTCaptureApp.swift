@@ -851,7 +851,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // and stopping the monitor/AR session, so a background/thermal
             // callback cannot race revision promotion with stale authority.
             self.resourceMonitor?.stop()
-            self.resourceMonitor = nil
+            // Keep the stopped monitor object until finalization actually
+            // succeeds. Its synchronous storage assessment is still needed
+            // if a pre-promotion failure returns this sealed capture to
+            // Review for a retry. Live notifications remain stopped.
             self.resourceEventTask = nil
             self.spatialAuthoritySealedForFinalization = true
             self.sessionController.stopAndPauseARSession()
