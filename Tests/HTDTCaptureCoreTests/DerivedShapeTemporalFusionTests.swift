@@ -96,6 +96,78 @@ final class DerivedShapeTemporalFusionTests: XCTestCase {
         XCTAssertNil(expired)
     }
 
+    func testFurnitureTargetShiftResetsInsteadOfFusingDifferentObjects() {
+        var tracker = DerivedShapeTemporalFusionTracker(
+            configuration: DerivedShapeTemporalFusionConfiguration(
+                maximumFrameCount: 6,
+                maximumAgeSeconds: 24,
+                voxelSizeMeters: 0.05,
+                maximumPointCount: 128,
+                maximumObservationCenterShiftMeters: 0.65
+            )
+        )
+
+        _ = tracker.record(
+            observation(
+                coordinate: firstCoordinate,
+                timestamp: 1,
+                points: [
+                    point(x: -0.20, y: 0.7, z: 0.00, ref: "table-a"),
+                    point(x: 0.00, y: 0.7, z: 0.20, ref: "table-b"),
+                    point(x: 0.20, y: 0.7, z: 0.00, ref: "table-c"),
+                    point(x: 0.00, y: 0.7, z: -0.20, ref: "table-d"),
+                ]
+            ),
+            timestampSeconds: 1
+        )
+
+        let sameTarget = tracker.record(
+            observation(
+                coordinate: firstCoordinate,
+                timestamp: 2,
+                points: [
+                    point(x: -0.14, y: 0.7, z: 0.03, ref: "table-e"),
+                    point(x: 0.06, y: 0.7, z: 0.23, ref: "table-f"),
+                    point(x: 0.26, y: 0.7, z: 0.03, ref: "table-g"),
+                    point(x: 0.06, y: 0.7, z: -0.17, ref: "table-h"),
+                ]
+            ),
+            timestampSeconds: 2
+        )
+
+        XCTAssertTrue(
+            sameTarget?.points.contains {
+                $0.evidenceRef == "table-a"
+            } == true
+        )
+        XCTAssertTrue(
+            sameTarget?.points.contains {
+                $0.evidenceRef == "table-h"
+            } == true
+        )
+
+        let changedTarget = tracker.record(
+            observation(
+                coordinate: firstCoordinate,
+                timestamp: 3,
+                points: [
+                    point(x: 1.80, y: 0.6, z: 0.00, ref: "chair-a"),
+                    point(x: 2.00, y: 0.6, z: 0.20, ref: "chair-b"),
+                    point(x: 2.20, y: 0.6, z: 0.00, ref: "chair-c"),
+                    point(x: 2.00, y: 0.6, z: -0.20, ref: "chair-d"),
+                ]
+            ),
+            timestampSeconds: 3
+        )
+
+        XCTAssertEqual(
+            Set(changedTarget?.points.map(\.evidenceRef) ?? []),
+            Set(["chair-a", "chair-b", "chair-c", "chair-d"])
+        )
+        XCTAssertEqual(changedTarget?.observationStartSeconds, 3)
+        XCTAssertEqual(changedTarget?.observationEndSeconds, 3)
+    }
+
     func testCoordinateSpaceChangeResetsInsteadOfMixingAuthorities() {
         var tracker = DerivedShapeTemporalFusionTracker()
 
