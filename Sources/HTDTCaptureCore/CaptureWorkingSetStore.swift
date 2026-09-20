@@ -858,6 +858,43 @@ public actor CaptureWorkingSetStore {
         )
     }
 
+    public func discardUncommittedQualityReport(
+        _ report: CaptureQualityReport
+    ) async throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(report)
+        let path = "quality/capture-quality.json"
+        let declaration = BundlePayloadDeclaration(
+            path: path,
+            mediaType: "application/json",
+            producer: "capture_quality",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        )
+
+        if let existing = declarations[path],
+           existing != declaration
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(path)
+        }
+
+        let removedOrAbsent =
+            try await writer.removeIfIdentical(
+                data,
+                at: CaptureStorePath(path)
+            )
+        guard removedOrAbsent else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        if declarations[path] == declaration {
+            declarations.removeValue(forKey: path)
+        }
+    }
+
     public func discardIncompleteRevision() throws {
         let resolvedRoot = rootDirectory
             .standardizedFileURL
