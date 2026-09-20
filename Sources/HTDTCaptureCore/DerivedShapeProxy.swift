@@ -778,6 +778,243 @@ public enum DerivedShapeProxyFitter {
         )
     }
 
+    public static func horizontalProfileObservations(
+        from observation: DerivedShapeObservation,
+        sliceHeightMeters: Double = 0.08,
+        horizontalVoxelMeters: Double = 0.06,
+        minimumPointCount: Int = 8,
+        minimumRelativeHorizontalSupport: Double = 0.45,
+        minimumRelativeExtentDifference: Double = 0.14,
+        maximumProfileCount: Int = 3
+    ) -> [DerivedShapeObservation] {
+        guard sliceHeightMeters.isFinite,
+              sliceHeightMeters > 0,
+              horizontalVoxelMeters.isFinite,
+              horizontalVoxelMeters > 0,
+              minimumPointCount > 0,
+              minimumRelativeHorizontalSupport.isFinite,
+              minimumRelativeHorizontalSupport > 0,
+              minimumRelativeHorizontalSupport <= 1,
+              minimumRelativeExtentDifference.isFinite,
+              minimumRelativeExtentDifference > 0,
+              maximumProfileCount > 0
+        else {
+            return [observation]
+        }
+
+        let points = observation.points.filter {
+            guard let y = $0.verticalPositionMeters else {
+                return false
+            }
+            return $0.position.x.isFinite
+                && $0.position.y.isFinite
+                && y.isFinite
+        }
+        guard points.count >= minimumPointCount else {
+            return [observation]
+        }
+
+        struct SliceKey: Hashable {
+            let value: Int
+        }
+        struct HorizontalCell: Hashable {
+            let x: Int
+            let z: Int
+        }
+        struct Bounds {
+            let minX: Double
+            let maxX: Double
+            let minZ: Double
+            let maxZ: Double
+
+            var width: Double { max(0, maxX - minX) }
+            var depth: Double { max(0, maxZ - minZ) }
+            var centerX: Double { (minX + maxX) / 2 }
+            var centerZ: Double { (minZ + maxZ) / 2 }
+        }
+        struct Candidate {
+            let key: SliceKey
+            let points: [DerivedObservationPoint]
+            let cellCount: Int
+            let bounds: Bounds
+        }
+
+        var pointsBySlice: [SliceKey: [DerivedObservationPoint]] = [:]
+        var cellsBySlice: [SliceKey: Set<HorizontalCell>] = [:]
+
+        for point in points {
+            guard let y = point.verticalPositionMeters else {
+                continue
+            }
+            let key = SliceKey(
+                value: Int(floor(y / sliceHeightMeters))
+            )
+            pointsBySlice[key, default: []].append(point)
+            cellsBySlice[key, default: []].insert(
+                HorizontalCell(
+                    x: Int(floor(point.position.x / horizontalVoxelMeters)),
+                    z: Int(floor(point.position.y / horizontalVoxelMeters))
+                )
+            )
+        }
+
+        let bestCellCount =
+            cellsBySlice.values.map(\.count).max() ?? 0
+        guard bestCellCount > 0 else {
+            return [observation]
+        }
+        let minimumCellCount = max(
+            4,
+            Int(
+                ceil(
+                    Double(bestCellCount)
+                    * minimumRelativeHorizontalSupport
+                )
+            )
+        )
+
+        func bounds(
+            _ slicePoints: [DerivedObservationPoint]
+        ) -> Bounds? {
+            guard let first = slicePoints.first else {
+                return nil
+            }
+            var minX = first.position.x
+            var maxX = first.position.x
+            var minZ = first.position.y
+            var maxZ = first.position.y
+            for point in slicePoints.dropFirst() {
+                minX = min(minX, point.position.x)
+                maxX = max(maxX, point.position.x)
+                minZ = min(minZ, point.position.y)
+                maxZ = max(maxZ, point.position.y)
+            }
+            return Bounds(
+                minX: minX,
+                maxX: maxX,
+                minZ: minZ,
+                maxZ: maxZ
+            )
+        }
+
+        var candidates: [Candidate] = []
+        for key in pointsBySlice.keys {
+            guard let slicePoints = pointsBySlice[key],
+                  slicePoints.count >= minimumPointCount,
+                  let cellCount = cellsBySlice[key]?.count,
+                  cellCount >= minimumCellCount,
+                  let sliceBounds = bounds(slicePoints)
+            else {
+                continue
+            }
+            candidates.append(
+                Candidate(
+                    key: key,
+                    points: slicePoints.sorted(
+                        by: observationPointLess
+                    ),
+                    cellCount: cellCount,
+                    bounds: sliceBounds
+                )
+            )
+        }
+
+        candidates.sort {
+            if $0.cellCount != $1.cellCount {
+                return $0.cellCount > $1.cellCount
+            }
+            if $0.points.count != $1.points.count {
+                return $0.points.count > $1.points.count
+            }
+            // Match the existing representative-slice behavior: when support
+            // is equal, the higher furniture surface is the stronger profile.
+            return $0.key.value > $1.key.value
+        }
+
+        func relativeDifference(
+            _ lhs: Double,
+            _ rhs: Double
+        ) -> Double {
+            abs(lhs - rhs) / max(max(lhs, rhs), 0.001)
+        }
+
+        func isMateriallyDifferent(
+            _ lhs: Candidate,
+            _ rhs: Candidate
+        ) -> Bool {
+            let widthDifference = relativeDifference(
+                lhs.bounds.width,
+                rhs.bounds.width
+            )
+            let depthDifference = relativeDifference(
+                lhs.bounds.depth,
+                rhs.bounds.depth
+            )
+
+            let referenceExtent = max(
+                max(lhs.bounds.width, lhs.bounds.depth),
+                max(rhs.bounds.width, rhs.bounds.depth),
+                0.001
+            )
+            let centerShift = hypot(
+                lhs.bounds.centerX - rhs.bounds.centerX,
+                lhs.bounds.centerZ - rhs.bounds.centerZ
+            ) / referenceExtent
+
+            return widthDifference >= minimumRelativeExtentDifference
+                || depthDifference >= minimumRelativeExtentDifference
+                || centerShift >= minimumRelativeExtentDifference
+        }
+
+        var selected: [Candidate] = []
+        for candidate in candidates {
+            guard selected.count < maximumProfileCount else {
+                break
+            }
+
+            if selected.isEmpty {
+                selected.append(candidate)
+                continue
+            }
+
+            let verticallySeparated = selected.allSatisfy {
+                abs($0.key.value - candidate.key.value) >= 2
+            }
+            guard verticallySeparated,
+                  selected.allSatisfy({
+                      isMateriallyDifferent($0, candidate)
+                  })
+            else {
+                continue
+            }
+            selected.append(candidate)
+        }
+
+        guard !selected.isEmpty else {
+            return [representativeHorizontalSliceObservation(
+                from: observation,
+                sliceHeightMeters: sliceHeightMeters,
+                horizontalVoxelMeters: horizontalVoxelMeters,
+                minimumPointCount: minimumPointCount
+            )]
+        }
+
+        return selected.map { candidate in
+            DerivedShapeObservation(
+                coordinateSpaceID: observation.coordinateSpaceID,
+                points: candidate.points,
+                sourceEvidenceRefs:
+                    Array(
+                        Set(candidate.points.map(\.evidenceRef))
+                    ).sorted(),
+                observationStartSeconds:
+                    observation.observationStartSeconds,
+                observationEndSeconds:
+                    observation.observationEndSeconds
+            )
+        }
+    }
+
     public static func boundaryObservation(
         from observation: DerivedShapeObservation,
         angularBinCount: Int = 48,
