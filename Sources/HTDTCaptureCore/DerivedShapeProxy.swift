@@ -18,15 +18,18 @@ public struct DerivedPoint2D: Codable, Sendable, Equatable {
 
 public struct DerivedObservationPoint: Codable, Sendable, Equatable {
     public let position: DerivedPoint2D
+    public let verticalY: Double?
     public let evidenceRef: String
     public let evidenceKind: DerivedShapeEvidenceKind
 
     public init(
         position: DerivedPoint2D,
+        verticalY: Double? = nil,
         evidenceRef: String,
         evidenceKind: DerivedShapeEvidenceKind
     ) {
         self.position = position
+        self.verticalY = verticalY
         self.evidenceRef = evidenceRef
         self.evidenceKind = evidenceKind
     }
@@ -302,15 +305,18 @@ public enum DerivedShapeDisagreementKind: String, Codable, Sendable, Equatable, 
 
 public struct DerivedShapePreviewSnapshot: Codable, Sendable, Equatable {
     public let objectProxies: [DerivedShapeProxy]
+    public let objectDecomposition: DerivedObjectDecomposition?
     public let wallChain: DerivedWallChainProxy?
     public let disagreements: [DerivedShapeDisagreementKind]
 
     public init(
         objectProxies: [DerivedShapeProxy] = [],
+        objectDecomposition: DerivedObjectDecomposition? = nil,
         wallChain: DerivedWallChainProxy? = nil,
         disagreements: [DerivedShapeDisagreementKind] = []
     ) {
         self.objectProxies = objectProxies
+        self.objectDecomposition = objectDecomposition
         self.wallChain = wallChain
         self.disagreements = Array(Set(disagreements)).sorted {
             $0.rawValue < $1.rawValue
@@ -438,6 +444,7 @@ public enum MeshDerivedShapeObservationBuilder {
                                 x: point.x,
                                 y: point.z
                             ),
+                            verticalY: point.y,
                             evidenceRef: evidenceRef,
                             evidenceKind: .mesh
                         )
@@ -500,6 +507,7 @@ public enum MeshDerivedShapeObservationBuilder {
                             x: entry.value.first.x,
                             y: entry.value.first.z
                         ),
+                        verticalY: entry.value.first.y,
                         evidenceRef: entry.value.evidenceRef,
                         evidenceKind: .mesh
                     ),
@@ -508,6 +516,7 @@ public enum MeshDerivedShapeObservationBuilder {
                             x: entry.value.second.x,
                             y: entry.value.second.z
                         ),
+                        verticalY: entry.value.second.y,
                         evidenceRef: entry.value.evidenceRef,
                         evidenceKind: .mesh
                     ),
@@ -613,7 +622,10 @@ public enum MeshDerivedShapeObservationBuilder {
         for point in points {
             let key = DerivedVoxelKey(
                 x: Int(floor(point.position.x / voxelSizeMeters)),
-                y: Int(floor(point.position.y / voxelSizeMeters))
+                z: Int(floor(point.position.y / voxelSizeMeters)),
+                y: point.verticalY.map {
+                    Int(floor($0 / voxelSizeMeters))
+                } ?? Int.min
             )
             if let existing = cells[key] {
                 if observationPointLess(point, existing) {
@@ -644,6 +656,10 @@ public enum MeshDerivedShapeObservationBuilder {
         }
         if lhs.position.y != rhs.position.y {
             return lhs.position.y < rhs.position.y
+        }
+        if lhs.verticalY != rhs.verticalY {
+            return (lhs.verticalY ?? -.infinity)
+                < (rhs.verticalY ?? -.infinity)
         }
         return lhs.evidenceRef < rhs.evidenceRef
     }
@@ -1871,5 +1887,6 @@ private struct MeshBoundaryEdgeRecord {
 
 private struct DerivedVoxelKey: Hashable {
     let x: Int
+    let z: Int
     let y: Int
 }
