@@ -483,7 +483,7 @@ public final class SharedARSessionController {
                 sessionTimestampSeconds: frame.timestamp,
                 voxelSizeMeters: 0.035,
                 maxPoints: maxObjectPoints,
-                maxInspectedFaces: 10_000
+                maxInspectedFaces: 4_000
             )
         let wallObservation =
             liveDerivedShapeObservation(
@@ -492,19 +492,19 @@ public final class SharedARSessionController {
                 sessionTimestampSeconds: frame.timestamp,
                 voxelSizeMeters: 0.06,
                 maxPoints: maxWallPoints,
-                maxInspectedFaces: 12_000
+                maxInspectedFaces: 6_000
             )
         let meshFloorReferenceY = liveFloorReferenceY(
             anchors: anchors,
-            maxInspectedFaces: 2_500,
+            maxInspectedFaces: 1_500,
             maxSamples: 192
         )
 
         let depthWorldPoints = liveSceneDepthWorldPoints(
             frame: frame,
             maxPoints: min(
-                max(maxObjectPoints * 3, 512),
-                1_152
+                max(maxObjectPoints * 2, 384),
+                768
             ),
             cropFraction: 0.92,
             minimumDepthMeters: 0.18,
@@ -520,7 +520,7 @@ public final class SharedARSessionController {
                 sessionTimestampSeconds: frame.timestamp,
                 floorReferenceY: depthFloorReferenceY,
                 voxelSizeMeters: 0.05,
-                maxPoints: max(maxObjectPoints, 512)
+                maxPoints: max(maxObjectPoints, 384)
             )
 
         let objectObservation: DerivedShapeObservation?
