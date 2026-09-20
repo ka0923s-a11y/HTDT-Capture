@@ -120,6 +120,7 @@ public struct DerivedObjectDecomposition: Codable, Sendable, Equatable {
 public struct DerivedObjectDecompositionConfiguration: Sendable, Equatable {
     public let maxHorizontalLinkMeters: Double
     public let maxVerticalLinkMeters: Double
+    public let sameEvidenceVerticalBonusMeters: Double
     public let sameEvidenceHorizontalBonusMeters: Double
     public let minimumCoreNeighborCount: Int
     public let minimumComponentPointCount: Int
@@ -131,7 +132,8 @@ public struct DerivedObjectDecompositionConfiguration: Sendable, Equatable {
 
     public init(
         maxHorizontalLinkMeters: Double = 0.22,
-        maxVerticalLinkMeters: Double = 0.16,
+        maxVerticalLinkMeters: Double = 0.045,
+        sameEvidenceVerticalBonusMeters: Double = 0.16,
         sameEvidenceHorizontalBonusMeters: Double = 0.06,
         minimumCoreNeighborCount: Int = 4,
         minimumComponentPointCount: Int = 8,
@@ -143,6 +145,7 @@ public struct DerivedObjectDecompositionConfiguration: Sendable, Equatable {
     ) {
         self.maxHorizontalLinkMeters = maxHorizontalLinkMeters
         self.maxVerticalLinkMeters = maxVerticalLinkMeters
+        self.sameEvidenceVerticalBonusMeters = sameEvidenceVerticalBonusMeters
         self.sameEvidenceHorizontalBonusMeters = sameEvidenceHorizontalBonusMeters
         self.minimumCoreNeighborCount = minimumCoreNeighborCount
         self.minimumComponentPointCount = minimumComponentPointCount
@@ -397,10 +400,15 @@ public enum DerivedObjectDecomposer {
                     continue
                 }
 
+                let sameObservedElement =
+                    first.evidenceRef == second.evidenceRef
                 let verticalDistance = abs(firstY - secondY)
-                guard verticalDistance
-                        <= configuration.maxVerticalLinkMeters
-                else {
+                let verticalLimit =
+                    configuration.maxVerticalLinkMeters
+                    + (sameObservedElement
+                        ? configuration.sameEvidenceVerticalBonusMeters
+                        : 0)
+                guard verticalDistance <= verticalLimit else {
                     continue
                 }
 
@@ -413,7 +421,7 @@ public enum DerivedObjectDecomposer {
                 // Points backed by the same observed mesh element are stronger
                 // connectivity evidence than proximity alone. This is only a
                 // bounded bonus; it never overrides vertical separation.
-                if first.evidenceRef == second.evidenceRef {
+                if sameObservedElement {
                     horizontalLimit +=
                         configuration.sameEvidenceHorizontalBonusMeters
                 }
