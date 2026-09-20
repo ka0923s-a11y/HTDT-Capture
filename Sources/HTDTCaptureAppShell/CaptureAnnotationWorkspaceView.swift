@@ -5,6 +5,8 @@ import HTDTCaptureCore
 public struct CaptureAnnotationWorkspaceView: View {
     public let coordinateSpaceID: CoordinateSpaceID
     public let availableEvidenceRefs: [String]
+    public let captureRaycastPlacement:
+        () async throws -> AnnotationPlacementAuthority
     public let onCommit: (
         [CaptureAnnotationEntity],
         [CaptureMeasurement]
@@ -19,6 +21,10 @@ public struct CaptureAnnotationWorkspaceView: View {
     public init(
         coordinateSpaceID: CoordinateSpaceID,
         availableEvidenceRefs: [String] = [],
+        captureRaycastPlacement: @escaping
+            () async throws -> AnnotationPlacementAuthority = {
+                throw ManualAuthorityBuilderError.invalidPosition
+            },
         onCommit: @escaping (
             [CaptureAnnotationEntity],
             [CaptureMeasurement]
@@ -27,6 +33,7 @@ public struct CaptureAnnotationWorkspaceView: View {
     ) {
         self.coordinateSpaceID = coordinateSpaceID
         self.availableEvidenceRefs = availableEvidenceRefs.sorted()
+        self.captureRaycastPlacement = captureRaycastPlacement
         self.onCommit = onCommit
         self.onCancel = onCancel
     }
@@ -101,7 +108,9 @@ public struct CaptureAnnotationWorkspaceView: View {
             NavigationStack {
                 ManualAnnotationForm(
                     coordinateSpaceID: coordinateSpaceID,
-                    availableEvidenceRefs: availableEvidenceRefs
+                    availableEvidenceRefs: availableEvidenceRefs,
+                    captureRaycastPlacement:
+                        captureRaycastPlacement
                 ) { entity in
                     annotations.append(entity)
                 }
@@ -143,6 +152,8 @@ public struct CaptureAnnotationWorkspaceView: View {
 private struct ManualAnnotationForm: View {
     let coordinateSpaceID: CoordinateSpaceID
     let availableEvidenceRefs: [String]
+    let captureRaycastPlacement:
+        () async throws -> AnnotationPlacementAuthority
     let onAdd: (CaptureAnnotationEntity) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -160,6 +171,9 @@ private struct ManualAnnotationForm: View {
     @State private var equipmentVersion = ""
     @State private var equipmentHash = ""
     @State private var selectedEvidenceRefs = Set<String>()
+    @State private var placementAuthority:
+        AnnotationPlacementAuthority?
+    @State private var isCapturingRaycast = false
 
     @State private var errorText: String?
 
@@ -179,8 +193,26 @@ private struct ManualAnnotationForm: View {
 
             Section("Position in capture world (m)") {
                 TextField("X", text: $xText)
+                    .disabled(placementAuthority != nil)
                 TextField("Y", text: $yText)
+                    .disabled(placementAuthority != nil)
                 TextField("Z", text: $zText)
+                    .disabled(placementAuthority != nil)
+
+                if placementAuthority == nil {
+                    Button("Use live center raycast") {
+                        captureRaycast()
+                    }
+                    .disabled(isCapturingRaycast)
+                } else {
+                    LabeledContent(
+                        "Placement",
+                        value: "evidence-linked raycast"
+                    )
+                    Button("Use manual position instead") {
+                        placementAuthority = nil
+                    }
+                }
             }
 
             if type == .speaker {
@@ -254,6 +286,45 @@ private struct ManualAnnotationForm: View {
         }
     }
 
+    private func captureRaycast() {
+        guard !isCapturingRaycast else {
+            return
+        }
+        isCapturingRaycast = true
+        errorText = nil
+
+        Task { @MainActor in
+            defer {
+                isCapturingRaycast = false
+            }
+            do {
+                let authority =
+                    try await captureRaycastPlacement()
+                placementAuthority = authority
+                xText = String(
+                    Double(
+                        authority.worldFromAnnotation.values[12]
+                    )
+                )
+                yText = String(
+                    Double(
+                        authority.worldFromAnnotation.values[13]
+                    )
+                )
+                zText = String(
+                    Double(
+                        authority.worldFromAnnotation.values[14]
+                    )
+                )
+                selectedEvidenceRefs.formUnion(
+                    authority.evidenceRefs
+                )
+            } catch {
+                errorText = String(describing: error)
+            }
+        }
+    }
+
     private func add() {
         do {
             guard let x = Double(xText),
@@ -293,7 +364,8 @@ private struct ManualAnnotationForm: View {
                 speakerYawDegrees:
                     type == .speaker ? Double(yawText) : nil,
                 equipmentReference: equipment,
-                evidenceRefs: selectedEvidenceRefs.sorted()
+                evidenceRefs: selectedEvidenceRefs.sorted(),
+                placementAuthority: placementAuthority
             )
             onAdd(entity)
             dismiss()

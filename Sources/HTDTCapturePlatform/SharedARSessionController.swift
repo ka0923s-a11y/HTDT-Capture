@@ -8,6 +8,20 @@ import RoomPlan
 public enum PlatformCaptureError: Error {
     case roomPlanUnsupported
     case currentFrameUnavailable
+    case raycastMiss
+}
+
+public struct CapturedRaycastPlacement: Sendable {
+    public let positionWorld: Float3
+    public let frameArtifacts: CapturedFrameArtifacts
+
+    public init(
+        positionWorld: Float3,
+        frameArtifacts: CapturedFrameArtifacts
+    ) {
+        self.positionWorld = positionWorld
+        self.frameArtifacts = frameArtifacts
+    }
 }
 
 public struct CaptureReviewEvidenceSnapshot: Sendable {
@@ -102,6 +116,63 @@ public final class SharedARSessionController {
             throw PlatformCaptureError.currentFrameUnavailable
         }
         return try snapshotMeshAnchors(from: frame)
+    }
+
+    public func snapshotCenterRaycastPlacement(
+        depthSelection: FrameDepthSelection = .discrete
+    ) throws -> CapturedRaycastPlacement {
+        guard let frame = arSession.currentFrame else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        let camera = frame.camera.transform
+        let origin = SIMD3<Float>(
+            camera.columns.3.x,
+            camera.columns.3.y,
+            camera.columns.3.z
+        )
+        let direction = SIMD3<Float>(
+            -camera.columns.2.x,
+            -camera.columns.2.y,
+            -camera.columns.2.z
+        )
+
+        let targets: [ARRaycastQuery.Target] = [
+            .existingPlaneGeometry,
+            .estimatedPlane,
+        ]
+        var hit: ARRaycastResult?
+        for target in targets {
+            let query = ARRaycastQuery(
+                origin: origin,
+                direction: direction,
+                allowing: target,
+                alignment: .any
+            )
+            if let result = arSession.raycast(query).first {
+                hit = result
+                break
+            }
+        }
+
+        guard let hit else {
+            throw PlatformCaptureError.raycastMiss
+        }
+
+        let position = hit.worldTransform.columns.3
+        return CapturedRaycastPlacement(
+            positionWorld: Float3(
+                position.x,
+                position.y,
+                position.z
+            ),
+            frameArtifacts: try ARFrameArtifactAdapter.capture(
+                frame: frame,
+                captureSessionID: context.captureSessionID,
+                coordinateSpaceID: context.coordinateSpaceID,
+                depthSelection: depthSelection
+            )
+        )
     }
 
     public func snapshotTimingCorrelation()

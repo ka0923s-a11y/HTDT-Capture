@@ -10,6 +10,28 @@ public enum ManualAuthorityBuilderError:
     case invalidSpeakerChannelRole
 }
 
+public struct AnnotationPlacementAuthority:
+    Sendable,
+    Equatable
+{
+    public let worldFromAnnotation: Matrix4x4F
+    public let placement: PlacementProvenance
+    public let evidenceRefs: [String]
+
+    public init(
+        worldFromAnnotation: Matrix4x4F,
+        placement: PlacementProvenance,
+        evidenceRefs: [String]
+    ) throws {
+        guard Set(evidenceRefs).count == evidenceRefs.count else {
+            throw AnnotationModelError.duplicateEvidenceReference
+        }
+        self.worldFromAnnotation = worldFromAnnotation
+        self.placement = placement
+        self.evidenceRefs = evidenceRefs.sorted()
+    }
+}
+
 public enum ManualAuthorityBuilder {
     public static func annotation(
         type: AnnotationEntityType,
@@ -21,7 +43,8 @@ public enum ManualAuthorityBuilder {
         speakerChannelRole: String? = nil,
         speakerYawDegrees: Double? = nil,
         equipmentReference: HTDTEquipmentReference? = nil,
-        evidenceRefs: [String] = []
+        evidenceRefs: [String] = [],
+        placementAuthority: AnnotationPlacementAuthority? = nil
     ) throws -> CaptureAnnotationEntity {
         guard xMeters.isFinite,
               yMeters.isFinite,
@@ -30,7 +53,7 @@ public enum ManualAuthorityBuilder {
             throw ManualAuthorityBuilderError.invalidPosition
         }
 
-        let transform = try Matrix4x4F(values: [
+        let manualTransform = try Matrix4x4F(values: [
             1, 0, 0, 0,
             0, 1, 0, 0,
             0, 0, 1, 0,
@@ -39,6 +62,18 @@ public enum ManualAuthorityBuilder {
             Float(zMeters),
             1,
         ])
+        let transform =
+            placementAuthority?.worldFromAnnotation
+            ?? manualTransform
+        let placement =
+            placementAuthority?.placement
+            ?? (try PlacementProvenance(method: .manualNumeric))
+        let mergedEvidenceRefs = Array(
+            Set(
+                evidenceRefs
+                    + (placementAuthority?.evidenceRefs ?? [])
+            )
+        ).sorted()
 
         let semantics: ReferencePointSemantics
         switch type {
@@ -95,14 +130,15 @@ public enum ManualAuthorityBuilder {
             referencePointSemantics: semantics,
             label: label,
             provenanceClass: .userAnnotation,
-            verificationState: .userAttested,
-            placement: PlacementProvenance(
-                method: .manualNumeric
-            ),
+            verificationState:
+                placementAuthority == nil
+                ? .userAttested
+                : .evidenceLinked,
+            placement: placement,
             orientation: orientation,
             channelRole: channelRole,
             equipmentRef: equipmentReference,
-            evidenceRefs: evidenceRefs
+            evidenceRefs: mergedEvidenceRefs
         )
     }
 

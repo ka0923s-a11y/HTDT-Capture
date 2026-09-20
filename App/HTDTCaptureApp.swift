@@ -40,6 +40,8 @@ private struct HTDTCaptureHostView: View {
                 beginReview: coordinator.beginReview,
                 captureEvidenceFrame: coordinator.captureEvidenceFrame,
                 beginAnnotation: coordinator.beginAnnotation,
+                captureRaycastPlacement:
+                    coordinator.captureRaycastPlacement,
                 commitAnnotationAuthority:
                     coordinator.commitAnnotationAuthority,
                 cancelAnnotation: coordinator.cancelAnnotation,
@@ -208,6 +210,58 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
+    func captureRaycastPlacement()
+        async throws -> AnnotationPlacementAuthority
+    {
+        guard state == .annotating,
+              let store = workingSetStore
+        else {
+            throw PlatformCaptureError.raycastMiss
+        }
+
+        let snapshot =
+            try sessionController.snapshotCenterRaycastPlacement(
+                depthSelection: .discrete
+            )
+        let package = try FrameEvidencePackageBuilder.build(
+            descriptor: snapshot.frameArtifacts.descriptor,
+            pixelPayload: snapshot.frameArtifacts.pixelPayload,
+            depthPayload: snapshot.frameArtifacts.depthPayload,
+            confidencePayload:
+                snapshot.frameArtifacts.confidencePayload
+        )
+        try await store.persistFramePackage(package)
+
+        let evidenceRef = "path:" + package.descriptorPath
+        let position = snapshot.positionWorld
+        let transform = try Matrix4x4F(values: [
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            position.x,
+            position.y,
+            position.z,
+            1,
+        ])
+        let placement = try PlacementProvenance(
+            method: .raycast,
+            sourceEvidenceRefs: [evidenceRef]
+        )
+        let authority = try AnnotationPlacementAuthority(
+            worldFromAnnotation: transform,
+            placement: placement,
+            evidenceRefs: [evidenceRef]
+        )
+
+        let workingSnapshot = await store.snapshot()
+        annotationEvidenceRefs =
+            workingSnapshot.evidenceFrameRefs
+        workingSetStatus =
+            "Evidence-linked raycast placement captured"
+
+        return authority
+    }
+
     func cancelAnnotation() {
         guard state == .annotating else {
             return
@@ -215,7 +269,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             try transition(.beginReview)
             workingSetStatus =
-                "Annotation editing cancelled; no authority written"
+                "Annotation editing cancelled; staged records not written"
         } catch {
             fail(.unknown)
         }
