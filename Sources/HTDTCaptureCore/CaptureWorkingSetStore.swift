@@ -351,14 +351,16 @@ public actor CaptureWorkingSetStore {
             writes.append(
                 (
                     raw.data,
-                    CaptureStorePath(raw.descriptor.relativePath)
+                    try CaptureStorePath(
+                        raw.descriptor.relativePath
+                    )
                 )
             )
         }
         writes.append(
             (
                 processed.data,
-                CaptureStorePath(
+                try CaptureStorePath(
                     processed.descriptor.relativePath
                 )
             )
