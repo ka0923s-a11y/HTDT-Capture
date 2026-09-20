@@ -630,8 +630,12 @@ public struct ScanMotionGuidanceTracker: Sendable {
 
         let spatialGuidanceActive =
             coverage.coverageFraction
-                >= configuration
-                    .spatialGuidanceActivationCoverageFraction
+                >= max(
+                    configuration
+                        .spatialGuidanceActivationCoverageFraction,
+                    configuration
+                        .completionDirectionCoverageFraction
+                )
         let spatialGuidanceBudgetExhausted =
             completedSpatialGuidanceAttemptCount
                 >= configuration.maximumSpatialGuidanceAttempts
