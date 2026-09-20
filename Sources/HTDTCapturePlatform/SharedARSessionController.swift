@@ -42,15 +42,18 @@ public struct CapturedRaycastPlacement: Sendable {
 
 public struct CaptureReviewEvidenceSnapshot: Sendable {
     public let meshAnchors: [MeshAnchorSnapshot]
+    public let meshSnapshotSucceeded: Bool
     public let frameArtifacts: CapturedFrameArtifacts
     public let trackingQualityEvent: TrackingQualityEvent
 
     public init(
         meshAnchors: [MeshAnchorSnapshot],
+        meshSnapshotSucceeded: Bool = true,
         frameArtifacts: CapturedFrameArtifacts,
         trackingQualityEvent: TrackingQualityEvent
     ) {
         self.meshAnchors = meshAnchors
+        self.meshSnapshotSucceeded = meshSnapshotSucceeded
         self.frameArtifacts = frameArtifacts
         self.trackingQualityEvent = trackingQualityEvent
     }
@@ -680,8 +683,19 @@ public final class SharedARSessionController {
             throw PlatformCaptureError.currentFrameUnavailable
         }
 
+        let meshAnchors: [MeshAnchorSnapshot]
+        let meshSnapshotSucceeded: Bool
+        do {
+            meshAnchors = try snapshotMeshAnchors(from: frame)
+            meshSnapshotSucceeded = true
+        } catch {
+            meshAnchors = []
+            meshSnapshotSucceeded = false
+        }
+
         return CaptureReviewEvidenceSnapshot(
-            meshAnchors: try snapshotMeshAnchors(from: frame),
+            meshAnchors: meshAnchors,
+            meshSnapshotSucceeded: meshSnapshotSucceeded,
             frameArtifacts: try ARFrameArtifactAdapter.capture(
                 frame: frame,
                 captureSessionID: context.captureSessionID,
