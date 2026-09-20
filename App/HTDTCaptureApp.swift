@@ -1163,7 +1163,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             func exportFreshArchive() async throws
-                -> CaptureBundleArchiveExportResult
+                -> CaptureBundleArchiveResult
             {
                 try await Task.detached(
                     priority: .userInitiated
@@ -1177,7 +1177,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             do {
-                var result: CaptureBundleArchiveExportResult
+                var result: CaptureBundleArchiveResult
                 do {
                     result = try await exportFreshArchive()
                 } catch {
