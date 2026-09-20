@@ -100,6 +100,7 @@ public final class SharedARSessionController {
 
     private let roomPlanDelegateBridge =
         RoomPlanViewDelegateBridge()
+    private var liveRoomCaptureViewMountObserved = false
 
     public init(
         arSession: ARSession = ARSession(),
@@ -113,6 +114,50 @@ public final class SharedARSessionController {
         )
         self.roomCaptureView.isModelEnabled = true
         self.roomCaptureView.delegate = roomPlanDelegateBridge
+    }
+
+    func markLiveRoomCaptureViewMounted(
+        _ view: RoomCaptureView
+    ) {
+        guard view === roomCaptureView else {
+            return
+        }
+        liveRoomCaptureViewMountObserved = true
+        roomCaptureView.setNeedsLayout()
+        roomCaptureView.layoutIfNeeded()
+    }
+
+    func markLiveRoomCaptureViewUnmounted(
+        _ view: RoomCaptureView
+    ) {
+        guard view === roomCaptureView else {
+            return
+        }
+        liveRoomCaptureViewMountObserved = false
+    }
+
+    public func waitForLiveRoomCaptureViewPresentation()
+        async -> Bool
+    {
+        for _ in 0..<60 {
+            if liveRoomCaptureViewMountObserved,
+               roomCaptureView.window != nil,
+               roomCaptureView.bounds.width > 1,
+               roomCaptureView.bounds.height > 1
+            {
+                return true
+            }
+
+            if Task.isCancelled {
+                return false
+            }
+
+            try? await Task.sleep(
+                for: .milliseconds(50)
+            )
+        }
+
+        return false
     }
 
     public func setRoomPlanCompletionHandler(
