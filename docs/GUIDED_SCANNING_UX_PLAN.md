@@ -203,6 +203,35 @@ weak supporting depth/mesh evidence, the scanner may show:
 This is deliberately advisory wording. It does not assert that RoomPlan is
 wrong. A recheck advisory is not persisted as measurement truth.
 
+## 4.7 Camera-first compact / expanded HUD
+
+The live scanner defaults to a **compact** presentation. The camera remains the
+primary surface; persistent chrome is limited to tracking state, compact
+coverage percentage, one prioritized action sentence, the current-relative
+guidance arrow, compact spatial/derived summaries when available, and the two
+primary actions (**Save evidence frame** and **End scan**).
+
+A user-controlled **expanded** presentation reveals the 12 x 3 direction
+coverage cells, relative compass, mesh/evidence diagnostics, the spatial
+observation disclosure, and the derived-shape disclosure. Expanded content is
+height-bounded and scrollable instead of permanently stacking cards over the
+camera.
+
+The spatial observation map and derived geometry preview both start collapsed.
+Their compact summary rows open the expanded HUD and the requested disclosure.
+Long-form authority text is no longer persistent scanner chrome. The scanner's
+info/detail sheet retains the same authority boundaries:
+
+- RoomPlan lines are a live structural approximation;
+- direction coverage is advisory trajectory guidance and does not prove
+  geometric completeness;
+- unknown spatial cells mean no observation authority, not a missing surface;
+- derived geometry is an evidence-backed preview and is not canonical geometry.
+
+This is a presentation reorganization only. It does not promote advisory
+coverage, observation confidence, or derived geometry into Capture Bundle
+authority or finalization gates.
+
 ## 5. Coverage model v1
 
 ### 5.1 Sampling
@@ -376,6 +405,22 @@ Raw enum/debug tokens may remain English only in developer diagnostics.
 - keep all guidance advisory and ephemeral;
 - leave physical-device visual acceptance open.
 
+### G100G — camera-first compact scanning HUD — software implemented
+
+- default to compact scanner chrome with the live camera as the primary visual
+  surface;
+- keep one action sentence visually dominant and retain the center guidance
+  arrow;
+- keep evidence-frame save and scan-end controls persistently reachable;
+- move direction cells, compass, diagnostics, spatial map, and derived preview
+  into an explicit expanded state;
+- default spatial and derived disclosures to collapsed;
+- move long authority explanations into an explicit info/detail sheet without
+  weakening their semantics;
+- use safe-area-aware SwiftUI composition and bounded relative expanded height
+  instead of a device-specific fixed screen layout;
+- keep physical-device visual acceptance open.
+
 ### G100D — interruption/relocalization UX — implemented fail-closed baseline
 
 - terminal interruption/failure screens now explain the reason and recovery path;
@@ -420,7 +465,16 @@ Physical-device gate:
 - no second AR/RoomPlan session is created;
 - ending the scan still persists the exact raw RoomPlan result and scan-end
   mesh/frame evidence;
-- Japanese UI is legible on the target iPhone.
+- Japanese UI is legible on the target iPhone;
+- the center of the scanner remains predominantly camera content in compact
+  state;
+- sofas, tables, and wall edges are not materially hidden by persistent HTDT
+  panels;
+- the next action remains understandable without opening details;
+- spatial coverage and derived preview open only when requested;
+- primary save/end controls remain reachable in compact and expanded states;
+- Japanese compact labels do not truncate or wrap into extreme multi-line
+  layouts across supported portrait screen heights.
 
 CI success is not evidence that these physical-device requirements passed.
 
