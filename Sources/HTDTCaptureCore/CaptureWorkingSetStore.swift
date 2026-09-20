@@ -14,6 +14,7 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     case qualityReportIntegrityMissing
     case integrityVerificationFailed
     case duplicatePayloadDeclaration(String)
+    case unsafeDiscardPath
 }
 
 public struct CaptureWorkingSetIdentity: Sendable, Equatable {
@@ -489,6 +490,31 @@ public actor CaptureWorkingSetStore {
                 role: .canonical
             )
         )
+    }
+
+    public func discardIncompleteRevision() throws {
+        let resolvedRoot = rootDirectory
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let workingDirectory =
+            resolvedRoot.deletingLastPathComponent()
+        let captureDirectory =
+            workingDirectory.deletingLastPathComponent()
+
+        guard
+            resolvedRoot.lastPathComponent
+                == identity.captureRevisionID.description,
+            workingDirectory.lastPathComponent == "working",
+            captureDirectory.lastPathComponent == "HTDTCapture"
+        else {
+            throw CaptureWorkingSetError.unsafeDiscardPath
+        }
+
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: resolvedRoot.path) else {
+            return
+        }
+        try fileManager.removeItem(at: resolvedRoot)
     }
 
     public func snapshot() -> CaptureWorkingSetSnapshot {

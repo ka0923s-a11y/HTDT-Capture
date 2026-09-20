@@ -291,3 +291,86 @@ extension CaptureWorkingSetStoreTests {
         }
     }
 }
+
+
+extension CaptureWorkingSetStoreTests {
+    func testDiscardRemovesOnlyOwnedIncompleteWorkingRevision()
+        async throws
+    {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                UUID().uuidString,
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.removeItem(at: base)
+        }
+
+        let identity = CaptureWorkingSetIdentity()
+        let root = base
+            .appendingPathComponent(
+                "HTDTCapture",
+                isDirectory: true
+            )
+            .appendingPathComponent(
+                "working",
+                isDirectory: true
+            )
+            .appendingPathComponent(
+                identity.captureRevisionID.description,
+                isDirectory: true
+            )
+        let store = try CaptureWorkingSetStore(
+            identity: identity,
+            rootDirectory: root
+        )
+        try Data("incomplete".utf8).write(
+            to: root.appendingPathComponent("sentinel.bin")
+        )
+
+        try await store.discardIncompleteRevision()
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: root.path)
+        )
+    }
+
+    func testDiscardRejectsUnexpectedDirectoryShape()
+        async throws
+    {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                UUID().uuidString,
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.removeItem(at: base)
+        }
+
+        let identity = CaptureWorkingSetIdentity()
+        let root = base
+            .appendingPathComponent(
+                "not-working",
+                isDirectory: true
+            )
+            .appendingPathComponent(
+                identity.captureRevisionID.description,
+                isDirectory: true
+            )
+        let store = try CaptureWorkingSetStore(
+            identity: identity,
+            rootDirectory: root
+        )
+
+        do {
+            try await store.discardIncompleteRevision()
+            XCTFail("expected unsafe discard path rejection")
+        } catch let error as CaptureWorkingSetError {
+            XCTAssertEqual(error, .unsafeDiscardPath)
+        }
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: root.path)
+        )
+    }
+}

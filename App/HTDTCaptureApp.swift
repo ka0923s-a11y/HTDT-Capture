@@ -370,6 +370,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        let failedWorkingSet =
+            state == .failed ? workingSetStore : nil
+
         captureGeneration = UUID()
         sessionController.stopAndPauseARSession()
 
@@ -397,6 +400,23 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         isCapturingEvidenceFrame = false
         capabilities = PlatformCapabilityProbe.current()
         cameraPermission = CameraPermissionController.currentStatus()
+
+        if let failedWorkingSet {
+            Task { @MainActor [weak self] in
+                do {
+                    try await failedWorkingSet
+                        .discardIncompleteRevision()
+                } catch {
+                    guard let self,
+                          self.state == .idle
+                    else {
+                        return
+                    }
+                    self.workingSetStatus =
+                        "Ready; prior incomplete revision cleanup failed"
+                }
+            }
+        }
     }
 
     private func continueBeginCapture() async {

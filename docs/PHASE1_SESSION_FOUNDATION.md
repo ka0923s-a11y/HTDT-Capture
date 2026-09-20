@@ -121,3 +121,22 @@ a device-capacity claim:
 The resource/tracking events flow into the quality report that becomes part of
 the finalized bundle. Real-device thermal/storage/interruption behavior remains
 a physical acceptance gate.
+
+
+## Failed working-revision cleanup
+
+Resetting from the typed `failed` state now attempts to discard only the
+currently owned incomplete working revision.
+
+The store refuses deletion unless the resolved path has the exact shape:
+
+`.../HTDTCapture/working/<capture_revision_id>`
+
+and the final path component exactly matches the store's immutable
+`capture_revision_id`.
+
+The discard authority never targets finalized or exported revisions. Resetting
+from `exported` therefore performs no working-set deletion.
+
+A cleanup failure does not silently broaden deletion scope; the app returns to
+idle and reports that the prior incomplete revision could not be cleaned up.
