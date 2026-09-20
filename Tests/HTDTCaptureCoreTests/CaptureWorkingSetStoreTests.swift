@@ -259,6 +259,71 @@ final class CaptureWorkingSetStoreTests: XCTestCase {
         )
     }
 
+    func testConcurrentExactRoomPlanCompletionReplayIsIdempotent()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let store = try CaptureWorkingSetStore(
+            rootDirectory: root
+        )
+        let sessionID = CaptureSessionID()
+        let coordinateID = CoordinateSpaceID()
+        let raw = RoomPlanEvidenceArtifactBuilder.buildRaw(
+            data: Data(repeating: 0x52, count: 512 * 1024),
+            captureSessionID: sessionID,
+            coordinateSpaceID: coordinateID,
+            runtime: CaptureRuntimeProvenance(
+                osVersion: "test",
+                appVersion: "test",
+                appBuild: "test"
+            )
+        )
+        let processed = try XCTUnwrap(
+            RoomPlanEvidenceArtifactBuilder.attachProcessed(
+                data: Data(repeating: 0x50, count: 512 * 1024),
+                to: raw
+            ).processed
+        )
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<8 {
+                group.addTask {
+                    try await store.persistRawRoomPlan(raw)
+                }
+            }
+            try await group.waitForAll()
+        }
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<8 {
+                group.addTask {
+                    try await store.persistProcessedRoomPlan(processed)
+                }
+            }
+            try await group.waitForAll()
+        }
+
+        let snapshot = await store.snapshot()
+        XCTAssertEqual(snapshot.rawRoomPlanDescriptor, raw.descriptor)
+        XCTAssertEqual(
+            snapshot.processedRoomPlanDescriptor,
+            processed.descriptor
+        )
+        XCTAssertEqual(
+            snapshot.payloadDeclarations.filter {
+                $0.path == RoomPlanEvidenceArtifactBuilder.rawPath
+                    || $0.path
+                        == RoomPlanEvidenceArtifactBuilder.processedPath
+            }.count,
+            2
+        )
+    }
+
     func testMeshPersistenceFailureRollsBackPartialFilesAndCanRetry() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

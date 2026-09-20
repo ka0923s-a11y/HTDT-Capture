@@ -119,6 +119,156 @@ func storePathRejectsTraversalAndBackslashes() {
 }
 
 @Test
+func depthSurfaceSelectorSeparatesForegroundFromBackground() {
+    var samples: [DepthGridSample] = []
+    let step = 10
+
+    for y in stride(from: 10, through: 90, by: step) {
+        for x in stride(from: 10, through: 90, by: step) {
+            let foreground =
+                x >= 30 && x <= 70
+                    && y >= 30 && y <= 70
+            samples.append(
+                DepthGridSample(
+                    x: x,
+                    y: y,
+                    depthMeters: foreground ? 1.45 : 3.0
+                )
+            )
+        }
+    }
+
+    let selected =
+        DepthConnectedSurfaceSelector
+            .selectForegroundConnectedComponent(
+                samples: samples,
+                imageWidth: 101,
+                imageHeight: 101,
+                gridStepPixels: step,
+                minimumComponentCount: 8
+            )
+
+    #expect(selected.count == 25)
+    #expect(
+        selected.allSatisfy {
+            $0.x >= 30 && $0.x <= 70
+                && $0.y >= 30 && $0.y <= 70
+                && abs($0.depthMeters - 1.45) < 0.001
+        }
+    )
+}
+
+@Test
+func depthSurfaceSelectorDoesNotPreferTinyNearClutter() {
+    let step = 10
+    var samples: [DepthGridSample] = []
+
+    // Substantial centered foreground surface.
+    for y in stride(from: 30, through: 70, by: step) {
+        for x in stride(from: 30, through: 70, by: step) {
+            samples.append(
+                DepthGridSample(
+                    x: x,
+                    y: y,
+                    depthMeters: 1.55
+                )
+            )
+        }
+    }
+
+    // Smaller nearer component off to one side of the same central window.
+    for y in stride(from: 30, through: 60, by: step) {
+        for x in stride(from: 10, through: 20, by: step) {
+            samples.append(
+                DepthGridSample(
+                    x: x,
+                    y: y,
+                    depthMeters: 0.95
+                )
+            )
+        }
+    }
+
+    let selected =
+        DepthConnectedSurfaceSelector
+            .selectForegroundConnectedComponent(
+                samples: samples,
+                imageWidth: 101,
+                imageHeight: 101,
+                gridStepPixels: step,
+                minimumComponentCount: 8
+            )
+
+    #expect(selected.count == 25)
+    #expect(
+        selected.allSatisfy {
+            abs($0.depthMeters - 1.55) < 0.001
+        }
+    )
+}
+
+@Test
+func depthSurfaceSelectorKeepsSmoothCurvedDepthContinuity() {
+    let step = 8
+    var samples: [DepthGridSample] = []
+
+    for y in stride(from: 16, through: 80, by: step) {
+        for x in stride(from: 16, through: 80, by: step) {
+            let dx = Double(x - 48) / 32
+            let dy = Double(y - 48) / 32
+            let depth =
+                1.6 + 0.08 * (dx * dx + dy * dy)
+            samples.append(
+                DepthGridSample(
+                    x: x,
+                    y: y,
+                    depthMeters: depth
+                )
+            )
+        }
+    }
+
+    let selected =
+        DepthConnectedSurfaceSelector
+            .selectForegroundConnectedComponent(
+                samples: samples,
+                imageWidth: 96,
+                imageHeight: 96,
+                gridStepPixels: step,
+                minimumComponentCount: 8
+            )
+
+    #expect(selected.count == samples.count)
+}
+
+@Test
+func atomicWriterAllowsOnlyByteIdenticalReplay() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let writer = try AtomicCaptureFileWriter(rootDirectory: root)
+    let path = try CaptureStorePath("session/replay.bin")
+    let payload = Data([1, 2, 3, 4])
+
+    try await writer.writeIfIdentical(payload, to: path)
+    try await writer.writeIfIdentical(payload, to: path)
+
+    await #expect(throws: CaptureFileWriterError.self) {
+        try await writer.writeIfIdentical(
+            Data([9, 9, 9]),
+            to: path
+        )
+    }
+
+    let stored = try Data(
+        contentsOf:
+            root.appendingPathComponent("session/replay.bin")
+    )
+    #expect(stored == payload)
+}
+
+@Test
 func atomicWriterDoesNotOverwriteEvidence() async throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)

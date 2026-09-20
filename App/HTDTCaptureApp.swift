@@ -130,6 +130,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var isCapturingEvidenceFrame = false
     private var captureStartTimingCorrelation:
         CaptureTimingCorrelation?
+    private var acceptedRoomPlanRawSHA256: EvidenceSHA256?
     private var scanCoverageTracker =
         AdvisoryScanCoverageTracker()
     private var observationStabilityTracker =
@@ -233,6 +234,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
         captureStartTimingCorrelation = nil
+        acceptedRoomPlanRawSHA256 = nil
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
         scanCoverageTracker = AdvisoryScanCoverageTracker()
@@ -375,6 +377,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         + String(snapshot.evidenceFrameCount)
                         + " evidence frame(s) persisted"
             } catch {
+                self.workingSetStatus = HostLocalization.text(
+                    "Processed RoomPlan evidence could not be saved",
+                    "RoomPlan の処理済みデータを保存できませんでした"
+                )
                 self.fail(.persistenceFailure)
             }
         }
@@ -709,6 +715,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
         captureStartTimingCorrelation = nil
+        acceptedRoomPlanRawSHA256 = nil
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
         scanCoverageTracker = AdvisoryScanCoverageTracker()
@@ -1063,8 +1070,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         var meshPackage: MeshEvidencePackage?
         var meshSnapshotUnavailable =
             !evidence.meshSnapshotSucceeded
+            || evidence.meshAnchors.isEmpty
 
-        if evidence.meshSnapshotSucceeded {
+        if evidence.meshSnapshotSucceeded,
+           !evidence.meshAnchors.isEmpty
+        {
             do {
                 meshPackage = try MeshEvidencePackageBuilder.build(
                     snapshots: evidence.meshAnchors
@@ -1197,9 +1207,29 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 runtime: runtime
             )
         } catch {
+            workingSetStatus = HostLocalization.text(
+                "Raw RoomPlan evidence could not be encoded",
+                "RoomPlan の生データをエンコードできませんでした"
+            )
             fail(.persistenceFailure)
             return
         }
+
+        if let accepted = acceptedRoomPlanRawSHA256 {
+            if accepted == raw.descriptor.sha256 {
+                // RoomCaptureView may replay the same final callback around
+                // stop/review. One canonical processing pipeline is enough.
+                return
+            }
+
+            workingSetStatus = HostLocalization.text(
+                "Conflicting RoomPlan completion data was received",
+                "異なる RoomPlan 完了データが重複して届きました"
+            )
+            fail(.roomPlanFailure)
+            return
+        }
+        acceptedRoomPlanRawSHA256 = raw.descriptor.sha256
 
         workingSetStatus = HostLocalization.text(
             "Persisting raw RoomPlan evidence",
@@ -1216,6 +1246,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             do {
                 try await store.persistRawRoomPlan(raw)
             } catch {
+                self.workingSetStatus = HostLocalization.text(
+                    "Raw RoomPlan evidence could not be saved",
+                    "RoomPlan の生データを保存できませんでした"
+                )
                 self.fail(.persistenceFailure)
                 return
             }
@@ -1268,6 +1302,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     generation: generation
                 )
             } catch {
+                self.workingSetStatus = HostLocalization.text(
+                    "Processed RoomPlan evidence could not be saved",
+                    "RoomPlan の処理済みデータを保存できませんでした"
+                )
                 self.fail(.persistenceFailure)
             }
         }
@@ -1477,31 +1515,48 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             objectDecomposition = decomposition
 
             if decomposition.state != .unresolvedDecomposition {
-                let proxies =
+                let rankedProxies =
                     decomposition.components.prefix(6).flatMap {
+                        component in
                         Self.fitDerivedObjectProfiles(
-                            $0.observation
-                        )
+                            component.observation
+                        ).map {
+                            (
+                                proxy: $0,
+                                pointCount: component.pointCount
+                            )
+                        }
                     }
 
                 objectProxies = Array(
-                    proxies.sorted { lhs, rhs in
-                        let lhsResolved = lhs.selected != nil
-                        let rhsResolved = rhs.selected != nil
+                    rankedProxies.sorted { lhs, rhs in
+                        let lhsResolved =
+                            lhs.proxy.selected != nil
+                        let rhsResolved =
+                            rhs.proxy.selected != nil
                         if lhsResolved != rhsResolved {
                             return lhsResolved && !rhsResolved
                         }
+
+                        // A tiny geometrically perfect fragment should not
+                        // become the compact HUD's primary shape ahead of a
+                        // substantially better-supported furniture surface.
+                        if lhs.pointCount != rhs.pointCount {
+                            return lhs.pointCount > rhs.pointCount
+                        }
+
                         let lhsScore =
-                            lhs.selected?.metrics.fitScore
-                            ?? lhs.provenance.fitScore
+                            lhs.proxy.selected?.metrics.fitScore
+                            ?? lhs.proxy.provenance.fitScore
                             ?? 0
                         let rhsScore =
-                            rhs.selected?.metrics.fitScore
-                            ?? rhs.provenance.fitScore
+                            rhs.proxy.selected?.metrics.fitScore
+                            ?? rhs.proxy.provenance.fitScore
                             ?? 0
                         return lhsScore > rhsScore
                     }
                     .prefix(4)
+                    .map { $0.proxy }
                 )
             } else {
                 objectProxies = Self.fitDerivedObjectProfiles(

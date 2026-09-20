@@ -522,7 +522,8 @@ public final class SharedARSessionController {
             // curved furniture toward coarse polygons/rectangles.
             cropFraction: 0.82,
             minimumDepthMeters: 0.18,
-            maximumDepthMeters: 4.5
+            maximumDepthMeters: 4.5,
+            focusOnForegroundConnectedSurface: true
         )
         let depthFloorReferenceY =
             meshFloorReferenceY
@@ -740,7 +741,8 @@ public final class SharedARSessionController {
         maxPoints: Int,
         cropFraction: Float,
         minimumDepthMeters: Float,
-        maximumDepthMeters: Float
+        maximumDepthMeters: Float,
+        focusOnForegroundConnectedSurface: Bool = false
     ) -> [SIMD3<Float>] {
         guard maxPoints > 0,
               cropFraction.isFinite,
@@ -846,11 +848,11 @@ public final class SharedARSessionController {
                 CVPixelBufferGetBaseAddress($0)
             }
 
-        var points: [SIMD3<Float>] = []
-        points.reserveCapacity(maxPoints)
+        var depthSamples: [DepthGridSample] = []
+        depthSamples.reserveCapacity(maxPoints)
 
         var y = minY + step / 2
-        while y < maxY, points.count < maxPoints {
+        while y < maxY, depthSamples.count < maxPoints {
             let depthRow = depthBaseAddress
                 .advanced(by: y * depthBytesPerRow)
                 .assumingMemoryBound(to: Float.self)
@@ -860,7 +862,7 @@ public final class SharedARSessionController {
                     .assumingMemoryBound(to: UInt8.self)
 
             var x = minX + step / 2
-            while x < maxX, points.count < maxPoints {
+            while x < maxX, depthSamples.count < maxPoints {
                 let depth = depthRow[x]
                 guard depth.isFinite,
                       depth >= minimumDepthMeters,
@@ -877,33 +879,61 @@ public final class SharedARSessionController {
                     continue
                 }
 
-                let localX =
-                    (Float(x) - cx) * depth / fx
-                let localY =
-                    -(Float(y) - cy) * depth / fy
-                let cameraPoint = SIMD4<Float>(
-                    localX,
-                    localY,
-                    -depth,
-                    1
-                )
-                let world = frame.camera.transform * cameraPoint
-                if world.x.isFinite,
-                   world.y.isFinite,
-                   world.z.isFinite
-                {
-                    points.append(
-                        SIMD3<Float>(
-                            world.x,
-                            world.y,
-                            world.z
-                        )
+                depthSamples.append(
+                    DepthGridSample(
+                        x: x,
+                        y: y,
+                        depthMeters: Double(depth)
                     )
-                }
-
+                )
                 x += step
             }
             y += step
+        }
+
+        let selectedSamples: [DepthGridSample]
+        if focusOnForegroundConnectedSurface {
+            selectedSamples =
+                DepthConnectedSurfaceSelector
+                    .selectForegroundConnectedComponent(
+                        samples: depthSamples,
+                        imageWidth: width,
+                        imageHeight: height,
+                        gridStepPixels: step,
+                        minimumComponentCount: 8
+                    )
+        } else {
+            selectedSamples = depthSamples
+        }
+
+        var points: [SIMD3<Float>] = []
+        points.reserveCapacity(selectedSamples.count)
+
+        for sample in selectedSamples {
+            let depth = Float(sample.depthMeters)
+            let localX =
+                (Float(sample.x) - cx) * depth / fx
+            let localY =
+                -(Float(sample.y) - cy) * depth / fy
+            let cameraPoint = SIMD4<Float>(
+                localX,
+                localY,
+                -depth,
+                1
+            )
+            let world = frame.camera.transform * cameraPoint
+            if world.x.isFinite,
+               world.y.isFinite,
+               world.z.isFinite
+            {
+                points.append(
+                    SIMD3<Float>(
+                        world.x,
+                        world.y,
+                        world.z
+                    )
+                )
+            }
         }
 
         return points

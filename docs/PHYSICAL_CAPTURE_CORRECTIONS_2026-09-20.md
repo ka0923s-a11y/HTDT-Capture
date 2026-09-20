@@ -66,3 +66,53 @@ CI cannot establish camera/depth quality in the reported room. Before closing #8
 - long scans do not reintroduce the earlier memory/crash regression.
 
 If any physical case fails, retain the captured evidence and update #80 with the exact geometry badge, evidence counts, and failure state before further threshold changes.
+
+
+## Second physical-device pass — 19:48–19:49 JST
+
+The first correction (#81) improved the software authority but did **not** close the physical regression. The supplied second-pass screenshots establish the following current-device facts:
+
+- tracking remained normal;
+- direction coverage reached 100% and the guidance UI reported completion;
+- spatial observation was explicitly using scene depth;
+- the expanded HUD reported scene reconstruction enabled but no ARMesh anchors observed;
+- at least one evidence frame was already retained;
+- pressing **End** still transitioned to `failed` with a generic persistence failure while the visible stage text was stale at “Saving available mesh evidence”;
+- the derived shape badge still reported `Polygon` in a scene containing round/curved furniture.
+
+PR #82 therefore targets a narrower remaining failure surface.
+
+### Remaining end-scan race
+
+The #81 replay guard only handled a duplicate callback **after** the first RoomPlan descriptor had committed to actor state. The store actor can re-enter while awaiting its file-writer actor, so two identical completion callbacks can both observe a nil descriptor before either commit finishes.
+
+The correction adds a byte-identical atomic writer path. If the canonical target appears because another identical writer won the race, the second writer accepts it only when the existing bytes exactly match. Conflicting bytes remain a hard error. Payload declaration registration is likewise idempotent only for an exactly equal declaration.
+
+A successful mesh snapshot with zero anchors is now treated as mesh-unavailable and no empty mesh package is written. The existing real-depth fallback is used instead.
+
+Residual raw/processed RoomPlan write failures now replace the stale stage string with the actual failing stage before transitioning to `failed`.
+
+### Depth target isolation
+
+The prior derived-shape path projected most of the center camera crop into one object observation. On the physical scene, the round table, chair, floor, cabinet, and nearby objects can therefore contribute to one connected footprint and bias the fitter toward a polygon.
+
+PR #82 introduces a bounded image-grid connected-surface selector for the **derived object-shape path only**:
+
+- seed from the closest valid depth surface in a central window;
+- flood only through neighboring depth samples whose local depth discontinuity stays within an absolute/relative bound;
+- preserve smooth curved depth continuity;
+- reject disconnected background surfaces separated by a material depth jump;
+- fall back to the unsegmented valid samples when no sufficiently supported component exists.
+
+Whole-room spatial coverage is unchanged. This selector does not synthesize unseen geometry and is advisory only.
+
+### Added regression coverage
+
+PR #82 adds focused tests for:
+
+- byte-identical atomic replay versus conflicting overwrite;
+- concurrent identical RoomPlan raw/processed completion replay;
+- foreground/background depth separation;
+- smooth curved depth continuity.
+
+Physical acceptance remains required after CI passes.
