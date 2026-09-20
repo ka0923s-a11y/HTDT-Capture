@@ -31,6 +31,8 @@ private struct HTDTCaptureHostView: View {
             exportURL: coordinator.exportURL,
             annotationCoordinateSpaceID:
                 coordinator.annotationCoordinateSpaceID,
+            annotationEvidenceRefs:
+                coordinator.annotationEvidenceRefs,
             annotationAuthorityCommitted:
                 coordinator.annotationAuthorityCommitted,
             actions: CaptureRootActions(
@@ -61,6 +63,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set) var exportURL: URL?
     @Published private(set)
     var annotationAuthorityCommitted = false
+    @Published private(set)
+    var annotationEvidenceRefs: [String] = []
 
     private var stateMachine = CaptureStateMachine()
     private var sessionController = SharedARSessionController()
@@ -94,6 +98,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         exportURL = nil
         finalizedRevision = nil
         annotationAuthorityCommitted = false
+        annotationEvidenceRefs = []
         resourceMonitor?.stop()
         resourceMonitor = nil
 
@@ -381,6 +386,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         validationReport = nil
         exportURL = nil
         annotationAuthorityCommitted = false
+        annotationEvidenceRefs = []
         resourceMonitor?.stop()
         resourceMonitor = nil
         workingSetStatus =
@@ -687,6 +693,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         qualityReport = report
         let snapshot = await store.snapshot()
+        annotationEvidenceRefs = snapshot.evidenceFrameRefs
 
         if report.readyForHTDTIngestion {
             workingSetStatus =
