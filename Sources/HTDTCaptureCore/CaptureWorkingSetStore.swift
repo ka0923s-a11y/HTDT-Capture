@@ -6,6 +6,7 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     case processedRoomPlanRequiresRaw
     case processedRoomPlanLineageMismatch
     case invalidMeshPackage
+    case authorityMismatch
     case duplicatePayloadDeclaration(String)
 }
 
@@ -170,7 +171,7 @@ public actor CaptureWorkingSetStore {
             ),
             decoded == package.index
         else {
-            throw CaptureWorkingSetError.invalidMeshPackage
+            throw CaptureWorkingSetError.authorityMismatch
         }
 
         var filesByPath: [String: MeshEvidenceGeometryFile] = [:]
@@ -179,7 +180,7 @@ public actor CaptureWorkingSetStore {
                 filesByPath[file.path] == nil,
                 file.sha256 == EvidenceIntegrity.sha256(of: file.data)
             else {
-                throw CaptureWorkingSetError.invalidMeshPackage
+                throw CaptureWorkingSetError.authorityMismatch
             }
             filesByPath[file.path] = file
         }

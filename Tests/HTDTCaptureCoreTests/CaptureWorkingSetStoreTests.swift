@@ -77,6 +77,8 @@ final class CaptureWorkingSetStoreTests: XCTestCase {
             lineage.processed?.descriptor
         )
         XCTAssertEqual(snapshot.meshAnchorCount, 1)
+        XCTAssertEqual(snapshot.captureSessionIDs, [sessionID])
+        XCTAssertEqual(snapshot.coordinateSpaceIDs, [coordinateID])
         XCTAssertEqual(
             snapshot.payloadDeclarations.map(\.path),
             [
@@ -182,6 +184,60 @@ final class CaptureWorkingSetStoreTests: XCTestCase {
             XCTFail("expected invalid mesh package rejection")
         } catch let error as CaptureWorkingSetError {
             XCTAssertEqual(error, .invalidMeshPackage)
+        }
+    }
+}
+
+
+extension CaptureWorkingSetStoreTests {
+    func testRejectsMeshFromDifferentCoordinateAuthority() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let store = try CaptureWorkingSetStore(rootDirectory: root)
+        let sessionID = CaptureSessionID()
+        let roomCoordinateID = CoordinateSpaceID()
+        let raw = RoomPlanEvidenceArtifactBuilder.buildRaw(
+            data: Data("raw".utf8),
+            captureSessionID: sessionID,
+            coordinateSpaceID: roomCoordinateID,
+            runtime: CaptureRuntimeProvenance(
+                osVersion: "test",
+                appVersion: "test",
+                appBuild: "test"
+            )
+        )
+        try await store.persistRawRoomPlan(raw)
+
+        let geometry = try MeshGeometryPayload(
+            vertices: [
+                Float3(0, 0, 0),
+                Float3(1, 0, 0),
+                Float3(0, 1, 0),
+            ],
+            triangleIndices: [0, 1, 2]
+        )
+        let mesh = try MeshEvidencePackageBuilder.build(
+            snapshots: [
+                MeshAnchorSnapshot(
+                    anchorID: UUID(),
+                    captureSessionID: sessionID,
+                    coordinateSpaceID: CoordinateSpaceID(),
+                    worldFromAnchor: .identity,
+                    sessionTimestampSeconds: 1.0,
+                    geometry: geometry
+                ),
+            ]
+        )
+
+        do {
+            try await store.persistMeshPackage(mesh)
+            XCTFail("expected coordinate authority rejection")
+        } catch let error as CaptureWorkingSetError {
+            XCTAssertEqual(error, .authorityMismatch)
         }
     }
 }
