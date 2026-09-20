@@ -1326,7 +1326,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let prepared: (
             store: CaptureWorkingSetStore,
             identity: CaptureWorkingSetIdentity,
-            generation: UUID
+            generation: UUID,
+            rootDirectory: URL
         )
         do {
             prepared = try makeWorkingSet()
@@ -1375,6 +1376,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        guard state == .scanning,
+              captureGeneration == generation
+        else {
+            return
+        }
+
+        configureResourceMonitor(
+            store: store,
+            rootDirectory: prepared.rootDirectory,
+            generation: generation
+        )
         guard state == .scanning,
               captureGeneration == generation
         else {
@@ -1432,6 +1444,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        guard state == .scanning,
+              captureGeneration == generation
+        else {
+            return
+        }
+
         let foundation: CaptureSessionFoundationPackage
         do {
             foundation =
@@ -1454,6 +1472,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        guard state == .scanning,
+              captureGeneration == generation
+        else {
+            return
+        }
+
         do {
             captureStartTimingCorrelation =
                 try await waitForInitialTimingCorrelation()
@@ -1466,11 +1490,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        configureResourceMonitor(
-            store: store,
-            rootDirectory: await store.rootDirectory,
-            generation: generation
-        )
         guard state == .scanning,
               captureGeneration == generation
         else {
@@ -2860,7 +2879,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private func makeWorkingSet() throws -> (
         store: CaptureWorkingSetStore,
         identity: CaptureWorkingSetIdentity,
-        generation: UUID
+        generation: UUID,
+        rootDirectory: URL
     ) {
         guard let applicationSupport =
             FileManager.default.urls(
@@ -2892,7 +2912,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 rootDirectory: root
             ),
             identity: identity,
-            generation: UUID()
+            generation: UUID(),
+            rootDirectory: root
         )
     }
 
