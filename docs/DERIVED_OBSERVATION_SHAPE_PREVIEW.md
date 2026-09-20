@@ -317,3 +317,33 @@ component can independently enter the existing circle / ellipse / oriented
 rectangle / polygon fitter. The decomposition remains preview-only and does not
 promote a canonical object hierarchy.
 
+
+
+## Scene-depth fallback when ARMesh anchors are absent
+
+Physical testing showed that a RoomPlan scan may provide scene depth while the
+active shared ARSession exposes zero ARMesh anchors. The previous derived-shape
+path returned no observation in that case, so circle/ellipse fitting, support
+analysis, and 3D decomposition could never run even though depth evidence was
+available.
+
+The live preview now has a bounded scene-depth fallback:
+
+- sample `smoothedSceneDepth` when available, otherwise `sceneDepth`;
+- reject invalid/out-of-range and low-confidence samples;
+- unproject depth pixels with the exact ARFrame camera intrinsics and transform;
+- preserve world-Y for support/decomposition analysis;
+- cap the sampled point budget and apply deterministic 3D voxel reduction;
+- estimate only a preview floor reference from observed depth distribution when
+  classified mesh floor evidence is unavailable;
+- tag every fallback observation as `scene_depth`.
+
+For footprint fitting, dense scene-depth interior samples are reduced to a
+radial outer-boundary observation before circle/ellipse/rectangle/polygon
+selection. This is a derived-preview operation only. Raw scene depth remains
+canonical only through the existing persisted frame/depth evidence package.
+
+No semantic furniture label is inferred from depth. No unseen leg, chair curve,
+wall, or object completion is generated. If the depth evidence remains
+ambiguous, the existing unresolved/ambiguous states remain authoritative for
+the preview.
