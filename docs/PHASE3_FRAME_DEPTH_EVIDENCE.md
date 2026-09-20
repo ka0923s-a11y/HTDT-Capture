@@ -106,3 +106,25 @@ both packages into the same working revision.
 The default depth selection is discrete `sceneDepth`. Absence is represented
 by `FrameDepthStatus.unavailable`; no depth payload is fabricated and no
 capability-only assumption is promoted to evidence.
+
+
+## Manual evidence-frame capture during scanning
+
+The concrete host now exposes an explicit **Capture evidence frame** action while
+the RoomPlan scan is active.
+
+Each activation copies one exact current `ARFrame` through the existing
+`ARFrameArtifactAdapter` and persists the resulting
+`FrameEvidencePackage` into the same mutable working revision. The frame keeps
+the exact capture-session ID, coordinate-space ID, AR timestamp, camera pose,
+intrinsics, packed camera pixels, and discrete sceneDepth/confidence only when
+the selected frame actually provides them.
+
+The action is bounded to one in-flight persistence operation. Repeated taps do
+not create overlapping writes. The existing actor-backed no-overwrite store
+remains the persistence authority.
+
+Scan-end evidence remains separate: the host still captures one final exact
+ARFrame jointly with the final active mesh snapshot immediately before ending
+RoomPlan. Manual evidence frames therefore add context without replacing the
+scan-boundary evidence.
