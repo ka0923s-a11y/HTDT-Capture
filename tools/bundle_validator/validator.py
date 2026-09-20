@@ -12,6 +12,7 @@ import stat
 import sys
 import unicodedata
 from uuid import UUID
+from datetime import datetime
 import zipfile
 
 SCHEMA = "htdt.capture.bundle"
@@ -178,8 +179,20 @@ def validate_manifest_shape(manifest: dict) -> None:
 
     for field in ("created_at", "finalized_at"):
         value = manifest[field]
-        if not isinstance(value, str) or not value.endswith("Z") or "T" not in value:
+        if (
+            not isinstance(value, str)
+            or not re.fullmatch(
+                r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z",
+                value,
+            )
+        ):
             raise ValidationError(f"{field} must be UTC RFC3339 text ending in Z")
+        try:
+            datetime.fromisoformat(value[:-1] + "+00:00")
+        except ValueError as exc:
+            raise ValidationError(
+                f"{field} must be a valid UTC RFC3339 date-time"
+            ) from exc
 
     app = manifest["app"]
     if not isinstance(app, dict) or set(app) != {"name", "version", "build"}:
