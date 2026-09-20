@@ -1148,8 +1148,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             if decomposition.state != .unresolvedDecomposition {
                 objectProxies = Array(
                     decomposition.components.prefix(4).map {
-                        DerivedShapeProxyFitter.fit(
-                            observation: $0.observation
+                        let observation = $0.observation
+                        let fittingObservation:
+                            DerivedShapeObservation
+
+                        if observation.points.contains(where: {
+                            $0.evidenceKind == .sceneDepth
+                        }) {
+                            fittingObservation =
+                                DerivedShapeProxyFitter
+                                    .boundaryObservation(
+                                        from: observation
+                                    )
+                        } else {
+                            fittingObservation = observation
+                        }
+
+                        return DerivedShapeProxyFitter.fit(
+                            observation: fittingObservation
                         )
                     }
                 )
