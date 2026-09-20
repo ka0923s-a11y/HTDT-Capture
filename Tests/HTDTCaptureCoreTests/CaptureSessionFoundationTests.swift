@@ -338,6 +338,244 @@ extension CaptureSessionFoundationTests {
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
 
+    func testAcceptedEndCanRollbackForAdditionalScanningAndReEnd()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let context = CaptureSessionContext()
+        let foundation =
+            try CaptureSessionFoundationPackageBuilder.build(
+                context: context,
+                capabilities: CaptureCapabilityMatrix(
+                    roomPlanSupported: true,
+                    worldTrackingSupported: true,
+                    sceneReconstructionSupported: true,
+                    sceneDepthSupported: true
+                ),
+                configurationProfile:
+                    CaptureConfigurationProfile(
+                        captureMode: .roomPlanMesh,
+                        worldAlignment: "gravity",
+                        sceneReconstruction: "mesh"
+                    ),
+                startedAtUTC: "2026-09-20T18:00:00Z",
+                device: try CaptureDeviceDocument(
+                    osVersion: "iOS 20.0",
+                    hardwareModel: "iPhone99,1",
+                    appVersion: "0.1.0",
+                    appBuild: "1"
+                )
+            )
+        let store = try CaptureWorkingSetStore(
+            rootDirectory: root
+        )
+        try await store.persistSessionFoundation(foundation)
+
+        let frameID = EvidenceFrameID()
+        let pixel = Data([1, 2, 3, 4])
+        let frameDescriptor = try FrameEvidenceDescriptor(
+            frameID: frameID,
+            captureSessionID: context.captureSessionID,
+            coordinateSpaceID: context.coordinateSpaceID,
+            sessionTimestampSeconds: 2,
+            worldFromCamera: .identity,
+            intrinsics: try CameraIntrinsics3x3(
+                values: [
+                    1, 0, 0,
+                    0, 1, 0,
+                    0, 0, 1,
+                ]
+            ),
+            imageWidth: 1,
+            imageHeight: 1,
+            pixelFormatFourCC: 0,
+            pixelRelativePath:
+                "evidence/frames/"
+                + frameID.description
+                + ".pixelbin",
+            pixelByteCount: pixel.count,
+            pixelSHA256:
+                EvidenceIntegrity.sha256(of: pixel),
+            depthStatus: .unavailable
+        )
+        try await store.persistFramePackage(
+            try FrameEvidencePackageBuilder.build(
+                descriptor: frameDescriptor,
+                pixelPayload: pixel,
+                depthPayload: nil,
+                confidencePayload: nil
+            )
+        )
+
+        let timing1 = try CaptureTimingPackageBuilder.build(
+            start: try CaptureTimingCorrelation(
+                monotonicSeconds: 1,
+                utc: "2026-09-20T18:00:00Z",
+                method: "fixture"
+            ),
+            end: try CaptureTimingCorrelation(
+                monotonicSeconds: 8,
+                utc: "2026-09-20T18:00:07Z",
+                method: "fixture"
+            )
+        )
+        let raw1 = RoomPlanEvidenceArtifactBuilder.buildRaw(
+            data: Data(#"{"end":1}"#.utf8),
+            captureSessionID: context.captureSessionID,
+            coordinateSpaceID: context.coordinateSpaceID,
+            runtime: CaptureRuntimeProvenance(
+                osVersion: "iOS 20.0",
+                appVersion: "0.1.0",
+                appBuild: "1"
+            )
+        )
+        let lineage1 =
+            RoomPlanEvidenceArtifactBuilder.attachProcessed(
+                data: Data(#"{"processed":1}"#.utf8),
+                to: raw1
+            )
+        try await store.persistEndRoomPlanTransaction(
+            timingPackage: timing1,
+            roomPlanLineage: lineage1
+        )
+
+        let mesh1 = try MeshEvidencePackageBuilder.build(
+            snapshots: [
+                MeshAnchorSnapshot(
+                    anchorID: UUID(),
+                    captureSessionID: context.captureSessionID,
+                    coordinateSpaceID: context.coordinateSpaceID,
+                    worldFromAnchor: .identity,
+                    sessionTimestampSeconds: 7,
+                    geometry: try MeshGeometryPayload(
+                        vertices: [
+                            Float3(0, 0, 0),
+                            Float3(1, 0, 0),
+                            Float3(0, 1, 0),
+                        ],
+                        triangleIndices: [0, 1, 2]
+                    )
+                ),
+            ]
+        )
+        try await store.persistMeshPackage(mesh1)
+
+        try await store.rollbackAcceptedEndTransaction(
+            removeOwnedMesh: true
+        )
+
+        let reopened = await store.snapshot()
+        XCTAssertNil(reopened.rawRoomPlanDescriptor)
+        XCTAssertNil(reopened.processedRoomPlanDescriptor)
+        XCTAssertNil(reopened.meshAnchorCount)
+        XCTAssertEqual(reopened.evidenceFrameCount, 1)
+        XCTAssertTrue(
+            reopened.payloadDeclarations.contains {
+                $0.path == frameDescriptor.pixelRelativePath
+            }
+        )
+        XCTAssertFalse(
+            reopened.payloadDeclarations.contains {
+                $0.path == CaptureTimingPackage.path
+                    || $0.path
+                        == RoomPlanEvidenceArtifactBuilder.rawPath
+                    || $0.path
+                        == RoomPlanEvidenceArtifactBuilder.processedPath
+                    || $0.path == MeshEvidencePackage.indexPath
+                    || $0.path.hasPrefix("mesh/geometry/")
+            }
+        )
+
+        for path in [
+            CaptureTimingPackage.path,
+            RoomPlanEvidenceArtifactBuilder.rawPath,
+            RoomPlanEvidenceArtifactBuilder.processedPath,
+            MeshEvidencePackage.indexPath,
+        ] {
+            XCTAssertFalse(
+                FileManager.default.fileExists(
+                    atPath: root.appendingPathComponent(path).path
+                )
+            )
+        }
+
+        let timing2 = try CaptureTimingPackageBuilder.build(
+            start: try CaptureTimingCorrelation(
+                monotonicSeconds: 1,
+                utc: "2026-09-20T18:00:00Z",
+                method: "fixture"
+            ),
+            end: try CaptureTimingCorrelation(
+                monotonicSeconds: 14,
+                utc: "2026-09-20T18:00:13Z",
+                method: "fixture"
+            )
+        )
+        let raw2 = RoomPlanEvidenceArtifactBuilder.buildRaw(
+            data: Data(#"{"end":2}"#.utf8),
+            captureSessionID: context.captureSessionID,
+            coordinateSpaceID: context.coordinateSpaceID,
+            runtime: CaptureRuntimeProvenance(
+                osVersion: "iOS 20.0",
+                appVersion: "0.1.0",
+                appBuild: "1"
+            )
+        )
+        let lineage2 =
+            RoomPlanEvidenceArtifactBuilder.attachProcessed(
+                data: Data(#"{"processed":2}"#.utf8),
+                to: raw2
+            )
+        try await store.persistEndRoomPlanTransaction(
+            timingPackage: timing2,
+            roomPlanLineage: lineage2
+        )
+
+        let mesh2 = try MeshEvidencePackageBuilder.build(
+            snapshots: [
+                MeshAnchorSnapshot(
+                    anchorID: UUID(),
+                    captureSessionID: context.captureSessionID,
+                    coordinateSpaceID: context.coordinateSpaceID,
+                    worldFromAnchor: .identity,
+                    sessionTimestampSeconds: 13,
+                    geometry: try MeshGeometryPayload(
+                        vertices: [
+                            Float3(0, 0, 0),
+                            Float3(2, 0, 0),
+                            Float3(0, 2, 0),
+                        ],
+                        triangleIndices: [0, 1, 2]
+                    )
+                ),
+            ]
+        )
+        try await store.persistMeshPackage(mesh2)
+
+        let reended = await store.snapshot()
+        XCTAssertEqual(reended.rawRoomPlanDescriptor, raw2.descriptor)
+        XCTAssertEqual(
+            reended.processedRoomPlanDescriptor,
+            lineage2.processed?.descriptor
+        )
+        XCTAssertEqual(reended.meshAnchorCount, 1)
+        XCTAssertEqual(reended.evidenceFrameCount, 1)
+
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                minimumActiveMeshAnchors: 1,
+                minimumEvidenceFrames: 1
+            )
+        )
+        XCTAssertEqual(quality.integrityStatus, .pass)
+        XCTAssertTrue(quality.readyForHTDTIngestion)
+    }
+
     func testFoundationWithoutTimingFailsIntegrityPreflight()
         async throws
     {
