@@ -1028,6 +1028,20 @@ public enum DerivedShapeProxyFitter {
             )
         }
 
+        if hasCircleRectangleAmbiguity(candidates) {
+            return unresolvedProxy(
+                resolution: .ambiguousEvidence,
+                observation: observation,
+                candidates: candidates,
+                sample: sample
+            )
+        }
+
+        // Only apply the curved-shape preference after explicit
+        // circle-vs-rectangle ambiguity has been ruled out. This preserves
+        // fail-closed behavior for mixed / rounded-square evidence while
+        // still allowing a well-supported smooth primitive to beat an
+        // over-flexible polygon.
         if let curved = preferredCurvedCandidate(candidates) {
             return DerivedShapeProxy(
                 resolution: .resolved,
@@ -1038,15 +1052,6 @@ public enum DerivedShapeProxyFitter {
                     metrics: curved.metrics
                 ),
                 observationSample: sample
-            )
-        }
-
-        if hasCircleRectangleAmbiguity(candidates) {
-            return unresolvedProxy(
-                resolution: .ambiguousEvidence,
-                observation: observation,
-                candidates: candidates,
-                sample: sample
             )
         }
 
