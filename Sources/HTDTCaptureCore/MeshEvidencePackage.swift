@@ -107,17 +107,19 @@ public struct MeshEvidencePackage: Sendable, Equatable {
     public func persist(
         using writer: AtomicCaptureFileWriter
     ) async throws {
-        for file in geometryFiles {
-            try await writer.write(
-                file.data,
-                to: CaptureStorePath(file.path)
+        var requests = try geometryFiles.map {
+            try CaptureFileWriteRequest(
+                data: $0.data,
+                path: CaptureStorePath($0.path)
             )
         }
-
-        try await writer.write(
-            indexData,
-            to: CaptureStorePath(Self.indexPath)
+        requests.append(
+            try CaptureFileWriteRequest(
+                data: indexData,
+                path: CaptureStorePath(Self.indexPath)
+            )
         )
+        try await writer.writeBatchIfIdentical(requests)
     }
 }
 
