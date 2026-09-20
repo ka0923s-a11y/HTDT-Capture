@@ -456,6 +456,21 @@ public struct CaptureScanningView: View {
     }
 
     private var primaryDerivedShapeLabel: String {
+        if let support = derivedPreview.supportAnalysis {
+            switch support.resolution {
+            case .separatedSupports:
+                return String(
+                    format:
+                        String(localized: "%d observed supports"),
+                    support.supports.count
+                )
+            case .floatingBodyUnresolved:
+                return String(localized: "Lower support unresolved")
+            case .solidToFloor, .insufficientHeightEvidence:
+                break
+            }
+        }
+
         if let proxy = derivedPreview.objectProxies.first {
             guard let selected = proxy.selected else {
                 switch proxy.resolution {
