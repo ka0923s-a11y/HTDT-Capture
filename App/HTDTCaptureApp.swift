@@ -1745,10 +1745,38 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         scanEvidenceFrameCount = frameSnapshot.evidenceFrameCount
         scanDepthEvidenceCount = frameSnapshot.depthEvidenceCount
 
+        let timingPackage: CaptureTimingPackage
+        do {
+            guard let startTiming = captureStartTimingCorrelation else {
+                throw CaptureSessionMetadataError
+                    .invalidCorrelationOrder
+            }
+            let endTiming =
+                try sessionController.snapshotTimingCorrelation()
+            timingPackage =
+                try CaptureTimingPackageBuilder.build(
+                    start: startTiming,
+                    end: endTiming
+                )
+        } catch {
+            workingSetStatus =
+                HostLocalization.text(
+                    "End timing could not be prepared; this scan is still active",
+                    "終了時刻を準備できなかったため終了していません。現在のスキャンは継続中です"
+                )
+            endScanGuidance = HostLocalization.text(
+                "This scan is still active. Hold the phone steady until tracking is normal, then try End again.",
+                "このキャプチャはまだ継続中です。トラッキングが正常になるまで iPhone を静止してから、もう一度「終了」を押してください。"
+            )
+            endScanPreflightBlocked = true
+            return
+        }
+
         // Mesh is optional because retained frame/depth evidence is the
-        // bounded geometry fallback. Persist it before stopping RoomPlan so
-        // its full decoded + encoded payload does not stay resident while
-        // CapturedRoomData / RoomBuilder allocate their final result.
+        // bounded geometry fallback. Commit it only after every recoverable
+        // pre-stop timing check has succeeded, then release its large payload
+        // before RoomPlan allocates the final CapturedRoomData/RoomBuilder
+        // result.
         var meshSnapshotUnavailable =
             prepared.meshSnapshotUnavailable
         if let meshPackage = prepared.meshPackage {
@@ -1774,33 +1802,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard captureGeneration == generation,
               state == .scanning
         else {
-            return
-        }
-
-        let timingPackage: CaptureTimingPackage
-        do {
-            guard let startTiming = captureStartTimingCorrelation else {
-                throw CaptureSessionMetadataError
-                    .invalidCorrelationOrder
-            }
-            let endTiming =
-                try sessionController.snapshotTimingCorrelation()
-            timingPackage =
-                try CaptureTimingPackageBuilder.build(
-                    start: startTiming,
-                    end: endTiming
-                )
-        } catch {
-            workingSetStatus =
-                HostLocalization.text(
-                    "End timing could not be prepared; this scan is still active",
-                    "終了時刻を準備できなかったため終了していません。現在のスキャンは継続中です"
-                )
-            endScanGuidance = HostLocalization.text(
-                "This scan is still active. Hold the phone steady until tracking is normal, then try End again.",
-                "このキャプチャはまだ継続中です。トラッキングが正常になるまで iPhone を静止してから、もう一度「終了」を押してください。"
-            )
-            endScanPreflightBlocked = true
             return
         }
 
