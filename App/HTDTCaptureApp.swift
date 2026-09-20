@@ -899,15 +899,56 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
+            if ProcessInfo.processInfo.thermalState == .critical {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .thermalPressure,
+                        severity: .warning,
+                        detail:
+                            "finalization deferred because thermal state is still critical after accepted End"
+                    )
+                )
+                guard self.captureGeneration == generation,
+                      self.state == .reviewing
+                else {
+                    return
+                }
+                self.spatialAuthoritySealedForFinalization = true
+                self.sessionController.stopAndPauseARSession()
+                self.resourceMonitor?.stop()
+                await self.refreshQuality(
+                    store: store,
+                    generation: generation
+                )
+                self.reviewOperationInFlight = false
+                self.workingSetStatus = HostLocalization.text(
+                    "Finalization is deferred while the device is critically hot. Let it cool, then retry.",
+                    "端末温度が危険な間は確定を延期します。端末を冷ましてから再試行してください。"
+                )
+                return
+            }
+
             // Final storage sampling is part of the quality authority, not a
-            // fire-and-forget side channel. Record it first, then recompute
-            // quality so the payload promoted into the immutable revision is
-            // exactly the one that observed the last storage condition.
+            // fire-and-forget side channel. A critical result after accepted
+            // End is transient: retain Review, seal spatial continuation, and
+            // retry finalization after storage recovers.
             if let assessment =
                 self.resourceMonitor?.currentStorageAssessment()
             {
+                let eventToRecord: CaptureResourceEvent
+                if assessment.failure == .storagePressure {
+                    eventToRecord = CaptureResourceEvent(
+                        kind: .storagePressure,
+                        severity: .warning,
+                        detail:
+                            "finalization deferred because available storage is below the critical threshold after accepted End"
+                    )
+                } else {
+                    eventToRecord = assessment.event
+                }
+
                 await store.recordResourceEvent(
-                    assessment.event
+                    eventToRecord
                 )
 
                 guard self.captureGeneration == generation,
@@ -916,8 +957,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
 
-                if let failure = assessment.failure {
-                    self.fail(failure)
+                if assessment.failure == .storagePressure {
+                    self.spatialAuthoritySealedForFinalization = true
+                    self.sessionController.stopAndPauseARSession()
+                    self.resourceMonitor?.stop()
+                    await self.refreshQuality(
+                        store: store,
+                        generation: generation
+                    )
+                    self.reviewOperationInFlight = false
+                    self.workingSetStatus = HostLocalization.text(
+                        "Finalization is deferred because storage is critically low. Free storage, then retry.",
+                        "空き容量が危険域のため確定を延期します。空き容量を増やしてから再試行してください。"
+                    )
                     return
                 }
 
@@ -2686,25 +2738,45 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
             var eventToRecord = event
             var failureToApply = failure
-            var sealedReviewInterruption = false
+            var sealedReviewResourceCondition = false
 
-            if failure == .interrupted,
+            if let failure,
+               (
+                   failure == .interrupted
+                   || failure == .thermalPressure
+                   || failure == .storagePressure
+               ),
                self.state == .reviewing,
                !self.reviewOperationInFlight,
                self.acceptedRoomPlanRawSHA256 != nil,
                !self.spatialAuthoritySealedForFinalization
             {
-                // The accepted Review artifacts are already durable.
-                // Backgrounding invalidates only future spatial continuation,
-                // not the evidence that was accepted before the interruption.
-                eventToRecord = CaptureResourceEvent(
-                    kind: .interruption,
-                    severity: .warning,
-                    detail:
+                // Accepted Review artifacts are already durable. A transient
+                // resource/lifecycle condition invalidates only future live
+                // spatial continuation; it must not retroactively discard
+                // the evidence accepted before that condition.
+                let detail: String
+                switch failure {
+                case .interrupted:
+                    detail =
                         "application entered background after accepted End; spatial continuation was sealed but persisted Review evidence remains finalizable"
+                case .thermalPressure:
+                    detail =
+                        "critical thermal pressure occurred after accepted End; spatial continuation was sealed and finalization is deferred until the device cools"
+                case .storagePressure:
+                    detail =
+                        "critical storage pressure occurred after accepted End; spatial continuation was sealed and finalization is deferred until storage recovers"
+                default:
+                    detail = event.detail
+                }
+
+                eventToRecord = CaptureResourceEvent(
+                    kind: event.kind,
+                    severity: .warning,
+                    detail: detail
                 )
                 failureToApply = nil
-                sealedReviewInterruption = true
+                sealedReviewResourceCondition = true
                 self.spatialAuthoritySealedForFinalization = true
                 self.scanCoverageTask?.cancel()
                 self.scanCoverageTask = nil
@@ -2732,13 +2804,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         store: store,
                         generation: generation
                     )
-                    if sealedReviewInterruption,
+                    if sealedReviewResourceCondition,
                        self.state == .reviewing
                     {
                         self.workingSetStatus =
                             HostLocalization.text(
-                                "Review retained after backgrounding; additional scanning/annotation is disabled, but the accepted capture can still be finalized",
-                                "バックグラウンド移行後も確認データを保持しました。追加スキャン／注釈は無効ですが、受理済みキャプチャはそのまま確定できます"
+                                "Review retained; additional scanning/annotation is sealed by the current resource/lifecycle condition, while accepted evidence remains available for finalization or retry",
+                                "確認データを保持しました。現在のリソース／ライフサイクル状態により追加スキャン／注釈は封印されていますが、受理済み証拠は確定または再試行に利用できます"
                             )
                     }
                 }
