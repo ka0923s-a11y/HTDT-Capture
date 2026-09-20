@@ -519,22 +519,36 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard state == .scanning, !isEndingScan else {
             return
         }
+
+        let generation = captureGeneration
         isEndingScan = true
 
         Task { @MainActor [weak self] in
-            guard let self else {
+            guard let self,
+                  self.captureGeneration == generation
+            else {
                 return
             }
 
-            guard let prepared = await self.prepareEndScan(),
-                  self.state == .scanning
+            guard let prepared =
+                    await self.prepareEndScan(
+                        generation: generation
+                    ),
+                  self.captureGeneration == generation,
+                  self.state == .scanning,
+                  self.isEndingScan
             else {
-                self.isEndingScan = false
+                if self.captureGeneration == generation {
+                    self.isEndingScan = false
+                }
                 return
             }
 
             self.endScanGuidance = nil
-            await self.endScanForReview(prepared)
+            await self.endScanForReview(
+                prepared,
+                generation: generation
+            )
         }
     }
 
@@ -1604,11 +1618,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let meshSnapshotUnavailable: Bool
     }
 
-    private func prepareEndScan() async -> PreparedEndScanAttempt? {
+    private func prepareEndScan(
+        generation: UUID
+    ) async -> PreparedEndScanAttempt? {
+        guard captureGeneration == generation,
+              state == .scanning,
+              isEndingScan
+        else {
+            return nil
+        }
+
         endScanPreflightBlocked = false
         var succeeded = false
         defer {
-            endScanPreflightBlocked = !succeeded
+            if captureGeneration == generation,
+               state == .scanning
+            {
+                endScanPreflightBlocked = !succeeded
+            }
         }
 
         guard let store = workingSetStore else {
@@ -1628,6 +1655,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         let snapshot = await store.snapshot()
+        guard captureGeneration == generation,
+              state == .scanning,
+              isEndingScan
+        else {
+            return nil
+        }
+
         do {
             let values = try snapshot.rootDirectory.resourceValues(
                 forKeys: [.volumeAvailableCapacityForImportantUsageKey]
@@ -1767,7 +1801,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private func endScanForReview(
-        _ prepared: PreparedEndScanAttempt
+        _ prepared: PreparedEndScanAttempt,
+        generation: UUID
     ) async {
         var handedOffToRoomPlanCompletion = false
         defer {
@@ -1776,17 +1811,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
         }
 
-        guard let store = workingSetStore else {
-            workingSetStatus = HostLocalization.text(
-                "Capture working set is unavailable",
-                "キャプチャ作業データを利用できません"
-            )
-            fail(.persistenceFailure)
-            return
-        }
-
-        let generation = captureGeneration
-        guard state == .scanning else {
+        guard captureGeneration == generation,
+              state == .scanning,
+              isEndingScan,
+              let store = workingSetStore
+        else {
             return
         }
 
