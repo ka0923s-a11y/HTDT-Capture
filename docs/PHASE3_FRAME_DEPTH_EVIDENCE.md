@@ -65,10 +65,13 @@ Unexpected planar layout, inadequate row stride, unsupported depth/confidence pi
 - confirm capturedImage pixel formats encountered in each capture mode;
 - confirm exact sceneDepth availability during RoomPlan and after same-session RoomPlan stop;
 - verify pose/intrinsics/depth correspond to the expected frame in captured fixtures;
-- characterize depth accuracy by range/confidence under Issue #9;
-- add optional derived HEIC preview only after canonical capture is proven.
+- characterize depth accuracy by range/confidence under Issue #9.
 
-Issue #4 remains open until these are demonstrated.
+The optional derived HEIC preview is implemented as a best-effort
+`capture_app_derived` artifact and never replaces canonical `HTDTPXL1`
+evidence.
+
+Issue #4 remains open only for the physical-device observations above.
 
 
 ## Live working-set package
