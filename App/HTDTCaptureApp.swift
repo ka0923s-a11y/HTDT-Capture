@@ -130,6 +130,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var isCapturingEvidenceFrame = false
     private var captureStartTimingCorrelation:
         CaptureTimingCorrelation?
+    private var acceptedRoomPlanRawSHA256: EvidenceSHA256?
     private var scanCoverageTracker =
         AdvisoryScanCoverageTracker()
     private var observationStabilityTracker =
@@ -233,6 +234,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
         captureStartTimingCorrelation = nil
+        acceptedRoomPlanRawSHA256 = nil
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
         scanCoverageTracker = AdvisoryScanCoverageTracker()
@@ -713,6 +715,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
         captureStartTimingCorrelation = nil
+        acceptedRoomPlanRawSHA256 = nil
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
         scanCoverageTracker = AdvisoryScanCoverageTracker()
@@ -1207,6 +1210,22 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             fail(.persistenceFailure)
             return
         }
+
+        if let accepted = acceptedRoomPlanRawSHA256 {
+            if accepted == raw.descriptor.sha256 {
+                // RoomCaptureView may replay the same final callback around
+                // stop/review. One canonical processing pipeline is enough.
+                return
+            }
+
+            workingSetStatus = HostLocalization.text(
+                "Conflicting RoomPlan completion data was received",
+                "異なる RoomPlan 完了データが重複して届きました"
+            )
+            fail(.roomPlanFailure)
+            return
+        }
+        acceptedRoomPlanRawSHA256 = raw.descriptor.sha256
 
         workingSetStatus = HostLocalization.text(
             "Persisting raw RoomPlan evidence",
