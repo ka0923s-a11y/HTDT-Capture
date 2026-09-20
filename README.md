@@ -14,7 +14,12 @@ The iOS host now drives a concrete one-scan capture path through:
 
 ```text
 capability + permission gates
-  -> shared RoomPlan / ARSession capture
+  -> scanner-first live RoomPlan / shared ARSession capture
+       -> rear-camera view + RoomPlan structural overlays/coaching
+       -> RoomPlan miniature model
+       -> advisory 12-direction × 3-height coverage HUD
+       -> end-scan gap review with continue/end choice
+  -> shared RoomPlan / ARSession evidence capture
   -> one exact scan-end ARFrame
        -> final active ARMeshAnchor snapshot
        -> packed camera evidence
@@ -31,6 +36,12 @@ capability + permission gates
 Annotation and measurement collections also have deterministic working-set
 persistence and feed the quality completeness authority.
 
+The live scanner is intentionally explicit about authority: its directional
+coverage and gap prompts are operator guidance only. They are not persisted as
+measurement truth and do not silently become finalization or ingestion gates.
+Terminal/background interruptions fail closed and require a fresh capture
+authority rather than pretending AR coordinate continuity.
+
 The repository includes an unsigned IPA build workflow, and the software paths
 above are compiled/tested in GitHub Actions. **Physical-device success is not
 implied by CI.** Real LiDAR RoomPlan/ARMesh/frame/depth behavior, spatial
@@ -44,6 +55,7 @@ The implementation baseline is documented in:
 
 - [Detailed implementation plan](docs/IMPLEMENTATION_PLAN.md)
 - [iOS host capture workflow](docs/HOST_CAPTURE_WORKFLOW.md)
+- [Guided scanning UX plan](docs/GUIDED_SCANNING_UX_PLAN.md)
 - [Phase 2 live working-set persistence](docs/PHASE2_LIVE_WORKING_SET_PERSISTENCE.md)
 - [Phase 3 frame/depth evidence](docs/PHASE3_FRAME_DEPTH_EVIDENCE.md)
 - [Phase 4 working-set authorities](docs/PHASE4_WORKING_SET_AUTHORITIES.md)
