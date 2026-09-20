@@ -145,3 +145,34 @@ The following remain implementation and/or physical-device gates:
 - physical accuracy benchmark under Issue #9.
 
 No capability or accuracy claim is promoted from a successful CI build.
+
+
+## End-scan evidence failure domains
+
+Physical testing showed that the former scan-end path placed frame/depth capture,
+mesh snapshot conversion, timing preparation, and persistence into one generic
+failure domain. Any mesh snapshot/conversion error was therefore surfaced as
+`persistence_failure`, even when the current ARFrame and scene-depth evidence
+could still be retained.
+
+The corrected scan-end sequence separates those authorities:
+
+1. capture the selected ARFrame/depth evidence;
+2. capture end timing correlation;
+3. attempt the active mesh snapshot independently;
+4. stop RoomPlan while preserving the shared ARSession;
+5. persist timing;
+6. persist the selected frame/depth package;
+7. persist the mesh package only when the mesh snapshot/build is available.
+
+A genuinely empty active-mesh set is represented by the valid empty
+`mesh/anchors.json` package. A mesh snapshot conversion failure does not erase
+already valid frame/depth evidence; review can continue and the quality gate
+remains responsible for declaring missing normative evidence.
+
+Actual writer/package persistence errors still fail closed. The working status
+now names the stage that failed so a physical-device defect can distinguish
+timing, frame/depth, and mesh persistence.
+
+This does **not** relax finalization authority. Retaining partial valid evidence
+for review is different from declaring the capture ready for HTDT ingestion.
