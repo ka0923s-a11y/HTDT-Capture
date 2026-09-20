@@ -146,20 +146,29 @@ public struct FrameEvidencePackage: Sendable, Equatable {
     public func persistCanonical(
         using writer: AtomicCaptureFileWriter
     ) async throws {
-        // End-of-scan persistence may be replayed after a partial write or
-        // actor reentrancy. Canonical evidence may therefore reuse an
-        // existing path only when the bytes are exactly identical.
-        try await writer.writeIfIdentical(
-            pixelPayload,
-            to: CaptureStorePath(descriptor.pixelRelativePath)
-        )
+        // Persist the canonical frame as one writer-actor transaction. A
+        // filesystem failure must not leave a newly-created subset behind,
+        // while byte-identical files from an earlier interrupted attempt may
+        // be reused safely.
+        var requests: [CaptureFileWriteRequest] = [
+            try CaptureFileWriteRequest(
+                data: pixelPayload,
+                path: CaptureStorePath(
+                    descriptor.pixelRelativePath
+                )
+            ),
+        ]
 
         if let depth = descriptor.depth,
            let depthPayload
         {
-            try await writer.writeIfIdentical(
-                depthPayload,
-                to: CaptureStorePath(depth.depthRelativePath)
+            requests.append(
+                try CaptureFileWriteRequest(
+                    data: depthPayload,
+                    path: CaptureStorePath(
+                        depth.depthRelativePath
+                    )
+                )
             )
         }
 
@@ -167,16 +176,22 @@ public struct FrameEvidencePackage: Sendable, Equatable {
             descriptor.depth?.confidenceRelativePath,
            let confidencePayload
         {
-            try await writer.writeIfIdentical(
-                confidencePayload,
-                to: CaptureStorePath(confidencePath)
+            requests.append(
+                try CaptureFileWriteRequest(
+                    data: confidencePayload,
+                    path: CaptureStorePath(confidencePath)
+                )
             )
         }
 
-        try await writer.writeIfIdentical(
-            descriptorData,
-            to: CaptureStorePath(descriptorPath)
+        requests.append(
+            try CaptureFileWriteRequest(
+                data: descriptorData,
+                path: CaptureStorePath(descriptorPath)
+            )
         )
+
+        try await writer.writeBatchIfIdentical(requests)
     }
 
     public func persistPreview(
