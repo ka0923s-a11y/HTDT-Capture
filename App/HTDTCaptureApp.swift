@@ -1484,8 +1484,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            let raw: RoomPlanRawArtifactPayload?
-            let rawSerializationDiagnostic: String?
+            let raw: RoomPlanRawArtifactPayload
             do {
                 raw = try RoomPlanArtifactProcessor.encodeRaw(
                     data,
@@ -1493,55 +1492,29 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     coordinateSpaceID: coordinateSpaceID,
                     runtime: runtime
                 )
-                rawSerializationDiagnostic = nil
-            } catch {
-                raw = nil
-                rawSerializationDiagnostic =
-                    RoomPlanArtifactEncoder.diagnosticToken(error)
-
-                await store.recordResourceEvent(
-                    CaptureResourceEvent(
-                        kind:
-                            .roomPlanRawSerializationUnavailable,
-                        severity: .warning,
-                        detail:
-                            "Apple CapturedRoomData raw serialization unavailable; processing the in-memory completion directly: "
-                            + (rawSerializationDiagnostic
-                                ?? "encoding_failed")
-                    )
-                )
-            }
-
-            let processed: RoomPlanProcessedArtifactPayload
-            do {
-                if let raw {
-                    let lineage =
-                        try await RoomPlanArtifactProcessor
-                            .deriveProcessed(
-                                from: data,
-                                rawArtifact: raw
-                            )
-                    guard let value = lineage.processed else {
-                        throw CaptureWorkingSetError
-                            .invalidProcessedRoomPlanDescriptor
-                    }
-                    processed = value
-                } else {
-                    processed =
-                        try await RoomPlanArtifactProcessor
-                            .deriveProcessedWithoutRaw(
-                                from: data,
-                                captureSessionID: captureSessionID,
-                                coordinateSpaceID: coordinateSpaceID,
-                                runtime: runtime
-                            )
-                }
             } catch {
                 await self.recoverRoomPlanEndAttempt(
                     diagnostic:
-                        "roomplan_processing_"
+                        "roomplan_raw_"
                         + RoomPlanArtifactEncoder
                             .diagnosticToken(error),
+                    store: store,
+                    generation: generation
+                )
+                return
+            }
+
+            let lineage: RoomPlanArtifactLineage
+            do {
+                lineage =
+                    try await RoomPlanArtifactProcessor
+                        .deriveProcessed(
+                            from: data,
+                            rawArtifact: raw
+                        )
+            } catch {
+                await self.recoverRoomPlanEndAttempt(
+                    diagnostic: "roomplan_processing_failed",
                     store: store,
                     generation: generation
                 )
@@ -1551,8 +1524,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             do {
                 try await store.persistEndRoomPlanTransaction(
                     timingPackage: pending.timingPackage,
-                    rawRoomPlan: raw,
-                    processedRoomPlan: processed
+                    roomPlanLineage: lineage
                 )
             } catch {
                 await self.recoverRoomPlanEndAttempt(
@@ -1594,11 +1566,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
             }
 
-            await self.refreshQuality(
-                store: store,
-                generation: generation
-            )
-
             guard self.captureGeneration == generation,
                   self.state == .scanning,
                   self.pendingEndAttempt?.id == pending.id
@@ -1607,7 +1574,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             self.acceptedRoomPlanRawSHA256 =
-                raw?.descriptor.sha256
+                raw.descriptor.sha256
             self.pendingEndAttempt = nil
             self.roomPlanCompletionInFlight = false
             self.endScanPreflightBlocked = false
@@ -1623,22 +1590,23 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
+            await self.refreshQuality(
+                store: store,
+                generation: generation
+            )
+
+            guard self.captureGeneration == generation,
+                  self.state == .reviewing
+            else {
+                return
+            }
+
             self.isEndingScan = false
             if meshSnapshotUnavailable {
                 self.workingSetStatus = HostLocalization.text(
                     "Reviewing; frame/depth evidence was retained, but the mesh snapshot was unavailable",
                     "確認中：フレーム／深度証拠は保存しましたが、メッシュスナップショットは取得できませんでした"
                 )
-            } else if raw == nil {
-                self.workingSetStatus =
-                    HostLocalization.text(
-                        "Reviewing; processed RoomPlan and depth evidence were retained. Apple raw RoomPlan serialization was unavailable.",
-                        "確認中：処理済み RoomPlan と深度証拠は保持しました。Apple の RoomPlan 生データシリアライズのみ利用できませんでした。"
-                    )
-                    + " ["
-                    + (rawSerializationDiagnostic
-                        ?? "encoding_failed")
-                    + "]"
             } else {
                 self.workingSetStatus = HostLocalization.text(
                     "Reviewing; required end evidence and RoomPlan result were saved",
