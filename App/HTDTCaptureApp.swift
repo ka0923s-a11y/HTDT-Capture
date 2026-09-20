@@ -2684,13 +2684,42 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
+            var eventToRecord = event
+            var failureToApply = failure
+            var sealedReviewInterruption = false
+
+            if failure == .interrupted,
+               self.state == .reviewing,
+               !self.reviewOperationInFlight,
+               self.acceptedRoomPlanRawSHA256 != nil,
+               !self.spatialAuthoritySealedForFinalization
+            {
+                // The accepted Review artifacts are already durable.
+                // Backgrounding invalidates only future spatial continuation,
+                // not the evidence that was accepted before the interruption.
+                eventToRecord = CaptureResourceEvent(
+                    kind: .interruption,
+                    severity: .warning,
+                    detail:
+                        "application entered background after accepted End; spatial continuation was sealed but persisted Review evidence remains finalizable"
+                )
+                failureToApply = nil
+                sealedReviewInterruption = true
+                self.spatialAuthoritySealedForFinalization = true
+                self.scanCoverageTask?.cancel()
+                self.scanCoverageTask = nil
+                self.sessionController.stopAndPauseARSession()
+                self.resourceMonitor?.stop()
+                self.endScanGuidance = nil
+            }
+
             // Keep resource provenance ordered. Finalization can await this
             // chain before it freezes quality authority, and reset can drain
             // it before deleting an incomplete working set.
             let predecessor = self.resourceEventTask
             let task = Task { @MainActor [weak self] in
                 await predecessor?.value
-                await store.recordResourceEvent(event)
+                await store.recordResourceEvent(eventToRecord)
 
                 guard let self,
                       self.captureGeneration == generation
@@ -2703,16 +2732,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         store: store,
                         generation: generation
                     )
+                    if sealedReviewInterruption,
+                       self.state == .reviewing
+                    {
+                        self.workingSetStatus =
+                            HostLocalization.text(
+                                "Review retained after backgrounding; additional scanning/annotation is disabled, but the accepted capture can still be finalized",
+                                "バックグラウンド移行後も確認データを保持しました。追加スキャン／注釈は無効ですが、受理済みキャプチャはそのまま確定できます"
+                            )
+                    }
                 }
             }
             self.resourceEventTask = task
 
-            if let failure,
+            if let failureToApply,
                self.state != .failed,
                self.state != .finalized,
                self.state != .exported
             {
-                self.fail(failure)
+                self.fail(failureToApply)
             }
         }
 
