@@ -11,7 +11,7 @@ public enum ScanCoveragePitchBand:
     case high = 2
 }
 
-public struct ScanCoverageSample: Sendable, Equatable {
+public struct ScanCoverageSample: Sendable {
     public let sessionTimestampSeconds: Double
     public let yawRadians: Double
     public let pitchRadians: Double
@@ -52,7 +52,7 @@ public struct ScanCoverageGap: Sendable, Equatable {
     }
 }
 
-public struct ScanCoverageSummary: Sendable, Equatable {
+public struct ScanCoverageSummary: Sendable {
     public let sectorCount: Int
     public let minimumSamplesPerCell: Int
     public let cellSampleCounts: [Int]
@@ -190,7 +190,7 @@ public struct ScanCoverageSummary: Sendable, Equatable {
     }
 }
 
-public struct AdvisoryScanCoverageTracker: Sendable, Equatable {
+public struct AdvisoryScanCoverageTracker: Sendable {
     public let sectorCount: Int
     public let minimumSamplesPerCell: Int
 
