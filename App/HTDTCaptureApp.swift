@@ -1290,8 +1290,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     private struct PendingEndScanAttempt {
         let id: UUID
-        let prepared: PreparedEndScanAttempt
         let timingPackage: CaptureTimingPackage
+        let meshSnapshotUnavailable: Bool
     }
 
     private func prepareEndScan() async -> PreparedEndScanAttempt? {
@@ -1567,6 +1567,38 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         scanEvidenceFrameCount = frameSnapshot.evidenceFrameCount
         scanDepthEvidenceCount = frameSnapshot.depthEvidenceCount
 
+        // Mesh is optional because retained frame/depth evidence is the
+        // bounded geometry fallback. Persist it before stopping RoomPlan so
+        // its full decoded + encoded payload does not stay resident while
+        // CapturedRoomData / RoomBuilder allocate their final result.
+        var meshSnapshotUnavailable =
+            prepared.meshSnapshotUnavailable
+        if let meshPackage = prepared.meshPackage {
+            workingSetStatus = HostLocalization.text(
+                "Saving available mesh evidence before ending",
+                "終了前に利用可能なメッシュ証拠を保存中"
+            )
+            do {
+                try await store.persistMeshPackage(meshPackage)
+            } catch {
+                meshSnapshotUnavailable = true
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "Optional pre-stop mesh persistence failed; retained frame/depth evidence will be used as the bounded geometry fallback."
+                    )
+                )
+            }
+        }
+
+        guard captureGeneration == generation,
+              state == .scanning
+        else {
+            return
+        }
+
         let timingPackage: CaptureTimingPackage
         do {
             guard let startTiming = captureStartTimingCorrelation else {
@@ -1606,8 +1638,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         let attempt = PendingEndScanAttempt(
             id: UUID(),
-            prepared: prepared,
-            timingPackage: timingPackage
+            timingPackage: timingPackage,
+            meshSnapshotUnavailable: meshSnapshotUnavailable
         )
         pendingEndAttempt = attempt
         roomPlanCompletionInFlight = false
@@ -1785,27 +1817,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            var meshSnapshotUnavailable =
-                pending.prepared.meshSnapshotUnavailable
-            if let meshPackage = pending.prepared.meshPackage {
-                self.workingSetStatus = HostLocalization.text(
-                    "Saving available mesh evidence",
-                    "利用可能なメッシュ証拠を保存中"
-                )
-                do {
-                    try await store.persistMeshPackage(meshPackage)
-                } catch {
-                    meshSnapshotUnavailable = true
-                    await store.recordResourceEvent(
-                        CaptureResourceEvent(
-                            kind: .persistenceFailure,
-                            severity: .warning,
-                            detail:
-                                "Optional end-scan mesh persistence failed; retained frame/depth evidence will be used as the bounded geometry fallback."
-                        )
-                    )
-                }
-            }
+            let meshSnapshotUnavailable =
+                pending.meshSnapshotUnavailable
 
             guard self.captureGeneration == generation,
                   self.state == .scanning,
