@@ -137,7 +137,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var endScanPreflightBlocked = false
     private var captureStartTimingCorrelation:
         CaptureTimingCorrelation?
-    private var acceptedRoomPlanRawSHA256: EvidenceSHA256?
+    private var roomPlanCompletionAccepted = false
     private var scanCoverageTracker =
         AdvisoryScanCoverageTracker()
     private var observationStabilityTracker =
@@ -241,7 +241,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
         captureStartTimingCorrelation = nil
-        acceptedRoomPlanRawSHA256 = nil
+        roomPlanCompletionAccepted = false
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
         scanCoverageTracker = AdvisoryScanCoverageTracker()
@@ -745,7 +745,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
         captureStartTimingCorrelation = nil
-        acceptedRoomPlanRawSHA256 = nil
+        roomPlanCompletionAccepted = false
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
         scanCoverageTracker = AdvisoryScanCoverageTracker()
@@ -1559,7 +1559,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         coordinateSpaceID: CoordinateSpaceID,
         runtime: CaptureRuntimeProvenance
     ) {
-        let raw: RoomPlanRawArtifactPayload
+        // RoomCaptureView can replay completion callbacks around stop().
+        // Coalesce the callback itself, not its serialization result: Apple's
+        // opaque CapturedRoomData has a documented Encodable API but can
+        // reject serialization for otherwise processable scan results.
+        guard !roomPlanCompletionAccepted else {
+            return
+        }
+        roomPlanCompletionAccepted = true
+
+        let raw: RoomPlanRawArtifactPayload?
+        let rawEncodingDiagnostic: String?
         do {
             raw = try RoomPlanArtifactProcessor.encodeRaw(
                 data,
@@ -1567,35 +1577,23 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 coordinateSpaceID: coordinateSpaceID,
                 runtime: runtime
             )
+            rawEncodingDiagnostic = nil
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "Raw RoomPlan evidence could not be encoded",
-                "RoomPlan の生データをエンコードできませんでした"
-            )
-            fail(.persistenceFailure)
-            return
+            raw = nil
+            rawEncodingDiagnostic =
+                Self.roomPlanSerializationDiagnostic(error)
         }
 
-        if let accepted = acceptedRoomPlanRawSHA256 {
-            if accepted == raw.descriptor.sha256 {
-                // RoomCaptureView may replay the same final callback around
-                // stop/review. One canonical processing pipeline is enough.
-                return
-            }
-
-            workingSetStatus = HostLocalization.text(
-                "Conflicting RoomPlan completion data was received",
-                "異なる RoomPlan 完了データが重複して届きました"
+        workingSetStatus =
+            raw == nil
+            ? HostLocalization.text(
+                "RoomPlan raw serialization is unavailable; processing the scan result directly",
+                "RoomPlan 生データのシリアライズは利用できません。スキャン結果を直接処理中です"
             )
-            fail(.roomPlanFailure)
-            return
-        }
-        acceptedRoomPlanRawSHA256 = raw.descriptor.sha256
-
-        workingSetStatus = HostLocalization.text(
-            "Persisting raw RoomPlan evidence",
-            "RoomPlan の生データを保存中"
-        )
+            : HostLocalization.text(
+                "Persisting raw RoomPlan evidence",
+                "RoomPlan の生データを保存中"
+            )
 
         Task { @MainActor [weak self] in
             guard let self,
@@ -1604,15 +1602,32 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            do {
-                try await store.persistRawRoomPlan(raw)
-            } catch {
-                self.workingSetStatus = HostLocalization.text(
-                    "Raw RoomPlan evidence could not be saved",
-                    "RoomPlan の生データを保存できませんでした"
+            if let raw {
+                do {
+                    try await store.persistRawRoomPlan(raw)
+                } catch {
+                    self.workingSetStatus =
+                        HostLocalization.text(
+                            "Raw RoomPlan evidence was encoded but could not be saved",
+                            "RoomPlan 生データは生成できましたが保存できませんでした"
+                        )
+                        + " ["
+                        + Self.persistenceDiagnostic(error)
+                        + "]"
+                    self.fail(.persistenceFailure)
+                    return
+                }
+            } else {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind:
+                            .roomPlanRawSerializationUnavailable,
+                        severity: .warning,
+                        detail:
+                            "Apple CapturedRoomData raw serialization unavailable; processing CapturedRoom directly: "
+                            + (rawEncodingDiagnostic ?? "unknown")
+                    )
                 )
-                self.fail(.persistenceFailure)
-                return
             }
 
             guard self.captureGeneration == generation else {
@@ -1620,37 +1635,58 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             if frameworkFailed {
-                self.workingSetStatus = HostLocalization.text(
-                    "Raw RoomPlan retained; RoomPlan reported failure",
-                    "RoomPlan の生データは保持しましたが、RoomPlan が失敗を報告しました"
-                )
+                self.workingSetStatus =
+                    raw == nil
+                    ? HostLocalization.text(
+                        "RoomPlan reported a scan failure; raw serialization was also unavailable",
+                        "RoomPlan がスキャン失敗を報告し、生データのシリアライズも利用できませんでした"
+                    )
+                    : HostLocalization.text(
+                        "Raw RoomPlan retained; RoomPlan reported failure",
+                        "RoomPlan の生データは保持しましたが、RoomPlan が失敗を報告しました"
+                    )
                 self.fail(.roomPlanFailure)
                 return
             }
 
-            let lineage: RoomPlanArtifactLineage
+            let processed: RoomPlanProcessedArtifactPayload
             do {
-                lineage =
-                    try await RoomPlanArtifactProcessor
-                        .deriveProcessed(
-                            from: data,
-                            rawArtifact: raw
-                        )
+                if let raw {
+                    let lineage =
+                        try await RoomPlanArtifactProcessor
+                            .deriveProcessed(
+                                from: data,
+                                rawArtifact: raw
+                            )
+                    guard let value = lineage.processed else {
+                        throw CaptureWorkingSetError
+                            .invalidProcessedRoomPlanDescriptor
+                    }
+                    processed = value
+                } else {
+                    processed =
+                        try await RoomPlanArtifactProcessor
+                            .deriveProcessedWithoutRaw(
+                                from: data,
+                                captureSessionID: captureSessionID,
+                                coordinateSpaceID: coordinateSpaceID,
+                                runtime: runtime
+                            )
+                }
             } catch {
-                self.workingSetStatus = HostLocalization.text(
-                    "Raw RoomPlan retained; postprocessing failed",
-                    "RoomPlan の生データは保持しましたが、後処理に失敗しました"
-                )
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "RoomPlan scan result could not be processed",
+                        "RoomPlan のスキャン結果を処理できませんでした"
+                    )
+                    + " ["
+                    + Self.roomPlanSerializationDiagnostic(error)
+                    + "]"
                 self.fail(.roomPlanFailure)
                 return
             }
 
-            guard self.captureGeneration == generation,
-                  let processed = lineage.processed
-            else {
-                if self.captureGeneration == generation {
-                    self.fail(.roomPlanFailure)
-                }
+            guard self.captureGeneration == generation else {
                 return
             }
 
@@ -1663,11 +1699,30 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     generation: generation
                 )
             } catch {
-                self.workingSetStatus = HostLocalization.text(
-                    "Processed RoomPlan evidence could not be saved",
-                    "RoomPlan の処理済みデータを保存できませんでした"
-                )
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "Processed RoomPlan evidence could not be saved",
+                        "RoomPlan の処理済みデータを保存できませんでした"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
                 self.fail(.persistenceFailure)
+                return
+            }
+
+            guard self.captureGeneration == generation,
+                  self.state == .reviewing
+            else {
+                return
+            }
+
+            if raw == nil {
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "Reviewing; processed RoomPlan and depth evidence were retained. Apple raw RoomPlan serialization was unavailable.",
+                        "確認中：処理済み RoomPlan と深度証拠は保持しました。Apple の RoomPlan 生データシリアライズのみ利用できませんでした。"
+                    )
             }
         }
     }
@@ -2242,6 +2297,38 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 snapshot.identity.captureRevisionID.description,
                 isDirectory: true
             )
+    }
+
+    nonisolated private static func roomPlanSerializationDiagnostic(
+        _ error: Error
+    ) -> String {
+        if case let EncodingError.invalidValue(_, context) = error {
+            let path = context.codingPath
+                .map(\.stringValue)
+                .filter { !$0.isEmpty }
+                .joined(separator: ".")
+            return path.isEmpty
+                ? "encoding_invalid_value"
+                : "encoding_invalid_value:" + path
+        }
+        if case let EncodingError.invalidValue(_, context)? =
+            Optional(error as? EncodingError)
+        {
+            let path = context.codingPath
+                .map(\.stringValue)
+                .filter { !$0.isEmpty }
+                .joined(separator: ".")
+            return path.isEmpty
+                ? "encoding_invalid_value"
+                : "encoding_invalid_value:" + path
+        }
+
+        let nsError = error as NSError
+        return String(reflecting: type(of: error))
+            + ":"
+            + nsError.domain
+            + ":"
+            + String(nsError.code)
     }
 
     nonisolated private static func persistenceDiagnostic(

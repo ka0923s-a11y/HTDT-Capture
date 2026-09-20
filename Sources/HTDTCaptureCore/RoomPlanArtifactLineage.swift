@@ -63,6 +63,29 @@ public enum RoomPlanEvidenceArtifactBuilder {
         )
     }
 
+    public static func buildProcessedWithoutRaw(
+        data: Data,
+        captureSessionID: CaptureSessionID,
+        coordinateSpaceID: CoordinateSpaceID,
+        runtime: CaptureRuntimeProvenance,
+        capturedRoomVersion: String? = nil
+    ) -> RoomPlanProcessedArtifactPayload {
+        let descriptor = RoomPlanProcessedEvidenceDescriptor(
+            captureSessionID: captureSessionID,
+            coordinateSpaceID: coordinateSpaceID,
+            relativePath: processedPath,
+            byteCount: data.count,
+            sha256: EvidenceIntegrity.sha256(of: data),
+            sourceRawSerializationStatus: .unavailable,
+            capturedRoomVersion: capturedRoomVersion,
+            runtime: runtime
+        )
+        return RoomPlanProcessedArtifactPayload(
+            data: data,
+            descriptor: descriptor
+        )
+    }
+
     public static func attachProcessed(
         data: Data,
         to raw: RoomPlanRawArtifactPayload,

@@ -234,17 +234,42 @@ public actor CaptureWorkingSetStore {
                 .invalidProcessedRoomPlanDescriptor
         }
 
-        guard let raw = rawRoomPlanDescriptor else {
-            throw CaptureWorkingSetError.processedRoomPlanRequiresRaw
-        }
+        let sourceRefs: [String]
+        switch descriptor.sourceRawSerializationStatus {
+        case .persisted:
+            guard let raw = rawRoomPlanDescriptor else {
+                throw CaptureWorkingSetError
+                    .processedRoomPlanRequiresRaw
+            }
+            guard
+                descriptor.sourceRawSHA256 == raw.sha256,
+                descriptor.captureSessionID == raw.captureSessionID,
+                descriptor.coordinateSpaceID == raw.coordinateSpaceID
+            else {
+                throw CaptureWorkingSetError
+                    .processedRoomPlanLineageMismatch
+            }
+            sourceRefs = [
+                "sha256:\(raw.sha256.description)"
+            ]
 
-        guard
-            descriptor.sourceRawSHA256 == raw.sha256,
-            descriptor.captureSessionID == raw.captureSessionID,
-            descriptor.coordinateSpaceID == raw.coordinateSpaceID
-        else {
-            throw CaptureWorkingSetError
-                .processedRoomPlanLineageMismatch
+        case .unavailable:
+            guard
+                descriptor.sourceRawSHA256 == nil,
+                rawRoomPlanDescriptor == nil
+            else {
+                throw CaptureWorkingSetError
+                    .processedRoomPlanLineageMismatch
+            }
+            try bindAuthority(
+                captureSessionID: descriptor.captureSessionID,
+                coordinateSpaceID: descriptor.coordinateSpaceID
+            )
+            sourceRefs = [
+                "capture_session:"
+                    + descriptor.captureSessionID.description,
+                "roomplan_raw_serialization:unavailable",
+            ]
         }
 
         // Match raw RoomPlan replay semantics after validating bytes and
@@ -271,9 +296,7 @@ public actor CaptureWorkingSetStore {
             producer: "roomplan_builder",
             provenanceClass: .appleRoomPlanInference,
             role: .canonical,
-            sourceRefs: [
-                "sha256:\(raw.sha256.description)"
-            ]
+            sourceRefs: sourceRefs
         )
         try register(declaration)
         processedRoomPlanDescriptor = descriptor
@@ -818,12 +841,28 @@ public actor CaptureWorkingSetStore {
         }
 
         if let processedRoomPlanDescriptor {
-            guard let rawRoomPlanDescriptor,
-                  processedRoomPlanDescriptor.sourceRawSHA256
-                    == rawRoomPlanDescriptor.sha256
-            else {
-                throw CaptureWorkingSetError.integrityVerificationFailed
+            switch processedRoomPlanDescriptor
+                .sourceRawSerializationStatus
+            {
+            case .persisted:
+                guard let rawRoomPlanDescriptor,
+                      processedRoomPlanDescriptor.sourceRawSHA256
+                        == rawRoomPlanDescriptor.sha256
+                else {
+                    throw CaptureWorkingSetError
+                        .integrityVerificationFailed
+                }
+
+            case .unavailable:
+                guard
+                    rawRoomPlanDescriptor == nil,
+                    processedRoomPlanDescriptor.sourceRawSHA256 == nil
+                else {
+                    throw CaptureWorkingSetError
+                        .integrityVerificationFailed
+                }
             }
+
             try verifyFile(
                 path: processedRoomPlanDescriptor.relativePath,
                 byteCount: processedRoomPlanDescriptor.byteCount,

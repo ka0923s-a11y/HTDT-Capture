@@ -552,7 +552,7 @@ public struct CaptureRootView: View {
         case .persistenceFailure:
             return String(
                 localized:
-                    "Check free storage and retry with a new capture. HTDT does not continue when canonical evidence persistence is uncertain."
+                    "The work-data row identifies the failing stage. Free storage only when storage pressure or storage_full is reported; other persistence failures have a different cause."
             )
         case .permissionDenied:
             return String(

@@ -85,13 +85,25 @@ public struct RoomPlanRawEvidenceDescriptor: Codable, Sendable, Equatable {
     }
 }
 
+public enum RoomPlanRawSerializationStatus:
+    String,
+    Codable,
+    Sendable,
+    Equatable
+{
+    case persisted
+    case unavailable
+}
+
 public struct RoomPlanProcessedEvidenceDescriptor: Codable, Sendable, Equatable {
     public var captureSessionID: CaptureSessionID
     public var coordinateSpaceID: CoordinateSpaceID
     public var relativePath: String
     public var byteCount: Int
     public var sha256: EvidenceSHA256
-    public var sourceRawSHA256: EvidenceSHA256
+    public var sourceRawSHA256: EvidenceSHA256?
+    public var sourceRawSerializationStatus:
+        RoomPlanRawSerializationStatus
     public var serializationFormat: String
     public var capturedRoomVersion: String?
     public var runtime: CaptureRuntimeProvenance
@@ -113,6 +125,35 @@ public struct RoomPlanProcessedEvidenceDescriptor: Codable, Sendable, Equatable 
         self.byteCount = byteCount
         self.sha256 = sha256
         self.sourceRawSHA256 = sourceRawSHA256
+        sourceRawSerializationStatus = .persisted
+        self.serializationFormat = serializationFormat
+        self.capturedRoomVersion = capturedRoomVersion
+        self.runtime = runtime
+    }
+
+    public init(
+        captureSessionID: CaptureSessionID,
+        coordinateSpaceID: CoordinateSpaceID,
+        relativePath: String,
+        byteCount: Int,
+        sha256: EvidenceSHA256,
+        sourceRawSerializationStatus:
+            RoomPlanRawSerializationStatus,
+        serializationFormat: String = "apple_codable_json",
+        capturedRoomVersion: String? = nil,
+        runtime: CaptureRuntimeProvenance
+    ) {
+        precondition(
+            sourceRawSerializationStatus == .unavailable
+        )
+        self.captureSessionID = captureSessionID
+        self.coordinateSpaceID = coordinateSpaceID
+        self.relativePath = relativePath
+        self.byteCount = byteCount
+        self.sha256 = sha256
+        sourceRawSHA256 = nil
+        self.sourceRawSerializationStatus =
+            sourceRawSerializationStatus
         self.serializationFormat = serializationFormat
         self.capturedRoomVersion = capturedRoomVersion
         self.runtime = runtime
