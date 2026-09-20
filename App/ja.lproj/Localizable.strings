@@ -356,3 +356,5 @@
 "I cannot move around this area" = "この周辺を移動できない";
 "Movement guidance" = "移動案内";
 "If the room layout prevents you from walking around a target, choose I cannot move around this area. HTDT will stop requiring translation/orbit guidance for this scan; weak and unknown spatial cells remain advisory." = "家具や壁などで対象の周囲を歩けない場合は「この周辺を移動できない」を選択してください。このスキャンでは移動・回り込みを必須にせず、弱い領域や unknown 領域は参考情報として残します。";
+"Optional extra observation" = "追加観測（任意）";
+"Base scan complete. Optional extra observation: %@" = "基本スキャンは完了しました。追加観測（任意）：%@";
