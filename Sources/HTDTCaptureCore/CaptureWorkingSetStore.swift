@@ -512,6 +512,16 @@ public actor CaptureWorkingSetStore {
             )
         }
 
+        if let existing = meshIndex {
+            if existing == package.index {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    MeshEvidencePackage.indexPath
+                )
+        }
+
         let meshPaths =
             package.geometryFiles.map(\.path)
             + [MeshEvidencePackage.indexPath]
@@ -522,19 +532,27 @@ public actor CaptureWorkingSetStore {
                 .duplicatePayloadDeclaration(duplicate)
         }
 
-        do {
-            try await package.persist(using: writer)
-        } catch {
-            // Mesh is optional at review time. Keep a failed write from
-            // leaving undeclared complete files that would poison bundle
-            // integrity and prevent the already-persisted frame/depth
-            // fallback from being used.
-            for path in meshPaths {
-                if let storePath = try? CaptureStorePath(path) {
-                    try? await writer.removeIfPresent(storePath)
-                }
+        // MeshEvidencePackage uses one writer-actor batch. A failed batch
+        // rolls back only files created by that batch and never deletes a
+        // pre-existing conflicting path.
+        try await package.persist(using: writer)
+
+        // Re-check after actor suspension. An exact concurrent replay is
+        // harmless; any different committed authority is rejected.
+        if let existing = meshIndex {
+            if existing == package.index {
+                return
             }
-            throw error
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    MeshEvidencePackage.indexPath
+                )
+        }
+        if let duplicate = meshPaths.first(where: {
+            declarations[$0] != nil
+        }) {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(duplicate)
         }
 
         for file in package.geometryFiles {
