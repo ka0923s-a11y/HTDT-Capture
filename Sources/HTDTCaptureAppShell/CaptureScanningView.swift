@@ -7,6 +7,7 @@ public struct CaptureScanningView: View {
     public let coverage: ScanCoverageSummary
     public let observation: ObservationStabilitySummary
     public let spatialCoverage: SpatialScanCoverageSummary
+    public let motionGuidance: ScanMotionGuidance?
     public let derivedPreview: DerivedShapePreviewSnapshot
     public let evidenceFrameCount: Int
     public let captureEvidenceFrame: () -> Void
@@ -24,6 +25,7 @@ public struct CaptureScanningView: View {
         coverage: ScanCoverageSummary,
         observation: ObservationStabilitySummary,
         spatialCoverage: SpatialScanCoverageSummary,
+        motionGuidance: ScanMotionGuidance?,
         derivedPreview: DerivedShapePreviewSnapshot,
         evidenceFrameCount: Int,
         captureEvidenceFrame: @escaping () -> Void,
@@ -33,6 +35,7 @@ public struct CaptureScanningView: View {
         self.coverage = coverage
         self.observation = observation
         self.spatialCoverage = spatialCoverage
+        self.motionGuidance = motionGuidance
         self.derivedPreview = derivedPreview
         self.evidenceFrameCount = evidenceFrameCount
         self.captureEvidenceFrame = captureEvidenceFrame
@@ -71,10 +74,8 @@ public struct CaptureScanningView: View {
                         .padding(.bottom, 8)
                 }
 
-                if coverage.latestTrackingState == .normal,
-                   let guidance = coverage.recommendedGuidance
-                {
-                    directionArrowOverlay(guidance)
+                if let motionGuidance {
+                    motionGuidanceOverlay(motionGuidance)
                         .position(
                             x: geometry.size.width / 2,
                             y: geometry.size.height * 0.43
@@ -161,6 +162,18 @@ public struct CaptureScanningView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+            }
+
+            if let motionGuidance {
+                Text(
+                    ScanMotionGuidanceCopy.category(
+                        for: motionGuidance.action,
+                        language:
+                            ScanMotionGuidanceCopy.preferredLanguage
+                    )
+                )
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
             }
 
             Text(actionSentence)
@@ -508,11 +521,11 @@ public struct CaptureScanningView: View {
             .frame(height: 36)
 
             HStack {
-                Text("← Left")
+                Text("← Look left")
                 Spacer()
                 Text("Start direction")
                 Spacer()
-                Text("Right →")
+                Text("Look right →")
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
@@ -520,6 +533,14 @@ public struct CaptureScanningView: View {
     }
 
     private var actionSentence: String {
+        if let motionGuidance {
+            return ScanMotionGuidanceCopy.prompt(
+                for: motionGuidance,
+                language:
+                    ScanMotionGuidanceCopy.preferredLanguage
+            )
+        }
+
         if coverage.latestTrackingState == .normal,
            observation.recheckSuggested
         {
@@ -584,7 +605,7 @@ public struct CaptureScanningView: View {
             Text(
                 String(
                     localized:
-                        "Show this area again from another angle."
+                        "Supporting observation is still weak; follow the current guidance."
                 )
             )
             .font(.caption)
@@ -834,6 +855,14 @@ public struct CaptureScanningView: View {
             break
         }
 
+        if let motionGuidance {
+            return ScanMotionGuidanceCopy.prompt(
+                for: motionGuidance,
+                language:
+                    ScanMotionGuidanceCopy.preferredLanguage
+            )
+        }
+
         if let guidance = coverage.recommendedGuidance {
             return currentRelativeGuidanceText(guidance)
         }
@@ -909,6 +938,86 @@ public struct CaptureScanningView: View {
             horizontal,
             vertical
         )
+    }
+
+    private func motionGuidanceOverlay(
+        _ guidance: ScanMotionGuidance
+    ) -> some View {
+        VStack(spacing: 6) {
+            Text(motionGuidanceSymbol(guidance))
+                .font(
+                    .system(
+                        size: 54,
+                        weight: .heavy,
+                        design: .rounded
+                    )
+                )
+                .foregroundStyle(.white)
+                .shadow(radius: 4)
+
+            Text(
+                ScanMotionGuidanceCopy.category(
+                    for: guidance.action,
+                    language:
+                        ScanMotionGuidanceCopy.preferredLanguage
+                )
+            )
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(
+                .ultraThinMaterial,
+                in: Capsule()
+            )
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            ScanMotionGuidanceCopy.prompt(
+                for: guidance,
+                language:
+                    ScanMotionGuidanceCopy.preferredLanguage
+            )
+        )
+    }
+
+    private func motionGuidanceSymbol(
+        _ guidance: ScanMotionGuidance
+    ) -> String {
+        switch guidance.action {
+        case .trackingRecovery:
+            return "!"
+        case .rotate:
+            return guidance.horizontalDirection == .left
+                ? "↺"
+                : "↻"
+        case .tilt:
+            return guidance.verticalDirection == .down
+                ? "↓"
+                : "↑"
+        case .translate:
+            switch guidance.translationDirection ?? .right {
+            case .left:
+                return "⇠"
+            case .right:
+                return "⇢"
+            case .forward:
+                return "⇡"
+            case .backward:
+                return "⇣"
+            }
+        case .approach:
+            return "⇡"
+        case .retreat:
+            return "⇣"
+        case .orbit:
+            return guidance.horizontalDirection == .left
+                ? "◌↺"
+                : "↻◌"
+        case .reobserveAnotherAngle:
+            return "◌"
+        case .holdObserve:
+            return "◎"
+        }
     }
 
     private func directionArrowOverlay(
