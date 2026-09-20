@@ -177,6 +177,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        resourceMonitor?.sampleStorage()
+        guard state == .reviewing else {
+            return
+        }
+
         do {
             try transition(.beginValidation)
         } catch {
@@ -184,10 +189,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        resourceMonitor?.sampleStorage()
-        guard state == .reviewing else {
-            return
-        }
         workingSetStatus = "Persisting quality and finalizing revision"
 
         let generation = captureGeneration
