@@ -169,7 +169,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var memoryWarningCancellable: AnyCancellable?
     private var derivedPreviewSuspendedForMemoryPressure = false
     private var roomPlanModelRenderingEnabled = true
-    private let qualityRequirements = CaptureQualityRequirements()
+    private let qualityRequirements = CaptureQualityRequirements(
+        allowDepthEvidenceAsMeshFallback: true
+    )
 
     init() {
         capabilities = PlatformCapabilityProbe.current()
@@ -1144,12 +1146,20 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             do {
                 try await store.persistMeshPackage(meshPackage)
             } catch {
-                workingSetStatus = HostLocalization.text(
-                    "Mesh evidence could not be saved",
-                    "メッシュ証拠を保存できませんでした"
+                // Frame/depth evidence has already been durably persisted.
+                // ARMesh is an optional geometric accelerator at this stage;
+                // do not destroy an otherwise valid capture when its snapshot
+                // cannot be written. Quality evaluation will accept the
+                // explicit scene-depth fallback only when depth really exists.
+                meshSnapshotUnavailable = true
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "Optional end-scan mesh persistence failed; retained frame/depth evidence will be used as the bounded geometry fallback."
+                    )
                 )
-                fail(.persistenceFailure)
-                return
             }
         }
 
@@ -1467,30 +1477,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
             if decomposition.state != .unresolvedDecomposition {
                 let proxies =
-                    decomposition.components.prefix(6).map {
-                        let componentObservation = $0.observation
-                        let fittingObservation:
-                            DerivedShapeObservation
-
-                        if componentObservation.points.contains(where: {
-                            $0.evidenceKind == .sceneDepth
-                        }) {
-                            let representative =
-                                DerivedShapeProxyFitter
-                                    .representativeHorizontalSliceObservation(
-                                        from: componentObservation
-                                    )
-                            fittingObservation =
-                                DerivedShapeProxyFitter
-                                    .boundaryObservation(
-                                        from: representative
-                                    )
-                        } else {
-                            fittingObservation = componentObservation
-                        }
-
-                        return DerivedShapeProxyFitter.fit(
-                            observation: fittingObservation
+                    decomposition.components.prefix(6).flatMap {
+                        Self.fitDerivedObjectProfiles(
+                            $0.observation
                         )
                     }
 
@@ -1514,28 +1503,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     .prefix(4)
                 )
             } else {
-                let fittingObservation:
-                    DerivedShapeObservation
-                if objectObservation.points.contains(where: {
-                    $0.evidenceKind == .sceneDepth
-                }) {
-                    let representative =
-                        DerivedShapeProxyFitter
-                            .representativeHorizontalSliceObservation(
-                                from: objectObservation
-                            )
-                    fittingObservation =
-                        DerivedShapeProxyFitter.boundaryObservation(
-                            from: representative
-                        )
-                } else {
-                    fittingObservation = objectObservation
-                }
-                objectProxies = [
-                    DerivedShapeProxyFitter.fit(
-                        observation: fittingObservation
-                    ),
-                ]
+                objectProxies = Self.fitDerivedObjectProfiles(
+                    objectObservation
+                )
             }
 
             supportAnalysis = DerivedSupportAnalyzer.analyze(
@@ -1561,6 +1531,39 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     wallChain: wallChain
                 )
         )
+    }
+
+    nonisolated private static func fitDerivedObjectProfiles(
+        _ observation: DerivedShapeObservation
+    ) -> [DerivedShapeProxy] {
+        let fittingObservations: [DerivedShapeObservation]
+
+        if observation.points.contains(where: {
+            $0.evidenceKind == .sceneDepth
+        }) {
+            // A single connected 3D object can legitimately have several
+            // materially different horizontal silhouettes (for example a
+            // smaller cabinet body on top of a larger base). Preserve those
+            // observed levels without forcing the 3D decomposer to split a
+            // continuous object.
+            fittingObservations =
+                DerivedShapeProxyFitter
+                    .horizontalProfileObservations(
+                        from: observation
+                    )
+                    .map {
+                        DerivedShapeProxyFitter
+                            .boundaryObservation(from: $0)
+                    }
+        } else {
+            fittingObservations = [observation]
+        }
+
+        return fittingObservations.map {
+            DerivedShapeProxyFitter.fit(
+                observation: $0
+            )
+        }
     }
 
     private func waitForActiveConfiguration()
