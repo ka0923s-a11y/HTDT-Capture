@@ -137,45 +137,56 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        let prepared: (
+            store: CaptureWorkingSetStore,
+            identity: CaptureWorkingSetIdentity,
+            generation: UUID
+        )
         do {
-            let prepared = try makeWorkingSet()
-            workingSetStore = prepared.store
-            captureGeneration = prepared.generation
-            workingSetStatus =
-                "Prepared revision "
-                + prepared.identity.captureRevisionID.description
+            prepared = try makeWorkingSet()
+        } catch {
+            fail(.persistenceFailure)
+            return
+        }
 
-            let context = sessionController.context
-            let runtime = PlatformRuntimeProvenance.current()
-            let generation = prepared.generation
-            let store = prepared.store
+        workingSetStore = prepared.store
+        captureGeneration = prepared.generation
+        workingSetStatus =
+            "Prepared revision "
+            + prepared.identity.captureRevisionID.description
 
-            sessionController.setRoomPlanCompletionHandler {
-                [weak self] data, error in
-                guard let self,
-                      self.captureGeneration == generation
-                else {
-                    return
-                }
+        let context = sessionController.context
+        let runtime = PlatformRuntimeProvenance.current()
+        let generation = prepared.generation
+        let store = prepared.store
 
-                self.handleRoomPlanCompletion(
-                    data,
-                    frameworkFailed: error != nil,
-                    store: store,
-                    generation: generation,
-                    captureSessionID: context.captureSessionID,
-                    coordinateSpaceID: context.coordinateSpaceID,
-                    runtime: runtime
-                )
+        sessionController.setRoomPlanCompletionHandler {
+            [weak self] data, error in
+            guard let self,
+                  self.captureGeneration == generation
+            else {
+                return
             }
 
+            self.handleRoomPlanCompletion(
+                data,
+                frameworkFailed: error != nil,
+                store: store,
+                generation: generation,
+                captureSessionID: context.captureSessionID,
+                coordinateSpaceID: context.coordinateSpaceID,
+                runtime: runtime
+            )
+        }
+
+        do {
             try sessionController.startRoomPlan()
             try transition(.prepared)
             workingSetStatus = "Scanning; working revision open"
         } catch is CaptureStateMachineError {
             fail(.unknown)
         } catch {
-            fail(.persistenceFailure)
+            fail(.roomPlanFailure)
         }
     }
 
