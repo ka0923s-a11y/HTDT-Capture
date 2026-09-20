@@ -91,3 +91,33 @@ as explicit `unknown_raw_<value>` tokens rather than discarded.
 
 If the running configuration cannot be read or is not world tracking, the host
 fails closed instead of writing a guessed configuration profile.
+
+
+## Software resource and tracking diagnostics
+
+The host now connects the existing quality-event authority to concrete runtime
+signals without claiming physical-device acceptance.
+
+During an active capture it records:
+
+- the scan-end ARKit tracking state from the exact ARFrame also used for final
+  mesh/camera/depth evidence;
+- ProcessInfo thermal-state transitions;
+- UIApplication memory warnings;
+- application backgrounding as an explicit interruption;
+- available storage for important usage at capture start, scan end and
+  finalization.
+
+Fair/serious thermal state, memory warnings and low-storage warning thresholds
+remain quality warnings. Critical thermal state, critical storage pressure and
+background interruption are typed capture failures.
+
+The provisional storage thresholds are an engineering backpressure policy, not
+a device-capacity claim:
+
+- warning below 2 GiB available;
+- critical below 512 MiB available.
+
+The resource/tracking events flow into the quality report that becomes part of
+the finalized bundle. Real-device thermal/storage/interruption behavior remains
+a physical acceptance gate.

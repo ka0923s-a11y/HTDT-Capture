@@ -93,6 +93,8 @@ public actor CaptureWorkingSetStore {
         CaptureSessionFoundationPackage?
     private var evidenceFrameCount = 0
     private var depthEvidenceCount = 0
+    private var trackingEvents: [TrackingQualityEvent] = []
+    private var resourceEvents: [CaptureResourceEvent] = []
 
     public init(
         identity: CaptureWorkingSetIdentity = CaptureWorkingSetIdentity(),
@@ -400,6 +402,21 @@ public actor CaptureWorkingSetStore {
         )
     }
 
+    public func recordTrackingEvent(
+        _ event: TrackingQualityEvent
+    ) {
+        trackingEvents.append(event)
+        trackingEvents.sort {
+            $0.sessionTimestampSeconds < $1.sessionTimestampSeconds
+        }
+    }
+
+    public func recordResourceEvent(
+        _ event: CaptureResourceEvent
+    ) {
+        resourceEvents.append(event)
+    }
+
     public func evaluateQuality(
         requirements: CaptureQualityRequirements = .init()
     ) -> CaptureQualityReport {
@@ -425,6 +442,7 @@ public actor CaptureWorkingSetStore {
 
         return CaptureQualityEvaluator.evaluate(
             CaptureQualityObservation(
+                trackingEvents: trackingEvents,
                 roomPlanStatus: roomPlanStatus,
                 activeMeshAnchorCount: meshAnchorCount ?? 0,
                 evidenceFrameCount: evidenceFrameCount,
@@ -432,6 +450,7 @@ public actor CaptureWorkingSetStore {
                 annotationKeysPresent: annotationKeysPresent,
                 measurementQuantityTypesPresent:
                     measurementQuantityTypesPresent,
+                resourceEvents: resourceEvents,
                 integrityStatus: integrityStatus
             ),
             requirements: requirements

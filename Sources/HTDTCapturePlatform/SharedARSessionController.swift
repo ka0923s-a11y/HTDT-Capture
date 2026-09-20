@@ -13,13 +13,16 @@ public enum PlatformCaptureError: Error {
 public struct CaptureReviewEvidenceSnapshot: Sendable {
     public let meshAnchors: [MeshAnchorSnapshot]
     public let frameArtifacts: CapturedFrameArtifacts
+    public let trackingQualityEvent: TrackingQualityEvent
 
     public init(
         meshAnchors: [MeshAnchorSnapshot],
-        frameArtifacts: CapturedFrameArtifacts
+        frameArtifacts: CapturedFrameArtifacts,
+        trackingQualityEvent: TrackingQualityEvent
     ) {
         self.meshAnchors = meshAnchors
         self.frameArtifacts = frameArtifacts
+        self.trackingQualityEvent = trackingQualityEvent
     }
 }
 
@@ -115,8 +118,50 @@ public final class SharedARSessionController {
                 captureSessionID: context.captureSessionID,
                 coordinateSpaceID: context.coordinateSpaceID,
                 depthSelection: depthSelection
-            )
+            ),
+            trackingQualityEvent: trackingQualityEvent(from: frame)
         )
+    }
+
+    private func trackingQualityEvent(
+        from frame: ARFrame
+    ) -> TrackingQualityEvent {
+        switch frame.camera.trackingState {
+        case .normal:
+            return TrackingQualityEvent(
+                sessionTimestampSeconds: frame.timestamp,
+                state: .normal
+            )
+        case .notAvailable:
+            return TrackingQualityEvent(
+                sessionTimestampSeconds: frame.timestamp,
+                state: .unavailable,
+                reason: "arkit_not_available"
+            )
+        case let .limited(reason):
+            return TrackingQualityEvent(
+                sessionTimestampSeconds: frame.timestamp,
+                state: .limited,
+                reason: trackingReasonToken(reason)
+            )
+        }
+    }
+
+    private func trackingReasonToken(
+        _ reason: ARCamera.TrackingState.Reason
+    ) -> String {
+        switch reason {
+        case .initializing:
+            return "initializing"
+        case .excessiveMotion:
+            return "excessive_motion"
+        case .insufficientFeatures:
+            return "insufficient_features"
+        case .relocalizing:
+            return "relocalizing"
+        @unknown default:
+            return "unknown"
+        }
     }
 
     private func snapshotMeshAnchors(
