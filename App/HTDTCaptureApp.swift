@@ -2302,25 +2302,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     nonisolated private static func roomPlanSerializationDiagnostic(
         _ error: Error
     ) -> String {
-        if case let EncodingError.invalidValue(_, context) = error {
-            let path = context.codingPath
-                .map(\.stringValue)
-                .filter { !$0.isEmpty }
-                .joined(separator: ".")
-            return path.isEmpty
-                ? "encoding_invalid_value"
-                : "encoding_invalid_value:" + path
-        }
-        if case let EncodingError.invalidValue(_, context)? =
-            Optional(error as? EncodingError)
-        {
-            let path = context.codingPath
-                .map(\.stringValue)
-                .filter { !$0.isEmpty }
-                .joined(separator: ".")
-            return path.isEmpty
-                ? "encoding_invalid_value"
-                : "encoding_invalid_value:" + path
+        if let encodingError = error as? EncodingError {
+            switch encodingError {
+            case let .invalidValue(_, context):
+                let path = context.codingPath
+                    .map(\.stringValue)
+                    .filter { !$0.isEmpty }
+                    .joined(separator: ".")
+                return path.isEmpty
+                    ? "encoding_invalid_value"
+                    : "encoding_invalid_value:" + path
+            @unknown default:
+                return "encoding_error"
+            }
         }
 
         let nsError = error as NSError

@@ -94,4 +94,45 @@ final class RoomPlanArtifactLineageTests: XCTestCase {
             raw.descriptor.coordinateSpaceID
         )
     }
+    func testProcessedEvidenceCanExplicitlyRecordUnavailableRawSerialization()
+        throws
+    {
+        let processedBytes = Data(#"{"processed":"room"}"#.utf8)
+        let sessionID = CaptureSessionID()
+        let coordinateID = CoordinateSpaceID()
+        let runtime = CaptureRuntimeProvenance(
+            osVersion: "test-os",
+            appVersion: "0.1.0",
+            appBuild: "test"
+        )
+
+        let processed =
+            RoomPlanEvidenceArtifactBuilder
+                .buildProcessedWithoutRaw(
+                    data: processedBytes,
+                    captureSessionID: sessionID,
+                    coordinateSpaceID: coordinateID,
+                    runtime: runtime,
+                    capturedRoomVersion: "test-roomplan"
+                )
+
+        XCTAssertNil(processed.descriptor.sourceRawSHA256)
+        XCTAssertEqual(
+            processed.descriptor.sourceRawSerializationStatus,
+            .unavailable
+        )
+        XCTAssertEqual(
+            processed.descriptor.sha256,
+            EvidenceIntegrity.sha256(of: processedBytes)
+        )
+        XCTAssertEqual(
+            processed.descriptor.captureSessionID,
+            sessionID
+        )
+        XCTAssertEqual(
+            processed.descriptor.coordinateSpaceID,
+            coordinateID
+        )
+    }
+
 }

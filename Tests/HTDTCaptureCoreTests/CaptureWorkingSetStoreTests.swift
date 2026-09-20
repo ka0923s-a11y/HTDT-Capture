@@ -873,4 +873,114 @@ extension CaptureWorkingSetStoreTests {
             FileManager.default.fileExists(atPath: root.path)
         )
     }
+    func testProcessedRoomPlanPersistsWhenRawSerializationIsUnavailable()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let store = try CaptureWorkingSetStore(
+            rootDirectory: root
+        )
+        let sessionID = CaptureSessionID()
+        let coordinateID = CoordinateSpaceID()
+        let processed =
+            RoomPlanEvidenceArtifactBuilder
+                .buildProcessedWithoutRaw(
+                    data: Data(#"{"processed":"usable"}"#.utf8),
+                    captureSessionID: sessionID,
+                    coordinateSpaceID: coordinateID,
+                    runtime: CaptureRuntimeProvenance(
+                        osVersion: "test",
+                        appVersion: "test",
+                        appBuild: "test"
+                    )
+                )
+
+        try await store.persistProcessedRoomPlan(processed)
+
+        let snapshot = await store.snapshot()
+        XCTAssertNil(snapshot.rawRoomPlanDescriptor)
+        XCTAssertEqual(
+            snapshot.processedRoomPlanDescriptor,
+            processed.descriptor
+        )
+        XCTAssertEqual(
+            snapshot.captureSessionIDs,
+            [sessionID]
+        )
+        XCTAssertEqual(
+            snapshot.coordinateSpaceIDs,
+            [coordinateID]
+        )
+
+        let declaration = try XCTUnwrap(
+            snapshot.payloadDeclarations.first {
+                $0.path
+                    == RoomPlanEvidenceArtifactBuilder.processedPath
+            }
+        )
+        XCTAssertEqual(
+            declaration.sourceRefs,
+            [
+                "capture_session:" + sessionID.description,
+                "roomplan_raw_serialization:unavailable",
+            ]
+        )
+
+        let quality = await store.evaluateQuality()
+        XCTAssertEqual(quality.roomPlanStatus, .completed)
+        XCTAssertEqual(quality.integrityStatus, .pass)
+    }
+
+    func testProcessedWithoutRawRejectsMixedRawLineage()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let store = try CaptureWorkingSetStore(
+            rootDirectory: root
+        )
+        let sessionID = CaptureSessionID()
+        let coordinateID = CoordinateSpaceID()
+        let runtime = CaptureRuntimeProvenance(
+            osVersion: "test",
+            appVersion: "test",
+            appBuild: "test"
+        )
+        let raw = RoomPlanEvidenceArtifactBuilder.buildRaw(
+            data: Data(#"{"raw":"present"}"#.utf8),
+            captureSessionID: sessionID,
+            coordinateSpaceID: coordinateID,
+            runtime: runtime
+        )
+        try await store.persistRawRoomPlan(raw)
+
+        let processed =
+            RoomPlanEvidenceArtifactBuilder
+                .buildProcessedWithoutRaw(
+                    data: Data(#"{"processed":"fallback"}"#.utf8),
+                    captureSessionID: sessionID,
+                    coordinateSpaceID: coordinateID,
+                    runtime: runtime
+                )
+
+        do {
+            try await store.persistProcessedRoomPlan(processed)
+            XCTFail("expected mixed raw lineage rejection")
+        } catch let error as CaptureWorkingSetError {
+            XCTAssertEqual(
+                error,
+                .processedRoomPlanLineageMismatch
+            )
+        }
+    }
+
 }

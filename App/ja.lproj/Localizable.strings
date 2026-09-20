@@ -237,7 +237,7 @@
 "Discard this failed capture and start again. Move slowly and keep walls, corners, and furniture edges in view." = "失敗したキャプチャを破棄してやり直してください。ゆっくり動き、壁・角・家具の輪郭を画面内に保ってください。";
 "Free device storage before starting another capture." = "空き容量を確保してから新しいキャプチャを開始してください。";
 "Let the device cool before starting another capture." = "端末を十分に冷ましてから新しいキャプチャを開始してください。";
-"Check free storage and retry with a new capture. HTDT does not continue when canonical evidence persistence is uncertain." = "空き容量を確認して新しいキャプチャでやり直してください。正規の証拠データ保存が不確かな場合、HTDT はキャプチャを継続しません。";
+"The work-data row identifies the failing stage. Free storage only when storage pressure or storage_full is reported; other persistence failures have a different cause." = "作業データ欄に失敗した処理段階を表示します。ストレージ不足または storage_full と表示された場合だけ空き容量を増やしてください。それ以外の保存失敗には別の原因があります。";
 "Allow camera access in iOS Settings, then start a new capture." = "iOS の設定でカメラアクセスを許可してから、新しいキャプチャを開始してください。";
 "Use a supported LiDAR-capable iPhone or iPad for this capture workflow." = "このキャプチャには対応する LiDAR 搭載 iPhone または iPad を使用してください。";
 "Discard the failed capture and retry. If the error repeats, record the screen state before resetting." = "失敗したキャプチャを破棄してやり直してください。同じエラーが続く場合は、リセット前に画面状態を記録してください。";
