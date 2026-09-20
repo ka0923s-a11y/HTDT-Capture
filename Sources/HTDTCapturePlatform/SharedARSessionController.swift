@@ -2,6 +2,7 @@ import HTDTCaptureCore
 
 #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
 import ARKit
+import CoreVideo
 import Foundation
 import RoomPlan
 import simd
@@ -402,6 +403,30 @@ public final class SharedARSessionController {
             }
         }
 
+        var surfaceEvidenceSource:
+            SpatialCoverageEvidenceSource =
+                points.isEmpty ? .none : .mesh
+
+        if points.isEmpty, budget > 0 {
+            let depthPoints = liveSceneDepthWorldPoints(
+                frame: frame,
+                maxPoints: budget,
+                cropFraction: 0.92,
+                minimumDepthMeters: 0.20,
+                maximumDepthMeters: 6.0
+            )
+            points = depthPoints.map {
+                SpatialCoveragePoint3D(
+                    x: Double($0.x),
+                    y: Double($0.y),
+                    z: Double($0.z)
+                )
+            }
+            if !points.isEmpty {
+                surfaceEvidenceSource = .sceneDepth
+            }
+        }
+
         return SpatialCoverageSample(
             sessionTimestampSeconds: frame.timestamp,
             cameraPositionWorld: cameraPosition,
@@ -411,6 +436,7 @@ public final class SharedARSessionController {
                 frame.sceneDepth != nil
                 || frame.smoothedSceneDepth != nil,
             meshAvailability: meshAvailability,
+            surfaceEvidenceSource: surfaceEvidenceSource,
             surfacePointsWorld: points
         )
     }
@@ -444,12 +470,10 @@ public final class SharedARSessionController {
                     < rhs.identifier.uuidString.lowercased()
             }
 
-        guard !anchors.isEmpty else {
-            return .empty
-        }
-
-        let objectObservation =
-            liveDerivedShapeObservation(
+        let meshObjectObservation =
+            anchors.isEmpty
+            ? nil
+            : liveDerivedShapeObservation(
                 anchors: anchors,
                 classifications: [.table, .seat],
                 sessionTimestampSeconds: frame.timestamp,
@@ -458,7 +482,9 @@ public final class SharedARSessionController {
                 maxInspectedFaces: 8_000
             )
         let wallObservation =
-            liveDerivedShapeObservation(
+            anchors.isEmpty
+            ? nil
+            : liveDerivedShapeObservation(
                 anchors: anchors,
                 classifications: [.wall],
                 sessionTimestampSeconds: frame.timestamp,
@@ -466,16 +492,47 @@ public final class SharedARSessionController {
                 maxPoints: maxWallPoints,
                 maxInspectedFaces: 12_000
             )
-        let floorReferenceY = liveFloorReferenceY(
-            anchors: anchors,
-            maxInspectedFaces: 2_500,
-            maxSamples: 192
-        )
+
+        let meshFloorReferenceY =
+            anchors.isEmpty
+            ? nil
+            : liveFloorReferenceY(
+                anchors: anchors,
+                maxInspectedFaces: 2_500,
+                maxSamples: 192
+            )
+
+        let depthPoints =
+            meshObjectObservation == nil || meshFloorReferenceY == nil
+            ? liveSceneDepthWorldPoints(
+                frame: frame,
+                maxPoints: max(maxObjectPoints * 2, 256),
+                cropFraction: 0.82,
+                minimumDepthMeters: 0.20,
+                maximumDepthMeters: 4.0
+            )
+            : []
+
+        let depthFloorReferenceY =
+            meshFloorReferenceY == nil
+            ? estimatedFloorY(from: depthPoints)
+            : nil
+
+        let objectObservation =
+            meshObjectObservation
+            ?? liveDepthDerivedShapeObservation(
+                points: depthPoints,
+                sessionTimestampSeconds: frame.timestamp,
+                floorReferenceY: depthFloorReferenceY,
+                voxelSizeMeters: 0.045,
+                maxPoints: maxObjectPoints
+            )
 
         return DerivedShapeLiveObservationSet(
             objectObservation: objectObservation,
             wallObservation: wallObservation,
-            floorReferenceY: floorReferenceY
+            floorReferenceY:
+                meshFloorReferenceY ?? depthFloorReferenceY
         )
     }
 
@@ -632,6 +689,267 @@ public final class SharedARSessionController {
                 depthSelection: depthSelection
             ),
             trackingQualityEvent: trackingQualityEvent(from: frame)
+        )
+    }
+
+    private func liveSceneDepthWorldPoints(
+        frame: ARFrame,
+        maxPoints: Int,
+        cropFraction: Float,
+        minimumDepthMeters: Float,
+        maximumDepthMeters: Float
+    ) -> [SIMD3<Float>] {
+        guard maxPoints > 0,
+              cropFraction.isFinite,
+              cropFraction > 0,
+              minimumDepthMeters.isFinite,
+              maximumDepthMeters.isFinite,
+              minimumDepthMeters > 0,
+              maximumDepthMeters > minimumDepthMeters,
+              let depthData =
+                frame.smoothedSceneDepth ?? frame.sceneDepth
+        else {
+            return []
+        }
+
+        let depthMap = depthData.depthMap
+        let width = CVPixelBufferGetWidth(depthMap)
+        let height = CVPixelBufferGetHeight(depthMap)
+        guard width > 1, height > 1 else {
+            return []
+        }
+
+        CVPixelBufferLockBaseAddress(depthMap, .readOnly)
+        defer {
+            CVPixelBufferUnlockBaseAddress(depthMap, .readOnly)
+        }
+
+        guard let depthBaseAddress =
+                CVPixelBufferGetBaseAddress(depthMap)
+        else {
+            return []
+        }
+
+        let confidenceMap = depthData.confidenceMap
+        if let confidenceMap {
+            CVPixelBufferLockBaseAddress(
+                confidenceMap,
+                .readOnly
+            )
+        }
+        defer {
+            if let confidenceMap {
+                CVPixelBufferUnlockBaseAddress(
+                    confidenceMap,
+                    .readOnly
+                )
+            }
+        }
+
+        let boundedCrop = min(max(cropFraction, 0.25), 1.0)
+        let horizontalInset =
+            Int(Float(width) * (1 - boundedCrop) / 2)
+        let verticalInset =
+            Int(Float(height) * (1 - boundedCrop) / 2)
+        let minX = min(max(horizontalInset, 0), width - 1)
+        let maxX = max(minX + 1, width - horizontalInset)
+        let minY = min(max(verticalInset, 0), height - 1)
+        let maxY = max(minY + 1, height - verticalInset)
+
+        let sampleArea =
+            max(1, (maxX - minX) * (maxY - minY))
+        let step = max(
+            1,
+            Int(
+                ceil(
+                    sqrt(
+                        Double(sampleArea)
+                        / Double(maxPoints)
+                    )
+                )
+            )
+        )
+
+        let imageResolution = frame.camera.imageResolution
+        guard imageResolution.width > 0,
+              imageResolution.height > 0
+        else {
+            return []
+        }
+
+        let scaleX =
+            Float(width) / Float(imageResolution.width)
+        let scaleY =
+            Float(height) / Float(imageResolution.height)
+        let intrinsics = frame.camera.intrinsics
+        let fx = intrinsics.columns.0.x * scaleX
+        let fy = intrinsics.columns.1.y * scaleY
+        let cx = intrinsics.columns.2.x * scaleX
+        let cy = intrinsics.columns.2.y * scaleY
+        guard fx.isFinite, fy.isFinite,
+              fx > 0, fy > 0
+        else {
+            return []
+        }
+
+        let depthBytesPerRow =
+            CVPixelBufferGetBytesPerRow(depthMap)
+        let confidenceBytesPerRow =
+            confidenceMap.map {
+                CVPixelBufferGetBytesPerRow($0)
+            } ?? 0
+        let confidenceBaseAddress =
+            confidenceMap.flatMap {
+                CVPixelBufferGetBaseAddress($0)
+            }
+
+        var points: [SIMD3<Float>] = []
+        points.reserveCapacity(maxPoints)
+
+        var y = minY + step / 2
+        while y < maxY, points.count < maxPoints {
+            let depthRow = depthBaseAddress
+                .advanced(by: y * depthBytesPerRow)
+                .assumingMemoryBound(to: Float.self)
+            let confidenceRow =
+                confidenceBaseAddress?
+                    .advanced(by: y * confidenceBytesPerRow)
+                    .assumingMemoryBound(to: UInt8.self)
+
+            var x = minX + step / 2
+            while x < maxX, points.count < maxPoints {
+                let depth = depthRow[x]
+                guard depth.isFinite,
+                      depth >= minimumDepthMeters,
+                      depth <= maximumDepthMeters
+                else {
+                    x += step
+                    continue
+                }
+
+                if let confidenceRow,
+                   confidenceRow[x] == 0
+                {
+                    x += step
+                    continue
+                }
+
+                let localX =
+                    (Float(x) - cx) * depth / fx
+                let localY =
+                    -(Float(y) - cy) * depth / fy
+                let cameraPoint = SIMD4<Float>(
+                    localX,
+                    localY,
+                    -depth,
+                    1
+                )
+                let world = frame.camera.transform * cameraPoint
+                if world.x.isFinite,
+                   world.y.isFinite,
+                   world.z.isFinite
+                {
+                    points.append(
+                        SIMD3<Float>(
+                            world.x,
+                            world.y,
+                            world.z
+                        )
+                    )
+                }
+
+                x += step
+            }
+            y += step
+        }
+
+        return points
+    }
+
+    private func estimatedFloorY(
+        from points: [SIMD3<Float>]
+    ) -> Double? {
+        let values = points
+            .map { Double($0.y) }
+            .filter(\.isFinite)
+            .sorted()
+        guard values.count >= 24,
+              let first = values.first,
+              let last = values.last,
+              last - first >= 0.35
+        else {
+            return nil
+        }
+
+        let index = min(
+            values.count - 1,
+            Int(Double(values.count - 1) * 0.10)
+        )
+        return values[index]
+    }
+
+    private func liveDepthDerivedShapeObservation(
+        points: [SIMD3<Float>],
+        sessionTimestampSeconds: Double,
+        floorReferenceY: Double?,
+        voxelSizeMeters: Double,
+        maxPoints: Int
+    ) -> DerivedShapeObservation? {
+        guard maxPoints > 0,
+              voxelSizeMeters.isFinite,
+              voxelSizeMeters > 0
+        else {
+            return nil
+        }
+
+        let filtered = points.filter { point in
+            guard point.x.isFinite,
+                  point.y.isFinite,
+                  point.z.isFinite
+            else {
+                return false
+            }
+            guard let floorReferenceY else {
+                return true
+            }
+            return Double(point.y) >= floorReferenceY + 0.05
+        }
+
+        let observations = filtered.enumerated().map {
+            index,
+            point in
+            DerivedObservationPoint(
+                position: DerivedPoint2D(
+                    x: Double(point.x),
+                    y: Double(point.z)
+                ),
+                evidenceRef:
+                    "live-scene-depth:"
+                    + String(
+                        format: "%.3f",
+                        sessionTimestampSeconds
+                    )
+                    + ":"
+                    + String(index),
+                evidenceKind: .sceneDepth,
+                verticalPositionMeters: Double(point.y)
+            )
+        }
+
+        let reduced = reduceLiveDerivedPoints(
+            observations,
+            voxelSizeMeters: voxelSizeMeters,
+            maxPoints: maxPoints
+        )
+        guard reduced.count >= 8 else {
+            return nil
+        }
+
+        return DerivedShapeObservation(
+            coordinateSpaceID: context.coordinateSpaceID,
+            points: reduced,
+            observationStartSeconds: sessionTimestampSeconds,
+            observationEndSeconds: sessionTimestampSeconds
         )
     }
 
