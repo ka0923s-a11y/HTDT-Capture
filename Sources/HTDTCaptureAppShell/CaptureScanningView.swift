@@ -289,14 +289,29 @@ public struct CaptureScanningView: View {
                 showingDerivedPreview = true
             }
         } label: {
-            HStack(spacing: 5) {
-                Text("Observed shape")
-                    .fontWeight(.semibold)
-                Text(primaryDerivedShapeLabel)
+            HStack(spacing: 6) {
+                Label(
+                    String(
+                        format: String(
+                            localized: "Observed shape: %@"
+                        ),
+                        primaryDerivedShapeLabel
+                    ),
+                    systemImage: "viewfinder.circle"
+                )
+                .fontWeight(.semibold)
+
+                Text("Tap for details")
                     .foregroundStyle(.secondary)
             }
             .lineLimit(1)
-            .minimumScaleFactor(0.78)
+            .minimumScaleFactor(0.74)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(
+                Color.orange.opacity(0.16),
+                in: Capsule()
+            )
         }
         .buttonStyle(.plain)
     }
