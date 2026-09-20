@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import HTDTCaptureCore
 import HTDTCapturePlatform
@@ -124,11 +125,16 @@ public struct CaptureRootView: View {
             } else {
                 List {
                 Section("Capture") {
-                    LabeledContent("State", value: state.rawValue)
+                    LabeledContent(
+                        "State",
+                        value: localizedState(state)
+                    )
                     if let cameraPermission {
                         LabeledContent(
                             "Camera permission",
-                            value: cameraPermission.rawValue
+                            value: localizedPermission(
+                                cameraPermission
+                            )
                         )
                     }
                     if let workingSetStatus {
@@ -138,27 +144,29 @@ public struct CaptureRootView: View {
                         )
                     }
                     if let lastFailure {
-                        LabeledContent("Failure", value: lastFailure.rawValue)
+                        LabeledContent(
+                            "Failure",
+                            value: localizedFailure(lastFailure)
+                        )
                     }
                 }
 
                 Section("Capabilities") {
                     LabeledContent(
                         "RoomPlan + mesh",
-                        value: capabilities.roomPlanMeshEligible
-                            ? "Available"
-                            : "Unavailable"
+                        value: localizedAvailability(
+                            capabilities.roomPlanMeshEligible
+                        )
                     )
                     LabeledContent(
                         "Scene depth",
-                        value: capabilities.sceneDepthSupported
-                            ? "Available"
-                            : "Unavailable"
+                        value: localizedAvailability(
+                            capabilities.sceneDepthSupported
+                        )
                     )
                     if capabilities.requiresCombinedFeatureProbe {
                         Text(
-                            "Combined RoomPlan/depth behavior still requires "
-                            + "physical-device verification."
+                            "Combined RoomPlan/depth behavior still requires physical-device verification."
                         )
                     }
                 }
@@ -173,13 +181,15 @@ public struct CaptureRootView: View {
                     Section("Quality") {
                         LabeledContent(
                             "HTDT ingestion",
-                            value: qualityReport.readyForHTDTIngestion
-                                ? "Ready"
-                                : "Not ready"
+                            value: localizedReadiness(
+                                qualityReport.readyForHTDTIngestion
+                            )
                         )
                         LabeledContent(
                             "Integrity preflight",
-                            value: qualityReport.integrityStatus.rawValue
+                            value: localizedIntegrity(
+                                qualityReport.integrityStatus
+                            )
                         )
                         NavigationLink("Review diagnostics") {
                             CaptureReviewView(
@@ -196,9 +206,9 @@ public struct CaptureRootView: View {
                     Section("Finalized bundle") {
                         LabeledContent(
                             "Validator",
-                            value: validationReport.valid
-                                ? "Pass"
-                                : "Fail"
+                            value: localizedPassFail(
+                                validationReport.valid
+                            )
                         )
                         Text(validationReport.bundleDigest.description)
                             .font(.caption.monospaced())
@@ -250,8 +260,7 @@ public struct CaptureRootView: View {
 
         case .paused:
             Text(
-                "The host app does not enter a pseudo-paused RoomPlan state. "
-                + "Ending RoomPlan creates a scan boundary."
+                "The host app does not enter a pseudo-paused RoomPlan state. Ending RoomPlan creates a scan boundary."
             )
 
         case .reviewing:
@@ -307,10 +316,104 @@ public struct CaptureRootView: View {
         }
     }
 
-    private func progressRow(_ text: String) -> some View {
+    private func progressRow(_ text: LocalizedStringKey) -> some View {
         HStack(spacing: 12) {
             ProgressView()
             Text(text)
+        }
+    }
+
+    private func localizedState(_ state: CaptureState) -> String {
+        switch state {
+        case .idle:
+            return String(localized: "Idle")
+        case .capabilityCheck:
+            return String(localized: "Checking capabilities")
+        case .permissions:
+            return String(localized: "Requesting permissions")
+        case .preparing:
+            return String(localized: "Preparing")
+        case .scanning:
+            return String(localized: "Scanning")
+        case .paused:
+            return String(localized: "Paused")
+        case .reviewing:
+            return String(localized: "Reviewing")
+        case .annotating:
+            return String(localized: "Annotating")
+        case .validating:
+            return String(localized: "Validating")
+        case .finalized:
+            return String(localized: "Finalized")
+        case .exported:
+            return String(localized: "Exported")
+        case .failed:
+            return String(localized: "Failed")
+        }
+    }
+
+    private func localizedPermission(
+        _ status: CameraPermissionStatus
+    ) -> String {
+        switch status {
+        case .notDetermined:
+            return String(localized: "Not determined")
+        case .authorized:
+            return String(localized: "Authorized")
+        case .denied:
+            return String(localized: "Denied")
+        case .restricted:
+            return String(localized: "Restricted")
+        case .unavailable:
+            return String(localized: "Unavailable")
+        }
+    }
+
+    private func localizedFailure(_ failure: CaptureFailureCode) -> String {
+        switch failure {
+        case .permissionDenied:
+            return String(localized: "Permission denied")
+        case .unsupportedDevice:
+            return String(localized: "Unsupported device")
+        case .trackingUnavailable:
+            return String(localized: "Tracking unavailable")
+        case .roomPlanFailure:
+            return String(localized: "RoomPlan failure")
+        case .storagePressure:
+            return String(localized: "Storage pressure")
+        case .persistenceFailure:
+            return String(localized: "Persistence failure")
+        case .thermalPressure:
+            return String(localized: "Thermal pressure")
+        case .interrupted:
+            return String(localized: "Interrupted")
+        case .unknown:
+            return String(localized: "Unknown error")
+        }
+    }
+
+    private func localizedAvailability(_ available: Bool) -> String {
+        String(localized: available ? "Available" : "Unavailable")
+    }
+
+    private func localizedReadiness(_ ready: Bool) -> String {
+        String(localized: ready ? "Ready" : "Not ready")
+    }
+
+    private func localizedPassFail(_ pass: Bool) -> String {
+        String(localized: pass ? "Pass" : "Fail")
+    }
+
+    private func localizedIntegrity(
+        _ status: BundleIntegrityStatus
+    ) -> String {
+        switch status {
+        case .notChecked:
+            return String(localized: "Not checked")
+        case .pass:
+            return String(localized: "Pass")
+        case .fail:
+            return String(localized: "Fail")
         }
     }
 }
