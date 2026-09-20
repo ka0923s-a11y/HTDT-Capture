@@ -3,7 +3,7 @@
 Status: In progress  
 Issue: #4
 
-## Implemented in this slice
+## Implemented
 
 - Typed evidence frame identity.
 - Camera pose and 3x3 intrinsics metadata model.
@@ -69,3 +69,24 @@ Unexpected planar layout, inadequate row stride, unsupported depth/confidence pi
 - add optional derived HEIC preview only after canonical capture is proven.
 
 Issue #4 remains open until these are demonstrated.
+
+
+## Live working-set package
+
+This slice adds a typed `FrameEvidencePackage` that binds one exact
+`FrameEvidenceDescriptor` to:
+
+- its packed `HTDTPXL1` camera payload;
+- optional `HTDTDPT1` depth payload;
+- optional `HTDTCNF1` confidence payload;
+- a schema-owned per-frame JSON descriptor.
+
+The package verifies byte counts and SHA-256 values before persistence and uses
+deterministic paths derived from the exact `frame_id`.
+
+The descriptor is written last after its referenced binary payloads. The
+working-set store then emits exact manifest declarations and increments explicit
+frame/depth evidence counts.
+
+The next host integration in this same slice captures the frame and final mesh
+from one exact `ARFrame` immediately before the RoomPlan scan boundary.
