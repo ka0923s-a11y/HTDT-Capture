@@ -30,6 +30,16 @@ func stateMachineHappyPath() throws {
 }
 
 @Test
+func reviewCanReturnToScanningBeforeAuthorityIsSealed() throws {
+    var machine = CaptureStateMachine(state: .reviewing)
+
+    try machine.apply(.resumeScanning)
+
+    #expect(machine.state == .scanning)
+    #expect(machine.lastFailure == nil)
+}
+
+@Test
 func validationFailureReturnsToReviewForRetry() throws {
     var machine = CaptureStateMachine(state: .reviewing)
     try machine.apply(.beginValidation)
