@@ -195,3 +195,18 @@
 "Rear left" = "左後方";
 "Left" = "左";
 "Front left" = "左前方";
+
+/* End-scan coverage review */
+"Overall coverage" = "全体カバレッジ";
+"Lower room" = "床・下側";
+"Level view" = "正面";
+"Upper room" = "壁上部・天井側";
+"Advisory scan coverage" = "スキャンカバレッジ確認";
+"This is a trajectory-based guide, not a geometric completeness measurement." = "端末の向きと移動履歴に基づく補助ガイドであり、形状の完全性を測定するものではありません。";
+"Most under-observed directions" = "取得が不足している方向";
+"%d of 3 angles" = "3方向中 %d";
+"Continue scanning" = "スキャンを続ける";
+"End anyway" = "そのまま終了";
+"Ending is always allowed because advisory coverage is not a canonical finalization gate." = "カバレッジは補助指標のため、未取得箇所があっても明示的に終了できます。";
+"Review scan coverage" = "カバレッジを確認";
+"Back" = "戻る";
