@@ -726,6 +726,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        // Committing a ready Review to validation closes spatial capture
+        // authority. Resource/background callbacks must not invalidate the
+        // generation while revision promotion is in flight.
+        resourceMonitor?.stop()
+        resourceMonitor = nil
+        sessionController.stopAndPauseARSession()
+
         do {
             try transition(.beginValidation)
         } catch {
@@ -1572,10 +1579,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            await self.recoverRoomPlanEndAttempt(
-                diagnostic: "roomplan_completion_timeout",
-                store: store,
-                generation: generation
+            // RoomPlan's callback does not carry this End attempt UUID.
+            // Restarting here could let a late callback from this unresolved
+            // stop be consumed by a later End attempt. Keep the attempt
+            // pending until RoomPlan actually resolves it.
+            self.workingSetStatus = HostLocalization.text(
+                "RoomPlan is still producing the final result",
+                "RoomPlan の最終結果を引き続き生成中です"
+            )
+            self.endScanGuidance = HostLocalization.text(
+                "Final RoomPlan processing is taking longer than usual. Keep the app in the foreground and wait; another End attempt will not be started.",
+                "RoomPlan の終了処理に通常より時間がかかっています。アプリを前面にしたまま待ってください。別の終了処理は開始しません。"
             )
         }
     }
@@ -2471,6 +2485,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             switch writerError {
             case let .alreadyExists(path):
                 return "file_conflict:" + path
+            case let .batchRollbackFailed(path):
+                return "batch_rollback_failed:" + path
             }
         }
 
