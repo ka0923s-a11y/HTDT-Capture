@@ -55,13 +55,26 @@ private struct HTDTCaptureHostView: View {
     }
 }
 
+private enum HostLocalization {
+    static var isJapanese: Bool {
+        Locale.preferredLanguages.first?
+            .lowercased()
+            .hasPrefix("ja") == true
+    }
+
+    static func text(_ english: String, _ japanese: String) -> String {
+        isJapanese ? japanese : english
+    }
+}
+
 @MainActor
 private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set) var state: CaptureState = .idle
     @Published private(set) var capabilities: CaptureCapabilityMatrix
     @Published private(set) var cameraPermission: CameraPermissionStatus
     @Published private(set) var lastFailure: CaptureFailureCode?
-    @Published private(set) var workingSetStatus = "Not prepared"
+    @Published private(set) var workingSetStatus =
+        HostLocalization.text("Not prepared", "未準備")
     @Published private(set) var qualityReport: CaptureQualityReport?
     @Published private(set) var validationReport: BundleValidationReport?
     @Published private(set) var exportURL: URL?
@@ -178,9 +191,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
                 self.workingSetStatus =
-                    "Scanning; "
-                    + String(snapshot.evidenceFrameCount)
-                    + " evidence frame(s) persisted"
+                    HostLocalization.isJapanese
+                    ? "スキャン中：証拠フレームを "
+                        + String(snapshot.evidenceFrameCount)
+                        + " 件保存しました"
+                    : "Scanning; "
+                        + String(snapshot.evidenceFrameCount)
+                        + " evidence frame(s) persisted"
             } catch {
                 self.fail(.persistenceFailure)
             }
@@ -206,8 +223,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         do {
             try transition(.beginAnnotation)
-            workingSetStatus =
-                "Editing annotations and measurements"
+            workingSetStatus = HostLocalization.text(
+                "Editing annotations and measurements",
+                "注釈と計測値を編集中"
+            )
         } catch {
             fail(.unknown)
         }
@@ -250,8 +269,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let workingSnapshot = await store.snapshot()
         annotationEvidenceRefs =
             workingSnapshot.evidenceFrameRefs
-        workingSetStatus =
-            "Evidence-linked speaker heading captured"
+        workingSetStatus = HostLocalization.text(
+            "Evidence-linked speaker heading captured",
+            "証拠フレームに紐付いたスピーカー向きを取得しました"
+        )
 
         return authority
     }
@@ -304,8 +325,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let workingSnapshot = await store.snapshot()
         annotationEvidenceRefs =
             workingSnapshot.evidenceFrameRefs
-        workingSetStatus =
-            "Evidence-linked raycast placement captured"
+        workingSetStatus = HostLocalization.text(
+            "Evidence-linked raycast placement captured",
+            "証拠フレームに紐付いたレイキャスト位置を取得しました"
+        )
 
         return authority
     }
@@ -316,8 +339,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         do {
             try transition(.beginReview)
-            workingSetStatus =
-                "Annotation editing cancelled; staged records not written"
+            workingSetStatus = HostLocalization.text(
+                "Annotation editing cancelled; staged records not written",
+                "注釈編集をキャンセルしました。未保存の項目は書き込まれていません"
+            )
         } catch {
             fail(.unknown)
         }
@@ -351,8 +376,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         let generation = captureGeneration
-        workingSetStatus =
-            "Persisting annotation and measurement authority"
+        workingSetStatus = HostLocalization.text(
+            "Persisting annotation and measurement authority",
+            "注釈と計測値を保存中"
+        )
 
         Task { @MainActor [weak self] in
             guard let self,
@@ -409,7 +436,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        workingSetStatus = "Persisting quality and finalizing revision"
+        workingSetStatus = HostLocalization.text(
+            "Persisting quality and finalizing revision",
+            "品質情報を保存し、リビジョンを確定中"
+        )
 
         let generation = captureGeneration
         Task {
@@ -431,7 +461,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        workingSetStatus = "Creating validated .htdtcapture archive"
+        workingSetStatus = HostLocalization.text(
+            "Creating validated .htdtcapture archive",
+            "検証済み .htdtcapture アーカイブを作成中"
+        )
         let generation = captureGeneration
 
         Task {
@@ -462,8 +495,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
                 exportURL = result.archiveURL
                 try transition(.export)
-                workingSetStatus =
-                    "Validated share-ready archive created"
+                workingSetStatus = HostLocalization.text(
+                    "Validated share-ready archive created",
+                    "検証済みの共有用アーカイブを作成しました"
+                )
             } catch {
                 fail(.persistenceFailure)
             }
@@ -500,8 +535,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         resourceMonitor = nil
         workingSetStatus =
             state == .idle
-            ? "Ready for a new capture"
-            : "Capture reset"
+            ? HostLocalization.text(
+                "Ready for a new capture",
+                "新しいキャプチャを開始できます"
+            )
+            : HostLocalization.text(
+                "Capture reset",
+                "キャプチャをリセットしました"
+            )
         isEndingScan = false
         isCapturingEvidenceFrame = false
         capabilities = PlatformCapabilityProbe.current()
@@ -518,8 +559,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     else {
                         return
                     }
-                    self.workingSetStatus =
-                        "Ready; prior incomplete revision cleanup failed"
+                    self.workingSetStatus = HostLocalization.text(
+                        "Ready; prior incomplete revision cleanup failed",
+                        "開始可能ですが、以前の未完了データを削除できませんでした"
+                    )
                 }
             }
         }
@@ -573,8 +616,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         workingSetStore = prepared.store
         captureGeneration = prepared.generation
         workingSetStatus =
-            "Prepared revision "
-            + prepared.identity.captureRevisionID.description
+            HostLocalization.isJapanese
+            ? "リビジョンを準備しました: "
+                + prepared.identity.captureRevisionID.description
+            : "Prepared revision "
+                + prepared.identity.captureRevisionID.description
 
         let context = sessionController.context
         let runtime = PlatformRuntimeProvenance.current()
@@ -610,13 +656,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        let activeConfiguration: CaptureConfigurationProfile
+        do {
+            activeConfiguration =
+                try await waitForActiveConfiguration()
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "RoomPlan started, but the active AR configuration was not available in time",
+                "RoomPlan は開始しましたが、実行中の AR 設定を時間内に取得できませんでした"
+            )
+            fail(.roomPlanFailure)
+            return
+        }
+
         let foundation: CaptureSessionFoundationPackage
         do {
-            let activeConfiguration =
-                try ARConfigurationSnapshotAdapter.snapshot(
-                    session: sessionController.arSession,
-                    captureMode: .roomPlanMesh
-                )
             foundation =
                 try CaptureSessionFoundationPackageBuilder.build(
                     context: context,
@@ -628,12 +682,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             .currentDeviceDocument()
                 )
             try await store.persistSessionFoundation(foundation)
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "Capture session metadata could not be persisted",
+                "キャプチャのセッション情報を保存できませんでした"
+            )
+            fail(.persistenceFailure)
+            return
+        }
+
+        do {
             captureStartTimingCorrelation =
                 try await waitForInitialTimingCorrelation()
         } catch {
-            workingSetStatus =
-                "Active AR configuration could not be persisted"
-            fail(.persistenceFailure)
+            workingSetStatus = HostLocalization.text(
+                "AR tracking did not produce an initial frame in time",
+                "AR トラッキングの初期フレームを時間内に取得できませんでした"
+            )
+            fail(.trackingUnavailable)
             return
         }
 
@@ -647,8 +713,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             guard state == .scanning else {
                 return
             }
-            workingSetStatus =
-                "Scanning; active AR configuration persisted"
+            workingSetStatus = HostLocalization.text(
+                "Scanning; active AR configuration persisted",
+                "スキャン中：実行中の AR 設定を保存しました"
+            )
         } catch {
             fail(.unknown)
         }
@@ -710,8 +778,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        workingSetStatus =
-            "Persisting final mesh and selected frame evidence"
+        workingSetStatus = HostLocalization.text(
+            "Persisting final mesh and selected frame evidence",
+            "最終メッシュと選択フレームを保存中"
+        )
 
         do {
             guard let startTimingCorrelation =
@@ -760,7 +830,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        workingSetStatus = "Persisting raw RoomPlan evidence"
+        workingSetStatus = HostLocalization.text(
+            "Persisting raw RoomPlan evidence",
+            "RoomPlan の生データを保存中"
+        )
 
         Task { @MainActor [weak self] in
             guard let self,
@@ -781,8 +854,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             if frameworkFailed {
-                self.workingSetStatus =
-                    "Raw RoomPlan retained; RoomPlan reported failure"
+                self.workingSetStatus = HostLocalization.text(
+                    "Raw RoomPlan retained; RoomPlan reported failure",
+                    "RoomPlan の生データは保持しましたが、RoomPlan が失敗を報告しました"
+                )
                 self.fail(.roomPlanFailure)
                 return
             }
@@ -796,8 +871,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             rawArtifact: raw
                         )
             } catch {
-                self.workingSetStatus =
-                    "Raw RoomPlan retained; postprocessing failed"
+                self.workingSetStatus = HostLocalization.text(
+                    "Raw RoomPlan retained; postprocessing failed",
+                    "RoomPlan の生データは保持しましたが、後処理に失敗しました"
+                )
                 self.fail(.roomPlanFailure)
                 return
             }
@@ -823,6 +900,23 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.fail(.persistenceFailure)
             }
         }
+    }
+
+    private func waitForActiveConfiguration()
+        async throws -> CaptureConfigurationProfile
+    {
+        for _ in 0..<60 {
+            do {
+                return try ARConfigurationSnapshotAdapter.snapshot(
+                    session: sessionController.arSession,
+                    captureMode: .roomPlanMesh
+                )
+            } catch ARConfigurationSnapshotError.configurationUnavailable {
+                try await Task.sleep(for: .milliseconds(50))
+            }
+        }
+
+        throw ARConfigurationSnapshotError.configurationUnavailable
     }
 
     private func waitForInitialTimingCorrelation()
@@ -859,17 +953,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         if report.readyForHTDTIngestion {
             workingSetStatus =
-                "Ready to finalize; "
-                + String(snapshot.payloadDeclarations.count)
-                + " evidence payloads passed preflight"
+                HostLocalization.isJapanese
+                ? "確定可能："
+                    + String(snapshot.payloadDeclarations.count)
+                    + " 件の証拠データが事前確認に合格しました"
+                : "Ready to finalize; "
+                    + String(snapshot.payloadDeclarations.count)
+                    + " evidence payloads passed preflight"
         } else {
             let errorCount = report.diagnostics.filter {
                 $0.severity == .error
             }.count
             workingSetStatus =
-                "Reviewing; "
-                + String(errorCount)
-                + " blocking quality diagnostic(s)"
+                HostLocalization.isJapanese
+                ? "確認中："
+                    + String(errorCount)
+                    + " 件の品質エラーがあります"
+                : "Reviewing; "
+                    + String(errorCount)
+                    + " blocking quality diagnostic(s)"
         }
     }
 
@@ -926,8 +1028,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             exportURL = nil
             try transition(.finalize)
             workingSetStatus =
-                "Finalized revision; bundle digest "
-                + validation.bundleDigest.description
+                HostLocalization.isJapanese
+                ? "リビジョンを確定しました。バンドルダイジェスト: "
+                    + validation.bundleDigest.description
+                : "Finalized revision; bundle digest "
+                    + validation.bundleDigest.description
         } catch {
             fail(.persistenceFailure)
         }

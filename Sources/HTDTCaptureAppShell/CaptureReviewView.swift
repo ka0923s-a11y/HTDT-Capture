@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import HTDTCaptureCore
 
@@ -19,12 +20,14 @@ public struct CaptureReviewView: View {
                 LabeledContent(
                     "HTDT ingestion",
                     value: quality.readyForHTDTIngestion
-                        ? "Ready"
-                        : "Not ready"
+                        ? String(localized: "Ready")
+                        : String(localized: "Not ready")
                 )
                 LabeledContent(
                     "RoomPlan",
-                    value: quality.roomPlanStatus.rawValue
+                    value: localizedRoomPlanStatus(
+                        quality.roomPlanStatus
+                    )
                 )
                 LabeledContent(
                     "Mesh anchors",
@@ -62,8 +65,10 @@ public struct CaptureReviewView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(diagnostic.code)
                                 .font(.headline)
-                            Text(diagnostic.message)
-                            Text(diagnostic.severity.rawValue)
+                            Text(localizedDiagnosticMessage(diagnostic))
+                            Text(
+                                localizedSeverity(diagnostic.severity)
+                            )
                                 .font(.caption)
                         }
                     }
@@ -73,12 +78,16 @@ public struct CaptureReviewView: View {
             Section("Bundle integrity") {
                 LabeledContent(
                     "Quality record",
-                    value: quality.integrityStatus.rawValue
+                    value: localizedIntegrity(
+                        quality.integrityStatus
+                    )
                 )
                 if let validation {
                     LabeledContent(
                         "Validator",
-                        value: validation.valid ? "Pass" : "Fail"
+                        value: validation.valid
+                            ? String(localized: "Pass")
+                            : String(localized: "Fail")
                     )
                     LabeledContent(
                         "Bundle digest",
@@ -93,7 +102,7 @@ public struct CaptureReviewView: View {
 
     @ViewBuilder
     private func completenessRow(
-        _ title: String,
+        _ title: LocalizedStringKey,
         status: CompletenessStatus
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -103,9 +112,96 @@ public struct CaptureReviewView: View {
                 Text("Complete")
             } else {
                 Text(
-                    "Missing: " + status.missing.joined(separator: ", ")
+                    String(
+                        format: String(localized: "Missing: %@"),
+                        status.missing.joined(separator: ", ")
+                    )
                 )
             }
+        }
+    }
+
+    private func localizedRoomPlanStatus(
+        _ status: RoomPlanQualityStatus
+    ) -> String {
+        switch status {
+        case .notStarted:
+            return String(localized: "Not started")
+        case .running:
+            return String(localized: "Running")
+        case .completed:
+            return String(localized: "Completed")
+        case .failed:
+            return String(localized: "Failed")
+        case .unavailable:
+            return String(localized: "Unavailable")
+        }
+    }
+
+    private func localizedIntegrity(
+        _ status: BundleIntegrityStatus
+    ) -> String {
+        switch status {
+        case .notChecked:
+            return String(localized: "Not checked")
+        case .pass:
+            return String(localized: "Pass")
+        case .fail:
+            return String(localized: "Fail")
+        }
+    }
+
+    private func localizedSeverity(
+        _ severity: QualityDiagnosticSeverity
+    ) -> String {
+        switch severity {
+        case .info:
+            return String(localized: "Info")
+        case .warning:
+            return String(localized: "Warning")
+        case .error:
+            return String(localized: "Error")
+        }
+    }
+
+    private func localizedDiagnosticMessage(
+        _ diagnostic: QualityDiagnostic
+    ) -> String {
+        switch diagnostic.code {
+        case "roomplan_not_completed":
+            return String(
+                localized: "RoomPlan capture has not completed successfully."
+            )
+        case "insufficient_mesh_anchors":
+            return String(
+                localized: "Active mesh anchor count is below the required minimum."
+            )
+        case "insufficient_evidence_frames":
+            return String(
+                localized: "Evidence frame count is below the required minimum."
+            )
+        case "depth_evidence_missing":
+            return String(
+                localized: "This quality ruleset requires at least one depth observation."
+            )
+        case "tracking_unavailable_observed":
+            return String(
+                localized: "AR tracking became unavailable during the capture."
+            )
+        case "tracking_limited_observed":
+            return String(
+                localized: "AR tracking was limited during part of the capture."
+            )
+        case "integrity_not_checked":
+            return String(
+                localized: "Bundle integrity must pass before finalization."
+            )
+        case "integrity_failed":
+            return String(
+                localized: "Bundle integrity validation failed."
+            )
+        default:
+            return diagnostic.message
         }
     }
 }

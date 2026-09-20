@@ -62,24 +62,21 @@ public struct CaptureAnnotationWorkspaceView: View {
                         )
                     )
                     Text(
-                        "Selections bind exact ID/version/SHA-256 only. "
-                        + "The imported catalog is not stored as equipment "
-                        + "authority in the capture bundle."
+                        "Selections bind exact ID/version/SHA-256 only. The imported catalog is not stored as equipment authority in the capture bundle."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 } else {
                     Text(
-                        "Optional. Import a catalog snapshot exported from "
-                        + "the HTDT backend."
+                        "Optional. Import a catalog snapshot exported from the HTDT backend."
                     )
                     .foregroundStyle(.secondary)
                 }
 
                 Button(
                     equipmentCatalog == nil
-                    ? "Import equipment catalog"
-                    : "Replace equipment catalog"
+                    ? String(localized: "Import equipment catalog")
+                    : String(localized: "Replace equipment catalog")
                 ) {
                     importingEquipmentCatalog = true
                 }
@@ -148,9 +145,7 @@ public struct CaptureAnnotationWorkspaceView: View {
                 }
             } footer: {
                 Text(
-                    "Save writes the canonical annotation and measurement "
-                    + "collections once. Edit or delete staged records before "
-                    + "saving."
+                    "Save writes the canonical annotation and measurement collections once. Edit or delete staged records before saving."
                 )
             }
         }
@@ -214,7 +209,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         } catch {
             equipmentCatalog = nil
             equipmentCatalogError =
-                "Catalog import failed: "
+                String(localized: "Catalog import failed: ")
                 + String(describing: error)
         }
     }
@@ -349,9 +344,7 @@ private struct ManualAnnotationForm: View {
                         }
                         .disabled(isCapturingOrientation)
                         Text(
-                            "Point the phone in the speaker's forward "
-                            + "direction, then capture. Only the horizontal "
-                            + "heading is adopted."
+                            "Point the phone in the speaker's forward direction, then capture. Only the horizontal heading is adopted."
                         )
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -421,10 +414,8 @@ private struct ManualAnnotationForm: View {
 
                     Text(
                         selectedEquipmentKey.isEmpty
-                        ? "All three values are required. The capture app "
-                            + "does not guess an equipment revision."
-                        : "Selected from an HTDT catalog snapshot; the exact "
-                            + "ID/version/SHA-256 tuple is stored."
+                        ? String(localized: "All three values are required. The capture app does not guess an equipment revision.")
+                        : String(localized: "Selected from an HTDT catalog snapshot; the exact ID/version/SHA-256 tuple is stored.")
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -668,9 +659,7 @@ private struct ManualMeasurementForm: View {
 
             Section {
                 Text(
-                    "Manual entries are persisted as user-attested "
-                    + "measurements; derived LiDAR/RoomPlan values should use "
-                    + "their dedicated evidence path instead."
+                    "Manual entries are persisted as user-attested measurements; derived LiDAR/RoomPlan values should use their dedicated evidence path instead."
                 )
                 .font(.caption)
             }
@@ -784,8 +773,7 @@ private struct EvidenceReferenceSelector: View {
             }
 
             Text(
-                "Links reference exact canonical frame descriptors already "
-                + "persisted in this working revision."
+                "Links reference exact canonical frame descriptors already persisted in this working revision."
             )
             .font(.caption)
             .foregroundStyle(.secondary)
