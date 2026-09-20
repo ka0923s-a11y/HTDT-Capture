@@ -779,7 +779,10 @@ public struct ScanMotionGuidanceTracker: Sendable {
 
         if observation.recheckSuggested {
             return ScanMotionGuidance(
-                action: .reobserveAnotherAngle
+                action:
+                    movementCapability == .stationaryOnly
+                    ? .holdObserve
+                    : .reobserveAnotherAngle
             )
         }
 
