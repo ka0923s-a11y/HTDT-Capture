@@ -60,6 +60,49 @@ final class ScanMotionGuidanceTests: XCTestCase {
         XCTAssertNotNil(result?.translationDirection)
     }
 
+    func testTranslationAdvancesToOrbitAfterCameraBaselineChanges() {
+        var tracker = ScanMotionGuidanceTracker()
+        let key = SpatialCoverageCellKey(x: 2, z: 2)
+
+        let initial = tracker.record(
+            timestampSeconds: 0,
+            coverage: coverage(gap: nil),
+            spatialCoverage: spatial(
+                cameraX: 0,
+                cameraZ: 0,
+                region: region(
+                    key: key,
+                    observations: 3,
+                    diversity: 1,
+                    distance: .medium,
+                    classification: .weak
+                )
+            ),
+            observation: .empty
+        )
+        XCTAssertEqual(initial?.action, .translate)
+
+        let advanced = tracker.record(
+            timestampSeconds: 0.5,
+            coverage: coverage(gap: nil),
+            spatialCoverage: spatial(
+                cameraX: 0.35,
+                cameraZ: 0,
+                region: region(
+                    key: key,
+                    observations: 4,
+                    diversity: 1,
+                    distance: .medium,
+                    classification: .weak
+                )
+            ),
+            observation: .empty
+        )
+
+        XCTAssertEqual(advanced?.action, .orbit)
+        XCTAssertEqual(advanced?.targetRegionKey, key)
+    }
+
     func testNewAngleDiversityAndObservedRegionClearGuidance() {
         var tracker = ScanMotionGuidanceTracker()
         let key = SpatialCoverageCellKey(x: 2, z: 2)
