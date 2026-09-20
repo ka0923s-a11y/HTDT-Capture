@@ -540,6 +540,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     func continueScanningFromReview() {
         guard state == .reviewing,
+              !isEndingScan,
               !reviewOperationInFlight,
               !annotationAuthorityCommitted,
               !spatialAuthoritySealedForFinalization,
@@ -637,6 +638,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     func beginAnnotation() {
         guard state == .reviewing,
+              !isEndingScan,
               !reviewOperationInFlight,
               !annotationAuthorityCommitted
         else {
@@ -928,6 +930,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     func finalizeCapture() {
         guard state == .reviewing,
+              !isEndingScan,
               !reviewOperationInFlight,
               let store = workingSetStore
         else {
