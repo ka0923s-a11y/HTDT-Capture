@@ -257,6 +257,7 @@ public struct ScanMotionGuidanceTracker: Sendable {
     private var currentStartDistanceBucket: SpatialCoverageDistanceBucket?
 
     private var cameraHistory: [SpatialCoveragePoint2D] = []
+    private var cameraHistoryTargetKey: SpatialCoverageCellKey?
     private var weakObservationCounts:
         [SpatialCoverageCellKey: Int] = [:]
 
@@ -273,8 +274,9 @@ public struct ScanMotionGuidanceTracker: Sendable {
         spatialCoverage: SpatialScanCoverageSummary,
         observation: ObservationStabilitySummary
     ) -> ScanMotionGuidance? {
-        appendCameraPosition(spatialCoverage.currentCameraPosition)
         updateWeakObservationCounts(spatialCoverage.regions)
+        resetCameraHistoryIfTargetChanged(spatialCoverage)
+        appendCameraPosition(spatialCoverage.currentCameraPosition)
 
         let candidate = candidateGuidance(
             coverage: coverage,
@@ -384,6 +386,20 @@ public struct ScanMotionGuidanceTracker: Sendable {
             currentStartDiversityCount = nil
             currentStartDistanceBucket = nil
         }
+    }
+
+    private mutating func resetCameraHistoryIfTargetChanged(
+        _ spatialCoverage: SpatialScanCoverageSummary
+    ) {
+        let preferredKey =
+            preferredWeakRegion(spatialCoverage)?.key
+        guard preferredKey != cameraHistoryTargetKey else {
+            return
+        }
+
+        cameraHistoryTargetKey = preferredKey
+        cameraHistory = spatialCoverage.currentCameraPosition
+            .map { [$0] } ?? []
     }
 
     private mutating func appendCameraPosition(
