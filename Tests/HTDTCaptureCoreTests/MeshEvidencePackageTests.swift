@@ -100,6 +100,22 @@ final class MeshEvidencePackageTests: XCTestCase {
         )
     }
 
+    func testBuildAllowsExplicitEmptyActiveAnchorSet() throws {
+        let package = try MeshEvidencePackageBuilder.build(
+            snapshots: []
+        )
+
+        XCTAssertTrue(package.index.anchors.isEmpty)
+        XCTAssertTrue(package.geometryFiles.isEmpty)
+
+        let decoded = try JSONDecoder().decode(
+            MeshAnchorEvidenceIndex.self,
+            from: package.indexData
+        )
+        XCTAssertEqual(decoded, package.index)
+        XCTAssertEqual(decoded.schema, "htdt.capture.mesh-anchors")
+    }
+
     func testBuildFailsClosedWhenTimestampIsMissing() throws {
         let geometry = try MeshGeometryPayload(
             vertices: [
