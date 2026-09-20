@@ -195,3 +195,33 @@
 "Rear left" = "左後方";
 "Left" = "左";
 "Front left" = "左前方";
+
+/* G100C end-scan advisory gap review */
+"Review & end" = "確認して終了";
+"Check scan coverage" = "スキャン範囲を確認";
+"Advisory coverage" = "補助カバレッジ";
+"%d of %d view cells observed" = "%d / %d の視野セルを取得";
+"Lower room" = "部屋の下側";
+"Eye level" = "目線の高さ";
+"Upper room" = "部屋の上側";
+"Coverage map" = "カバレッジマップ";
+"Observed" = "取得済み";
+"Needs another look" = "追加確認が必要";
+"Likely capture gap" = "取り漏れの可能性";
+"Look again toward %@ at %@ height." = "%@ の %@ をもう一度映してください。";
+"%d advisory cells remain under-observed." = "補助指標上、%d セルが未取得です。";
+"No advisory direction gaps remain." = "補助指標上の未取得方向はありません。";
+"This coverage model only tracks camera viewing directions and heights. It does not prove that every wall, object, opening, or surface was captured." = "このカバレッジはカメラを向けた方向と高さのみを追跡します。すべての壁・物体・開口・表面を取得できたことを保証するものではありません。";
+"Continue scanning" = "スキャンを続ける";
+"End anyway" = "このまま終了";
+"low" = "下側";
+"eye-level" = "正面";
+"high" = "上側";
+"front" = "前方";
+"front-right" = "右前方";
+"right" = "右";
+"rear-right" = "右後方";
+"rear" = "後方";
+"rear-left" = "左後方";
+"left" = "左";
+"front-left" = "左前方";
