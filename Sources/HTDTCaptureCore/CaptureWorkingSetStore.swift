@@ -575,6 +575,16 @@ public actor CaptureWorkingSetStore {
             )
         }
 
+        if let existing = meshIndex {
+            if existing == package.index {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    MeshEvidencePackage.indexPath
+                )
+        }
+
         let meshPaths =
             package.geometryFiles.map(\.path)
             + [MeshEvidencePackage.indexPath]
@@ -585,19 +595,26 @@ public actor CaptureWorkingSetStore {
                 .duplicatePayloadDeclaration(duplicate)
         }
 
-        do {
-            try await package.persist(using: writer)
-        } catch {
-            // Mesh is optional at review time. Keep a failed write from
-            // leaving undeclared complete files that would poison bundle
-            // integrity and prevent the already-persisted frame/depth
-            // fallback from being used.
-            for path in meshPaths {
-                if let storePath = try? CaptureStorePath(path) {
-                    try? await writer.removeIfPresent(storePath)
-                }
+        try await package.persist(using: writer)
+
+        // The actor can re-enter while the writer actor performs the batch.
+        // If an identical caller committed first, this call is an idempotent
+        // replay. A different committed index is an authority conflict.
+        if let existing = meshIndex {
+            if existing == package.index {
+                return
             }
-            throw error
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    MeshEvidencePackage.indexPath
+                )
+        }
+
+        if let duplicate = meshPaths.first(where: {
+            declarations[$0] != nil
+        }) {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(duplicate)
         }
 
         for file in package.geometryFiles {
