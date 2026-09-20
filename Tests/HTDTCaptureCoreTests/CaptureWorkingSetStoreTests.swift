@@ -210,6 +210,55 @@ final class CaptureWorkingSetStoreTests: XCTestCase {
         }
     }
 
+    func testExactRoomPlanCompletionReplayIsIdempotent() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let store = try CaptureWorkingSetStore(
+            rootDirectory: root
+        )
+        let sessionID = CaptureSessionID()
+        let coordinateID = CoordinateSpaceID()
+        let raw = RoomPlanEvidenceArtifactBuilder.buildRaw(
+            data: Data(#"{"room":"same"}"#.utf8),
+            captureSessionID: sessionID,
+            coordinateSpaceID: coordinateID,
+            runtime: CaptureRuntimeProvenance(
+                osVersion: "test",
+                appVersion: "test",
+                appBuild: "test"
+            )
+        )
+        let lineage = RoomPlanEvidenceArtifactBuilder.attachProcessed(
+            data: Data(#"{"processed":"same"}"#.utf8),
+            to: raw
+        )
+        let processed = try XCTUnwrap(lineage.processed)
+
+        try await store.persistRawRoomPlan(raw)
+        try await store.persistRawRoomPlan(raw)
+        try await store.persistProcessedRoomPlan(processed)
+        try await store.persistProcessedRoomPlan(processed)
+
+        let snapshot = await store.snapshot()
+        XCTAssertEqual(snapshot.rawRoomPlanDescriptor, raw.descriptor)
+        XCTAssertEqual(
+            snapshot.processedRoomPlanDescriptor,
+            processed.descriptor
+        )
+        XCTAssertEqual(
+            snapshot.payloadDeclarations.filter {
+                $0.path == RoomPlanEvidenceArtifactBuilder.rawPath
+                    || $0.path
+                        == RoomPlanEvidenceArtifactBuilder.processedPath
+            }.count,
+            2
+        )
+    }
+
     func testRejectsMeshPackageWhenIndexBytesDoNotMatchTypedIndex() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
