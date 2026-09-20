@@ -368,9 +368,9 @@ final class DerivedObjectDecompositionTests: XCTestCase {
     ) -> DerivedObservationPoint {
         DerivedObservationPoint(
             position: DerivedPoint2D(x: x, y: z),
-            verticalPositionMeters: y,
             evidenceRef: ref,
-            evidenceKind: .spatialObservation
+            evidenceKind: .spatialObservation,
+            verticalPositionMeters: y
         )
     }
 
