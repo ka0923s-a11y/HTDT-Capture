@@ -174,19 +174,6 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         let descriptor = payload.descriptor
 
-        // RoomCaptureView can deliver the same completion payload more than
-        // once around stop()/review transition. Exact replay is harmless and
-        // must not turn an otherwise complete capture into a terminal
-        // persistence failure. A conflicting replay remains fail-closed.
-        if let existing = rawRoomPlanDescriptor {
-            if existing == descriptor {
-                return
-            }
-            throw CaptureWorkingSetError.duplicatePayloadDeclaration(
-                RoomPlanEvidenceArtifactBuilder.rawPath
-            )
-        }
-
         guard
             descriptor.relativePath
                 == RoomPlanEvidenceArtifactBuilder.rawPath,
@@ -195,6 +182,18 @@ public actor CaptureWorkingSetStore {
                 == EvidenceIntegrity.sha256(of: payload.data)
         else {
             throw CaptureWorkingSetError.invalidRawRoomPlanDescriptor
+        }
+
+        // RoomCaptureView can deliver the same completion payload more than
+        // once around stop()/review transition. Validate the replay bytes
+        // first, then treat an exact descriptor replay as harmless.
+        if let existing = rawRoomPlanDescriptor {
+            if existing == descriptor {
+                return
+            }
+            throw CaptureWorkingSetError.duplicatePayloadDeclaration(
+                RoomPlanEvidenceArtifactBuilder.rawPath
+            )
         }
 
         try bindAuthority(
@@ -224,22 +223,6 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         let descriptor = payload.descriptor
 
-        // Match raw RoomPlan replay semantics: exact duplicate completion is
-        // idempotent, but a second payload with different lineage/digest is a
-        // conflicting canonical write and is rejected.
-        if let existing = processedRoomPlanDescriptor {
-            if existing == descriptor {
-                return
-            }
-            throw CaptureWorkingSetError.duplicatePayloadDeclaration(
-                RoomPlanEvidenceArtifactBuilder.processedPath
-            )
-        }
-
-        guard let raw = rawRoomPlanDescriptor else {
-            throw CaptureWorkingSetError.processedRoomPlanRequiresRaw
-        }
-
         guard
             descriptor.relativePath
                 == RoomPlanEvidenceArtifactBuilder.processedPath,
@@ -251,6 +234,10 @@ public actor CaptureWorkingSetStore {
                 .invalidProcessedRoomPlanDescriptor
         }
 
+        guard let raw = rawRoomPlanDescriptor else {
+            throw CaptureWorkingSetError.processedRoomPlanRequiresRaw
+        }
+
         guard
             descriptor.sourceRawSHA256 == raw.sha256,
             descriptor.captureSessionID == raw.captureSessionID,
@@ -258,6 +245,18 @@ public actor CaptureWorkingSetStore {
         else {
             throw CaptureWorkingSetError
                 .processedRoomPlanLineageMismatch
+        }
+
+        // Match raw RoomPlan replay semantics after validating bytes and
+        // lineage. Exact duplicate completion is idempotent; a conflicting
+        // canonical payload is rejected.
+        if let existing = processedRoomPlanDescriptor {
+            if existing == descriptor {
+                return
+            }
+            throw CaptureWorkingSetError.duplicatePayloadDeclaration(
+                RoomPlanEvidenceArtifactBuilder.processedPath
+            )
         }
 
         let path = try CaptureStorePath(descriptor.relativePath)
