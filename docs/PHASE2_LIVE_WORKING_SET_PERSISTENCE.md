@@ -1,6 +1,6 @@
 # Phase 2 Live Working-Set Persistence
 
-Status: core persistence authority implemented; host/live RoomPlan hookup follows in this slice  
+Status: core persistence authority and iOS host hookup implemented; physical-device verification remains open  
 Issue: #3  
 Related: #6
 
@@ -72,3 +72,31 @@ Focused core tests verify:
 - actual working-directory files;
 - processed-before-raw rejection;
 - rejection when typed mesh index and encoded index bytes disagree.
+
+
+## Live host hookup
+
+The concrete iOS host now creates one unique mutable working revision after
+capability and camera-permission gates pass.
+
+At scan end it:
+
+1. copies the current active ARMeshAnchor set into immutable typed snapshots;
+2. calls RoomPlan stop while preserving the shared ARSession;
+3. enters review;
+4. persists the copied final active mesh package.
+
+The RoomPlan completion callback independently:
+
+1. encodes exact CapturedRoomData;
+2. persists raw RoomPlan evidence first;
+3. retains that raw evidence even when RoomPlan reports a framework failure;
+4. when successful, derives CapturedRoom through RoomBuilder;
+5. persists the processed artifact only with exact raw SHA/session/coordinate
+   lineage.
+
+A generation token prevents a delayed callback from an abandoned failed capture
+from mutating a later capture's UI/state.
+
+The host exposes working-set persistence status but does not claim quality
+readiness or finalization.

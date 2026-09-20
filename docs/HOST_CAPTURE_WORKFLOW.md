@@ -6,12 +6,12 @@ Related issues: #2, #3, #4, #6, #9
 
 ## Purpose
 
-The iOS host owns and drives the existing capture state machine, camera
-permission boundary, runtime capability matrix, and shared
-`RoomCaptureSession` / `ARSession` controller.
+The iOS host owns and drives the capture state machine, camera permission
+boundary, runtime capability matrix, shared `RoomCaptureSession` /
+`ARSession`, and the mutable capture working set.
 
-This slice does not claim that real RoomPlan, ARMesh, RGB/depth, or final bundle
-evidence has been captured successfully on hardware.
+This does not claim that a physical LiDAR device has successfully produced the
+evidence. It establishes the software execution path and fail-closed boundaries.
 
 ## Host state flow
 
@@ -22,42 +22,54 @@ idle
   -> capability_check
   -> permissions
   -> preparing
+       create unique working revision
+       bind RoomPlan completion handler
   -> scanning
   -> reviewing
+       final active mesh snapshot persisted
+       raw RoomPlan persisted on completion callback
+       processed RoomPlan persisted only from exact raw evidence
 ```
 
-A capability, permission, state-machine, or RoomPlan startup failure moves the
-host to `failed` with a typed `CaptureFailureCode`.
+Capability, permission, capture-start, tracking/snapshot, RoomPlan, or
+persistence failures move the host to `failed` with a typed
+`CaptureFailureCode`.
 
-The core state machine still has a generic `paused` state, but the production
-host does not map RoomPlan stop/run calls onto that state.
+## Working revision
+
+Each started capture receives a fresh `CaptureWorkingSetIdentity` and a unique
+mutable directory under Application Support:
+
+`HTDTCapture/working/<capture-revision-id>/`
+
+The host retains failed working revisions rather than silently deleting source
+evidence. Reset invalidates the old callback generation and creates a fresh
+ARSession/context for the next capture.
 
 ## RoomPlan scan boundary
 
 RoomPlan `stop(pauseARSession: false)` ends the current room-capture scan while
-leaving the underlying ARSession running. It is therefore treated as a scan
-boundary, not as an in-place pause operation.
+leaving the underlying ARSession running. It is treated as a scan boundary, not
+as an in-place pause operation.
 
-The host exposes one explicit `End scan and review` action. It does not expose
-a pseudo `Pause/Resume` pair that would silently turn one logical scan into
-multiple RoomPlan scans.
+Immediately before that stop, the host copies the current active
+`ARMeshAnchor` set into typed immutable snapshots. After the stop call, those
+snapshots are packaged and persisted into the same working revision.
 
-Future multi-scan support must model scan-segment identity and preserve every
-raw `CapturedRoomData` result before a subsequent `run(configuration:)`.
+The RoomPlan completion delegate separately persists exact
+`CapturedRoomData` bytes first. Only if RoomPlan did not report a framework
+failure does the host run `RoomBuilder` and persist the postprocessed
+`CapturedRoom`, hash-bound to the exact raw artifact.
 
 ## Coordinate-space behavior
 
-Transition-to-review calls:
+The working-set store binds the first spatial evidence to one exact
+`capture_session_id` and `coordinate_space_id`. RoomPlan and mesh evidence
+with a different authority are rejected rather than combined.
 
-`stopRoomPlanPreservingARSession()`
-
-which uses RoomPlan's `stop(pauseARSession: false)` path. The host therefore
-does not intentionally destroy the shared AR world frame merely because one
-RoomPlan scan ends.
-
-A failed-session reset instead calls `stopAndPauseARSession()` and creates a
-new controller/context. Evidence captured before and after such a reset must not
-be silently presented as one coordinate-space authority.
+The current production host has one RoomPlan scan per working revision. Future
+multi-scan support must model scan-segment identity before additional
+`run(configuration:)` calls are allowed.
 
 ## Camera permission
 
@@ -65,36 +77,20 @@ The platform package exposes a typed `CameraPermissionStatus` and a bounded
 camera-only permission request adapter. The host does not advance from
 `permissions` to `preparing` unless camera access is authorized.
 
-The existing `NSCameraUsageDescription` in the app target remains the
-user-facing privacy declaration.
+## Still not completed
 
-## UI controls
-
-The root view exposes state-appropriate actions:
-
-- start from idle;
-- end the current RoomPlan scan and enter review;
-- reset after a failure.
-
-Capabilities, current permission state, typed failure state, and the unresolved
-combined RoomPlan/depth physical probe are visible instead of being silently
-inferred.
-
-## Explicitly not completed by this slice
-
-The following still require implementation and/or real-device evidence:
+The following remain implementation and/or physical-device gates:
 
 - RoomPlan visual coaching / live camera presentation;
-- capture delegates that persist canonical raw `CapturedRoomData`;
-- real active ARMeshAnchor collection and live evidence persistence;
-- selected ARFrame RGB/depth evidence persistence;
-- real sceneDepth behavior during RoomPlan and after same-session RoomPlan stop;
+- real LiDAR proof that the completion callback persists reopenable
+  `CapturedRoomData`;
+- real RoomPlan/ARMesh same-world alignment evidence;
+- selected ARFrame RGB/depth persistence;
+- real sceneDepth behavior during RoomPlan and after same-session stop;
 - live annotation placement and raycast provenance;
-- capture working-set assembly;
-- quality report generation from the live working set;
+- quality report generation from the complete live working set;
 - review -> validation -> atomic finalization -> share/export wiring;
 - interruption, thermal, storage, and persistence-pressure behavior;
 - physical accuracy benchmark under Issue #9.
 
-No capability or accuracy claim should be promoted from the successful CI build
-of this workflow.
+No capability or accuracy claim is promoted from a successful CI build.

@@ -5,6 +5,7 @@ import HTDTCaptureCore
 import RoomPlan
 
 @available(iOS 17.0, *)
+@MainActor
 public enum RoomPlanArtifactProcessor {
     public static func encodeRaw(
         _ data: CapturedRoomData,

@@ -23,6 +23,7 @@ public struct CaptureRootView: View {
     public let capabilities: CaptureCapabilityMatrix
     public let cameraPermission: CameraPermissionStatus?
     public let lastFailure: CaptureFailureCode?
+    public let workingSetStatus: String?
     public let actions: CaptureRootActions
 
     public init(
@@ -30,12 +31,14 @@ public struct CaptureRootView: View {
         capabilities: CaptureCapabilityMatrix,
         cameraPermission: CameraPermissionStatus? = nil,
         lastFailure: CaptureFailureCode? = nil,
+        workingSetStatus: String? = nil,
         actions: CaptureRootActions = CaptureRootActions()
     ) {
         self.state = state
         self.capabilities = capabilities
         self.cameraPermission = cameraPermission
         self.lastFailure = lastFailure
+        self.workingSetStatus = workingSetStatus
         self.actions = actions
     }
 
@@ -48,6 +51,12 @@ public struct CaptureRootView: View {
                         LabeledContent(
                             "Camera permission",
                             value: cameraPermission.rawValue
+                        )
+                    }
+                    if let workingSetStatus {
+                        LabeledContent(
+                            "Working set",
+                            value: workingSetStatus
                         )
                     }
                     if let lastFailure {
@@ -81,17 +90,18 @@ public struct CaptureRootView: View {
                 }
 
                 if state == .reviewing {
-                    Section("Next step") {
+                    Section("Working revision") {
                         Text(
-                            "The RoomPlan scan has ended without pausing "
-                            + "the shared ARSession, preserving the current "
-                            + "coordinate-space authority for follow-up evidence "
-                            + "and annotations."
+                            "The RoomPlan scan ended without pausing the "
+                            + "shared ARSession. Raw RoomPlan evidence, "
+                            + "postprocessed RoomPlan evidence, and the final "
+                            + "active mesh snapshot are persisted into the "
+                            + "mutable capture working set as they become "
+                            + "available."
                         )
                         Text(
-                            "Live artifact persistence, quality review, "
-                            + "finalization, and export remain separate follow-up "
-                            + "integration work."
+                            "Quality gating, finalization, and export remain "
+                            + "separate follow-up authorities."
                         )
                         .font(.caption)
                     }
@@ -115,7 +125,7 @@ public struct CaptureRootView: View {
             progressRow("Requesting camera permission…")
 
         case .preparing:
-            progressRow("Starting shared RoomPlan session…")
+            progressRow("Preparing capture working set…")
 
         case .scanning:
             Button("End scan and review", action: actions.beginReview)
