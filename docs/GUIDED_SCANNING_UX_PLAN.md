@@ -245,9 +245,15 @@ Raw enum/debug tokens may remain English only in developer diagnostics.
 
 ### G100C — end-scan gap review
 
-- gap summary sheet;
-- continue/end decision;
-- optional persisted diagnostic only after authority/schema review.
+Status: implemented in the software workflow; physical-device visual acceptance remains open.
+
+- end-scan action opens an advisory coverage review sheet;
+- show overall and low/level/high coverage;
+- show the existing 12-sector × 3-band coverage map;
+- identify the deterministic next likely capture gap;
+- offer **Continue scanning** or **End anyway**;
+- keep all coverage state ephemeral and non-normative;
+- no schema/persistence change in this slice.
 
 ### G100D — interruption/relocalization UX
 
@@ -255,7 +261,7 @@ Raw enum/debug tokens may remain English only in developer diagnostics.
 - recover only when coordinate continuity can be demonstrated;
 - fail closed otherwise.
 
-## 10. Acceptance criteria for G100A/B
+## 10. Acceptance criteria for G100A/B/C
 
 Automated:
 
