@@ -25,6 +25,9 @@ idle
        create unique working revision
        bind RoomPlan completion handler
   -> scanning
+       present the exact shared RoomCaptureView
+       sample advisory direction/pitch coverage at ~4 Hz
+       keep evidence-frame and finish controls over the camera
   -> reviewing
        final active mesh snapshot persisted
        raw RoomPlan persisted on completion callback
@@ -45,6 +48,25 @@ mutable directory under Application Support:
 The host retains failed working revisions rather than silently deleting source
 evidence. Reset invalidates the old callback generation and creates a fresh
 ARSession/context for the next capture.
+
+## Scanner-first live view
+
+The `scanning` state presents the framework-provided `RoomCaptureView`
+created with the exact app-owned `ARSession`. The host runs RoomPlan through
+that view's own `captureSession`; it does not create a second competing
+RoomPlan session.
+
+The live view therefore provides the camera image, RoomPlan structural
+overlays/coaching, and miniature model while the existing evidence pipeline
+continues to bind to the same ARSession coordinate authority.
+
+In parallel, the host samples bounded advisory coverage telemetry at
+approximately 4 Hz. The deterministic tracker bins normal-tracking camera
+headings into 12 relative azimuth sectors and low/level/high pitch bands.
+This drives the on-screen gap HUD only. It is not persisted as measurement
+truth and does not change bundle/finalization authority.
+
+See [GUIDED_SCANNING_UX_PLAN.md](GUIDED_SCANNING_UX_PLAN.md).
 
 ## RoomPlan scan boundary
 
@@ -89,7 +111,8 @@ camera-only permission request adapter. The host does not advance from
 
 The following remain implementation and/or physical-device gates:
 
-- RoomPlan visual coaching / live camera presentation;
+- physical-device acceptance of RoomPlan camera/overlay/coaching presentation
+  and the advisory coverage HUD;
 - real LiDAR proof that the completion callback persists reopenable
   `CapturedRoomData`;
 - real RoomPlan/ARMesh same-world alignment evidence;

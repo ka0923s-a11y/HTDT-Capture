@@ -56,20 +56,34 @@ public struct CaptureReviewEvidenceSnapshot: Sendable {
 
 @available(iOS 17.0, *)
 @MainActor
-private final class RoomPlanSessionDelegateBridge:
+@objc(HTDTRoomPlanViewDelegateBridge)
+private final class RoomPlanViewDelegateBridge:
     NSObject,
-    @preconcurrency RoomCaptureSessionDelegate
+    @preconcurrency RoomCaptureViewDelegate
 {
     var completionHandler: (
         @MainActor (CapturedRoomData, (any Error)?) -> Void
     )?
 
-    func captureSession(
-        _ session: RoomCaptureSession,
-        didEndWith data: CapturedRoomData,
+    override init() {
+        super.init()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init()
+    }
+
+    func encode(with coder: NSCoder) {
+        // RoomCaptureViewDelegate inherits NSCoding. This bridge has no
+        // persistent state; capture authority remains in the host/store.
+    }
+
+    func captureView(
+        shouldPresent roomDataForProcessing: CapturedRoomData,
         error: (any Error)?
-    ) {
-        completionHandler?(data, error)
+    ) -> Bool {
+        completionHandler?(roomDataForProcessing, error)
+        return false
     }
 }
 
@@ -77,11 +91,15 @@ private final class RoomPlanSessionDelegateBridge:
 @MainActor
 public final class SharedARSessionController {
     public let arSession: ARSession
+    public let roomCaptureView: RoomCaptureView
     public private(set) var context: CaptureSessionContext
-    public private(set) var roomCaptureSession: RoomCaptureSession?
+
+    public var roomCaptureSession: RoomCaptureSession? {
+        roomCaptureView.captureSession
+    }
 
     private let roomPlanDelegateBridge =
-        RoomPlanSessionDelegateBridge()
+        RoomPlanViewDelegateBridge()
 
     public init(
         arSession: ARSession = ARSession(),
@@ -89,6 +107,12 @@ public final class SharedARSessionController {
     ) {
         self.arSession = arSession
         self.context = context
+        self.roomCaptureView = RoomCaptureView(
+            frame: .zero,
+            arSession: arSession
+        )
+        self.roomCaptureView.isModelEnabled = true
+        self.roomCaptureView.delegate = roomPlanDelegateBridge
     }
 
     public func setRoomPlanCompletionHandler(
@@ -98,7 +122,7 @@ public final class SharedARSessionController {
         ) -> Void
     ) {
         roomPlanDelegateBridge.completionHandler = handler
-        roomCaptureSession?.delegate = roomPlanDelegateBridge
+        roomCaptureView.delegate = roomPlanDelegateBridge
     }
 
     public func startRoomPlan(
@@ -108,12 +132,10 @@ public final class SharedARSessionController {
             throw PlatformCaptureError.roomPlanUnsupported
         }
 
-        if roomCaptureSession == nil {
-            let session = RoomCaptureSession(arSession: arSession)
-            session.delegate = roomPlanDelegateBridge
-            roomCaptureSession = session
+        guard let roomCaptureSession else {
+            throw PlatformCaptureError.roomPlanUnsupported
         }
-        roomCaptureSession?.run(configuration: configuration)
+        roomCaptureSession.run(configuration: configuration)
     }
 
     public func stopRoomPlanPreservingARSession() {
@@ -122,7 +144,47 @@ public final class SharedARSessionController {
 
     public func stopAndPauseARSession() {
         roomCaptureSession?.stop(pauseARSession: true)
-        roomCaptureSession = nil
+    }
+
+    public func currentScanCoverageSample()
+        throws -> ScanCoverageSample
+    {
+        guard let frame = arSession.currentFrame else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        let camera = frame.camera.transform
+        let forward = SIMD3<Double>(
+            Double(-camera.columns.2.x),
+            Double(-camera.columns.2.y),
+            Double(-camera.columns.2.z)
+        )
+        let horizontalMagnitude = hypot(forward.x, forward.z)
+        let yaw = atan2(forward.x, -forward.z)
+        let pitch = atan2(
+            forward.y,
+            max(horizontalMagnitude, 0.000_001)
+        )
+        let tracking = trackingQualityEvent(from: frame)
+        let meshAnchorCount = frame.anchors.reduce(into: 0) {
+            count,
+            anchor in
+            if anchor is ARMeshAnchor {
+                count += 1
+            }
+        }
+
+        return ScanCoverageSample(
+            sessionTimestampSeconds: frame.timestamp,
+            yawRadians: yaw,
+            pitchRadians: pitch,
+            trackingState: tracking.state,
+            trackingReason: tracking.reason,
+            activeMeshAnchorCount: meshAnchorCount,
+            hasSceneDepth:
+                frame.sceneDepth != nil
+                || frame.smoothedSceneDepth != nil
+        )
     }
 
     public func snapshotActiveMeshAnchors() throws -> [MeshAnchorSnapshot] {

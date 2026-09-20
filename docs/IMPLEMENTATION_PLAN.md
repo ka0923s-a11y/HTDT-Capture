@@ -944,6 +944,16 @@ Critical downstream dimensions can require user-attested measurement even when s
 
 Major authority/schema decisions require ADRs.
 
+## 21.1 Guided scanning UX plan
+
+The scanner-first camera/coaching/coverage specification is maintained in
+[`GUIDED_SCANNING_UX_PLAN.md`](GUIDED_SCANNING_UX_PLAN.md).
+
+This plan promotes live `RoomCaptureView` presentation and an advisory
+direction/pitch coverage HUD while preserving the existing authority boundary:
+coverage UI is ephemeral guidance until a physical benchmark justifies any
+normative quality gate.
+
 ## 22. Implementation phases
 
 ### Phase 0 - Contracts and foundation
@@ -992,6 +1002,8 @@ Deliverables:
 - combined-feature physical-device probe;
 - state machine;
 - interruption/resource monitoring;
+- scanner-first live RoomPlan camera/coaching UI;
+- advisory direction/pitch coverage telemetry for likely capture gaps;
 - capture working directory;
 - bounded CaptureStore.
 
@@ -1065,6 +1077,7 @@ Exit criteria:
 Deliverables:
 
 - semantic/mesh/evidence review;
+- guided end-scan gap review for advisory coverage;
 - explicit quality diagnostics;
 - conflict review;
 - finalization transaction;
@@ -1108,7 +1121,7 @@ Candidates:
 - ARWorldMap or equivalent relocalization research;
 - cross-session alignment authority;
 - scan-diff/revision comparison;
-- improved coverage heatmaps;
+- surface-aware coverage heatmaps beyond the initial direction/pitch heuristic;
 - sampled continuous evidence capture;
 - calibration targets/fiducials;
 - external measurement-device integration;

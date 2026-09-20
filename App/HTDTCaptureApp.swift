@@ -35,6 +35,14 @@ private struct HTDTCaptureHostView: View {
                 coordinator.annotationEvidenceRefs,
             annotationAuthorityCommitted:
                 coordinator.annotationAuthorityCommitted,
+            scanningPreview: AnyView(
+                RoomPlanLiveCaptureView(
+                    controller: coordinator.scanSessionController
+                )
+            ),
+            scanCoverage: coordinator.scanCoverage,
+            scanEvidenceFrameCount:
+                coordinator.scanEvidenceFrameCount,
             actions: CaptureRootActions(
                 beginCapture: coordinator.beginCapture,
                 beginReview: coordinator.beginReview,
@@ -82,6 +90,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var annotationAuthorityCommitted = false
     @Published private(set)
     var annotationEvidenceRefs: [String] = []
+    @Published private(set)
+    var scanCoverage: ScanCoverageSummary = .empty
+    @Published private(set)
+    var scanEvidenceFrameCount = 0
 
     private var stateMachine = CaptureStateMachine()
     private var sessionController = SharedARSessionController()
@@ -93,11 +105,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var isCapturingEvidenceFrame = false
     private var captureStartTimingCorrelation:
         CaptureTimingCorrelation?
+    private var scanCoverageTracker =
+        AdvisoryScanCoverageTracker()
+    private var scanCoverageTask: Task<Void, Never>?
     private let qualityRequirements = CaptureQualityRequirements()
 
     init() {
         capabilities = PlatformCapabilityProbe.current()
         cameraPermission = CameraPermissionController.currentStatus()
+    }
+
+    var scanSessionController: SharedARSessionController {
+        sessionController
     }
 
     var annotationCoordinateSpaceID: CoordinateSpaceID? {
@@ -119,6 +138,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
         captureStartTimingCorrelation = nil
+        scanCoverageTask?.cancel()
+        scanCoverageTask = nil
+        scanCoverageTracker = AdvisoryScanCoverageTracker()
+        scanCoverage = scanCoverageTracker.summary()
+        scanEvidenceFrameCount = 0
         resourceMonitor?.stop()
         resourceMonitor = nil
 
@@ -190,6 +214,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 else {
                     return
                 }
+                self.scanEvidenceFrameCount =
+                    snapshot.evidenceFrameCount
                 self.workingSetStatus =
                     HostLocalization.isJapanese
                     ? "スキャン中：証拠フレームを "
@@ -209,6 +235,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
         isEndingScan = true
+        scanCoverageTask?.cancel()
+        scanCoverageTask = nil
 
         Task {
             await endScanForReview()
@@ -531,6 +559,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
         captureStartTimingCorrelation = nil
+        scanCoverageTask?.cancel()
+        scanCoverageTask = nil
+        scanCoverageTracker = AdvisoryScanCoverageTracker()
+        scanCoverage = scanCoverageTracker.summary()
+        scanEvidenceFrameCount = 0
         resourceMonitor?.stop()
         resourceMonitor = nil
         workingSetStatus =
@@ -713,6 +746,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             guard state == .scanning else {
                 return
             }
+            startScanCoverageSampling(
+                generation: generation
+            )
             workingSetStatus = HostLocalization.text(
                 "Scanning; active AR configuration persisted",
                 "スキャン中：実行中の AR 設定を保存しました"
@@ -898,6 +934,40 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             } catch {
                 self.fail(.persistenceFailure)
+            }
+        }
+    }
+
+    private func startScanCoverageSampling(
+        generation: UUID
+    ) {
+        scanCoverageTask?.cancel()
+        scanCoverageTracker = AdvisoryScanCoverageTracker()
+        scanCoverage = scanCoverageTracker.summary()
+
+        scanCoverageTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            while !Task.isCancelled {
+                guard self.captureGeneration == generation,
+                      self.state == .scanning
+                else {
+                    return
+                }
+
+                if let sample =
+                    try? self.sessionController
+                        .currentScanCoverageSample()
+                {
+                    self.scanCoverage =
+                        self.scanCoverageTracker.record(sample)
+                }
+
+                try? await Task.sleep(
+                    for: .milliseconds(250)
+                )
             }
         }
     }
@@ -1169,6 +1239,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private func fail(_ code: CaptureFailureCode) {
+        scanCoverageTask?.cancel()
+        scanCoverageTask = nil
         resourceMonitor?.stop()
         resourceMonitor = nil
         do {
