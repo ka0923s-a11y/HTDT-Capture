@@ -35,6 +35,7 @@ public enum CaptureEvent: Sendable, Equatable {
     case pause
     case resume
     case beginReview
+    case resumeScanning
     case beginAnnotation
     case beginValidation
     case validationFailed
@@ -88,6 +89,8 @@ public struct CaptureStateMachine: Sendable, Equatable {
             state = .scanning
         case (.scanning, .beginReview):
             state = .reviewing
+        case (.reviewing, .resumeScanning):
+            state = .scanning
         case (.reviewing, .beginAnnotation):
             state = .annotating
         case (.annotating, .beginReview):
