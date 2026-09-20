@@ -139,17 +139,19 @@ representations. No unavailable RoomPlan discrepancy metric is inferred.
 
 The scanning view adds a distinct derived-geometry panel with three modes:
 
-- **RoomPlan structure** — framework semantic view only;
-- **Observed shape** — RoomPlan is visually deemphasized and the HTDT derived
-  top-down proxy is shown;
-- **Compare** — keeps the live RoomPlan camera/structure visible while showing
-  the separate top-down HTDT-derived proxy for side-by-side comparison.
+- **RoomPlan structure** — explains that the live camera surface is the
+  framework RoomPlan semantic approximation;
+- **Observed shape** — shows the separate HTDT-derived top-down proxy;
+- **Compare** — keeps both meanings visible for operator comparison.
 
-This slice does not claim a camera-registered 3D overlay because the public
-RoomPlan live view does not expose the semantic geometry needed to align a
-second renderer safely. Derived object geometry uses an orange dashed outline.
-Derived wall chains use a cyan line with supported vertices. They intentionally
-do not look like the RoomPlan white structure lines.
+The public RoomCaptureView does not expose a supported way to independently
+dim only its white semantic lines while preserving the camera image. HTDT
+therefore does not reduce opacity of the whole camera view just to suppress
+RoomPlan graphics. Instead, the collapsed observed-shape badge remains visible
+and the tapped detail preview uses a visually distinct orange dashed object
+outline and cyan wall chain. This slice does not claim a camera-registered 3D
+overlay because the public RoomPlan live view does not expose the semantic
+geometry needed to align a second renderer safely.
 
 When derived evidence exists, the collapsed scanner control exposes a compact
 operator-visible badge such as Observed shape: Circle / Ellipse / Polygon or an
