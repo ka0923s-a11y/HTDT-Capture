@@ -171,7 +171,7 @@ public actor CaptureWorkingSetStore {
             ),
             decoded == package.index
         else {
-            throw CaptureWorkingSetError.authorityMismatch
+            throw CaptureWorkingSetError.invalidMeshPackage
         }
 
         var filesByPath: [String: MeshEvidenceGeometryFile] = [:]
@@ -180,7 +180,7 @@ public actor CaptureWorkingSetStore {
                 filesByPath[file.path] == nil,
                 file.sha256 == EvidenceIntegrity.sha256(of: file.data)
             else {
-                throw CaptureWorkingSetError.authorityMismatch
+                throw CaptureWorkingSetError.invalidMeshPackage
             }
             filesByPath[file.path] = file
         }
@@ -268,12 +268,12 @@ public actor CaptureWorkingSetStore {
         if let existingSession = self.captureSessionID,
            existingSession != captureSessionID
         {
-            throw CaptureWorkingSetError.invalidMeshPackage
+            throw CaptureWorkingSetError.authorityMismatch
         }
         if let existingCoordinate = self.coordinateSpaceID,
            existingCoordinate != coordinateSpaceID
         {
-            throw CaptureWorkingSetError.invalidMeshPackage
+            throw CaptureWorkingSetError.authorityMismatch
         }
         self.captureSessionID = captureSessionID
         self.coordinateSpaceID = coordinateSpaceID
