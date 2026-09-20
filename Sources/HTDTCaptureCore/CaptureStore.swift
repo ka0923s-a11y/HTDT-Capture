@@ -244,8 +244,9 @@ public actor AtomicCaptureFileWriter {
                 do {
                     try fileManager.removeItem(at: item.url)
                 } catch {
-                    rollbackFailure = item.path
-                    break
+                    if rollbackFailure == nil {
+                        rollbackFailure = item.path
+                    }
                 }
             }
             if let rollbackFailure {
