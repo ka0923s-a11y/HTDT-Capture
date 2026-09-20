@@ -690,6 +690,15 @@ public final class SharedARSessionController {
         )
     }
 
+    public func snapshotTrackingQualityEvent()
+        throws -> TrackingQualityEvent
+    {
+        guard let frame = arSession.currentFrame else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+        return trackingQualityEvent(from: frame)
+    }
+
     public func snapshotFrameEvidence(
         depthSelection: FrameDepthSelection = .discrete
     ) throws -> CapturedFrameArtifacts {
