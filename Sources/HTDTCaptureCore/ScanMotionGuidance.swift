@@ -437,7 +437,7 @@ public struct ScanMotionGuidanceTracker: Sendable {
                 weakObservationCounts[region.key] =
                     max(
                         weakObservationCounts[region.key] ?? 0,
-                        region.observationCount
+                        region.normalTrackingObservationCount
                     )
             } else {
                 weakObservationCounts.removeValue(
