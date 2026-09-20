@@ -421,7 +421,9 @@ public struct SpatialScanCoverageTracker: Sendable {
             switch sample.surfaceEvidenceSource {
             case .mesh:
                 region.meshSupportCount += 1
-            case .sceneDepth, .none:
+            case .sceneDepth:
+                region.depthObservationCount += 1
+            case .none:
                 break
             }
 
@@ -429,10 +431,6 @@ public struct SpatialScanCoverageTracker: Sendable {
             let dz = cameraRelative.z - relative.z
             region.latestDistanceBucket =
                 Self.distanceBucket(hypot(dx, dz))
-
-            if sample.hasSceneDepth {
-                region.depthObservationCount += 1
-            }
 
             switch sample.trackingState {
             case .normal:
