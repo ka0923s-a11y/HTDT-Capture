@@ -11,6 +11,7 @@ public struct CaptureScanningView: View {
     public let guidanceProgress: ScanGuidanceProgress
     public let derivedPreview: DerivedShapePreviewSnapshot
     public let evidenceFrameCount: Int
+    public let endScanGuidance: String?
     public let captureEvidenceFrame: () -> Void
     public let setMovementCapability:
         (ScanMovementCapability) -> Void
@@ -32,6 +33,7 @@ public struct CaptureScanningView: View {
         guidanceProgress: ScanGuidanceProgress,
         derivedPreview: DerivedShapePreviewSnapshot,
         evidenceFrameCount: Int,
+        endScanGuidance: String? = nil,
         captureEvidenceFrame: @escaping () -> Void,
         setMovementCapability: @escaping
             (ScanMovementCapability) -> Void,
@@ -45,6 +47,7 @@ public struct CaptureScanningView: View {
         self.guidanceProgress = guidanceProgress
         self.derivedPreview = derivedPreview
         self.evidenceFrameCount = evidenceFrameCount
+        self.endScanGuidance = endScanGuidance
         self.captureEvidenceFrame = captureEvidenceFrame
         self.setMovementCapability = setMovementCapability
         self.endScan = endScan
@@ -188,6 +191,11 @@ public struct CaptureScanningView: View {
 
             Text(actionSentence)
                 .font(.headline.weight(.semibold))
+                .foregroundStyle(
+                    endScanGuidance == nil
+                    ? Color.primary
+                    : Color.orange
+                )
                 .lineLimit(2)
                 .minimumScaleFactor(0.82)
                 .frame(
@@ -289,7 +297,11 @@ public struct CaptureScanningView: View {
                 .frame(minHeight: 38)
             }
             .buttonStyle(.bordered)
-            .tint(primaryScanReadyToEnd ? .green : nil)
+            .tint(
+                endScanGuidance != nil
+                ? .orange
+                : (primaryScanReadyToEnd ? .green : nil)
+            )
             .controlSize(.regular)
             .accessibilityLabel(
                 String(localized: "End scan")
@@ -591,6 +603,10 @@ public struct CaptureScanningView: View {
     }
 
     private var actionSentence: String {
+        if let endScanGuidance {
+            return endScanGuidance
+        }
+
         if scanGuidanceComplete {
             return String(
                 localized:
