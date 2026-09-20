@@ -28,11 +28,13 @@ private struct HTDTCaptureHostView: View {
             workingSetStatus: coordinator.workingSetStatus,
             qualityReport: coordinator.qualityReport,
             validationReport: coordinator.validationReport,
+            exportURL: coordinator.exportURL,
             actions: CaptureRootActions(
                 beginCapture: coordinator.beginCapture,
                 beginReview: coordinator.beginReview,
                 finalizeCapture: coordinator.finalizeCapture,
-                resetAfterFailure: coordinator.resetAfterFailure
+                prepareExport: coordinator.prepareExport,
+                resetCapture: coordinator.resetCapture
             )
         )
     }
@@ -47,10 +49,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set) var workingSetStatus = "Not prepared"
     @Published private(set) var qualityReport: CaptureQualityReport?
     @Published private(set) var validationReport: BundleValidationReport?
+    @Published private(set) var exportURL: URL?
 
     private var stateMachine = CaptureStateMachine()
     private var sessionController = SharedARSessionController()
     private var workingSetStore: CaptureWorkingSetStore?
+    private var finalizedRevision: FinalizedCaptureRevision?
     private var captureGeneration = UUID()
     private var isEndingScan = false
     private let qualityRequirements = CaptureQualityRequirements()
@@ -67,6 +71,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         qualityReport = nil
         validationReport = nil
+        exportURL = nil
+        finalizedRevision = nil
 
         do {
             try transition(.beginCapabilityCheck)
@@ -120,8 +126,57 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    func resetAfterFailure() {
-        guard state == .failed else {
+    func prepareExport() {
+        guard state == .finalized,
+              let finalizedRevision,
+              let validationReport,
+              validationReport.bundleDigest
+                == finalizedRevision.bundleDigest
+        else {
+            return
+        }
+
+        workingSetStatus = "Creating validated .htdtcapture archive"
+        let generation = captureGeneration
+
+        Task {
+            do {
+                let destination = try exportDestination(
+                    for: finalizedRevision
+                )
+                let result = try await Task.detached(
+                    priority: .userInitiated
+                ) {
+                    try CaptureBundleArchiveExporter.export(
+                        finalizedDirectory:
+                            finalizedRevision.directory,
+                        destination: destination
+                    )
+                }.value
+                guard result.bundleDigest
+                        == finalizedRevision.bundleDigest
+                else {
+                    throw CaptureBundleArchiveError
+                        .archiveLogicalDigestMismatch
+                }
+                guard captureGeneration == generation,
+                      state == .finalized
+                else {
+                    return
+                }
+
+                exportURL = result.archiveURL
+                try transition(.export)
+                workingSetStatus =
+                    "Validated share-ready archive created"
+            } catch {
+                fail(.persistenceFailure)
+            }
+        }
+    }
+
+    func resetCapture() {
+        guard state == .failed || state == .exported else {
             return
         }
 
@@ -136,9 +191,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         sessionController = SharedARSessionController()
         workingSetStore = nil
+        finalizedRevision = nil
         qualityReport = nil
         validationReport = nil
-        workingSetStatus = "Failed revision retained; new capture not prepared"
+        exportURL = nil
+        workingSetStatus =
+            state == .idle
+            ? "Ready for a new capture"
+            : "Capture reset"
         isEndingScan = false
         capabilities = PlatformCapabilityProbe.current()
         cameraPermission = CameraPermissionController.currentStatus()
@@ -485,7 +545,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
             sessionController.stopAndPauseARSession()
             workingSetStore = nil
+            finalizedRevision = finalized
             validationReport = validation
+            exportURL = nil
             try transition(.finalize)
             workingSetStatus =
                 "Finalized revision; bundle digest "
@@ -532,6 +594,34 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             identity: identity,
             generation: UUID()
         )
+    }
+
+    private func exportDestination(
+        for finalized: FinalizedCaptureRevision
+    ) throws -> URL {
+        guard let applicationSupport =
+            FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first
+        else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+
+        return applicationSupport
+            .appendingPathComponent(
+                "HTDTCapture",
+                isDirectory: true
+            )
+            .appendingPathComponent(
+                "exports",
+                isDirectory: true
+            )
+            .appendingPathComponent(
+                finalized.captureRevisionID.description
+                    + ".htdtcapture",
+                isDirectory: false
+            )
     }
 
     private func finalizedDirectory(
