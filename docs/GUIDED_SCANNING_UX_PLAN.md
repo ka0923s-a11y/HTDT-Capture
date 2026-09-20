@@ -797,3 +797,82 @@ Physical-device acceptance remains required for:
 - translation/orbit guidance in a complex room;
 - visibility of the RoomPlan miniature model;
 - operator understanding that 100% direction coverage is not scan completeness.
+
+
+## 14. Constrained-mobility and bounded guidance completion
+
+Physical acceptance showed that a mathematically valid translation/orbit target
+can still be physically impossible in a furnished room. Guidance must therefore
+model **operator mobility** separately from observation quality.
+
+The scanner now carries a typed per-scan movement capability:
+
+- `unrestricted`: translation/orbit/approach/retreat guidance is allowed;
+- `stationary_only`: the operator explicitly reports that changing position
+  around the current area is not practical.
+
+The compact HUD exposes this as a one-tap “I cannot move around this area”
+control whenever a physical-translation action is active. The state can be
+re-enabled by the operator. This does not infer obstacles from the camera image
+and does not claim that a path is safe.
+
+When `stationary_only` is active:
+
+- translation, orbit, approach, retreat, and physical re-observation prompts are
+  suppressed;
+- direction/tilt/tracking guidance remains available;
+- weak and unknown spatial cells remain visible as advisory diagnostics;
+- broad direction coverage can satisfy the guidance-completion condition without
+  requiring an impossible new camera position.
+
+### 14.1 Global convergence budget
+
+Per-region retry limits alone were insufficient in a complex room because the
+tracker could move on to a new weak region indefinitely. The motion-guidance
+authority therefore also has a global bounded spatial-guidance budget.
+
+The standard configuration uses:
+
+- bounded dwell for each spatial action;
+- bounded retry count per weak region;
+- bounded total completed spatial-guidance attempts for one scan;
+- explicit direction-coverage threshold for guidance completion.
+
+Once the global budget is exhausted, or every actionable weak region is
+saturated, no targetless re-observation loop is restarted. The UI receives an
+explicit `ScanGuidanceProgress.isComplete` state rather than inferring
+completion from “no current prompt”.
+
+This completion state means only:
+
+> the bounded operator guidance sequence is complete.
+
+It does **not** mean geometric completeness, canonical-room validity, or
+finalization readiness.
+
+### 14.2 End-scan semantics
+
+Spatial weak/unknown cells remain advisory. Once broad direction capture is
+complete under normal tracking, pressing **End** must not force the operator
+back into another effectively mandatory spatial loop. The detailed review still
+shows weak/unknown counts for informed choice, but they are not treated as a
+canonical completion gate.
+
+### 14.3 Resource-pressure behavior
+
+Live derived-shape analysis is deliberately subordinate to RoomPlan capture.
+The scanner uses reduced sampling budgets and a slower live derived cadence.
+Under serious/critical thermal state or an iOS memory warning, advisory derived
+preview work is shed. RoomPlan’s miniature model rendering can also be disabled
+under that resource pressure while canonical capture continues.
+
+This is defensive load shedding. Without an iOS crash/termination log it is not
+claimed as proof of the intermittent termination’s root cause.
+
+Physical acceptance remains required for:
+
+- several-minute scan stability;
+- constrained-mode operator comprehension;
+- bounded transition to “guidance complete”;
+- successful end-scan after broad direction coverage without spatial-loop
+  entrapment.
