@@ -2841,6 +2841,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             var eventToRecord = event
             var failureToApply = failure
             var sealedReviewResourceCondition = false
+            var discardedUnsavedAnnotationEdits = false
+
+            let canPreserveAcceptedReview =
+                (
+                    self.state == .reviewing
+                    && !self.reviewOperationInFlight
+                )
+                || (
+                    self.state == .annotating
+                    && !self.annotationCommitInFlight
+                )
 
             if let failure,
                (
@@ -2848,12 +2859,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                    || failure == .thermalPressure
                    || failure == .storagePressure
                ),
-               self.state == .reviewing,
-               !self.reviewOperationInFlight,
+               canPreserveAcceptedReview,
                self.acceptedRoomPlanRawSHA256 != nil,
                !self.spatialAuthoritySealedForFinalization
             {
-                // Accepted Review artifacts are already durable. A transient
+                if self.state == .annotating {
+                    do {
+                        try self.transition(.beginReview)
+                        discardedUnsavedAnnotationEdits = true
+                    } catch {
+                        self.fail(.unknown)
+                        return
+                    }
+                }
+
+                // Accepted End artifacts are already durable. A transient
                 // resource/lifecycle condition invalidates only future live
                 // spatial continuation; it must not retroactively discard
                 // the evidence accepted before that condition.
@@ -2875,7 +2895,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 eventToRecord = CaptureResourceEvent(
                     kind: event.kind,
                     severity: .warning,
-                    detail: detail
+                    detail:
+                        discardedUnsavedAnnotationEdits
+                        ? detail
+                            + "; unsaved annotation edits were discarded"
+                        : detail
                 )
                 failureToApply = nil
                 sealedReviewResourceCondition = true
@@ -2909,11 +2933,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     if sealedReviewResourceCondition,
                        self.state == .reviewing
                     {
-                        self.workingSetStatus =
-                            HostLocalization.text(
-                                "Review retained; additional scanning/annotation is sealed by the current resource/lifecycle condition, while accepted evidence remains available for finalization or retry",
-                                "確認データを保持しました。現在のリソース／ライフサイクル状態により追加スキャン／注釈は封印されていますが、受理済み証拠は確定または再試行に利用できます"
-                            )
+                        if discardedUnsavedAnnotationEdits {
+                            self.workingSetStatus =
+                                HostLocalization.text(
+                                    "Review retained after the resource/lifecycle interruption. Unsaved annotation edits were discarded; accepted capture evidence can still be finalized or retried.",
+                                    "リソース／ライフサイクル中断後も確認データを保持しました。未保存の注釈編集は破棄されましたが、受理済みキャプチャ証拠は確定または再試行できます。"
+                                )
+                        } else {
+                            self.workingSetStatus =
+                                HostLocalization.text(
+                                    "Review retained; additional scanning/annotation is sealed by the current resource/lifecycle condition, while accepted evidence remains available for finalization or retry",
+                                    "確認データを保持しました。現在のリソース／ライフサイクル状態により追加スキャン／注釈は封印されていますが、受理済み証拠は確定または再試行に利用できます"
+                                )
+                        }
                     }
                 }
             }
