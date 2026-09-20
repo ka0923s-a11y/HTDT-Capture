@@ -660,13 +660,11 @@ public struct ScanMotionGuidanceTracker: Sendable {
         observation: ObservationStabilitySummary
     ) -> ScanMotionGuidance? {
         guard let region = preferredWeakRegion(spatialCoverage) else {
-            if observation.recheckSuggested,
-               spatialCoverage.knownRegionCount > 0
-            {
-                return ScanMotionGuidance(
-                    action: .reobserveAnotherAngle
-                )
-            }
+            // Once broad direction coverage activates spatial guidance, a
+            // global recheck flag must not recreate an unbounded targetless
+            // re-observation loop after every weak region has exhausted its
+            // retry budget. Targetless recheck guidance remains available in
+            // the pre-spatial path below.
             return nil
         }
 
