@@ -2,6 +2,9 @@ import Combine
 import Foundation
 import RoomPlan
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 import HTDTCaptureAppShell
 import HTDTCaptureCore
 import HTDTCapturePlatform
@@ -143,11 +146,32 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         )
     private var scanCoverageTask: Task<Void, Never>?
+    private var memoryWarningCancellable: AnyCancellable?
+    private var derivedPreviewSuspendedForMemoryPressure = false
     private let qualityRequirements = CaptureQualityRequirements()
 
     init() {
         capabilities = PlatformCapabilityProbe.current()
         cameraPermission = CameraPermissionController.currentStatus()
+
+        #if canImport(UIKit)
+        memoryWarningCancellable =
+            NotificationCenter.default
+                .publisher(
+                    for: UIApplication
+                        .didReceiveMemoryWarningNotification
+                )
+                .sink { [weak self] _ in
+                    Task { @MainActor in
+                        guard let self else {
+                            return
+                        }
+                        self.derivedPreviewSuspendedForMemoryPressure =
+                            true
+                        self.derivedShapePreview = .empty
+                    }
+                }
+        #endif
     }
 
     var scanSessionController: SharedARSessionController {
@@ -200,6 +224,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             )
         derivedShapePreview = .empty
+        derivedPreviewSuspendedForMemoryPressure = false
         scanEvidenceFrameCount = 0
         resourceMonitor?.stop()
         resourceMonitor = nil
@@ -644,6 +669,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             )
         derivedShapePreview = .empty
+        derivedPreviewSuspendedForMemoryPressure = false
         scanEvidenceFrameCount = 0
         resourceMonitor?.stop()
         resourceMonitor = nil
@@ -1249,7 +1275,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         let thermalState =
                             ProcessInfo.processInfo.thermalState
                         let derivedWorkAllowed =
-                            thermalState != .serious
+                            !self
+                                .derivedPreviewSuspendedForMemoryPressure
+                            && thermalState != .serious
                             && thermalState != .critical
 
                         if derivedWorkAllowed,
