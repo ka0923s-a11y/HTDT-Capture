@@ -253,6 +253,45 @@ final class DerivedObjectDecompositionTests: XCTestCase {
         }
     }
 
+    func testSceneDepthCurvedSurfaceUsesLocal3DContinuity() {
+        var points: [DerivedObservationPoint] = []
+        var counter = 0
+
+        for index in 0...20 {
+            let t = Double(index) / 20.0
+            let angle = -0.65 + 1.30 * t
+            let x = 0.55 * sin(angle)
+            let z = 0.55 * cos(angle)
+            let y = 0.30 + 0.75 * t
+
+            for lateral in [-0.03, 0.0, 0.03] {
+                points.append(
+                    DerivedObservationPoint(
+                        position: DerivedPoint2D(
+                            x: x + lateral,
+                            y: z
+                        ),
+                        evidenceRef:
+                            "depth-curve-" + String(counter),
+                        evidenceKind: .sceneDepth,
+                        verticalPositionMeters: y
+                    )
+                )
+                counter += 1
+            }
+        }
+
+        let result = DerivedObjectDecomposer.decompose(
+            observation: observation(points)
+        )
+
+        XCTAssertEqual(result.components.count, 1)
+        XCTAssertGreaterThan(
+            result.components.first?.verticalExtent?.verticalExtent ?? 0,
+            0.70
+        )
+    }
+
     private func decompose(
         _ points: [DerivedObservationPoint]
     ) -> DerivedObjectDecomposition {
