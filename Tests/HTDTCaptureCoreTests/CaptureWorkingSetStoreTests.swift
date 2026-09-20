@@ -536,10 +536,8 @@ final class CaptureWorkingSetStoreTests: XCTestCase {
         let snapshot = await store.snapshot()
         XCTAssertEqual(snapshot.evidenceFrameCount, 1)
         XCTAssertEqual(snapshot.depthEvidenceCount, 1)
-        XCTAssertEqual(
-            await store.evaluateQuality().integrityStatus,
-            .pass
-        )
+        let quality = await store.evaluateQuality()
+        XCTAssertEqual(quality.integrityStatus, .pass)
     }
 
     func testConcurrentExactFrameReplayCountsOneEvidenceFrame()

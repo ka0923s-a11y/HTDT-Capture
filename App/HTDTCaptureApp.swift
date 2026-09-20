@@ -1299,6 +1299,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 let diagnostic =
                     Self.persistenceDiagnostic(error)
 
+                if error is CaptureWorkingSetError {
+                    workingSetStatus =
+                        HostLocalization.text(
+                            "End-frame persistence hit a capture-authority conflict and cannot continue safely",
+                            "終了用フレームの保存でキャプチャ権限データの競合が発生し、安全に継続できません"
+                        )
+                        + " ["
+                        + diagnostic
+                        + "]"
+                    fail(.persistenceFailure)
+                    return
+                }
+
                 do {
                     try await store.discardUncommittedFramePackage(
                         prepared.framePackage
@@ -1376,17 +1389,30 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 prepared.timingPackage
             )
         } catch let writerError as CaptureFileWriterError {
-            if case .alreadyExists = writerError {
-                workingSetStatus = HostLocalization.text(
+            workingSetStatus =
+                HostLocalization.text(
                     "Capture timing authority already exists and cannot be replaced safely",
                     "キャプチャ時刻の正規データが既に存在し、安全に置き換えできません"
                 )
-                fail(.persistenceFailure)
-                return
-            }
-
+                + " ["
+                + Self.persistenceDiagnostic(writerError)
+                + "]"
+            fail(.persistenceFailure)
+            return
+        } catch let workingSetError as CaptureWorkingSetError {
+            workingSetStatus =
+                HostLocalization.text(
+                    "Capture timing authority is inconsistent and cannot continue safely",
+                    "キャプチャ時刻の権限データが不整合のため、安全に継続できません"
+                )
+                + " ["
+                + Self.persistenceDiagnostic(workingSetError)
+                + "]"
+            fail(.persistenceFailure)
+            return
+        } catch {
             let diagnostic =
-                Self.persistenceDiagnostic(writerError)
+                Self.persistenceDiagnostic(error)
             workingSetStatus =
                 HostLocalization.text(
                     "Capture timing could not be saved; this scan is still active",
@@ -1401,9 +1427,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             endScanPreflightBlocked = true
             return
-        } catch {
-            let diagnostic =
-                Self.persistenceDiagnostic(error)
             workingSetStatus =
                 HostLocalization.text(
                     "Capture timing could not be saved; this scan is still active",
