@@ -507,6 +507,37 @@ final class ScanMotionGuidanceTests: XCTestCase {
         XCTAssertNil(result?.translationDirection)
     }
 
+    func testStationaryOnlyModeNeverEmitsTranslationBeforeSpatialActivation() {
+        var tracker = ScanMotionGuidanceTracker(
+            configuration: ScanMotionGuidanceConfiguration(
+                minimumRepeatedWeakObservations: 1,
+                spatialGuidanceActivationCoverageFraction: 0.55
+            )
+        )
+        tracker.setMovementCapability(.stationaryOnly)
+
+        let guidance = tracker.record(
+            timestampSeconds: 0,
+            coverage: coverage(
+                gap: nil,
+                observedCellCount: 10
+            ),
+            spatialCoverage: spatial(
+                cameraX: 0,
+                cameraZ: 0,
+                region: region(
+                    observations: 5,
+                    diversity: 1,
+                    distance: .medium,
+                    classification: .weak
+                )
+            ),
+            observation: .empty
+        )
+
+        XCTAssertNil(guidance)
+    }
+
     func testStationaryOnlyModeSuppressesPhysicalMovementGuidanceAndCanComplete() {
         var tracker = ScanMotionGuidanceTracker(
             configuration: ScanMotionGuidanceConfiguration(
