@@ -67,7 +67,15 @@ public enum BundleLogicalPath {
     }
 
     public static func collisionKey(_ path: String) -> String {
-        path.precomposedStringWithCanonicalMapping.lowercased()
+        // Match the reference Python validator's NFC + Unicode case-fold
+        // collision semantics rather than simple lowercasing. Simple
+        // lowercasing misses multi-scalar case folds such as ß -> ss and can
+        // make Swift accept a bundle the reference validator rejects.
+        path.precomposedStringWithCanonicalMapping
+            .folding(
+                options: [.caseInsensitive],
+                locale: Locale(identifier: "en_US_POSIX")
+            )
     }
 
     public static func utf8Less(_ lhs: String, _ rhs: String) -> Bool {
