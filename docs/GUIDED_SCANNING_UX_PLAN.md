@@ -1,6 +1,6 @@
 # Guided Scanning UX Plan
 
-Status: G100A/G100B implemented by PR #47; G100C implemented by Issue #48 branch; physical-device acceptance and G100D remain open.  
+Status: G100A/G100B implemented by PR #47; G100C implemented by PR #49; G100D implemented in Issue #52 branch; physical-device acceptance remains open.  
 Scope: scanner-first iOS UX; no Capture Bundle schema promotion in these slices.
 
 ## 1. Problem statement
@@ -254,13 +254,18 @@ Raw enum/debug tokens may remain English only in developer diagnostics.
 - continue/end decision;
 - optional persisted diagnostic only after authority/schema review.
 
-### G100D — interruption/relocalization UX
+### G100D — interruption/relocalization UX — implemented fail-closed baseline
 
-- detailed interruption causes;
-- recover only when coordinate continuity can be demonstrated;
-- fail closed otherwise.
+- terminal interruption/failure screens now explain the reason and recovery path;
+- leaving the foreground during active capture is shown explicitly instead of
+  leaving a stale scanning status;
+- terminal failures stop/pause the shared RoomPlan / AR session;
+- the UI does not offer same-session resume because coordinate continuity has
+  not been independently demonstrated;
+- reset creates a fresh AR session / coordinate-space authority;
+- ARWorldMap or equivalent proven relocalization remains future research.
 
-## 10. Acceptance criteria for G100A/B/C
+## 10. Acceptance criteria for G100A/B/C/D
 
 Automated:
 
