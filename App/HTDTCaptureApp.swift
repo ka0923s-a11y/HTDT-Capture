@@ -2115,6 +2115,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             "RoomPlan の最終結果を待機中"
         )
 
+        // Advisory live coverage / derived-shape sampling is not End
+        // authority. Stop its 250 ms depth/geometry work before RoomPlan
+        // allocates and processes the final CapturedRoomData. The tracker
+        // state is retained and can resume if this End attempt is rejected.
+        scanCoverageTask?.cancel()
+        scanCoverageTask = nil
+
         handedOffToRoomPlanCompletion = true
         sessionController.stopRoomPlanPreservingARSession()
 
@@ -2420,6 +2427,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             fail(.roomPlanFailure)
             return
         }
+
+        guard captureGeneration == generation,
+              state == .scanning,
+              isEndingScan
+        else {
+            return
+        }
+
+        startScanCoverageSampling(
+            generation: generation,
+            resetTrackers: false
+        )
 
         isEndingScan = false
         endScanPreflightBlocked = true
