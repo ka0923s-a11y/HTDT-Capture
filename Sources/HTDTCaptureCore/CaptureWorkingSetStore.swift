@@ -443,7 +443,12 @@ public actor CaptureWorkingSetStore {
             } catch {
                 // Preview HEIC is derived convenience evidence. Never destroy
                 // an otherwise complete canonical pixel/depth frame because a
-                // preview-only write failed.
+                // preview-only write failed. Remove a conflicting/stale
+                // preview path so bundle integrity does not see an undeclared
+                // derived file.
+                if let previewPath = try? CaptureStorePath(preview.path) {
+                    try? await writer.removeIfPresent(previewPath)
+                }
                 resourceEvents.append(
                     CaptureResourceEvent(
                         kind: .persistenceFailure,
