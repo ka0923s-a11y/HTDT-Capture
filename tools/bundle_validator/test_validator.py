@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+import unicodedata
 import warnings
 import zipfile
 
@@ -48,6 +49,21 @@ class ValidatorTests(unittest.TestCase):
             with self.subTest(path=path):
                 with self.assertRaises(ValidationError):
                     validate_relative_path(path)
+
+    def test_shared_path_collision_vectors(self):
+        vector_path = (
+            REPO_ROOT
+            / "schemas"
+            / "capture-bundle-v1"
+            / "path-collision-vectors.json"
+        )
+        document = json.loads(vector_path.read_text(encoding="utf-8"))
+        for vector in document["vectors"]:
+            with self.subTest(vector=vector):
+                left = unicodedata.normalize("NFC", vector["left"]).casefold()
+                right = unicodedata.normalize("NFC", vector["right"]).casefold()
+                self.assertEqual(left, vector["collision_key"])
+                self.assertEqual(right, vector["collision_key"])
 
     def test_tampered_payload_fails(self):
         with tempfile.TemporaryDirectory() as td:
