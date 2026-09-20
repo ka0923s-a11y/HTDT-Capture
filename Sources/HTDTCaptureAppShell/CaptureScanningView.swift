@@ -15,7 +15,7 @@ public struct CaptureScanningView: View {
     @State private var showingEndScanReview = false
     @State private var showingSpatialMap = true
     @State private var showingDerivedPreview = false
-    @State private var derivedPreviewMode: DerivedPreviewMode = .overlay
+    @State private var derivedPreviewMode: DerivedPreviewMode = .observation
 
     public init(
         preview: AnyView,
