@@ -90,6 +90,48 @@ func swiftPathCollisionKeyMatchesSharedV1Vectors() throws {
 }
 
 @Test
+func manifestRejectsMalformedUTCDateTime() throws {
+    let ids = (
+        series: CaptureSeriesID(),
+        revision: CaptureRevisionID(),
+        session: CaptureSessionID(),
+        coordinate: CoordinateSpaceID()
+    )
+
+    #expect(throws: BundleManifestError.self) {
+        _ = try BundleManifest(
+            captureSeriesID: ids.series,
+            captureRevisionID: ids.revision,
+            parentRevisionID: nil,
+            captureSessionIDs: [ids.session],
+            coordinateSpaceIDs: [ids.coordinate],
+            createdAtUTC: "not-a-dateTgarbageZ",
+            finalizedAtUTC: "2026-09-20T12:34:56Z",
+            app: BundleAppIdentity(
+                version: "test",
+                build: "test"
+            ),
+            files: []
+        )
+    }
+
+    _ = try BundleManifest(
+        captureSeriesID: ids.series,
+        captureRevisionID: ids.revision,
+        parentRevisionID: nil,
+        captureSessionIDs: [ids.session],
+        coordinateSpaceIDs: [ids.coordinate],
+        createdAtUTC: "2026-09-20T12:34:56.123Z",
+        finalizedAtUTC: "2026-09-20T12:35:00Z",
+        app: BundleAppIdentity(
+            version: "test",
+            build: "test"
+        ),
+        files: []
+    )
+}
+
+@Test
 func manifestRejectsUnicodeCaseFoldCollision() throws {
     let digest = try EvidenceSHA256(
         String(repeating: "0", count: 64)
