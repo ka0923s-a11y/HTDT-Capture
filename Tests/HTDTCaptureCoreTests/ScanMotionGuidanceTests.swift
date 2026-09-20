@@ -471,6 +471,133 @@ final class ScanMotionGuidanceTests: XCTestCase {
         XCTAssertNil(saturated)
     }
 
+    func testStationaryOnlyModeSuppressesPhysicalMovementGuidanceAndCanComplete() {
+        var tracker = ScanMotionGuidanceTracker(
+            configuration: ScanMotionGuidanceConfiguration(
+                minimumRepeatedWeakObservations: 1,
+                spatialGuidanceActivationCoverageFraction: 0.55,
+                completionDirectionCoverageFraction: 0.95
+            )
+        )
+        tracker.setMovementCapability(.stationaryOnly)
+
+        let weak = spatial(
+            cameraX: 0,
+            cameraZ: 0,
+            region: region(
+                observations: 5,
+                diversity: 1,
+                distance: .medium,
+                classification: .weak
+            )
+        )
+        let fullDirection = coverage(
+            gap: nil,
+            observedCellCount: 36
+        )
+
+        let guidance = tracker.record(
+            timestampSeconds: 0,
+            coverage: fullDirection,
+            spatialCoverage: weak,
+            observation: .empty
+        )
+        let progress = tracker.progress(
+            coverage: fullDirection,
+            spatialCoverage: weak
+        )
+
+        XCTAssertNil(guidance)
+        XCTAssertEqual(
+            progress.movementCapability,
+            .stationaryOnly
+        )
+        XCTAssertTrue(progress.isComplete)
+        XCTAssertEqual(progress.actionableWeakRegionCount, 1)
+    }
+
+    func testGlobalSpatialGuidanceBudgetCompletesEvenAcrossDifferentWeakRegions() {
+        var tracker = ScanMotionGuidanceTracker(
+            configuration: ScanMotionGuidanceConfiguration(
+                minimumRepeatedWeakObservations: 1,
+                spatialGuidanceActivationCoverageFraction: 0.55,
+                maximumActionDurationSeconds: 0.5,
+                maximumWeakRegionGuidanceAttempts: 5,
+                maximumSpatialGuidanceAttempts: 2,
+                completionDirectionCoverageFraction: 0.95
+            )
+        )
+        let keyA = SpatialCoverageCellKey(x: 2, z: 2)
+        let keyB = SpatialCoverageCellKey(x: 3, z: 2)
+        let fullDirection = coverage(
+            gap: nil,
+            observedCellCount: 36
+        )
+
+        let firstSpatial = spatial(
+            cameraX: 0,
+            cameraZ: 0,
+            region: region(
+                key: keyA,
+                observations: 5,
+                diversity: 1,
+                distance: .medium,
+                classification: .weak
+            )
+        )
+        XCTAssertNotNil(
+            tracker.record(
+                timestampSeconds: 0,
+                coverage: fullDirection,
+                spatialCoverage: firstSpatial,
+                observation: .empty
+            )
+        )
+        _ = tracker.record(
+            timestampSeconds: 0.6,
+            coverage: fullDirection,
+            spatialCoverage: firstSpatial,
+            observation: .empty
+        )
+
+        let secondSpatial = spatial(
+            cameraX: 0,
+            cameraZ: 0,
+            region: region(
+                key: keyB,
+                observations: 5,
+                diversity: 1,
+                distance: .medium,
+                classification: .weak
+            )
+        )
+        XCTAssertNotNil(
+            tracker.record(
+                timestampSeconds: 1.0,
+                coverage: fullDirection,
+                spatialCoverage: secondSpatial,
+                observation: .empty
+            )
+        )
+        let afterBudget = tracker.record(
+            timestampSeconds: 1.6,
+            coverage: fullDirection,
+            spatialCoverage: secondSpatial,
+            observation: .empty
+        )
+        let progress = tracker.progress(
+            coverage: fullDirection,
+            spatialCoverage: secondSpatial
+        )
+
+        XCTAssertNil(afterBudget)
+        XCTAssertEqual(
+            progress.completedSpatialGuidanceAttemptCount,
+            2
+        )
+        XCTAssertTrue(progress.isComplete)
+    }
+
     func testWrapAroundDirectionUsesShortestYawAndTurnsRight() {
         var tracker = ScanMotionGuidanceTracker()
         let result = tracker.record(
