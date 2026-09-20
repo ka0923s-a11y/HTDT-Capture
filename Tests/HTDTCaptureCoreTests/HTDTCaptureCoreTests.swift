@@ -159,6 +159,55 @@ func depthSurfaceSelectorSeparatesForegroundFromBackground() {
 }
 
 @Test
+func depthSurfaceSelectorDoesNotPreferTinyNearClutter() {
+    let step = 10
+    var samples: [DepthGridSample] = []
+
+    // Substantial centered foreground surface.
+    for y in stride(from: 30, through: 70, by: step) {
+        for x in stride(from: 30, through: 70, by: step) {
+            samples.append(
+                DepthGridSample(
+                    x: x,
+                    y: y,
+                    depthMeters: 1.55
+                )
+            )
+        }
+    }
+
+    // Smaller nearer component off to one side of the same central window.
+    for y in stride(from: 30, through: 50, by: step) {
+        for x in stride(from: 10, through: 30, by: step) {
+            samples.append(
+                DepthGridSample(
+                    x: x,
+                    y: y,
+                    depthMeters: 0.95
+                )
+            )
+        }
+    }
+
+    let selected =
+        DepthConnectedSurfaceSelector
+            .selectForegroundConnectedComponent(
+                samples: samples,
+                imageWidth: 101,
+                imageHeight: 101,
+                gridStepPixels: step,
+                minimumComponentCount: 8
+            )
+
+    #expect(selected.count == 25)
+    #expect(
+        selected.allSatisfy {
+            abs($0.depthMeters - 1.55) < 0.001
+        }
+    )
+}
+
+@Test
 func depthSurfaceSelectorKeepsSmoothCurvedDepthContinuity() {
     let step = 8
     var samples: [DepthGridSample] = []
