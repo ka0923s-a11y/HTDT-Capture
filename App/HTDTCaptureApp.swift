@@ -673,7 +673,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     measurements: measurements
                 )
         } catch {
-            fail(.persistenceFailure)
+            workingSetStatus =
+                HostLocalization.text(
+                    "Annotation or measurement authority is not internally valid; nothing was committed",
+                    "注釈または計測 authority の内部検証に通りませんでした。データは確定されていません"
+                )
+                + " ["
+                + Self.persistenceDiagnostic(error)
+                + "]"
             return
         }
 
@@ -710,7 +717,51 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     generation: generation
                 )
             } catch {
-                self.fail(.persistenceFailure)
+                guard self.captureGeneration == generation,
+                      self.state == .annotating
+                else {
+                    return
+                }
+
+                let diagnostic =
+                    Self.persistenceDiagnostic(error)
+
+                // Typed authority conflicts or a writer-level conflict/
+                // rollback failure are not safe to retry in-place. Ordinary
+                // filesystem/resource failures are safe because the paired
+                // annotation+measurement write is one rollback-capable batch.
+                if error is CaptureWorkingSetError
+                    || error is CaptureFileWriterError
+                {
+                    self.workingSetStatus =
+                        HostLocalization.text(
+                            "Annotation authority could not be committed safely",
+                            "注釈 authority を安全に確定できませんでした"
+                        )
+                        + " ["
+                        + diagnostic
+                        + "]"
+                    self.fail(.persistenceFailure)
+                    return
+                }
+
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "Recoverable annotation/measurement persistence failure: "
+                            + diagnostic
+                    )
+                )
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "Annotation changes were not committed; editing remains open and Save can be retried",
+                        "注釈の変更は確定されていません。編集画面は保持されているため、保存を再試行できます"
+                    )
+                    + " ["
+                    + diagnostic
+                    + "]"
             }
         }
     }
