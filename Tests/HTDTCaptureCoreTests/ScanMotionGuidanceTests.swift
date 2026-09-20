@@ -416,6 +416,61 @@ final class ScanMotionGuidanceTests: XCTestCase {
         XCTAssertNil(saturated)
     }
 
+    func testSaturatedWeakRegionDoesNotFallBackToTargetlessReobserve() {
+        var tracker = ScanMotionGuidanceTracker(
+            configuration: ScanMotionGuidanceConfiguration(
+                minimumRepeatedWeakObservations: 1,
+                spatialGuidanceActivationCoverageFraction: 0.55,
+                maximumActionDurationSeconds: 1.0,
+                maximumWeakRegionGuidanceAttempts: 1
+            )
+        )
+        let weak = spatial(
+            cameraX: 0,
+            cameraZ: 0,
+            region: region(
+                observations: 4,
+                diversity: 1,
+                distance: .medium,
+                classification: .weak
+            )
+        )
+        let coverage = coverage(
+            gap: nil,
+            observedCellCount: 36
+        )
+        let recheck = ObservationStabilitySummary(
+            sectorCount: 12,
+            referenceYawRadians: 0,
+            currentSectorIndex: 0,
+            state: .accumulating,
+            stabilityScore: 0.4,
+            normalObservationCount: 10,
+            viewAngleDiversityCount: 2,
+            depthSupportFraction: 0.2,
+            meshSupportFraction: 0,
+            movementConsistencyFraction: 0.8,
+            recheckReason: .supportingEvidenceWeak
+        )
+
+        let initial = tracker.record(
+            timestampSeconds: 0,
+            coverage: coverage,
+            spatialCoverage: weak,
+            observation: recheck
+        )
+        XCTAssertEqual(initial?.action, .translate)
+
+        let saturated = tracker.record(
+            timestampSeconds: 1.1,
+            coverage: coverage,
+            spatialCoverage: weak,
+            observation: recheck
+        )
+
+        XCTAssertNil(saturated)
+    }
+
     func testWrapAroundDirectionUsesShortestYawAndTurnsRight() {
         var tracker = ScanMotionGuidanceTracker()
         let result = tracker.record(
