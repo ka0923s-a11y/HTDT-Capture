@@ -1144,6 +1144,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return false
         }
 
+        if evidence.trackingQualityEvent.state == .unavailable {
+            endScanGuidance = HostLocalization.text(
+                "Cannot end yet: AR tracking is unavailable in the frame that would be saved. Hold the phone steady on previously scanned room features until tracking returns to normal, then try End again.",
+                "まだ終了できません：終了時に保存されるフレームで AR トラッキングが利用不可です。既に撮影した壁・角・家具へ向けて静止し、トラッキングが正常に戻ってからもう一度「終了」を押してください。"
+            )
+            return false
+        }
+
         let endTiming: CaptureTimingCorrelation
         do {
             endTiming = try sessionController.snapshotTimingCorrelation()
