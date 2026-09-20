@@ -456,6 +456,27 @@ public struct CaptureScanningView: View {
     }
 
     private var primaryDerivedShapeLabel: String {
+        if let decomposition = derivedPreview.objectDecomposition {
+            switch decomposition.state {
+            case .resolved where decomposition.components.count > 1:
+                return String(
+                    format:
+                        String(localized: "Observed shape candidates %d"),
+                    decomposition.components.count
+                )
+            case .possibleMultipleComponents:
+                return String(
+                    format:
+                        String(localized: "Possible shape candidates %d"),
+                    decomposition.components.count
+                )
+            case .unresolvedDecomposition:
+                return String(localized: "Decomposition unresolved")
+            default:
+                break
+            }
+        }
+
         if let proxy = derivedPreview.objectProxies.first {
             guard let selected = proxy.selected else {
                 switch proxy.resolution {
