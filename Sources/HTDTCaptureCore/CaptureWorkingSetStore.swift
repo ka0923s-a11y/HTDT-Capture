@@ -9,6 +9,8 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     case invalidAnnotationPackage
     case invalidMeasurementPackage
     case invalidSessionFoundationPackage
+    case invalidTimingPackage
+    case timingFoundationMissing
     case authorityMismatch
     case qualityReportNotReady
     case qualityReportIntegrityMissing
@@ -95,6 +97,7 @@ public actor CaptureWorkingSetStore {
     private var measurementQuantityTypesPresent: Set<String> = []
     private var sessionFoundation:
         CaptureSessionFoundationPackage?
+    private var timingDocument: CaptureTimingDocument?
     private var evidenceFrameCount = 0
     private var depthEvidenceCount = 0
     private var trackingEvents: [TrackingQualityEvent] = []
@@ -117,6 +120,8 @@ public actor CaptureWorkingSetStore {
         guard
             package.session.configurationRef
                 == CaptureSessionFoundationPackage.configurationPath,
+            package.session.timingRef
+                == CaptureTimingPackage.path,
             package.session.captureMode
                 == package.configuration.captureMode
         else {
@@ -134,6 +139,33 @@ public actor CaptureWorkingSetStore {
             try register(declaration)
         }
         sessionFoundation = package
+    }
+
+    public func persistTimingPackage(
+        _ package: CaptureTimingPackage
+    ) async throws {
+        guard sessionFoundation != nil else {
+            throw CaptureWorkingSetError.timingFoundationMissing
+        }
+        guard
+            package.document.clockDomain
+                == CaptureTimingPackage.clockDomain,
+            package.document.correlations.count == 2,
+            let decoded = try? JSONDecoder().decode(
+                CaptureTimingDocument.self,
+                from: package.data
+            ),
+            decoded == package.document
+        else {
+            throw CaptureWorkingSetError.invalidTimingPackage
+        }
+
+        try await writer.write(
+            package.data,
+            to: CaptureStorePath(CaptureTimingPackage.path)
+        )
+        try register(package.payloadDeclaration)
+        timingDocument = package.document
     }
 
     public func persistRawRoomPlan(
@@ -569,6 +601,11 @@ public actor CaptureWorkingSetStore {
         }
 
         if let sessionFoundation {
+            guard let timingDocument else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+
             try verifyTypedJSON(
                 path: CaptureSessionFoundationPackage.sessionPath,
                 expected: sessionFoundation.session,
@@ -584,6 +621,17 @@ public actor CaptureWorkingSetStore {
                 path:
                     CaptureSessionFoundationPackage.configurationPath,
                 expected: sessionFoundation.configuration,
+                actualByPath: actualByPath
+            )
+            try verifyTypedJSON(
+                path:
+                    CaptureSessionFoundationPackage.devicePath,
+                expected: sessionFoundation.device,
+                actualByPath: actualByPath
+            )
+            try verifyTypedJSON(
+                path: CaptureTimingPackage.path,
+                expected: timingDocument,
                 actualByPath: actualByPath
             )
         }

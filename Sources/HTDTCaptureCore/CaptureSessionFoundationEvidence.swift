@@ -115,13 +115,15 @@ public struct CaptureSessionDocument: Codable, Sendable, Equatable {
     public let captureMode: CaptureMode
     public let startedAtUTC: String
     public let configurationRef: String
+    public let timingRef: String
 
     public init(
         captureSessionID: CaptureSessionID,
         coordinateSpaceID: CoordinateSpaceID,
         captureMode: CaptureMode,
         startedAtUTC: String,
-        configurationRef: String
+        configurationRef: String,
+        timingRef: String
     ) {
         self.schema = "htdt.capture.session"
         self.schemaVersion = "1.0.0"
@@ -130,6 +132,7 @@ public struct CaptureSessionDocument: Codable, Sendable, Equatable {
         self.captureMode = captureMode
         self.startedAtUTC = startedAtUTC
         self.configurationRef = configurationRef
+        self.timingRef = timingRef
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -140,6 +143,7 @@ public struct CaptureSessionDocument: Codable, Sendable, Equatable {
         case captureMode = "capture_mode"
         case startedAtUTC = "started_at"
         case configurationRef = "configuration_ref"
+        case timingRef = "timing_ref"
     }
 }
 
@@ -148,13 +152,16 @@ public struct CaptureSessionFoundationPackage: Sendable, Equatable {
     public static let capabilitiesPath = "session/capabilities.json"
     public static let configurationPath =
         "session/capture-configuration.json"
+    public static let devicePath = "session/device.json"
 
     public let session: CaptureSessionDocument
     public let capabilities: CaptureCapabilitiesDocument
     public let configuration: CaptureConfigurationDocument
+    public let device: CaptureDeviceDocument
     public let sessionData: Data
     public let capabilitiesData: Data
     public let configurationData: Data
+    public let deviceData: Data
 
     public var payloadDeclarations: [BundlePayloadDeclaration] {
         [
@@ -173,6 +180,13 @@ public struct CaptureSessionFoundationPackage: Sendable, Equatable {
                 role: .canonical
             ),
             BundlePayloadDeclaration(
+                path: Self.devicePath,
+                mediaType: "application/json",
+                producer: "capture_session",
+                provenanceClass: .captureAppDerived,
+                role: .canonical
+            ),
+            BundlePayloadDeclaration(
                 path: Self.sessionPath,
                 mediaType: "application/json",
                 producer: "capture_session",
@@ -181,6 +195,8 @@ public struct CaptureSessionFoundationPackage: Sendable, Equatable {
                 sourceRefs: [
                     "path:\(Self.capabilitiesPath)",
                     "path:\(Self.configurationPath)",
+                    "path:\(Self.devicePath)",
+                    "path:\(CaptureTimingPackage.path)",
                 ]
             ),
         ].sorted {
@@ -200,6 +216,10 @@ public struct CaptureSessionFoundationPackage: Sendable, Equatable {
             to: CaptureStorePath(Self.configurationPath)
         )
         try await writer.write(
+            deviceData,
+            to: CaptureStorePath(Self.devicePath)
+        )
+        try await writer.write(
             sessionData,
             to: CaptureStorePath(Self.sessionPath)
         )
@@ -211,7 +231,8 @@ public enum CaptureSessionFoundationPackageBuilder {
         context: CaptureSessionContext,
         capabilities: CaptureCapabilityMatrix,
         configurationProfile: CaptureConfigurationProfile,
-        startedAtUTC: String
+        startedAtUTC: String,
+        device: CaptureDeviceDocument
     ) throws -> CaptureSessionFoundationPackage {
         let configuration = CaptureConfigurationDocument(
             profile: configurationProfile
@@ -225,7 +246,8 @@ public enum CaptureSessionFoundationPackageBuilder {
             captureMode: configurationProfile.captureMode,
             startedAtUTC: startedAtUTC,
             configurationRef:
-                CaptureSessionFoundationPackage.configurationPath
+                CaptureSessionFoundationPackage.configurationPath,
+            timingRef: CaptureTimingPackage.path
         )
 
         let encoder = JSONEncoder()
@@ -236,6 +258,7 @@ public enum CaptureSessionFoundationPackageBuilder {
             capabilitiesDocument
         )
         let configurationData = try encoder.encode(configuration)
+        let deviceData = try encoder.encode(device)
 
         guard
             try JSONDecoder().decode(
@@ -249,7 +272,11 @@ public enum CaptureSessionFoundationPackageBuilder {
             try JSONDecoder().decode(
                 CaptureConfigurationDocument.self,
                 from: configurationData
-            ) == configuration
+            ) == configuration,
+            try JSONDecoder().decode(
+                CaptureDeviceDocument.self,
+                from: deviceData
+            ) == device
         else {
             throw CocoaError(.coderInvalidValue)
         }
@@ -258,9 +285,11 @@ public enum CaptureSessionFoundationPackageBuilder {
             session: session,
             capabilities: capabilitiesDocument,
             configuration: configuration,
+            device: device,
             sessionData: sessionData,
             capabilitiesData: capabilitiesData,
-            configurationData: configurationData
+            configurationData: configurationData,
+            deviceData: deviceData
         )
     }
 }

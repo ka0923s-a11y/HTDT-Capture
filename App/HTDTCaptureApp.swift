@@ -74,6 +74,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var captureGeneration = UUID()
     private var isEndingScan = false
     private var isCapturingEvidenceFrame = false
+    private var captureStartTimingCorrelation:
+        CaptureTimingCorrelation?
     private let qualityRequirements = CaptureQualityRequirements()
 
     init() {
@@ -99,6 +101,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         finalizedRevision = nil
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
+        captureStartTimingCorrelation = nil
         resourceMonitor?.stop()
         resourceMonitor = nil
 
@@ -390,6 +393,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         exportURL = nil
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
+        captureStartTimingCorrelation = nil
         resourceMonitor?.stop()
         resourceMonitor = nil
         workingSetStatus =
@@ -516,9 +520,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     context: context,
                     capabilities: capabilities,
                     configurationProfile: activeConfiguration,
-                    startedAtUTC: startedAtUTC
+                    startedAtUTC: startedAtUTC,
+                    device:
+                        try PlatformRuntimeProvenance
+                            .currentDeviceDocument()
                 )
             try await store.persistSessionFoundation(foundation)
+            captureStartTimingCorrelation =
+                try await waitForInitialTimingCorrelation()
         } catch {
             workingSetStatus =
                 "Active AR configuration could not be persisted"
@@ -561,12 +570,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let meshPackage: MeshEvidencePackage
         let framePackage: FrameEvidencePackage
         let trackingEvent: TrackingQualityEvent
+        let endTimingCorrelation: CaptureTimingCorrelation
         do {
             let evidence =
                 try sessionController.snapshotReviewEvidence(
                     depthSelection: .discrete
                 )
             trackingEvent = evidence.trackingQualityEvent
+            endTimingCorrelation =
+                try sessionController.snapshotTimingCorrelation()
             meshPackage = try MeshEvidencePackageBuilder.build(
                 snapshots: evidence.meshAnchors
             )
@@ -598,6 +610,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             "Persisting final mesh and selected frame evidence"
 
         do {
+            guard let startTimingCorrelation =
+                captureStartTimingCorrelation
+            else {
+                throw CaptureSessionMetadataError
+                    .invalidCorrelationOrder
+            }
+            let timingPackage =
+                try CaptureTimingPackageBuilder.build(
+                    start: startTimingCorrelation,
+                    end: endTimingCorrelation
+                )
+            try await store.persistTimingPackage(timingPackage)
             await store.recordTrackingEvent(trackingEvent)
             try await store.persistMeshPackage(meshPackage)
             try await store.persistFramePackage(framePackage)
@@ -695,6 +719,20 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.fail(.persistenceFailure)
             }
         }
+    }
+
+    private func waitForInitialTimingCorrelation()
+        async throws -> CaptureTimingCorrelation
+    {
+        for _ in 0..<40 {
+            if let correlation =
+                try? sessionController.snapshotTimingCorrelation()
+            {
+                return correlation
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        throw PlatformCaptureError.currentFrameUnavailable
     }
 
     private func refreshQuality(
