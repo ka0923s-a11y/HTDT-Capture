@@ -43,6 +43,14 @@ struct DerivedShapePreviewPanel: View {
             }
             .pickerStyle(.segmented)
 
+            if let decomposition = snapshot.objectDecomposition {
+                decompositionSummary(decomposition)
+            }
+
+            if let supportAnalysis = snapshot.supportAnalysis {
+                supportSummary(supportAnalysis)
+            }
+
             if mode == .roomPlan {
                 Text(
                     "The camera view is showing the RoomPlan semantic structure. HTDT observed geometry is hidden."
@@ -168,6 +176,12 @@ struct DerivedShapePreviewPanel: View {
     }
 
     private var primaryShapeLabel: String {
+        if let decomposition = snapshot.objectDecomposition,
+           decomposition.state == .unresolvedDecomposition
+        {
+            return String(localized: "Decomposition unresolved")
+        }
+
         guard let primaryProxy else {
             return snapshot.wallChain == nil
                 ? String(localized: "No bounded shape evidence yet")
@@ -194,6 +208,200 @@ struct DerivedShapePreviewPanel: View {
             return String(localized: "Ellipse")
         case .polygon:
             return String(localized: "Polygon")
+        }
+    }
+
+    @ViewBuilder
+    private func decompositionSummary(
+        _ decomposition: DerivedObjectDecomposition
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(decompositionHeadline(decomposition))
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Text(decompositionStateLabel(decomposition.state))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            ForEach(
+                Array(decomposition.components.prefix(4)),
+                id: \.id
+            ) { component in
+                HStack(spacing: 6) {
+                    Image(systemName: "square.stack.3d.up")
+                        .foregroundStyle(.secondary)
+                    Text(
+                        componentHeightLabel(
+                            component,
+                            total: decomposition.components.count
+                        )
+                    )
+                    .monospacedDigit()
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+
+            if !decomposition.supportRelations.isEmpty {
+                Text(
+                    String(
+                        format: String(
+                            localized:
+                                "%d preview-only support relation candidate(s)"
+                        ),
+                        decomposition.supportRelations.count
+                    )
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+
+            if decomposition.reobservationAdvisory != nil {
+                Label(
+                    "Re-observe this region from another angle",
+                    systemImage: "viewfinder"
+                )
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
+            }
+        }
+        .padding(8)
+        .background(
+            Color.secondary.opacity(0.10),
+            in: RoundedRectangle(
+                cornerRadius: 8,
+                style: .continuous
+            )
+        )
+    }
+
+    @ViewBuilder
+    private func supportSummary(
+        _ analysis: DerivedSupportAnalysis
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Label(
+                    supportSummaryLabel(analysis),
+                    systemImage: "cube.transparent"
+                )
+                Spacer()
+                Text(lowerVolumeLabel(analysis))
+            }
+            .font(.caption2)
+            .foregroundStyle(.cyan)
+
+            if let advisory = analysis.advisories.first {
+                Label(
+                    advisoryLabel(advisory.kind),
+                    systemImage: "viewfinder"
+                )
+                .font(.caption2)
+                .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func decompositionHeadline(
+        _ decomposition: DerivedObjectDecomposition
+    ) -> String {
+        switch decomposition.state {
+        case .resolved:
+            return String(
+                format: String(localized: "Observed shape candidates %d"),
+                decomposition.components.count
+            )
+        case .possibleMultipleComponents:
+            return String(
+                format: String(localized: "Possible shape candidates %d"),
+                decomposition.components.count
+            )
+        case .unresolvedDecomposition:
+            return String(localized: "Decomposition unresolved")
+        }
+    }
+
+    private func decompositionStateLabel(
+        _ state: DerivedObjectDecompositionState
+    ) -> String {
+        switch state {
+        case .resolved:
+            return String(localized: "Separated")
+        case .possibleMultipleComponents:
+            return String(localized: "Possible multiple components")
+        case .unresolvedDecomposition:
+            return String(localized: "Unresolved")
+        }
+    }
+
+    private func componentHeightLabel(
+        _ component: DerivedObjectComponentCandidate,
+        total: Int
+    ) -> String {
+        let order: String
+        if total == 2 {
+            order = component.heightOrder == 0
+                ? String(localized: "Lower")
+                : String(localized: "Upper")
+        } else {
+            order = String(
+                format: String(localized: "Layer %d"),
+                component.heightOrder + 1
+            )
+        }
+
+        guard let extent = component.verticalExtent else {
+            return order
+        }
+        return String(
+            format: "%@ · %.2f–%.2f m",
+            order,
+            extent.minY,
+            extent.maxY
+        )
+    }
+
+    private func supportSummaryLabel(
+        _ analysis: DerivedSupportAnalysis
+    ) -> String {
+        switch analysis.resolution {
+        case .separatedSupports:
+            return String(
+                format: String(localized: "%d observed supports"),
+                analysis.supports.count
+            )
+        case .solidToFloor:
+            return String(localized: "Observed body reaches floor")
+        case .floatingBodyUnresolved:
+            return String(localized: "Lower support unresolved")
+        case .insufficientHeightEvidence:
+            return String(localized: "Height evidence insufficient")
+        }
+    }
+
+    private func lowerVolumeLabel(
+        _ analysis: DerivedSupportAnalysis
+    ) -> String {
+        switch analysis.lowerVolumeState {
+        case .sparseObservedSupports:
+            return String(localized: "Open lower volume")
+        case .solidToFloor:
+            return String(localized: "Solid to floor")
+        case .unresolved:
+            return String(localized: "Unresolved")
+        }
+    }
+
+    private func advisoryLabel(
+        _ kind: DerivedSupportAdvisoryKind
+    ) -> String {
+        switch kind {
+        case .observeLowerFurniture:
+            return String(localized: "Show the lower part of the furniture")
+        case .observeLowerFurnitureFromAnotherAngle:
+            return String(localized: "Show the lower part from another angle")
         }
     }
 
@@ -232,6 +440,15 @@ struct DerivedShapePreviewPanel: View {
                     )
                 }
             }
+        }
+
+        if let supportAnalysis = snapshot.supportAnalysis {
+            drawSupportElements(
+                supportAnalysis.supports,
+                context: &context,
+                size: size,
+                bounds: bounds
+            )
         }
 
         if let wallChain = snapshot.wallChain {
@@ -284,6 +501,54 @@ struct DerivedShapePreviewPanel: View {
                 dash: [7, 4]
             )
         )
+    }
+
+    private func drawSupportElements(
+        _ supports: [DerivedSupportElement],
+        context: inout GraphicsContext,
+        size: CGSize,
+        bounds: PreviewBounds
+    ) {
+        for support in supports {
+            let center = bounds.map(support.center, into: size)
+            let edge = bounds.map(
+                DerivedPoint2D(
+                    x: support.center.x + support.footprintRadius,
+                    y: support.center.y
+                ),
+                into: size
+            )
+            let radius = max(
+                CGFloat(3),
+                min(CGFloat(14), abs(edge.x - center.x))
+            )
+            let rect = CGRect(
+                x: center.x - radius,
+                y: center.y - radius,
+                width: radius * 2,
+                height: radius * 2
+            )
+            let path = Path(ellipseIn: rect)
+            let uncertain = support.resolution == .uncertain
+            context.fill(
+                path,
+                with: .color(
+                    .cyan.opacity(uncertain ? 0.08 : 0.18)
+                )
+            )
+            context.stroke(
+                path,
+                with: .color(
+                    .cyan.opacity(uncertain ? 0.65 : 0.95)
+                ),
+                style: StrokeStyle(
+                    lineWidth: uncertain ? 1.2 : 2.0,
+                    lineCap: .round,
+                    lineJoin: .round,
+                    dash: uncertain ? [3, 3] : []
+                )
+            )
+        }
     }
 
     private func drawPolyline(
@@ -350,6 +615,24 @@ struct DerivedShapePreviewPanel: View {
                 points.append(
                     contentsOf:
                         proxy.observationSample.map(\.position)
+                )
+            }
+        }
+
+        if let supportAnalysis = snapshot.supportAnalysis {
+            for support in supportAnalysis.supports {
+                points.append(support.center)
+                points.append(
+                    DerivedPoint2D(
+                        x: support.center.x + support.footprintRadius,
+                        y: support.center.y
+                    )
+                )
+                points.append(
+                    DerivedPoint2D(
+                        x: support.center.x - support.footprintRadius,
+                        y: support.center.y
+                    )
                 )
             }
         }
