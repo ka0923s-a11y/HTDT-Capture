@@ -708,6 +708,7 @@ public struct ScanMotionGuidanceTracker: Sendable {
         }
 
         if !spatialGuidanceActive,
+           movementCapability == .unrestricted,
            let region = preferredWeakRegion(
             spatialCoverage
         ) {
