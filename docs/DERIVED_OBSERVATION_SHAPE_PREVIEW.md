@@ -71,11 +71,19 @@ sample per proxy. An unbounded point cloud is never retained by the preview
 model.
 
 The source-neutral DerivedShapeObservation / DerivedShapeObservationSource
-interface is the seam for Task 3 / G110 spatial observation authority. Current
-main already has the separate ObservationStabilityTracker guidance from PR #59;
-this slice reuses that scanner lifecycle and leaves its confidence semantics
-intact. If G110 later supplies bounded observed surface points, it can construct
-the same observation type rather than coupling G110 internals to this fitter.
+interface is the seam to the G110 spatial-observation authority. G110 is already
+present on main: its mesh-availability diagnostic is the live gate for derived
+preview work, and its bounded spatial sampling cadence remains the scanner
+authority for whether ARMesh evidence is actually available.
+
+For shape fitting, the platform adapter adds a classification-aware bounded
+view over the same active ARMesh anchors. It reads only a capped number of live
+faces, retains boundary-supported points, applies 2D voxel reduction, and passes
+at most the configured point budget into the source-neutral observation type.
+It does not serialize the full canonical mesh at UI cadence. Heavy connected-
+component and fitting work runs off the main actor. This keeps G110 and derived
+shape preview complementary rather than duplicating a second unbounded live
+mesh pipeline.
 
 ## Shape fitting and selection
 
@@ -141,8 +149,10 @@ Not included:
 - inference of unseen geometry;
 - Capture Bundle schema changes.
 
-Depth and G110 integration use the source-neutral observation seam. This slice
-does not duplicate a spatial-observation authority that is not yet on main.
+Depth integration can use the same source-neutral observation seam later.
+G110 integration is active in this slice: G110 mesh availability gates the
+preview, while classification-aware bounded points provide the object/wall
+shape evidence needed for fitting.
 
 ## Automated acceptance
 
