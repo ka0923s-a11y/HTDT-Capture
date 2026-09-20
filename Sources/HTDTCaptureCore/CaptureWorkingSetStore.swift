@@ -8,6 +8,7 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     case invalidMeshPackage
     case invalidAnnotationPackage
     case invalidMeasurementPackage
+    case invalidSessionFoundationPackage
     case authorityMismatch
     case qualityReportNotReady
     case qualityReportIntegrityMissing
@@ -88,6 +89,8 @@ public actor CaptureWorkingSetStore {
     private var measurementCollection: CaptureMeasurementCollection?
     private var annotationKeysPresent: Set<String> = []
     private var measurementQuantityTypesPresent: Set<String> = []
+    private var sessionFoundation:
+        CaptureSessionFoundationPackage?
     private var evidenceFrameCount = 0
     private var depthEvidenceCount = 0
 
@@ -100,6 +103,35 @@ public actor CaptureWorkingSetStore {
         self.writer = try AtomicCaptureFileWriter(
             rootDirectory: rootDirectory
         )
+    }
+
+    public func persistSessionFoundation(
+        _ package: CaptureSessionFoundationPackage
+    ) async throws {
+        guard
+            package.session.captureSessionID
+                == captureSessionID ?? package.session.captureSessionID,
+            package.session.coordinateSpaceID
+                == coordinateSpaceID ?? package.session.coordinateSpaceID,
+            package.session.configurationRef
+                == CaptureSessionFoundationPackage.configurationPath,
+            package.session.captureMode
+                == package.configuration.captureMode
+        else {
+            throw CaptureWorkingSetError
+                .invalidSessionFoundationPackage
+        }
+
+        try bindAuthority(
+            captureSessionID: package.session.captureSessionID,
+            coordinateSpaceID: package.session.coordinateSpaceID
+        )
+
+        try await package.persist(using: writer)
+        for declaration in package.payloadDeclarations {
+            try register(declaration)
+        }
+        sessionFoundation = package
     }
 
     public func persistRawRoomPlan(
@@ -485,6 +517,26 @@ public actor CaptureWorkingSetStore {
             _ = try BundleFileHasher.sha256(url: file.url)
         }
 
+        if let sessionFoundation {
+            try verifyTypedJSON(
+                path: CaptureSessionFoundationPackage.sessionPath,
+                expected: sessionFoundation.session,
+                actualByPath: actualByPath
+            )
+            try verifyTypedJSON(
+                path:
+                    CaptureSessionFoundationPackage.capabilitiesPath,
+                expected: sessionFoundation.capabilities,
+                actualByPath: actualByPath
+            )
+            try verifyTypedJSON(
+                path:
+                    CaptureSessionFoundationPackage.configurationPath,
+                expected: sessionFoundation.configuration,
+                actualByPath: actualByPath
+            )
+        }
+
         if let rawRoomPlanDescriptor {
             try verifyFile(
                 path: rawRoomPlanDescriptor.relativePath,
@@ -607,6 +659,23 @@ public actor CaptureWorkingSetStore {
                     )
                 }
             }
+        }
+    }
+
+    private func verifyTypedJSON<T>(
+        path: String,
+        expected: T,
+        actualByPath: [String: ScannedBundleFile]
+    ) throws where T: Codable & Equatable {
+        guard let file = actualByPath[path],
+              let data = try? Data(contentsOf: file.url),
+              let decoded = try? JSONDecoder().decode(
+                T.self,
+                from: data
+              ),
+              decoded == expected
+        else {
+            throw CaptureWorkingSetError.integrityVerificationFailed
         }
     }
 
