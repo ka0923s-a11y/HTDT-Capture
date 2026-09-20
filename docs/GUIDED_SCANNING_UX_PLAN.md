@@ -1,6 +1,6 @@
 # Guided Scanning UX Plan
 
-Status: G100A/G100B implemented by PR #47; G100C implemented by PR #49; G100D implemented by PR #53; G100E current-relative direction guidance implemented on the current branch; physical-device acceptance remains open.  
+Status: G100A/G100B implemented by PR #47; G100C implemented by PR #49; G100D implemented by PR #53; G100E observation confidence implemented by PR #59; G100F current-relative direction guidance implemented by PR #60; physical-device acceptance remains open.  
 Scope: scanner-first iOS UX; no Capture Bundle schema promotion in these slices.
 
 ## 1. Problem statement
@@ -69,29 +69,45 @@ measurement truth.
 
 Three separate concepts remain explicit:
 
-1. **RoomPlan live feedback**
-   - framework-generated camera/AR overlay and coaching;
-   - useful for operator guidance;
-   - not independently promoted as HTDT measurement authority.
+1. **RoomPlan semantic approximation**
+   - the Apple-owned live camera overlay, structural lines, miniature model,
+     and coaching are a semantic approximation for operator guidance;
+   - the early live outline can simplify, move, or change as RoomPlan observes
+     more of the room;
+   - HTDT does not relabel or mutate RoomCaptureView's private/undocumented
+     subviews and does not present those live lines as canonical geometry.
 
-2. **HTDT advisory coverage telemetry**
-   - derived from live ARFrame camera trajectory, tracking, depth presence, and
-     current ARMesh anchor count;
-   - guides the operator toward under-observed directions;
-   - ephemeral in this slice;
-   - does not alter bundle identity, finalization rules, or semantic geometry.
+2. **HTDT observation confidence**
+   - an app-owned, ephemeral guidance state describing how repeatedly and
+     diversely the current spatial direction/region has been observed;
+   - states are `provisional`, `accumulating`, and `well_observed`;
+   - evidence inputs are repeated normal-tracking samples, viewing-angle
+     diversity, scene-depth availability, active ARMesh support, and bounded
+     camera-movement consistency;
+   - limited/unavailable tracking does not advance confidence;
+   - a bounded mismatch heuristic may request a shape recheck when trajectory
+     evidence is sufficient but supporting depth/mesh observation remains weak,
+     or when supporting evidence drops after a well-observed state;
+   - this confidence is capture guidance only. It is not a RoomPlan correctness
+     probability, measurement truth, a finalization gate, or a persisted schema
+     field.
 
 3. **Canonical evidence**
-   - exact RoomPlan raw result;
+   - exact raw RoomPlan result;
    - exact selected ARFrame image/depth records;
    - exact ARMesh snapshots;
    - explicit user-attested annotations/measurements;
    - persisted using the existing Capture Bundle contracts.
 
-The G100E guidance target, angular errors, arrows, compass markers, and
-hysteresis state are camera-trajectory guidance only. They do not become
-Capture Bundle measurements, do not prove geometric completeness, and do not
-participate in finalization gates.
+The authority order is therefore: RoomPlan live overlay = semantic
+approximation; HTDT observation confidence = capture guidance; raw
+RoomPlan/ARFrame/depth/ARMesh artifacts = evidence authority.
+
+G100F current-relative direction guidance remains inside the same advisory
+boundary. Its selected target cell, signed yaw/pitch errors, angular distance,
+arrow, relative-compass markers, and hysteresis state are camera-trajectory
+guidance only. They are not Capture Bundle measurements, do not prove geometric
+completeness, and do not participate in finalization gates.
 
 ## 4. Scanner-first screen
 
@@ -172,6 +188,21 @@ Starting RoomPlan while the framework-provided view is still detached is not
 an accepted host sequence. A second camera/AR session must not be introduced as
 a workaround because that would split the capture and display authorities.
 
+## 4.6 Approximation and observation-confidence presentation
+
+The scanner HUD carries a compact `RoomPlan approximation` label and a separate
+HTDT observation state. The app does not attempt to recolor or replace Apple's
+RoomPlan structural lines with fake "provisional" or "final" geometry.
+
+When the bounded observation heuristic sees a repeatedly viewed region with
+weak supporting depth/mesh evidence, the scanner may show:
+
+- **Recheck shape**
+- **Show this area again from another angle.**
+
+This is deliberately advisory wording. It does not assert that RoomPlan is
+wrong. A recheck advisory is not persisted as measurement truth.
+
 ## 5. Coverage model v1
 
 ### 5.1 Sampling
@@ -217,9 +248,9 @@ not a room-surface identity.
 ### 5.4 Current-relative guidance geometry
 
 The UI must not ask the operator to mentally convert a start-relative label such
-as "rear right" into a physical turn from the phone's current pose. G100E
-therefore derives a second, presentation-only guidance authority from the
-selected start-relative target:
+as "rear right" into a physical turn from the phone's current pose. G100F
+therefore derives a presentation-only guidance authority from the selected
+start-relative target:
 
 - target yaw = center heading of the selected 12-way azimuth sector;
 - target pitch = representative center for low / level / high;
@@ -231,8 +262,8 @@ selected start-relative target:
 Positive signed yaw error means turn right; negative means turn left. Positive
 pitch error means raise the camera view; negative means lower it. The UI maps
 those continuous errors into eight directional arrows. When both errors are
-within the configured alignment tolerances, the instruction changes to
-"Slowly scan this direction" instead of continuing to show a turn arrow.
+within configured alignment tolerances, the instruction changes to "Slowly
+scan this direction" instead of continuing to show a turn arrow.
 
 This distinction is intentional:
 
@@ -241,11 +272,8 @@ This distinction is intentional:
 
 ### 5.5 Guidance stability / hysteresis
 
-Target selection is stateful and deterministic. All guidance timing and angular
-thresholds are defined by `ScanGuidanceConfiguration`; they are not scattered
-through the UI.
-
-Rules:
+Target selection is stateful and deterministic. Guidance timing and angular
+thresholds are centralized in `ScanGuidanceConfiguration`.
 
 1. a newly selected target is held for at least the configured minimum hold
    interval while it remains unobserved;
@@ -324,6 +352,30 @@ Raw enum/debug tokens may remain English only in developer diagnostics.
 - continue/end decision;
 - optional persisted diagnostic only after authority/schema review.
 
+### G100E — RoomPlan approximation / HTDT observation confidence — software implemented
+
+- label the Apple-owned RoomPlan overlay as a live semantic approximation;
+- add app-owned `provisional` / `accumulating` / `well_observed`
+  observation confidence for the current spatial direction;
+- require repeated, multi-angle, depth, mesh, and movement evidence before
+  `well_observed`;
+- add a bounded recheck advisory without declaring RoomPlan incorrect;
+- keep confidence ephemeral and outside Capture Bundle schema authority;
+- leave physical-device visual acceptance open.
+
+### G100F — current-relative direction guidance — software implemented
+
+- retain the 12 x 3 start-relative advisory coverage authority;
+- compute continuous signed yaw error, pitch error, target sector / band, and
+  angular distance from the live camera pose;
+- map errors to left/right/up/down and diagonal arrows, with an aligned
+  slow-scan state;
+- emphasize the recommended coverage cell with a focus border/marker;
+- show a compact relative compass distinguishing start, current, and target;
+- apply deterministic target hysteresis from the core model;
+- keep all guidance advisory and ephemeral;
+- leave physical-device visual acceptance open.
+
 ### G100D — interruption/relocalization UX — implemented fail-closed baseline
 
 - terminal interruption/failure screens now explain the reason and recovery path;
@@ -335,25 +387,12 @@ Raw enum/debug tokens may remain English only in developer diagnostics.
 - reset creates a fresh AR session / coordinate-space authority;
 - ARWorldMap or equivalent proven relocalization remains future research.
 
-### G100E — current-relative direction guidance — implemented, device acceptance pending
-
-- retain the 12 x 3 start-relative advisory coverage authority;
-- compute continuous signed yaw error, pitch error, target sector / band, and
-  angular distance from the live camera pose;
-- map the errors to left/right/up/down and diagonal direction arrows;
-- show a small center-near arrow overlay without replacing RoomPlan's own live
-  renderer or coaching;
-- emphasize the recommended coverage cell with a focus border/marker;
-- show a compact relative compass that distinguishes start, current, and target
-  directions;
-- apply deterministic target hysteresis from the core model;
-- keep all guidance advisory and ephemeral.
-
-## 10. Acceptance criteria for G100A/B/C/D
+## 10. Acceptance criteria for G100A/B/C/D/E/F
 
 Automated:
 
 - deterministic coverage tracker tests pass;
+- deterministic observation-confidence transitions and recheck heuristic tests pass;
 - existing core tests remain green;
 - iOS platform/AppShell compile succeeds;
 - unsigned IPA archive succeeds.
@@ -361,8 +400,13 @@ Automated:
 Physical-device gate:
 
 - scanning visibly opens the rear camera;
-- RoomPlan overlays/coaching are visible and are not materially obscured by the
-  HTDT guidance overlay;
+- RoomPlan overlays/coaching are visible and are not materially obscured by
+  the HTDT direction overlay;
+- early RoomPlan lines are visibly framed as an approximation rather than
+  measurement truth;
+- the current HTDT observation state is understandable while scanning;
+- a recheck advisory is visible when supporting observation remains weak;
+- the Apple-owned RoomPlan overlay remains intact and unmodified;
 - miniature model updates;
 - coverage HUD updates while the user changes direction and pitch;
 - a user can follow the arrow without first interpreting labels such as

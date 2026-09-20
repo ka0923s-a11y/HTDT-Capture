@@ -241,3 +241,13 @@
 "Allow camera access in iOS Settings, then start a new capture." = "iOS の設定でカメラアクセスを許可してから、新しいキャプチャを開始してください。";
 "Use a supported LiDAR-capable iPhone or iPad for this capture workflow." = "このキャプチャには対応する LiDAR 搭載 iPhone または iPad を使用してください。";
 "Discard the failed capture and retry. If the error repeats, record the screen state before resetting." = "失敗したキャプチャを破棄してやり直してください。同じエラーが続く場合は、リセット前に画面状態を記録してください。";
+
+"RoomPlan approximation" = "RoomPlan近似";
+"Observation: %@" = "観測状態: %@";
+"RoomPlan lines are a live structural approximation. HTDT observation evidence is collected separately." = "RoomPlanの線はライブの構造推定です。HTDTの観測証拠は別に取得します。";
+"Recheck shape" = "形状を再確認";
+"Show this area again from another angle." = "別角度からもう一度映してください";
+"Supporting HTDT depth or mesh observation is still weak for this repeatedly viewed area." = "繰り返し映した領域ですが、HTDTのdepthまたはmesh観測がまだ弱い状態です。";
+"Provisional" = "初期";
+"Accumulating" = "収集中";
+"Well observed" = "十分";

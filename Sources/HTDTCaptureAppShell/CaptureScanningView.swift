@@ -5,6 +5,7 @@ import HTDTCaptureCore
 public struct CaptureScanningView: View {
     public let preview: AnyView
     public let coverage: ScanCoverageSummary
+    public let observation: ObservationStabilitySummary
     public let evidenceFrameCount: Int
     public let captureEvidenceFrame: () -> Void
     public let endScan: () -> Void
@@ -14,12 +15,14 @@ public struct CaptureScanningView: View {
     public init(
         preview: AnyView,
         coverage: ScanCoverageSummary,
+        observation: ObservationStabilitySummary,
         evidenceFrameCount: Int,
         captureEvidenceFrame: @escaping () -> Void,
         endScan: @escaping () -> Void
     ) {
         self.preview = preview
         self.coverage = coverage
+        self.observation = observation
         self.evidenceFrameCount = evidenceFrameCount
         self.captureEvidenceFrame = captureEvidenceFrame
         self.endScan = endScan
@@ -94,6 +97,38 @@ public struct CaptureScanningView: View {
                 .font(.subheadline.monospacedDigit())
             }
 
+            HStack(spacing: 8) {
+                Label(
+                    String(localized: "RoomPlan approximation"),
+                    systemImage: "cube.transparent"
+                )
+                .font(.caption.weight(.semibold))
+
+                Spacer()
+
+                Text(
+                    String(
+                        format: String(localized: "Observation: %@"),
+                        observationStateLabel
+                    )
+                )
+                .font(.caption.weight(.semibold))
+            }
+
+            Text(
+                String(
+                    localized:
+                        "RoomPlan lines are a live structural approximation. HTDT observation evidence is collected separately."
+                )
+            )
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            if observation.recheckSuggested {
+                recheckBanner
+            }
+
             HStack(alignment: .center, spacing: 12) {
                 Text(guidanceText)
                     .font(.headline)
@@ -149,6 +184,50 @@ public struct CaptureScanningView: View {
                 style: .continuous
             )
         )
+    }
+
+    private var recheckBanner: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Label(
+                String(localized: "Recheck shape"),
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.subheadline.weight(.semibold))
+
+            Text(
+                String(
+                    localized:
+                        "Show this area again from another angle."
+                )
+            )
+            .font(.caption)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(9)
+        .background(
+            .thinMaterial,
+            in: RoundedRectangle(
+                cornerRadius: 10,
+                style: .continuous
+            )
+        )
+        .accessibilityHint(
+            String(
+                localized:
+                    "Supporting HTDT depth or mesh observation is still weak for this repeatedly viewed area."
+            )
+        )
+    }
+
+    private var observationStateLabel: String {
+        switch observation.state {
+        case .provisional:
+            return String(localized: "Provisional")
+        case .accumulating:
+            return String(localized: "Accumulating")
+        case .wellObserved:
+            return String(localized: "Well observed")
+        }
     }
 
     private var coveragePanel: some View {

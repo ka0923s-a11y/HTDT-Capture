@@ -73,6 +73,7 @@ public struct CaptureRootView: View {
     public let annotationAuthorityCommitted: Bool
     public let scanningPreview: AnyView?
     public let scanCoverage: ScanCoverageSummary
+    public let observationStability: ObservationStabilitySummary
     public let scanEvidenceFrameCount: Int
     public let actions: CaptureRootActions
 
@@ -90,6 +91,7 @@ public struct CaptureRootView: View {
         annotationAuthorityCommitted: Bool = false,
         scanningPreview: AnyView? = nil,
         scanCoverage: ScanCoverageSummary = .empty,
+        observationStability: ObservationStabilitySummary = .empty,
         scanEvidenceFrameCount: Int = 0,
         actions: CaptureRootActions = CaptureRootActions()
     ) {
@@ -108,6 +110,7 @@ public struct CaptureRootView: View {
             annotationAuthorityCommitted
         self.scanningPreview = scanningPreview
         self.scanCoverage = scanCoverage
+        self.observationStability = observationStability
         self.scanEvidenceFrameCount = scanEvidenceFrameCount
         self.actions = actions
     }
@@ -120,6 +123,7 @@ public struct CaptureRootView: View {
                 CaptureScanningView(
                     preview: scanningPreview,
                     coverage: scanCoverage,
+                    observation: observationStability,
                     evidenceFrameCount: scanEvidenceFrameCount,
                     captureEvidenceFrame:
                         actions.captureEvidenceFrame,
