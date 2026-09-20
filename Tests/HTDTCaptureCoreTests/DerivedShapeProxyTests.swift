@@ -25,6 +25,46 @@ final class DerivedShapeProxyTests: XCTestCase {
         )
     }
 
+    func testDepthInteriorPointsReduceToOuterBoundaryForCircleFit() {
+        var points: [DerivedObservationPoint] = []
+
+        for ringIndex in 1...5 {
+            let radius = Double(ringIndex) / 5
+            for index in 0..<48 {
+                let angle =
+                    2 * Double.pi * Double(index) / 48
+                points.append(
+                    DerivedObservationPoint(
+                        position: DerivedPoint2D(
+                            x: radius * cos(angle),
+                            y: radius * sin(angle)
+                        ),
+                        evidenceRef:
+                            "depth:\(ringIndex):\(index)",
+                        evidenceKind: .sceneDepth,
+                        verticalPositionMeters: 0.72
+                    )
+                )
+            }
+        }
+
+        let observation = DerivedShapeObservation(
+            coordinateSpaceID: testCoordinateSpaceID,
+            points: points
+        )
+        let boundary =
+            DerivedShapeProxyFitter.boundaryObservation(
+                from: observation
+            )
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: boundary
+        )
+
+        XCTAssertLessThan(boundary.points.count, points.count)
+        XCTAssertEqual(proxy.resolution, .resolved)
+        XCTAssertEqual(proxy.selected?.kind, .circle)
+    }
+
     func testPartialCircleArcRemainsUnresolved() {
         let points = (0..<72).map { index -> DerivedPoint2D in
             let t =

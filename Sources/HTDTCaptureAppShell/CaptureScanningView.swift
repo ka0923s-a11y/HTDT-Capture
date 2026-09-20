@@ -123,7 +123,7 @@ public struct CaptureScanningView: View {
 
                 Text(
                     String(
-                        format: String(localized: "Coverage %d%%"),
+                        format: String(localized: "Direction %d%%"),
                         coveragePercent
                     )
                 )
@@ -184,6 +184,9 @@ public struct CaptureScanningView: View {
                     maxWidth: .infinity,
                     alignment: .leading
                 )
+
+            compactEvidenceSummary
+                .font(.caption2)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -197,55 +200,39 @@ public struct CaptureScanningView: View {
     }
 
     private var compactBottomControls: some View {
-        VStack(spacing: 7) {
-            compactEvidenceSummary
-
-            ProgressView(value: coverage.coverageFraction)
-                .progressViewStyle(.linear)
-                .tint(.white.opacity(0.9))
-                .accessibilityLabel(
-                    String(localized: "Direction coverage")
+        HStack(alignment: .bottom, spacing: 8) {
+            Button(action: captureEvidenceFrame) {
+                Label(
+                    "Save evidence",
+                    systemImage: "camera.fill"
                 )
-
-            HStack(spacing: 8) {
-                Button(action: captureEvidenceFrame) {
-                    Label(
-                        "Save evidence frame",
-                        systemImage: "camera.fill"
-                    )
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    .frame(
-                        maxWidth: .infinity,
-                        minHeight: 38
-                    )
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button(action: requestEndScan) {
-                    Label(
-                        "End scan",
-                        systemImage: "checkmark.circle.fill"
-                    )
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.80)
-                    .frame(
-                        maxWidth: .infinity,
-                        minHeight: 38
-                    )
-                }
-                .buttonStyle(.bordered)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .frame(minHeight: 38)
             }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            .ultraThinMaterial,
-            in: RoundedRectangle(
-                cornerRadius: 14,
-                style: .continuous
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .accessibilityLabel(
+                String(localized: "Save evidence frame")
             )
-        )
+
+            Spacer(minLength: 64)
+
+            Button(action: requestEndScan) {
+                Label(
+                    "End",
+                    systemImage: "checkmark.circle.fill"
+                )
+                .lineLimit(1)
+                .minimumScaleFactor(0.80)
+                .frame(minHeight: 38)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .accessibilityLabel(
+                String(localized: "End scan")
+            )
+        }
     }
 
     private var compactEvidenceSummary: some View {
@@ -281,7 +268,7 @@ public struct CaptureScanningView: View {
             }
         } label: {
             HStack(spacing: 5) {
-                Text("Spatial observation")
+                Text(spatialObservationTitle)
                     .fontWeight(.semibold)
                 Text(spatialCoverageCounts)
                     .monospacedDigit()
@@ -361,11 +348,20 @@ public struct CaptureScanningView: View {
                             )
                         }
                         .font(.caption2)
+
+                        if spatialCoverage.usesDepthFallback {
+                            Label(
+                                "Scene-depth fallback active",
+                                systemImage: "viewfinder"
+                            )
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.cyan)
+                        }
                     }
                     .padding(.top, 6)
                 } label: {
                     HStack {
-                        Text("Spatial observation")
+                        Text(spatialObservationTitle)
                             .font(
                                 .subheadline
                                     .weight(.semibold)
@@ -699,6 +695,12 @@ public struct CaptureScanningView: View {
                 .frame(width: 7, height: 7)
             Text(label)
         }
+    }
+
+    private var spatialObservationTitle: String {
+        spatialCoverage.usesDepthFallback
+            ? String(localized: "Spatial observation · depth")
+            : String(localized: "Spatial observation")
     }
 
     private var spatialCoverageCounts: String {
@@ -1294,7 +1296,7 @@ private struct ScanCoverageEndReview: View {
             List {
                 Section {
                     LabeledContent(
-                        "Overall coverage",
+                        "Direction coverage",
                         value: percent(coverage.coverageFraction)
                     )
                     LabeledContent(

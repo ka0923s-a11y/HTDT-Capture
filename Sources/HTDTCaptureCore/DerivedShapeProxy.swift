@@ -687,6 +687,94 @@ public enum DerivedShapeProxyFitter {
     public static let algorithm = "htdt-derived-footprint-fit"
     public static let version = "1.1.0"
 
+    public static func boundaryObservation(
+        from observation: DerivedShapeObservation,
+        angularBinCount: Int = 48,
+        minimumBoundaryPointCount: Int = 8
+    ) -> DerivedShapeObservation {
+        guard angularBinCount >= 8,
+              minimumBoundaryPointCount >= 4
+        else {
+            return observation
+        }
+
+        let points = observation.points.filter {
+            $0.position.x.isFinite && $0.position.y.isFinite
+        }
+        guard points.count >= minimumBoundaryPointCount else {
+            return observation
+        }
+
+        let centerX =
+            points.reduce(0.0) { $0 + $1.position.x }
+            / Double(points.count)
+        let centerY =
+            points.reduce(0.0) { $0 + $1.position.y }
+            / Double(points.count)
+
+        var bins: [Int: (point: DerivedObservationPoint, radius2: Double)] = [:]
+        bins.reserveCapacity(angularBinCount)
+
+        for point in points {
+            let dx = point.position.x - centerX
+            let dy = point.position.y - centerY
+            let radius2 = dx * dx + dy * dy
+            guard radius2.isFinite, radius2 > 0 else {
+                continue
+            }
+
+            var angle = atan2(dy, dx)
+            if angle < 0 {
+                angle += 2 * Double.pi
+            }
+
+            // Center the bins on the nominal ray directions. Without the
+            // half-bin offset, numerically identical rays from multiple
+            // depth rings can straddle a bin boundary and let an interior
+            // sample replace the true outer boundary.
+            let fullTurn = 2 * Double.pi
+            let binWidth =
+                fullTurn / Double(angularBinCount)
+            let centeredAngle =
+                (angle + binWidth / 2)
+                    .truncatingRemainder(
+                        dividingBy: fullTurn
+                    )
+            let rawIndex =
+                Int(floor(centeredAngle / binWidth))
+            let index = min(
+                angularBinCount - 1,
+                max(0, rawIndex)
+            )
+
+            if let existing = bins[index],
+               existing.radius2 >= radius2
+            {
+                continue
+            }
+            bins[index] = (point, radius2)
+        }
+
+        let boundaryPoints = bins
+            .sorted { $0.key < $1.key }
+            .map { $0.value.point }
+
+        guard boundaryPoints.count >= minimumBoundaryPointCount else {
+            return observation
+        }
+
+        return DerivedShapeObservation(
+            coordinateSpaceID: observation.coordinateSpaceID,
+            points: boundaryPoints,
+            sourceEvidenceRefs:
+                Array(Set(boundaryPoints.map(\.evidenceRef))).sorted(),
+            observationStartSeconds:
+                observation.observationStartSeconds,
+            observationEndSeconds:
+                observation.observationEndSeconds
+        )
+    }
+
     public static func connectedComponents(
         in observation: DerivedShapeObservation,
         maxLinkDistance: Double = 0.30,

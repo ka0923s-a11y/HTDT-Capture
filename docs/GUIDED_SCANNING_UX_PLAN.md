@@ -747,3 +747,53 @@ Physical-device acceptance remains open and is not replaced by CI:
 - guidance does not visibly oscillate;
 - RoomPlan coaching and HTDT guidance do not create extreme operator confusion;
 - movement instructions remain sensible around real obstacles and furniture.
+
+
+## 13. Physical acceptance correction: depth-backed spatial guidance
+
+Physical-device acceptance exposed a gap between capability and live evidence:
+RoomPlan could keep camera tracking and scene depth active while the shared
+ARSession published zero ARMesh anchors. In that state the old scanner could
+reach 100% **direction** coverage while G110 still had zero spatial regions,
+which in turn prevented translation/orbit guidance and all mesh-only derived
+shape work.
+
+The corrected live authority is:
+
+1. prefer bounded ARMesh points when active mesh anchors exist;
+2. otherwise, if scene depth exists, unproject a capped deterministic sample of
+   the active ARFrame depth map into the same world coordinate space;
+3. mark those regions as scene-depth-supported rather than mesh-supported;
+4. let repeated normal-tracking depth observations contribute to weak/observed
+   spatial-region classification;
+5. keep direction coverage labeled explicitly as direction-only guidance.
+
+This does not promote depth-derived preview geometry to canonical room geometry.
+It only restores spatial guidance when the physical device supplies depth but no
+usable live ARMesh anchors.
+
+### 13.1 Movement priority in complex rooms
+
+Once broad direction coverage is established, typed movement guidance may
+prioritize a repeatedly weak spatial region over remaining low-value direction
+cells. The threshold is explicit in `ScanMotionGuidanceConfiguration`.
+
+This prevents a complex room from remaining in an in-place-rotation loop while
+the operator actually needs a new camera baseline. Tracking recovery still
+preempts movement immediately.
+
+### 13.2 UI correction
+
+The top percentage is labeled **Direction** rather than generic coverage.
+Compact spatial evidence identifies depth-backed observation when that fallback
+is active.
+
+The app-owned bottom controls no longer use a full-width material card. Primary
+save/end actions stay reachable at the lower left/right while the center-bottom
+area remains available for RoomPlan's framework-owned miniature 3D model.
+
+Physical-device acceptance remains required for:
+- depth-backed spatial-region growth;
+- translation/orbit guidance in a complex room;
+- visibility of the RoomPlan miniature model;
+- operator understanding that 100% direction coverage is not scan completeness.
