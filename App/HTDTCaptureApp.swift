@@ -1556,7 +1556,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         return lhsScore > rhsScore
                     }
                     .prefix(4)
-                    .map(\.proxy)
+                    .map { $0.proxy }
                 )
             } else {
                 objectProxies = Self.fitDerivedObjectProfiles(
