@@ -4,6 +4,7 @@ import HTDTCaptureCore
 import ARKit
 import Foundation
 import RoomPlan
+import simd
 
 public enum PlatformCaptureError: Error {
     case roomPlanUnsupported
