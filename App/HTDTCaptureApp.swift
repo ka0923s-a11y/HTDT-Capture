@@ -736,6 +736,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        // Review is the final spatial-authority boundary. Once validation is
+        // committed, no later resource-monitor/background callback may race
+        // revision promotion and invalidate its generation.
+        resourceMonitor?.stop()
+        resourceMonitor = nil
+        sessionController.stopAndPauseARSession()
+
         do {
             try transition(.beginValidation)
         } catch {
