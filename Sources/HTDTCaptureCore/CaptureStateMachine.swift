@@ -103,7 +103,8 @@ public struct CaptureStateMachine: Sendable, Equatable {
             state = .finalized
         case (.finalized, .export):
             state = .exported
-        case (.failed, .reset), (.exported, .reset):
+        case (.failed, .reset), (.finalized, .reset),
+             (.exported, .reset):
             state = .idle
             lastFailure = nil
         default:
