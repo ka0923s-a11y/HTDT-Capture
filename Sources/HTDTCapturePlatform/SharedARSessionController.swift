@@ -104,6 +104,33 @@ public final class SharedARSessionController {
         return try snapshotMeshAnchors(from: frame)
     }
 
+    public func snapshotTimingCorrelation()
+        throws -> CaptureTimingCorrelation
+    {
+        let before = Date()
+        guard let frame = arSession.currentFrame else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+        let after = Date()
+
+        let midpoint = Date(
+            timeIntervalSince1970:
+                (
+                    before.timeIntervalSince1970
+                    + after.timeIntervalSince1970
+                ) / 2
+        )
+        let uncertainty =
+            max(0, after.timeIntervalSince(before) / 2)
+
+        return try CaptureTimingCorrelation(
+            monotonicSeconds: frame.timestamp,
+            utc: BundleTimestamp.utcString(from: midpoint),
+            method: "bracketed_arframe_current_frame",
+            estimatedUncertaintySeconds: uncertainty
+        )
+    }
+
     public func snapshotFrameEvidence(
         depthSelection: FrameDepthSelection = .discrete
     ) throws -> CapturedFrameArtifacts {

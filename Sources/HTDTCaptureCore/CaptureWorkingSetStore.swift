@@ -120,6 +120,8 @@ public actor CaptureWorkingSetStore {
         guard
             package.session.configurationRef
                 == CaptureSessionFoundationPackage.configurationPath,
+            package.session.timingRef
+                == CaptureTimingPackage.path,
             package.session.captureMode
                 == package.configuration.captureMode
         else {
