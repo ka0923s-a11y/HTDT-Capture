@@ -57,9 +57,11 @@ public enum DepthConnectedSurfaceSelector {
         let halfWindowY =
             Double(imageHeight) * seedWindowFraction
 
-        let central = valid.filter {
-            abs(Double($0.x) - centerX) <= halfWindowX
-                && abs(Double($0.y) - centerY) <= halfWindowY
+        func isCentral(
+            _ sample: DepthGridSample
+        ) -> Bool {
+            abs(Double(sample.x) - centerX) <= halfWindowX
+                && abs(Double(sample.y) - centerY) <= halfWindowY
         }
 
         func centerDistanceSquared(
@@ -70,48 +72,16 @@ public enum DepthConnectedSurfaceSelector {
             return dx * dx + dy * dy
         }
 
-        let seed: DepthGridSample?
-        if !central.isEmpty {
-            seed = central.min {
-                if abs($0.depthMeters - $1.depthMeters)
-                    > 0.000_001
-                {
-                    return $0.depthMeters < $1.depthMeters
-                }
-                let lhsDistance = centerDistanceSquared($0)
-                let rhsDistance = centerDistanceSquared($1)
-                if abs(lhsDistance - rhsDistance) > 0.000_001 {
-                    return lhsDistance < rhsDistance
-                }
-                if $0.y != $1.y {
-                    return $0.y < $1.y
-                }
-                return $0.x < $1.x
-            }
-        } else {
-            seed = valid.min {
-                let lhsDistance = centerDistanceSquared($0)
-                let rhsDistance = centerDistanceSquared($1)
-                if abs(lhsDistance - rhsDistance) > 0.000_001 {
-                    return lhsDistance < rhsDistance
-                }
-                if $0.depthMeters != $1.depthMeters {
-                    return $0.depthMeters < $1.depthMeters
-                }
-                if $0.y != $1.y {
-                    return $0.y < $1.y
-                }
-                return $0.x < $1.x
-            }
-        }
-
-        guard let seed else {
-            return valid
-        }
-
-        struct GridKey: Hashable {
+        struct GridKey: Hashable, Comparable {
             let x: Int
             let y: Int
+
+            static func < (lhs: GridKey, rhs: GridKey) -> Bool {
+                if lhs.y != rhs.y {
+                    return lhs.y < rhs.y
+                }
+                return lhs.x < rhs.x
+            }
         }
 
         var byKey: [GridKey: DepthGridSample] = [:]
@@ -120,60 +90,135 @@ public enum DepthConnectedSurfaceSelector {
             byKey[GridKey(x: sample.x, y: sample.y)] = sample
         }
 
-        let seedKey = GridKey(x: seed.x, y: seed.y)
-        var queue: [GridKey] = [seedKey]
-        var visited: Set<GridKey> = [seedKey]
-        var selected: [DepthGridSample] = []
-        selected.reserveCapacity(valid.count)
-        var cursor = 0
+        func connectedComponent(
+            from seed: GridKey,
+            globallyVisited: inout Set<GridKey>
+        ) -> [DepthGridSample] {
+            var queue: [GridKey] = [seed]
+            globallyVisited.insert(seed)
+            var component: [DepthGridSample] = []
+            var cursor = 0
 
-        while cursor < queue.count {
-            let key = queue[cursor]
-            cursor += 1
-            guard let current = byKey[key] else {
-                continue
-            }
-            selected.append(current)
+            while cursor < queue.count {
+                let key = queue[cursor]
+                cursor += 1
+                guard let current = byKey[key] else {
+                    continue
+                }
+                component.append(current)
 
-            for dy in [-gridStepPixels, 0, gridStepPixels] {
-                for dx in [-gridStepPixels, 0, gridStepPixels] {
-                    if dx == 0 && dy == 0 {
-                        continue
+                for dy in [-gridStepPixels, 0, gridStepPixels] {
+                    for dx in [-gridStepPixels, 0, gridStepPixels] {
+                        if dx == 0 && dy == 0 {
+                            continue
+                        }
+                        let neighborKey = GridKey(
+                            x: key.x + dx,
+                            y: key.y + dy
+                        )
+                        guard
+                            !globallyVisited.contains(neighborKey),
+                            let neighbor = byKey[neighborKey]
+                        else {
+                            continue
+                        }
+
+                        let allowedDelta = max(
+                            minimumAbsoluteDepthDeltaMeters,
+                            min(
+                                current.depthMeters,
+                                neighbor.depthMeters
+                            ) * relativeDepthDelta
+                        )
+                        guard abs(
+                            current.depthMeters
+                                - neighbor.depthMeters
+                        ) <= allowedDelta
+                        else {
+                            continue
+                        }
+
+                        globallyVisited.insert(neighborKey)
+                        queue.append(neighborKey)
                     }
-                    let neighborKey = GridKey(
-                        x: key.x + dx,
-                        y: key.y + dy
-                    )
-                    guard !visited.contains(neighborKey),
-                          let neighbor = byKey[neighborKey]
-                    else {
-                        continue
-                    }
-
-                    let allowedDelta = max(
-                        minimumAbsoluteDepthDeltaMeters,
-                        min(
-                            current.depthMeters,
-                            neighbor.depthMeters
-                        ) * relativeDepthDelta
-                    )
-                    guard abs(
-                        current.depthMeters
-                            - neighbor.depthMeters
-                    ) <= allowedDelta
-                    else {
-                        continue
-                    }
-
-                    visited.insert(neighborKey)
-                    queue.append(neighborKey)
                 }
             }
+
+            return component
         }
 
-        guard selected.count >= minimumComponentCount else {
+        var visited: Set<GridKey> = []
+        var components: [[DepthGridSample]] = []
+
+        for key in byKey.keys.sorted() {
+            guard !visited.contains(key) else {
+                continue
+            }
+            let component = connectedComponent(
+                from: key,
+                globallyVisited: &visited
+            )
+            if component.count >= minimumComponentCount {
+                components.append(component)
+            }
+        }
+
+        guard !components.isEmpty else {
             return valid
         }
+
+        func componentScore(
+            _ component: [DepthGridSample]
+        ) -> (
+            foreground: Double,
+            centralCount: Int,
+            count: Int,
+            nearestCenter: Double,
+            meanDepth: Double
+        ) {
+            let centralCount =
+                component.filter(isCentral).count
+            let meanDepth =
+                component.map(\.depthMeters).reduce(0, +)
+                / Double(component.count)
+            let nearestCenter =
+                component.map(centerDistanceSquared).min()
+                ?? Double.greatestFiniteMagnitude
+
+            // Favor a substantial component visible near the center while
+            // still preferring foreground furniture over a larger far wall.
+            // Tiny foreground clutter therefore cannot win on depth alone.
+            let foreground =
+                Double(centralCount) / max(meanDepth, 0.05)
+                + 0.05 * sqrt(Double(component.count))
+
+            return (
+                foreground,
+                centralCount,
+                component.count,
+                nearestCenter,
+                meanDepth
+            )
+        }
+
+        let selected = components.max { lhs, rhs in
+            let a = componentScore(lhs)
+            let b = componentScore(rhs)
+
+            if abs(a.foreground - b.foreground) > 0.000_001 {
+                return a.foreground < b.foreground
+            }
+            if a.centralCount != b.centralCount {
+                return a.centralCount < b.centralCount
+            }
+            if a.count != b.count {
+                return a.count < b.count
+            }
+            if abs(a.nearestCenter - b.nearestCenter) > 0.000_001 {
+                return a.nearestCenter > b.nearestCenter
+            }
+            return a.meanDepth > b.meanDepth
+        } ?? valid
 
         return selected.sorted {
             if $0.y != $1.y {
