@@ -178,6 +178,15 @@
 "Capture more of the floor line and lower parts of the room." = "床際や部屋の低い位置をもう少し映してください。";
 "Capture more of the upper walls and ceiling line." = "壁の上部や天井際をもう少し映してください。";
 "Under-observed: %@ · %@" = "未取得方向: %@・%@";
+"Under-observed direction" = "未取得方向";
+"Next direction" = "次に撮る方向";
+"Current direction" = "現在の向き";
+"Turn right." = "右へ向けてください";
+"Turn left." = "左へ向けてください";
+"Capture the upper area." = "上側を映してください";
+"Capture the lower area." = "下側を映してください";
+"Slowly scan this direction." = "この方向をゆっくり映してください";
+"Guidance %@ %@" = "%@　%@";
 "Broad look-around coverage reached. Check the RoomPlan overlay for unrecognized surfaces before ending." = "主要な方向は取得できています。終了前に RoomPlan の表示で未認識の面がないか確認してください。";
 "Move more slowly so AR tracking can recover." = "AR トラッキングが回復できるよう、もっとゆっくり動かしてください。";
 "Point at a textured wall, corner, or furniture edge to recover tracking." = "模様のある壁、部屋の角、家具の輪郭などへ向けてトラッキングを回復させてください。";
