@@ -61,21 +61,25 @@ public struct CaptureReviewEvidenceSnapshot: Sendable {
 
 public struct DerivedShapeLiveObservationSet: Sendable {
     public let objectObservation: DerivedShapeObservation?
+    public let objectVolumeObservation: DerivedShapeObservation?
     public let wallObservation: DerivedShapeObservation?
     public let floorReferenceY: Double?
 
     public init(
         objectObservation: DerivedShapeObservation?,
+        objectVolumeObservation: DerivedShapeObservation? = nil,
         wallObservation: DerivedShapeObservation?,
         floorReferenceY: Double? = nil
     ) {
         self.objectObservation = objectObservation
+        self.objectVolumeObservation = objectVolumeObservation
         self.wallObservation = wallObservation
         self.floorReferenceY = floorReferenceY
     }
 
     public static let empty = DerivedShapeLiveObservationSet(
         objectObservation: nil,
+        objectVolumeObservation: nil,
         wallObservation: nil,
         floorReferenceY: nil
     )
@@ -497,8 +501,16 @@ public final class SharedARSessionController {
         if let meshObjectObservation,
            meshObjectObservation.points.count >= 8
         {
+            let depthVolume =
+                liveDepthVolumeObservation(
+                    frame: frame,
+                    maxPoints: max(maxObjectPoints, 512),
+                    floorReferenceY: meshFloorReferenceY
+                )
             return DerivedShapeLiveObservationSet(
                 objectObservation: meshObjectObservation,
+                objectVolumeObservation:
+                    depthVolume ?? meshObjectObservation,
                 wallObservation: wallObservation,
                 floorReferenceY: meshFloorReferenceY
             )
@@ -517,6 +529,7 @@ public final class SharedARSessionController {
         else {
             return DerivedShapeLiveObservationSet(
                 objectObservation: meshObjectObservation,
+                objectVolumeObservation: meshObjectObservation,
                 wallObservation: wallObservation,
                 floorReferenceY: meshFloorReferenceY
             )
@@ -535,10 +548,21 @@ public final class SharedARSessionController {
                 floorReferenceY: depthFloorReferenceY,
                 maxPoints: maxObjectPoints
             )
+        let depthVolumeObservation =
+            liveDepthVolumeObservation(
+                worldPoints: depthWorldPoints,
+                sessionTimestampSeconds: frame.timestamp,
+                floorReferenceY: depthFloorReferenceY,
+                maxPoints: max(maxObjectPoints, 512)
+            )
 
         return DerivedShapeLiveObservationSet(
             objectObservation:
                 depthObservation ?? meshObjectObservation,
+            objectVolumeObservation:
+                depthVolumeObservation
+                ?? depthObservation
+                ?? meshObjectObservation,
             wallObservation: wallObservation,
             floorReferenceY: depthFloorReferenceY
         )
@@ -1120,6 +1144,143 @@ public final class SharedARSessionController {
             max(0, Int(Double(values.count - 1) * 0.08))
         )
         return values[percentileIndex]
+    }
+
+    private func liveDepthVolumeObservation(
+        frame: ARFrame,
+        maxPoints: Int,
+        floorReferenceY: Double?
+    ) -> DerivedShapeObservation? {
+        guard let points = liveSceneDepthWorldPoints(
+            frame: frame,
+            maxPoints: min(max(maxPoints * 2, 512), 1_536)
+        ) else {
+            return nil
+        }
+
+        let floor =
+            floorReferenceY
+            ?? estimatedFloorReferenceY(points)
+        return liveDepthVolumeObservation(
+            worldPoints: points,
+            sessionTimestampSeconds: frame.timestamp,
+            floorReferenceY: floor,
+            maxPoints: maxPoints
+        )
+    }
+
+    private func liveDepthVolumeObservation(
+        worldPoints: [SIMD3<Float>],
+        sessionTimestampSeconds: Double,
+        floorReferenceY: Double?,
+        maxPoints: Int
+    ) -> DerivedShapeObservation? {
+        guard maxPoints > 0 else {
+            return nil
+        }
+
+        let filtered = worldPoints.filter { point in
+            guard point.x.isFinite,
+                  point.y.isFinite,
+                  point.z.isFinite
+            else {
+                return false
+            }
+
+            guard let floorReferenceY else {
+                return true
+            }
+
+            let height = Double(point.y) - floorReferenceY
+            return height >= 0.04
+                && height <= 1.75
+        }
+
+        guard filtered.count >= 12 else {
+            return nil
+        }
+
+        struct VoxelKey: Hashable {
+            let x: Int
+            let y: Int
+            let z: Int
+        }
+
+        let voxel = 0.055
+        var voxels: [VoxelKey: SIMD3<Float>] = [:]
+        for point in filtered.sorted(by: {
+            if $0.x != $1.x { return $0.x < $1.x }
+            if $0.z != $1.z { return $0.z < $1.z }
+            return $0.y < $1.y
+        }) {
+            let key = VoxelKey(
+                x: Int(floor(Double(point.x) / voxel)),
+                y: Int(floor(Double(point.y) / voxel)),
+                z: Int(floor(Double(point.z) / voxel))
+            )
+            if voxels[key] == nil {
+                voxels[key] = point
+            }
+        }
+
+        let ordered = voxels.sorted {
+            if $0.key.x != $1.key.x {
+                return $0.key.x < $1.key.x
+            }
+            if $0.key.z != $1.key.z {
+                return $0.key.z < $1.key.z
+            }
+            return $0.key.y < $1.key.y
+        }
+
+        let stride = max(
+            1,
+            Int(
+                ceil(
+                    Double(ordered.count)
+                    / Double(maxPoints)
+                )
+            )
+        )
+
+        var result: [DerivedObservationPoint] = []
+        result.reserveCapacity(min(maxPoints, ordered.count))
+        var index = 0
+        while index < ordered.count,
+              result.count < maxPoints
+        {
+            let point = ordered[index].value
+            result.append(
+                DerivedObservationPoint(
+                    position: DerivedPoint2D(
+                        x: Double(point.x),
+                        y: Double(point.z)
+                    ),
+                    evidenceRef:
+                        "live-depth-volume:"
+                        + String(
+                            format: "%.3f",
+                            sessionTimestampSeconds
+                        )
+                        + ":"
+                        + String(index),
+                    evidenceKind: .sceneDepth,
+                    verticalPositionMeters: Double(point.y)
+                )
+            )
+            index += stride
+        }
+
+        guard result.count >= 12 else {
+            return nil
+        }
+
+        return DerivedShapeObservation(
+            coordinateSpaceID: context.coordinateSpaceID,
+            points: result,
+            observationStartSeconds: sessionTimestampSeconds,
+            observationEndSeconds: sessionTimestampSeconds
+        )
     }
 
     private func liveDepthDerivedShapeObservation(
