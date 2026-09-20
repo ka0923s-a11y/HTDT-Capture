@@ -11,10 +11,23 @@ public enum ScanCoveragePitchBand:
     case high = 2
 }
 
+public struct ScanCameraPosition: Sendable, Equatable {
+    public let x: Double
+    public let y: Double
+    public let z: Double
+
+    public init(x: Double, y: Double, z: Double) {
+        self.x = x
+        self.y = y
+        self.z = z
+    }
+}
+
 public struct ScanCoverageSample: Sendable {
     public let sessionTimestampSeconds: Double
     public let yawRadians: Double
     public let pitchRadians: Double
+    public let cameraPosition: ScanCameraPosition?
     public let trackingState: TrackingQualityState
     public let trackingReason: String?
     public let activeMeshAnchorCount: Int
@@ -24,6 +37,7 @@ public struct ScanCoverageSample: Sendable {
         sessionTimestampSeconds: Double,
         yawRadians: Double,
         pitchRadians: Double,
+        cameraPosition: ScanCameraPosition? = nil,
         trackingState: TrackingQualityState,
         trackingReason: String? = nil,
         activeMeshAnchorCount: Int,
@@ -32,6 +46,7 @@ public struct ScanCoverageSample: Sendable {
         self.sessionTimestampSeconds = sessionTimestampSeconds
         self.yawRadians = yawRadians
         self.pitchRadians = pitchRadians
+        self.cameraPosition = cameraPosition
         self.trackingState = trackingState
         self.trackingReason = trackingReason
         self.activeMeshAnchorCount = activeMeshAnchorCount

@@ -211,6 +211,11 @@ public final class SharedARSessionController {
             max(horizontalMagnitude, 0.000_001)
         )
         let tracking = trackingQualityEvent(from: frame)
+        let cameraPosition = ScanCameraPosition(
+            x: Double(camera.columns.3.x),
+            y: Double(camera.columns.3.y),
+            z: Double(camera.columns.3.z)
+        )
         let meshAnchorCount = frame.anchors.reduce(into: 0) {
             count,
             anchor in
@@ -223,6 +228,7 @@ public final class SharedARSessionController {
             sessionTimestampSeconds: frame.timestamp,
             yawRadians: yaw,
             pitchRadians: pitch,
+            cameraPosition: cameraPosition,
             trackingState: tracking.state,
             trackingReason: tracking.reason,
             activeMeshAnchorCount: meshAnchorCount,
