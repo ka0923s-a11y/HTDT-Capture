@@ -144,6 +144,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var acceptedEndMeshWasPersisted = false
     private var pendingEndAttempt: PendingEndScanAttempt?
     private var roomPlanCompletionInFlight = false
+    private var annotationCommitInFlight = false
     private var reviewOperationInFlight = false
     private var spatialAuthoritySealedForFinalization = false
     private var scanCoverageTracker =
@@ -255,6 +256,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         acceptedEndMeshWasPersisted = false
         pendingEndAttempt = nil
         roomPlanCompletionInFlight = false
+        annotationCommitInFlight = false
         reviewOperationInFlight = false
         spatialAuthoritySealedForFinalization = false
         scanCoverageTask?.cancel()
@@ -777,6 +779,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard state == .annotating else {
             return
         }
+        guard !annotationCommitInFlight else {
+            workingSetStatus = HostLocalization.text(
+                "Annotation authority is currently being saved. Wait for the save result before cancelling.",
+                "注釈 authority を保存中です。保存結果が出るまで待ってからキャンセルしてください。"
+            )
+            return
+        }
         do {
             try transition(.beginReview)
             workingSetStatus = HostLocalization.text(
@@ -793,12 +802,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         measurements: [CaptureMeasurement]
     ) {
         guard state == .annotating,
+              !annotationCommitInFlight,
               !annotationAuthorityCommitted,
               let store = workingSetStore
         else {
             return
         }
 
+        annotationCommitInFlight = true
         let annotationPackage: AnnotationEvidencePackage
         let measurementPackage: MeasurementEvidencePackage
         do {
@@ -811,6 +822,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     measurements: measurements
                 )
         } catch {
+            annotationCommitInFlight = false
             workingSetStatus =
                 HostLocalization.text(
                     "Annotation or measurement authority is not internally valid; nothing was committed",
@@ -849,6 +861,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
 
                 self.annotationAuthorityCommitted = true
+                self.annotationCommitInFlight = false
                 try self.transition(.beginReview)
                 await self.refreshQuality(
                     store: store,
@@ -897,6 +910,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 else {
                     return
                 }
+                self.annotationCommitInFlight = false
                 self.workingSetStatus =
                     HostLocalization.text(
                         "Annotation changes were not committed; editing remains open and Save can be retried",
@@ -1217,6 +1231,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         captureStartTimingCorrelation = nil
         acceptedRoomPlanRawSHA256 = nil
         acceptedEndMeshWasPersisted = false
+        annotationCommitInFlight = false
         reviewOperationInFlight = false
         spatialAuthoritySealedForFinalization = false
         scanCoverageTask?.cancel()
@@ -3070,6 +3085,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private func fail(_ code: CaptureFailureCode) {
+        annotationCommitInFlight = false
         reviewOperationInFlight = false
         guard state != .finalized,
               state != .exported
