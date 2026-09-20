@@ -131,7 +131,7 @@ public struct DerivedObjectDecompositionConfiguration: Sendable, Equatable {
     public let supportMinimumOverlapRatio: Double
 
     public init(
-        maxHorizontalLinkMeters: Double = 0.22,
+        maxHorizontalLinkMeters: Double = 0.32,
         maxVerticalLinkMeters: Double = 0.045,
         sameEvidenceVerticalBonusMeters: Double = 0.16,
         sameEvidenceHorizontalBonusMeters: Double = 0.06,
