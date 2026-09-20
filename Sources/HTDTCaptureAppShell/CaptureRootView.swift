@@ -150,6 +150,7 @@ public struct CaptureRootView: View {
                     guidanceProgress: scanGuidanceProgress,
                     derivedPreview: derivedShapePreview,
                     evidenceFrameCount: scanEvidenceFrameCount,
+                    statusMessage: workingSetStatus,
                     endScanGuidance: endScanGuidance,
                     captureEvidenceFrame:
                         actions.captureEvidenceFrame,
