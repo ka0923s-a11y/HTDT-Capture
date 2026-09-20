@@ -30,7 +30,7 @@ final class DepthConnectedSurfaceSelectorTests: XCTestCase {
                     minimumComponentCount: 8
                 )
 
-        XCTAssertEqual(Set(selected), Set(foreground))
+        XCTAssertEqual(selected, foreground)
     }
 
     func testFragmentedDepthDoesNotFallBackToWholeCrop() {
