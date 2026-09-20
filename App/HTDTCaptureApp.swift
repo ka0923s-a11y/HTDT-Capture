@@ -55,6 +55,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var sessionController = SharedARSessionController()
     private var workingSetStore: CaptureWorkingSetStore?
     private var finalizedRevision: FinalizedCaptureRevision?
+    private var resourceMonitor: CaptureResourceMonitor?
     private var captureGeneration = UUID()
     private var isEndingScan = false
     private let qualityRequirements = CaptureQualityRequirements()
@@ -73,6 +74,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         validationReport = nil
         exportURL = nil
         finalizedRevision = nil
+        resourceMonitor?.stop()
+        resourceMonitor = nil
 
         do {
             try transition(.beginCapabilityCheck)
@@ -114,6 +117,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        resourceMonitor?.sampleStorage()
+        guard state == .reviewing else {
+            return
+        }
         workingSetStatus = "Persisting quality and finalizing revision"
 
         let generation = captureGeneration
@@ -195,6 +202,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         qualityReport = nil
         validationReport = nil
         exportURL = nil
+        resourceMonitor?.stop()
+        resourceMonitor = nil
         workingSetStatus =
             state == .idle
             ? "Ready for a new capture"
@@ -313,6 +322,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         do {
             try transition(.prepared)
+            configureResourceMonitor(
+                store: store,
+                rootDirectory: store.rootDirectory,
+                generation: generation
+            )
+            guard state == .scanning else {
+                return
+            }
             workingSetStatus =
                 "Scanning; active AR configuration persisted"
         } catch {
@@ -330,13 +347,20 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        resourceMonitor?.sampleStorage()
+        guard state == .scanning else {
+            return
+        }
+
         let meshPackage: MeshEvidencePackage
         let framePackage: FrameEvidencePackage
+        let trackingEvent: TrackingQualityEvent
         do {
             let evidence =
                 try sessionController.snapshotReviewEvidence(
                     depthSelection: .discrete
                 )
+            trackingEvent = evidence.trackingQualityEvent
             meshPackage = try MeshEvidencePackageBuilder.build(
                 snapshots: evidence.meshAnchors
             )
@@ -368,6 +392,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             "Persisting final mesh and selected frame evidence"
 
         do {
+            await store.recordTrackingEvent(trackingEvent)
             try await store.persistMeshPackage(meshPackage)
             try await store.persistFramePackage(framePackage)
             await refreshQuality(
@@ -544,6 +569,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             sessionController.stopAndPauseARSession()
+            resourceMonitor?.stop()
+            resourceMonitor = nil
             workingSetStore = nil
             finalizedRevision = finalized
             validationReport = validation
@@ -555,6 +582,45 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         } catch {
             fail(.persistenceFailure)
         }
+    }
+
+    private func configureResourceMonitor(
+        store: CaptureWorkingSetStore,
+        rootDirectory: URL,
+        generation: UUID
+    ) {
+        resourceMonitor?.stop()
+
+        let monitor = CaptureResourceMonitor(
+            rootDirectory: rootDirectory
+        ) { [weak self] event, failure in
+            guard let self,
+                  self.captureGeneration == generation
+            else {
+                return
+            }
+
+            Task {
+                await store.recordResourceEvent(event)
+                if self.state == .reviewing {
+                    await self.refreshQuality(
+                        store: store,
+                        generation: generation
+                    )
+                }
+            }
+
+            if let failure,
+               self.state != .failed,
+               self.state != .finalized,
+               self.state != .exported
+            {
+                self.fail(failure)
+            }
+        }
+
+        resourceMonitor = monitor
+        monitor.start()
     }
 
     private func makeWorkingSet() throws -> (
@@ -649,6 +715,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private func fail(_ code: CaptureFailureCode) {
+        resourceMonitor?.stop()
+        resourceMonitor = nil
         do {
             try transition(.fail(code))
         } catch {
