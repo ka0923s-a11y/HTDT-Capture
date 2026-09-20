@@ -4,16 +4,20 @@ on:
   push:
     paths:
       - "App/**"
+      - "Branding/**"
       - "project.yml"
       - "Package.swift"
       - "Sources/**"
+      - "tools/prepare-app-icon.sh"
       - ".github/workflows/build-ipa.yml"
   pull_request:
     paths:
       - "App/**"
+      - "Branding/**"
       - "project.yml"
       - "Package.swift"
       - "Sources/**"
+      - "tools/prepare-app-icon.sh"
       - ".github/workflows/build-ipa.yml"
   workflow_dispatch:
 
@@ -59,6 +63,7 @@ jobs:
           set -euo pipefail
           APP="$PWD/build/HTDTCapture.xcarchive/Products/Applications/HTDTCapture.app"
           test -d "$APP"
+          test -f "$APP/Assets.car"
           rm -rf "$PWD/build/Payload"
           mkdir -p "$PWD/build/Payload"
           cp -R "$APP" "$PWD/build/Payload/"
