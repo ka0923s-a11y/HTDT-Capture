@@ -20,15 +20,18 @@ public struct DerivedObservationPoint: Codable, Sendable, Equatable {
     public let position: DerivedPoint2D
     public let evidenceRef: String
     public let evidenceKind: DerivedShapeEvidenceKind
+    public let verticalPositionMeters: Double?
 
     public init(
         position: DerivedPoint2D,
         evidenceRef: String,
-        evidenceKind: DerivedShapeEvidenceKind
+        evidenceKind: DerivedShapeEvidenceKind,
+        verticalPositionMeters: Double? = nil
     ) {
         self.position = position
         self.evidenceRef = evidenceRef
         self.evidenceKind = evidenceKind
+        self.verticalPositionMeters = verticalPositionMeters
     }
 }
 
@@ -303,15 +306,18 @@ public enum DerivedShapeDisagreementKind: String, Codable, Sendable, Equatable, 
 public struct DerivedShapePreviewSnapshot: Codable, Sendable, Equatable {
     public let objectProxies: [DerivedShapeProxy]
     public let wallChain: DerivedWallChainProxy?
+    public let supportAnalysis: DerivedSupportAnalysis?
     public let disagreements: [DerivedShapeDisagreementKind]
 
     public init(
         objectProxies: [DerivedShapeProxy] = [],
         wallChain: DerivedWallChainProxy? = nil,
+        supportAnalysis: DerivedSupportAnalysis? = nil,
         disagreements: [DerivedShapeDisagreementKind] = []
     ) {
         self.objectProxies = objectProxies
         self.wallChain = wallChain
+        self.supportAnalysis = supportAnalysis
         self.disagreements = Array(Set(disagreements)).sorted {
             $0.rawValue < $1.rawValue
         }
@@ -320,7 +326,7 @@ public struct DerivedShapePreviewSnapshot: Codable, Sendable, Equatable {
     public static let empty = DerivedShapePreviewSnapshot()
 
     public var hasEvidence: Bool {
-        !objectProxies.isEmpty || wallChain != nil
+        !objectProxies.isEmpty || wallChain != nil || supportAnalysis != nil
     }
 }
 
@@ -439,7 +445,8 @@ public enum MeshDerivedShapeObservationBuilder {
                                 y: point.z
                             ),
                             evidenceRef: evidenceRef,
-                            evidenceKind: .mesh
+                            evidenceKind: .mesh,
+                            verticalPositionMeters: point.y
                         )
                     )
                 }
@@ -501,7 +508,8 @@ public enum MeshDerivedShapeObservationBuilder {
                             y: entry.value.first.z
                         ),
                         evidenceRef: entry.value.evidenceRef,
-                        evidenceKind: .mesh
+                        evidenceKind: .mesh,
+                        verticalPositionMeters: entry.value.first.y
                     ),
                     DerivedObservationPoint(
                         position: DerivedPoint2D(
@@ -509,7 +517,8 @@ public enum MeshDerivedShapeObservationBuilder {
                             y: entry.value.second.z
                         ),
                         evidenceRef: entry.value.evidenceRef,
-                        evidenceKind: .mesh
+                        evidenceKind: .mesh,
+                        verticalPositionMeters: entry.value.second.y
                     ),
                 ]
             }
