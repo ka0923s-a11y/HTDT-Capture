@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 import HTDTCaptureCore
 
 public struct CaptureAnnotationWorkspaceView: View {
@@ -19,6 +20,10 @@ public struct CaptureAnnotationWorkspaceView: View {
     @State private var measurements: [CaptureMeasurement] = []
     @State private var addingAnnotation = false
     @State private var addingMeasurement = false
+    @State private var equipmentCatalog:
+        HTDTEquipmentCatalogSnapshot?
+    @State private var importingEquipmentCatalog = false
+    @State private var equipmentCatalogError: String?
 
     public init(
         coordinateSpaceID: CoordinateSpaceID,
@@ -48,6 +53,43 @@ public struct CaptureAnnotationWorkspaceView: View {
 
     public var body: some View {
         List {
+            Section("HTDT equipment catalog") {
+                if let equipmentCatalog {
+                    LabeledContent(
+                        "Definitions",
+                        value: String(
+                            equipmentCatalog.definitions.count
+                        )
+                    )
+                    Text(
+                        "Selections bind exact ID/version/SHA-256 only. "
+                        + "The imported catalog is not stored as equipment "
+                        + "authority in the capture bundle."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                } else {
+                    Text(
+                        "Optional. Import a catalog snapshot exported from "
+                        + "the HTDT backend."
+                    )
+                    .foregroundStyle(.secondary)
+                }
+
+                Button(
+                    equipmentCatalog == nil
+                    ? "Import equipment catalog"
+                    : "Replace equipment catalog"
+                ) {
+                    importingEquipmentCatalog = true
+                }
+
+                if let equipmentCatalogError {
+                    Text(equipmentCatalogError)
+                        .foregroundStyle(.red)
+                }
+            }
+
             Section("Spatial annotations") {
                 if annotations.isEmpty {
                     Text("No spatial annotations staged.")
@@ -120,7 +162,9 @@ public struct CaptureAnnotationWorkspaceView: View {
                     captureRaycastPlacement:
                         captureRaycastPlacement,
                     captureSpeakerOrientation:
-                        captureSpeakerOrientation
+                        captureSpeakerOrientation,
+                    equipmentCatalogEntries:
+                        equipmentCatalog?.definitions ?? []
                 ) { entity in
                     annotations.append(entity)
                 }
@@ -134,6 +178,44 @@ public struct CaptureAnnotationWorkspaceView: View {
                     measurements.append(measurement)
                 }
             }
+        }
+        .fileImporter(
+            isPresented: $importingEquipmentCatalog,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false
+        ) { result in
+            importEquipmentCatalog(result)
+        }
+    }
+
+    private func importEquipmentCatalog(
+        _ result: Result<[URL], Error>
+    ) {
+        do {
+            let urls = try result.get()
+            guard let url = urls.first else {
+                return
+            }
+            let accessing =
+                url.startAccessingSecurityScopedResource()
+            defer {
+                if accessing {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let data = try Data(contentsOf: url)
+            equipmentCatalog =
+                try JSONDecoder().decode(
+                    HTDTEquipmentCatalogSnapshot.self,
+                    from: data
+                )
+            equipmentCatalogError = nil
+        } catch {
+            equipmentCatalog = nil
+            equipmentCatalogError =
+                "Catalog import failed: "
+                + String(describing: error)
         }
     }
 
@@ -166,6 +248,7 @@ private struct ManualAnnotationForm: View {
         () async throws -> AnnotationPlacementAuthority
     let captureSpeakerOrientation:
         () async throws -> AnnotationOrientationAuthority
+    let equipmentCatalogEntries: [HTDTEquipmentCatalogEntry]
     let onAdd: (CaptureAnnotationEntity) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -182,6 +265,7 @@ private struct ManualAnnotationForm: View {
     @State private var equipmentID = ""
     @State private var equipmentVersion = ""
     @State private var equipmentHash = ""
+    @State private var selectedEquipmentKey = ""
     @State private var selectedEvidenceRefs = Set<String>()
     @State private var placementAuthority:
         AnnotationPlacementAuthority?
@@ -289,22 +373,58 @@ private struct ManualAnnotationForm: View {
                     "Attach equipment reference",
                     isOn: $includeEquipmentReference
                 )
+
                 if includeEquipmentReference {
+                    if !equipmentCatalogEntries.isEmpty {
+                        Picker(
+                            "Catalog definition",
+                            selection: $selectedEquipmentKey
+                        ) {
+                            Text("Manual exact reference")
+                                .tag("")
+                            ForEach(
+                                equipmentCatalogEntries,
+                                id: \.selectionKey
+                            ) { entry in
+                                Text(
+                                    entry.displayName
+                                    + " · "
+                                    + entry.version
+                                )
+                                .tag(entry.selectionKey)
+                            }
+                        }
+                        .onChange(
+                            of: selectedEquipmentKey
+                        ) { _, newValue in
+                            applyEquipmentSelection(
+                                newValue
+                            )
+                        }
+                    }
+
                     TextField(
                         "Equipment ID",
                         text: $equipmentID
                     )
+                    .disabled(!selectedEquipmentKey.isEmpty)
                     TextField(
                         "Equipment version",
                         text: $equipmentVersion
                     )
+                    .disabled(!selectedEquipmentKey.isEmpty)
                     TextField(
                         "Equipment SHA-256",
                         text: $equipmentHash
                     )
+                    .disabled(!selectedEquipmentKey.isEmpty)
+
                     Text(
-                        "All three values are required. The capture app "
-                        + "does not guess an equipment revision."
+                        selectedEquipmentKey.isEmpty
+                        ? "All three values are required. The capture app "
+                            + "does not guess an equipment revision."
+                        : "Selected from an HTDT catalog snapshot; the exact "
+                            + "ID/version/SHA-256 tuple is stored."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -331,6 +451,24 @@ private struct ManualAnnotationForm: View {
                 }
             }
         }
+    }
+
+    private func applyEquipmentSelection(
+        _ selectionKey: String
+    ) {
+        guard !selectionKey.isEmpty,
+              let entry =
+                equipmentCatalogEntries.first(where: {
+                    $0.selectionKey == selectionKey
+                })
+        else {
+            return
+        }
+
+        equipmentID = entry.definitionID
+        equipmentVersion = entry.version
+        equipmentHash =
+            entry.semanticSHA256.description
     }
 
     private func captureOrientation() {

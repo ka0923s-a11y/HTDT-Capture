@@ -233,3 +233,24 @@ independent authorities.
 
 This establishes the software path; speaker-orientation accuracy and
 repeatability remain physical benchmark gates under Issue #9.
+
+
+## Exact HTDT equipment catalog picker
+
+The review workspace can now import the deterministic
+`htdt.equipment.catalog-snapshot` v1 JSON exported by the HTDT backend.
+
+The catalog is only a picker/index surface. Selecting an entry fills and locks
+the exact immutable binding tuple already used by the Capture authority:
+
+- `definition_id`;
+- `version`;
+- `semantic_sha256`.
+
+Only that exact tuple is stored in the annotation's
+`HTDTEquipmentReference`. The imported catalog file itself is not promoted to
+equipment authority and is not copied into the capture bundle.
+
+Manual exact ID/version/SHA-256 entry remains available when no catalog is
+imported. The app never binds equipment by manufacturer/model display text
+alone.
