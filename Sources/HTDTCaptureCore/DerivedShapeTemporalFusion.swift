@@ -8,12 +8,14 @@ public struct DerivedShapeTemporalFusionConfiguration:
     public let maximumAgeSeconds: Double
     public let voxelSizeMeters: Double
     public let maximumPointCount: Int
+    public let maximumObservationCenterShiftMeters: Double?
 
     public init(
         maximumFrameCount: Int = 5,
         maximumAgeSeconds: Double = 8.0,
         voxelSizeMeters: Double = 0.05,
-        maximumPointCount: Int = 768
+        maximumPointCount: Int = 768,
+        maximumObservationCenterShiftMeters: Double? = nil
     ) {
         precondition(maximumFrameCount > 0)
         precondition(
@@ -25,11 +27,20 @@ public struct DerivedShapeTemporalFusionConfiguration:
                 && voxelSizeMeters > 0
         )
         precondition(maximumPointCount > 0)
+        precondition(
+            maximumObservationCenterShiftMeters == nil
+                || (
+                    maximumObservationCenterShiftMeters!.isFinite
+                    && maximumObservationCenterShiftMeters! > 0
+                )
+        )
 
         self.maximumFrameCount = maximumFrameCount
         self.maximumAgeSeconds = maximumAgeSeconds
         self.voxelSizeMeters = voxelSizeMeters
         self.maximumPointCount = maximumPointCount
+        self.maximumObservationCenterShiftMeters =
+            maximumObservationCenterShiftMeters
     }
 
     public static let livePreview =
@@ -103,6 +114,25 @@ public struct DerivedShapeTemporalFusionTracker: Sendable {
                 reset()
             }
 
+            if let maximumShift =
+                configuration.maximumObservationCenterShiftMeters,
+               let previous = frames.last?.observation,
+               previous.coordinateSpaceID == observation.coordinateSpaceID,
+               let previousCenter = observationCenter(previous),
+               let newCenter = observationCenter(observation),
+               hypot(
+                    previousCenter.x - newCenter.x,
+                    previousCenter.y - newCenter.y
+               ) > maximumShift
+            {
+                // Live object observations are intentionally single-target.
+                // Panning from one piece of furniture to another must not fuse
+                // both silhouettes into one bogus polygon. Reset only the
+                // derived preview accumulator; canonical capture evidence is
+                // unaffected.
+                reset()
+            }
+
             coordinateSpaceID = observation.coordinateSpaceID
             frames.append(
                 Frame(
@@ -173,6 +203,37 @@ public struct DerivedShapeTemporalFusionTracker: Sendable {
                 Array(Set(bounded.map(\.evidenceRef))).sorted(),
             observationStartSeconds: minimumStart,
             observationEndSeconds: maximumEnd
+        )
+    }
+
+    private func observationCenter(
+        _ observation: DerivedShapeObservation
+    ) -> DerivedPoint2D? {
+        let points = observation.points.filter {
+            $0.position.x.isFinite
+                && $0.position.y.isFinite
+        }
+        guard !points.isEmpty else {
+            return nil
+        }
+
+        // Median center is deliberately robust to sparse depth outliers.
+        // It tracks the observed furniture target in world space without
+        // allowing a few floor/wall samples to drag the target lock.
+        let xs = points.map { $0.position.x }.sorted()
+        let ys = points.map { $0.position.y }.sorted()
+
+        func median(_ values: [Double]) -> Double {
+            let middle = values.count / 2
+            if values.count.isMultiple(of: 2) {
+                return (values[middle - 1] + values[middle]) / 2
+            }
+            return values[middle]
+        }
+
+        return DerivedPoint2D(
+            x: median(xs),
+            y: median(ys)
         )
     }
 
