@@ -217,6 +217,111 @@ final class DerivedShapeProxyTests: XCTestCase {
         }
     }
 
+    func testRepresentativeHorizontalLayersPreserveStackedFootprints() {
+        var points: [DerivedObservationPoint] = []
+
+        func appendLayer(
+            vertices: [DerivedPoint2D],
+            height: Double,
+            prefix: String
+        ) {
+            let sampled = samplePolygon(
+                vertices,
+                samplesPerEdge: 14
+            )
+            for (index, point) in sampled.enumerated() {
+                points.append(
+                    DerivedObservationPoint(
+                        position: point,
+                        evidenceRef:
+                            prefix + "-" + String(index),
+                        evidenceKind: .sceneDepth,
+                        verticalPositionMeters: height
+                    )
+                )
+            }
+        }
+
+        appendLayer(
+            vertices: [
+                DerivedPoint2D(x: -1.0, y: -0.65),
+                DerivedPoint2D(x: 1.0, y: -0.65),
+                DerivedPoint2D(x: 1.0, y: 0.65),
+                DerivedPoint2D(x: -1.0, y: 0.65),
+            ],
+            height: 0.48,
+            prefix: "lower"
+        )
+        appendLayer(
+            vertices: [
+                DerivedPoint2D(x: -0.55, y: -0.35),
+                DerivedPoint2D(x: 0.55, y: -0.35),
+                DerivedPoint2D(x: 0.55, y: 0.35),
+                DerivedPoint2D(x: -0.55, y: 0.35),
+            ],
+            height: 0.78,
+            prefix: "upper"
+        )
+
+        let layers =
+            DerivedShapeProxyFitter
+                .representativeHorizontalLayerObservations(
+                    from: DerivedShapeObservation(
+                        coordinateSpaceID: testCoordinateSpaceID,
+                        points: points
+                    )
+                )
+
+        XCTAssertEqual(layers.count, 2)
+        XCTAssertLessThan(
+            layers[0].points.map(\.verticalPositionMeters)
+                .compactMap { $0 }.max() ?? .infinity,
+            layers[1].points.map(\.verticalPositionMeters)
+                .compactMap { $0 }.min() ?? -.infinity
+        )
+
+        let fitted = layers.map {
+            DerivedShapeProxyFitter.fit(
+                observation:
+                    DerivedShapeProxyFitter.boundaryObservation(
+                        from: $0
+                    )
+            )
+        }
+        XCTAssertEqual(
+            fitted.map { $0.selected?.kind },
+            [.orientedRectangle, .orientedRectangle]
+        )
+    }
+
+    func testBroadMultiViewRoundEvidenceResolvesAsCircle() {
+        let points = (0..<90).map { index -> DerivedPoint2D in
+            let angle =
+                -5 * Double.pi / 6
+                + (5 * Double.pi / 3)
+                    * Double(index) / 89.0
+            let radius =
+                1.0
+                + 0.025 * sin(5 * angle)
+                + 0.010 * cos(11 * angle)
+            return DerivedPoint2D(
+                x: radius * cos(angle),
+                y: radius * sin(angle)
+            )
+        }
+
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: observation(points)
+        )
+
+        XCTAssertEqual(proxy.resolution, .resolved)
+        XCTAssertEqual(proxy.selected?.kind, .circle)
+        XCTAssertGreaterThan(
+            proxy.selected?.metrics.angularSupport ?? 0,
+            0.78
+        )
+    }
+
     func testWellSupportedImperfectCircleCanBeatFlexiblePolygon() {
         let points = (0..<96).map { index -> DerivedPoint2D in
             let angle =
