@@ -124,6 +124,95 @@ class ReferenceIngestorTests(unittest.TestCase):
             ["raw_scan", "postprocessed_inference"],
         )
 
+    def test_processed_only_roomplan_keeps_explicit_raw_unavailable_lineage(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            raw_path = copy_root / "roomplan" / "captured-room-data.json"
+            raw_path.unlink()
+
+            manifest_path = copy_root / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["files"] = [
+                entry
+                for entry in manifest["files"]
+                if entry["path"] != "roomplan/captured-room-data.json"
+            ]
+            processed = next(
+                entry
+                for entry in manifest["files"]
+                if entry["path"] == "roomplan/captured-room.json"
+            )
+            capture_session_id = manifest["capture_session_ids"][0]
+            processed["source_refs"] = [
+                f"capture_session:{capture_session_id}",
+                "roomplan_raw_serialization:unavailable",
+            ]
+            manifest_path.write_bytes(canonical_json_bytes(manifest))
+
+            validate_bundle(copy_root)
+            plan = build_ingestion_plan(copy_root)
+
+            self.assertEqual(
+                [record["kind"] for record in plan["roomplan_records"]],
+                ["postprocessed_inference"],
+            )
+            self.assertEqual(
+                plan["roomplan_records"][0]["source_refs"],
+                [
+                    f"capture_session:{capture_session_id}",
+                    "roomplan_raw_serialization:unavailable",
+                ],
+            )
+
+    def test_processed_only_roomplan_rejects_unknown_capture_session_ref(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            (copy_root / "roomplan" / "captured-room-data.json").unlink()
+            manifest_path = copy_root / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["files"] = [
+                entry
+                for entry in manifest["files"]
+                if entry["path"] != "roomplan/captured-room-data.json"
+            ]
+            processed = next(
+                entry
+                for entry in manifest["files"]
+                if entry["path"] == "roomplan/captured-room.json"
+            )
+            processed["source_refs"] = [
+                "capture_session:20000000-0000-4000-8000-000000000099",
+                "roomplan_raw_serialization:unavailable",
+            ]
+            manifest_path.write_bytes(canonical_json_bytes(manifest))
+
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError):
+                build_ingestion_plan(copy_root)
+
+    def test_reference_ingestor_rejects_unknown_source_ref_prefix(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            manifest_path = copy_root / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            mesh_entry = next(
+                entry
+                for entry in manifest["files"]
+                if entry["path"] == "mesh/anchors.json"
+            )
+            mesh_entry["source_refs"] = ["opaque:unsupported"]
+            manifest_path.write_bytes(canonical_json_bytes(manifest))
+
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError):
+                build_ingestion_plan(copy_root)
+
     def test_annotation_and_measurement_records_keep_source_authority(self):
         plan = build_ingestion_plan(FIXTURE)
         records = {
