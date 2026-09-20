@@ -1007,11 +1007,18 @@ public final class SharedARSessionController {
             if $0.position.y != $1.position.y {
                 return $0.position.y < $1.position.y
             }
+            if $0.verticalPositionMeters != $1.verticalPositionMeters {
+                return ($0.verticalPositionMeters ?? -.infinity)
+                    < ($1.verticalPositionMeters ?? -.infinity)
+            }
             return $0.evidenceRef < $1.evidenceRef
         }) {
             let key = LiveDerivedVoxelKey(
                 x: Int(floor(point.position.x / voxelSizeMeters)),
-                y: Int(floor(point.position.y / voxelSizeMeters))
+                z: Int(floor(point.position.y / voxelSizeMeters)),
+                y: point.verticalPositionMeters.map {
+                    Int(floor($0 / voxelSizeMeters))
+                } ?? Int.min
             )
             if cells[key] == nil {
                 cells[key] = point
@@ -1024,6 +1031,10 @@ public final class SharedARSessionController {
             }
             if $0.position.y != $1.position.y {
                 return $0.position.y < $1.position.y
+            }
+            if $0.verticalPositionMeters != $1.verticalPositionMeters {
+                return ($0.verticalPositionMeters ?? -.infinity)
+                    < ($1.verticalPositionMeters ?? -.infinity)
             }
             return $0.evidenceRef < $1.evidenceRef
         }
@@ -1124,6 +1135,7 @@ private struct LiveDerivedMeshEdgeRecord {
 
 private struct LiveDerivedVoxelKey: Hashable {
     let x: Int
+    let z: Int
     let y: Int
 }
 
