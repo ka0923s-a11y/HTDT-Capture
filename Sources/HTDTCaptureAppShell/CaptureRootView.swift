@@ -197,6 +197,22 @@ public struct CaptureRootView: View {
                     controls
                 }
 
+                if state == .failed,
+                   let lastFailure
+                {
+                    Section("Recovery") {
+                        Text(
+                            failureReasonText(lastFailure)
+                        )
+                        .font(.headline)
+
+                        Text(
+                            failureRecoveryText(lastFailure)
+                        )
+                        .foregroundStyle(.secondary)
+                    }
+                }
+
                 if state == .reviewing,
                    let qualityReport
                 {
@@ -313,7 +329,11 @@ public struct CaptureRootView: View {
             }
 
         case .failed:
-            Button("Reset capture", action: actions.resetCapture)
+            Button(
+                "Discard failed capture",
+                role: .destructive,
+                action: actions.resetCapture
+            )
 
         case .annotating:
             EmptyView()
@@ -413,6 +433,110 @@ public struct CaptureRootView: View {
             return String(localized: "Interrupted")
         case .unknown:
             return String(localized: "Unknown error")
+        }
+    }
+
+    private func failureReasonText(
+        _ failure: CaptureFailureCode
+    ) -> String {
+        switch failure {
+        case .interrupted:
+            return String(
+                localized:
+                    "The app left the foreground during an active capture. HTDT no longer assumes the same AR coordinate space is valid."
+            )
+        case .trackingUnavailable:
+            return String(
+                localized:
+                    "AR tracking or the current camera frame became unavailable during capture."
+            )
+        case .roomPlanFailure:
+            return String(
+                localized:
+                    "RoomPlan could not start or continue the room scan reliably."
+            )
+        case .storagePressure:
+            return String(
+                localized:
+                    "Available storage fell below the safe capture threshold."
+            )
+        case .thermalPressure:
+            return String(
+                localized:
+                    "The device reached a critical thermal state during capture."
+            )
+        case .persistenceFailure:
+            return String(
+                localized:
+                    "Required capture evidence could not be written safely."
+            )
+        case .permissionDenied:
+            return String(
+                localized:
+                    "Camera access is required to capture RoomPlan and AR evidence."
+            )
+        case .unsupportedDevice:
+            return String(
+                localized:
+                    "This device does not provide the required RoomPlan and mesh capture capabilities."
+            )
+        case .unknown:
+            return String(
+                localized:
+                    "The capture stopped because of an unexpected error."
+            )
+        }
+    }
+
+    private func failureRecoveryText(
+        _ failure: CaptureFailureCode
+    ) -> String {
+        switch failure {
+        case .interrupted:
+            return String(
+                localized:
+                    "This scan is not silently resumed. Discard the failed capture and start a new scan so a fresh coordinate-space authority is created."
+            )
+        case .trackingUnavailable:
+            return String(
+                localized:
+                    "Move to a well-lit area with visible room features, then discard this failed capture and start a new scan."
+            )
+        case .roomPlanFailure:
+            return String(
+                localized:
+                    "Discard this failed capture and start again. Move slowly and keep walls, corners, and furniture edges in view."
+            )
+        case .storagePressure:
+            return String(
+                localized:
+                    "Free device storage before starting another capture."
+            )
+        case .thermalPressure:
+            return String(
+                localized:
+                    "Let the device cool before starting another capture."
+            )
+        case .persistenceFailure:
+            return String(
+                localized:
+                    "Check free storage and retry with a new capture. HTDT does not continue when canonical evidence persistence is uncertain."
+            )
+        case .permissionDenied:
+            return String(
+                localized:
+                    "Allow camera access in iOS Settings, then start a new capture."
+            )
+        case .unsupportedDevice:
+            return String(
+                localized:
+                    "Use a supported LiDAR-capable iPhone or iPad for this capture workflow."
+            )
+        case .unknown:
+            return String(
+                localized:
+                    "Discard the failed capture and retry. If the error repeats, record the screen state before resetting."
+            )
         }
     }
 
