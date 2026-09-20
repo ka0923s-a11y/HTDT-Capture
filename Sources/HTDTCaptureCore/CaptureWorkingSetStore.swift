@@ -870,6 +870,137 @@ public actor CaptureWorkingSetStore {
         meshIndex = package.index
     }
 
+    public func rollbackCurrentMeshPackage() async throws {
+        guard let expectedMesh = meshIndex else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        func payloadURL(_ path: String) throws -> URL {
+            try BundleLogicalPath.validate(path)
+            return path
+                .split(separator: "/")
+                .reduce(rootDirectory) {
+                    url,
+                    component in
+                    url.appendingPathComponent(
+                        String(component),
+                        isDirectory: false
+                    )
+                }
+        }
+
+        let indexData = try Data(
+            contentsOf: payloadURL(
+                MeshEvidencePackage.indexPath
+            )
+        )
+        guard
+            let decodedIndex = try? JSONDecoder().decode(
+                MeshAnchorEvidenceIndex.self,
+                from: indexData
+            ),
+            decodedIndex == expectedMesh
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        var removals: [CaptureFileWriteRequest] = []
+        var expectedDeclarations:
+            [BundlePayloadDeclaration] = []
+        var geometryRefs: [String] = []
+
+        for record in expectedMesh.anchors {
+            let data = try Data(
+                contentsOf: payloadURL(
+                    record.geometryPath
+                )
+            )
+            guard
+                EvidenceIntegrity.sha256(of: data)
+                    == record.geometrySHA256
+            else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+
+            removals.append(
+                try CaptureFileWriteRequest(
+                    data: data,
+                    path: CaptureStorePath(
+                        record.geometryPath
+                    )
+                )
+            )
+            expectedDeclarations.append(
+                BundlePayloadDeclaration(
+                    path: record.geometryPath,
+                    mediaType:
+                        "application/vnd.htdt.meshbin",
+                    producer: "mesh_capture",
+                    provenanceClass:
+                        .arkitMeshReconstruction,
+                    role: .canonical
+                )
+            )
+            geometryRefs.append(
+                "path:" + record.geometryPath
+            )
+        }
+
+        removals.append(
+            try CaptureFileWriteRequest(
+                data: indexData,
+                path: CaptureStorePath(
+                    MeshEvidencePackage.indexPath
+                )
+            )
+        )
+        expectedDeclarations.append(
+            BundlePayloadDeclaration(
+                path: MeshEvidencePackage.indexPath,
+                mediaType: "application/json",
+                producer: "mesh_capture",
+                provenanceClass:
+                    .arkitMeshReconstruction,
+                role: .canonical,
+                sourceRefs:
+                    geometryRefs.isEmpty
+                    ? nil
+                    : geometryRefs.sorted()
+            )
+        )
+
+        for declaration in expectedDeclarations {
+            guard declarations[declaration.path]
+                    == declaration
+            else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+        }
+
+        try await writer.removeBatchIfIdentical(removals)
+
+        guard meshIndex == expectedMesh,
+              expectedDeclarations.allSatisfy({
+                  declarations[$0.path] == $0
+              })
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        for declaration in expectedDeclarations {
+            declarations.removeValue(
+                forKey: declaration.path
+            )
+        }
+        meshIndex = nil
+        meshAnchorCount = nil
+    }
+
     public func persistFramePackage(
         _ package: FrameEvidencePackage
     ) async throws {
