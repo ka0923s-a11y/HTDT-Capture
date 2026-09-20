@@ -116,6 +116,137 @@ public struct ScanMotionGuidance: Sendable, Equatable {
     }
 }
 
+public enum ScanMotionGuidanceLanguage: Sendable, Equatable {
+    case english
+    case japanese
+}
+
+public enum ScanMotionGuidanceCopy {
+    public static var preferredLanguage: ScanMotionGuidanceLanguage {
+        Locale.preferredLanguages.first?
+            .lowercased()
+            .hasPrefix("ja") == true
+            ? .japanese
+            : .english
+    }
+
+    public static func prompt(
+        for guidance: ScanMotionGuidance,
+        language: ScanMotionGuidanceLanguage
+    ) -> String {
+        switch (language, guidance.action) {
+        case (.japanese, .trackingRecovery):
+            return "端末を安定させ、見覚えのある場所を映してください"
+        case (.english, .trackingRecovery):
+            return "Hold the phone steady and show previously seen room features."
+
+        case (.japanese, .rotate):
+            return guidance.horizontalDirection == .left
+                ? "その場で左を向いてください"
+                : "その場で右を向いてください"
+        case (.english, .rotate):
+            return guidance.horizontalDirection == .left
+                ? "Turn left in place."
+                : "Turn right in place."
+
+        case (.japanese, .tilt):
+            return guidance.verticalDirection == .down
+                ? "下側を映してください"
+                : "上側を映してください"
+        case (.english, .tilt):
+            return guidance.verticalDirection == .down
+                ? "Capture the lower area."
+                : "Capture the upper area."
+
+        case (.japanese, .translate):
+            switch guidance.translationDirection ?? .right {
+            case .left:
+                return "少し左へ移動してください"
+            case .right:
+                return "少し右へ移動してください"
+            case .forward:
+                return "少し前へ進んでください"
+            case .backward:
+                return "少し下がってください"
+            }
+        case (.english, .translate):
+            switch guidance.translationDirection ?? .right {
+            case .left:
+                return "Move slightly to the left."
+            case .right:
+                return "Move slightly to the right."
+            case .forward:
+                return "Move slightly forward."
+            case .backward:
+                return "Move slightly back."
+            }
+
+        case (.japanese, .approach):
+            return "少し近づいてください"
+        case (.english, .approach):
+            return "Move slightly closer."
+
+        case (.japanese, .retreat):
+            return "少し離れてください"
+        case (.english, .retreat):
+            return "Move slightly farther away."
+
+        case (.japanese, .orbit):
+            return "この領域の反対側へ回り込んでください"
+        case (.english, .orbit):
+            return "Move around to the other side of this region."
+
+        case (.japanese, .reobserveAnotherAngle):
+            return "別角度から映してください"
+        case (.english, .reobserveAnotherAngle):
+            return "Show this region from another angle."
+
+        case (.japanese, .holdObserve):
+            return "この方向をゆっくり映してください"
+        case (.english, .holdObserve):
+            return "Slowly scan this direction."
+        }
+    }
+
+    public static func category(
+        for action: ScanMotionGuidanceAction,
+        language: ScanMotionGuidanceLanguage
+    ) -> String {
+        switch (language, action) {
+        case (.japanese, .trackingRecovery):
+            return "トラッキング回復"
+        case (.english, .trackingRecovery):
+            return "Tracking recovery"
+        case (.japanese, .rotate):
+            return "回頭"
+        case (.english, .rotate):
+            return "Turn in place"
+        case (.japanese, .tilt):
+            return "上下"
+        case (.english, .tilt):
+            return "Tilt"
+        case (.japanese, .translate),
+             (.japanese, .approach),
+             (.japanese, .retreat):
+            return "移動"
+        case (.english, .translate),
+             (.english, .approach),
+             (.english, .retreat):
+            return "Move"
+        case (.japanese, .orbit),
+             (.japanese, .reobserveAnotherAngle):
+            return "再観測"
+        case (.english, .orbit),
+             (.english, .reobserveAnotherAngle):
+            return "Reobserve"
+        case (.japanese, .holdObserve):
+            return "観測"
+        case (.english, .holdObserve):
+            return "Observe"
+        }
+    }
+}
+
 public struct ScanMotionGuidanceTracker: Sendable {
     public let configuration: ScanMotionGuidanceConfiguration
 
