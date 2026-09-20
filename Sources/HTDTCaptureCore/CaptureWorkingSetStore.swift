@@ -341,46 +341,71 @@ public actor CaptureWorkingSetStore {
             }
         }
 
-        var writes: [(Data, CaptureStorePath)] = try [
-            (
-                timingPackage.data,
-                CaptureStorePath(CaptureTimingPackage.path)
+        var writes: [CaptureFileWriteRequest] = [
+            try CaptureFileWriteRequest(
+                data: timingPackage.data,
+                path: CaptureStorePath(
+                    CaptureTimingPackage.path
+                )
             ),
         ]
         if let raw = rawRoomPlan {
             writes.append(
-                (
-                    raw.data,
-                    try CaptureStorePath(
+                try CaptureFileWriteRequest(
+                    data: raw.data,
+                    path: CaptureStorePath(
                         raw.descriptor.relativePath
                     )
                 )
             )
         }
         writes.append(
-            (
-                processed.data,
-                try CaptureStorePath(
+            try CaptureFileWriteRequest(
+                data: processed.data,
+                path: CaptureStorePath(
                     processed.descriptor.relativePath
                 )
             )
         )
 
-        do {
-            for (data, path) in writes {
-                try await writer.writeIfIdentical(
-                    data,
-                    to: path
-                )
+        try await writer.writeBatchIfIdentical(writes)
+
+        // The store actor can re-enter while the writer actor performs the
+        // transaction. Preserve an identical committed replay, but never
+        // overwrite a different final authority.
+        if let existingTiming = timingDocument,
+           let existingProcessed = processedRoomPlanDescriptor
+        {
+            let rawMatches: Bool
+            switch processed.descriptor.sourceRawSerializationStatus {
+            case .persisted:
+                rawMatches =
+                    rawRoomPlanDescriptor
+                        == rawRoomPlan?.descriptor
+            case .unavailable:
+                rawMatches = rawRoomPlanDescriptor == nil
             }
-        } catch {
-            for (data, path) in writes.reversed() {
-                _ = try? await writer.removeIfIdentical(
-                    data,
-                    at: path
-                )
+            if existingTiming == timingPackage.document,
+               existingProcessed == processed.descriptor,
+               rawMatches
+            {
+                return
             }
-            throw error
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    CaptureTimingPackage.path
+                )
+        }
+
+        guard timingDocument == nil,
+              rawRoomPlanDescriptor == nil,
+              processedRoomPlanDescriptor == nil,
+              transactionDeclarations.allSatisfy({
+                  declarations[$0.path] == nil
+              })
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
         }
 
         for declaration in transactionDeclarations {
