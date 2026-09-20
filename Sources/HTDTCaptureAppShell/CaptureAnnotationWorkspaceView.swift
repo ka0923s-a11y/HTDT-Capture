@@ -7,6 +7,8 @@ public struct CaptureAnnotationWorkspaceView: View {
     public let availableEvidenceRefs: [String]
     public let captureRaycastPlacement:
         () async throws -> AnnotationPlacementAuthority
+    public let captureSpeakerOrientation:
+        () async throws -> AnnotationOrientationAuthority
     public let onCommit: (
         [CaptureAnnotationEntity],
         [CaptureMeasurement]
@@ -25,6 +27,10 @@ public struct CaptureAnnotationWorkspaceView: View {
             () async throws -> AnnotationPlacementAuthority = {
                 throw ManualAuthorityBuilderError.invalidPosition
             },
+        captureSpeakerOrientation: @escaping
+            () async throws -> AnnotationOrientationAuthority = {
+                throw ManualAuthorityBuilderError.invalidSpeakerYaw
+            },
         onCommit: @escaping (
             [CaptureAnnotationEntity],
             [CaptureMeasurement]
@@ -34,6 +40,8 @@ public struct CaptureAnnotationWorkspaceView: View {
         self.coordinateSpaceID = coordinateSpaceID
         self.availableEvidenceRefs = availableEvidenceRefs.sorted()
         self.captureRaycastPlacement = captureRaycastPlacement
+        self.captureSpeakerOrientation =
+            captureSpeakerOrientation
         self.onCommit = onCommit
         self.onCancel = onCancel
     }
@@ -110,7 +118,9 @@ public struct CaptureAnnotationWorkspaceView: View {
                     coordinateSpaceID: coordinateSpaceID,
                     availableEvidenceRefs: availableEvidenceRefs,
                     captureRaycastPlacement:
-                        captureRaycastPlacement
+                        captureRaycastPlacement,
+                    captureSpeakerOrientation:
+                        captureSpeakerOrientation
                 ) { entity in
                     annotations.append(entity)
                 }
@@ -154,6 +164,8 @@ private struct ManualAnnotationForm: View {
     let availableEvidenceRefs: [String]
     let captureRaycastPlacement:
         () async throws -> AnnotationPlacementAuthority
+    let captureSpeakerOrientation:
+        () async throws -> AnnotationOrientationAuthority
     let onAdd: (CaptureAnnotationEntity) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -174,6 +186,9 @@ private struct ManualAnnotationForm: View {
     @State private var placementAuthority:
         AnnotationPlacementAuthority?
     @State private var isCapturingRaycast = false
+    @State private var orientationAuthority:
+        AnnotationOrientationAuthority?
+    @State private var isCapturingOrientation = false
 
     @State private var errorText: String?
 
@@ -221,10 +236,42 @@ private struct ManualAnnotationForm: View {
                         "Channel role (L, C, R, ...)",
                         text: $channelRole
                     )
-                    TextField(
-                        "Yaw degrees (0 = -Z, 90 = +X)",
-                        text: $yawText
-                    )
+
+                    if let orientationAuthority {
+                        let front =
+                            orientationAuthority
+                                .orientation.frontAxisLocal
+                        LabeledContent(
+                            "Captured front",
+                            value:
+                                "["
+                                + String(format: "%.3f", front.x)
+                                + ", 0, "
+                                + String(format: "%.3f", front.z)
+                                + "]"
+                        )
+                        Button("Use manual yaw instead") {
+                            self.orientationAuthority = nil
+                        }
+                    } else {
+                        TextField(
+                            "Yaw degrees (0 = -Z, 90 = +X)",
+                            text: $yawText
+                        )
+                        Button(
+                            "Capture current camera heading"
+                        ) {
+                            captureOrientation()
+                        }
+                        .disabled(isCapturingOrientation)
+                        Text(
+                            "Point the phone in the speaker's forward "
+                            + "direction, then capture. Only the horizontal "
+                            + "heading is adopted."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -282,6 +329,30 @@ private struct ManualAnnotationForm: View {
                 Button("Add") {
                     add()
                 }
+            }
+        }
+    }
+
+    private func captureOrientation() {
+        guard !isCapturingOrientation else {
+            return
+        }
+        isCapturingOrientation = true
+        errorText = nil
+
+        Task { @MainActor in
+            defer {
+                isCapturingOrientation = false
+            }
+            do {
+                let authority =
+                    try await captureSpeakerOrientation()
+                orientationAuthority = authority
+                selectedEvidenceRefs.formUnion(
+                    authority.evidenceRefs
+                )
+            } catch {
+                errorText = String(describing: error)
             }
         }
     }
@@ -365,7 +436,8 @@ private struct ManualAnnotationForm: View {
                     type == .speaker ? Double(yawText) : nil,
                 equipmentReference: equipment,
                 evidenceRefs: selectedEvidenceRefs.sorted(),
-                placementAuthority: placementAuthority
+                placementAuthority: placementAuthority,
+                orientationAuthority: orientationAuthority
             )
             onAdd(entity)
             dismiss()

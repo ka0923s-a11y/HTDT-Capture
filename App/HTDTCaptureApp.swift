@@ -42,6 +42,8 @@ private struct HTDTCaptureHostView: View {
                 beginAnnotation: coordinator.beginAnnotation,
                 captureRaycastPlacement:
                     coordinator.captureRaycastPlacement,
+                captureSpeakerOrientation:
+                    coordinator.captureSpeakerOrientation,
                 commitAnnotationAuthority:
                     coordinator.commitAnnotationAuthority,
                 cancelAnnotation: coordinator.cancelAnnotation,
@@ -208,6 +210,47 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         } catch {
             fail(.unknown)
         }
+    }
+
+    func captureSpeakerOrientation()
+        async throws -> AnnotationOrientationAuthority
+    {
+        guard state == .annotating,
+              let store = workingSetStore
+        else {
+            throw PlatformCaptureError.orientationUnavailable
+        }
+
+        let snapshot =
+            try sessionController.snapshotHorizontalCameraHeading(
+                depthSelection: .discrete
+            )
+        let package = try FrameEvidencePackageBuilder.build(
+            descriptor: snapshot.frameArtifacts.descriptor,
+            pixelPayload: snapshot.frameArtifacts.pixelPayload,
+            depthPayload: snapshot.frameArtifacts.depthPayload,
+            confidencePayload:
+                snapshot.frameArtifacts.confidencePayload
+        )
+        try await store.persistFramePackage(package)
+
+        let evidenceRef = "path:" + package.descriptorPath
+        let orientation = try OrientationAxes(
+            frontAxisLocal: snapshot.frontAxisWorld,
+            upAxisLocal: .unit(0, 1, 0)
+        )
+        let authority = try AnnotationOrientationAuthority(
+            orientation: orientation,
+            evidenceRefs: [evidenceRef]
+        )
+
+        let workingSnapshot = await store.snapshot()
+        annotationEvidenceRefs =
+            workingSnapshot.evidenceFrameRefs
+        workingSetStatus =
+            "Evidence-linked speaker heading captured"
+
+        return authority
     }
 
     func captureRaycastPlacement()

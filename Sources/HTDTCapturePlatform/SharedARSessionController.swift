@@ -9,6 +9,20 @@ public enum PlatformCaptureError: Error {
     case roomPlanUnsupported
     case currentFrameUnavailable
     case raycastMiss
+    case orientationUnavailable
+}
+
+public struct CapturedSpeakerOrientation: Sendable {
+    public let frontAxisWorld: SpatialVector3F
+    public let frameArtifacts: CapturedFrameArtifacts
+
+    public init(
+        frontAxisWorld: SpatialVector3F,
+        frameArtifacts: CapturedFrameArtifacts
+    ) {
+        self.frontAxisWorld = frontAxisWorld
+        self.frameArtifacts = frameArtifacts
+    }
 }
 
 public struct CapturedRaycastPlacement: Sendable {
@@ -116,6 +130,37 @@ public final class SharedARSessionController {
             throw PlatformCaptureError.currentFrameUnavailable
         }
         return try snapshotMeshAnchors(from: frame)
+    }
+
+    public func snapshotHorizontalCameraHeading(
+        depthSelection: FrameDepthSelection = .discrete
+    ) throws -> CapturedSpeakerOrientation {
+        guard let frame = arSession.currentFrame else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        let camera = frame.camera.transform
+        let x = -camera.columns.2.x
+        let z = -camera.columns.2.z
+        let magnitude = sqrt(x * x + z * z)
+        guard magnitude.isFinite, magnitude > 0.001 else {
+            throw PlatformCaptureError.orientationUnavailable
+        }
+
+        let front = try SpatialVector3F.unit(
+            x / magnitude,
+            0,
+            z / magnitude
+        )
+        return CapturedSpeakerOrientation(
+            frontAxisWorld: front,
+            frameArtifacts: try ARFrameArtifactAdapter.capture(
+                frame: frame,
+                captureSessionID: context.captureSessionID,
+                coordinateSpaceID: context.coordinateSpaceID,
+                depthSelection: depthSelection
+            )
+        )
     }
 
     public func snapshotCenterRaycastPlacement(

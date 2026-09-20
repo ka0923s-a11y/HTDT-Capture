@@ -8,6 +8,7 @@ public enum ManualAuthorityBuilderError:
     case invalidPosition
     case invalidSpeakerYaw
     case invalidSpeakerChannelRole
+    case orientationOnlyForSpeaker
 }
 
 public struct AnnotationPlacementAuthority:
@@ -32,6 +33,25 @@ public struct AnnotationPlacementAuthority:
     }
 }
 
+public struct AnnotationOrientationAuthority:
+    Sendable,
+    Equatable
+{
+    public let orientation: OrientationAxes
+    public let evidenceRefs: [String]
+
+    public init(
+        orientation: OrientationAxes,
+        evidenceRefs: [String]
+    ) throws {
+        guard Set(evidenceRefs).count == evidenceRefs.count else {
+            throw AnnotationModelError.duplicateEvidenceReference
+        }
+        self.orientation = orientation
+        self.evidenceRefs = evidenceRefs.sorted()
+    }
+}
+
 public enum ManualAuthorityBuilder {
     public static func annotation(
         type: AnnotationEntityType,
@@ -44,7 +64,8 @@ public enum ManualAuthorityBuilder {
         speakerYawDegrees: Double? = nil,
         equipmentReference: HTDTEquipmentReference? = nil,
         evidenceRefs: [String] = [],
-        placementAuthority: AnnotationPlacementAuthority? = nil
+        placementAuthority: AnnotationPlacementAuthority? = nil,
+        orientationAuthority: AnnotationOrientationAuthority? = nil
     ) throws -> CaptureAnnotationEntity {
         guard xMeters.isFinite,
               yMeters.isFinite,
@@ -77,6 +98,7 @@ public enum ManualAuthorityBuilder {
             Set(
                 evidenceRefs
                     + (placementAuthority?.evidenceRefs ?? [])
+                    + (orientationAuthority?.evidenceRefs ?? [])
             )
         ).sorted()
 
@@ -98,14 +120,13 @@ public enum ManualAuthorityBuilder {
             semantics = .userReferencePoint
         }
 
+        if type != .speaker, orientationAuthority != nil {
+            throw ManualAuthorityBuilderError.orientationOnlyForSpeaker
+        }
+
         var orientation: OrientationAxes?
         var channelRole: ChannelRole?
         if type == .speaker {
-            guard let speakerYawDegrees,
-                  speakerYawDegrees.isFinite
-            else {
-                throw ManualAuthorityBuilderError.invalidSpeakerYaw
-            }
             let roleText = speakerChannelRole?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .uppercased() ?? ""
@@ -114,17 +135,26 @@ public enum ManualAuthorityBuilder {
                     .invalidSpeakerChannelRole
             }
 
-            let radians = speakerYawDegrees
-                * Double.pi / 180.0
-            let front = try SpatialVector3F.unit(
-                Float(sin(radians)),
-                0,
-                Float(-cos(radians))
-            )
-            orientation = try OrientationAxes(
-                frontAxisLocal: front,
-                upAxisLocal: .unit(0, 1, 0)
-            )
+            if let orientationAuthority {
+                orientation = orientationAuthority.orientation
+            } else {
+                guard let speakerYawDegrees,
+                      speakerYawDegrees.isFinite
+                else {
+                    throw ManualAuthorityBuilderError.invalidSpeakerYaw
+                }
+                let radians = speakerYawDegrees
+                    * Double.pi / 180.0
+                let front = try SpatialVector3F.unit(
+                    Float(sin(radians)),
+                    0,
+                    Float(-cos(radians))
+                )
+                orientation = try OrientationAxes(
+                    frontAxisLocal: front,
+                    upAxisLocal: .unit(0, 1, 0)
+                )
+            }
             channelRole = parsedRole
         }
 
@@ -137,6 +167,7 @@ public enum ManualAuthorityBuilder {
             provenanceClass: .userAnnotation,
             verificationState:
                 placementAuthority == nil
+                    && orientationAuthority == nil
                 ? .userAttested
                 : .evidenceLinked,
             placement: placement,
