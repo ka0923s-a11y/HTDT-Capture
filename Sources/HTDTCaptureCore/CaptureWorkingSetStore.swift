@@ -329,7 +329,30 @@ public actor CaptureWorkingSetStore {
             )
         }
 
-        try await package.persist(using: writer)
+        let meshPaths =
+            package.geometryFiles.map(\.path)
+            + [MeshEvidencePackage.indexPath]
+        if let duplicate = meshPaths.first(where: {
+            declarations[$0] != nil
+        }) {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(duplicate)
+        }
+
+        do {
+            try await package.persist(using: writer)
+        } catch {
+            // Mesh is optional at review time. Keep a failed write from
+            // leaving undeclared complete files that would poison bundle
+            // integrity and prevent the already-persisted frame/depth
+            // fallback from being used.
+            for path in meshPaths {
+                if let storePath = try? CaptureStorePath(path) {
+                    try? await writer.removeIfPresent(storePath)
+                }
+            }
+            throw error
+        }
 
         for file in package.geometryFiles {
             try register(
