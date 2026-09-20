@@ -265,6 +265,29 @@ final class DerivedShapeProxyTests: XCTestCase {
         )
     }
 
+    func testNonOrthogonalQuadrilateralSelectsPolygon() {
+        let vertices = [
+            DerivedPoint2D(x: -1.20, y: -0.55),
+            DerivedPoint2D(x: 1.05, y: -0.82),
+            DerivedPoint2D(x: 0.72, y: 0.88),
+            DerivedPoint2D(x: -0.82, y: 0.62),
+        ]
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: observation(
+                samplePolygon(vertices, samplesPerEdge: 18)
+            )
+        )
+
+        XCTAssertEqual(proxy.resolution, .resolved)
+        XCTAssertEqual(proxy.selected?.kind, .polygon)
+        guard case let .polygon(polygon)? =
+            proxy.selected?.geometry
+        else {
+            return XCTFail("Expected polygon geometry")
+        }
+        XCTAssertGreaterThanOrEqual(polygon.vertices.count, 4)
+    }
+
     func testPentagonSelectsPolygon() {
         let vertices = (0..<5).map { index -> DerivedPoint2D in
             let angle =
