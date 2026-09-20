@@ -1124,10 +1124,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 observation: $0
             )
         }
+        let supportAnalysis = observations.objectObservation.map {
+            DerivedSupportAnalyzer.analyze(
+                observation: $0,
+                floorY: observations.floorReferenceY
+            )
+        }
 
         return DerivedShapePreviewSnapshot(
             objectProxies: objectProxies,
             wallChain: wallChain,
+            supportAnalysis: supportAnalysis,
             disagreements:
                 DerivedShapeDisagreementEvaluator.evaluate(
                     objectProxies: objectProxies,
