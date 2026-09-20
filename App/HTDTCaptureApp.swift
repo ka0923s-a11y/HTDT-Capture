@@ -56,6 +56,8 @@ private struct HTDTCaptureHostView: View {
                 coordinator.derivedShapePreview,
             scanEvidenceFrameCount:
                 coordinator.scanEvidenceFrameCount,
+            endScanGuidance:
+                coordinator.endScanGuidance,
             actions: CaptureRootActions(
                 beginCapture: coordinator.beginCapture,
                 beginReview: coordinator.beginReview,
@@ -119,6 +121,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var derivedShapePreview: DerivedShapePreviewSnapshot = .empty
     @Published private(set)
     var scanEvidenceFrameCount = 0
+    @Published private(set)
+    var scanDepthEvidenceCount = 0
+    @Published private(set)
+    var endScanGuidance: String?
 
     private var stateMachine = CaptureStateMachine()
     private var sessionController = SharedARSessionController()
@@ -128,6 +134,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var captureGeneration = UUID()
     private var isEndingScan = false
     private var isCapturingEvidenceFrame = false
+    private var endScanPreflightBlocked = false
     private var captureStartTimingCorrelation:
         CaptureTimingCorrelation?
     private var acceptedRoomPlanRawSHA256: EvidenceSHA256?
@@ -280,6 +287,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         derivedPreviewSuspendedForMemoryPressure = false
         setRoomPlanModelRenderingEnabled(true)
         scanEvidenceFrameCount = 0
+        scanDepthEvidenceCount = 0
+        endScanGuidance = nil
+        endScanPreflightBlocked = false
         resourceMonitor?.stop()
         resourceMonitor = nil
 
@@ -368,6 +378,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
                 self.scanEvidenceFrameCount =
                     snapshot.evidenceFrameCount
+                self.scanDepthEvidenceCount =
+                    snapshot.depthEvidenceCount
+                self.updateLiveEndScanGuidance()
                 self.workingSetStatus =
                     HostLocalization.isJapanese
                     ? "スキャン中：証拠フレームを "
@@ -398,11 +411,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
         isEndingScan = true
-        scanCoverageTask?.cancel()
-        scanCoverageTask = nil
 
-        Task {
-            await endScanForReview()
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            let ready = await self.preflightEndScan()
+            guard ready,
+                  self.state == .scanning
+            else {
+                self.isEndingScan = false
+                return
+            }
+
+            self.endScanGuidance = nil
+            self.scanCoverageTask?.cancel()
+            self.scanCoverageTask = nil
+            await self.endScanForReview()
         }
     }
 
@@ -767,6 +793,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         derivedShapePreview = .empty
         derivedPreviewSuspendedForMemoryPressure = false
         scanEvidenceFrameCount = 0
+        scanDepthEvidenceCount = 0
+        endScanGuidance = nil
+        endScanPreflightBlocked = false
         resourceMonitor?.stop()
         resourceMonitor = nil
         workingSetStatus =
@@ -998,6 +1027,185 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             "Scanning; live RoomPlan camera and active AR configuration are ready",
             "スキャン中：ライブカメラと実行中の AR 設定を確認しました"
         )
+    }
+
+    private func updateLiveEndScanGuidance() {
+        guard !endScanPreflightBlocked else {
+            return
+        }
+
+        guard state == .scanning else {
+            endScanGuidance = nil
+            return
+        }
+
+        guard scanGuidanceProgress.isComplete else {
+            // Before basic scan completion, normal scan guidance remains the
+            // primary instruction.
+            if endScanGuidance != nil {
+                endScanGuidance = nil
+            }
+            return
+        }
+
+        if scanCoverage.latestTrackingState == .unavailable {
+            endScanGuidance = HostLocalization.text(
+                "Before ending: hold the phone steady and point it at previously scanned room features until tracking recovers.",
+                "終了前：iPhone を安定させ、すでに撮影した壁・角・家具へ向けてトラッキングが回復するまで待ってください。"
+            )
+            return
+        }
+
+        let hasPersistedDepth = scanDepthEvidenceCount > 0
+        let hasLiveDepth = spatialCoverage.latestHasSceneDepth
+        let hasMesh =
+            spatialCoverage.meshAvailability.state
+                == .anchorsObserved
+
+        if !hasPersistedDepth,
+           !hasLiveDepth,
+           !hasMesh
+        {
+            endScanGuidance = HostLocalization.text(
+                "Before ending: no usable depth or mesh evidence is available. Keep the target in view and move slowly until Scene Depth observation appears.",
+                "終了前：利用できる深度／メッシュ証拠がありません。対象を画面内に保ち、ゆっくり動かして「シーン深度による観測」が有効になるまで待ってください。"
+            )
+            return
+        }
+
+        endScanGuidance = nil
+    }
+
+    private func preflightEndScan() async -> Bool {
+        endScanPreflightBlocked = false
+        var succeeded = false
+        defer {
+            endScanPreflightBlocked = !succeeded
+        }
+
+        guard let store = workingSetStore else {
+            endScanGuidance = HostLocalization.text(
+                "Cannot end yet: capture working data is unavailable. Start a fresh capture.",
+                "まだ終了できません：キャプチャ作業データを利用できません。新しいキャプチャを開始してください。"
+            )
+            return false
+        }
+
+        guard captureStartTimingCorrelation != nil else {
+            endScanGuidance = HostLocalization.text(
+                "Cannot end yet: capture timing has not initialized. Keep the phone steady for a moment; if this does not clear, restart the capture.",
+                "まだ終了できません：キャプチャ時刻が初期化されていません。iPhone を少し静止し、解消しない場合はキャプチャをやり直してください。"
+            )
+            return false
+        }
+
+        let snapshot = await store.snapshot()
+        do {
+            let values = try snapshot.rootDirectory.resourceValues(
+                forKeys: [.volumeAvailableCapacityForImportantUsageKey]
+            )
+            if let available =
+                values.volumeAvailableCapacityForImportantUsage
+            {
+                let policy = CaptureResourceMonitorPolicy()
+                if available < policy.storageCriticalBytes {
+                    endScanGuidance = HostLocalization.text(
+                        "Cannot end safely: device storage is below the capture safety threshold. Free storage, then try End again.",
+                        "安全に終了できません：端末の空き容量がキャプチャ安全閾値を下回っています。空き容量を増やしてから、もう一度「終了」を押してください。"
+                    )
+                    return false
+                }
+            }
+        } catch {
+            // Failure to query free space is not itself a proven capture
+            // failure. The normal persistence path remains authoritative.
+        }
+
+        guard state == .scanning else {
+            return false
+        }
+
+        let evidence: CaptureReviewEvidenceSnapshot
+        do {
+            evidence = try sessionController.snapshotReviewEvidence(
+                depthSelection: .discrete
+            )
+        } catch PlatformCaptureError.currentFrameUnavailable {
+            endScanGuidance = HostLocalization.text(
+                "Cannot end yet: there is no current AR frame. Hold the phone steady and point it at previously scanned features until tracking is normal, then try End again.",
+                "まだ終了できません：現在の AR フレームを取得できません。iPhone を静止して既に撮影した特徴へ向け、トラッキングが正常になってからもう一度「終了」を押してください。"
+            )
+            return false
+        } catch {
+            endScanGuidance = HostLocalization.text(
+                "Cannot end yet: the selected camera/depth frame could not be prepared. Hold the phone steady on the target for 1–2 seconds, then try End again.",
+                "まだ終了できません：終了用のカメラ／深度フレームを準備できません。対象へ向けたまま 1〜2 秒静止してから、もう一度「終了」を押してください。"
+            )
+            return false
+        }
+
+        if evidence.trackingQualityEvent.state == .unavailable {
+            endScanGuidance = HostLocalization.text(
+                "Cannot end yet: AR tracking is unavailable in the frame that would be saved. Hold the phone steady on previously scanned room features until tracking returns to normal, then try End again.",
+                "まだ終了できません：終了時に保存されるフレームで AR トラッキングが利用不可です。既に撮影した壁・角・家具へ向けて静止し、トラッキングが正常に戻ってからもう一度「終了」を押してください。"
+            )
+            return false
+        }
+
+        let endTiming: CaptureTimingCorrelation
+        do {
+            endTiming = try sessionController.snapshotTimingCorrelation()
+        } catch {
+            endScanGuidance = HostLocalization.text(
+                "Cannot end yet: the current AR frame cannot be correlated to capture time. Keep the phone steady until tracking recovers, then try End again.",
+                "まだ終了できません：現在の AR フレームとキャプチャ時刻を対応付けできません。トラッキングが回復するまで静止してから、もう一度「終了」を押してください。"
+            )
+            return false
+        }
+
+        do {
+            _ = try FrameEvidencePackageBuilder.build(
+                descriptor: evidence.frameArtifacts.descriptor,
+                pixelPayload: evidence.frameArtifacts.pixelPayload,
+                depthPayload: evidence.frameArtifacts.depthPayload,
+                confidencePayload:
+                    evidence.frameArtifacts.confidencePayload,
+                previewPayload:
+                    evidence.frameArtifacts.previewPayload
+            )
+            guard let startTiming = captureStartTimingCorrelation else {
+                return false
+            }
+            _ = try CaptureTimingPackageBuilder.build(
+                start: startTiming,
+                end: endTiming
+            )
+        } catch {
+            endScanGuidance = HostLocalization.text(
+                "Cannot end yet: the final evidence package is not internally valid. Keep the phone steady and try End again; if it repeats, save one evidence frame before ending.",
+                "まだ終了できません：終了用の証拠パッケージが内部検証に通りません。iPhone を静止して再度「終了」を押し、繰り返す場合は終了前に「証拠保存」を1回実行してください。"
+            )
+            return false
+        }
+
+        let hasDepth =
+            snapshot.depthEvidenceCount > 0
+            || evidence.frameArtifacts.depthPayload != nil
+        let hasMesh =
+            evidence.meshSnapshotSucceeded
+            && !evidence.meshAnchors.isEmpty
+
+        if !hasDepth && !hasMesh {
+            endScanGuidance = HostLocalization.text(
+                "Cannot end yet: this capture has no retained depth evidence and no mesh anchors. Keep a nearby surface in view and move slowly until Scene Depth observation appears, then try End again.",
+                "まだ終了できません：このキャプチャには保存済み深度証拠もメッシュアンカーもありません。近くの面を画面内に保ってゆっくり動かし、「シーン深度による観測」が有効になってからもう一度「終了」を押してください。"
+            )
+            return false
+        }
+
+        endScanGuidance = nil
+        succeeded = true
+        return true
     }
 
     private func endScanForReview() async {
@@ -1449,6 +1657,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         return
                     }
                     self.spatialCoverage = spatialSummary
+                    self.updateLiveEndScanGuidance()
                     self.motionGuidance =
                         self.motionGuidanceTracker.record(
                             timestampSeconds:

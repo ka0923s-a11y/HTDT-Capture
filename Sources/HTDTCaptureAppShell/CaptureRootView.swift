@@ -85,6 +85,7 @@ public struct CaptureRootView: View {
     public let scanGuidanceProgress: ScanGuidanceProgress
     public let derivedShapePreview: DerivedShapePreviewSnapshot
     public let scanEvidenceFrameCount: Int
+    public let endScanGuidance: String?
     public let actions: CaptureRootActions
 
     public init(
@@ -107,6 +108,7 @@ public struct CaptureRootView: View {
         scanGuidanceProgress: ScanGuidanceProgress = .empty,
         derivedShapePreview: DerivedShapePreviewSnapshot = .empty,
         scanEvidenceFrameCount: Int = 0,
+        endScanGuidance: String? = nil,
         actions: CaptureRootActions = CaptureRootActions()
     ) {
         self.state = state
@@ -130,6 +132,7 @@ public struct CaptureRootView: View {
         self.scanGuidanceProgress = scanGuidanceProgress
         self.derivedShapePreview = derivedShapePreview
         self.scanEvidenceFrameCount = scanEvidenceFrameCount
+        self.endScanGuidance = endScanGuidance
         self.actions = actions
     }
 
@@ -147,6 +150,7 @@ public struct CaptureRootView: View {
                     guidanceProgress: scanGuidanceProgress,
                     derivedPreview: derivedShapePreview,
                     evidenceFrameCount: scanEvidenceFrameCount,
+                    endScanGuidance: endScanGuidance,
                     captureEvidenceFrame:
                         actions.captureEvidenceFrame,
                     setMovementCapability:
