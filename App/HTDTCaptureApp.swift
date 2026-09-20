@@ -45,6 +45,8 @@ private struct HTDTCaptureHostView: View {
                 coordinator.observationStability,
             spatialCoverage:
                 coordinator.spatialCoverage,
+            motionGuidance:
+                coordinator.motionGuidance,
             derivedShapePreview:
                 coordinator.derivedShapePreview,
             scanEvidenceFrameCount:
@@ -103,6 +105,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set)
     var spatialCoverage: SpatialScanCoverageSummary = .empty
     @Published private(set)
+    var motionGuidance: ScanMotionGuidance?
+    @Published private(set)
     var derivedShapePreview: DerivedShapePreviewSnapshot = .empty
     @Published private(set)
     var scanEvidenceFrameCount = 0
@@ -123,6 +127,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         ObservationStabilityTracker()
     private var spatialCoverageAggregator =
         SpatialScanCoverageAggregator()
+    private var motionGuidanceTracker =
+        ScanMotionGuidanceTracker()
     private var scanCoverageTask: Task<Void, Never>?
     private let qualityRequirements = CaptureQualityRequirements()
 
@@ -165,6 +171,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverageAggregator =
             SpatialScanCoverageAggregator()
         spatialCoverage = .empty
+        motionGuidanceTracker = ScanMotionGuidanceTracker()
+        motionGuidance = nil
         derivedShapePreview = .empty
         scanEvidenceFrameCount = 0
         resourceMonitor?.stop()
@@ -594,6 +602,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverageAggregator =
             SpatialScanCoverageAggregator()
         spatialCoverage = .empty
+        motionGuidanceTracker = ScanMotionGuidanceTracker()
+        motionGuidance = nil
         derivedShapePreview = .empty
         scanEvidenceFrameCount = 0
         resourceMonitor?.stop()
@@ -1022,6 +1032,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverageAggregator =
             SpatialScanCoverageAggregator()
         spatialCoverage = .empty
+        motionGuidanceTracker = ScanMotionGuidanceTracker()
+        motionGuidance = nil
         derivedShapePreview = .empty
 
         scanCoverageTask = Task { @MainActor [weak self] in
@@ -1047,6 +1059,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         self.observationStabilityTracker.record(
                             sample
                         )
+                    self.motionGuidance =
+                        self.motionGuidanceTracker.record(
+                            timestampSeconds:
+                                sample.sessionTimestampSeconds,
+                            coverage: self.scanCoverage,
+                            spatialCoverage: self.spatialCoverage,
+                            observation:
+                                self.observationStability
+                        )
                 }
 
                 if sampleIndex.isMultiple(of: 2),
@@ -1063,6 +1084,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         return
                     }
                     self.spatialCoverage = spatialSummary
+                    self.motionGuidance =
+                        self.motionGuidanceTracker.record(
+                            timestampSeconds:
+                                spatialSample.sessionTimestampSeconds,
+                            coverage: self.scanCoverage,
+                            spatialCoverage: spatialSummary,
+                            observation:
+                                self.observationStability
+                        )
 
                     if sampleIndex.isMultiple(of: 4) {
                         if spatialSummary.meshAvailability.state
