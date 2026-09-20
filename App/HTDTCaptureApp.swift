@@ -324,7 +324,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             try transition(.prepared)
             configureResourceMonitor(
                 store: store,
-                rootDirectory: store.rootDirectory,
+                rootDirectory: await store.rootDirectory,
                 generation: generation
             )
             guard state == .scanning else {
