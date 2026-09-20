@@ -1139,15 +1139,19 @@ public struct ScanMotionGuidanceTracker: Sendable {
             return
         }
 
-        // The global budget counts every completed spatial action, including
-        // actions that successfully turn a weak region into observed (or make
-        // the target disappear from the bounded map). This guarantees a hard
-        // upper bound on operator movement prompts for one scan.
+        // A temporarily absent target can fall out of the bounded spatial
+        // summary without proving that the operator completed an action. Do
+        // not consume the global movement budget for that map-window churn.
+        guard let region = spatialCoverage.region(at: key) else {
+            return
+        }
+
+        // The global budget counts completed actions when the target is still
+        // observable in authority, including successful actions that promote
+        // the region from weak to observed.
         completedSpatialGuidanceAttemptCount += 1
 
-        guard let region = spatialCoverage.region(at: key),
-              region.classification == .weak
-        else {
+        guard region.classification == .weak else {
             return
         }
 
