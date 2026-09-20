@@ -47,7 +47,7 @@ public enum DepthConnectedSurfaceSelector {
                 && $0.depthMeters > 0
         }
         guard valid.count >= minimumComponentCount else {
-            return valid
+            return []
         }
 
         let centerX = Double(imageWidth - 1) / 2
@@ -164,7 +164,11 @@ public enum DepthConnectedSurfaceSelector {
         }
 
         guard !components.isEmpty else {
-            return valid
+            // The caller explicitly requested one focused foreground
+            // surface. Returning the whole crop here would convert
+            // insufficient connectivity evidence into a synthetic
+            // multi-object footprint.
+            return []
         }
 
         func componentScore(
