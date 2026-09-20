@@ -64,6 +64,8 @@ private struct HTDTCaptureHostView: View {
                 captureEvidenceFrame: coordinator.captureEvidenceFrame,
                 setScanMovementCapability:
                     coordinator.setScanMovementCapability,
+                continueScanning:
+                    coordinator.continueScanningFromReview,
                 beginAnnotation: coordinator.beginAnnotation,
                 captureRaycastPlacement:
                     coordinator.captureRaycastPlacement,
