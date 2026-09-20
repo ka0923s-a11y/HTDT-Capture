@@ -1950,10 +1950,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         let nsError = error as NSError
         if nsError.domain == NSCocoaErrorDomain {
-            if nsError.code == CocoaError.fileWriteOutOfSpace.rawValue {
+            if nsError.code
+                == CocoaError.Code.fileWriteOutOfSpace.rawValue
+            {
                 return "storage_full"
             }
-            if nsError.code == CocoaError.fileWriteNoPermission.rawValue {
+            if nsError.code
+                == CocoaError.Code.fileWriteNoPermission.rawValue
+            {
                 return "write_permission_denied"
             }
             return "cocoa:" + String(nsError.code)
