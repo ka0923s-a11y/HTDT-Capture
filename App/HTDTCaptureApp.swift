@@ -456,6 +456,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
 
+                guard self.captureGeneration == generation,
+                      self.state == .scanning
+                else {
+                    return
+                }
+
                 await store.recordResourceEvent(
                     CaptureResourceEvent(
                         kind: .persistenceFailure,
@@ -465,6 +471,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             + diagnostic
                     )
                 )
+                guard self.captureGeneration == generation,
+                      self.state == .scanning
+                else {
+                    return
+                }
                 self.workingSetStatus =
                     HostLocalization.text(
                         "Evidence frame was not committed; this scan is still active",
@@ -881,6 +892,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             + diagnostic
                     )
                 )
+                guard self.captureGeneration == generation,
+                      self.state == .annotating
+                else {
+                    return
+                }
                 self.workingSetStatus =
                     HostLocalization.text(
                         "Annotation changes were not committed; editing remains open and Save can be retried",
@@ -1805,6 +1821,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
 
+                guard captureGeneration == generation,
+                      state == .scanning
+                else {
+                    return
+                }
+
                 await store.recordResourceEvent(
                     CaptureResourceEvent(
                         kind: .persistenceFailure,
@@ -1814,6 +1836,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             + diagnostic
                     )
                 )
+                guard captureGeneration == generation,
+                      state == .scanning
+                else {
+                    return
+                }
                 workingSetStatus =
                     HostLocalization.text(
                         "End was not committed because the selected frame/depth evidence could not be saved; this scan is still active",
