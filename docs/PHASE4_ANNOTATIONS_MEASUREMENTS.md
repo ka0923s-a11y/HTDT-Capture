@@ -113,3 +113,58 @@ Issue #5 remains open for:
 - evidence photo linkage UX;
 - exact HTDT EquipmentDefinition selection UI;
 - physical repeatability measurements under Issue #9.
+
+
+## Manual authority authoring UI
+
+The iOS host now provides a bounded manual authoring workflow during review.
+
+The user can stage and inspect records before any immutable working-set payload
+is written. **Save annotation authority** then writes both canonical collections
+once:
+
+- `annotations/entities.json`;
+- `annotations/measurements.json`.
+
+This one-shot commit matches the working-set no-overwrite rule. Records can be
+edited by deleting/re-adding them while staged; after canonical persistence the
+host does not pretend that the immutable payload can be edited in place.
+
+### Spatial annotation inputs
+
+The current software-only editor supports:
+
+- annotation entity type and label;
+- explicit X/Y/Z position in the active Capture coordinate space;
+- speaker channel role;
+- speaker yaw, encoded as an explicit normalized front axis with +Y up;
+- optional pinned HTDT equipment reference requiring exact
+  equipment ID + version + SHA-256.
+
+Placement provenance is `manual_numeric`; no raycast or mesh-hit provenance is
+fabricated by this UI.
+
+### Measurement inputs
+
+The editor supports user-attested scalar measurements with:
+
+- quantity type;
+- value and unit;
+- acquisition method;
+- optional stated uncertainty;
+- optional source value text;
+- optional instrument class and make/model.
+
+These records remain distinct from LiDAR/RoomPlan-derived measurement
+authorities.
+
+### Remaining hardware/UI gates
+
+Still not claimed by this slice:
+
+- live camera/3D raycast placement;
+- mesh-hit placement provenance;
+- physical speaker-orientation capture;
+- evidence-photo linkage;
+- connected HTDT equipment-catalog picker;
+- physical placement/repeatability benchmark.
