@@ -347,7 +347,28 @@ public struct BundleManifest: Codable, Sendable, Equatable {
     }
 
     private static func isUTCText(_ value: String) -> Bool {
-        value.contains("T") && value.hasSuffix("Z")
+        let pattern =
+            #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$"#
+        guard value.range(
+            of: pattern,
+            options: .regularExpression
+        ) != nil
+        else {
+            return false
+        }
+
+        let base = ISO8601DateFormatter()
+        base.formatOptions = [.withInternetDateTime]
+        if base.date(from: value) != nil {
+            return true
+        }
+
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [
+            .withInternetDateTime,
+            .withFractionalSeconds,
+        ]
+        return fractional.date(from: value) != nil
     }
 
     private static func isUUIDv4(_ uuid: UUID) -> Bool {
