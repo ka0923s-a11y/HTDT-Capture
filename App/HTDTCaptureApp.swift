@@ -139,16 +139,30 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var motionGuidanceTracker =
         ScanMotionGuidanceTracker()
     private var derivedObjectFusionTracker =
-        DerivedShapeTemporalFusionTracker()
-    private var derivedVolumeFusionTracker =
-        DerivedShapeTemporalFusionTracker()
-    private var derivedWallFusionTracker =
         DerivedShapeTemporalFusionTracker(
             configuration: DerivedShapeTemporalFusionConfiguration(
                 maximumFrameCount: 4,
                 maximumAgeSeconds: 8,
-                voxelSizeMeters: 0.07,
-                maximumPointCount: 640
+                voxelSizeMeters: 0.06,
+                maximumPointCount: 384
+            )
+        )
+    private var derivedVolumeFusionTracker =
+        DerivedShapeTemporalFusionTracker(
+            configuration: DerivedShapeTemporalFusionConfiguration(
+                maximumFrameCount: 4,
+                maximumAgeSeconds: 8,
+                voxelSizeMeters: 0.06,
+                maximumPointCount: 384
+            )
+        )
+    private var derivedWallFusionTracker =
+        DerivedShapeTemporalFusionTracker(
+            configuration: DerivedShapeTemporalFusionConfiguration(
+                maximumFrameCount: 3,
+                maximumAgeSeconds: 8,
+                voxelSizeMeters: 0.08,
+                maximumPointCount: 256
             )
         )
     private var scanCoverageTask: Task<Void, Never>?
@@ -218,16 +232,30 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         motionGuidance = nil
         scanGuidanceProgress = .empty
         derivedObjectFusionTracker =
-            DerivedShapeTemporalFusionTracker()
-        derivedVolumeFusionTracker =
-            DerivedShapeTemporalFusionTracker()
-        derivedWallFusionTracker =
             DerivedShapeTemporalFusionTracker(
                 configuration: DerivedShapeTemporalFusionConfiguration(
                     maximumFrameCount: 4,
                     maximumAgeSeconds: 8,
-                    voxelSizeMeters: 0.07,
-                    maximumPointCount: 640
+                    voxelSizeMeters: 0.06,
+                    maximumPointCount: 384
+                )
+            )
+        derivedVolumeFusionTracker =
+            DerivedShapeTemporalFusionTracker(
+                configuration: DerivedShapeTemporalFusionConfiguration(
+                    maximumFrameCount: 4,
+                    maximumAgeSeconds: 8,
+                    voxelSizeMeters: 0.06,
+                    maximumPointCount: 384
+                )
+            )
+        derivedWallFusionTracker =
+            DerivedShapeTemporalFusionTracker(
+                configuration: DerivedShapeTemporalFusionConfiguration(
+                    maximumFrameCount: 3,
+                    maximumAgeSeconds: 8,
+                    voxelSizeMeters: 0.08,
+                    maximumPointCount: 256
                 )
             )
         derivedShapePreview = .empty
@@ -679,16 +707,30 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         motionGuidance = nil
         scanGuidanceProgress = .empty
         derivedObjectFusionTracker =
-            DerivedShapeTemporalFusionTracker()
-        derivedVolumeFusionTracker =
-            DerivedShapeTemporalFusionTracker()
-        derivedWallFusionTracker =
             DerivedShapeTemporalFusionTracker(
                 configuration: DerivedShapeTemporalFusionConfiguration(
                     maximumFrameCount: 4,
                     maximumAgeSeconds: 8,
-                    voxelSizeMeters: 0.07,
-                    maximumPointCount: 640
+                    voxelSizeMeters: 0.06,
+                    maximumPointCount: 384
+                )
+            )
+        derivedVolumeFusionTracker =
+            DerivedShapeTemporalFusionTracker(
+                configuration: DerivedShapeTemporalFusionConfiguration(
+                    maximumFrameCount: 4,
+                    maximumAgeSeconds: 8,
+                    voxelSizeMeters: 0.06,
+                    maximumPointCount: 384
+                )
+            )
+        derivedWallFusionTracker =
+            DerivedShapeTemporalFusionTracker(
+                configuration: DerivedShapeTemporalFusionConfiguration(
+                    maximumFrameCount: 3,
+                    maximumAgeSeconds: 8,
+                    voxelSizeMeters: 0.08,
+                    maximumPointCount: 256
                 )
             )
         derivedShapePreview = .empty
@@ -1223,16 +1265,30 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         motionGuidance = nil
         scanGuidanceProgress = .empty
         derivedObjectFusionTracker =
-            DerivedShapeTemporalFusionTracker()
-        derivedVolumeFusionTracker =
-            DerivedShapeTemporalFusionTracker()
-        derivedWallFusionTracker =
             DerivedShapeTemporalFusionTracker(
                 configuration: DerivedShapeTemporalFusionConfiguration(
                     maximumFrameCount: 4,
                     maximumAgeSeconds: 8,
-                    voxelSizeMeters: 0.07,
-                    maximumPointCount: 640
+                    voxelSizeMeters: 0.06,
+                    maximumPointCount: 384
+                )
+            )
+        derivedVolumeFusionTracker =
+            DerivedShapeTemporalFusionTracker(
+                configuration: DerivedShapeTemporalFusionConfiguration(
+                    maximumFrameCount: 4,
+                    maximumAgeSeconds: 8,
+                    voxelSizeMeters: 0.06,
+                    maximumPointCount: 384
+                )
+            )
+        derivedWallFusionTracker =
+            DerivedShapeTemporalFusionTracker(
+                configuration: DerivedShapeTemporalFusionConfiguration(
+                    maximumFrameCount: 3,
+                    maximumAgeSeconds: 8,
+                    voxelSizeMeters: 0.08,
+                    maximumPointCount: 256
                 )
             )
         derivedShapePreview = .empty
@@ -1305,7 +1361,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             spatialCoverage: spatialSummary
                         )
 
-                    if sampleIndex.isMultiple(of: 8) {
+                    if sampleIndex.isMultiple(of: 16) {
                         let thermalState =
                             ProcessInfo.processInfo.thermalState
                         let derivedWorkAllowed =
@@ -1323,8 +1379,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                            let observations =
                             try? self.sessionController
                                 .currentDerivedShapeObservations(
-                                    maxObjectPoints: 256,
-                                    maxWallPoints: 320
+                                    maxObjectPoints: 160,
+                                    maxWallPoints: 192
                                 )
                         {
                             let timestamp =
