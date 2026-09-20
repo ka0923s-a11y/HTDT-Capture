@@ -648,6 +648,8 @@ public struct ScanMotionGuidanceTracker: Sendable {
         }
 
         if spatialGuidanceActive,
+           coverage.coverageFraction
+                >= configuration.completionDirectionCoverageFraction,
            (
                 movementCapability == .stationaryOnly
                 || spatialGuidanceBudgetExhausted
@@ -657,10 +659,10 @@ public struct ScanMotionGuidanceTracker: Sendable {
                 )
            )
         {
-            // Direction coverage is already broad and every remaining weak
-            // region has either become observed or exhausted its bounded
-            // retry budget. Stop issuing movement guidance rather than
-            // creating an endless re-observation loop.
+            // Spatial movement is complete or unavailable, and broad
+            // directional capture is also complete. Only now may the tracker
+            // stop issuing guidance. Before this threshold, remaining yaw /
+            // pitch direction gaps still need normal in-place guidance.
             return nil
         }
 
