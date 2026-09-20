@@ -5,6 +5,7 @@ import HTDTCapturePlatform
 public struct CaptureRootActions {
     public let beginCapture: () -> Void
     public let beginReview: () -> Void
+    public let captureEvidenceFrame: () -> Void
     public let finalizeCapture: () -> Void
     public let prepareExport: () -> Void
     public let resetCapture: () -> Void
@@ -12,12 +13,14 @@ public struct CaptureRootActions {
     public init(
         beginCapture: @escaping () -> Void = {},
         beginReview: @escaping () -> Void = {},
+        captureEvidenceFrame: @escaping () -> Void = {},
         finalizeCapture: @escaping () -> Void = {},
         prepareExport: @escaping () -> Void = {},
         resetCapture: @escaping () -> Void = {}
     ) {
         self.beginCapture = beginCapture
         self.beginReview = beginReview
+        self.captureEvidenceFrame = captureEvidenceFrame
         self.finalizeCapture = finalizeCapture
         self.prepareExport = prepareExport
         self.resetCapture = resetCapture
@@ -178,6 +181,10 @@ public struct CaptureRootView: View {
             progressRow("Preparing capture working set…")
 
         case .scanning:
+            Button(
+                "Capture evidence frame",
+                action: actions.captureEvidenceFrame
+            )
             Button("End scan and review", action: actions.beginReview)
 
         case .paused:

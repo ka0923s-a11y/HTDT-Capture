@@ -32,6 +32,7 @@ private struct HTDTCaptureHostView: View {
             actions: CaptureRootActions(
                 beginCapture: coordinator.beginCapture,
                 beginReview: coordinator.beginReview,
+                captureEvidenceFrame: coordinator.captureEvidenceFrame,
                 finalizeCapture: coordinator.finalizeCapture,
                 prepareExport: coordinator.prepareExport,
                 resetCapture: coordinator.resetCapture
@@ -58,6 +59,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var resourceMonitor: CaptureResourceMonitor?
     private var captureGeneration = UUID()
     private var isEndingScan = false
+    private var isCapturingEvidenceFrame = false
     private let qualityRequirements = CaptureQualityRequirements()
 
     init() {
@@ -86,6 +88,71 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         Task {
             await continueBeginCapture()
+        }
+    }
+
+    func captureEvidenceFrame() {
+        guard state == .scanning,
+              !isEndingScan,
+              !isCapturingEvidenceFrame,
+              let store = workingSetStore
+        else {
+            return
+        }
+
+        isCapturingEvidenceFrame = true
+        let generation = captureGeneration
+        let artifacts: CapturedFrameArtifacts
+
+        do {
+            artifacts =
+                try sessionController.snapshotFrameEvidence(
+                    depthSelection: .discrete
+                )
+        } catch PlatformCaptureError.currentFrameUnavailable {
+            isCapturingEvidenceFrame = false
+            fail(.trackingUnavailable)
+            return
+        } catch {
+            isCapturingEvidenceFrame = false
+            fail(.persistenceFailure)
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            defer {
+                self.isCapturingEvidenceFrame = false
+            }
+            guard self.captureGeneration == generation,
+                  self.state == .scanning
+            else {
+                return
+            }
+
+            do {
+                let package = try FrameEvidencePackageBuilder.build(
+                    descriptor: artifacts.descriptor,
+                    pixelPayload: artifacts.pixelPayload,
+                    depthPayload: artifacts.depthPayload,
+                    confidencePayload: artifacts.confidencePayload
+                )
+                try await store.persistFramePackage(package)
+                let snapshot = await store.snapshot()
+                guard self.captureGeneration == generation,
+                      self.state == .scanning
+                else {
+                    return
+                }
+                self.workingSetStatus =
+                    "Scanning; "
+                    + String(snapshot.evidenceFrameCount)
+                    + " evidence frame(s) persisted"
+            } catch {
+                self.fail(.persistenceFailure)
+            }
         }
     }
 
@@ -209,6 +276,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             ? "Ready for a new capture"
             : "Capture reset"
         isEndingScan = false
+        isCapturingEvidenceFrame = false
         capabilities = PlatformCapabilityProbe.current()
         cameraPermission = CameraPermissionController.currentStatus()
     }

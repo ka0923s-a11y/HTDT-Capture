@@ -104,6 +104,21 @@ public final class SharedARSessionController {
         return try snapshotMeshAnchors(from: frame)
     }
 
+    public func snapshotFrameEvidence(
+        depthSelection: FrameDepthSelection = .discrete
+    ) throws -> CapturedFrameArtifacts {
+        guard let frame = arSession.currentFrame else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        return try ARFrameArtifactAdapter.capture(
+            frame: frame,
+            captureSessionID: context.captureSessionID,
+            coordinateSpaceID: context.coordinateSpaceID,
+            depthSelection: depthSelection
+        )
+    }
+
     public func snapshotReviewEvidence(
         depthSelection: FrameDepthSelection = .discrete
     ) throws -> CaptureReviewEvidenceSnapshot {
