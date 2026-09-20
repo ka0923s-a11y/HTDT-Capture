@@ -1239,28 +1239,32 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         var supportAnalysis: DerivedSupportAnalysis?
 
         if let objectObservation = observations.objectObservation {
+            let volumeObservation =
+                observations.objectVolumeObservation
+                ?? objectObservation
+
             let decomposition = DerivedObjectDecomposer.decompose(
-                observation: objectObservation
+                observation: volumeObservation
             )
             objectDecomposition = decomposition
 
             if decomposition.state != .unresolvedDecomposition {
                 objectProxies = Array(
                     decomposition.components.prefix(4).map {
-                        let observation = $0.observation
+                        let componentObservation = $0.observation
                         let fittingObservation:
                             DerivedShapeObservation
 
-                        if observation.points.contains(where: {
+                        if componentObservation.points.contains(where: {
                             $0.evidenceKind == .sceneDepth
                         }) {
                             fittingObservation =
                                 DerivedShapeProxyFitter
                                     .boundaryObservation(
-                                        from: observation
+                                        from: componentObservation
                                     )
                         } else {
-                            fittingObservation = observation
+                            fittingObservation = componentObservation
                         }
 
                         return DerivedShapeProxyFitter.fit(
@@ -1268,10 +1272,28 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         )
                     }
                 )
+            } else {
+                let fittingObservation:
+                    DerivedShapeObservation
+                if objectObservation.points.contains(where: {
+                    $0.evidenceKind == .sceneDepth
+                }) {
+                    fittingObservation =
+                        DerivedShapeProxyFitter.boundaryObservation(
+                            from: objectObservation
+                        )
+                } else {
+                    fittingObservation = objectObservation
+                }
+                objectProxies = [
+                    DerivedShapeProxyFitter.fit(
+                        observation: fittingObservation
+                    ),
+                ]
             }
 
             supportAnalysis = DerivedSupportAnalyzer.analyze(
-                observation: objectObservation,
+                observation: volumeObservation,
                 floorY: observations.floorReferenceY
             )
         }
