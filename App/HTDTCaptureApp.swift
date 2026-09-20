@@ -200,12 +200,22 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        let package: MeshEvidencePackage
+        let meshPackage: MeshEvidencePackage
+        let framePackage: FrameEvidencePackage
         do {
-            let snapshots =
-                try sessionController.snapshotActiveMeshAnchors()
-            package = try MeshEvidencePackageBuilder.build(
-                snapshots: snapshots
+            let evidence =
+                try sessionController.snapshotReviewEvidence(
+                    depthSelection: .discrete
+                )
+            meshPackage = try MeshEvidencePackageBuilder.build(
+                snapshots: evidence.meshAnchors
+            )
+            framePackage = try FrameEvidencePackageBuilder.build(
+                descriptor: evidence.frameArtifacts.descriptor,
+                pixelPayload: evidence.frameArtifacts.pixelPayload,
+                depthPayload: evidence.frameArtifacts.depthPayload,
+                confidencePayload:
+                    evidence.frameArtifacts.confidencePayload
             )
         } catch PlatformCaptureError.currentFrameUnavailable {
             fail(.trackingUnavailable)
@@ -224,15 +234,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        workingSetStatus = "Persisting final active mesh evidence"
+        workingSetStatus =
+            "Persisting final mesh and selected frame evidence"
 
         do {
-            try await store.persistMeshPackage(package)
+            try await store.persistMeshPackage(meshPackage)
+            try await store.persistFramePackage(framePackage)
             let snapshot = await store.snapshot()
             workingSetStatus =
                 "Reviewing; "
                 + String(snapshot.payloadDeclarations.count)
-                + " payloads persisted"
+                + " payloads, "
+                + String(snapshot.evidenceFrameCount)
+                + " frame(s), "
+                + String(snapshot.depthEvidenceCount)
+                + " depth observation(s) persisted"
         } catch {
             fail(.persistenceFailure)
         }

@@ -10,6 +10,19 @@ public enum PlatformCaptureError: Error {
     case currentFrameUnavailable
 }
 
+public struct CaptureReviewEvidenceSnapshot: Sendable {
+    public let meshAnchors: [MeshAnchorSnapshot]
+    public let frameArtifacts: CapturedFrameArtifacts
+
+    public init(
+        meshAnchors: [MeshAnchorSnapshot],
+        frameArtifacts: CapturedFrameArtifacts
+    ) {
+        self.meshAnchors = meshAnchors
+        self.frameArtifacts = frameArtifacts
+    }
+}
+
 @available(iOS 17.0, *)
 @MainActor
 private final class RoomPlanSessionDelegateBridge:
@@ -85,7 +98,30 @@ public final class SharedARSessionController {
         guard let frame = arSession.currentFrame else {
             throw PlatformCaptureError.currentFrameUnavailable
         }
+        return try snapshotMeshAnchors(from: frame)
+    }
 
+    public func snapshotReviewEvidence(
+        depthSelection: FrameDepthSelection = .discrete
+    ) throws -> CaptureReviewEvidenceSnapshot {
+        guard let frame = arSession.currentFrame else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        return CaptureReviewEvidenceSnapshot(
+            meshAnchors: try snapshotMeshAnchors(from: frame),
+            frameArtifacts: try ARFrameArtifactAdapter.capture(
+                frame: frame,
+                captureSessionID: context.captureSessionID,
+                coordinateSpaceID: context.coordinateSpaceID,
+                depthSelection: depthSelection
+            )
+        )
+    }
+
+    private func snapshotMeshAnchors(
+        from frame: ARFrame
+    ) throws -> [MeshAnchorSnapshot] {
         let anchors = frame.anchors
             .compactMap { $0 as? ARMeshAnchor }
             .sorted {

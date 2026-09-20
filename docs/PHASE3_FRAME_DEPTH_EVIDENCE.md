@@ -90,3 +90,19 @@ frame/depth evidence counts.
 
 The next host integration in this same slice captures the frame and final mesh
 from one exact `ARFrame` immediately before the RoomPlan scan boundary.
+
+
+## Scan-end host integration
+
+`SharedARSessionController.snapshotReviewEvidence()` now reads exactly one
+current `ARFrame` and derives both:
+
+- the final active ARMeshAnchor snapshots; and
+- one `CapturedFrameArtifacts` camera/depth evidence snapshot.
+
+The host calls this immediately before ending the RoomPlan scan. It then persists
+both packages into the same working revision.
+
+The default depth selection is discrete `sceneDepth`. Absence is represented
+by `FrameDepthStatus.unavailable`; no depth payload is fabricated and no
+capability-only assumption is promoted to evidence.
