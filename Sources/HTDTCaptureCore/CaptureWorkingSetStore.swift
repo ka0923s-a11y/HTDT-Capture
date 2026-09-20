@@ -169,6 +169,168 @@ public actor CaptureWorkingSetStore {
         timingDocument = package.document
     }
 
+    public func persistEndRoomPlanTransaction(
+        timingPackage: CaptureTimingPackage,
+        roomPlanLineage: RoomPlanArtifactLineage
+    ) async throws {
+        guard sessionFoundation != nil else {
+            throw CaptureWorkingSetError.timingFoundationMissing
+        }
+        guard
+            timingPackage.document.clockDomain
+                == CaptureTimingPackage.clockDomain,
+            timingPackage.document.correlations.count == 2,
+            let decodedTiming = try? JSONDecoder().decode(
+                CaptureTimingDocument.self,
+                from: timingPackage.data
+            ),
+            decodedTiming == timingPackage.document
+        else {
+            throw CaptureWorkingSetError.invalidTimingPackage
+        }
+
+        let raw = roomPlanLineage.raw
+        guard let processed = roomPlanLineage.processed else {
+            throw CaptureWorkingSetError
+                .invalidProcessedRoomPlanDescriptor
+        }
+
+        guard
+            raw.descriptor.relativePath
+                == RoomPlanEvidenceArtifactBuilder.rawPath,
+            raw.descriptor.byteCount == raw.data.count,
+            raw.descriptor.sha256
+                == EvidenceIntegrity.sha256(of: raw.data)
+        else {
+            throw CaptureWorkingSetError
+                .invalidRawRoomPlanDescriptor
+        }
+
+        guard
+            processed.descriptor.relativePath
+                == RoomPlanEvidenceArtifactBuilder.processedPath,
+            processed.descriptor.byteCount == processed.data.count,
+            processed.descriptor.sha256
+                == EvidenceIntegrity.sha256(of: processed.data),
+            processed.descriptor.sourceRawSHA256
+                == raw.descriptor.sha256,
+            processed.descriptor.captureSessionID
+                == raw.descriptor.captureSessionID,
+            processed.descriptor.coordinateSpaceID
+                == raw.descriptor.coordinateSpaceID
+        else {
+            throw CaptureWorkingSetError
+                .invalidProcessedRoomPlanDescriptor
+        }
+
+        try bindAuthority(
+            captureSessionID: raw.descriptor.captureSessionID,
+            coordinateSpaceID: raw.descriptor.coordinateSpaceID
+        )
+
+        if let timingDocument,
+           let rawRoomPlanDescriptor,
+           let processedRoomPlanDescriptor
+        {
+            if timingDocument == timingPackage.document,
+               rawRoomPlanDescriptor == raw.descriptor,
+               processedRoomPlanDescriptor == processed.descriptor
+            {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    CaptureTimingPackage.path
+                )
+        }
+
+        guard timingDocument == nil,
+              rawRoomPlanDescriptor == nil,
+              processedRoomPlanDescriptor == nil
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        let rawDeclaration = BundlePayloadDeclaration(
+            path: raw.descriptor.relativePath,
+            mediaType: "application/json",
+            producer: "roomplan_capture",
+            provenanceClass: .appleRoomPlanRawScan,
+            role: .canonical
+        )
+        let processedDeclaration = BundlePayloadDeclaration(
+            path: processed.descriptor.relativePath,
+            mediaType: "application/json",
+            producer: "roomplan_builder",
+            provenanceClass: .appleRoomPlanInference,
+            role: .canonical,
+            sourceRefs: [
+                "sha256:\(raw.descriptor.sha256.description)"
+            ]
+        )
+        let transactionDeclarations = [
+            timingPackage.payloadDeclaration,
+            rawDeclaration,
+            processedDeclaration,
+        ]
+
+        for declaration in transactionDeclarations {
+            guard declarations[declaration.path] == nil else {
+                throw CaptureWorkingSetError
+                    .duplicatePayloadDeclaration(
+                        declaration.path
+                    )
+            }
+        }
+
+        let writes: [(Data, CaptureStorePath)] = try [
+            (
+                timingPackage.data,
+                CaptureStorePath(CaptureTimingPackage.path)
+            ),
+            (
+                raw.data,
+                CaptureStorePath(raw.descriptor.relativePath)
+            ),
+            (
+                processed.data,
+                CaptureStorePath(
+                    processed.descriptor.relativePath
+                )
+            ),
+        ]
+
+        do {
+            for (data, path) in writes {
+                try await writer.writeIfIdentical(
+                    data,
+                    to: path
+                )
+            }
+        } catch {
+            // None of these paths is canonical until all required final
+            // artifacts are durable. Remove only byte-identical files from
+            // this attempt; never delete conflicting external data.
+            for (data, path) in writes.reversed() {
+                _ = try? await writer.removeIfIdentical(
+                    data,
+                    at: path
+                )
+            }
+            throw error
+        }
+
+        // There are no suspension points after this line. Commit the logical
+        // authority atomically after every required file is durable.
+        for declaration in transactionDeclarations {
+            declarations[declaration.path] = declaration
+        }
+        timingDocument = timingPackage.document
+        rawRoomPlanDescriptor = raw.descriptor
+        processedRoomPlanDescriptor = processed.descriptor
+    }
+
     public func persistRawRoomPlan(
         _ payload: RoomPlanRawArtifactPayload
     ) async throws {
