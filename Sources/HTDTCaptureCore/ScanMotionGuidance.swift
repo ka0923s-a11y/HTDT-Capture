@@ -29,6 +29,52 @@ public enum ScanTranslationDirection: String, Sendable, Equatable, CaseIterable 
     case backward
 }
 
+public enum ScanMovementCapability: String, Sendable, Equatable {
+    case unrestricted
+    case stationaryOnly = "stationary_only"
+}
+
+public struct ScanGuidanceProgress: Sendable, Equatable {
+    public let movementCapability: ScanMovementCapability
+    public let completedSpatialGuidanceAttemptCount: Int
+    public let maximumSpatialGuidanceAttempts: Int
+    public let actionableWeakRegionCount: Int
+    public let saturatedWeakRegionCount: Int
+    public let directionCoverageFraction: Double
+    public let isComplete: Bool
+
+    public init(
+        movementCapability: ScanMovementCapability,
+        completedSpatialGuidanceAttemptCount: Int,
+        maximumSpatialGuidanceAttempts: Int,
+        actionableWeakRegionCount: Int,
+        saturatedWeakRegionCount: Int,
+        directionCoverageFraction: Double,
+        isComplete: Bool
+    ) {
+        self.movementCapability = movementCapability
+        self.completedSpatialGuidanceAttemptCount =
+            completedSpatialGuidanceAttemptCount
+        self.maximumSpatialGuidanceAttempts =
+            maximumSpatialGuidanceAttempts
+        self.actionableWeakRegionCount = actionableWeakRegionCount
+        self.saturatedWeakRegionCount = saturatedWeakRegionCount
+        self.directionCoverageFraction = directionCoverageFraction
+        self.isComplete = isComplete
+    }
+
+    public static let empty = ScanGuidanceProgress(
+        movementCapability: .unrestricted,
+        completedSpatialGuidanceAttemptCount: 0,
+        maximumSpatialGuidanceAttempts: 0,
+        actionableWeakRegionCount: 0,
+        saturatedWeakRegionCount: 0,
+        directionCoverageFraction: 0,
+        isComplete: false
+    )
+}
+
+
 public struct ScanMotionGuidanceConfiguration: Sendable, Equatable {
     public let grossRotationThresholdRadians: Double
     public let pitchActivationThresholdRadians: Double
@@ -39,6 +85,8 @@ public struct ScanMotionGuidanceConfiguration: Sendable, Equatable {
     public let spatialGuidanceActivationCoverageFraction: Double
     public let maximumActionDurationSeconds: Double
     public let maximumWeakRegionGuidanceAttempts: Int
+    public let maximumSpatialGuidanceAttempts: Int
+    public let completionDirectionCoverageFraction: Double
     public let cameraHistoryLimit: Int
 
     public init(
@@ -49,8 +97,10 @@ public struct ScanMotionGuidanceConfiguration: Sendable, Equatable {
         minimumTranslationBaselineMeters: Double = 0.30,
         translationCompletionMeters: Double = 0.25,
         spatialGuidanceActivationCoverageFraction: Double = 0.55,
-        maximumActionDurationSeconds: Double = 8.0,
-        maximumWeakRegionGuidanceAttempts: Int = 3,
+        maximumActionDurationSeconds: Double = 6.0,
+        maximumWeakRegionGuidanceAttempts: Int = 2,
+        maximumSpatialGuidanceAttempts: Int = 5,
+        completionDirectionCoverageFraction: Double = 0.95,
         cameraHistoryLimit: Int = 12
     ) {
         precondition(
@@ -84,6 +134,12 @@ public struct ScanMotionGuidanceConfiguration: Sendable, Equatable {
                 && maximumActionDurationSeconds > 0
         )
         precondition(maximumWeakRegionGuidanceAttempts > 0)
+        precondition(maximumSpatialGuidanceAttempts > 0)
+        precondition(
+            completionDirectionCoverageFraction.isFinite
+                && completionDirectionCoverageFraction >= 0
+                && completionDirectionCoverageFraction <= 1
+        )
         precondition(cameraHistoryLimit > 1)
 
         self.grossRotationThresholdRadians =
@@ -104,6 +160,10 @@ public struct ScanMotionGuidanceConfiguration: Sendable, Equatable {
             maximumActionDurationSeconds
         self.maximumWeakRegionGuidanceAttempts =
             maximumWeakRegionGuidanceAttempts
+        self.maximumSpatialGuidanceAttempts =
+            maximumSpatialGuidanceAttempts
+        self.completionDirectionCoverageFraction =
+            completionDirectionCoverageFraction
         self.cameraHistoryLimit = cameraHistoryLimit
     }
 
@@ -284,6 +344,9 @@ public struct ScanMotionGuidanceTracker: Sendable {
         [SpatialCoverageCellKey: Int] = [:]
     private var weakGuidanceAttempts:
         [SpatialCoverageCellKey: Int] = [:]
+    private var movementCapability: ScanMovementCapability =
+        .unrestricted
+    private var completedSpatialGuidanceAttemptCount = 0
 
     public init(
         configuration: ScanMotionGuidanceConfiguration = .standard
@@ -397,6 +460,68 @@ public struct ScanMotionGuidanceTracker: Sendable {
         currentGuidance
     }
 
+    public mutating func setMovementCapability(
+        _ capability: ScanMovementCapability
+    ) {
+        movementCapability = capability
+
+        if capability == .stationaryOnly,
+           let currentGuidance,
+           requiresPhysicalTranslation(currentGuidance.action)
+        {
+            self.currentGuidance = nil
+            currentSelectedAtSeconds = nil
+            currentStartCameraPosition = nil
+            currentStartDiversityCount = nil
+            currentStartDistanceBucket = nil
+        }
+    }
+
+    public func progress(
+        coverage: ScanCoverageSummary,
+        spatialCoverage: SpatialScanCoverageSummary
+    ) -> ScanGuidanceProgress {
+        let actionable = spatialCoverage.regions.filter {
+            $0.classification == .weak
+                && (weakGuidanceAttempts[$0.key] ?? 0)
+                    < configuration.maximumWeakRegionGuidanceAttempts
+                && (spatialCoverage.displayBounds?
+                    .contains($0.key) ?? true)
+        }.count
+        let saturated = spatialCoverage.regions.filter {
+            $0.classification == .weak
+                && (weakGuidanceAttempts[$0.key] ?? 0)
+                    >= configuration.maximumWeakRegionGuidanceAttempts
+        }.count
+        let directionReady =
+            coverage.coverageFraction
+                >= configuration.completionDirectionCoverageFraction
+            && coverage.latestTrackingState == .normal
+        let spatialBudgetExhausted =
+            completedSpatialGuidanceAttemptCount
+                >= configuration.maximumSpatialGuidanceAttempts
+        let spatialComplete =
+            movementCapability == .stationaryOnly
+            || spatialBudgetExhausted
+            || (
+                spatialCoverage.knownRegionCount > 0
+                && actionable == 0
+            )
+
+        return ScanGuidanceProgress(
+            movementCapability: movementCapability,
+            completedSpatialGuidanceAttemptCount:
+                completedSpatialGuidanceAttemptCount,
+            maximumSpatialGuidanceAttempts:
+                configuration.maximumSpatialGuidanceAttempts,
+            actionableWeakRegionCount: actionable,
+            saturatedWeakRegionCount: saturated,
+            directionCoverageFraction: coverage.coverageFraction,
+            isComplete: directionReady && spatialComplete
+        )
+    }
+
+
     private mutating func select(
         _ guidance: ScanMotionGuidance?,
         timestampSeconds: Double,
@@ -507,7 +632,13 @@ public struct ScanMotionGuidanceTracker: Sendable {
             coverage.coverageFraction
                 >= configuration
                     .spatialGuidanceActivationCoverageFraction
+        let spatialGuidanceBudgetExhausted =
+            completedSpatialGuidanceAttemptCount
+                >= configuration.maximumSpatialGuidanceAttempts
+
         if spatialGuidanceActive,
+           movementCapability == .unrestricted,
+           !spatialGuidanceBudgetExhausted,
            let spatialGuidance = spatialMovementCandidate(
                 spatialCoverage: spatialCoverage,
                 observation: observation
@@ -517,8 +648,14 @@ public struct ScanMotionGuidanceTracker: Sendable {
         }
 
         if spatialGuidanceActive,
-           spatialCoverage.knownRegionCount > 0,
-           preferredWeakRegion(spatialCoverage) == nil
+           (
+                movementCapability == .stationaryOnly
+                || spatialGuidanceBudgetExhausted
+                || (
+                    spatialCoverage.knownRegionCount > 0
+                    && preferredWeakRegion(spatialCoverage) == nil
+                )
+           )
         {
             // Direction coverage is already broad and every remaining weak
             // region has either become observed or exhausted its bounded
@@ -570,7 +707,8 @@ public struct ScanMotionGuidanceTracker: Sendable {
             }
         }
 
-        if let region = preferredWeakRegion(
+        if !spatialGuidanceActive,
+           let region = preferredWeakRegion(
             spatialCoverage
         ) {
             let repeatedCount =
@@ -995,6 +1133,19 @@ public struct ScanMotionGuidanceTracker: Sendable {
         }
 
         weakGuidanceAttempts[key, default: 0] += 1
+        completedSpatialGuidanceAttemptCount += 1
+    }
+
+    private func requiresPhysicalTranslation(
+        _ action: ScanMotionGuidanceAction
+    ) -> Bool {
+        switch action {
+        case .translate, .approach, .retreat, .orbit,
+             .reobserveAnotherAngle:
+            return true
+        case .trackingRecovery, .rotate, .tilt, .holdObserve:
+            return false
+        }
     }
 
     private func targetRegionCompleted(
