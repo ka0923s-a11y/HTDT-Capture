@@ -491,7 +491,11 @@ public final class SharedARSessionController {
         let meshObjectObservation =
             liveDerivedShapeObservation(
                 anchors: anchors,
-                classifications: [.table, .seat, .none],
+                // Unclassified mesh is not furniture authority. The
+                // automatic fallback is limited to semantic object classes;
+                // otherwise advisory shape remains unresolved instead of
+                // mixing unrelated .none surfaces into one footprint.
+                classifications: [.table, .seat],
                 sessionTimestampSeconds: frame.timestamp,
                 voxelSizeMeters: 0.035,
                 maxPoints: maxObjectPoints,
