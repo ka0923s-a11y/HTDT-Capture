@@ -552,7 +552,7 @@ public struct CaptureRootView: View {
         case .persistenceFailure:
             return String(
                 localized:
-                    "Check free storage and retry with a new capture. HTDT does not continue when canonical evidence persistence is uncertain."
+                    "A canonical evidence or authority conflict prevented safe continuation. Check the work-data diagnostic; if recovery is not offered, discard this capture and retry."
             )
         case .permissionDenied:
             return String(
