@@ -688,12 +688,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             do {
-                try await store.persistAnnotationPackage(
-                    annotationPackage
-                )
-                try await store.persistMeasurementPackage(
-                    measurementPackage
-                )
+                try await store
+                    .persistAnnotationAndMeasurementPackages(
+                        annotationPackage: annotationPackage,
+                        measurementPackage: measurementPackage
+                    )
                 guard self.captureGeneration == generation,
                       self.state == .annotating
                 else {
