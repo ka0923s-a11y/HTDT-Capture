@@ -1028,6 +1028,19 @@ public enum DerivedShapeProxyFitter {
             )
         }
 
+        if let curved = preferredCurvedCandidate(candidates) {
+            return DerivedShapeProxy(
+                resolution: .resolved,
+                selected: curved,
+                candidates: candidates,
+                provenance: provenance(
+                    observation: observation,
+                    metrics: curved.metrics
+                ),
+                observationSample: sample
+            )
+        }
+
         if hasCircleRectangleAmbiguity(candidates) {
             return unresolvedProxy(
                 resolution: .ambiguousEvidence,
@@ -1480,6 +1493,65 @@ public enum DerivedShapeProxyFitter {
             supportScore: support,
             fitScore: fitScore
         )
+    }
+
+    private static func preferredCurvedCandidate(
+        _ candidates: [DerivedShapeCandidate]
+    ) -> DerivedShapeCandidate? {
+        let curved = candidates.filter {
+            guard $0.kind == .circle || $0.kind == .ellipse else {
+                return false
+            }
+            return $0.metrics.supportScore >= 0.58
+                && $0.metrics.normalizedResidual <= 0.060
+                && ($0.metrics.angularSupport ?? 0) >= 0.82
+        }
+        guard !curved.isEmpty else {
+            return nil
+        }
+
+        let competingResidual = candidates
+            .filter {
+                $0.kind == .polygon
+                    || $0.kind == .orientedRectangle
+            }
+            .map { $0.metrics.normalizedResidual }
+            .min() ?? .infinity
+
+        let credible = curved.filter {
+            $0.metrics.normalizedResidual
+                <= competingResidual + 0.025
+        }
+        guard !credible.isEmpty else {
+            return nil
+        }
+
+        let circle = credible.first { $0.kind == .circle }
+        let ellipse = credible.first { $0.kind == .ellipse }
+
+        if let circle,
+           let ellipse,
+           case let .ellipse(ellipseGeometry) = ellipse.geometry
+        {
+            let axisRatio =
+                ellipseGeometry.semiMajorAxis
+                / max(ellipseGeometry.semiMinorAxis, 0.001)
+            if axisRatio <= 1.18,
+               selectionCost(circle)
+                    <= selectionCost(ellipse) + 0.008
+            {
+                return circle
+            }
+        }
+
+        return credible.min {
+            let lhs = selectionCost($0)
+            let rhs = selectionCost($1)
+            if abs(lhs - rhs) > 0.000_000_1 {
+                return lhs < rhs
+            }
+            return $0.kind.rawValue < $1.kind.rawValue
+        }
     }
 
     private static func selectionCost(
