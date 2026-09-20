@@ -104,6 +104,13 @@ The concrete iOS host target now declares that type and document association in
 
 ZIP bytes are not logical identity. The reference archiver validates the finalized directory first, creates a ZIP-compatible wrapper, validates the archive, and requires the archive `bundle_digest` to equal the source directory digest before atomic promotion.
 
+The Swift core now also provides a dependency-free native ZIP_STORED exporter
+and archive validator. It revalidates the finalized source, writes a bounded
+classic-ZIP transport wrapper, reopens and validates local/central records plus
+CRC/SHA/manifest semantics, requires the same logical bundle digest, and only
+then atomically publishes the `.htdtcapture` file. Zip64-required exports fail
+closed in this slice.
+
 ## Important integrity semantics
 
 SHA-256 is used for content integrity and logical identity only. It is not a signature and does not authenticate the bundle author.
@@ -128,7 +135,7 @@ its logical bundle digest matches the finalizer result.
 ## Remaining Phase 5 work
 
 - connect live annotation/measurement authorities into the same working set;
-- invoke validated `.htdtcapture` export from the iOS share/export UI;
+- invoke the native validated `.htdtcapture` exporter from the iOS share/export UI;
 - exercise finalization and export against a real captured-room working set;
 - measure storage/thermal/backpressure behavior on device.
 
