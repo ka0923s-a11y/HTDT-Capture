@@ -324,6 +324,195 @@ final class CaptureWorkingSetStoreTests: XCTestCase {
         )
     }
 
+    func testFramePersistenceRecoversFromPartialCanonicalFilesAndDropsConflictingPreview()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let store = try CaptureWorkingSetStore(rootDirectory: root)
+        let sessionID = CaptureSessionID()
+        let coordinateID = CoordinateSpaceID()
+        let frameID = EvidenceFrameID()
+        let pixel = Data([1, 2, 3, 4, 5, 6])
+        let depth = Data([7, 8, 9, 10])
+        let preview = Data([11, 12, 13])
+
+        let depthReference = try DepthEvidenceReference(
+            kind: .discreteSceneDepth,
+            depthRelativePath:
+                "evidence/depth/\(frameID).depthbin",
+            depthByteCount: depth.count,
+            depthSHA256: EvidenceIntegrity.sha256(of: depth)
+        )
+        let descriptor = try FrameEvidenceDescriptor(
+            frameID: frameID,
+            captureSessionID: sessionID,
+            coordinateSpaceID: coordinateID,
+            sessionTimestampSeconds: 12.0,
+            worldFromCamera: .identity,
+            intrinsics: try CameraIntrinsics3x3(
+                values: [
+                    1, 0, 0,
+                    0, 1, 0,
+                    0, 0, 1,
+                ]
+            ),
+            imageWidth: 1,
+            imageHeight: 1,
+            pixelFormatFourCC: 0,
+            pixelRelativePath:
+                "evidence/frames/\(frameID).pixelbin",
+            pixelByteCount: pixel.count,
+            pixelSHA256: EvidenceIntegrity.sha256(of: pixel),
+            depthStatus: .capturedDiscrete,
+            depth: depthReference
+        )
+        let package = try FrameEvidencePackageBuilder.build(
+            descriptor: descriptor,
+            pixelPayload: pixel,
+            depthPayload: depth,
+            confidencePayload: nil,
+            previewPayload: preview
+        )
+        let writer = try AtomicCaptureFileWriter(
+            rootDirectory: root
+        )
+
+        // Simulate a previous interrupted end-save that already committed
+        // some byte-identical canonical payloads.
+        try await writer.write(
+            pixel,
+            to: try CaptureStorePath(
+                descriptor.pixelRelativePath
+            )
+        )
+        try await writer.write(
+            depth,
+            to: try CaptureStorePath(
+                depthReference.depthRelativePath
+            )
+        )
+
+        // A stale/conflicting preview must not invalidate canonical evidence.
+        let previewPath = try XCTUnwrap(package.preview?.path)
+        try await writer.write(
+            Data([99, 98, 97]),
+            to: try CaptureStorePath(previewPath)
+        )
+
+        try await store.persistFramePackage(package)
+
+        let snapshot = await store.snapshot()
+        XCTAssertEqual(snapshot.evidenceFrameCount, 1)
+        XCTAssertEqual(snapshot.depthEvidenceCount, 1)
+        XCTAssertTrue(
+            snapshot.payloadDeclarations.contains {
+                $0.path == package.descriptorPath
+            }
+        )
+        XCTAssertTrue(
+            snapshot.payloadDeclarations.contains {
+                $0.path == descriptor.pixelRelativePath
+            }
+        )
+        XCTAssertTrue(
+            snapshot.payloadDeclarations.contains {
+                $0.path == depthReference.depthRelativePath
+            }
+        )
+        XCTAssertFalse(
+            snapshot.payloadDeclarations.contains {
+                $0.path == previewPath
+            }
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(previewPath).path
+            )
+        )
+
+        let quality = await store.evaluateQuality()
+        XCTAssertEqual(quality.integrityStatus, .pass)
+    }
+
+    func testConcurrentExactFrameReplayCountsOneEvidenceFrame()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let store = try CaptureWorkingSetStore(rootDirectory: root)
+        let sessionID = CaptureSessionID()
+        let coordinateID = CoordinateSpaceID()
+        let frameID = EvidenceFrameID()
+        let pixel = Data(repeating: 0x31, count: 64 * 1024)
+        let depth = Data(repeating: 0x42, count: 32 * 1024)
+        let depthReference = try DepthEvidenceReference(
+            kind: .discreteSceneDepth,
+            depthRelativePath:
+                "evidence/depth/\(frameID).depthbin",
+            depthByteCount: depth.count,
+            depthSHA256: EvidenceIntegrity.sha256(of: depth)
+        )
+        let descriptor = try FrameEvidenceDescriptor(
+            frameID: frameID,
+            captureSessionID: sessionID,
+            coordinateSpaceID: coordinateID,
+            sessionTimestampSeconds: 18.0,
+            worldFromCamera: .identity,
+            intrinsics: try CameraIntrinsics3x3(
+                values: [
+                    1, 0, 0,
+                    0, 1, 0,
+                    0, 0, 1,
+                ]
+            ),
+            imageWidth: 1,
+            imageHeight: 1,
+            pixelFormatFourCC: 0,
+            pixelRelativePath:
+                "evidence/frames/\(frameID).pixelbin",
+            pixelByteCount: pixel.count,
+            pixelSHA256: EvidenceIntegrity.sha256(of: pixel),
+            depthStatus: .capturedDiscrete,
+            depth: depthReference
+        )
+        let package = try FrameEvidencePackageBuilder.build(
+            descriptor: descriptor,
+            pixelPayload: pixel,
+            depthPayload: depth,
+            confidencePayload: nil
+        )
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<8 {
+                group.addTask {
+                    try await store.persistFramePackage(package)
+                }
+            }
+            try await group.waitForAll()
+        }
+
+        let snapshot = await store.snapshot()
+        XCTAssertEqual(snapshot.evidenceFrameCount, 1)
+        XCTAssertEqual(snapshot.depthEvidenceCount, 1)
+        XCTAssertEqual(
+            snapshot.payloadDeclarations.filter {
+                $0.path == package.descriptorPath
+                    || $0.path == descriptor.pixelRelativePath
+                    || $0.path == depthReference.depthRelativePath
+            }.count,
+            3
+        )
+    }
+
     func testMeshPersistenceFailureRollsBackPartialFilesAndCanRetry() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
