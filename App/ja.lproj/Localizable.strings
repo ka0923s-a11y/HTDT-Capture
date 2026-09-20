@@ -323,3 +323,23 @@
 "Look right →" = "見る方向：右 →";
 "Guidance" = "ガイダンス";
 "Supporting observation is still weak; follow the current guidance." = "観測根拠がまだ弱いため、現在のガイダンスに従ってください。";
+
+"%d observed supports" = "観測支持部 %d";
+"Observed body reaches floor" = "本体が床まで連続して観測されています";
+"Lower support unresolved" = "下部支持構造は未確定";
+"Height evidence insufficient" = "高さ方向の観測証拠が不足";
+"Open lower volume" = "下部空間を保持";
+"Solid to floor" = "床まで実体あり";
+"Unresolved" = "未確定";
+"Show the lower part of the furniture" = "家具の下部を映してください";
+"Show the lower part from another angle" = "家具の下側を別角度から映してください";
+"Observed shape candidates %d" = "観測形状 %d候補";
+"Possible shape candidates %d" = "複数形状の可能性 %d候補";
+"Decomposition unresolved" = "物体分離未確定";
+"Separated" = "分離済み";
+"Possible multiple components" = "複数 component の可能性";
+"Lower" = "下層";
+"Upper" = "上層";
+"Layer %d" = "第%d層";
+"%d preview-only support relation candidate(s)" = "補助表示のみの支持関係候補 %d件";
+"Re-observe this region from another angle" = "この領域を別角度から再観測してください";
