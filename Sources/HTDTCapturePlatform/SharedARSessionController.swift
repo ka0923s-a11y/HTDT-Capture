@@ -2,6 +2,7 @@ import HTDTCaptureCore
 
 #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
 import ARKit
+import Foundation
 import RoomPlan
 
 public enum PlatformCaptureError: Error {
@@ -11,10 +12,32 @@ public enum PlatformCaptureError: Error {
 
 @available(iOS 17.0, *)
 @MainActor
+private final class RoomPlanSessionDelegateBridge:
+    NSObject,
+    @preconcurrency RoomCaptureSessionDelegate
+{
+    var completionHandler: (
+        (CapturedRoomData, (any Error)?) -> Void
+    )?
+
+    func captureSession(
+        _ session: RoomCaptureSession,
+        didEndWith data: CapturedRoomData,
+        error: (any Error)?
+    ) {
+        completionHandler?(data, error)
+    }
+}
+
+@available(iOS 17.0, *)
+@MainActor
 public final class SharedARSessionController {
     public let arSession: ARSession
     public private(set) var context: CaptureSessionContext
     public private(set) var roomCaptureSession: RoomCaptureSession?
+
+    private let roomPlanDelegateBridge =
+        RoomPlanSessionDelegateBridge()
 
     public init(
         arSession: ARSession = ARSession(),
@@ -22,6 +45,16 @@ public final class SharedARSessionController {
     ) {
         self.arSession = arSession
         self.context = context
+    }
+
+    public func setRoomPlanCompletionHandler(
+        _ handler: @escaping (
+            CapturedRoomData,
+            (any Error)?
+        ) -> Void
+    ) {
+        roomPlanDelegateBridge.completionHandler = handler
+        roomCaptureSession?.delegate = roomPlanDelegateBridge
     }
 
     public func startRoomPlan(
@@ -32,7 +65,9 @@ public final class SharedARSessionController {
         }
 
         if roomCaptureSession == nil {
-            roomCaptureSession = RoomCaptureSession(arSession: arSession)
+            let session = RoomCaptureSession(arSession: arSession)
+            session.delegate = roomPlanDelegateBridge
+            roomCaptureSession = session
         }
         roomCaptureSession?.run(configuration: configuration)
     }

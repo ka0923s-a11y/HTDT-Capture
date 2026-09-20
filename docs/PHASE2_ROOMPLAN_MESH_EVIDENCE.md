@@ -9,6 +9,14 @@ Issue: #3
 - Explicit processed -> raw SHA-256 lineage.
 - Shared capture-session and coordinate-space authority on both RoomPlan evidence layers.
 - Runtime provenance record.
+- RoomPlan session-completion delegate bridge that returns exact
+  `CapturedRoomData` plus framework error state.
+- Raw-first RoomPlan artifact processing:
+  - exact Codable raw bytes;
+  - raw byte count and SHA-256;
+  - raw authority survives independently of postprocessing;
+  - `RoomBuilder.capturedRoom(from:)` derives the postprocessed room;
+  - processed bytes are explicitly hash-bound to exact raw bytes.
 - Portable mesh anchor snapshot model.
 - Column-major `T_world_from_mesh_anchor` representation.
 - Mesh geometry validation:
@@ -38,9 +46,12 @@ Issue: #3
   - emits deterministic lowercase geometry paths;
   - emits sorted `mesh/anchors.json` records;
   - can persist through the existing atomic no-overwrite writer.
-- Round-trip and fail-closed mesh evidence tests.
+- Round-trip and fail-closed mesh and RoomPlan-lineage tests.
 
-See `docs/PHASE2_FINAL_ACTIVE_MESH_EVIDENCE.md` for the latest slice boundary.
+See:
+
+- `docs/PHASE2_FINAL_ACTIVE_MESH_EVIDENCE.md`
+- `docs/PHASE2_RAW_ROOMPLAN_ARTIFACT_LINEAGE.md`
 
 ## Canonical mesh binary layout
 
@@ -68,8 +79,8 @@ truncation, and trailing bytes.
 
 The following remain hardware/integration gated:
 
-- acquire a real `CapturedRoomData` from RoomPlan and persist/reopen it;
-- regenerate a real `CapturedRoom` from preserved raw data;
+- capture a real `CapturedRoomData`, persist it immediately, and reopen it;
+- regenerate a real `CapturedRoom` from preserved raw bytes;
 - persist a real final active ARMeshAnchor evidence package from the host working set;
 - prove RoomPlan/mesh alignment on reference geometry;
 - collect the Issue #9 physical accuracy benchmark;
