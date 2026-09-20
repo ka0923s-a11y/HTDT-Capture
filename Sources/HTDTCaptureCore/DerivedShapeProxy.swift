@@ -1210,11 +1210,13 @@ public enum DerivedShapeProxyFitter {
         let concavityResolution:
             DerivedPolygonConcavityResolution
         if detectedConcavity {
-            if concavityIsSupported(
+            polygonPoints = supportedConcavityPolygon(
                 polygon: polygonPoints,
                 points: points,
-                scale: scale
-            ) {
+                scale: scale,
+                maximumVertices: 12
+            )
+            if polygonIsConcave(polygonPoints) {
                 concavityResolution = .resolvedConcave
             } else {
                 polygonPoints = convexHull(positions)
@@ -1625,71 +1627,112 @@ public enum DerivedShapeProxyFitter {
         }
     }
 
-    private static func concavityIsSupported(
+    private static func supportedConcavityPolygon(
         polygon: [DerivedPoint2D],
         points: [DerivedObservationPoint],
-        scale: Double
-    ) -> Bool {
+        scale: Double,
+        maximumVertices: Int
+    ) -> [DerivedPoint2D] {
         guard polygon.count >= 4 else {
-            return false
+            return polygon
         }
 
-        let signedArea = polygon.indices.reduce(0.0) {
-            partial, index in
-            let next = (index + 1) % polygon.count
-            return partial
-                + polygon[index].x * polygon[next].y
-                - polygon[next].x * polygon[index].y
-        }
-        let orientation = signedArea >= 0 ? 1.0 : -1.0
+        var result = polygon
         let vertexRadius = max(0.10, scale * 0.10)
         let edgeRadius = max(0.10, scale * 0.08)
+        var changed = true
 
-        for index in polygon.indices {
-            let previous =
-                polygon[
-                    (index - 1 + polygon.count)
-                    % polygon.count
-                ]
-            let current = polygon[index]
-            let next = polygon[(index + 1) % polygon.count]
-            let turn = cross(previous, current, next)
-            guard turn * orientation < -0.000_000_1 else {
-                continue
+        while changed, result.count > 3 {
+            changed = false
+            let signedArea = result.indices.reduce(0.0) {
+                partial, index in
+                let next = (index + 1) % result.count
+                return partial
+                    + result[index].x * result[next].y
+                    - result[next].x * result[index].y
             }
+            let orientation =
+                signedArea >= 0 ? 1.0 : -1.0
 
-            let nearbyCount = points.lazy.filter {
-                hypot(
-                    $0.position.x - current.x,
-                    $0.position.y - current.y
-                ) <= vertexRadius
-            }.prefix(2).count
-            guard nearbyCount >= 2 else {
-                return false
-            }
+            for index in result.indices {
+                let previous =
+                    result[
+                        (index - 1 + result.count)
+                        % result.count
+                    ]
+                let current = result[index]
+                let next =
+                    result[(index + 1) % result.count]
+                let turn = cross(previous, current, next)
+                guard turn * orientation
+                    < -0.000_000_1
+                else {
+                    continue
+                }
 
-            let incomingProbe = DerivedPoint2D(
-                x: (previous.x + current.x) / 2,
-                y: (previous.y + current.y) / 2
-            )
-            let outgoingProbe = DerivedPoint2D(
-                x: (current.x + next.x) / 2,
-                y: (current.y + next.y) / 2
-            )
-
-            for probe in [incomingProbe, outgoingProbe] {
-                guard points.contains(where: {
-                    hypot(
-                        $0.position.x - probe.x,
-                        $0.position.y - probe.y
-                    ) <= edgeRadius
-                }) else {
-                    return false
+                if !reflexVertexIsSupported(
+                    previous: previous,
+                    current: current,
+                    next: next,
+                    points: points,
+                    vertexRadius: vertexRadius,
+                    edgeRadius: edgeRadius
+                ) {
+                    result.remove(at: index)
+                    changed = true
+                    break
                 }
             }
         }
 
-        return true
+        removeNearCollinearVertices(
+            &result,
+            tolerance: max(0.002, scale * 0.004)
+        )
+        reduceVertexCount(
+            &result,
+            maximumVertices: maximumVertices
+        )
+        return result
+    }
+
+    private static func reflexVertexIsSupported(
+        previous: DerivedPoint2D,
+        current: DerivedPoint2D,
+        next: DerivedPoint2D,
+        points: [DerivedObservationPoint],
+        vertexRadius: Double,
+        edgeRadius: Double
+    ) -> Bool {
+        let nearbyCount = points.lazy.filter {
+            hypot(
+                $0.position.x - current.x,
+                $0.position.y - current.y
+            ) <= vertexRadius
+        }.prefix(2).count
+        guard nearbyCount >= 2 else {
+            return false
+        }
+
+        let probes = [
+            DerivedPoint2D(
+                x: (previous.x + current.x) / 2,
+                y: (previous.y + current.y) / 2
+            ),
+            DerivedPoint2D(
+                x: (current.x + next.x) / 2,
+                y: (current.y + next.y) / 2
+            ),
+        ]
+
+        return probes.allSatisfy { probe in
+            points.contains {
+                hypot(
+                    $0.position.x - probe.x,
+                    $0.position.y - probe.y
+                ) <= edgeRadius
+            }
+        }
     }
 
     private static func polygonIsConcave(
