@@ -141,26 +141,26 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var derivedObjectFusionTracker =
         DerivedShapeTemporalFusionTracker(
             configuration: DerivedShapeTemporalFusionConfiguration(
-                maximumFrameCount: 4,
-                maximumAgeSeconds: 8,
-                voxelSizeMeters: 0.06,
+                maximumFrameCount: 6,
+                maximumAgeSeconds: 24,
+                voxelSizeMeters: 0.055,
                 maximumPointCount: 384
             )
         )
     private var derivedVolumeFusionTracker =
         DerivedShapeTemporalFusionTracker(
             configuration: DerivedShapeTemporalFusionConfiguration(
-                maximumFrameCount: 4,
-                maximumAgeSeconds: 8,
-                voxelSizeMeters: 0.06,
+                maximumFrameCount: 6,
+                maximumAgeSeconds: 24,
+                voxelSizeMeters: 0.055,
                 maximumPointCount: 384
             )
         )
     private var derivedWallFusionTracker =
         DerivedShapeTemporalFusionTracker(
             configuration: DerivedShapeTemporalFusionConfiguration(
-                maximumFrameCount: 3,
-                maximumAgeSeconds: 8,
+                maximumFrameCount: 4,
+                maximumAgeSeconds: 20,
                 voxelSizeMeters: 0.08,
                 maximumPointCount: 256
             )
@@ -249,26 +249,26 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         derivedObjectFusionTracker =
             DerivedShapeTemporalFusionTracker(
                 configuration: DerivedShapeTemporalFusionConfiguration(
-                    maximumFrameCount: 4,
-                    maximumAgeSeconds: 8,
-                    voxelSizeMeters: 0.06,
+                    maximumFrameCount: 6,
+                    maximumAgeSeconds: 24,
+                    voxelSizeMeters: 0.055,
                     maximumPointCount: 384
                 )
             )
         derivedVolumeFusionTracker =
             DerivedShapeTemporalFusionTracker(
                 configuration: DerivedShapeTemporalFusionConfiguration(
-                    maximumFrameCount: 4,
-                    maximumAgeSeconds: 8,
-                    voxelSizeMeters: 0.06,
+                    maximumFrameCount: 6,
+                    maximumAgeSeconds: 24,
+                    voxelSizeMeters: 0.055,
                     maximumPointCount: 384
                 )
             )
         derivedWallFusionTracker =
             DerivedShapeTemporalFusionTracker(
                 configuration: DerivedShapeTemporalFusionConfiguration(
-                    maximumFrameCount: 3,
-                    maximumAgeSeconds: 8,
+                    maximumFrameCount: 4,
+                    maximumAgeSeconds: 20,
                     voxelSizeMeters: 0.08,
                     maximumPointCount: 256
                 )
@@ -725,26 +725,26 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         derivedObjectFusionTracker =
             DerivedShapeTemporalFusionTracker(
                 configuration: DerivedShapeTemporalFusionConfiguration(
-                    maximumFrameCount: 4,
-                    maximumAgeSeconds: 8,
-                    voxelSizeMeters: 0.06,
+                    maximumFrameCount: 6,
+                    maximumAgeSeconds: 24,
+                    voxelSizeMeters: 0.055,
                     maximumPointCount: 384
                 )
             )
         derivedVolumeFusionTracker =
             DerivedShapeTemporalFusionTracker(
                 configuration: DerivedShapeTemporalFusionConfiguration(
-                    maximumFrameCount: 4,
-                    maximumAgeSeconds: 8,
-                    voxelSizeMeters: 0.06,
+                    maximumFrameCount: 6,
+                    maximumAgeSeconds: 24,
+                    voxelSizeMeters: 0.055,
                     maximumPointCount: 384
                 )
             )
         derivedWallFusionTracker =
             DerivedShapeTemporalFusionTracker(
                 configuration: DerivedShapeTemporalFusionConfiguration(
-                    maximumFrameCount: 3,
-                    maximumAgeSeconds: 8,
+                    maximumFrameCount: 4,
+                    maximumAgeSeconds: 20,
                     voxelSizeMeters: 0.08,
                     maximumPointCount: 256
                 )
@@ -1291,26 +1291,26 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         derivedObjectFusionTracker =
             DerivedShapeTemporalFusionTracker(
                 configuration: DerivedShapeTemporalFusionConfiguration(
-                    maximumFrameCount: 4,
-                    maximumAgeSeconds: 8,
-                    voxelSizeMeters: 0.06,
+                    maximumFrameCount: 6,
+                    maximumAgeSeconds: 24,
+                    voxelSizeMeters: 0.055,
                     maximumPointCount: 384
                 )
             )
         derivedVolumeFusionTracker =
             DerivedShapeTemporalFusionTracker(
                 configuration: DerivedShapeTemporalFusionConfiguration(
-                    maximumFrameCount: 4,
-                    maximumAgeSeconds: 8,
-                    voxelSizeMeters: 0.06,
+                    maximumFrameCount: 6,
+                    maximumAgeSeconds: 24,
+                    voxelSizeMeters: 0.055,
                     maximumPointCount: 384
                 )
             )
         derivedWallFusionTracker =
             DerivedShapeTemporalFusionTracker(
                 configuration: DerivedShapeTemporalFusionConfiguration(
-                    maximumFrameCount: 3,
-                    maximumAgeSeconds: 8,
+                    maximumFrameCount: 4,
+                    maximumAgeSeconds: 20,
                     voxelSizeMeters: 0.08,
                     maximumPointCount: 256
                 )
