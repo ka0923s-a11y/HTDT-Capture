@@ -7,6 +7,8 @@ public struct CaptureRootActions {
     public let beginCapture: () -> Void
     public let beginReview: () -> Void
     public let captureEvidenceFrame: () -> Void
+    public let setScanMovementCapability:
+        (ScanMovementCapability) -> Void
     public let beginAnnotation: () -> Void
     public let captureRaycastPlacement:
         () async throws -> AnnotationPlacementAuthority
@@ -25,6 +27,8 @@ public struct CaptureRootActions {
         beginCapture: @escaping () -> Void = {},
         beginReview: @escaping () -> Void = {},
         captureEvidenceFrame: @escaping () -> Void = {},
+        setScanMovementCapability: @escaping
+            (ScanMovementCapability) -> Void = { _ in },
         beginAnnotation: @escaping () -> Void = {},
         captureRaycastPlacement: @escaping
             () async throws -> AnnotationPlacementAuthority = {
@@ -46,6 +50,8 @@ public struct CaptureRootActions {
         self.beginCapture = beginCapture
         self.beginReview = beginReview
         self.captureEvidenceFrame = captureEvidenceFrame
+        self.setScanMovementCapability =
+            setScanMovementCapability
         self.beginAnnotation = beginAnnotation
         self.captureRaycastPlacement = captureRaycastPlacement
         self.captureSpeakerOrientation =
@@ -76,6 +82,7 @@ public struct CaptureRootView: View {
     public let observationStability: ObservationStabilitySummary
     public let spatialCoverage: SpatialScanCoverageSummary
     public let motionGuidance: ScanMotionGuidance?
+    public let scanGuidanceProgress: ScanGuidanceProgress
     public let derivedShapePreview: DerivedShapePreviewSnapshot
     public let scanEvidenceFrameCount: Int
     public let actions: CaptureRootActions
@@ -97,6 +104,7 @@ public struct CaptureRootView: View {
         observationStability: ObservationStabilitySummary = .empty,
         spatialCoverage: SpatialScanCoverageSummary = .empty,
         motionGuidance: ScanMotionGuidance? = nil,
+        scanGuidanceProgress: ScanGuidanceProgress = .empty,
         derivedShapePreview: DerivedShapePreviewSnapshot = .empty,
         scanEvidenceFrameCount: Int = 0,
         actions: CaptureRootActions = CaptureRootActions()
@@ -119,6 +127,7 @@ public struct CaptureRootView: View {
         self.observationStability = observationStability
         self.spatialCoverage = spatialCoverage
         self.motionGuidance = motionGuidance
+        self.scanGuidanceProgress = scanGuidanceProgress
         self.derivedShapePreview = derivedShapePreview
         self.scanEvidenceFrameCount = scanEvidenceFrameCount
         self.actions = actions
@@ -135,10 +144,13 @@ public struct CaptureRootView: View {
                     observation: observationStability,
                     spatialCoverage: spatialCoverage,
                     motionGuidance: motionGuidance,
+                    guidanceProgress: scanGuidanceProgress,
                     derivedPreview: derivedShapePreview,
                     evidenceFrameCount: scanEvidenceFrameCount,
                     captureEvidenceFrame:
                         actions.captureEvidenceFrame,
+                    setMovementCapability:
+                        actions.setScanMovementCapability,
                     endScan: actions.beginReview
                 )
             } else {

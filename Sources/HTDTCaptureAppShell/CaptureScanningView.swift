@@ -8,9 +8,12 @@ public struct CaptureScanningView: View {
     public let observation: ObservationStabilitySummary
     public let spatialCoverage: SpatialScanCoverageSummary
     public let motionGuidance: ScanMotionGuidance?
+    public let guidanceProgress: ScanGuidanceProgress
     public let derivedPreview: DerivedShapePreviewSnapshot
     public let evidenceFrameCount: Int
     public let captureEvidenceFrame: () -> Void
+    public let setMovementCapability:
+        (ScanMovementCapability) -> Void
     public let endScan: () -> Void
 
     @State private var showingEndScanReview = false
@@ -26,9 +29,12 @@ public struct CaptureScanningView: View {
         observation: ObservationStabilitySummary,
         spatialCoverage: SpatialScanCoverageSummary,
         motionGuidance: ScanMotionGuidance?,
+        guidanceProgress: ScanGuidanceProgress,
         derivedPreview: DerivedShapePreviewSnapshot,
         evidenceFrameCount: Int,
         captureEvidenceFrame: @escaping () -> Void,
+        setMovementCapability: @escaping
+            (ScanMovementCapability) -> Void,
         endScan: @escaping () -> Void
     ) {
         self.preview = preview
@@ -36,9 +42,11 @@ public struct CaptureScanningView: View {
         self.observation = observation
         self.spatialCoverage = spatialCoverage
         self.motionGuidance = motionGuidance
+        self.guidanceProgress = guidanceProgress
         self.derivedPreview = derivedPreview
         self.evidenceFrameCount = evidenceFrameCount
         self.captureEvidenceFrame = captureEvidenceFrame
+        self.setMovementCapability = setMovementCapability
         self.endScan = endScan
     }
 
@@ -166,7 +174,9 @@ public struct CaptureScanningView: View {
 
             if let motionGuidance {
                 Text(
-                    ScanMotionGuidanceCopy.category(
+                    primaryScanReadyToEnd
+                    ? String(localized: "Optional extra observation")
+                    : ScanMotionGuidanceCopy.category(
                         for: motionGuidance.action,
                         language:
                             ScanMotionGuidanceCopy.preferredLanguage
@@ -185,6 +195,8 @@ public struct CaptureScanningView: View {
                     alignment: .leading
                 )
 
+            mobilityControl
+
             compactEvidenceSummary
                 .font(.caption2)
         }
@@ -197,6 +209,55 @@ public struct CaptureScanningView: View {
                 style: .continuous
             )
         )
+    }
+
+    @ViewBuilder
+    private var mobilityControl: some View {
+        if guidanceProgress.movementCapability == .stationaryOnly {
+            HStack(spacing: 8) {
+                Label(
+                    "Scanning from this position",
+                    systemImage: "figure.stand"
+                )
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.cyan)
+
+                Spacer(minLength: 6)
+
+                Button("Allow movement") {
+                    setMovementCapability(.unrestricted)
+                }
+                .font(.caption2.weight(.semibold))
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+            }
+        } else if motionGuidance.map({
+            requiresPhysicalTranslation($0.action)
+        }) == true {
+            Button {
+                setMovementCapability(.stationaryOnly)
+            } label: {
+                Label(
+                    "I cannot move around this area",
+                    systemImage: "figure.stand"
+                )
+                .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+    }
+
+    private func requiresPhysicalTranslation(
+        _ action: ScanMotionGuidanceAction
+    ) -> Bool {
+        switch action {
+        case .translate, .approach, .retreat, .orbit,
+             .reobserveAnotherAngle:
+            return true
+        case .trackingRecovery, .rotate, .tilt, .holdObserve:
+            return false
+        }
     }
 
     private var compactBottomControls: some View {
@@ -228,7 +289,7 @@ public struct CaptureScanningView: View {
                 .frame(minHeight: 38)
             }
             .buttonStyle(.bordered)
-            .tint(scanGuidanceComplete ? .green : nil)
+            .tint(primaryScanReadyToEnd ? .green : nil)
             .controlSize(.regular)
             .accessibilityLabel(
                 String(localized: "End scan")
@@ -538,14 +599,25 @@ public struct CaptureScanningView: View {
         }
 
         if let motionGuidance {
-            return ScanMotionGuidanceCopy.prompt(
+            let prompt = ScanMotionGuidanceCopy.prompt(
                 for: motionGuidance,
                 language:
                     ScanMotionGuidanceCopy.preferredLanguage
             )
+            if primaryScanReadyToEnd {
+                return String(
+                    format: String(
+                        localized:
+                            "Base scan complete. Optional extra observation: %@"
+                    ),
+                    prompt
+                )
+            }
+            return prompt
         }
 
-        if coverage.latestTrackingState == .normal,
+        if guidanceProgress.movementCapability == .unrestricted,
+           coverage.latestTrackingState == .normal,
            observation.recheckSuggested
         {
             return String(
@@ -569,6 +641,12 @@ public struct CaptureScanningView: View {
                 Section("Direction coverage") {
                     Text(
                         "Direction coverage is trajectory guidance only and does not prove geometric completeness."
+                    )
+                }
+
+                Section("Movement guidance") {
+                    Text(
+                        "If the room layout prevents you from walking around a target, choose I cannot move around this area. HTDT will stop requiring translation/orbit guidance for this scan; weak and unknown spatial cells remain advisory."
                     )
                 }
 
@@ -728,13 +806,11 @@ public struct CaptureScanningView: View {
                     .compactMap(\.selected)
                     .first
             {
-                return String(
-                    format: String(
-                        localized: "%@ · %d candidates"
-                    ),
-                    shapeKindLabel(selected.kind),
-                    decomposition.components.count
-                )
+                // The compact HUD reports the best resolved observed shape.
+                // Component/candidate count remains available in Details so
+                // a resolved circle/ellipse is not visually presented as
+                // unresolved just because several bounded components exist.
+                return shapeKindLabel(selected.kind)
             }
 
             return String(
@@ -779,11 +855,15 @@ public struct CaptureScanningView: View {
         return String(localized: "No bounded shape evidence yet")
     }
 
+    private var primaryScanReadyToEnd: Bool {
+        coverage.latestTrackingState == .normal
+            && coverage.coverageFraction >= 0.95
+            && coverage.pitchBandCoverageFraction(.low) >= 0.75
+            && coverage.pitchBandCoverageFraction(.high) >= 0.75
+    }
+
     private var scanGuidanceComplete: Bool {
-        coverage.coverageFraction >= 0.95
-            && coverage.latestTrackingState == .normal
-            && motionGuidance == nil
-            && spatialCoverage.observedRegionCount > 0
+        guidanceProgress.isComplete
     }
 
     private func shapeKindLabel(
@@ -871,10 +951,17 @@ public struct CaptureScanningView: View {
             return false
         }
 
+        // Spatial weak/unknown cells are advisory. Once the operator has
+        // completed broad directional capture under normal tracking, pressing
+        // End must not be turned into another effectively mandatory spatial
+        // loop.
+        if primaryScanReadyToEnd {
+            return false
+        }
+
         return coverage.coverageFraction < 0.75
             || coverage.pitchBandCoverageFraction(.low) < 0.50
             || coverage.pitchBandCoverageFraction(.high) < 0.50
-            || spatialCoverage.weakRegionCount > 0
     }
 
     private var coveragePercent: Int {

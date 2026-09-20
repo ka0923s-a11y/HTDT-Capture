@@ -50,6 +50,8 @@ private struct HTDTCaptureHostView: View {
                 coordinator.spatialCoverage,
             motionGuidance:
                 coordinator.motionGuidance,
+            scanGuidanceProgress:
+                coordinator.scanGuidanceProgress,
             derivedShapePreview:
                 coordinator.derivedShapePreview,
             scanEvidenceFrameCount:
@@ -58,6 +60,8 @@ private struct HTDTCaptureHostView: View {
                 beginCapture: coordinator.beginCapture,
                 beginReview: coordinator.beginReview,
                 captureEvidenceFrame: coordinator.captureEvidenceFrame,
+                setScanMovementCapability:
+                    coordinator.setScanMovementCapability,
                 beginAnnotation: coordinator.beginAnnotation,
                 captureRaycastPlacement:
                     coordinator.captureRaycastPlacement,
@@ -110,6 +114,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set)
     var motionGuidance: ScanMotionGuidance?
     @Published private(set)
+    var scanGuidanceProgress: ScanGuidanceProgress = .empty
+    @Published private(set)
     var derivedShapePreview: DerivedShapePreviewSnapshot = .empty
     @Published private(set)
     var scanEvidenceFrameCount = 0
@@ -133,21 +139,36 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var motionGuidanceTracker =
         ScanMotionGuidanceTracker()
     private var derivedObjectFusionTracker =
-        DerivedShapeTemporalFusionTracker()
-    private var derivedVolumeFusionTracker =
-        DerivedShapeTemporalFusionTracker()
-    private var derivedWallFusionTracker =
         DerivedShapeTemporalFusionTracker(
             configuration: DerivedShapeTemporalFusionConfiguration(
                 maximumFrameCount: 4,
                 maximumAgeSeconds: 8,
-                voxelSizeMeters: 0.07,
-                maximumPointCount: 640
+                voxelSizeMeters: 0.06,
+                maximumPointCount: 384
+            )
+        )
+    private var derivedVolumeFusionTracker =
+        DerivedShapeTemporalFusionTracker(
+            configuration: DerivedShapeTemporalFusionConfiguration(
+                maximumFrameCount: 4,
+                maximumAgeSeconds: 8,
+                voxelSizeMeters: 0.06,
+                maximumPointCount: 384
+            )
+        )
+    private var derivedWallFusionTracker =
+        DerivedShapeTemporalFusionTracker(
+            configuration: DerivedShapeTemporalFusionConfiguration(
+                maximumFrameCount: 3,
+                maximumAgeSeconds: 8,
+                voxelSizeMeters: 0.08,
+                maximumPointCount: 256
             )
         )
     private var scanCoverageTask: Task<Void, Never>?
     private var memoryWarningCancellable: AnyCancellable?
     private var derivedPreviewSuspendedForMemoryPressure = false
+    private var roomPlanModelRenderingEnabled = true
     private let qualityRequirements = CaptureQualityRequirements()
 
     init() {
@@ -169,6 +190,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         self.derivedPreviewSuspendedForMemoryPressure =
                             true
                         self.derivedShapePreview = .empty
+                        self.setRoomPlanModelRenderingEnabled(false)
                     }
                 }
         #endif
@@ -177,6 +199,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var scanSessionController: SharedARSessionController {
         sessionController
     }
+
+    private func setRoomPlanModelRenderingEnabled(
+        _ enabled: Bool
+    ) {
+        guard roomPlanModelRenderingEnabled != enabled else {
+            return
+        }
+        roomPlanModelRenderingEnabled = enabled
+        sessionController.setRoomPlanModelRenderingEnabled(enabled)
+    }
+
 
     var annotationCoordinateSpaceID: CoordinateSpaceID? {
         guard state == .reviewing || state == .annotating else {
@@ -210,21 +243,37 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverage = .empty
         motionGuidanceTracker = ScanMotionGuidanceTracker()
         motionGuidance = nil
+        scanGuidanceProgress = .empty
         derivedObjectFusionTracker =
-            DerivedShapeTemporalFusionTracker()
-        derivedVolumeFusionTracker =
-            DerivedShapeTemporalFusionTracker()
-        derivedWallFusionTracker =
             DerivedShapeTemporalFusionTracker(
                 configuration: DerivedShapeTemporalFusionConfiguration(
                     maximumFrameCount: 4,
                     maximumAgeSeconds: 8,
-                    voxelSizeMeters: 0.07,
-                    maximumPointCount: 640
+                    voxelSizeMeters: 0.06,
+                    maximumPointCount: 384
+                )
+            )
+        derivedVolumeFusionTracker =
+            DerivedShapeTemporalFusionTracker(
+                configuration: DerivedShapeTemporalFusionConfiguration(
+                    maximumFrameCount: 4,
+                    maximumAgeSeconds: 8,
+                    voxelSizeMeters: 0.06,
+                    maximumPointCount: 384
+                )
+            )
+        derivedWallFusionTracker =
+            DerivedShapeTemporalFusionTracker(
+                configuration: DerivedShapeTemporalFusionConfiguration(
+                    maximumFrameCount: 3,
+                    maximumAgeSeconds: 8,
+                    voxelSizeMeters: 0.08,
+                    maximumPointCount: 256
                 )
             )
         derivedShapePreview = .empty
         derivedPreviewSuspendedForMemoryPressure = false
+        setRoomPlanModelRenderingEnabled(true)
         scanEvidenceFrameCount = 0
         resourceMonitor?.stop()
         resourceMonitor = nil
@@ -239,6 +288,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         Task {
             await continueBeginCapture()
         }
+    }
+
+    func setScanMovementCapability(
+        _ capability: ScanMovementCapability
+    ) {
+        guard state == .scanning else {
+            return
+        }
+
+        motionGuidanceTracker.setMovementCapability(capability)
+        motionGuidance = motionGuidanceTracker.guidance()
+        scanGuidanceProgress = motionGuidanceTracker.progress(
+            coverage: scanCoverage,
+            spatialCoverage: spatialCoverage
+        )
     }
 
     func captureEvidenceFrame() {
@@ -655,17 +719,32 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverage = .empty
         motionGuidanceTracker = ScanMotionGuidanceTracker()
         motionGuidance = nil
+        scanGuidanceProgress = .empty
         derivedObjectFusionTracker =
-            DerivedShapeTemporalFusionTracker()
-        derivedVolumeFusionTracker =
-            DerivedShapeTemporalFusionTracker()
-        derivedWallFusionTracker =
             DerivedShapeTemporalFusionTracker(
                 configuration: DerivedShapeTemporalFusionConfiguration(
                     maximumFrameCount: 4,
                     maximumAgeSeconds: 8,
-                    voxelSizeMeters: 0.07,
-                    maximumPointCount: 640
+                    voxelSizeMeters: 0.06,
+                    maximumPointCount: 384
+                )
+            )
+        derivedVolumeFusionTracker =
+            DerivedShapeTemporalFusionTracker(
+                configuration: DerivedShapeTemporalFusionConfiguration(
+                    maximumFrameCount: 4,
+                    maximumAgeSeconds: 8,
+                    voxelSizeMeters: 0.06,
+                    maximumPointCount: 384
+                )
+            )
+        derivedWallFusionTracker =
+            DerivedShapeTemporalFusionTracker(
+                configuration: DerivedShapeTemporalFusionConfiguration(
+                    maximumFrameCount: 3,
+                    maximumAgeSeconds: 8,
+                    voxelSizeMeters: 0.08,
+                    maximumPointCount: 256
                 )
             )
         derivedShapePreview = .empty
@@ -1198,17 +1277,32 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverage = .empty
         motionGuidanceTracker = ScanMotionGuidanceTracker()
         motionGuidance = nil
+        scanGuidanceProgress = .empty
         derivedObjectFusionTracker =
-            DerivedShapeTemporalFusionTracker()
-        derivedVolumeFusionTracker =
-            DerivedShapeTemporalFusionTracker()
-        derivedWallFusionTracker =
             DerivedShapeTemporalFusionTracker(
                 configuration: DerivedShapeTemporalFusionConfiguration(
                     maximumFrameCount: 4,
                     maximumAgeSeconds: 8,
-                    voxelSizeMeters: 0.07,
-                    maximumPointCount: 640
+                    voxelSizeMeters: 0.06,
+                    maximumPointCount: 384
+                )
+            )
+        derivedVolumeFusionTracker =
+            DerivedShapeTemporalFusionTracker(
+                configuration: DerivedShapeTemporalFusionConfiguration(
+                    maximumFrameCount: 4,
+                    maximumAgeSeconds: 8,
+                    voxelSizeMeters: 0.06,
+                    maximumPointCount: 384
+                )
+            )
+        derivedWallFusionTracker =
+            DerivedShapeTemporalFusionTracker(
+                configuration: DerivedShapeTemporalFusionConfiguration(
+                    maximumFrameCount: 3,
+                    maximumAgeSeconds: 8,
+                    voxelSizeMeters: 0.08,
+                    maximumPointCount: 256
                 )
             )
         derivedShapePreview = .empty
@@ -1245,6 +1339,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             observation:
                                 self.observationStability
                         )
+                    self.scanGuidanceProgress =
+                        self.motionGuidanceTracker.progress(
+                            coverage: self.scanCoverage,
+                            spatialCoverage: self.spatialCoverage
+                        )
                 }
 
                 if sampleIndex.isMultiple(of: 2),
@@ -1270,15 +1369,23 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             observation:
                                 self.observationStability
                         )
+                    self.scanGuidanceProgress =
+                        self.motionGuidanceTracker.progress(
+                            coverage: self.scanCoverage,
+                            spatialCoverage: spatialSummary
+                        )
 
-                    if sampleIndex.isMultiple(of: 8) {
+                    if sampleIndex.isMultiple(of: 16) {
                         let thermalState =
                             ProcessInfo.processInfo.thermalState
-                        let derivedWorkAllowed =
-                            !self
-                                .derivedPreviewSuspendedForMemoryPressure
-                            && thermalState != .serious
-                            && thermalState != .critical
+                        let resourcePressure =
+                            self.derivedPreviewSuspendedForMemoryPressure
+                            || thermalState == .serious
+                            || thermalState == .critical
+                        self.setRoomPlanModelRenderingEnabled(
+                            !resourcePressure
+                        )
+                        let derivedWorkAllowed = !resourcePressure
 
                         if derivedWorkAllowed,
                            (
@@ -1289,8 +1396,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                            let observations =
                             try? self.sessionController
                                 .currentDerivedShapeObservations(
-                                    maxObjectPoints: 256,
-                                    maxWallPoints: 320
+                                    maxObjectPoints: 160,
+                                    maxWallPoints: 192
                                 )
                         {
                             let timestamp =

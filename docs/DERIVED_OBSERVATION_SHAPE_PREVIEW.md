@@ -347,3 +347,38 @@ No semantic furniture label is inferred from depth. No unseen leg, chair curve,
 wall, or object completion is generated. If the depth evidence remains
 ambiguous, the existing unresolved/ambiguous states remain authoritative for
 the preview.
+
+
+## Multi-view curved-shape correction
+
+Physical testing with a round table and curved chair showed that a flexible
+polygon could remain the visible result even when a circle/ellipse was also a
+credible candidate. The derived preview therefore adds two bounded corrections.
+
+First, recent same-coordinate-space scene-depth observations are fused across a
+small temporal window with deterministic 3D voxel deduplication. Re-observing an
+object from another angle now contributes to the next preview instead of simply
+replacing the previous single-frame observation.
+
+Second, footprint fitting can prefer a strongly supported circle/ellipse over a
+rectangle or many-vertex polygon when:
+
+- the curved candidate has sufficient angular support;
+- support score and residual pass explicit thresholds;
+- its residual is close to the competing flexible model.
+
+This is a model-selection preference, not semantic object recognition. A partial
+arc, near-square rounded superellipse, or mixed circle/square evidence remains
+unresolved or non-circular when the curved evidence is not strong enough.
+
+For depth-backed furniture, the fitter also extracts a representative horizontal
+slice before boundary fitting. Broad tabletop/seat/body evidence can therefore
+drive the 2D footprint while lower legs/supports remain available to the separate
+vertical support analysis instead of distorting the body outline.
+
+Live-resource bounds remain explicit: temporal frame count, age, fused points,
+depth/mesh sample counts, and face inspection are capped. The preview stays
+derived/advisory and is never promoted to canonical room geometry.
+
+Physical acceptance is still required for the actual round table, curved chair,
+and complex non-rectangular furniture seen on device.

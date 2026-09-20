@@ -147,6 +147,16 @@ public final class SharedARSessionController {
         self.roomCaptureView.delegate = roomPlanDelegateBridge
     }
 
+    public func setRoomPlanModelRenderingEnabled(
+        _ enabled: Bool
+    ) {
+        guard roomCaptureView.isModelEnabled != enabled else {
+            return
+        }
+        roomCaptureView.isModelEnabled = enabled
+        roomCaptureView.setNeedsLayout()
+    }
+
     func markLiveRoomCaptureViewMounted(
         _ view: RoomCaptureView
     ) {
@@ -483,7 +493,7 @@ public final class SharedARSessionController {
                 sessionTimestampSeconds: frame.timestamp,
                 voxelSizeMeters: 0.035,
                 maxPoints: maxObjectPoints,
-                maxInspectedFaces: 4_000
+                maxInspectedFaces: 2_500
             )
         let wallObservation =
             liveDerivedShapeObservation(
@@ -492,19 +502,19 @@ public final class SharedARSessionController {
                 sessionTimestampSeconds: frame.timestamp,
                 voxelSizeMeters: 0.06,
                 maxPoints: maxWallPoints,
-                maxInspectedFaces: 6_000
+                maxInspectedFaces: 3_500
             )
         let meshFloorReferenceY = liveFloorReferenceY(
             anchors: anchors,
-            maxInspectedFaces: 1_500,
+            maxInspectedFaces: 1_000,
             maxSamples: 192
         )
 
         let depthWorldPoints = liveSceneDepthWorldPoints(
             frame: frame,
             maxPoints: min(
-                max(maxObjectPoints * 2, 384),
-                768
+                max(maxObjectPoints * 2, 256),
+                512
             ),
             cropFraction: 0.92,
             minimumDepthMeters: 0.18,
@@ -520,7 +530,7 @@ public final class SharedARSessionController {
                 sessionTimestampSeconds: frame.timestamp,
                 floorReferenceY: depthFloorReferenceY,
                 voxelSizeMeters: 0.05,
-                maxPoints: max(maxObjectPoints, 384)
+                maxPoints: max(maxObjectPoints, 256)
             )
 
         let objectObservation: DerivedShapeObservation?

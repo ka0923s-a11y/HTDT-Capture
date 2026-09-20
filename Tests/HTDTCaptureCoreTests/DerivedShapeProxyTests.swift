@@ -132,6 +132,32 @@ final class DerivedShapeProxyTests: XCTestCase {
         XCTAssertEqual(proxy.selected?.kind, .circle)
     }
 
+    func testWellSupportedImperfectCircleCanBeatFlexiblePolygon() {
+        let points = (0..<96).map { index -> DerivedPoint2D in
+            let angle =
+                2 * Double.pi * Double(index) / 96.0
+            let radius =
+                1.0
+                + 0.035 * sin(3 * angle)
+                + 0.012 * cos(7 * angle)
+            return DerivedPoint2D(
+                x: radius * cos(angle),
+                y: radius * sin(angle)
+            )
+        }
+
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: observation(points)
+        )
+
+        XCTAssertEqual(proxy.resolution, .resolved)
+        XCTAssertEqual(proxy.selected?.kind, .circle)
+        XCTAssertGreaterThan(
+            proxy.selected?.metrics.angularSupport ?? 0,
+            0.85
+        )
+    }
+
     func testPartialCircleArcRemainsUnresolved() {
         let points = (0..<72).map { index -> DerivedPoint2D in
             let t =
@@ -237,6 +263,29 @@ final class DerivedShapeProxyTests: XCTestCase {
             proxy.selected?.metrics.normalizedResidual ?? 1,
             0.01
         )
+    }
+
+    func testNonOrthogonalQuadrilateralSelectsPolygon() {
+        let vertices = [
+            DerivedPoint2D(x: -1.20, y: -0.55),
+            DerivedPoint2D(x: 1.05, y: -0.82),
+            DerivedPoint2D(x: 0.72, y: 0.88),
+            DerivedPoint2D(x: -0.82, y: 0.62),
+        ]
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: observation(
+                samplePolygon(vertices, samplesPerEdge: 18)
+            )
+        )
+
+        XCTAssertEqual(proxy.resolution, .resolved)
+        XCTAssertEqual(proxy.selected?.kind, .polygon)
+        guard case let .polygon(polygon)? =
+            proxy.selected?.geometry
+        else {
+            return XCTFail("Expected polygon geometry")
+        }
+        XCTAssertGreaterThanOrEqual(polygon.vertices.count, 4)
     }
 
     func testPentagonSelectsPolygon() {
