@@ -951,4 +951,83 @@ extension CaptureWorkingSetStoreTests {
             FileManager.default.fileExists(atPath: root.path)
         )
     }
+
+    func testOwnedMeshCanRollbackAndBeReplaced() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let store = try CaptureWorkingSetStore(
+            rootDirectory: root
+        )
+        let sessionID = CaptureSessionID()
+        let coordinateID = CoordinateSpaceID()
+
+        func mesh(
+            anchorID: UUID,
+            scale: Float
+        ) throws -> MeshEvidencePackage {
+            try MeshEvidencePackageBuilder.build(
+                snapshots: [
+                    MeshAnchorSnapshot(
+                        anchorID: anchorID,
+                        captureSessionID: sessionID,
+                        coordinateSpaceID: coordinateID,
+                        worldFromAnchor: .identity,
+                        sessionTimestampSeconds: Double(scale),
+                        geometry: try MeshGeometryPayload(
+                            vertices: [
+                                Float3(0, 0, 0),
+                                Float3(scale, 0, 0),
+                                Float3(0, scale, 0),
+                            ],
+                            triangleIndices: [0, 1, 2]
+                        )
+                    ),
+                ]
+            )
+        }
+
+        let first = try mesh(
+            anchorID: UUID(),
+            scale: 1
+        )
+        try await store.persistMeshPackage(first)
+        try await store.rollbackCurrentMeshPackage()
+
+        var snapshot = await store.snapshot()
+        XCTAssertNil(snapshot.meshAnchorCount)
+        XCTAssertFalse(
+            snapshot.payloadDeclarations.contains {
+                $0.path == MeshEvidencePackage.indexPath
+                    || $0.path.hasPrefix("mesh/geometry/")
+            }
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: root
+                    .appendingPathComponent(
+                        MeshEvidencePackage.indexPath
+                    )
+                    .path
+            )
+        )
+
+        let second = try mesh(
+            anchorID: UUID(),
+            scale: 2
+        )
+        try await store.persistMeshPackage(second)
+
+        snapshot = await store.snapshot()
+        XCTAssertEqual(snapshot.meshAnchorCount, 1)
+        XCTAssertTrue(
+            snapshot.payloadDeclarations.contains {
+                $0.path == MeshEvidencePackage.indexPath
+            }
+        )
+    }
+
 }
