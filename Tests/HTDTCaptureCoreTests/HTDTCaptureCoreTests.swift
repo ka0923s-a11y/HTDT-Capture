@@ -119,6 +119,34 @@ func storePathRejectsTraversalAndBackslashes() {
 }
 
 @Test
+func atomicWriterAllowsOnlyByteIdenticalReplay() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let writer = try AtomicCaptureFileWriter(rootDirectory: root)
+    let path = try CaptureStorePath("session/replay.bin")
+    let payload = Data([1, 2, 3, 4])
+
+    try await writer.writeIfIdentical(payload, to: path)
+    try await writer.writeIfIdentical(payload, to: path)
+
+    await #expect(throws: CaptureFileWriterError.self) {
+        try await writer.writeIfIdentical(
+            Data([9, 9, 9]),
+            to: path
+        )
+    }
+
+    #expect(
+        try Data(
+            contentsOf:
+                root.appendingPathComponent("session/replay.bin")
+        ) == payload
+    )
+}
+
+@Test
 func atomicWriterDoesNotOverwriteEvidence() async throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
