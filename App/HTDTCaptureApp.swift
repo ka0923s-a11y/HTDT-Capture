@@ -377,9 +377,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         + String(snapshot.evidenceFrameCount)
                         + " evidence frame(s) persisted"
             } catch {
+                guard self.captureGeneration == generation,
+                      self.state == .scanning
+                else {
+                    // An in-flight manual evidence save must not terminate a
+                    // review that has already begun.
+                    return
+                }
                 self.workingSetStatus = HostLocalization.text(
-                    "Processed RoomPlan evidence could not be saved",
-                    "RoomPlan の処理済みデータを保存できませんでした"
+                    "Evidence frame/depth could not be saved",
+                    "証拠フレーム／深度を保存できませんでした"
                 )
                 self.fail(.persistenceFailure)
             }
@@ -1141,12 +1148,30 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             try await store.persistFramePackage(framePackage)
         } catch {
+            // Frame/depth persistence consists of several canonical files.
+            // The core store is replay-safe, so one bounded retry can recover
+            // from an interrupted/partial filesystem write without inventing
+            // or overwriting evidence.
             workingSetStatus = HostLocalization.text(
-                "Selected frame/depth evidence could not be saved",
-                "選択フレーム／深度証拠を保存できませんでした"
+                "Retrying selected frame/depth evidence save",
+                "選択フレーム／深度証拠の保存を再試行中"
             )
-            fail(.persistenceFailure)
-            return
+            try? await Task.sleep(for: .milliseconds(120))
+
+            guard state == .reviewing else {
+                return
+            }
+
+            do {
+                try await store.persistFramePackage(framePackage)
+            } catch {
+                workingSetStatus = HostLocalization.text(
+                    "Selected frame/depth evidence could not be saved after retry",
+                    "選択フレーム／深度証拠を再試行しても保存できませんでした"
+                )
+                fail(.persistenceFailure)
+                return
+            }
         }
 
         if let meshPackage {
