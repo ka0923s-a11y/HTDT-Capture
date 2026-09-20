@@ -202,10 +202,22 @@ def _build_source_registry(
     records: list[dict] = []
     by_path: dict[str, dict] = {}
     hashes = {entry["sha256"] for entry in manifest["files"]}
+    paths = {entry["path"] for entry in manifest["files"]}
+    capture_session_ids = set(manifest["capture_session_ids"])
+    raw_roomplan_hashes = {
+        entry["sha256"]
+        for entry in manifest["files"]
+        if entry["provenance_class"] == "apple_roomplan_raw_scan"
+    }
 
     for entry in manifest["files"]:
         path = entry["path"]
-        for source_ref in entry.get("source_refs", []):
+        refs = entry.get("source_refs", [])
+        capture_session_refs: list[str] = []
+        has_raw_unavailable_marker = False
+        resolved_sha_refs: list[str] = []
+
+        for source_ref in refs:
             if source_ref.startswith("sha256:"):
                 target_hash = source_ref.removeprefix("sha256:")
                 if target_hash not in hashes:
@@ -213,15 +225,69 @@ def _build_source_registry(
                         f"unresolved SHA-256 source_ref for {path}: "
                         f"{source_ref}"
                     )
+                resolved_sha_refs.append(target_hash)
             elif source_ref.startswith("path:"):
                 target_path = source_ref.removeprefix("path:")
-                if target_path not in {
-                    candidate["path"] for candidate in manifest["files"]
-                }:
+                if target_path not in paths:
                     raise IngestionError(
                         f"unresolved path source_ref for {path}: "
                         f"{source_ref}"
                     )
+            elif source_ref.startswith("capture_session:"):
+                capture_session_id = source_ref.removeprefix(
+                    "capture_session:"
+                )
+                if capture_session_id not in capture_session_ids:
+                    raise IngestionError(
+                        f"unresolved capture-session source_ref for {path}: "
+                        f"{source_ref}"
+                    )
+                capture_session_refs.append(capture_session_id)
+            elif source_ref == "roomplan_raw_serialization:unavailable":
+                has_raw_unavailable_marker = True
+            else:
+                raise IngestionError(
+                    f"unsupported source_ref for {path}: {source_ref}"
+                )
+
+        if entry["provenance_class"] == "apple_roomplan_inference":
+            if has_raw_unavailable_marker:
+                if raw_roomplan_hashes:
+                    raise IngestionError(
+                        "processed RoomPlan cannot claim raw serialization "
+                        "unavailable while a raw RoomPlan payload is present"
+                    )
+                if len(capture_session_refs) != 1:
+                    raise IngestionError(
+                        "processed-only RoomPlan must reference exactly one "
+                        "manifest capture session"
+                    )
+                if resolved_sha_refs:
+                    raise IngestionError(
+                        "processed-only RoomPlan must not claim a SHA-256 "
+                        "source when raw serialization is unavailable"
+                    )
+            else:
+                raw_refs = [
+                    value
+                    for value in resolved_sha_refs
+                    if value in raw_roomplan_hashes
+                ]
+                if len(raw_refs) != 1:
+                    raise IngestionError(
+                        "processed RoomPlan must reference exactly one raw "
+                        "RoomPlan payload SHA-256"
+                    )
+                if capture_session_refs:
+                    raise IngestionError(
+                        "raw-backed processed RoomPlan must use the raw "
+                        "payload lineage rather than capture_session refs"
+                    )
+        elif has_raw_unavailable_marker or capture_session_refs:
+            raise IngestionError(
+                "RoomPlan raw-unavailable/capture-session source refs are "
+                f"only valid for apple_roomplan_inference: {path}"
+            )
 
         record = {
             "source_evidence_id": _source_evidence_id(
@@ -238,14 +304,13 @@ def _build_source_registry(
             "producer": entry["producer"],
             "provenance_class": entry["provenance_class"],
             "role": entry["role"],
-            "source_refs": entry.get("source_refs", []),
+            "source_refs": refs,
         }
         records.append(record)
         by_path[path] = record
 
     records.sort(key=lambda item: item["path"].encode("utf-8"))
     return records, by_path
-
 
 def _build_roomplan_records(
     manifest: dict,
