@@ -173,6 +173,20 @@ public actor CaptureWorkingSetStore {
         _ payload: RoomPlanRawArtifactPayload
     ) async throws {
         let descriptor = payload.descriptor
+
+        // RoomCaptureView can deliver the same completion payload more than
+        // once around stop()/review transition. Exact replay is harmless and
+        // must not turn an otherwise complete capture into a terminal
+        // persistence failure. A conflicting replay remains fail-closed.
+        if let existing = rawRoomPlanDescriptor {
+            if existing == descriptor {
+                return
+            }
+            throw CaptureWorkingSetError.duplicatePayloadDeclaration(
+                RoomPlanEvidenceArtifactBuilder.rawPath
+            )
+        }
+
         guard
             descriptor.relativePath
                 == RoomPlanEvidenceArtifactBuilder.rawPath,
@@ -205,11 +219,24 @@ public actor CaptureWorkingSetStore {
     public func persistProcessedRoomPlan(
         _ payload: RoomPlanProcessedArtifactPayload
     ) async throws {
+        let descriptor = payload.descriptor
+
+        // Match raw RoomPlan replay semantics: exact duplicate completion is
+        // idempotent, but a second payload with different lineage/digest is a
+        // conflicting canonical write and is rejected.
+        if let existing = processedRoomPlanDescriptor {
+            if existing == descriptor {
+                return
+            }
+            throw CaptureWorkingSetError.duplicatePayloadDeclaration(
+                RoomPlanEvidenceArtifactBuilder.processedPath
+            )
+        }
+
         guard let raw = rawRoomPlanDescriptor else {
             throw CaptureWorkingSetError.processedRoomPlanRequiresRaw
         }
 
-        let descriptor = payload.descriptor
         guard
             descriptor.relativePath
                 == RoomPlanEvidenceArtifactBuilder.processedPath,
