@@ -766,10 +766,29 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let generation = captureGeneration
 
         Task {
+            let destination: URL
             do {
-                let destination = try exportDestination(
+                destination = try exportDestination(
                     for: finalizedRevision
                 )
+            } catch {
+                guard captureGeneration == generation,
+                      state == .finalized
+                else {
+                    return
+                }
+                workingSetStatus =
+                    HostLocalization.text(
+                        "Archive destination could not be prepared. The finalized revision is preserved and export can be retried.",
+                        "アーカイブの保存先を準備できませんでした。確定済みリビジョンは保持されているため、書き出しを再試行できます。"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+                return
+            }
+
+            do {
                 let result = try await Task.detached(
                     priority: .userInitiated
                 ) {
@@ -798,7 +817,45 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     "検証済みの共有用アーカイブを作成しました"
                 )
             } catch {
-                fail(.persistenceFailure)
+                guard captureGeneration == generation,
+                      state == .finalized
+                else {
+                    return
+                }
+
+                if case CaptureBundleArchiveError
+                    .destinationAlreadyExists = error,
+                   let existingValidation =
+                    try? StoredCaptureBundleArchiveValidator
+                        .validate(archive: destination),
+                   existingValidation.bundleDigest
+                    == finalizedRevision.bundleDigest
+                {
+                    exportURL = destination
+                    do {
+                        try transition(.export)
+                        workingSetStatus = HostLocalization.text(
+                            "Existing validated archive recovered and is ready to share",
+                            "既存の検証済みアーカイブを復旧し、共有できる状態にしました"
+                        )
+                    } catch {
+                        workingSetStatus =
+                            HostLocalization.text(
+                                "Validated archive exists, but the export state could not be committed",
+                                "検証済みアーカイブは存在しますが、書き出し状態を確定できませんでした"
+                            )
+                    }
+                    return
+                }
+
+                workingSetStatus =
+                    HostLocalization.text(
+                        "Archive export failed. The finalized revision is preserved; retry export when ready.",
+                        "アーカイブの書き出しに失敗しました。確定済みリビジョンは保持されているため、準備ができたら再試行してください。"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
             }
         }
     }
@@ -2144,6 +2201,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         quality: CaptureQualityReport,
         generation: UUID
     ) async {
+        var promotedRevision: FinalizedCaptureRevision?
+
         do {
             try await store.persistQualityReport(quality)
             let snapshot = await store.snapshot()
@@ -2171,6 +2230,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     destinationDirectory: destination,
                     request: request
                 )
+            promotedRevision = finalized
+
             let validation =
                 try BundleDirectoryValidator.validate(
                     root: finalized.directory
@@ -2198,7 +2259,85 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 : "Finalized revision; bundle digest "
                     + validation.bundleDigest.description
         } catch {
-            fail(.persistenceFailure)
+            guard captureGeneration == generation else {
+                return
+            }
+
+            let diagnostic =
+                Self.persistenceDiagnostic(error)
+
+            if promotedRevision != nil {
+                workingSetStatus =
+                    HostLocalization.text(
+                        "The revision was promoted but failed post-promotion validation; capture cannot safely resume",
+                        "リビジョン昇格後の検証に失敗したため、安全にキャプチャへ戻れません"
+                    )
+                    + " ["
+                    + diagnostic
+                    + "]"
+                fail(.persistenceFailure)
+                return
+            }
+
+            do {
+                try await store.discardUncommittedQualityReport(
+                    quality
+                )
+            } catch {
+                workingSetStatus =
+                    HostLocalization.text(
+                        "Finalization failed and the staged quality record could not be rolled back safely",
+                        "確定処理に失敗し、途中保存された品質情報を安全に取り消せませんでした"
+                    )
+                    + " ["
+                    + diagnostic
+                    + "]"
+                fail(.persistenceFailure)
+                return
+            }
+
+            await store.recordResourceEvent(
+                CaptureResourceEvent(
+                    kind: .persistenceFailure,
+                    severity: .warning,
+                    detail:
+                        "Recoverable finalization failure: "
+                        + diagnostic
+                )
+            )
+
+            guard captureGeneration == generation,
+                  state == .validating
+            else {
+                return
+            }
+
+            do {
+                try transition(.validationFailed)
+            } catch {
+                fail(.unknown)
+                return
+            }
+
+            await refreshQuality(
+                store: store,
+                generation: generation
+            )
+
+            guard captureGeneration == generation,
+                  state == .reviewing
+            else {
+                return
+            }
+
+            workingSetStatus =
+                HostLocalization.text(
+                    "Finalization was not committed. The capture remains in Review and can be retried.",
+                    "確定処理はコミットされませんでした。キャプチャは確認画面に保持されており、再試行できます。"
+                )
+                + " ["
+                + diagnostic
+                + "]"
         }
     }
 
@@ -2390,6 +2529,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private func fail(_ code: CaptureFailureCode) {
+        guard state != .finalized,
+              state != .exported
+        else {
+            workingSetStatus =
+                HostLocalization.text(
+                    "A post-finalization operation failed, but the finalized revision remains intact",
+                    "確定後の処理でエラーが発生しましたが、確定済みリビジョンは保持されています"
+                )
+            return
+        }
+
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
         resourceMonitor?.stop()
