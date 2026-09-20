@@ -14,7 +14,7 @@ public enum PlatformCaptureError: Error {
 @MainActor
 private final class RoomPlanSessionDelegateBridge:
     NSObject,
-    RoomCaptureSessionDelegate
+    @preconcurrency RoomCaptureSessionDelegate
 {
     var completionHandler: (
         (CapturedRoomData, (any Error)?) -> Void
