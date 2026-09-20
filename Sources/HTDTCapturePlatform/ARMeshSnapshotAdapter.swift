@@ -24,13 +24,21 @@ public enum ARMeshSnapshotAdapter {
         let geometry = anchor.geometry
 
         guard geometry.vertices.format == .float3,
-              geometry.vertices.componentsPerVector >= 3
+              geometry.vertices.componentsPerVector >= 3,
+              sourceHasReadableRange(
+                geometry.vertices,
+                bytesPerVector: MemoryLayout<Float>.size * 3
+              )
         else {
             throw ARMeshSnapshotAdapterError.unsupportedVertexFormat
         }
 
         guard geometry.normals.format == .float3,
-              geometry.normals.componentsPerVector >= 3
+              geometry.normals.componentsPerVector >= 3,
+              sourceHasReadableRange(
+                geometry.normals,
+                bytesPerVector: MemoryLayout<Float>.size * 3
+              )
         else {
             throw ARMeshSnapshotAdapterError.unsupportedNormalFormat
         }
@@ -58,6 +66,9 @@ public enum ARMeshSnapshotAdapter {
                 faces.bytesPerIndex
             )
         }
+        guard elementHasReadableRange(faces) else {
+            throw ARMeshSnapshotAdapterError.invalidGeometry
+        }
 
         var indices: [UInt32] = []
         indices.reserveCapacity(faces.count * faces.indexCountPerPrimitive)
@@ -75,13 +86,25 @@ public enum ARMeshSnapshotAdapter {
                 case 4:
                     indices.append(readUInt32LE(pointer))
                 default:
-                    fatalError("validated above")
+                    throw ARMeshSnapshotAdapterError
+                        .unsupportedIndexWidth(faces.bytesPerIndex)
                 }
             }
         }
 
         var classifications: [UInt8]?
         if let source = geometry.classification {
+            guard source.format == .uchar,
+                  source.componentsPerVector >= 1,
+                  sourceHasReadableRange(
+                    source,
+                    bytesPerVector: MemoryLayout<UInt8>.size
+                  ),
+                  source.count >= faces.count
+            else {
+                throw ARMeshSnapshotAdapterError.invalidGeometry
+            }
+
             var values: [UInt8] = []
             values.reserveCapacity(faces.count)
             for index in 0..<faces.count {
@@ -115,6 +138,64 @@ public enum ARMeshSnapshotAdapter {
             sessionTimestampSeconds: sessionTimestampSeconds,
             geometry: payload
         )
+    }
+
+    private static func sourceHasReadableRange(
+        _ source: ARGeometrySource,
+        bytesPerVector: Int
+    ) -> Bool {
+        guard source.count >= 0,
+              source.offset >= 0,
+              source.stride >= bytesPerVector,
+              bytesPerVector > 0
+        else {
+            return false
+        }
+
+        guard source.count > 0 else {
+            return source.offset <= source.buffer.length
+        }
+
+        let (strideBytes, strideOverflow) =
+            (source.count - 1)
+                .multipliedReportingOverflow(by: source.stride)
+        guard !strideOverflow else {
+            return false
+        }
+        let (lastStart, offsetOverflow) =
+            source.offset.addingReportingOverflow(strideBytes)
+        guard !offsetOverflow else {
+            return false
+        }
+        let (requiredBytes, sizeOverflow) =
+            lastStart.addingReportingOverflow(bytesPerVector)
+        return !sizeOverflow
+            && requiredBytes <= source.buffer.length
+    }
+
+    private static func elementHasReadableRange(
+        _ element: ARGeometryElement
+    ) -> Bool {
+        guard element.count >= 0,
+              element.indexCountPerPrimitive > 0,
+              element.bytesPerIndex > 0
+        else {
+            return false
+        }
+
+        let (indexCount, countOverflow) =
+            element.count.multipliedReportingOverflow(
+                by: element.indexCountPerPrimitive
+            )
+        guard !countOverflow else {
+            return false
+        }
+        let (requiredBytes, byteOverflow) =
+            indexCount.multipliedReportingOverflow(
+                by: element.bytesPerIndex
+            )
+        return !byteOverflow
+            && requiredBytes <= element.buffer.length
     }
 
     private static func readFloat3(
