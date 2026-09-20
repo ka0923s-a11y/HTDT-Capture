@@ -1267,7 +1267,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     func resetCapture() {
-        guard state == .failed || state == .exported else {
+        guard state == .failed
+                || state == .finalized
+                || state == .exported
+        else {
             return
         }
 
