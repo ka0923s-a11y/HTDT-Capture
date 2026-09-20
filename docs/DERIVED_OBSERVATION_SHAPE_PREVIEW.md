@@ -210,3 +210,110 @@ device:
   distinguishable.
 
 The physical-device gate is intentionally not claimed by automated CI.
+
+
+## Vertical occupancy and support-element derivation
+
+The derived preview now carries bounded world-Y evidence in addition to the
+existing X/Z footprint samples. This is still preview-only authority: the added
+vertical samples are not promoted into the Capture Bundle schema or canonical
+room geometry.
+
+`DerivedSupportAnalyzer` converts the bounded object observation into coarse
+height slices and horizontal occupancy columns. The analysis is capped at 1,024
+points and uses deterministic height/voxel bins. It identifies the upper
+furniture body from broad occupancy, then looks only for observed narrow
+vertical components below that body.
+
+The typed support result can represent:
+
+- multiple observed legs;
+- one narrow vertical column;
+- a wider observed pedestal;
+- a body whose observed occupancy reaches the floor;
+- a body above the floor whose support remains unresolved.
+
+Every support element keeps its center, bounded footprint radius, min/max
+world-Y extent, evidence refs, confidence, and resolved/uncertain state.
+
+No symmetry completion is performed. Three observed table legs produce three
+support elements; a fourth leg is never generated merely because a table is
+expected to have one.
+
+## Empty-space semantics
+
+The preview distinguishes `sparseObservedSupports`, `solidToFloor`, and
+`unresolved` lower-volume states. Sparse lower occupancy backed by observed
+support columns prevents the preview from treating the whole body-to-floor
+volume as one solid rectangular block.
+
+This is deliberately not canonical free-space carving. Absence of mesh samples
+alone is not treated as proof of empty space. If the body is observed above a
+floor reference but no support element has enough evidence, the result is
+`floatingBodyUnresolved`; the implementation does not fill the gap with a
+solid box and does not invent invisible legs.
+
+A bounded floor reference is derived from floor-classified live ARMesh faces
+using a capped median sample. Table and seat classifications feed the furniture
+support analysis, while wall observations remain on their existing path.
+
+## Guidance seam
+
+Support analysis emits typed advisory output rather than coupling directly to a
+scanner-guidance implementation. The current advisory kinds are:
+
+- `observeLowerFurniture`;
+- `observeLowerFurnitureFromAnotherAngle`.
+
+The scanner can render these as “show the lower part of the furniture” /
+“show the lower part from another angle.” A future guidance authority can
+consume the same typed output without making derived support geometry
+canonical.
+
+## Support preview rendering
+
+Observed supports are rendered separately from the furniture footprint. The
+existing orange derived body/footprint remains distinct from RoomPlan's white
+semantic approximation, while support candidates use cyan markers. Uncertain
+support candidates are thinner and dashed/translucent.
+
+Heavy vertical segmentation and support clustering runs in the existing
+detached utility task. The live main-actor path only performs bounded mesh
+sampling and a capped floor-height sample; it does not serialize the full mesh
+at UI cadence.
+
+## Support-element automated acceptance
+
+Synthetic fixtures cover:
+
+- tabletop plus four visible legs;
+- tabletop plus three visible legs with no invisible fourth-leg completion;
+- pedestal table;
+- solid cabinet reaching the floor;
+- sofa body plus short supports;
+- body floating above the floor with unresolved support evidence;
+- isolated noisy points;
+- insufficient height evidence.
+
+Physical LiDAR acceptance remains a separate gate. The automated suite does not
+claim that real-device occlusion, mesh classification, or RoomPlan presentation
+quality has been validated.
+
+
+## 3D object decomposition
+
+Stacked or nearby observed geometry now preserves bounded world-Y evidence before
+footprint fitting. A deterministic, bounded 3D decomposition can keep vertically
+separated or weakly connected components distinct, expose preview-only support
+relations, and request re-observation when component count remains ambiguous.
+
+The detailed authority, performance bounds, synthetic fixtures, and physical
+acceptance gate are documented in
+[`DERIVED_OBJECT_DECOMPOSITION.md`](DERIVED_OBJECT_DECOMPOSITION.md).
+
+Equal X/Z projection is not object-identity authority, and a sparse bridge does
+not automatically merge otherwise separate observed components. Each resolved
+component can independently enter the existing circle / ellipse / oriented
+rectangle / polygon fitter. The decomposition remains preview-only and does not
+promote a canonical object hierarchy.
+
