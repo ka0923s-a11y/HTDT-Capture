@@ -44,6 +44,19 @@ public struct CaptureScanningView: View {
                     .padding(.horizontal, 12)
                     .padding(.bottom, 10)
             }
+
+            if coverage.latestTrackingState == .normal,
+               let guidance = coverage.recommendedGuidance
+            {
+                GeometryReader { geometry in
+                    directionArrowOverlay(guidance)
+                        .position(
+                            x: geometry.size.width / 2,
+                            y: geometry.size.height * 0.42
+                        )
+                }
+                .allowsHitTesting(false)
+            }
         }
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showingEndScanReview) {
@@ -81,9 +94,27 @@ public struct CaptureScanningView: View {
                 .font(.subheadline.monospacedDigit())
             }
 
-            Text(guidanceText)
-                .font(.headline)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .center, spacing: 12) {
+                Text(guidanceText)
+                    .font(.headline)
+                    .fixedSize(
+                        horizontal: false,
+                        vertical: true
+                    )
+
+                Spacer(minLength: 8)
+
+                VStack(spacing: 3) {
+                    Text("Next direction")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    RelativeGuidanceCompass(
+                        coverage: coverage
+                    )
+                    .frame(width: 74, height: 74)
+                }
+            }
 
             HStack(spacing: 14) {
                 Label(
@@ -208,6 +239,13 @@ public struct CaptureScanningView: View {
             sectorIndex: sectorIndex,
             pitchBand: band
         )
+        let isTarget =
+            coverage.recommendedGap
+            == ScanCoverageGap(
+                sectorIndex: sectorIndex,
+                pitchBand: band
+            )
+
         return RoundedRectangle(cornerRadius: 2)
             .fill(
                 observed
@@ -221,6 +259,26 @@ public struct CaptureScanningView: View {
                         .foregroundStyle(.black.opacity(0.75))
                 }
             }
+            .overlay {
+                RoundedRectangle(cornerRadius: 2)
+                    .strokeBorder(
+                        isTarget ? Color.yellow : Color.clear,
+                        lineWidth: isTarget ? 2 : 0
+                    )
+            }
+            .overlay(alignment: .topTrailing) {
+                if isTarget {
+                    Image(systemName: "scope")
+                        .font(.system(size: 6, weight: .black))
+                        .foregroundStyle(.yellow)
+                        .offset(x: 2, y: -2)
+                }
+            }
+            .accessibilityLabel(
+                isTarget
+                ? String(localized: "Next direction")
+                : String(localized: "Look-around coverage")
+            )
     }
 
     private func requestEndScan() {
@@ -279,48 +337,140 @@ public struct CaptureScanningView: View {
             break
         }
 
-        if coverage.coverageFraction < 0.10 {
+        if let guidance = coverage.recommendedGuidance {
+            return currentRelativeGuidanceText(guidance)
+        }
+
+        if coverage.referenceYawRadians == nil {
             return String(
                 localized: "Move slowly and scan the whole room from different heights and angles."
-            )
-        }
-
-        let lowCoverage =
-            coverage.pitchBandCoverageFraction(.low)
-        let highCoverage =
-            coverage.pitchBandCoverageFraction(.high)
-
-        if lowCoverage < 0.45,
-           lowCoverage + 0.10 < highCoverage
-        {
-            return String(
-                localized: "Capture more of the floor line and lower parts of the room."
-            )
-        }
-
-        if highCoverage < 0.45,
-           highCoverage + 0.10 < lowCoverage
-        {
-            return String(
-                localized: "Capture more of the upper walls and ceiling line."
-            )
-        }
-
-        if let gap = coverage.recommendedGap {
-            return String(
-                format: String(
-                    localized: "Under-observed: %@ · %@"
-                ),
-                relativeDirectionLabel(
-                    sectorIndex: gap.sectorIndex
-                ),
-                pitchBandLabel(gap.pitchBand)
             )
         }
 
         return String(
             localized: "Broad look-around coverage reached. Check the RoomPlan overlay for unrecognized surfaces before ending."
         )
+    }
+
+    private func currentRelativeGuidanceText(
+        _ guidance: ScanCoverageGuidance
+    ) -> String {
+        switch guidance.arrow {
+        case .aligned:
+            return String(
+                localized: "Slowly scan this direction."
+            )
+        case .left:
+            return String(localized: "Turn left.")
+        case .right:
+            return String(localized: "Turn right.")
+        case .up:
+            return String(
+                localized: "Capture the upper area."
+            )
+        case .down:
+            return String(
+                localized: "Capture the lower area."
+            )
+        case .upLeft:
+            return combinedGuidance(
+                horizontal: String(localized: "Turn left."),
+                vertical: String(
+                    localized: "Capture the upper area."
+                )
+            )
+        case .upRight:
+            return combinedGuidance(
+                horizontal: String(localized: "Turn right."),
+                vertical: String(
+                    localized: "Capture the upper area."
+                )
+            )
+        case .downLeft:
+            return combinedGuidance(
+                horizontal: String(localized: "Turn left."),
+                vertical: String(
+                    localized: "Capture the lower area."
+                )
+            )
+        case .downRight:
+            return combinedGuidance(
+                horizontal: String(localized: "Turn right."),
+                vertical: String(
+                    localized: "Capture the lower area."
+                )
+            )
+        }
+    }
+
+    private func combinedGuidance(
+        horizontal: String,
+        vertical: String
+    ) -> String {
+        String(
+            format: String(localized: "Guidance %@ %@"),
+            horizontal,
+            vertical
+        )
+    }
+
+    private func directionArrowOverlay(
+        _ guidance: ScanCoverageGuidance
+    ) -> some View {
+        VStack(spacing: 6) {
+            Text(arrowSymbol(guidance.arrow))
+                .font(
+                    .system(
+                        size: 54,
+                        weight: .heavy,
+                        design: .rounded
+                    )
+                )
+                .foregroundStyle(.white)
+                .shadow(radius: 4)
+
+            Text(
+                guidance.arrow == .aligned
+                ? String(localized: "Slowly scan this direction.")
+                : String(localized: "Next direction")
+            )
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(
+                .ultraThinMaterial,
+                in: Capsule()
+            )
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            currentRelativeGuidanceText(guidance)
+        )
+    }
+
+    private func arrowSymbol(
+        _ arrow: ScanGuidanceArrow
+    ) -> String {
+        switch arrow {
+        case .left:
+            return "←"
+        case .right:
+            return "→"
+        case .up:
+            return "↑"
+        case .down:
+            return "↓"
+        case .upLeft:
+            return "↖"
+        case .upRight:
+            return "↗"
+        case .downLeft:
+            return "↙"
+        case .downRight:
+            return "↘"
+        case .aligned:
+            return "◎"
+        }
     }
 
     private var limitedTrackingGuidance: String {
@@ -387,6 +537,119 @@ public struct CaptureScanningView: View {
         default:
             return String(localized: "Front left")
         }
+    }
+}
+
+
+private struct RelativeGuidanceCompass: View {
+    let coverage: ScanCoverageSummary
+
+    var body: some View {
+        GeometryReader { geometry in
+            let diameter = min(
+                geometry.size.width,
+                geometry.size.height
+            )
+            let radius = diameter * 0.38
+            let needleLength = radius * 0.82
+
+            ZStack {
+                Circle()
+                    .stroke(
+                        Color.white.opacity(0.28),
+                        lineWidth: 1
+                    )
+
+                compassNeedle(
+                    angleRadians: 0,
+                    length: needleLength,
+                    width: 1,
+                    color: .secondary
+                )
+                compassMarker(
+                    systemImage: "flag.fill",
+                    angleRadians: 0,
+                    radius: radius,
+                    color: .secondary,
+                    accessibilityLabel:
+                        String(localized: "Start direction")
+                )
+
+                if let targetYaw =
+                    coverage.recommendedGuidance?
+                        .targetYawRadians
+                {
+                    compassNeedle(
+                        angleRadians: targetYaw,
+                        length: needleLength,
+                        width: 2,
+                        color: .yellow
+                    )
+                    compassMarker(
+                        systemImage: "scope",
+                        angleRadians: targetYaw,
+                        radius: radius,
+                        color: .yellow,
+                        accessibilityLabel:
+                            String(localized: "Next direction")
+                    )
+                }
+
+                if let currentYaw =
+                    coverage.currentRelativeYawRadians
+                {
+                    compassNeedle(
+                        angleRadians: currentYaw,
+                        length: needleLength,
+                        width: 2,
+                        color: .white
+                    )
+                    compassMarker(
+                        systemImage: "location.north.fill",
+                        angleRadians: currentYaw,
+                        radius: radius,
+                        color: .white,
+                        accessibilityLabel:
+                            String(localized: "Current direction")
+                    )
+                }
+
+                Circle()
+                    .fill(Color.white.opacity(0.8))
+                    .frame(width: 4, height: 4)
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func compassNeedle(
+        angleRadians: Double,
+        length: CGFloat,
+        width: CGFloat,
+        color: Color
+    ) -> some View {
+        Capsule()
+            .fill(color)
+            .frame(width: width, height: length)
+            .offset(y: -length / 2)
+            .rotationEffect(.radians(angleRadians))
+    }
+
+    private func compassMarker(
+        systemImage: String,
+        angleRadians: Double,
+        radius: CGFloat,
+        color: Color,
+        accessibilityLabel: String
+    ) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(color)
+            .offset(
+                x: CGFloat(sin(angleRadians)) * radius,
+                y: -CGFloat(cos(angleRadians)) * radius
+            )
+            .accessibilityLabel(accessibilityLabel)
     }
 }
 
