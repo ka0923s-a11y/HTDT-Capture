@@ -132,6 +132,91 @@ final class DerivedShapeProxyTests: XCTestCase {
         XCTAssertEqual(proxy.selected?.kind, .circle)
     }
 
+    func testMultiLevelHorizontalProfilesPreserveStackedFootprints() {
+        var points: [DerivedObservationPoint] = []
+
+        func appendRectangle(
+            halfWidth: Double,
+            halfDepth: Double,
+            y: Double,
+            prefix: String
+        ) {
+            let samplesPerEdge = 20
+            let corners = [
+                DerivedPoint2D(x: -halfWidth, y: -halfDepth),
+                DerivedPoint2D(x: halfWidth, y: -halfDepth),
+                DerivedPoint2D(x: halfWidth, y: halfDepth),
+                DerivedPoint2D(x: -halfWidth, y: halfDepth),
+            ]
+            for edge in corners.indices {
+                let a = corners[edge]
+                let b = corners[(edge + 1) % corners.count]
+                for sample in 0..<samplesPerEdge {
+                    let t =
+                        Double(sample) / Double(samplesPerEdge)
+                    points.append(
+                        DerivedObservationPoint(
+                            position: DerivedPoint2D(
+                                x: a.x + (b.x - a.x) * t,
+                                y: a.y + (b.y - a.y) * t
+                            ),
+                            evidenceRef:
+                                prefix
+                                + "-"
+                                + String(edge)
+                                + "-"
+                                + String(sample),
+                            evidenceKind: .sceneDepth,
+                            verticalPositionMeters: y
+                        )
+                    )
+                }
+            }
+        }
+
+        appendRectangle(
+            halfWidth: 1.0,
+            halfDepth: 0.80,
+            y: 0.40,
+            prefix: "lower"
+        )
+        appendRectangle(
+            halfWidth: 0.55,
+            halfDepth: 0.42,
+            y: 0.80,
+            prefix: "upper"
+        )
+
+        let input = DerivedShapeObservation(
+            coordinateSpaceID: testCoordinateSpaceID,
+            points: points
+        )
+        let profiles =
+            DerivedShapeProxyFitter.horizontalProfileObservations(
+                from: input
+            )
+
+        XCTAssertEqual(profiles.count, 2)
+
+        let widths = profiles.map { profile -> Double in
+            let xs = profile.points.map(\.position.x)
+            return (xs.max() ?? 0) - (xs.min() ?? 0)
+        }.sorted()
+
+        XCTAssertLessThan(widths[0], 1.20)
+        XCTAssertGreaterThan(widths[1], 1.90)
+
+        for profile in profiles {
+            let proxy = DerivedShapeProxyFitter.fit(
+                observation:
+                    DerivedShapeProxyFitter.boundaryObservation(
+                        from: profile
+                    )
+            )
+            XCTAssertNotNil(proxy.selected)
+        }
+    }
+
     func testWellSupportedImperfectCircleCanBeatFlexiblePolygon() {
         let points = (0..<96).map { index -> DerivedPoint2D in
             let angle =
