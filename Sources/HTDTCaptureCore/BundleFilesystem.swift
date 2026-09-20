@@ -148,7 +148,13 @@ public enum BundleDirectoryScanner {
                 throw BundleFilesystemError.invalidPath(normalized)
             }
 
-            let bytes = Int64(values.fileSize ?? 0)
+            guard let fileSize = values.fileSize else {
+                // Size accounting is a security/resource boundary. If the
+                // provider cannot report a regular file's size, do not treat
+                // it as an empty file and bypass expanded-byte limits.
+                throw BundleFilesystemError.invalidPath(normalized)
+            }
+            let bytes = Int64(fileSize)
             if bytes > limits.maxFileBytes {
                 throw BundleFilesystemError.fileSizeLimitExceeded(
                     normalized
