@@ -685,7 +685,7 @@ public enum MeshDerivedShapeObservationBuilder {
 
 public enum DerivedShapeProxyFitter {
     public static let algorithm = "htdt-derived-footprint-fit"
-    public static let version = "1.1.0"
+    public static let version = "1.2.0"
 
     public static func representativeHorizontalSliceObservation(
         from observation: DerivedShapeObservation,
@@ -776,6 +776,245 @@ public enum DerivedShapeProxyFitter {
             observationEndSeconds:
                 observation.observationEndSeconds
         )
+    }
+
+    public static func horizontalProfileObservations(
+        from observation: DerivedShapeObservation,
+        sliceHeightMeters: Double = 0.08,
+        horizontalVoxelMeters: Double = 0.06,
+        minimumPointCount: Int = 8,
+        minimumRelativeHorizontalSupport: Double = 0.45,
+        minimumRelativeExtentDifference: Double = 0.14,
+        maximumProfileCount: Int = 3
+    ) -> [DerivedShapeObservation] {
+        guard sliceHeightMeters.isFinite,
+              sliceHeightMeters > 0,
+              horizontalVoxelMeters.isFinite,
+              horizontalVoxelMeters > 0,
+              minimumPointCount > 0,
+              minimumRelativeHorizontalSupport.isFinite,
+              minimumRelativeHorizontalSupport > 0,
+              minimumRelativeHorizontalSupport <= 1,
+              minimumRelativeExtentDifference.isFinite,
+              minimumRelativeExtentDifference > 0,
+              maximumProfileCount > 0
+        else {
+            return [observation]
+        }
+
+        let points = observation.points.filter {
+            guard let y = $0.verticalPositionMeters else {
+                return false
+            }
+            return $0.position.x.isFinite
+                && $0.position.y.isFinite
+                && y.isFinite
+        }
+        guard points.count >= minimumPointCount else {
+            return [observation]
+        }
+
+        struct SliceKey: Hashable {
+            let value: Int
+        }
+        struct HorizontalCell: Hashable {
+            let x: Int
+            let z: Int
+        }
+        struct Bounds {
+            let minX: Double
+            let maxX: Double
+            let minZ: Double
+            let maxZ: Double
+
+            var width: Double { max(0, maxX - minX) }
+            var depth: Double { max(0, maxZ - minZ) }
+            var centerX: Double { (minX + maxX) / 2 }
+            var centerZ: Double { (minZ + maxZ) / 2 }
+        }
+        struct Candidate {
+            let key: SliceKey
+            let points: [DerivedObservationPoint]
+            let cellCount: Int
+            let bounds: Bounds
+        }
+
+        var pointsBySlice: [SliceKey: [DerivedObservationPoint]] = [:]
+        var cellsBySlice: [SliceKey: Set<HorizontalCell>] = [:]
+
+        for point in points {
+            guard let y = point.verticalPositionMeters else {
+                continue
+            }
+            let key = SliceKey(
+                value: Int(floor(y / sliceHeightMeters))
+            )
+            pointsBySlice[key, default: []].append(point)
+            cellsBySlice[key, default: []].insert(
+                HorizontalCell(
+                    x: Int(floor(point.position.x / horizontalVoxelMeters)),
+                    z: Int(floor(point.position.y / horizontalVoxelMeters))
+                )
+            )
+        }
+
+        let bestCellCount =
+            cellsBySlice.values.map(\.count).max() ?? 0
+        guard bestCellCount > 0 else {
+            return [observation]
+        }
+        let minimumCellCount = max(
+            4,
+            Int(
+                ceil(
+                    Double(bestCellCount)
+                    * minimumRelativeHorizontalSupport
+                )
+            )
+        )
+
+        func bounds(
+            _ slicePoints: [DerivedObservationPoint]
+        ) -> Bounds? {
+            guard let first = slicePoints.first else {
+                return nil
+            }
+            var minX = first.position.x
+            var maxX = first.position.x
+            var minZ = first.position.y
+            var maxZ = first.position.y
+            for point in slicePoints.dropFirst() {
+                minX = min(minX, point.position.x)
+                maxX = max(maxX, point.position.x)
+                minZ = min(minZ, point.position.y)
+                maxZ = max(maxZ, point.position.y)
+            }
+            return Bounds(
+                minX: minX,
+                maxX: maxX,
+                minZ: minZ,
+                maxZ: maxZ
+            )
+        }
+
+        var candidates: [Candidate] = []
+        for key in pointsBySlice.keys {
+            guard let slicePoints = pointsBySlice[key],
+                  slicePoints.count >= minimumPointCount,
+                  let cellCount = cellsBySlice[key]?.count,
+                  cellCount >= minimumCellCount,
+                  let sliceBounds = bounds(slicePoints)
+            else {
+                continue
+            }
+            candidates.append(
+                Candidate(
+                    key: key,
+                    points: slicePoints.sorted(
+                        by: observationPointLess
+                    ),
+                    cellCount: cellCount,
+                    bounds: sliceBounds
+                )
+            )
+        }
+
+        candidates.sort {
+            if $0.cellCount != $1.cellCount {
+                return $0.cellCount > $1.cellCount
+            }
+            if $0.points.count != $1.points.count {
+                return $0.points.count > $1.points.count
+            }
+            // Match the existing representative-slice behavior: when support
+            // is equal, the higher furniture surface is the stronger profile.
+            return $0.key.value > $1.key.value
+        }
+
+        func relativeDifference(
+            _ lhs: Double,
+            _ rhs: Double
+        ) -> Double {
+            abs(lhs - rhs) / max(max(lhs, rhs), 0.001)
+        }
+
+        func isMateriallyDifferent(
+            _ lhs: Candidate,
+            _ rhs: Candidate
+        ) -> Bool {
+            let widthDifference = relativeDifference(
+                lhs.bounds.width,
+                rhs.bounds.width
+            )
+            let depthDifference = relativeDifference(
+                lhs.bounds.depth,
+                rhs.bounds.depth
+            )
+
+            let referenceExtent = max(
+                max(
+                    max(lhs.bounds.width, lhs.bounds.depth),
+                    max(rhs.bounds.width, rhs.bounds.depth)
+                ),
+                0.001
+            )
+            let centerShift = hypot(
+                lhs.bounds.centerX - rhs.bounds.centerX,
+                lhs.bounds.centerZ - rhs.bounds.centerZ
+            ) / referenceExtent
+
+            return widthDifference >= minimumRelativeExtentDifference
+                || depthDifference >= minimumRelativeExtentDifference
+                || centerShift >= minimumRelativeExtentDifference
+        }
+
+        var selected: [Candidate] = []
+        for candidate in candidates {
+            guard selected.count < maximumProfileCount else {
+                break
+            }
+
+            if selected.isEmpty {
+                selected.append(candidate)
+                continue
+            }
+
+            let verticallySeparated = selected.allSatisfy {
+                abs($0.key.value - candidate.key.value) >= 2
+            }
+            guard verticallySeparated,
+                  selected.allSatisfy({
+                      isMateriallyDifferent($0, candidate)
+                  })
+            else {
+                continue
+            }
+            selected.append(candidate)
+        }
+
+        guard !selected.isEmpty else {
+            return [representativeHorizontalSliceObservation(
+                from: observation,
+                sliceHeightMeters: sliceHeightMeters,
+                horizontalVoxelMeters: horizontalVoxelMeters,
+                minimumPointCount: minimumPointCount
+            )]
+        }
+
+        return selected.map { candidate in
+            DerivedShapeObservation(
+                coordinateSpaceID: observation.coordinateSpaceID,
+                points: candidate.points,
+                sourceEvidenceRefs:
+                    Array(
+                        Set(candidate.points.map(\.evidenceRef))
+                    ).sorted(),
+                observationStartSeconds:
+                    observation.observationStartSeconds,
+                observationEndSeconds:
+                    observation.observationEndSeconds
+            )
+        }
     }
 
     public static func boundaryObservation(
@@ -1277,7 +1516,9 @@ public enum DerivedShapeProxyFitter {
         scale: Double
     ) -> DerivedShapeCandidate? {
         let positions = points.map(\.position)
-        let center = meanPoint(positions)
+        let center =
+            leastSquaresCircleCenter(positions)
+            ?? meanPoint(positions)
         let radii = positions.map {
             hypot($0.x - center.x, $0.y - center.y)
         }
@@ -1513,9 +1754,9 @@ public enum DerivedShapeProxyFitter {
         let curved = candidates.filter { candidate in
             guard candidate.kind == .circle
                     || candidate.kind == .ellipse,
-                  candidate.metrics.supportScore >= 0.70,
-                  candidate.metrics.normalizedResidual <= 0.040,
-                  (candidate.metrics.angularSupport ?? 0) >= 0.88
+                  candidate.metrics.supportScore >= 0.66,
+                  candidate.metrics.normalizedResidual <= 0.052,
+                  (candidate.metrics.angularSupport ?? 0) >= 0.80
             else {
                 return false
             }
@@ -1543,7 +1784,7 @@ public enum DerivedShapeProxyFitter {
                 // credible smooth primitive without turning rounded squares,
                 // polygons, or mixed circle/square evidence into circles.
                 if candidate.metrics.normalizedResidual
-                    > polygon.metrics.normalizedResidual + 0.015
+                    > polygon.metrics.normalizedResidual + 0.020
                 {
                     return false
                 }
@@ -2191,6 +2432,67 @@ public enum DerivedShapeProxyFitter {
             maxY = max(maxY, point.y)
         }
         return hypot(maxX - minX, maxY - minY)
+    }
+
+    private static func leastSquaresCircleCenter(
+        _ points: [DerivedPoint2D]
+    ) -> DerivedPoint2D? {
+        guard points.count >= 3 else {
+            return nil
+        }
+
+        // Fitting a circle at the arithmetic mean biases the center toward
+        // the visible side of an occluded/partial round object. Solve the
+        // centered algebraic least-squares system instead. Centering keeps
+        // the 2x2 normal equations numerically stable at room coordinates.
+        let mean = meanPoint(points)
+        let centered = points.map {
+            (
+                x: $0.x - mean.x,
+                y: $0.y - mean.y
+            )
+        }
+        let radiiSquared = centered.map {
+            $0.x * $0.x + $0.y * $0.y
+        }
+        let qMean =
+            radiiSquared.reduce(0, +)
+            / Double(radiiSquared.count)
+
+        var xx = 0.0
+        var yy = 0.0
+        var xy = 0.0
+        var bx = 0.0
+        var by = 0.0
+
+        for (index, point) in centered.enumerated() {
+            let centeredQ = radiiSquared[index] - qMean
+            xx += point.x * point.x
+            yy += point.y * point.y
+            xy += point.x * point.y
+            bx += 0.5 * point.x * centeredQ
+            by += 0.5 * point.y * centeredQ
+        }
+
+        let determinant = xx * yy - xy * xy
+        guard determinant.isFinite,
+              abs(determinant) > 0.000_000_000_001
+        else {
+            return nil
+        }
+
+        let offsetX =
+            (bx * yy - by * xy) / determinant
+        let offsetY =
+            (by * xx - bx * xy) / determinant
+        guard offsetX.isFinite, offsetY.isFinite else {
+            return nil
+        }
+
+        return DerivedPoint2D(
+            x: mean.x + offsetX,
+            y: mean.y + offsetY
+        )
     }
 
     private static func meanPoint(

@@ -173,6 +173,20 @@ public actor CaptureWorkingSetStore {
         _ payload: RoomPlanRawArtifactPayload
     ) async throws {
         let descriptor = payload.descriptor
+
+        // RoomCaptureView can deliver the same completion payload more than
+        // once around stop()/review transition. Exact replay is harmless and
+        // must not turn an otherwise complete capture into a terminal
+        // persistence failure. A conflicting replay remains fail-closed.
+        if let existing = rawRoomPlanDescriptor {
+            if existing == descriptor {
+                return
+            }
+            throw CaptureWorkingSetError.duplicatePayloadDeclaration(
+                RoomPlanEvidenceArtifactBuilder.rawPath
+            )
+        }
+
         guard
             descriptor.relativePath
                 == RoomPlanEvidenceArtifactBuilder.rawPath,
@@ -205,11 +219,24 @@ public actor CaptureWorkingSetStore {
     public func persistProcessedRoomPlan(
         _ payload: RoomPlanProcessedArtifactPayload
     ) async throws {
+        let descriptor = payload.descriptor
+
+        // Match raw RoomPlan replay semantics: exact duplicate completion is
+        // idempotent, but a second payload with different lineage/digest is a
+        // conflicting canonical write and is rejected.
+        if let existing = processedRoomPlanDescriptor {
+            if existing == descriptor {
+                return
+            }
+            throw CaptureWorkingSetError.duplicatePayloadDeclaration(
+                RoomPlanEvidenceArtifactBuilder.processedPath
+            )
+        }
+
         guard let raw = rawRoomPlanDescriptor else {
             throw CaptureWorkingSetError.processedRoomPlanRequiresRaw
         }
 
-        let descriptor = payload.descriptor
         guard
             descriptor.relativePath
                 == RoomPlanEvidenceArtifactBuilder.processedPath,
@@ -302,7 +329,30 @@ public actor CaptureWorkingSetStore {
             )
         }
 
-        try await package.persist(using: writer)
+        let meshPaths =
+            package.geometryFiles.map(\.path)
+            + [MeshEvidencePackage.indexPath]
+        if let duplicate = meshPaths.first(where: {
+            declarations[$0] != nil
+        }) {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(duplicate)
+        }
+
+        do {
+            try await package.persist(using: writer)
+        } catch {
+            // Mesh is optional at review time. Keep a failed write from
+            // leaving undeclared complete files that would poison bundle
+            // integrity and prevent the already-persisted frame/depth
+            // fallback from being used.
+            for path in meshPaths {
+                if let storePath = try? CaptureStorePath(path) {
+                    try? await writer.removeIfPresent(storePath)
+                }
+            }
+            throw error
+        }
 
         for file in package.geometryFiles {
             try register(

@@ -70,6 +70,47 @@ final class LiveQualityFinalizationTests: XCTestCase {
         )
     }
 
+    func testSceneDepthCanExplicitlySubstituteForMissingMeshAtReview() {
+        let observation = CaptureQualityObservation(
+            roomPlanStatus: .completed,
+            activeMeshAnchorCount: 0,
+            evidenceFrameCount: 1,
+            depthEvidenceCount: 1,
+            integrityStatus: .pass
+        )
+
+        let strict = CaptureQualityEvaluator.evaluate(
+            observation,
+            requirements: CaptureQualityRequirements()
+        )
+        XCTAssertFalse(strict.readyForHTDTIngestion)
+        XCTAssertTrue(
+            strict.diagnostics.contains {
+                $0.code == "insufficient_mesh_anchors"
+                    && $0.severity == .error
+            }
+        )
+
+        let depthFallback = CaptureQualityEvaluator.evaluate(
+            observation,
+            requirements: CaptureQualityRequirements(
+                allowDepthEvidenceAsMeshFallback: true
+            )
+        )
+        XCTAssertTrue(depthFallback.readyForHTDTIngestion)
+        XCTAssertTrue(
+            depthFallback.diagnostics.contains {
+                $0.code == "mesh_depth_fallback"
+                    && $0.severity == .warning
+            }
+        )
+        XCTAssertFalse(
+            depthFallback.diagnostics.contains {
+                $0.code == "insufficient_mesh_anchors"
+            }
+        )
+    }
+
     func testTamperTurnsIntegrityIntoQualityFailure() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

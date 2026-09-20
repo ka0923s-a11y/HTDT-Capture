@@ -153,4 +153,20 @@ public actor AtomicCaptureFileWriter {
             throw error
         }
     }
+    public func removeIfPresent(_ path: CaptureStorePath) throws {
+        let target = path.description
+            .split(separator: "/")
+            .reduce(rootDirectory) { url, component in
+                url.appendingPathComponent(
+                    String(component),
+                    isDirectory: false
+                )
+            }
+
+        guard fileManager.fileExists(atPath: target.path) else {
+            return
+        }
+        try fileManager.removeItem(at: target)
+    }
+
 }

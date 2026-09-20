@@ -171,6 +171,7 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
     public let rulesetVersion: String
     public let requireCompletedRoomPlan: Bool
     public let minimumActiveMeshAnchors: Int
+    public let allowDepthEvidenceAsMeshFallback: Bool
     public let minimumEvidenceFrames: Int
     public let requireDepthEvidence: Bool
     public let requiredAnnotationKeys: Set<String>
@@ -181,6 +182,7 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
         rulesetVersion: String = "1.0.0",
         requireCompletedRoomPlan: Bool = true,
         minimumActiveMeshAnchors: Int = 1,
+        allowDepthEvidenceAsMeshFallback: Bool = false,
         minimumEvidenceFrames: Int = 1,
         requireDepthEvidence: Bool = false,
         requiredAnnotationKeys: Set<String> = [],
@@ -190,6 +192,8 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
         self.rulesetVersion = rulesetVersion
         self.requireCompletedRoomPlan = requireCompletedRoomPlan
         self.minimumActiveMeshAnchors = minimumActiveMeshAnchors
+        self.allowDepthEvidenceAsMeshFallback =
+            allowDepthEvidenceAsMeshFallback
         self.minimumEvidenceFrames = minimumEvidenceFrames
         self.requireDepthEvidence = requireDepthEvidence
         self.requiredAnnotationKeys = requiredAnnotationKeys
@@ -267,14 +271,27 @@ public enum CaptureQualityEvaluator {
         if observation.activeMeshAnchorCount
             < requirements.minimumActiveMeshAnchors
         {
-            diagnostics.append(
-                QualityDiagnostic(
-                    code: "insufficient_mesh_anchors",
-                    severity: .error,
-                    message:
-                        "Active mesh anchor count is below the required minimum."
+            if requirements.allowDepthEvidenceAsMeshFallback,
+               observation.depthEvidenceCount > 0
+            {
+                diagnostics.append(
+                    QualityDiagnostic(
+                        code: "mesh_depth_fallback",
+                        severity: .warning,
+                        message:
+                            "Active mesh evidence is unavailable; retained scene-depth evidence is being used as the bounded geometric fallback."
+                    )
                 )
-            )
+            } else {
+                diagnostics.append(
+                    QualityDiagnostic(
+                        code: "insufficient_mesh_anchors",
+                        severity: .error,
+                        message:
+                            "Active mesh anchor count is below the required minimum."
+                    )
+                )
+            }
         }
 
         if observation.evidenceFrameCount
