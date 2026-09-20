@@ -40,6 +40,17 @@ func reviewCanReturnToScanningBeforeAuthorityIsSealed() throws {
 }
 
 @Test
+func finalizedCaptureCanResetWithoutExport() throws {
+    var machine = CaptureStateMachine(state: .validating)
+    try machine.apply(.finalize)
+    #expect(machine.state == .finalized)
+
+    try machine.apply(.reset)
+    #expect(machine.state == .idle)
+    #expect(machine.lastFailure == nil)
+}
+
+@Test
 func validationFailureReturnsToReviewForRetry() throws {
     var machine = CaptureStateMachine(state: .reviewing)
     try machine.apply(.beginValidation)
