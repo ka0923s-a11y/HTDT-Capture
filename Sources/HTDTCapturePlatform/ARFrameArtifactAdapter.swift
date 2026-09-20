@@ -3,6 +3,7 @@ import HTDTCaptureCore
 
 #if os(iOS) && canImport(ARKit)
 import ARKit
+import CoreImage
 import simd
 
 public enum FrameDepthSelection: Sendable {
@@ -16,17 +17,20 @@ public struct CapturedFrameArtifacts: Sendable {
     public let pixelPayload: Data
     public let depthPayload: Data?
     public let confidencePayload: Data?
+    public let previewPayload: Data?
 
     public init(
         descriptor: FrameEvidenceDescriptor,
         pixelPayload: Data,
         depthPayload: Data?,
-        confidencePayload: Data?
+        confidencePayload: Data?,
+        previewPayload: Data? = nil
     ) {
         self.descriptor = descriptor
         self.pixelPayload = pixelPayload
         self.depthPayload = depthPayload
         self.confidencePayload = confidencePayload
+        self.previewPayload = previewPayload
     }
 }
 
@@ -78,7 +82,28 @@ public enum ARFrameArtifactAdapter {
             descriptor: descriptor,
             pixelPayload: pixelPayload,
             depthPayload: depthResult.depthPayload,
-            confidencePayload: depthResult.confidencePayload
+            confidencePayload: depthResult.confidencePayload,
+            previewPayload: captureHEICPreview(
+                frame.capturedImage
+            )
+        )
+    }
+
+    private static func captureHEICPreview(
+        _ pixelBuffer: CVPixelBuffer
+    ) -> Data? {
+        let image = CIImage(cvPixelBuffer: pixelBuffer)
+        let context = CIContext()
+        guard let colorSpace = CGColorSpace(
+            name: CGColorSpace.sRGB
+        ) else {
+            return nil
+        }
+        return context.heifRepresentation(
+            of: image,
+            format: .RGBA8,
+            colorSpace: colorSpace,
+            options: [:]
         )
     }
 

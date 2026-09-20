@@ -167,7 +167,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     descriptor: artifacts.descriptor,
                     pixelPayload: artifacts.pixelPayload,
                     depthPayload: artifacts.depthPayload,
-                    confidencePayload: artifacts.confidencePayload
+                    confidencePayload: artifacts.confidencePayload,
+                    previewPayload: artifacts.previewPayload
                 )
                 try await store.persistFramePackage(package)
                 let snapshot = await store.snapshot()
@@ -230,7 +231,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             pixelPayload: snapshot.frameArtifacts.pixelPayload,
             depthPayload: snapshot.frameArtifacts.depthPayload,
             confidencePayload:
-                snapshot.frameArtifacts.confidencePayload
+                snapshot.frameArtifacts.confidencePayload,
+            previewPayload:
+                snapshot.frameArtifacts.previewPayload
         )
         try await store.persistFramePackage(package)
 
@@ -271,7 +274,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             pixelPayload: snapshot.frameArtifacts.pixelPayload,
             depthPayload: snapshot.frameArtifacts.depthPayload,
             confidencePayload:
-                snapshot.frameArtifacts.confidencePayload
+                snapshot.frameArtifacts.confidencePayload,
+            previewPayload:
+                snapshot.frameArtifacts.previewPayload
         )
         try await store.persistFramePackage(package)
 
@@ -684,7 +689,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 pixelPayload: evidence.frameArtifacts.pixelPayload,
                 depthPayload: evidence.frameArtifacts.depthPayload,
                 confidencePayload:
-                    evidence.frameArtifacts.confidencePayload
+                    evidence.frameArtifacts.confidencePayload,
+                previewPayload:
+                    evidence.frameArtifacts.previewPayload
             )
         } catch PlatformCaptureError.currentFrameUnavailable {
             fail(.trackingUnavailable)

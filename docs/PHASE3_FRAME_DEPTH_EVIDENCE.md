@@ -128,3 +128,26 @@ Scan-end evidence remains separate: the host still captures one final exact
 ARFrame jointly with the final active mesh snapshot immediately before ending
 RoomPlan. Manual evidence frames therefore add context without replacing the
 scan-boundary evidence.
+
+
+## Optional derived HEIC preview
+
+The iOS ARFrame adapter now opportunistically creates a HEIC preview from the
+same `capturedImage` used to build canonical `HTDTPXL1` evidence.
+
+Preview generation is best-effort: encoder failure returns no preview and does
+not fail the capture. When available, the preview is stored at:
+
+`evidence/frames/<frame-id>.preview.heic`
+
+with:
+
+- `role=derived`;
+- `provenance_class=capture_app_derived`;
+- a manifest source reference to the exact canonical frame descriptor;
+- an in-memory byte-count/SHA-256 authority that participates in working-set
+  integrity preflight.
+
+The preview never replaces the canonical packed pixel payload, is not used for
+pose/intrinsics/depth authority, and carries no separately promoted EXIF
+authority.

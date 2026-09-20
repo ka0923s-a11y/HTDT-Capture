@@ -186,3 +186,68 @@ final class FrameEvidencePackageTests: XCTestCase {
         }
     }
 }
+
+
+extension FrameEvidencePackageTests {
+    func testDerivedHEICPreviewIsNonCanonicalAndEvidenceLinked()
+        throws
+    {
+        let pixel = Data([1, 2, 3, 4])
+        let preview = Data([0x00, 0x00, 0x00, 0x18])
+        let frameID = EvidenceFrameID()
+        let descriptor = try FrameEvidenceDescriptor(
+            frameID: frameID,
+            captureSessionID: CaptureSessionID(),
+            coordinateSpaceID: CoordinateSpaceID(),
+            sessionTimestampSeconds: 1,
+            worldFromCamera: .identity,
+            intrinsics: try CameraIntrinsics3x3(
+                values: [
+                    1, 0, 0,
+                    0, 1, 0,
+                    0, 0, 1,
+                ]
+            ),
+            imageWidth: 1,
+            imageHeight: 1,
+            pixelFormatFourCC: 0,
+            pixelRelativePath:
+                "evidence/frames/\(frameID).pixelbin",
+            pixelByteCount: pixel.count,
+            pixelSHA256: EvidenceIntegrity.sha256(of: pixel)
+        )
+
+        let package = try FrameEvidencePackageBuilder.build(
+            descriptor: descriptor,
+            pixelPayload: pixel,
+            depthPayload: nil,
+            confidencePayload: nil,
+            previewPayload: preview
+        )
+        let previewRef = try XCTUnwrap(package.preview)
+        XCTAssertEqual(
+            previewRef.path,
+            "evidence/frames/\(frameID).preview.heic"
+        )
+        XCTAssertEqual(previewRef.byteCount, preview.count)
+        XCTAssertEqual(
+            previewRef.sha256,
+            EvidenceIntegrity.sha256(of: preview)
+        )
+
+        let declaration = try XCTUnwrap(
+            package.payloadDeclarations.first {
+                $0.path == previewRef.path
+            }
+        )
+        XCTAssertEqual(declaration.role, .derived)
+        XCTAssertEqual(
+            declaration.provenanceClass,
+            .captureAppDerived
+        )
+        XCTAssertEqual(
+            declaration.sourceRefs,
+            ["path:\(package.descriptorPath)"]
+        )
+    }
+}

@@ -91,6 +91,7 @@ public actor CaptureWorkingSetStore {
     private var meshAnchorCount: Int?
     private var meshIndex: MeshAnchorEvidenceIndex?
     private var frameDescriptors: [FrameEvidenceDescriptor] = []
+    private var framePreviews: [DerivedFramePreviewReference] = []
     private var annotationCollection: CaptureAnnotationCollection?
     private var measurementCollection: CaptureMeasurementCollection?
     private var annotationKeysPresent: Set<String> = []
@@ -346,6 +347,9 @@ public actor CaptureWorkingSetStore {
         }
 
         frameDescriptors.append(package.descriptor)
+        if let preview = package.preview {
+            framePreviews.append(preview)
+        }
         evidenceFrameCount += 1
         depthEvidenceCount += package.capturedDepthCount
     }
@@ -712,6 +716,15 @@ public actor CaptureWorkingSetStore {
             else {
                 throw CaptureWorkingSetError.integrityVerificationFailed
             }
+        }
+
+        for preview in framePreviews {
+            try verifyFile(
+                path: preview.path,
+                byteCount: preview.byteCount,
+                sha256: preview.sha256,
+                actualByPath: actualByPath
+            )
         }
 
         for descriptor in frameDescriptors {

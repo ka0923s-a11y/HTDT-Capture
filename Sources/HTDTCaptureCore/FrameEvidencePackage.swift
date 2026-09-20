@@ -1,5 +1,24 @@
 import Foundation
 
+public struct DerivedFramePreviewReference:
+    Sendable,
+    Equatable
+{
+    public let path: String
+    public let byteCount: Int
+    public let sha256: EvidenceSHA256
+
+    public init(
+        path: String,
+        byteCount: Int,
+        sha256: EvidenceSHA256
+    ) {
+        self.path = path
+        self.byteCount = byteCount
+        self.sha256 = sha256
+    }
+}
+
 public enum FrameEvidencePackageError: Error, Sendable, Equatable {
     case invalidPixelReference
     case invalidDepthReference
@@ -15,6 +34,8 @@ public struct FrameEvidencePackage: Sendable, Equatable {
     public let pixelPayload: Data
     public let depthPayload: Data?
     public let confidencePayload: Data?
+    public let previewPayload: Data?
+    public let preview: DerivedFramePreviewReference?
 
     init(
         descriptor: FrameEvidenceDescriptor,
@@ -22,7 +43,9 @@ public struct FrameEvidencePackage: Sendable, Equatable {
         descriptorData: Data,
         pixelPayload: Data,
         depthPayload: Data?,
-        confidencePayload: Data?
+        confidencePayload: Data?,
+        previewPayload: Data?,
+        preview: DerivedFramePreviewReference?
     ) {
         self.descriptor = descriptor
         self.descriptorPath = descriptorPath
@@ -30,6 +53,8 @@ public struct FrameEvidencePackage: Sendable, Equatable {
         self.pixelPayload = pixelPayload
         self.depthPayload = depthPayload
         self.confidencePayload = confidencePayload
+        self.previewPayload = previewPayload
+        self.preview = preview
     }
 
     public var capturedDepthCount: Int {
@@ -92,6 +117,19 @@ public struct FrameEvidencePackage: Sendable, Equatable {
             )
         )
 
+        if let preview {
+            declarations.append(
+                BundlePayloadDeclaration(
+                    path: preview.path,
+                    mediaType: "image/heic",
+                    producer: "frame_preview",
+                    provenanceClass: .captureAppDerived,
+                    role: .derived,
+                    sourceRefs: ["path:\(descriptorPath)"]
+                )
+            )
+        }
+
         return declarations.sorted {
             BundleLogicalPath.utf8Less($0.path, $1.path)
         }
@@ -128,6 +166,15 @@ public struct FrameEvidencePackage: Sendable, Equatable {
             descriptorData,
             to: CaptureStorePath(descriptorPath)
         )
+
+        if let preview,
+           let previewPayload
+        {
+            try await writer.write(
+                previewPayload,
+                to: CaptureStorePath(preview.path)
+            )
+        }
     }
 }
 
@@ -136,7 +183,8 @@ public enum FrameEvidencePackageBuilder {
         descriptor: FrameEvidenceDescriptor,
         pixelPayload: Data,
         depthPayload: Data?,
-        confidencePayload: Data?
+        confidencePayload: Data?,
+        previewPayload: Data? = nil
     ) throws -> FrameEvidencePackage {
         let frameID = descriptor.frameID.description
         let expectedDescriptorPath =
@@ -212,13 +260,30 @@ public enum FrameEvidencePackageBuilder {
         encoder.outputFormatting = [.sortedKeys]
         let descriptorData = try encoder.encode(descriptor)
 
+        let preview: DerivedFramePreviewReference?
+        if let previewPayload {
+            preview = DerivedFramePreviewReference(
+                path:
+                    "evidence/frames/\(frameID).preview.heic",
+                byteCount: previewPayload.count,
+                sha256:
+                    EvidenceIntegrity.sha256(
+                        of: previewPayload
+                    )
+            )
+        } else {
+            preview = nil
+        }
+
         return FrameEvidencePackage(
             descriptor: descriptor,
             descriptorPath: expectedDescriptorPath,
             descriptorData: descriptorData,
             pixelPayload: pixelPayload,
             depthPayload: depthPayload,
-            confidencePayload: confidencePayload
+            confidencePayload: confidencePayload,
+            previewPayload: previewPayload,
+            preview: preview
         )
     }
 }
