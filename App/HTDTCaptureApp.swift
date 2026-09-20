@@ -1133,19 +1133,28 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         _ observations: DerivedShapeLiveObservationSet
     ) -> DerivedShapePreviewSnapshot {
         var objectProxies: [DerivedShapeProxy] = []
+        var objectDecomposition: DerivedObjectDecomposition?
+        var supportAnalysis: DerivedSupportAnalysis?
+
         if let objectObservation = observations.objectObservation {
-            let components =
-                DerivedShapeProxyFitter.connectedComponents(
-                    in: objectObservation,
-                    maxLinkDistance: 0.30,
-                    minimumPointCount: 8
+            let decomposition = DerivedObjectDecomposer.decompose(
+                observation: objectObservation
+            )
+            objectDecomposition = decomposition
+
+            if decomposition.state != .unresolvedDecomposition {
+                objectProxies = Array(
+                    decomposition.components.prefix(4).map {
+                        DerivedShapeProxyFitter.fit(
+                            observation: $0.observation
+                        )
+                    }
                 )
-            objectProxies = Array(
-                components.prefix(3).map {
-                    DerivedShapeProxyFitter.fit(
-                        observation: $0
-                    )
-                }
+            }
+
+            supportAnalysis = DerivedSupportAnalyzer.analyze(
+                observation: objectObservation,
+                floorY: observations.floorReferenceY
             )
         }
 
@@ -1158,6 +1167,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return DerivedShapePreviewSnapshot(
             objectProxies: objectProxies,
             wallChain: wallChain,
+            supportAnalysis: supportAnalysis,
+            objectDecomposition: objectDecomposition,
             disagreements:
                 DerivedShapeDisagreementEvaluator.evaluate(
                     objectProxies: objectProxies,
