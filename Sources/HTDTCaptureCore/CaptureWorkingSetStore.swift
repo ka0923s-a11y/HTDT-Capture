@@ -663,13 +663,14 @@ public actor CaptureWorkingSetStore {
                 // preview-only write failed. Remove a conflicting/stale
                 // preview path so bundle integrity does not see an undeclared
                 // derived file.
-                if let previewPayload = package.previewPayload,
-                   let previewPath = try? CaptureStorePath(preview.path)
-                {
-                    _ = try? await writer.removeIfIdentical(
-                        previewPayload,
-                        at: previewPath
-                    )
+                // This path is exclusively a derived convenience
+                // artifact for this exact frame ID. It is never canonical
+                // authority and is not registered unless the preview write
+                // succeeds. Removing a stale/conflicting derived preview is
+                // therefore safe and restores working-set integrity without
+                // mutating the committed canonical frame/depth evidence.
+                if let previewPath = try? CaptureStorePath(preview.path) {
+                    try? await writer.removeIfPresent(previewPath)
                 }
                 resourceEvents.append(
                     CaptureResourceEvent(
