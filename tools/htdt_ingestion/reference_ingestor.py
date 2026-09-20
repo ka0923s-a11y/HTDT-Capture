@@ -202,10 +202,19 @@ def _build_source_registry(
     records: list[dict] = []
     by_path: dict[str, dict] = {}
     hashes = {entry["sha256"] for entry in manifest["files"]}
+    paths = {entry["path"] for entry in manifest["files"]}
+    raw_roomplan_hashes = {
+        entry["sha256"]
+        for entry in manifest["files"]
+        if entry["provenance_class"] == "apple_roomplan_raw_scan"
+    }
 
     for entry in manifest["files"]:
         path = entry["path"]
-        for source_ref in entry.get("source_refs", []):
+        refs = entry.get("source_refs", [])
+        resolved_sha_refs: list[str] = []
+
+        for source_ref in refs:
             if source_ref.startswith("sha256:"):
                 target_hash = source_ref.removeprefix("sha256:")
                 if target_hash not in hashes:
@@ -213,15 +222,30 @@ def _build_source_registry(
                         f"unresolved SHA-256 source_ref for {path}: "
                         f"{source_ref}"
                     )
+                resolved_sha_refs.append(target_hash)
             elif source_ref.startswith("path:"):
                 target_path = source_ref.removeprefix("path:")
-                if target_path not in {
-                    candidate["path"] for candidate in manifest["files"]
-                }:
+                if target_path not in paths:
                     raise IngestionError(
                         f"unresolved path source_ref for {path}: "
                         f"{source_ref}"
                     )
+            else:
+                raise IngestionError(
+                    f"unsupported source_ref for {path}: {source_ref}"
+                )
+
+        if entry["provenance_class"] == "apple_roomplan_inference":
+            raw_refs = [
+                value
+                for value in resolved_sha_refs
+                if value in raw_roomplan_hashes
+            ]
+            if len(raw_refs) != 1:
+                raise IngestionError(
+                    "processed RoomPlan must reference exactly one raw "
+                    "RoomPlan payload SHA-256"
+                )
 
         record = {
             "source_evidence_id": _source_evidence_id(
