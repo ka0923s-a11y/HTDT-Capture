@@ -1516,7 +1516,9 @@ public enum DerivedShapeProxyFitter {
         scale: Double
     ) -> DerivedShapeCandidate? {
         let positions = points.map(\.position)
-        let center = meanPoint(positions)
+        let center =
+            leastSquaresCircleCenter(positions)
+            ?? meanPoint(positions)
         let radii = positions.map {
             hypot($0.x - center.x, $0.y - center.y)
         }
@@ -1752,7 +1754,7 @@ public enum DerivedShapeProxyFitter {
         let curved = candidates.filter { candidate in
             guard candidate.kind == .circle
                     || candidate.kind == .ellipse,
-                  candidate.metrics.supportScore >= 0.60,
+                  candidate.metrics.supportScore >= 0.66,
                   candidate.metrics.normalizedResidual <= 0.052,
                   (candidate.metrics.angularSupport ?? 0) >= 0.80
             else {
@@ -1903,39 +1905,6 @@ public enum DerivedShapeProxyFitter {
 
         let circleCost = selectionCost(circle)
         let rectangleCost = selectionCost(rectangle)
-
-        // Broad, strongly supported curved evidence must not be downgraded to
-        // circle-vs-rectangle ambiguity merely because a bounding rectangle
-        // can approximate a partial physical view. This is the common
-        // multi-view round-table case. A material residual advantage is
-        // required, so mixed circle/square and rounded-square evidence still
-        // falls through to the fail-closed ambiguity path.
-        let strongestCurved = candidates
-            .filter {
-                ($0.kind == .circle || $0.kind == .ellipse)
-                    && $0.metrics.supportScore >= 0.60
-                    && ($0.metrics.angularSupport ?? 0) >= 0.80
-                    && $0.metrics.normalizedResidual <= 0.052
-            }
-            .min {
-                $0.metrics.normalizedResidual
-                    < $1.metrics.normalizedResidual
-            }
-        if let strongestCurved {
-            let curvedAngularSupport =
-                strongestCurved.metrics.angularSupport ?? 0
-            let broadOccludedCurve =
-                curvedAngularSupport >= 0.80
-                    && curvedAngularSupport < 0.95
-            let materiallyBetterCurve =
-                strongestCurved.metrics.normalizedResidual + 0.008
-                    < rectangle.metrics.normalizedResidual
-
-            if broadOccludedCurve || materiallyBetterCurve {
-                return false
-            }
-        }
-
         let bestResidual = min(
             circle.metrics.normalizedResidual,
             rectangle.metrics.normalizedResidual
@@ -2463,6 +2432,67 @@ public enum DerivedShapeProxyFitter {
             maxY = max(maxY, point.y)
         }
         return hypot(maxX - minX, maxY - minY)
+    }
+
+    private static func leastSquaresCircleCenter(
+        _ points: [DerivedPoint2D]
+    ) -> DerivedPoint2D? {
+        guard points.count >= 3 else {
+            return nil
+        }
+
+        // Fitting a circle at the arithmetic mean biases the center toward
+        // the visible side of an occluded/partial round object. Solve the
+        // centered algebraic least-squares system instead. Centering keeps
+        // the 2x2 normal equations numerically stable at room coordinates.
+        let mean = meanPoint(points)
+        let centered = points.map {
+            (
+                x: $0.x - mean.x,
+                y: $0.y - mean.y
+            )
+        }
+        let radiiSquared = centered.map {
+            $0.x * $0.x + $0.y * $0.y
+        }
+        let qMean =
+            radiiSquared.reduce(0, +)
+            / Double(radiiSquared.count)
+
+        var xx = 0.0
+        var yy = 0.0
+        var xy = 0.0
+        var bx = 0.0
+        var by = 0.0
+
+        for (index, point) in centered.enumerated() {
+            let centeredQ = radiiSquared[index] - qMean
+            xx += point.x * point.x
+            yy += point.y * point.y
+            xy += point.x * point.y
+            bx += 0.5 * point.x * centeredQ
+            by += 0.5 * point.y * centeredQ
+        }
+
+        let determinant = xx * yy - xy * xy
+        guard determinant.isFinite,
+              abs(determinant) > 0.000_000_000_001
+        else {
+            return nil
+        }
+
+        let offsetX =
+            (bx * yy - by * xy) / determinant
+        let offsetY =
+            (by * xx - bx * xy) / determinant
+        guard offsetX.isFinite, offsetY.isFinite else {
+            return nil
+        }
+
+        return DerivedPoint2D(
+            x: mean.x + offsetX,
+            y: mean.y + offsetY
+        )
     }
 
     private static func meanPoint(
