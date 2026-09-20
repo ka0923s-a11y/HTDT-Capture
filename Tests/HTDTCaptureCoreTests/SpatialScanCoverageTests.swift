@@ -72,6 +72,16 @@ final class SpatialScanCoverageTests: XCTestCase {
         )
         let surface = point(1, -1)
 
+        _ = tracker.record(
+            sample(
+                timestamp: 0,
+                cameraX: 0,
+                cameraZ: 0,
+                tracking: .normal,
+                points: [surface]
+            )
+        )
+
         for timestamp in 1...5 {
             _ = tracker.record(
                 sample(
@@ -86,8 +96,35 @@ final class SpatialScanCoverageTests: XCTestCase {
 
         let region = tracker.summary().regions.first
         XCTAssertEqual(region?.limitedTrackingObservationCount, 5)
-        XCTAssertEqual(region?.normalTrackingObservationCount, 0)
+        XCTAssertEqual(region?.normalTrackingObservationCount, 1)
         XCTAssertEqual(region?.classification, .weak)
+    }
+
+    func testMeshAvailabilityDistinguishesThreeStates() {
+        XCTAssertEqual(
+            MeshAvailabilityDiagnostic(
+                sceneReconstructionSupported: false,
+                sceneReconstructionEnabled: false,
+                activeMeshAnchorCount: 0
+            ).state,
+            .unavailable
+        )
+        XCTAssertEqual(
+            MeshAvailabilityDiagnostic(
+                sceneReconstructionSupported: true,
+                sceneReconstructionEnabled: true,
+                activeMeshAnchorCount: 0
+            ).state,
+            .enabledNoAnchors
+        )
+        XCTAssertEqual(
+            MeshAvailabilityDiagnostic(
+                sceneReconstructionSupported: true,
+                sceneReconstructionEnabled: true,
+                activeMeshAnchorCount: 2
+            ).state,
+            .anchorsObserved
+        )
     }
 
     func testWeakTransitionsToObservedAfterNormalDiverseViews() {
