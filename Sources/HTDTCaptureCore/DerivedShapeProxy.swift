@@ -1752,7 +1752,7 @@ public enum DerivedShapeProxyFitter {
         let curved = candidates.filter { candidate in
             guard candidate.kind == .circle
                     || candidate.kind == .ellipse,
-                  candidate.metrics.supportScore >= 0.66,
+                  candidate.metrics.supportScore >= 0.60,
                   candidate.metrics.normalizedResidual <= 0.052,
                   (candidate.metrics.angularSupport ?? 0) >= 0.80
             else {
@@ -1913,7 +1913,7 @@ public enum DerivedShapeProxyFitter {
         let strongestCurved = candidates
             .filter {
                 ($0.kind == .circle || $0.kind == .ellipse)
-                    && $0.metrics.supportScore >= 0.66
+                    && $0.metrics.supportScore >= 0.60
                     && ($0.metrics.angularSupport ?? 0) >= 0.80
                     && $0.metrics.normalizedResidual <= 0.052
             }
@@ -1921,11 +1921,19 @@ public enum DerivedShapeProxyFitter {
                 $0.metrics.normalizedResidual
                     < $1.metrics.normalizedResidual
             }
-        if let strongestCurved,
-           strongestCurved.metrics.normalizedResidual + 0.008
-                < rectangle.metrics.normalizedResidual
-        {
-            return false
+        if let strongestCurved {
+            let curvedAngularSupport =
+                strongestCurved.metrics.angularSupport ?? 0
+            let broadOccludedCurve =
+                curvedAngularSupport >= 0.80
+                    && curvedAngularSupport < 0.95
+            let materiallyBetterCurve =
+                strongestCurved.metrics.normalizedResidual + 0.008
+                    < rectangle.metrics.normalizedResidual
+
+            if broadOccludedCurve || materiallyBetterCurve {
+                return false
+            }
         }
 
         let bestResidual = min(
