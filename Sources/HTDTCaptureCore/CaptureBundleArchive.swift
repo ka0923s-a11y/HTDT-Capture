@@ -500,6 +500,10 @@ public enum StoredCaptureBundleArchiveValidator {
         let declaredCentralOffset: UInt32 = try handle.readLE()
         let commentLength: UInt16 = try handle.readLE()
 
+        guard centralOffset <= UInt64(UInt32.max) else {
+            throw CaptureBundleArchiveError
+                .archiveTooLargeForClassicZIP
+        }
         guard disk == 0,
               centralDisk == 0,
               entriesOnDisk == UInt16(locals.count),
@@ -545,11 +549,30 @@ public enum StoredCaptureBundleArchiveValidator {
                 ($0.path, $0)
             }
         )
-        let declaredByPath = Dictionary(
-            uniqueKeysWithValues: manifest.files.map {
-                ($0.path, $0)
+        var declaredByPath: [String: BundleFileEntry] = [:]
+        for entry in manifest.files {
+            do {
+                try BundleLogicalPath.validate(entry.path)
+            } catch {
+                throw BundleDirectoryValidationError
+                    .invalidManifestEntry(entry.path)
             }
-        )
+            guard entry.bytes >= 0,
+                  !entry.mediaType.isEmpty,
+                  !entry.producer.isEmpty,
+                  entry.sourceRefs?.allSatisfy({
+                      !$0.isEmpty
+                  }) ?? true,
+                  entry.sourceRefs.map({
+                      Set($0).count == $0.count
+                  }) ?? true,
+                  declaredByPath[entry.path] == nil
+            else {
+                throw BundleDirectoryValidationError
+                    .invalidManifestEntry(entry.path)
+            }
+            declaredByPath[entry.path] = entry
+        }
         let actualPayloadPaths =
             Set(localByPath.keys)
                 .subtracting(["manifest.json"])
@@ -732,11 +755,21 @@ private extension Data {
 
 private extension FileHandle {
     func readExact(count: Int) throws -> Data {
-        let data = try read(upToCount: count) ?? Data()
-        guard data.count == count else {
+        guard count >= 0 else {
             throw CaptureBundleArchiveError.archiveMalformed
         }
-        return data
+        var result = Data()
+        result.reserveCapacity(count)
+        while result.count < count {
+            let next = try read(
+                upToCount: count - result.count
+            ) ?? Data()
+            guard !next.isEmpty else {
+                throw CaptureBundleArchiveError.archiveMalformed
+            }
+            result.append(next)
+        }
+        return result
     }
 
     func readLE<T: FixedWidthInteger>() throws -> T {
