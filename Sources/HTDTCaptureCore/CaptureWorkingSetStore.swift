@@ -173,22 +173,6 @@ public actor CaptureWorkingSetStore {
         timingPackage: CaptureTimingPackage,
         roomPlanLineage: RoomPlanArtifactLineage
     ) async throws {
-        guard let processed = roomPlanLineage.processed else {
-            throw CaptureWorkingSetError
-                .invalidProcessedRoomPlanDescriptor
-        }
-        try await persistEndRoomPlanTransaction(
-            timingPackage: timingPackage,
-            rawRoomPlan: roomPlanLineage.raw,
-            processedRoomPlan: processed
-        )
-    }
-
-    public func persistEndRoomPlanTransaction(
-        timingPackage: CaptureTimingPackage,
-        rawRoomPlan: RoomPlanRawArtifactPayload?,
-        processedRoomPlan: RoomPlanProcessedArtifactPayload
-    ) async throws {
         guard sessionFoundation != nil else {
             throw CaptureWorkingSetError.timingFoundationMissing
         }
@@ -205,91 +189,52 @@ public actor CaptureWorkingSetStore {
             throw CaptureWorkingSetError.invalidTimingPackage
         }
 
-        let processed = processedRoomPlan
+        let raw = roomPlanLineage.raw
+        guard let processed = roomPlanLineage.processed else {
+            throw CaptureWorkingSetError
+                .invalidProcessedRoomPlanDescriptor
+        }
+
+        guard
+            raw.descriptor.relativePath
+                == RoomPlanEvidenceArtifactBuilder.rawPath,
+            raw.descriptor.byteCount == raw.data.count,
+            raw.descriptor.sha256
+                == EvidenceIntegrity.sha256(of: raw.data)
+        else {
+            throw CaptureWorkingSetError
+                .invalidRawRoomPlanDescriptor
+        }
+
         guard
             processed.descriptor.relativePath
                 == RoomPlanEvidenceArtifactBuilder.processedPath,
             processed.descriptor.byteCount == processed.data.count,
             processed.descriptor.sha256
-                == EvidenceIntegrity.sha256(of: processed.data)
+                == EvidenceIntegrity.sha256(of: processed.data),
+            processed.descriptor.sourceRawSHA256
+                == raw.descriptor.sha256,
+            processed.descriptor.captureSessionID
+                == raw.descriptor.captureSessionID,
+            processed.descriptor.coordinateSpaceID
+                == raw.descriptor.coordinateSpaceID
         else {
             throw CaptureWorkingSetError
                 .invalidProcessedRoomPlanDescriptor
         }
 
-        let sourceRefs: [String]
-        switch processed.descriptor.sourceRawSerializationStatus {
-        case .persisted:
-            guard let raw = rawRoomPlan else {
-                throw CaptureWorkingSetError
-                    .processedRoomPlanRequiresRaw
-            }
-            guard
-                raw.descriptor.relativePath
-                    == RoomPlanEvidenceArtifactBuilder.rawPath,
-                raw.descriptor.byteCount == raw.data.count,
-                raw.descriptor.sha256
-                    == EvidenceIntegrity.sha256(of: raw.data)
-            else {
-                throw CaptureWorkingSetError
-                    .invalidRawRoomPlanDescriptor
-            }
-            guard
-                processed.descriptor.sourceRawSHA256
-                    == raw.descriptor.sha256,
-                processed.descriptor.captureSessionID
-                    == raw.descriptor.captureSessionID,
-                processed.descriptor.coordinateSpaceID
-                    == raw.descriptor.coordinateSpaceID
-            else {
-                throw CaptureWorkingSetError
-                    .processedRoomPlanLineageMismatch
-            }
-            try bindAuthority(
-                captureSessionID: raw.descriptor.captureSessionID,
-                coordinateSpaceID: raw.descriptor.coordinateSpaceID
-            )
-            sourceRefs = [
-                "sha256:\(raw.descriptor.sha256.description)"
-            ]
+        try bindAuthority(
+            captureSessionID: raw.descriptor.captureSessionID,
+            coordinateSpaceID: raw.descriptor.coordinateSpaceID
+        )
 
-        case .unavailable:
-            guard
-                rawRoomPlan == nil,
-                processed.descriptor.sourceRawSHA256 == nil
-            else {
-                throw CaptureWorkingSetError
-                    .processedRoomPlanLineageMismatch
-            }
-            try bindAuthority(
-                captureSessionID:
-                    processed.descriptor.captureSessionID,
-                coordinateSpaceID:
-                    processed.descriptor.coordinateSpaceID
-            )
-            sourceRefs = [
-                "capture_session:"
-                    + processed.descriptor.captureSessionID.description,
-                "roomplan_raw_serialization:unavailable",
-            ]
-        }
-
-        if let existingTiming = timingDocument,
-           let existingProcessed = processedRoomPlanDescriptor
+        if let timingDocument,
+           let rawRoomPlanDescriptor,
+           let processedRoomPlanDescriptor
         {
-            let rawMatches: Bool
-            switch processed.descriptor.sourceRawSerializationStatus {
-            case .persisted:
-                rawMatches =
-                    rawRoomPlanDescriptor
-                        == rawRoomPlan?.descriptor
-            case .unavailable:
-                rawMatches = rawRoomPlanDescriptor == nil
-            }
-
-            if existingTiming == timingPackage.document,
-               existingProcessed == processed.descriptor,
-               rawMatches
+            if timingDocument == timingPackage.document,
+               rawRoomPlanDescriptor == raw.descriptor,
+               processedRoomPlanDescriptor == processed.descriptor
             {
                 return
             }
@@ -307,30 +252,28 @@ public actor CaptureWorkingSetStore {
                 .integrityVerificationFailed
         }
 
-        var transactionDeclarations: [BundlePayloadDeclaration] = [
-            timingPackage.payloadDeclaration,
-        ]
-        if let raw = rawRoomPlan {
-            transactionDeclarations.append(
-                BundlePayloadDeclaration(
-                    path: raw.descriptor.relativePath,
-                    mediaType: "application/json",
-                    producer: "roomplan_capture",
-                    provenanceClass: .appleRoomPlanRawScan,
-                    role: .canonical
-                )
-            )
-        }
-        transactionDeclarations.append(
-            BundlePayloadDeclaration(
-                path: processed.descriptor.relativePath,
-                mediaType: "application/json",
-                producer: "roomplan_builder",
-                provenanceClass: .appleRoomPlanInference,
-                role: .canonical,
-                sourceRefs: sourceRefs
-            )
+        let rawDeclaration = BundlePayloadDeclaration(
+            path: raw.descriptor.relativePath,
+            mediaType: "application/json",
+            producer: "roomplan_capture",
+            provenanceClass: .appleRoomPlanRawScan,
+            role: .canonical
         )
+        let processedDeclaration = BundlePayloadDeclaration(
+            path: processed.descriptor.relativePath,
+            mediaType: "application/json",
+            producer: "roomplan_builder",
+            provenanceClass: .appleRoomPlanInference,
+            role: .canonical,
+            sourceRefs: [
+                "sha256:\(raw.descriptor.sha256.description)"
+            ]
+        )
+        let transactionDeclarations = [
+            timingPackage.payloadDeclaration,
+            rawDeclaration,
+            processedDeclaration,
+        ]
 
         for declaration in transactionDeclarations {
             guard declarations[declaration.path] == nil else {
@@ -341,30 +284,22 @@ public actor CaptureWorkingSetStore {
             }
         }
 
-        var writes: [(Data, CaptureStorePath)] = try [
+        let writes: [(Data, CaptureStorePath)] = try [
             (
                 timingPackage.data,
                 CaptureStorePath(CaptureTimingPackage.path)
             ),
-        ]
-        if let raw = rawRoomPlan {
-            writes.append(
-                (
-                    raw.data,
-                    try CaptureStorePath(
-                        raw.descriptor.relativePath
-                    )
-                )
-            )
-        }
-        writes.append(
+            (
+                raw.data,
+                CaptureStorePath(raw.descriptor.relativePath)
+            ),
             (
                 processed.data,
-                try CaptureStorePath(
+                CaptureStorePath(
                     processed.descriptor.relativePath
                 )
-            )
-        )
+            ),
+        ]
 
         do {
             for (data, path) in writes {
@@ -374,6 +309,9 @@ public actor CaptureWorkingSetStore {
                 )
             }
         } catch {
+            // None of these paths is canonical until all required final
+            // artifacts are durable. Remove only byte-identical files from
+            // this attempt; never delete conflicting external data.
             for (data, path) in writes.reversed() {
                 _ = try? await writer.removeIfIdentical(
                     data,
@@ -383,11 +321,13 @@ public actor CaptureWorkingSetStore {
             throw error
         }
 
+        // There are no suspension points after this line. Commit the logical
+        // authority atomically after every required file is durable.
         for declaration in transactionDeclarations {
             declarations[declaration.path] = declaration
         }
         timingDocument = timingPackage.document
-        rawRoomPlanDescriptor = rawRoomPlan?.descriptor
+        rawRoomPlanDescriptor = raw.descriptor
         processedRoomPlanDescriptor = processed.descriptor
     }
 
@@ -456,43 +396,22 @@ public actor CaptureWorkingSetStore {
                 .invalidProcessedRoomPlanDescriptor
         }
 
-        let sourceRefs: [String]
-        switch descriptor.sourceRawSerializationStatus {
-        case .persisted:
-            guard let raw = rawRoomPlanDescriptor else {
-                throw CaptureWorkingSetError.processedRoomPlanRequiresRaw
-            }
-            guard
-                descriptor.sourceRawSHA256 == raw.sha256,
-                descriptor.captureSessionID == raw.captureSessionID,
-                descriptor.coordinateSpaceID == raw.coordinateSpaceID
-            else {
-                throw CaptureWorkingSetError
-                    .processedRoomPlanLineageMismatch
-            }
-            sourceRefs = [
-                "sha256:\(raw.sha256.description)"
-            ]
-
-        case .unavailable:
-            guard
-                descriptor.sourceRawSHA256 == nil,
-                rawRoomPlanDescriptor == nil
-            else {
-                throw CaptureWorkingSetError
-                    .processedRoomPlanLineageMismatch
-            }
-            try bindAuthority(
-                captureSessionID: descriptor.captureSessionID,
-                coordinateSpaceID: descriptor.coordinateSpaceID
-            )
-            sourceRefs = [
-                "capture_session:"
-                    + descriptor.captureSessionID.description,
-                "roomplan_raw_serialization:unavailable",
-            ]
+        guard let raw = rawRoomPlanDescriptor else {
+            throw CaptureWorkingSetError.processedRoomPlanRequiresRaw
         }
 
+        guard
+            descriptor.sourceRawSHA256 == raw.sha256,
+            descriptor.captureSessionID == raw.captureSessionID,
+            descriptor.coordinateSpaceID == raw.coordinateSpaceID
+        else {
+            throw CaptureWorkingSetError
+                .processedRoomPlanLineageMismatch
+        }
+
+        // Match raw RoomPlan replay semantics after validating bytes and
+        // lineage. Exact duplicate completion is idempotent; a conflicting
+        // canonical payload is rejected.
         if let existing = processedRoomPlanDescriptor {
             if existing == descriptor {
                 return
@@ -514,7 +433,9 @@ public actor CaptureWorkingSetStore {
             producer: "roomplan_builder",
             provenanceClass: .appleRoomPlanInference,
             role: .canonical,
-            sourceRefs: sourceRefs
+            sourceRefs: [
+                "sha256:\(raw.sha256.description)"
+            ]
         )
         try register(declaration)
         processedRoomPlanDescriptor = descriptor
@@ -1059,28 +980,12 @@ public actor CaptureWorkingSetStore {
         }
 
         if let processedRoomPlanDescriptor {
-            switch processedRoomPlanDescriptor
-                .sourceRawSerializationStatus
-            {
-            case .persisted:
-                guard let rawRoomPlanDescriptor,
-                      processedRoomPlanDescriptor.sourceRawSHA256
-                        == rawRoomPlanDescriptor.sha256
-                else {
-                    throw CaptureWorkingSetError
-                        .integrityVerificationFailed
-                }
-
-            case .unavailable:
-                guard
-                    rawRoomPlanDescriptor == nil,
-                    processedRoomPlanDescriptor.sourceRawSHA256 == nil
-                else {
-                    throw CaptureWorkingSetError
-                        .integrityVerificationFailed
-                }
+            guard let rawRoomPlanDescriptor,
+                  processedRoomPlanDescriptor.sourceRawSHA256
+                    == rawRoomPlanDescriptor.sha256
+            else {
+                throw CaptureWorkingSetError.integrityVerificationFailed
             }
-
             try verifyFile(
                 path: processedRoomPlanDescriptor.relativePath,
                 byteCount: processedRoomPlanDescriptor.byteCount,
