@@ -177,8 +177,8 @@ func depthSurfaceSelectorDoesNotPreferTinyNearClutter() {
     }
 
     // Smaller nearer component off to one side of the same central window.
-    for y in stride(from: 30, through: 50, by: step) {
-        for x in stride(from: 10, through: 30, by: step) {
+    for y in stride(from: 30, through: 60, by: step) {
+        for x in stride(from: 10, through: 20, by: step) {
             samples.append(
                 DepthGridSample(
                     x: x,
