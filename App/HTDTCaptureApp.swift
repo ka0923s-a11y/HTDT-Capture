@@ -963,10 +963,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            // Drain every monitor event that was already accepted on the
-            // MainActor before sampling final storage. The event chain also
-            // refreshes Review quality after each warning.
+            // Finalize is the point where accepted Review becomes
+            // spatially immutable. Stop live resource notifications and AR
+            // synchronously on the MainActor before the first suspension so
+            // a critical callback cannot race this operation into terminal
+            // failure. Keep the stopped monitor object as a synchronous
+            // storage assessor for this attempt and any retry.
             let pendingBeforeStorage = self.resourceEventTask
+            self.resourceMonitor?.stop()
+            self.spatialAuthoritySealedForFinalization = true
+            self.sessionController.stopAndPauseARSession()
+
             await pendingBeforeStorage?.value
 
             guard self.captureGeneration == generation,
@@ -989,9 +996,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 else {
                     return
                 }
-                self.spatialAuthoritySealedForFinalization = true
-                self.sessionController.stopAndPauseARSession()
-                self.resourceMonitor?.stop()
                 await self.refreshQuality(
                     store: store,
                     generation: generation
@@ -1034,9 +1038,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
 
                 if assessment.failure == .storagePressure {
-                    self.spatialAuthoritySealedForFinalization = true
-                    self.sessionController.stopAndPauseARSession()
-                    self.resourceMonitor?.stop()
                     await self.refreshQuality(
                         store: store,
                         generation: generation
@@ -1055,15 +1056,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             }
 
-            // A warning/background/thermal callback can arrive while the
-            // store actor is awaited above. Drain the latest accepted event
-            // chain once more. When this await returns we are back on the
-            // MainActor; there is no suspension point before monitor.stop(),
-            // so no later callback can slip into the immutable quality
-            // authority.
-            let pendingAfterStorage = self.resourceEventTask
-            await pendingAfterStorage?.value
-
+            // The monitor was stopped before the first await, so no new
+            // lifecycle/thermal/storage callback can enter the resource-event
+            // chain during the manual final assessment.
             guard self.captureGeneration == generation,
                   self.state == .reviewing,
                   let quality = self.qualityReport,
@@ -1078,18 +1073,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            // Committing a ready Review to validation closes spatial capture
-            // authority. There are no awaits between this final state check
-            // and stopping the monitor/AR session, so a background/thermal
-            // callback cannot race revision promotion with stale authority.
-            self.resourceMonitor?.stop()
-            // Keep the stopped monitor object until finalization actually
-            // succeeds. Its synchronous storage assessment is still needed
-            // if a pre-promotion failure returns this sealed capture to
-            // Review for a retry. Live notifications remain stopped.
+            // Live spatial/resource authority was already sealed before
+            // this transaction suspended. Drop the drained event-chain
+            // handle; keep the stopped monitor object for retry assessment.
             self.resourceEventTask = nil
-            self.spatialAuthoritySealedForFinalization = true
-            self.sessionController.stopAndPauseARSession()
 
             do {
                 try self.transition(.beginValidation)
