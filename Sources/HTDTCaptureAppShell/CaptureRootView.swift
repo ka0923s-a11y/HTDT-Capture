@@ -9,6 +9,7 @@ public struct CaptureRootActions {
     public let captureEvidenceFrame: () -> Void
     public let setScanMovementCapability:
         (ScanMovementCapability) -> Void
+    public let continueScanning: () -> Void
     public let beginAnnotation: () -> Void
     public let captureRaycastPlacement:
         () async throws -> AnnotationPlacementAuthority
@@ -29,6 +30,7 @@ public struct CaptureRootActions {
         captureEvidenceFrame: @escaping () -> Void = {},
         setScanMovementCapability: @escaping
             (ScanMovementCapability) -> Void = { _ in },
+        continueScanning: @escaping () -> Void = {},
         beginAnnotation: @escaping () -> Void = {},
         captureRaycastPlacement: @escaping
             () async throws -> AnnotationPlacementAuthority = {
@@ -52,6 +54,7 @@ public struct CaptureRootActions {
         self.captureEvidenceFrame = captureEvidenceFrame
         self.setScanMovementCapability =
             setScanMovementCapability
+        self.continueScanning = continueScanning
         self.beginAnnotation = beginAnnotation
         self.captureRaycastPlacement = captureRaycastPlacement
         self.captureSpeakerOrientation =
@@ -341,6 +344,10 @@ public struct CaptureRootView: View {
             if !annotationAuthorityCommitted,
                annotationCoordinateSpaceID != nil
             {
+                Button(
+                    "Continue scanning",
+                    action: actions.continueScanning
+                )
                 Button(
                     "Add annotations & measurements",
                     action: actions.beginAnnotation
