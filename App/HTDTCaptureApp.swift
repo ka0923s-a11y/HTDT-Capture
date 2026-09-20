@@ -1279,6 +1279,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     generation: generation
                 )
             } catch {
+                self.workingSetStatus = HostLocalization.text(
+                    "Processed RoomPlan evidence could not be saved",
+                    "RoomPlan の処理済みデータを保存できませんでした"
+                )
                 self.fail(.persistenceFailure)
             }
         }
