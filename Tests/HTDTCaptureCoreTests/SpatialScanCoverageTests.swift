@@ -224,6 +224,55 @@ final class SpatialScanCoverageTests: XCTestCase {
         )
     }
 
+    func testSceneDepthFallbackProducesObservedRegionWithoutMeshAnchors() {
+        var tracker = SpatialScanCoverageTracker(
+            minimumNormalObservations: 2,
+            minimumViewAngleBuckets: 2
+        )
+        let keyPoint = point(1.0, -1.0)
+
+        _ = tracker.record(
+            SpatialCoverageSample(
+                sessionTimestampSeconds: 1,
+                cameraPositionWorld:
+                    SpatialCoveragePoint3D(x: 0, y: 1.5, z: 0),
+                cameraYawRadians: 0,
+                trackingState: .normal,
+                hasSceneDepth: true,
+                meshAvailability: MeshAvailabilityDiagnostic(
+                    sceneReconstructionSupported: true,
+                    sceneReconstructionEnabled: true,
+                    activeMeshAnchorCount: 0
+                ),
+                surfaceEvidenceSource: .sceneDepth,
+                surfacePointsWorld: [keyPoint]
+            )
+        )
+
+        let summary = tracker.record(
+            SpatialCoverageSample(
+                sessionTimestampSeconds: 2,
+                cameraPositionWorld:
+                    SpatialCoveragePoint3D(x: 0.6, y: 1.5, z: 0),
+                cameraYawRadians: 0,
+                trackingState: .normal,
+                hasSceneDepth: true,
+                meshAvailability: MeshAvailabilityDiagnostic(
+                    sceneReconstructionSupported: true,
+                    sceneReconstructionEnabled: true,
+                    activeMeshAnchorCount: 0
+                ),
+                surfaceEvidenceSource: .sceneDepth,
+                surfacePointsWorld: [keyPoint]
+            )
+        )
+
+        XCTAssertTrue(summary.usesDepthFallback)
+        XCTAssertEqual(summary.observedRegionCount, 1)
+        XCTAssertEqual(summary.regions.first?.meshSupportCount, 0)
+        XCTAssertEqual(summary.regions.first?.depthObservationCount, 2)
+    }
+
     func testUnknownMeansNoObservationAuthority() {
         var tracker = SpatialScanCoverageTracker()
         let summary = tracker.record(
