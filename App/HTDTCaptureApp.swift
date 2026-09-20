@@ -1095,8 +1095,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         )
 
                     if sampleIndex.isMultiple(of: 4) {
-                        if spatialSummary.meshAvailability.state
-                            == .anchorsObserved,
+                        if (
+                            spatialSummary.meshAvailability.state
+                                == .anchorsObserved
+                            || spatialSummary.latestHasSceneDepth
+                        ),
                            let observations =
                             try? self.sessionController
                                 .currentDerivedShapeObservations()
