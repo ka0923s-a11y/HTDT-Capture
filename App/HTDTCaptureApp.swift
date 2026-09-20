@@ -1960,7 +1960,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         if nsError.domain == NSPOSIXErrorDomain {
-            if nsError.code == Int(ENOSPC) {
+            if nsError.code
+                == Int(POSIXErrorCode.ENOSPC.rawValue)
+            {
                 return "storage_full"
             }
             return "posix:" + String(nsError.code)
