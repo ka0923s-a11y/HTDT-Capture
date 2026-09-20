@@ -1142,8 +1142,54 @@ public struct ScanMotionGuidanceTracker: Sendable {
             return
         }
 
-        weakGuidanceAttempts[key, default: 0] += 1
         completedSpatialGuidanceAttemptCount += 1
+
+        // Per-region retry saturation represents *no-progress* attempts.
+        // A successful translation, new view angle, or useful distance change
+        // should advance guidance without consuming that region's failure
+        // budget. The global budget still counts the action so the full scan
+        // remains bounded.
+        if !guidanceMadeProgress(
+            guidance,
+            region: region,
+            spatialCoverage: spatialCoverage
+        ) {
+            weakGuidanceAttempts[key, default: 0] += 1
+        }
+    }
+
+    private func guidanceMadeProgress(
+        _ guidance: ScanMotionGuidance,
+        region: SpatialCoverageRegion,
+        spatialCoverage: SpatialScanCoverageSummary
+    ) -> Bool {
+        switch guidance.action {
+        case .translate:
+            guard let start = currentStartCameraPosition,
+                  let current = spatialCoverage.currentCameraPosition
+            else {
+                return false
+            }
+            return hypot(
+                current.x - start.x,
+                current.z - start.z
+            ) >= configuration.translationCompletionMeters
+
+        case .orbit, .reobserveAnotherAngle, .holdObserve:
+            guard let initial = currentStartDiversityCount else {
+                return false
+            }
+            return region.viewAngleDiversityCount > initial
+
+        case .approach, .retreat:
+            guard let initial = currentStartDistanceBucket else {
+                return false
+            }
+            return region.latestDistanceBucket != initial
+
+        case .trackingRecovery, .rotate, .tilt:
+            return true
+        }
     }
 
     private func requiresPhysicalTranslation(
