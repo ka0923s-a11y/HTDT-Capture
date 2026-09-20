@@ -92,15 +92,18 @@ public struct DerivedShapeFitMetrics: Codable, Sendable, Equatable {
     public let normalizedResidual: Double
     public let supportScore: Double
     public let fitScore: Double
+    public let angularSupport: Double?
 
     public init(
         normalizedResidual: Double,
         supportScore: Double,
-        fitScore: Double
+        fitScore: Double,
+        angularSupport: Double? = nil
     ) {
         self.normalizedResidual = normalizedResidual
         self.supportScore = supportScore
         self.fitScore = fitScore
+        self.angularSupport = angularSupport
     }
 }
 
@@ -165,16 +168,32 @@ public struct SupportedPolygonVertex: Codable, Sendable, Equatable {
     }
 }
 
+public enum DerivedPolygonConcavityResolution:
+    String,
+    Codable,
+    Sendable,
+    Equatable
+{
+    case resolvedConvex = "resolved_convex"
+    case resolvedConcave = "resolved_concave"
+    case unresolved
+}
+
 public struct DerivedPolygon: Codable, Sendable, Equatable {
     public let vertices: [SupportedPolygonVertex]
     public let isConcave: Bool
+    public let concavityResolution:
+        DerivedPolygonConcavityResolution?
 
     public init(
         vertices: [SupportedPolygonVertex],
-        isConcave: Bool
+        isConcave: Bool,
+        concavityResolution:
+            DerivedPolygonConcavityResolution? = nil
     ) {
         self.vertices = vertices
         self.isConcave = isConcave
+        self.concavityResolution = concavityResolution
     }
 }
 
@@ -651,7 +670,7 @@ public enum MeshDerivedShapeObservationBuilder {
 
 public enum DerivedShapeProxyFitter {
     public static let algorithm = "htdt-derived-footprint-fit"
-    public static let version = "1.0.0"
+    public static let version = "1.1.0"
 
     public static func connectedComponents(
         in observation: DerivedShapeObservation,
@@ -800,6 +819,19 @@ public enum DerivedShapeProxyFitter {
                 return lhs < rhs
             }
             return $0.kind.rawValue < $1.kind.rawValue
+        }
+
+        let footprintAngularSupport = angularSupport(
+            points: points.map(\.position),
+            center: meanPoint(points.map(\.position))
+        )
+        if footprintAngularSupport < 0.70 {
+            return unresolvedProxy(
+                resolution: .insufficientEvidence,
+                observation: observation,
+                candidates: candidates,
+                sample: sample
+            )
         }
 
         if hasCircleRectangleAmbiguity(candidates) {
@@ -1050,7 +1082,7 @@ public enum DerivedShapeProxyFitter {
             center: center,
             radius: radius
         )
-        let metrics = fitMetrics(
+        let baseMetrics = fitMetrics(
             points: positions,
             scale: scale
         ) { point in
@@ -1061,6 +1093,15 @@ public enum DerivedShapeProxyFitter {
                 ) - radius
             )
         }
+        let metrics = DerivedShapeFitMetrics(
+            normalizedResidual: baseMetrics.normalizedResidual,
+            supportScore: baseMetrics.supportScore,
+            fitScore: baseMetrics.fitScore,
+            angularSupport: angularSupport(
+                points: positions,
+                center: center
+            )
+        )
 
         return DerivedShapeCandidate(
             geometry: .circle(circle),
@@ -1129,12 +1170,21 @@ public enum DerivedShapeProxyFitter {
             semiMinorAxis: semiB,
             headingRadians: heading
         )
-        let metrics = fitMetrics(
+        let baseMetrics = fitMetrics(
             points: positions,
             scale: scale
         ) { point in
             ellipseDistance(point, ellipse)
         }
+        let metrics = DerivedShapeFitMetrics(
+            normalizedResidual: baseMetrics.normalizedResidual,
+            supportScore: baseMetrics.supportScore,
+            fitScore: baseMetrics.fitScore,
+            angularSupport: angularSupport(
+                points: positions,
+                center: center
+            )
+        )
 
         return DerivedShapeCandidate(
             geometry: .ellipse(ellipse),
@@ -1147,13 +1197,37 @@ public enum DerivedShapeProxyFitter {
         scale: Double
     ) -> DerivedShapeCandidate? {
         let positions = points.map(\.position)
-        let polygonPoints = concavePolygon(
+        var polygonPoints = concavePolygon(
             positions,
             scale: scale,
             maximumVertices: 12
         )
         guard polygonPoints.count >= 3 else {
             return nil
+        }
+
+        let detectedConcavity = polygonIsConcave(polygonPoints)
+        let concavityResolution:
+            DerivedPolygonConcavityResolution
+        if detectedConcavity {
+            polygonPoints = supportedConcavityPolygon(
+                polygon: polygonPoints,
+                points: points,
+                scale: scale,
+                maximumVertices: 12
+            )
+            if polygonIsConcave(polygonPoints) {
+                concavityResolution = .resolvedConcave
+            } else {
+                polygonPoints = convexHull(positions)
+                reduceVertexCount(
+                    &polygonPoints,
+                    maximumVertices: 12
+                )
+                concavityResolution = .unresolved
+            }
+        } else {
+            concavityResolution = .resolvedConvex
         }
 
         let supportRadius = max(0.08, scale * 0.08)
@@ -1171,7 +1245,8 @@ public enum DerivedShapeProxyFitter {
         }
         let polygon = DerivedPolygon(
             vertices: supportedVertices,
-            isConcave: polygonIsConcave(polygonPoints)
+            isConcave: polygonIsConcave(polygonPoints),
+            concavityResolution: concavityResolution
         )
         let metrics = fitMetrics(
             points: positions,
@@ -1219,21 +1294,64 @@ public enum DerivedShapeProxyFitter {
         let complexityPenalty: Double
         switch candidate.geometry {
         case .circle:
-            complexityPenalty = 0.006
+            complexityPenalty = 0.008
         case .ellipse:
-            complexityPenalty = 0.009
-        case .orientedRectangle:
             complexityPenalty = 0.010
+        case .orientedRectangle:
+            complexityPenalty = 0.011
         case let .polygon(polygon):
             complexityPenalty =
-                0.014
+                0.011
                 + Double(max(0, polygon.vertices.count - 4))
-                    * 0.0015
+                    * 0.001
         }
 
         return candidate.metrics.normalizedResidual
             + complexityPenalty
             + (1 - candidate.metrics.supportScore) * 0.018
+    }
+
+    private static func angularSupport(
+        points: [DerivedPoint2D],
+        center: DerivedPoint2D
+    ) -> Double {
+        guard points.count >= 3 else {
+            return 0
+        }
+
+        let angles = points.map {
+            var angle = atan2(
+                $0.y - center.y,
+                $0.x - center.x
+            )
+            if angle < 0 {
+                angle += 2 * Double.pi
+            }
+            return angle
+        }.sorted()
+
+        guard let first = angles.first,
+              let last = angles.last
+        else {
+            return 0
+        }
+
+        var largestGap =
+            first + 2 * Double.pi - last
+        for index in 1..<angles.count {
+            largestGap = max(
+                largestGap,
+                angles[index] - angles[index - 1]
+            )
+        }
+
+        return max(
+            0,
+            min(
+                1,
+                1 - largestGap / (2 * Double.pi)
+            )
+        )
     }
 
     private static func hasCircleRectangleAmbiguity(
@@ -1505,6 +1623,114 @@ public enum DerivedShapeProxyFitter {
                     changed = true
                     break
                 }
+            }
+        }
+    }
+
+    private static func supportedConcavityPolygon(
+        polygon: [DerivedPoint2D],
+        points: [DerivedObservationPoint],
+        scale: Double,
+        maximumVertices: Int
+    ) -> [DerivedPoint2D] {
+        guard polygon.count >= 4 else {
+            return polygon
+        }
+
+        var result = polygon
+        let vertexRadius = max(0.10, scale * 0.10)
+        let edgeRadius = max(0.10, scale * 0.08)
+        var changed = true
+
+        while changed, result.count > 3 {
+            changed = false
+            let signedArea = result.indices.reduce(0.0) {
+                partial, index in
+                let next = (index + 1) % result.count
+                return partial
+                    + result[index].x * result[next].y
+                    - result[next].x * result[index].y
+            }
+            let orientation =
+                signedArea >= 0 ? 1.0 : -1.0
+
+            for index in result.indices {
+                let previous =
+                    result[
+                        (index - 1 + result.count)
+                        % result.count
+                    ]
+                let current = result[index]
+                let next =
+                    result[(index + 1) % result.count]
+                let turn = cross(previous, current, next)
+                guard turn * orientation
+                    < -0.000_000_1
+                else {
+                    continue
+                }
+
+                if !reflexVertexIsSupported(
+                    previous: previous,
+                    current: current,
+                    next: next,
+                    points: points,
+                    vertexRadius: vertexRadius,
+                    edgeRadius: edgeRadius
+                ) {
+                    result.remove(at: index)
+                    changed = true
+                    break
+                }
+            }
+        }
+
+        removeNearCollinearVertices(
+            &result,
+            tolerance: max(0.002, scale * 0.004)
+        )
+        reduceVertexCount(
+            &result,
+            maximumVertices: maximumVertices
+        )
+        return result
+    }
+
+    private static func reflexVertexIsSupported(
+        previous: DerivedPoint2D,
+        current: DerivedPoint2D,
+        next: DerivedPoint2D,
+        points: [DerivedObservationPoint],
+        vertexRadius: Double,
+        edgeRadius: Double
+    ) -> Bool {
+        let nearbyCount = points.lazy.filter {
+            hypot(
+                $0.position.x - current.x,
+                $0.position.y - current.y
+            ) <= vertexRadius
+        }.prefix(2).count
+        guard nearbyCount >= 2 else {
+            return false
+        }
+
+        let probes = [
+            DerivedPoint2D(
+                x: (previous.x + current.x) / 2,
+                y: (previous.y + current.y) / 2
+            ),
+            DerivedPoint2D(
+                x: (current.x + next.x) / 2,
+                y: (current.y + next.y) / 2
+            ),
+        ]
+
+        return probes.allSatisfy { probe in
+            points.contains {
+                hypot(
+                    $0.position.x - probe.x,
+                    $0.position.y - probe.y
+                ) <= edgeRadius
             }
         }
     }
