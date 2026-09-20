@@ -1,6 +1,6 @@
 # Guided Scanning UX Plan
 
-Status: G100A/G100B implemented by PR #47; G100C implemented by PR #49; G100D implemented by PR #53; physical-device acceptance remains open.  
+Status: G100A/G100B implemented by PR #47; G100C implemented by PR #49; G100D implemented by PR #53; G100E current-relative direction guidance implemented on the current branch; physical-device acceptance remains open.  
 Scope: scanner-first iOS UX; no Capture Bundle schema promotion in these slices.
 
 ## 1. Problem statement
@@ -87,6 +87,11 @@ Three separate concepts remain explicit:
    - exact ARMesh snapshots;
    - explicit user-attested annotations/measurements;
    - persisted using the existing Capture Bundle contracts.
+
+The G100E guidance target, angular errors, arrows, compass markers, and
+hysteresis state are camera-trajectory guidance only. They do not become
+Capture Bundle measurements, do not prove geometric completeness, and do not
+participate in finalization gates.
 
 ## 4. Scanner-first screen
 
@@ -205,7 +210,52 @@ The next suggested gap is chosen deterministically:
 2. break ties by smallest angular distance from the current relative heading;
 3. prefer missing level, then low, then high within that sector.
 
-This avoids a random or oscillating instruction stream.
+The selected target is a **start-relative coverage cell**: one azimuth sector
+relative to the first normal-tracking camera heading plus one pitch band. It is
+not a room-surface identity.
+
+### 5.4 Current-relative guidance geometry
+
+The UI must not ask the operator to mentally convert a start-relative label such
+as "rear right" into a physical turn from the phone's current pose. G100E
+therefore derives a second, presentation-only guidance authority from the
+selected start-relative target:
+
+- target yaw = center heading of the selected 12-way azimuth sector;
+- target pitch = representative center for low / level / high;
+- signed yaw error = wrapped target yaw minus current start-relative yaw;
+- pitch error = target pitch minus current camera pitch;
+- angular distance = spherical angular separation between current and target
+  look directions.
+
+Positive signed yaw error means turn right; negative means turn left. Positive
+pitch error means raise the camera view; negative means lower it. The UI maps
+those continuous errors into eight directional arrows. When both errors are
+within the configured alignment tolerances, the instruction changes to
+"Slowly scan this direction" instead of continuing to show a turn arrow.
+
+This distinction is intentional:
+
+- **start-relative** answers "which coverage cell is missing?";
+- **current-relative** answers "which way should I turn right now?".
+
+### 5.5 Guidance stability / hysteresis
+
+Target selection is stateful and deterministic. All guidance timing and angular
+thresholds are defined by `ScanGuidanceConfiguration`; they are not scattered
+through the UI.
+
+Rules:
+
+1. a newly selected target is held for at least the configured minimum hold
+   interval while it remains unobserved;
+2. after the hold interval, an unobserved target is retained unless another
+   sector has strictly fewer observed pitch bands;
+3. when the target cell becomes observed, the next deterministic gap is
+   selected immediately.
+
+The hysteresis affects operator guidance only. It does not change cell
+observation counts or canonical evidence.
 
 ## 6. Interruption and failure presentation
 
@@ -285,6 +335,20 @@ Raw enum/debug tokens may remain English only in developer diagnostics.
 - reset creates a fresh AR session / coordinate-space authority;
 - ARWorldMap or equivalent proven relocalization remains future research.
 
+### G100E — current-relative direction guidance — implemented, device acceptance pending
+
+- retain the 12 x 3 start-relative advisory coverage authority;
+- compute continuous signed yaw error, pitch error, target sector / band, and
+  angular distance from the live camera pose;
+- map the errors to left/right/up/down and diagonal direction arrows;
+- show a small center-near arrow overlay without replacing RoomPlan's own live
+  renderer or coaching;
+- emphasize the recommended coverage cell with a focus border/marker;
+- show a compact relative compass that distinguishes start, current, and target
+  directions;
+- apply deterministic target hysteresis from the core model;
+- keep all guidance advisory and ephemeral.
+
 ## 10. Acceptance criteria for G100A/B/C/D
 
 Automated:
@@ -297,9 +361,18 @@ Automated:
 Physical-device gate:
 
 - scanning visibly opens the rear camera;
-- RoomPlan overlays/coaching are visible;
+- RoomPlan overlays/coaching are visible and are not materially obscured by the
+  HTDT guidance overlay;
 - miniature model updates;
 - coverage HUD updates while the user changes direction and pitch;
+- a user can follow the arrow without first interpreting labels such as
+  "rear right";
+- rotating the phone changes the arrow naturally relative to the current pose;
+- the recommended 12 x 3 target cell is immediately distinguishable from other
+  unobserved cells;
+- aiming at the target and observing it advances guidance to the next gap;
+- the start/current/target relative compass remains understandable in portrait
+  use;
 - no second AR/RoomPlan session is created;
 - ending the scan still persists the exact raw RoomPlan result and scan-end
   mesh/frame evidence;
