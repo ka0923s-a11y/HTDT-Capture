@@ -246,6 +246,7 @@ public final class SharedARSessionController {
         }
 
         let camera = frame.camera.transform
+        let cameraFromWorld = simd_inverse(camera)
         let cameraPosition = SpatialCoveragePoint3D(
             x: Double(camera.columns.3.x),
             y: Double(camera.columns.3.y),
@@ -305,7 +306,7 @@ public final class SharedARSessionController {
             let perAnchorBudget =
                 max(1, budget / anchors.count)
 
-            for anchor in anchors {
+            for anchor in anchors.prefix(budget) {
                 guard points.count < budget else {
                     break
                 }
@@ -350,13 +351,27 @@ public final class SharedARSessionController {
                             local.z,
                             1
                         )
-                    points.append(
-                        SpatialCoveragePoint3D(
-                            x: Double(world.x),
-                            y: Double(world.y),
-                            z: Double(world.z)
+                    let cameraLocal =
+                        cameraFromWorld * world
+                    let forwardDepth =
+                        -cameraLocal.z
+                    let isCurrentViewCandidate =
+                        forwardDepth >= 0.15
+                        && forwardDepth <= 6.0
+                        && abs(cameraLocal.x)
+                            <= forwardDepth * 0.95
+                        && abs(cameraLocal.y)
+                            <= forwardDepth * 0.85
+
+                    if isCurrentViewCandidate {
+                        points.append(
+                            SpatialCoveragePoint3D(
+                                x: Double(world.x),
+                                y: Double(world.y),
+                                z: Double(world.z)
+                            )
                         )
-                    )
+                    }
 
                     index += vertexStride
                     sampled += 1
