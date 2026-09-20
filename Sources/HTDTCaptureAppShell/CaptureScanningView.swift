@@ -174,7 +174,9 @@ public struct CaptureScanningView: View {
 
             if let motionGuidance {
                 Text(
-                    ScanMotionGuidanceCopy.category(
+                    primaryScanReadyToEnd
+                    ? String(localized: "Optional extra observation")
+                    : ScanMotionGuidanceCopy.category(
                         for: motionGuidance.action,
                         language:
                             ScanMotionGuidanceCopy.preferredLanguage
@@ -287,7 +289,7 @@ public struct CaptureScanningView: View {
                 .frame(minHeight: 38)
             }
             .buttonStyle(.bordered)
-            .tint(scanGuidanceComplete ? .green : nil)
+            .tint(primaryScanReadyToEnd ? .green : nil)
             .controlSize(.regular)
             .accessibilityLabel(
                 String(localized: "End scan")
@@ -597,11 +599,21 @@ public struct CaptureScanningView: View {
         }
 
         if let motionGuidance {
-            return ScanMotionGuidanceCopy.prompt(
+            let prompt = ScanMotionGuidanceCopy.prompt(
                 for: motionGuidance,
                 language:
                     ScanMotionGuidanceCopy.preferredLanguage
             )
+            if primaryScanReadyToEnd {
+                return String(
+                    format: String(
+                        localized:
+                            "Base scan complete. Optional extra observation: %@"
+                    ),
+                    prompt
+                )
+            }
+            return prompt
         }
 
         if guidanceProgress.movementCapability == .unrestricted,
@@ -845,6 +857,13 @@ public struct CaptureScanningView: View {
         return String(localized: "No bounded shape evidence yet")
     }
 
+    private var primaryScanReadyToEnd: Bool {
+        coverage.latestTrackingState == .normal
+            && coverage.coverageFraction >= 0.95
+            && coverage.pitchBandCoverageFraction(.low) >= 0.75
+            && coverage.pitchBandCoverageFraction(.high) >= 0.75
+    }
+
     private var scanGuidanceComplete: Bool {
         guidanceProgress.isComplete
     }
@@ -938,11 +957,7 @@ public struct CaptureScanningView: View {
         // completed broad directional capture under normal tracking, pressing
         // End must not be turned into another effectively mandatory spatial
         // loop.
-        if coverage.latestTrackingState == .normal,
-           coverage.coverageFraction >= 0.95,
-           coverage.pitchBandCoverageFraction(.low) >= 0.75,
-           coverage.pitchBandCoverageFraction(.high) >= 0.75
-        {
+        if primaryScanReadyToEnd {
             return false
         }
 
