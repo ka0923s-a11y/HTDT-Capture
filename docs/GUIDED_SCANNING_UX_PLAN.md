@@ -515,3 +515,26 @@ Automated acceptance covers deterministic aggregation tests, core tests, iOS
 compile, and unsigned IPA generation. Physical LiDAR validation remains a
 separate gate for mesh-availability truthfulness, heatmap motion, weak/unknown
 distinction, camera-follow behavior, and RoomPlan capture performance.
+
+
+## 11. Derived observation shape preview
+
+The complex-shape preview is specified in
+[`DERIVED_OBSERVATION_SHAPE_PREVIEW.md`](DERIVED_OBSERVATION_SHAPE_PREVIEW.md).
+
+It extends the scanner without changing the authority hierarchy:
+
+- RoomPlan remains the semantic structural approximation;
+- G110 remains the live spatial observation / mesh-availability authority;
+- classification-aware bounded ARMesh observations may be fit to circle,
+  ellipse, oriented-rectangle, polygon, or non-orthogonal wall-chain proxies;
+- insufficient or ambiguous evidence remains unresolved rather than being
+  forced into a rectangle;
+- the derived proxy is preview-only and never becomes canonical geometry or a
+  finalization gate in this slice.
+
+The live implementation is deliberately bounded. Shape observations are sampled
+only when G110 reports active mesh anchors, face inspection and point counts are
+capped, and numerical fitting runs off the main actor. Physical LiDAR acceptance
+is still required for circular tables, oblique walls, polygonal boundaries,
+performance, and operator comprehension.
