@@ -3,7 +3,7 @@
 Status: In progress  
 Issue: #6
 
-## Implemented in this slice
+## Implemented
 
 ### Explicit capture-quality authority
 
@@ -27,7 +27,7 @@ The readiness result is derived from an explicit `CaptureQualityRequirements` ru
 
 ### Canonical manifest implementation
 
-Swift now implements Capture Bundle v1 canonical manifest bytes directly:
+Swift implements Capture Bundle v1 canonical manifest bytes directly:
 
 - UTF-8;
 - NFC-only strings;
@@ -83,7 +83,11 @@ A SwiftUI review surface displays:
 - concrete diagnostics;
 - integrity result and logical bundle digest.
 
-### Export type
+The iOS host workflow now has a real `reviewing` transition after RoomPlan is
+stopped with the underlying ARSession preserved. The live captured working set is
+not yet connected to `CaptureReviewView`.
+
+### Export type and app registration
 
 The platform layer defines the project-owned UTI:
 
@@ -93,7 +97,8 @@ with filename extension:
 
 `.htdtcapture`
 
-The actual app target must also declare the exported type and filename extension in its Info.plist/document-type configuration. Apple requires proprietary document types to be declared in the app bundle; the Swift UTType alone does not register the extension system-wide.
+The concrete iOS host target now declares that type and document association in
+`App/Info.plist`.
 
 ### ZIP wrapper authority
 
@@ -105,10 +110,11 @@ SHA-256 is used for content integrity and logical identity only. It is not a sig
 
 ## Remaining Phase 5 work
 
-- wire the review surface into a production iOS app target/navigation flow;
-- register the UTI in the final app target Info.plist;
-- invoke ZIP export from the iOS share/export UI;
-- exercise finalization and export against a real captured room working set;
+- assemble the live capture working set from RoomPlan/mesh/frame/depth/annotation evidence;
+- derive the quality report from that live working set;
+- wire reviewing -> validating -> atomic finalization in the host workflow;
+- invoke validated `.htdtcapture` export from the iOS share/export UI;
+- exercise finalization and export against a real captured-room working set;
 - measure storage/thermal/backpressure behavior on device.
 
 The archive attack boundary remains enforced by the Phase 0 reference validator and adversarial tests.
