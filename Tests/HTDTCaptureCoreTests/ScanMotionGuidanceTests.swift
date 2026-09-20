@@ -103,6 +103,106 @@ final class ScanMotionGuidanceTests: XCTestCase {
         XCTAssertEqual(advanced?.targetRegionKey, key)
     }
 
+    func testOrbitAdvancesWhenViewAngleDiversityIncreases() {
+        var tracker = ScanMotionGuidanceTracker()
+        let key = SpatialCoverageCellKey(x: 2, z: 2)
+
+        _ = tracker.record(
+            timestampSeconds: 0,
+            coverage: coverage(gap: nil),
+            spatialCoverage: spatial(
+                cameraX: 0,
+                cameraZ: 0,
+                region: region(
+                    key: key,
+                    observations: 3,
+                    diversity: 1,
+                    distance: .medium,
+                    classification: .weak
+                )
+            ),
+            observation: .empty
+        )
+
+        let orbit = tracker.record(
+            timestampSeconds: 0.5,
+            coverage: coverage(gap: nil),
+            spatialCoverage: spatial(
+                cameraX: 0.35,
+                cameraZ: 0,
+                region: region(
+                    key: key,
+                    observations: 4,
+                    diversity: 1,
+                    distance: .medium,
+                    classification: .weak
+                )
+            ),
+            observation: .empty
+        )
+        XCTAssertEqual(orbit?.action, .orbit)
+
+        let advanced = tracker.record(
+            timestampSeconds: 0.75,
+            coverage: coverage(gap: nil),
+            spatialCoverage: spatial(
+                cameraX: 0.35,
+                cameraZ: 0,
+                region: region(
+                    key: key,
+                    observations: 5,
+                    diversity: 2,
+                    distance: .medium,
+                    classification: .weak
+                )
+            ),
+            observation: .empty
+        )
+
+        XCTAssertEqual(advanced?.action, .holdObserve)
+        XCTAssertEqual(advanced?.targetRegionKey, key)
+    }
+
+    func testDistanceBucketCanProduceApproachAndRetreatOnlyAfterDiversity() {
+        var approachTracker = ScanMotionGuidanceTracker()
+        let far = approachTracker.record(
+            timestampSeconds: 0,
+            coverage: coverage(gap: nil),
+            spatialCoverage: spatial(
+                cameraX: 0,
+                cameraZ: 0,
+                region: region(
+                    observations: 3,
+                    diversity: 2,
+                    distance: .far,
+                    classification: .weak
+                )
+            ),
+            observation: .empty
+        )
+        XCTAssertEqual(far?.action, .approach)
+        XCTAssertEqual(far?.translationDirection, .forward)
+
+        var retreatTracker = ScanMotionGuidanceTracker()
+        let near = retreatTracker.record(
+            timestampSeconds: 0,
+            coverage: coverage(gap: nil),
+            spatialCoverage: spatial(
+                cameraX: 0,
+                cameraZ: 0,
+                region: region(
+                    observations: 3,
+                    diversity: 2,
+                    distance: .near,
+                    classification: .weak
+                )
+            ),
+            observation: .empty
+        )
+        XCTAssertEqual(near?.action, .retreat)
+        XCTAssertEqual(near?.translationDirection, .backward)
+    }
+
     func testNewAngleDiversityAndObservedRegionClearGuidance() {
         var tracker = ScanMotionGuidanceTracker()
         let key = SpatialCoverageCellKey(x: 2, z: 2)
