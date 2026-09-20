@@ -206,6 +206,32 @@ public actor AtomicCaptureFileWriter {
         }
     }
 
+    public func removeIfIdentical(
+        _ data: Data,
+        at path: CaptureStorePath
+    ) throws -> Bool {
+        let target = path.description
+            .split(separator: "/")
+            .reduce(rootDirectory) { url, component in
+                url.appendingPathComponent(
+                    String(component),
+                    isDirectory: false
+                )
+            }
+
+        guard fileManager.fileExists(atPath: target.path) else {
+            return true
+        }
+
+        let existing = try Data(contentsOf: target)
+        guard existing == data else {
+            return false
+        }
+
+        try fileManager.removeItem(at: target)
+        return true
+    }
+
     public func removeIfPresent(_ path: CaptureStorePath) throws {
         let target = path.description
             .split(separator: "/")

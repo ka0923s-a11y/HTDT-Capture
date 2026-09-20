@@ -439,6 +439,109 @@ final class CaptureWorkingSetStoreTests: XCTestCase {
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
 
+    func testFailedEndFrameCanRollBackExactPartialCanonicalFiles()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let store = try CaptureWorkingSetStore(rootDirectory: root)
+        let sessionID = CaptureSessionID()
+        let coordinateID = CoordinateSpaceID()
+        let frameID = EvidenceFrameID()
+        let pixel = Data([1, 3, 5, 7, 9])
+        let depth = Data([2, 4, 6, 8])
+
+        let depthReference = try DepthEvidenceReference(
+            kind: .discreteSceneDepth,
+            depthRelativePath:
+                "evidence/depth/\(frameID).depthbin",
+            depthByteCount: depth.count,
+            depthSHA256: EvidenceIntegrity.sha256(of: depth)
+        )
+        let descriptor = try FrameEvidenceDescriptor(
+            frameID: frameID,
+            captureSessionID: sessionID,
+            coordinateSpaceID: coordinateID,
+            sessionTimestampSeconds: 14.0,
+            worldFromCamera: .identity,
+            intrinsics: try CameraIntrinsics3x3(
+                values: [
+                    1, 0, 0,
+                    0, 1, 0,
+                    0, 0, 1,
+                ]
+            ),
+            imageWidth: 1,
+            imageHeight: 1,
+            pixelFormatFourCC: 0,
+            pixelRelativePath:
+                "evidence/frames/\(frameID).pixelbin",
+            pixelByteCount: pixel.count,
+            pixelSHA256: EvidenceIntegrity.sha256(of: pixel),
+            depthStatus: .capturedDiscrete,
+            depth: depthReference
+        )
+        let package = try FrameEvidencePackageBuilder.build(
+            descriptor: descriptor,
+            pixelPayload: pixel,
+            depthPayload: depth,
+            confidencePayload: nil
+        )
+        let writer = try AtomicCaptureFileWriter(
+            rootDirectory: root
+        )
+
+        // Model an end attempt that wrote only part of the exact canonical
+        // package before the filesystem reported failure.
+        try await writer.write(
+            pixel,
+            to: try CaptureStorePath(
+                descriptor.pixelRelativePath
+            )
+        )
+        try await writer.write(
+            depth,
+            to: try CaptureStorePath(
+                depthReference.depthRelativePath
+            )
+        )
+
+        try await store.discardUncommittedFramePackage(package)
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: root
+                    .appendingPathComponent(
+                        descriptor.pixelRelativePath
+                    )
+                    .path
+            )
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: root
+                    .appendingPathComponent(
+                        depthReference.depthRelativePath
+                    )
+                    .path
+            )
+        )
+
+        // Cleanup must leave the same working revision usable.
+        try await store.persistFramePackage(package)
+        let snapshot = await store.snapshot()
+        XCTAssertEqual(snapshot.evidenceFrameCount, 1)
+        XCTAssertEqual(snapshot.depthEvidenceCount, 1)
+        XCTAssertEqual(
+            await store.evaluateQuality().integrityStatus,
+            .pass
+        )
+    }
+
     func testConcurrentExactFrameReplayCountsOneEvidenceFrame()
         async throws
     {
