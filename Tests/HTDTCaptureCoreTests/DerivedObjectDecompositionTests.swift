@@ -43,9 +43,9 @@ final class DerivedObjectDecompositionTests: XCTestCase {
             prefix: "lower"
         )
         let upper = boxPoints(
-            minX: -0.5, maxX: 0.5,
+            minX: -0.75, maxX: 0.75,
             minY: 0.60, maxY: 0.90,
-            minZ: -0.4, maxZ: 0.4,
+            minZ: -0.55, maxZ: 0.55,
             prefix: "upper"
         )
 
@@ -312,22 +312,6 @@ final class DerivedObjectDecompositionTests: XCTestCase {
             append(x, maxY, maxZ)
             append(minX, maxY, z)
             append(maxX, maxY, z)
-        }
-
-        let supportPatchX = min(0.06, (maxX - minX) / 6)
-        let supportPatchZ = min(0.06, (maxZ - minZ) / 6)
-        let centerX = (minX + maxX) / 2
-        let centerZ = (minZ + maxZ) / 2
-        for y in [minY, maxY] {
-            for xOffset in [-supportPatchX, 0, supportPatchX] {
-                for zOffset in [-supportPatchZ, 0, supportPatchZ] {
-                    append(
-                        centerX + xOffset,
-                        y,
-                        centerZ + zOffset
-                    )
-                }
-            }
         }
 
         let verticalSamples =
