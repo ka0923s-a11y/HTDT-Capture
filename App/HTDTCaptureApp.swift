@@ -1282,7 +1282,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private struct PreparedEndScanAttempt {
-        let evidence: CaptureReviewEvidenceSnapshot
+        let trackingQualityEvent: TrackingQualityEvent
         let framePackage: FrameEvidencePackage
         let meshPackage: MeshEvidencePackage?
         let meshSnapshotUnavailable: Bool
@@ -1439,7 +1439,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         endScanGuidance = nil
         succeeded = true
         return PreparedEndScanAttempt(
-            evidence: evidence,
+            trackingQualityEvent: evidence.trackingQualityEvent,
             framePackage: framePackage,
             meshPackage: meshPackage,
             meshSnapshotUnavailable: meshSnapshotUnavailable
@@ -1627,7 +1627,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         await store.recordTrackingEvent(
-            prepared.evidence.trackingQualityEvent
+            prepared.trackingQualityEvent
         )
 
         guard captureGeneration == generation,
