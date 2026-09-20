@@ -135,7 +135,6 @@ its logical bundle digest matches the finalizer result.
 ## Remaining Phase 5 work
 
 - connect live annotation/measurement authorities into the same working set;
-- invoke the native validated `.htdtcapture` exporter from the iOS share/export UI;
 - exercise finalization and export against a real captured-room working set;
 - measure storage/thermal/backpressure behavior on device.
 
@@ -144,3 +143,23 @@ The archive attack boundary remains enforced by the Phase 0 reference validator 
 
 See `docs/PHASE5_LIVE_QUALITY_FINALIZATION.md` for the integrity semantics and
 request-binding details of the live finalization path.
+
+
+### iOS share/export wiring
+
+The concrete host now retains the exact `FinalizedCaptureRevision` after
+successful atomic finalization.
+
+From `finalized`, the user can prepare one validated
+`.htdtcapture` archive. The host invokes the native archive exporter into the
+app's Application Support export area, verifies the returned logical
+`bundle_digest` against the finalized revision, and only then transitions to
+`exported`.
+
+In this state, `exported` means a validated share-ready archive exists. It does
+not claim that an external destination accepted the file. SwiftUI `ShareLink`
+hands the exact validated file URL to the system share sheet, where the user
+chooses the actual destination.
+
+Existing export destinations are not overwritten. A new capture revision gets a
+new revision UUID and therefore a distinct archive path.

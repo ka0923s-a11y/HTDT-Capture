@@ -6,18 +6,21 @@ public struct CaptureRootActions {
     public let beginCapture: () -> Void
     public let beginReview: () -> Void
     public let finalizeCapture: () -> Void
-    public let resetAfterFailure: () -> Void
+    public let prepareExport: () -> Void
+    public let resetCapture: () -> Void
 
     public init(
         beginCapture: @escaping () -> Void = {},
         beginReview: @escaping () -> Void = {},
         finalizeCapture: @escaping () -> Void = {},
-        resetAfterFailure: @escaping () -> Void = {}
+        prepareExport: @escaping () -> Void = {},
+        resetCapture: @escaping () -> Void = {}
     ) {
         self.beginCapture = beginCapture
         self.beginReview = beginReview
         self.finalizeCapture = finalizeCapture
-        self.resetAfterFailure = resetAfterFailure
+        self.prepareExport = prepareExport
+        self.resetCapture = resetCapture
     }
 }
 
@@ -29,6 +32,7 @@ public struct CaptureRootView: View {
     public let workingSetStatus: String?
     public let qualityReport: CaptureQualityReport?
     public let validationReport: BundleValidationReport?
+    public let exportURL: URL?
     public let actions: CaptureRootActions
 
     public init(
@@ -39,6 +43,7 @@ public struct CaptureRootView: View {
         workingSetStatus: String? = nil,
         qualityReport: CaptureQualityReport? = nil,
         validationReport: BundleValidationReport? = nil,
+        exportURL: URL? = nil,
         actions: CaptureRootActions = CaptureRootActions()
     ) {
         self.state = state
@@ -48,6 +53,7 @@ public struct CaptureRootView: View {
         self.workingSetStatus = workingSetStatus
         self.qualityReport = qualityReport
         self.validationReport = validationReport
+        self.exportURL = exportURL
         self.actions = actions
     }
 
@@ -120,7 +126,7 @@ public struct CaptureRootView: View {
                     }
                 }
 
-                if state == .finalized,
+                if (state == .finalized || state == .exported),
                    let qualityReport,
                    let validationReport
                 {
@@ -139,6 +145,14 @@ public struct CaptureRootView: View {
                                 quality: qualityReport,
                                 validation: validationReport
                             )
+                        }
+                        if let exportURL {
+                            ShareLink(item: exportURL) {
+                                Label(
+                                    "Share .htdtcapture",
+                                    systemImage: "square.and.arrow.up"
+                                )
+                            }
                         }
                     }
                 }
@@ -187,7 +201,7 @@ public struct CaptureRootView: View {
             }
 
         case .failed:
-            Button("Reset capture", action: actions.resetAfterFailure)
+            Button("Reset capture", action: actions.resetCapture)
 
         case .annotating:
             Text("Annotation workflow is not wired to the host app yet.")
@@ -196,10 +210,21 @@ public struct CaptureRootView: View {
             progressRow("Validating and finalizing capture…")
 
         case .finalized:
-            Text("Capture revision finalized and validated.")
+            Button(
+                "Prepare .htdtcapture",
+                action: actions.prepareExport
+            )
 
         case .exported:
-            Text("Capture bundle exported.")
+            VStack(alignment: .leading, spacing: 8) {
+                Text(
+                    "Validated .htdtcapture archive is ready to share."
+                )
+                Button(
+                    "Start new capture",
+                    action: actions.resetCapture
+                )
+            }
         }
     }
 
