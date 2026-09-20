@@ -646,6 +646,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             throw PlatformCaptureError.orientationUnavailable
         }
 
+        let generation = captureGeneration
         let snapshot =
             try sessionController.snapshotHorizontalCameraHeading(
                 depthSelection: .discrete
@@ -661,6 +662,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
         try await store.persistFramePackage(package)
 
+        guard captureGeneration == generation,
+              state == .annotating
+        else {
+            throw PlatformCaptureError.orientationUnavailable
+        }
+
         let evidenceRef = "path:" + package.descriptorPath
         let orientation = try OrientationAxes(
             frontAxisLocal: snapshot.frontAxisWorld,
@@ -672,6 +679,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
 
         let workingSnapshot = await store.snapshot()
+        guard captureGeneration == generation,
+              state == .annotating
+        else {
+            throw PlatformCaptureError.orientationUnavailable
+        }
         annotationEvidenceRefs =
             workingSnapshot.evidenceFrameRefs
         workingSetStatus = HostLocalization.text(
@@ -691,6 +703,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             throw PlatformCaptureError.raycastMiss
         }
 
+        let generation = captureGeneration
         let snapshot =
             try sessionController.snapshotCenterRaycastPlacement(
                 depthSelection: .discrete
@@ -705,6 +718,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 snapshot.frameArtifacts.previewPayload
         )
         try await store.persistFramePackage(package)
+
+        guard captureGeneration == generation,
+              state == .annotating
+        else {
+            throw PlatformCaptureError.raycastMiss
+        }
 
         let evidenceRef = "path:" + package.descriptorPath
         let position = snapshot.positionWorld
@@ -728,6 +747,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
 
         let workingSnapshot = await store.snapshot()
+        guard captureGeneration == generation,
+              state == .annotating
+        else {
+            throw PlatformCaptureError.raycastMiss
+        }
         annotationEvidenceRefs =
             workingSnapshot.evidenceFrameRefs
         workingSetStatus = HostLocalization.text(
