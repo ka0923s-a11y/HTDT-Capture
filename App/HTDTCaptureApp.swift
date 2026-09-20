@@ -679,12 +679,53 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         }
 
+        do {
+            try transition(.prepared)
+        } catch {
+            fail(.unknown)
+            return
+        }
+
+        guard state == .scanning,
+              captureGeneration == generation
+        else {
+            return
+        }
+
+        workingSetStatus = HostLocalization.text(
+            "Presenting the live RoomPlan camera…",
+            "RoomPlan のライブカメラを表示中…"
+        )
+
+        let liveViewReady =
+            await sessionController
+                .waitForLiveRoomCaptureViewPresentation()
+
+        guard state == .scanning,
+              captureGeneration == generation
+        else {
+            return
+        }
+
+        guard liveViewReady else {
+            workingSetStatus = HostLocalization.text(
+                "The live RoomPlan camera view did not attach in time",
+                "RoomPlan のライブカメラ画面を時間内に表示できませんでした"
+            )
+            fail(.roomPlanFailure)
+            return
+        }
+
         let startedAtUTC = BundleTimestamp.utcString(
             from: Date()
         )
         do {
             try sessionController.startRoomPlan()
         } catch {
+            workingSetStatus = HostLocalization.text(
+                "RoomPlan could not start after the live camera view was presented",
+                "ライブカメラ表示後に RoomPlan を開始できませんでした"
+            )
             fail(.roomPlanFailure)
             return
         }
@@ -736,26 +777,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        do {
-            try transition(.prepared)
-            configureResourceMonitor(
-                store: store,
-                rootDirectory: await store.rootDirectory,
-                generation: generation
-            )
-            guard state == .scanning else {
-                return
-            }
-            startScanCoverageSampling(
-                generation: generation
-            )
-            workingSetStatus = HostLocalization.text(
-                "Scanning; active AR configuration persisted",
-                "スキャン中：実行中の AR 設定を保存しました"
-            )
-        } catch {
-            fail(.unknown)
+        configureResourceMonitor(
+            store: store,
+            rootDirectory: await store.rootDirectory,
+            generation: generation
+        )
+        guard state == .scanning,
+              captureGeneration == generation
+        else {
+            return
         }
+
+        startScanCoverageSampling(
+            generation: generation
+        )
+        workingSetStatus = HostLocalization.text(
+            "Scanning; live RoomPlan camera and active AR configuration are ready",
+            "スキャン中：ライブカメラと実行中の AR 設定を確認しました"
+        )
     }
 
     private func endScanForReview() async {
