@@ -65,9 +65,14 @@ public enum ManualAuthorityBuilder {
         let transform =
             placementAuthority?.worldFromAnnotation
             ?? manualTransform
-        let placement =
-            placementAuthority?.placement
-            ?? (try PlacementProvenance(method: .manualNumeric))
+        let placement: PlacementProvenance
+        if let placementAuthority {
+            placement = placementAuthority.placement
+        } else {
+            placement = try PlacementProvenance(
+                method: .manualNumeric
+            )
+        }
         let mergedEvidenceRefs = Array(
             Set(
                 evidenceRefs
