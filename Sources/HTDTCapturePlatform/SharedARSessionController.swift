@@ -760,11 +760,18 @@ public final class SharedARSessionController {
         let depthMap = depthData.depthMap
         let width = CVPixelBufferGetWidth(depthMap)
         let height = CVPixelBufferGetHeight(depthMap)
-        guard width > 1, height > 1 else {
+        guard
+            width > 1,
+            height > 1,
+            CVPixelBufferGetPixelFormatType(depthMap)
+                == kCVPixelFormatType_DepthFloat32,
+            CVPixelBufferLockBaseAddress(
+                depthMap,
+                .readOnly
+            ) == kCVReturnSuccess
+        else {
             return []
         }
-
-        CVPixelBufferLockBaseAddress(depthMap, .readOnly)
         defer {
             CVPixelBufferUnlockBaseAddress(depthMap, .readOnly)
         }
@@ -775,12 +782,22 @@ public final class SharedARSessionController {
             return []
         }
 
-        let confidenceMap = depthData.confidenceMap
-        if let confidenceMap {
-            CVPixelBufferLockBaseAddress(
-                confidenceMap,
+        let candidateConfidenceMap = depthData.confidenceMap
+        let confidenceMap: CVPixelBuffer?
+        if let candidateConfidenceMap,
+           CVPixelBufferGetWidth(candidateConfidenceMap) == width,
+           CVPixelBufferGetHeight(candidateConfidenceMap) == height,
+           CVPixelBufferGetPixelFormatType(candidateConfidenceMap)
+                == kCVPixelFormatType_OneComponent8,
+           CVPixelBufferLockBaseAddress(
+                candidateConfidenceMap,
                 .readOnly
-            )
+           ) == kCVReturnSuccess,
+           CVPixelBufferGetBaseAddress(candidateConfidenceMap) != nil
+        {
+            confidenceMap = candidateConfidenceMap
+        } else {
+            confidenceMap = nil
         }
         defer {
             if let confidenceMap {
