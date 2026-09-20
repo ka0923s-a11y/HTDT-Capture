@@ -125,6 +125,15 @@ final class SpatialScanCoverageTests: XCTestCase {
             ).state,
             .anchorsObserved
         )
+        XCTAssertEqual(
+            MeshAvailabilityDiagnostic(
+                sceneReconstructionSupported: true,
+                sceneReconstructionEnabled: false,
+                activeMeshAnchorCount: 1,
+                configurationMismatchSuspected: true
+            ).state,
+            .anchorsObserved
+        )
     }
 
     func testWeakTransitionsToObservedAfterNormalDiverseViews() {
