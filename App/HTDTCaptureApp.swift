@@ -1244,6 +1244,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         resourceMonitor?.stop()
         resourceMonitor = nil
 
+        // Invalidate all in-flight callbacks before stopping RoomPlan. A
+        // terminal failure must not accept late evidence into the failed
+        // coordinate authority.
+        captureGeneration = UUID()
+
         if code == .interrupted {
             workingSetStatus = HostLocalization.text(
                 "Capture stopped because the app left the foreground",
