@@ -117,6 +117,16 @@ func admissionControllerBoundsPendingEvidence() async throws {
 }
 
 @Test
+func bundleCollisionKeyUsesUnicodeCaseFolding() {
+    #expect(
+        BundleLogicalPath.collisionKey("straße/payload.bin")
+            == BundleLogicalPath.collisionKey(
+                "STRASSE/payload.bin"
+            )
+    )
+}
+
+@Test
 func storePathRejectsTraversalAndBackslashes() {
     #expect(throws: CaptureStorePathError.self) {
         _ = try CaptureStorePath("../escape")
