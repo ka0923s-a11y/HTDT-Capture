@@ -566,14 +566,29 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             do {
+                try self.sessionController.startRoomPlan()
+            } catch {
+                self.reviewOperationInFlight = false
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "RoomPlan could not resume additional scanning. The accepted Review evidence was kept intact; you can retry Continue scanning or finalize this capture.",
+                        "RoomPlan で追加スキャンを再開できませんでした。受理済みの確認データはそのまま保持しています。「スキャンを続ける」を再試行するか、このキャプチャを確定できます。"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+                return
+            }
+
+            do {
                 try await store.rollbackAcceptedEndTransaction(
                     removeOwnedMesh: removeOwnedMesh
                 )
             } catch {
                 self.workingSetStatus =
                     HostLocalization.text(
-                        "The accepted Review boundary could not be rolled back safely",
-                        "受理済みの確認境界を安全に取り消せませんでした"
+                        "RoomPlan restarted, but the accepted Review boundary could not be rolled back safely",
+                        "RoomPlan は再開しましたが、受理済みの確認境界を安全に取り消せませんでした"
                     )
                     + " ["
                     + Self.persistenceDiagnostic(error)
@@ -585,18 +600,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             guard self.captureGeneration == generation,
                   self.state == .reviewing
             else {
-                return
-            }
-
-            do {
-                try self.sessionController.startRoomPlan()
-            } catch {
-                self.workingSetStatus =
-                    HostLocalization.text(
-                        "The saved evidence was retained, but RoomPlan could not resume this capture",
-                        "保存済みの証拠データは保持されていますが、このキャプチャの RoomPlan を再開できませんでした"
-                    )
-                self.fail(.roomPlanFailure)
                 return
             }
 
