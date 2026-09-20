@@ -56,6 +56,7 @@ public struct CaptureReviewEvidenceSnapshot: Sendable {
 
 @available(iOS 17.0, *)
 @MainActor
+@objc(HTDTRoomPlanViewDelegateBridge)
 private final class RoomPlanViewDelegateBridge:
     NSObject,
     @preconcurrency RoomCaptureViewDelegate
@@ -63,6 +64,19 @@ private final class RoomPlanViewDelegateBridge:
     var completionHandler: (
         @MainActor (CapturedRoomData, (any Error)?) -> Void
     )?
+
+    override init() {
+        super.init()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init()
+    }
+
+    func encode(with coder: NSCoder) {
+        // RoomCaptureViewDelegate inherits NSCoding. This bridge has no
+        // persistent state; capture authority remains in the host/store.
+    }
 
     func captureView(
         shouldPresent roomDataForProcessing: CapturedRoomData,
