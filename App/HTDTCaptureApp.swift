@@ -1076,7 +1076,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private struct PreparedEndScanAttempt {
         let evidence: CaptureReviewEvidenceSnapshot
         let framePackage: FrameEvidencePackage
-        let timingPackage: CaptureTimingPackage
         let meshPackage: MeshEvidencePackage?
         let meshSnapshotUnavailable: Bool
     }
@@ -1181,7 +1180,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 previewPayload:
                     evidence.frameArtifacts.previewPayload
             )
-            timingPackage = try CaptureTimingPackageBuilder.build(
+            _ = try CaptureTimingPackageBuilder.build(
                 start: startTiming,
                 end: endTiming
             )
@@ -1229,7 +1228,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return PreparedEndScanAttempt(
             evidence: evidence,
             framePackage: framePackage,
-            timingPackage: timingPackage,
             meshPackage: meshPackage,
             meshSnapshotUnavailable: meshSnapshotUnavailable
         )
@@ -1377,6 +1375,41 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         scanEvidenceFrameCount = frameSnapshot.evidenceFrameCount
         scanDepthEvidenceCount = frameSnapshot.depthEvidenceCount
 
+        // Re-correlate the end time after the real frame write so the
+        // canonical timing boundary remains adjacent to the actual RoomPlan
+        // stop, even when persistence took noticeable time.
+        let timingPackage: CaptureTimingPackage
+        do {
+            guard let startTiming = captureStartTimingCorrelation else {
+                throw CaptureSessionMetadataError
+                    .invalidCorrelationOrder
+            }
+            let endTiming =
+                try sessionController.snapshotTimingCorrelation()
+            timingPackage =
+                try CaptureTimingPackageBuilder.build(
+                    start: startTiming,
+                    end: endTiming
+                )
+        } catch {
+            guard captureGeneration == generation,
+                  state == .scanning
+            else {
+                return
+            }
+            workingSetStatus =
+                HostLocalization.text(
+                    "End timing could not be prepared; this scan is still active",
+                    "終了時刻を準備できなかったため終了していません。現在のスキャンは継続中です"
+                )
+            endScanGuidance = HostLocalization.text(
+                "This scan is still active. Hold the phone steady until tracking is normal, then try End again.",
+                "このキャプチャはまだ継続中です。トラッキングが正常になるまで iPhone を静止してから、もう一度「終了」を押してください。"
+            )
+            endScanPreflightBlocked = true
+            return
+        }
+
         // Timing is also persisted before stopping RoomPlan. Atomic writer
         // failures other than a pre-existing canonical path leave no target
         // file behind, so those failures can remain recoverable.
@@ -1386,7 +1419,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
         do {
             try await store.persistTimingPackage(
-                prepared.timingPackage
+                timingPackage
             )
         } catch let writerError as CaptureFileWriterError {
             workingSetStatus =
