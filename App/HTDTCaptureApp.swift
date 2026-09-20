@@ -139,6 +139,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var captureStartTimingCorrelation:
         CaptureTimingCorrelation?
     private var acceptedRoomPlanRawSHA256: EvidenceSHA256?
+    private var acceptedEndMeshWasPersisted = false
     private var pendingEndAttempt: PendingEndScanAttempt?
     private var roomPlanCompletionInFlight = false
     private var spatialAuthoritySealedForFinalization = false
@@ -248,6 +249,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         annotationEvidenceRefs = []
         captureStartTimingCorrelation = nil
         acceptedRoomPlanRawSHA256 = nil
+        acceptedEndMeshWasPersisted = false
         pendingEndAttempt = nil
         roomPlanCompletionInFlight = false
         spatialAuthoritySealedForFinalization = false
@@ -516,6 +518,97 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
             self.endScanGuidance = nil
             await self.endScanForReview(prepared)
+        }
+    }
+
+    func continueScanningFromReview() {
+        guard state == .reviewing,
+              !annotationAuthorityCommitted,
+              !spatialAuthoritySealedForFinalization,
+              acceptedRoomPlanRawSHA256 != nil,
+              let store = workingSetStore
+        else {
+            return
+        }
+
+        let generation = captureGeneration
+        let removeOwnedMesh = acceptedEndMeshWasPersisted
+        workingSetStatus = HostLocalization.text(
+            "Reopening this capture for additional scanning",
+            "このキャプチャを追加スキャンのために再開しています"
+        )
+
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.captureGeneration == generation,
+                  self.state == .reviewing
+            else {
+                return
+            }
+
+            do {
+                try await store.rollbackAcceptedEndTransaction(
+                    removeOwnedMesh: removeOwnedMesh
+                )
+            } catch {
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "The accepted Review boundary could not be rolled back safely",
+                        "受理済みの確認境界を安全に取り消せませんでした"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+                self.fail(.persistenceFailure)
+                return
+            }
+
+            guard self.captureGeneration == generation,
+                  self.state == .reviewing
+            else {
+                return
+            }
+
+            do {
+                try self.sessionController.startRoomPlan()
+            } catch {
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "The saved evidence was retained, but RoomPlan could not resume this capture",
+                        "保存済みの証拠データは保持されていますが、このキャプチャの RoomPlan を再開できませんでした"
+                    )
+                self.fail(.roomPlanFailure)
+                return
+            }
+
+            do {
+                try self.transition(.resumeScanning)
+            } catch {
+                self.fail(.unknown)
+                return
+            }
+
+            self.acceptedRoomPlanRawSHA256 = nil
+            self.acceptedEndMeshWasPersisted = false
+            self.qualityReport = nil
+            self.validationReport = nil
+            self.pendingEndAttempt = nil
+            self.roomPlanCompletionInFlight = false
+            self.isEndingScan = false
+            self.endScanPreflightBlocked = false
+            self.endScanGuidance = HostLocalization.text(
+                "Continue scanning the weak or missing areas, then press End again. Previously saved frame/depth evidence is retained.",
+                "不足している場所を追加スキャンしてから、もう一度「終了」を押してください。以前に保存したフレーム／深度証拠は保持されています。"
+            )
+            self.startScanCoverageSampling(
+                generation: generation,
+                resetTrackers: false
+            )
+            self.workingSetStatus =
+                HostLocalization.text(
+                    "Scanning resumed in the same AR coordinate space",
+                    "同じ AR 座標空間でスキャンを再開しました"
+                )
         }
     }
 
@@ -1019,6 +1112,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         annotationEvidenceRefs = []
         captureStartTimingCorrelation = nil
         acceptedRoomPlanRawSHA256 = nil
+        acceptedEndMeshWasPersisted = false
         spatialAuthoritySealedForFinalization = false
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
@@ -1900,6 +1994,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
             self.acceptedRoomPlanRawSHA256 =
                 raw.descriptor.sha256
+            self.acceptedEndMeshWasPersisted =
+                !meshSnapshotUnavailable
             self.pendingEndAttempt = nil
             self.roomPlanCompletionInFlight = false
             self.endScanPreflightBlocked = false
@@ -1953,9 +2049,30 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        let ownedMeshWasPersisted =
+            pendingEndAttempt?.meshSnapshotUnavailable == false
         pendingEndAttempt = nil
         roomPlanCompletionInFlight = false
         acceptedRoomPlanRawSHA256 = nil
+        acceptedEndMeshWasPersisted = false
+
+        if ownedMeshWasPersisted {
+            do {
+                try await store.rollbackCurrentMeshPackage()
+            } catch {
+                isEndingScan = false
+                workingSetStatus =
+                    HostLocalization.text(
+                        "The rejected End mesh snapshot could not be rolled back safely",
+                        "受理されなかった終了処理のメッシュスナップショットを安全に取り消せませんでした"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+                fail(.persistenceFailure)
+                return
+            }
+        }
 
         await store.recordResourceEvent(
             CaptureResourceEvent(
@@ -2000,51 +2117,55 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private func startScanCoverageSampling(
-        generation: UUID
+        generation: UUID,
+        resetTrackers: Bool = true
     ) {
         scanCoverageTask?.cancel()
-        scanCoverageTracker = AdvisoryScanCoverageTracker()
-        scanCoverage = scanCoverageTracker.summary()
-        observationStabilityTracker =
-            ObservationStabilityTracker()
-        observationStability =
-            observationStabilityTracker.summary()
-        spatialCoverageAggregator =
-            SpatialScanCoverageAggregator()
-        spatialCoverage = .empty
-        motionGuidanceTracker = ScanMotionGuidanceTracker()
-        motionGuidance = nil
-        scanGuidanceProgress = .empty
-        derivedObjectFusionTracker =
-            DerivedShapeTemporalFusionTracker(
-                configuration: DerivedShapeTemporalFusionConfiguration(
-                    maximumFrameCount: 6,
-                    maximumAgeSeconds: 24,
-                    voxelSizeMeters: 0.055,
-                    maximumPointCount: 384,
-                    maximumObservationCenterShiftMeters: 0.65
+
+        if resetTrackers {
+            scanCoverageTracker = AdvisoryScanCoverageTracker()
+            scanCoverage = scanCoverageTracker.summary()
+            observationStabilityTracker =
+                ObservationStabilityTracker()
+            observationStability =
+                observationStabilityTracker.summary()
+            spatialCoverageAggregator =
+                SpatialScanCoverageAggregator()
+            spatialCoverage = .empty
+            motionGuidanceTracker = ScanMotionGuidanceTracker()
+            motionGuidance = nil
+            scanGuidanceProgress = .empty
+            derivedObjectFusionTracker =
+                DerivedShapeTemporalFusionTracker(
+                    configuration: DerivedShapeTemporalFusionConfiguration(
+                        maximumFrameCount: 6,
+                        maximumAgeSeconds: 24,
+                        voxelSizeMeters: 0.055,
+                        maximumPointCount: 384,
+                        maximumObservationCenterShiftMeters: 0.65
+                    )
                 )
-            )
-        derivedVolumeFusionTracker =
-            DerivedShapeTemporalFusionTracker(
-                configuration: DerivedShapeTemporalFusionConfiguration(
-                    maximumFrameCount: 6,
-                    maximumAgeSeconds: 24,
-                    voxelSizeMeters: 0.055,
-                    maximumPointCount: 384,
-                    maximumObservationCenterShiftMeters: 0.65
+            derivedVolumeFusionTracker =
+                DerivedShapeTemporalFusionTracker(
+                    configuration: DerivedShapeTemporalFusionConfiguration(
+                        maximumFrameCount: 6,
+                        maximumAgeSeconds: 24,
+                        voxelSizeMeters: 0.055,
+                        maximumPointCount: 384,
+                        maximumObservationCenterShiftMeters: 0.65
+                    )
                 )
-            )
-        derivedWallFusionTracker =
-            DerivedShapeTemporalFusionTracker(
-                configuration: DerivedShapeTemporalFusionConfiguration(
-                    maximumFrameCount: 4,
-                    maximumAgeSeconds: 20,
-                    voxelSizeMeters: 0.08,
-                    maximumPointCount: 256
+            derivedWallFusionTracker =
+                DerivedShapeTemporalFusionTracker(
+                    configuration: DerivedShapeTemporalFusionConfiguration(
+                        maximumFrameCount: 4,
+                        maximumAgeSeconds: 20,
+                        voxelSizeMeters: 0.08,
+                        maximumPointCount: 256
+                    )
                 )
-            )
-        derivedShapePreview = .empty
+            derivedShapePreview = .empty
+        }
 
         scanCoverageTask = Task { @MainActor [weak self] in
             guard let self else {
