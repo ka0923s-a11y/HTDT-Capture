@@ -13,7 +13,9 @@ public struct CaptureScanningView: View {
     public let endScan: () -> Void
 
     @State private var showingEndScanReview = false
-    @State private var showingSpatialMap = true
+    @State private var isHUDExpanded = false
+    @State private var showingAuthorityHelp = false
+    @State private var showingSpatialMap = false
     @State private var showingDerivedPreview = false
     @State private var derivedPreviewMode: DerivedPreviewMode = .observation
 
@@ -38,39 +40,54 @@ public struct CaptureScanningView: View {
     }
 
     public var body: some View {
-        ZStack {
-            Color.black
-                .ignoresSafeArea()
+        GeometryReader { geometry in
+            ZStack {
+                Color.black
+                    .ignoresSafeArea()
 
-            preview
-                .ignoresSafeArea()
+                preview
+                    .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                scanStatusHUD
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
+                VStack(spacing: 8) {
+                    compactStatusHUD
+                        .padding(.horizontal, 10)
+                        .padding(.top, 6)
 
-                Spacer(minLength: 12)
+                    Spacer(minLength: 12)
 
-                coveragePanel
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 10)
-            }
+                    if isHUDExpanded {
+                        expandedHUD(
+                            maxHeight: geometry.size.height * 0.36
+                        )
+                        .padding(.horizontal, 10)
+                        .transition(
+                            .move(edge: .bottom)
+                                .combined(with: .opacity)
+                        )
+                    }
 
-            if coverage.latestTrackingState == .normal,
-               let guidance = coverage.recommendedGuidance
-            {
-                GeometryReader { geometry in
+                    compactBottomControls
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 8)
+                }
+
+                if coverage.latestTrackingState == .normal,
+                   let guidance = coverage.recommendedGuidance
+                {
                     directionArrowOverlay(guidance)
                         .position(
                             x: geometry.size.width / 2,
-                            y: geometry.size.height * 0.42
+                            y: geometry.size.height * 0.43
                         )
+                        .allowsHitTesting(false)
                 }
-                .allowsHitTesting(false)
             }
         }
         .preferredColorScheme(.dark)
+        .animation(
+            .easeInOut(duration: 0.20),
+            value: isHUDExpanded
+        )
         .sheet(isPresented: $showingEndScanReview) {
             ScanCoverageEndReview(
                 coverage: coverage,
@@ -85,18 +102,23 @@ public struct CaptureScanningView: View {
             )
             .presentationDetents([.medium, .large])
         }
+        .sheet(isPresented: $showingAuthorityHelp) {
+            authorityHelpView
+                .presentationDetents([.medium, .large])
+        }
     }
 
-    private var scanStatusHUD: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
+    private var compactStatusHUD: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
                 Label(
                     trackingLabel,
                     systemImage: trackingSystemImage
                 )
-                .font(.subheadline.weight(.semibold))
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
 
-                Spacer()
+                Spacer(minLength: 6)
 
                 Text(
                     String(
@@ -104,96 +126,270 @@ public struct CaptureScanningView: View {
                         coveragePercent
                     )
                 )
-                .font(.subheadline.monospacedDigit())
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .lineLimit(1)
+
+                Button {
+                    showingAuthorityHelp = true
+                } label: {
+                    Image(systemName: "info.circle")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(String(localized: "Details"))
+
+                Button {
+                    withAnimation(
+                        .easeInOut(duration: 0.20)
+                    ) {
+                        isHUDExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(
+                            systemName:
+                                isHUDExpanded
+                                ? "chevron.down"
+                                : "chevron.up"
+                        )
+                        Text(
+                            isHUDExpanded
+                            ? String(localized: "Close")
+                            : String(localized: "Details")
+                        )
+                    }
+                    .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
+
+            Text(actionSentence)
+                .font(.headline.weight(.semibold))
+                .lineLimit(2)
+                .minimumScaleFactor(0.82)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: .leading
+                )
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            .ultraThinMaterial,
+            in: RoundedRectangle(
+                cornerRadius: 14,
+                style: .continuous
+            )
+        )
+    }
+
+    private var compactBottomControls: some View {
+        VStack(spacing: 7) {
+            compactEvidenceSummary
+
+            ProgressView(value: coverage.coverageFraction)
+                .progressViewStyle(.linear)
+                .tint(.white.opacity(0.9))
+                .accessibilityLabel(
+                    String(localized: "Direction coverage")
+                )
 
             HStack(spacing: 8) {
-                Label(
-                    String(localized: "RoomPlan approximation"),
-                    systemImage: "cube.transparent"
-                )
-                .font(.caption.weight(.semibold))
-
-                Spacer()
-
-                Text(
-                    String(
-                        format: String(localized: "Observation: %@"),
-                        observationStateLabel
-                    )
-                )
-                .font(.caption.weight(.semibold))
-            }
-
-            Text(
-                String(
-                    localized:
-                        "RoomPlan lines are a live structural approximation. HTDT observation evidence is collected separately."
-                )
-            )
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-
-            if observation.recheckSuggested {
-                recheckBanner
-            }
-
-            HStack(alignment: .center, spacing: 12) {
-                Text(guidanceText)
-                    .font(.headline)
-                    .fixedSize(
-                        horizontal: false,
-                        vertical: true
-                    )
-
-                Spacer(minLength: 8)
-
-                VStack(spacing: 3) {
-                    Text("Next direction")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    RelativeGuidanceCompass(
-                        coverage: coverage
-                    )
-                    .frame(width: 74, height: 74)
-                }
-            }
-
-            HStack(spacing: 14) {
-                Label(
-                    meshAvailabilityLabel,
-                    systemImage: meshAvailabilitySystemImage
-                )
-                Label(
-                    String(
-                        format: String(localized: "Evidence %d"),
-                        evidenceFrameCount
-                    ),
-                    systemImage: "camera"
-                )
-                if coverage.latestHasSceneDepth {
+                Button(action: captureEvidenceFrame) {
                     Label(
-                        String(localized: "Depth"),
-                        systemImage: "viewfinder"
+                        "Save evidence frame",
+                        systemImage: "camera.fill"
+                    )
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: 38
                     )
                 }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+                .buttonStyle(.borderedProminent)
 
-            if let meshDiagnosticText {
-                Text(meshDiagnosticText)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(
-                        horizontal: false,
-                        vertical: true
+                Button(action: requestEndScan) {
+                    Label(
+                        "End scan",
+                        systemImage: "checkmark.circle.fill"
                     )
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.80)
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: 38
+                    )
+                }
+                .buttonStyle(.bordered)
             }
         }
-        .padding(12)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            .ultraThinMaterial,
+            in: RoundedRectangle(
+                cornerRadius: 14,
+                style: .continuous
+            )
+        )
+    }
+
+    private var compactEvidenceSummary: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                spatialSummaryButton
+
+                if derivedPreview.hasEvidence {
+                    Divider()
+                        .frame(height: 16)
+                    derivedSummaryButton
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                spatialSummaryButton
+
+                if derivedPreview.hasEvidence {
+                    derivedSummaryButton
+                }
+            }
+        }
+        .font(.caption)
+    }
+
+    private var spatialSummaryButton: some View {
+        Button {
+            withAnimation(
+                .easeInOut(duration: 0.20)
+            ) {
+                isHUDExpanded = true
+                showingSpatialMap = true
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text("Spatial observation")
+                    .fontWeight(.semibold)
+                Text(spatialCoverageCounts)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.78)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var derivedSummaryButton: some View {
+        Button {
+            withAnimation(
+                .easeInOut(duration: 0.20)
+            ) {
+                isHUDExpanded = true
+                showingDerivedPreview = true
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text("Observed shape")
+                    .fontWeight(.semibold)
+                Text(primaryDerivedShapeLabel)
+                    .foregroundStyle(.secondary)
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.78)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func expandedHUD(
+        maxHeight: CGFloat
+    ) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 10) {
+                expandedStatusRow
+                directionCoverageSection
+
+                DisclosureGroup(
+                    isExpanded: $showingSpatialMap
+                ) {
+                    VStack(spacing: 8) {
+                        SpatialCoverageMapView(
+                            summary: spatialCoverage
+                        )
+                        .frame(height: 116)
+
+                        HStack(spacing: 10) {
+                            spatialLegend(
+                                "Observed",
+                                color: .green
+                            )
+                            spatialLegend(
+                                "Weak",
+                                color: .orange
+                            )
+                            spatialLegend(
+                                "Unknown",
+                                color: .gray
+                            )
+                        }
+                        .font(.caption2)
+                    }
+                    .padding(.top, 6)
+                } label: {
+                    HStack {
+                        Text("Spatial observation")
+                            .font(
+                                .subheadline
+                                    .weight(.semibold)
+                            )
+                        Spacer()
+                        Text(spatialCoverageCounts)
+                            .font(
+                                .caption
+                                    .monospacedDigit()
+                            )
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if derivedPreview.hasEvidence {
+                    DisclosureGroup(
+                        isExpanded: $showingDerivedPreview
+                    ) {
+                        DerivedShapePreviewPanel(
+                            snapshot: derivedPreview,
+                            mode: $derivedPreviewMode
+                        )
+                        .padding(.top, 6)
+                    } label: {
+                        HStack {
+                            Text("Observed shape")
+                                .font(
+                                    .subheadline
+                                        .weight(.semibold)
+                                )
+                            Spacer()
+                            Text(primaryDerivedShapeLabel)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                Button {
+                    showingAuthorityHelp = true
+                } label: {
+                    Label(
+                        "Details",
+                        systemImage: "info.circle"
+                    )
+                    .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(10)
+        }
+        .frame(maxHeight: maxHeight)
         .background(
             .ultraThinMaterial,
             in: RoundedRectangle(
@@ -201,6 +397,165 @@ public struct CaptureScanningView: View {
                 style: .continuous
             )
         )
+    }
+
+    private var expandedStatusRow: some View {
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(
+                    String(
+                        format: String(localized: "Observation: %@"),
+                        observationStateLabel
+                    )
+                )
+                .font(.caption.weight(.semibold))
+
+                HStack(spacing: 10) {
+                    Label(
+                        meshAvailabilityLabel,
+                        systemImage: meshAvailabilitySystemImage
+                    )
+                    Label(
+                        String(
+                            format: String(localized: "Evidence %d"),
+                            evidenceFrameCount
+                        ),
+                        systemImage: "camera"
+                    )
+                    if coverage.latestHasSceneDepth {
+                        Label(
+                            String(localized: "Depth"),
+                            systemImage: "viewfinder"
+                        )
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+                if let meshDiagnosticText {
+                    Text(meshDiagnosticText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(
+                            horizontal: false,
+                            vertical: true
+                        )
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            VStack(spacing: 2) {
+                Text("Next direction")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                RelativeGuidanceCompass(
+                    coverage: coverage
+                )
+                .frame(width: 58, height: 58)
+            }
+        }
+    }
+
+    private var directionCoverageSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Direction coverage")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("Advisory")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(alignment: .center, spacing: 3) {
+                ForEach(
+                    0..<coverage.sectorCount,
+                    id: \.self
+                ) { sectorIndex in
+                    VStack(spacing: 2) {
+                        coverageCell(
+                            sectorIndex: sectorIndex,
+                            band: .high
+                        )
+                        coverageCell(
+                            sectorIndex: sectorIndex,
+                            band: .level
+                        )
+                        coverageCell(
+                            sectorIndex: sectorIndex,
+                            band: .low
+                        )
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(height: 36)
+
+            HStack {
+                Text("← Left")
+                Spacer()
+                Text("Start direction")
+                Spacer()
+                Text("Right →")
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private var actionSentence: String {
+        if coverage.latestTrackingState == .normal,
+           observation.recheckSuggested
+        {
+            return String(
+                localized:
+                    "Show this area again from another angle."
+            )
+        }
+
+        return guidanceText
+    }
+
+    private var authorityHelpView: some View {
+        NavigationStack {
+            List {
+                Section("RoomPlan approximation") {
+                    Text(
+                        "RoomPlan lines are a live structural approximation. HTDT observation evidence is collected separately."
+                    )
+                }
+
+                Section("Direction coverage") {
+                    Text(
+                        "Direction coverage is trajectory guidance only and does not prove geometric completeness."
+                    )
+                }
+
+                Section("Spatial observation") {
+                    Text(
+                        "Unknown means no observation authority; it is not a missing wall or surface."
+                    )
+                }
+
+                Section("Observed shape") {
+                    Text(
+                        "The views are separate evidence representations; neither is promoted as canonical geometry here."
+                    )
+                }
+            }
+            .font(.callout)
+            .navigationTitle("Details")
+            .toolbar {
+                ToolbarItem(
+                    placement: .confirmationAction
+                ) {
+                    Button("Close") {
+                        showingAuthorityHelp = false
+                    }
+                }
+            }
+        }
     }
 
     private var recheckBanner: some View {
@@ -245,143 +600,6 @@ public struct CaptureScanningView: View {
         case .wellObserved:
             return String(localized: "Well observed")
         }
-    }
-
-    private var coveragePanel: some View {
-        VStack(spacing: 10) {
-            HStack {
-                Text("Direction coverage")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Text("Advisory")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack(alignment: .center, spacing: 3) {
-                ForEach(0..<coverage.sectorCount, id: \.self) {
-                    sectorIndex in
-                    VStack(spacing: 2) {
-                        coverageCell(
-                            sectorIndex: sectorIndex,
-                            band: .high
-                        )
-                        coverageCell(
-                            sectorIndex: sectorIndex,
-                            band: .level
-                        )
-                        coverageCell(
-                            sectorIndex: sectorIndex,
-                            band: .low
-                        )
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-            }
-            .frame(height: 42)
-
-            HStack {
-                Text("← Left")
-                Spacer()
-                Text("Start direction")
-                Spacer()
-                Text("Right →")
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-
-            Text(
-                "Direction coverage is trajectory guidance only and does not prove geometric completeness."
-            )
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            DisclosureGroup(
-                isExpanded: $showingSpatialMap
-            ) {
-                VStack(spacing: 8) {
-                    SpatialCoverageMapView(summary: spatialCoverage)
-                        .frame(height: 116)
-
-                    HStack(spacing: 10) {
-                        spatialLegend("Observed", color: .green)
-                        spatialLegend("Weak", color: .orange)
-                        spatialLegend("Unknown", color: .gray)
-                    }
-                    .font(.caption2)
-
-                    Text(
-                        "Unknown means no observation authority; it is not a missing wall or surface."
-                    )
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment: .leading
-                    )
-                }
-                .padding(.top, 6)
-            } label: {
-                HStack {
-                    Text("Spatial observation")
-                        .font(.subheadline.weight(.semibold))
-                    Spacer()
-                    Text(spatialCoverageCounts)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if derivedPreview.hasEvidence {
-                DisclosureGroup(
-                    isExpanded: $showingDerivedPreview
-                ) {
-                    DerivedShapePreviewPanel(
-                        snapshot: derivedPreview,
-                        mode: $derivedPreviewMode
-                    )
-                    .padding(.top, 6)
-                } label: {
-                    HStack {
-                        Text("Observed geometry preview")
-                            .font(.subheadline.weight(.semibold))
-                        Spacer()
-                        Text(primaryDerivedShapeLabel)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            HStack(spacing: 10) {
-                Button(action: captureEvidenceFrame) {
-                    Label(
-                        "Save evidence frame",
-                        systemImage: "camera.fill"
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button(action: requestEndScan) {
-                    Label(
-                        "End scan",
-                        systemImage: "checkmark.circle.fill"
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-            }
-        }
-        .padding(12)
-        .background(
-            .ultraThinMaterial,
-            in: RoundedRectangle(
-                cornerRadius: 18,
-                style: .continuous
-            )
-        )
     }
 
     private func coverageCell(
