@@ -1169,7 +1169,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         let framePackage: FrameEvidencePackage
-        let timingPackage: CaptureTimingPackage
         do {
             framePackage = try FrameEvidencePackageBuilder.build(
                 descriptor: evidence.frameArtifacts.descriptor,
