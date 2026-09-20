@@ -73,6 +73,13 @@ public struct VideoFormatDescriptor: Codable, Sendable, Equatable {
         self.framesPerSecond = framesPerSecond
         self.pixelFormat = pixelFormat
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case width
+        case height
+        case framesPerSecond = "frames_per_second"
+        case pixelFormat = "pixel_format"
+    }
 }
 
 public struct CaptureConfigurationProfile: Codable, Sendable, Equatable {

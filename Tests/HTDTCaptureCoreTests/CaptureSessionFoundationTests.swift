@@ -51,6 +51,20 @@ final class CaptureSessionFoundationTests: XCTestCase {
             package.session.configurationRef,
             "session/capture-configuration.json"
         )
+        let configurationJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: package.configurationData
+            ) as? [String: Any]
+        )
+        let video = try XCTUnwrap(
+            configurationJSON["video_format"]
+                as? [String: Any]
+        )
+        XCTAssertEqual(
+            video["frames_per_second"] as? Int,
+            60
+        )
+        XCTAssertNil(video["framesPerSecond"])
 
         let store = try CaptureWorkingSetStore(
             rootDirectory: root

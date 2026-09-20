@@ -109,10 +109,6 @@ public actor CaptureWorkingSetStore {
         _ package: CaptureSessionFoundationPackage
     ) async throws {
         guard
-            package.session.captureSessionID
-                == captureSessionID ?? package.session.captureSessionID,
-            package.session.coordinateSpaceID
-                == coordinateSpaceID ?? package.session.coordinateSpaceID,
             package.session.configurationRef
                 == CaptureSessionFoundationPackage.configurationPath,
             package.session.captureMode

@@ -219,14 +219,44 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         }
 
+        let startedAtUTC = BundleTimestamp.utcString(
+            from: Date()
+        )
         do {
             try sessionController.startRoomPlan()
-            try transition(.prepared)
-            workingSetStatus = "Scanning; working revision open"
-        } catch is CaptureStateMachineError {
-            fail(.unknown)
         } catch {
             fail(.roomPlanFailure)
+            return
+        }
+
+        let foundation: CaptureSessionFoundationPackage
+        do {
+            let activeConfiguration =
+                try ARConfigurationSnapshotAdapter.snapshot(
+                    session: sessionController.arSession,
+                    captureMode: .roomPlanMesh
+                )
+            foundation =
+                try CaptureSessionFoundationPackageBuilder.build(
+                    context: context,
+                    capabilities: capabilities,
+                    configurationProfile: activeConfiguration,
+                    startedAtUTC: startedAtUTC
+                )
+            try await store.persistSessionFoundation(foundation)
+        } catch {
+            workingSetStatus =
+                "Active AR configuration could not be persisted"
+            fail(.persistenceFailure)
+            return
+        }
+
+        do {
+            try transition(.prepared)
+            workingSetStatus =
+                "Scanning; active AR configuration persisted"
+        } catch {
+            fail(.unknown)
         }
     }
 
