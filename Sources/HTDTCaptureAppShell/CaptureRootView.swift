@@ -6,6 +6,12 @@ public struct CaptureRootActions {
     public let beginCapture: () -> Void
     public let beginReview: () -> Void
     public let captureEvidenceFrame: () -> Void
+    public let beginAnnotation: () -> Void
+    public let commitAnnotationAuthority: (
+        [CaptureAnnotationEntity],
+        [CaptureMeasurement]
+    ) -> Void
+    public let cancelAnnotation: () -> Void
     public let finalizeCapture: () -> Void
     public let prepareExport: () -> Void
     public let resetCapture: () -> Void
@@ -14,6 +20,12 @@ public struct CaptureRootActions {
         beginCapture: @escaping () -> Void = {},
         beginReview: @escaping () -> Void = {},
         captureEvidenceFrame: @escaping () -> Void = {},
+        beginAnnotation: @escaping () -> Void = {},
+        commitAnnotationAuthority: @escaping (
+            [CaptureAnnotationEntity],
+            [CaptureMeasurement]
+        ) -> Void = { _, _ in },
+        cancelAnnotation: @escaping () -> Void = {},
         finalizeCapture: @escaping () -> Void = {},
         prepareExport: @escaping () -> Void = {},
         resetCapture: @escaping () -> Void = {}
@@ -21,6 +33,10 @@ public struct CaptureRootActions {
         self.beginCapture = beginCapture
         self.beginReview = beginReview
         self.captureEvidenceFrame = captureEvidenceFrame
+        self.beginAnnotation = beginAnnotation
+        self.commitAnnotationAuthority =
+            commitAnnotationAuthority
+        self.cancelAnnotation = cancelAnnotation
         self.finalizeCapture = finalizeCapture
         self.prepareExport = prepareExport
         self.resetCapture = resetCapture
@@ -36,6 +52,8 @@ public struct CaptureRootView: View {
     public let qualityReport: CaptureQualityReport?
     public let validationReport: BundleValidationReport?
     public let exportURL: URL?
+    public let annotationCoordinateSpaceID: CoordinateSpaceID?
+    public let annotationAuthorityCommitted: Bool
     public let actions: CaptureRootActions
 
     public init(
@@ -47,6 +65,8 @@ public struct CaptureRootView: View {
         qualityReport: CaptureQualityReport? = nil,
         validationReport: BundleValidationReport? = nil,
         exportURL: URL? = nil,
+        annotationCoordinateSpaceID: CoordinateSpaceID? = nil,
+        annotationAuthorityCommitted: Bool = false,
         actions: CaptureRootActions = CaptureRootActions()
     ) {
         self.state = state
@@ -57,12 +77,28 @@ public struct CaptureRootView: View {
         self.qualityReport = qualityReport
         self.validationReport = validationReport
         self.exportURL = exportURL
+        self.annotationCoordinateSpaceID =
+            annotationCoordinateSpaceID
+        self.annotationAuthorityCommitted =
+            annotationAuthorityCommitted
         self.actions = actions
     }
 
     public var body: some View {
         NavigationStack {
-            List {
+            if state == .annotating,
+               let coordinateSpaceID =
+                    annotationCoordinateSpaceID
+            {
+                CaptureAnnotationWorkspaceView(
+                    coordinateSpaceID: coordinateSpaceID,
+                    onCommit:
+                        actions.commitAnnotationAuthority,
+                    onCancel: actions.cancelAnnotation
+                )
+                .navigationTitle("Capture authority")
+            } else {
+                List {
                 Section("Capture") {
                     LabeledContent("State", value: state.rawValue)
                     if let cameraPermission {
@@ -160,7 +196,8 @@ public struct CaptureRootView: View {
                     }
                 }
             }
-            .navigationTitle("HTDT Capture")
+                .navigationTitle("HTDT Capture")
+            }
         }
     }
 
@@ -194,6 +231,17 @@ public struct CaptureRootView: View {
             )
 
         case .reviewing:
+            if !annotationAuthorityCommitted,
+               annotationCoordinateSpaceID != nil
+            {
+                Button(
+                    "Add annotations & measurements",
+                    action: actions.beginAnnotation
+                )
+            } else if annotationAuthorityCommitted {
+                Text("Annotation authority saved.")
+            }
+
             if let qualityReport {
                 Button(
                     "Validate and finalize",
@@ -211,7 +259,7 @@ public struct CaptureRootView: View {
             Button("Reset capture", action: actions.resetCapture)
 
         case .annotating:
-            Text("Annotation workflow is not wired to the host app yet.")
+            EmptyView()
 
         case .validating:
             progressRow("Validating and finalizing capture…")

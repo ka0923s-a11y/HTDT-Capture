@@ -29,10 +29,18 @@ private struct HTDTCaptureHostView: View {
             qualityReport: coordinator.qualityReport,
             validationReport: coordinator.validationReport,
             exportURL: coordinator.exportURL,
+            annotationCoordinateSpaceID:
+                coordinator.annotationCoordinateSpaceID,
+            annotationAuthorityCommitted:
+                coordinator.annotationAuthorityCommitted,
             actions: CaptureRootActions(
                 beginCapture: coordinator.beginCapture,
                 beginReview: coordinator.beginReview,
                 captureEvidenceFrame: coordinator.captureEvidenceFrame,
+                beginAnnotation: coordinator.beginAnnotation,
+                commitAnnotationAuthority:
+                    coordinator.commitAnnotationAuthority,
+                cancelAnnotation: coordinator.cancelAnnotation,
                 finalizeCapture: coordinator.finalizeCapture,
                 prepareExport: coordinator.prepareExport,
                 resetCapture: coordinator.resetCapture
@@ -51,6 +59,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set) var qualityReport: CaptureQualityReport?
     @Published private(set) var validationReport: BundleValidationReport?
     @Published private(set) var exportURL: URL?
+    @Published private(set)
+    var annotationAuthorityCommitted = false
 
     private var stateMachine = CaptureStateMachine()
     private var sessionController = SharedARSessionController()
@@ -67,6 +77,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         cameraPermission = CameraPermissionController.currentStatus()
     }
 
+    var annotationCoordinateSpaceID: CoordinateSpaceID? {
+        guard state == .reviewing || state == .annotating else {
+            return nil
+        }
+        return sessionController.context.coordinateSpaceID
+    }
+
     func beginCapture() {
         guard state == .idle else {
             return
@@ -76,6 +93,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         validationReport = nil
         exportURL = nil
         finalizedRevision = nil
+        annotationAuthorityCommitted = false
         resourceMonitor?.stop()
         resourceMonitor = nil
 
@@ -164,6 +182,98 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         Task {
             await endScanForReview()
+        }
+    }
+
+    func beginAnnotation() {
+        guard state == .reviewing,
+              !annotationAuthorityCommitted
+        else {
+            return
+        }
+        do {
+            try transition(.beginAnnotation)
+            workingSetStatus =
+                "Editing annotations and measurements"
+        } catch {
+            fail(.unknown)
+        }
+    }
+
+    func cancelAnnotation() {
+        guard state == .annotating else {
+            return
+        }
+        do {
+            try transition(.beginReview)
+            workingSetStatus =
+                "Annotation editing cancelled; no authority written"
+        } catch {
+            fail(.unknown)
+        }
+    }
+
+    func commitAnnotationAuthority(
+        annotations: [CaptureAnnotationEntity],
+        measurements: [CaptureMeasurement]
+    ) {
+        guard state == .annotating,
+              !annotationAuthorityCommitted,
+              let store = workingSetStore
+        else {
+            return
+        }
+
+        let annotationPackage: AnnotationEvidencePackage
+        let measurementPackage: MeasurementEvidencePackage
+        do {
+            annotationPackage =
+                try AnnotationEvidencePackageBuilder.build(
+                    entities: annotations
+                )
+            measurementPackage =
+                try MeasurementEvidencePackageBuilder.build(
+                    measurements: measurements
+                )
+        } catch {
+            fail(.persistenceFailure)
+            return
+        }
+
+        let generation = captureGeneration
+        workingSetStatus =
+            "Persisting annotation and measurement authority"
+
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.captureGeneration == generation,
+                  self.state == .annotating
+            else {
+                return
+            }
+
+            do {
+                try await store.persistAnnotationPackage(
+                    annotationPackage
+                )
+                try await store.persistMeasurementPackage(
+                    measurementPackage
+                )
+                guard self.captureGeneration == generation,
+                      self.state == .annotating
+                else {
+                    return
+                }
+
+                self.annotationAuthorityCommitted = true
+                try self.transition(.beginReview)
+                await self.refreshQuality(
+                    store: store,
+                    generation: generation
+                )
+            } catch {
+                self.fail(.persistenceFailure)
+            }
         }
     }
 
@@ -270,6 +380,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         qualityReport = nil
         validationReport = nil
         exportURL = nil
+        annotationAuthorityCommitted = false
         resourceMonitor?.stop()
         resourceMonitor = nil
         workingSetStatus =
