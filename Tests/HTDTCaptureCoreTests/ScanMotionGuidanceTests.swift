@@ -38,6 +38,40 @@ final class ScanMotionGuidanceTests: XCTestCase {
         XCTAssertEqual(result?.verticalDirection, .up)
     }
 
+    func testBroadDirectionCoverageCanPrioritizeTranslationOverRemainingRotationGap() {
+        var tracker = ScanMotionGuidanceTracker(
+            configuration: ScanMotionGuidanceConfiguration(
+                minimumRepeatedWeakObservations: 1,
+                spatialGuidanceActivationCoverageFraction: 0.55
+            )
+        )
+
+        let result = tracker.record(
+            timestampSeconds: 0,
+            coverage: coverage(
+                gap: ScanCoverageGap(
+                    sectorIndex: 4,
+                    pitchBand: .level
+                ),
+                observedCellCount: 24
+            ),
+            spatialCoverage: spatial(
+                cameraX: 0,
+                cameraZ: 0,
+                region: region(
+                    observations: 3,
+                    diversity: 1,
+                    distance: .medium,
+                    classification: .weak
+                )
+            ),
+            observation: .empty
+        )
+
+        XCTAssertEqual(result?.action, .translate)
+        XCTAssertNotNil(result?.translationDirection)
+    }
+
     func testRepeatedSamePositionWeakRegionProducesTranslation() {
         var tracker = ScanMotionGuidanceTracker()
         let result = tracker.record(
@@ -441,12 +475,18 @@ final class ScanMotionGuidanceTests: XCTestCase {
         gap: ScanCoverageGap?,
         tracking: TrackingQualityState = .normal,
         currentYaw: Double = 0,
-        currentPitch: Double = 0
+        currentPitch: Double = 0,
+        observedCellCount: Int = 0
     ) -> ScanCoverageSummary {
-        ScanCoverageSummary(
+        var counts = Array(repeating: 0, count: 36)
+        for index in 0..<min(max(observedCellCount, 0), counts.count) {
+            counts[index] = 2
+        }
+
+        return ScanCoverageSummary(
             sectorCount: 12,
             minimumSamplesPerCell: 2,
-            cellSampleCounts: Array(repeating: 0, count: 36),
+            cellSampleCounts: counts,
             referenceYawRadians: 0,
             currentRelativeYawRadians: currentYaw,
             currentPitchRadians: currentPitch,
