@@ -36,6 +36,7 @@ public struct ScanMotionGuidanceConfiguration: Sendable, Equatable {
     public let minimumRepeatedWeakObservations: Int
     public let minimumTranslationBaselineMeters: Double
     public let translationCompletionMeters: Double
+    public let spatialGuidanceActivationCoverageFraction: Double
     public let cameraHistoryLimit: Int
 
     public init(
@@ -45,6 +46,7 @@ public struct ScanMotionGuidanceConfiguration: Sendable, Equatable {
         minimumRepeatedWeakObservations: Int = 3,
         minimumTranslationBaselineMeters: Double = 0.30,
         translationCompletionMeters: Double = 0.25,
+        spatialGuidanceActivationCoverageFraction: Double = 0.55,
         cameraHistoryLimit: Int = 12
     ) {
         precondition(
@@ -68,6 +70,11 @@ public struct ScanMotionGuidanceConfiguration: Sendable, Equatable {
             translationCompletionMeters.isFinite
                 && translationCompletionMeters >= 0
         )
+        precondition(
+            spatialGuidanceActivationCoverageFraction.isFinite
+                && spatialGuidanceActivationCoverageFraction >= 0
+                && spatialGuidanceActivationCoverageFraction <= 1
+        )
         precondition(cameraHistoryLimit > 1)
 
         self.grossRotationThresholdRadians =
@@ -82,6 +89,8 @@ public struct ScanMotionGuidanceConfiguration: Sendable, Equatable {
             minimumTranslationBaselineMeters
         self.translationCompletionMeters =
             translationCompletionMeters
+        self.spatialGuidanceActivationCoverageFraction =
+            spatialGuidanceActivationCoverageFraction
         self.cameraHistoryLimit = cameraHistoryLimit
     }
 
@@ -461,6 +470,17 @@ public struct ScanMotionGuidanceTracker: Sendable {
             break
         }
 
+        if coverage.coverageFraction
+                >= configuration
+                    .spatialGuidanceActivationCoverageFraction,
+           let spatialGuidance = spatialMovementCandidate(
+                spatialCoverage: spatialCoverage,
+                observation: observation
+           )
+        {
+            return spatialGuidance
+        }
+
         if let direction = coverage.recommendedGuidance {
             let yawError = direction.signedYawErrorRadians
             let pitchError = direction.pitchErrorRadians
@@ -587,6 +607,85 @@ public struct ScanMotionGuidanceTracker: Sendable {
         }
 
         return nil
+    }
+
+    private func spatialMovementCandidate(
+        spatialCoverage: SpatialScanCoverageSummary,
+        observation: ObservationStabilitySummary
+    ) -> ScanMotionGuidance? {
+        guard let region = preferredWeakRegion(spatialCoverage) else {
+            if observation.recheckSuggested,
+               spatialCoverage.knownRegionCount > 0
+            {
+                return ScanMotionGuidance(
+                    action: .reobserveAnotherAngle
+                )
+            }
+            return nil
+        }
+
+        let repeatedCount =
+            weakObservationCounts[region.key] ?? 0
+
+        if repeatedCount
+            >= configuration.minimumRepeatedWeakObservations
+        {
+            if region.viewAngleDiversityCount < 2 {
+                let baseline = cameraPositionBaseline()
+                if baseline
+                    < configuration
+                        .minimumTranslationBaselineMeters
+                {
+                    return ScanMotionGuidance(
+                        action: .translate,
+                        translationDirection:
+                            lateralTranslationDirection(
+                                region: region,
+                                spatialCoverage: spatialCoverage
+                            ),
+                        targetRegionKey: region.key
+                    )
+                }
+
+                return ScanMotionGuidance(
+                    action: .orbit,
+                    horizontalDirection:
+                        orbitDirection(
+                            region: region,
+                            spatialCoverage: spatialCoverage
+                        ),
+                    targetRegionKey: region.key
+                )
+            }
+
+            if region.latestDistanceBucket == .far {
+                return ScanMotionGuidance(
+                    action: .approach,
+                    translationDirection: .forward,
+                    targetRegionKey: region.key
+                )
+            }
+
+            if region.latestDistanceBucket == .near {
+                return ScanMotionGuidance(
+                    action: .retreat,
+                    translationDirection: .backward,
+                    targetRegionKey: region.key
+                )
+            }
+        }
+
+        if observation.recheckSuggested {
+            return ScanMotionGuidance(
+                action: .reobserveAnotherAngle,
+                targetRegionKey: region.key
+            )
+        }
+
+        return ScanMotionGuidance(
+            action: .holdObserve,
+            targetRegionKey: region.key
+        )
     }
 
     private func preferredWeakRegion(
