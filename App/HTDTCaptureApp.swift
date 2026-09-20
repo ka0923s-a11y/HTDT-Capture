@@ -375,6 +375,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         + String(snapshot.evidenceFrameCount)
                         + " evidence frame(s) persisted"
             } catch {
+                self.workingSetStatus = HostLocalization.text(
+                    "Processed RoomPlan evidence could not be saved",
+                    "RoomPlan の処理済みデータを保存できませんでした"
+                )
                 self.fail(.persistenceFailure)
             }
         }
@@ -1063,8 +1067,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         var meshPackage: MeshEvidencePackage?
         var meshSnapshotUnavailable =
             !evidence.meshSnapshotSucceeded
+            || evidence.meshAnchors.isEmpty
 
-        if evidence.meshSnapshotSucceeded {
+        if evidence.meshSnapshotSucceeded,
+           !evidence.meshAnchors.isEmpty
+        {
             do {
                 meshPackage = try MeshEvidencePackageBuilder.build(
                     snapshots: evidence.meshAnchors
@@ -1216,6 +1223,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             do {
                 try await store.persistRawRoomPlan(raw)
             } catch {
+                self.workingSetStatus = HostLocalization.text(
+                    "Raw RoomPlan evidence could not be saved",
+                    "RoomPlan の生データを保存できませんでした"
+                )
                 self.fail(.persistenceFailure)
                 return
             }
