@@ -25,8 +25,6 @@ private struct HTDTCaptureHostView: View {
             lastFailure: coordinator.lastFailure,
             actions: CaptureRootActions(
                 beginCapture: coordinator.beginCapture,
-                pauseCapture: coordinator.pauseCapture,
-                resumeCapture: coordinator.resumeCapture,
                 beginReview: coordinator.beginReview,
                 resetAfterFailure: coordinator.resetAfterFailure
             )
@@ -63,34 +61,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         Task {
             await continueBeginCapture()
-        }
-    }
-
-    func pauseCapture() {
-        guard state == .scanning else {
-            return
-        }
-
-        sessionController.stopRoomPlanPreservingARSession()
-        do {
-            try transition(.pause)
-        } catch {
-            fail(.unknown)
-        }
-    }
-
-    func resumeCapture() {
-        guard state == .paused else {
-            return
-        }
-
-        do {
-            try sessionController.startRoomPlan()
-            try transition(.resume)
-        } catch is CaptureStateMachineError {
-            fail(.unknown)
-        } catch {
-            fail(.roomPlanFailure)
         }
     }
 

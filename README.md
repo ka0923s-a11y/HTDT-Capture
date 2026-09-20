@@ -11,9 +11,13 @@ annotation and measurement authorities, HTDT ingestion reference contract, and
 spatial-accuracy analysis foundation are implemented.
 
 The repository also contains an iOS host application and an unsigned IPA build
-workflow. The host now drives the existing capture state machine through runtime
-capability checking, camera permission, RoomPlan start, pause/resume, and
+workflow. The host drives the existing capture state machine through runtime
+capability checking, camera permission, RoomPlan start, and an explicit scan-end
 transition to review while preserving the shared ARSession where intended.
+
+The Phase 2 software path can also snapshot the current active ARMeshAnchor set
+from the shared ARSession and build deterministic
+`mesh/anchors.json + mesh/geometry/*.meshbin` evidence.
 
 Real-device RoomPlan/ARMesh/frame/depth evidence capture, live artifact
 persistence, review/finalization/export wiring, and the physical accuracy
@@ -23,6 +27,7 @@ The implementation baseline is documented in:
 
 - [Detailed implementation plan](docs/IMPLEMENTATION_PLAN.md)
 - [iOS host capture workflow](docs/HOST_CAPTURE_WORKFLOW.md)
+- [Phase 2 final active mesh evidence](docs/PHASE2_FINAL_ACTIVE_MESH_EVIDENCE.md)
 
 ## Core concept
 
@@ -44,7 +49,7 @@ GLB/USDZ/OBJ/PLY exports are derived convenience outputs, not the canonical auth
 
 1. Capture Bundle v1 contract — foundation implemented
 2. SwiftUI / ARSession foundation — host workflow integrated; physical-device verification open
-3. RoomPlan + ARMesh dual capture — codecs/adapters implemented; real capture open
+3. RoomPlan + ARMesh dual capture — codecs/adapters/final mesh package implemented; real capture open
 4. Pose-linked image evidence — codecs/adapters implemented; real capture open
 5. HTDT-specific equipment/reference annotations — authorities implemented; placement UI open
 6. User-attested measurement authority — implemented

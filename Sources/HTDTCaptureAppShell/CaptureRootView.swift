@@ -4,21 +4,15 @@ import HTDTCapturePlatform
 
 public struct CaptureRootActions {
     public let beginCapture: () -> Void
-    public let pauseCapture: () -> Void
-    public let resumeCapture: () -> Void
     public let beginReview: () -> Void
     public let resetAfterFailure: () -> Void
 
     public init(
         beginCapture: @escaping () -> Void = {},
-        pauseCapture: @escaping () -> Void = {},
-        resumeCapture: @escaping () -> Void = {},
         beginReview: @escaping () -> Void = {},
         resetAfterFailure: @escaping () -> Void = {}
     ) {
         self.beginCapture = beginCapture
-        self.pauseCapture = pauseCapture
-        self.resumeCapture = resumeCapture
         self.beginReview = beginReview
         self.resetAfterFailure = resetAfterFailure
     }
@@ -89,7 +83,7 @@ public struct CaptureRootView: View {
                 if state == .reviewing {
                     Section("Next step") {
                         Text(
-                            "The RoomPlan capture has stopped without pausing "
+                            "The RoomPlan scan has ended without pausing "
                             + "the shared ARSession, preserving the current "
                             + "coordinate-space authority for follow-up evidence "
                             + "and annotations."
@@ -124,14 +118,16 @@ public struct CaptureRootView: View {
             progressRow("Starting shared RoomPlan session…")
 
         case .scanning:
-            Button("Pause capture", action: actions.pauseCapture)
-            Button("Stop and review", action: actions.beginReview)
+            Button("End scan and review", action: actions.beginReview)
 
         case .paused:
-            Button("Resume capture", action: actions.resumeCapture)
+            Text(
+                "The host app does not enter a pseudo-paused RoomPlan state. "
+                + "Ending RoomPlan creates a scan boundary."
+            )
 
         case .reviewing:
-            Text("Capture stopped; shared AR world frame remains active.")
+            Text("Scan ended; shared AR world frame remains active.")
 
         case .failed:
             Button("Reset capture", action: actions.resetAfterFailure)
