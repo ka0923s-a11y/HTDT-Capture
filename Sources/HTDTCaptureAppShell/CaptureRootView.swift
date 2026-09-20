@@ -5,15 +5,18 @@ import HTDTCapturePlatform
 public struct CaptureRootActions {
     public let beginCapture: () -> Void
     public let beginReview: () -> Void
+    public let finalizeCapture: () -> Void
     public let resetAfterFailure: () -> Void
 
     public init(
         beginCapture: @escaping () -> Void = {},
         beginReview: @escaping () -> Void = {},
+        finalizeCapture: @escaping () -> Void = {},
         resetAfterFailure: @escaping () -> Void = {}
     ) {
         self.beginCapture = beginCapture
         self.beginReview = beginReview
+        self.finalizeCapture = finalizeCapture
         self.resetAfterFailure = resetAfterFailure
     }
 }
@@ -24,6 +27,8 @@ public struct CaptureRootView: View {
     public let cameraPermission: CameraPermissionStatus?
     public let lastFailure: CaptureFailureCode?
     public let workingSetStatus: String?
+    public let qualityReport: CaptureQualityReport?
+    public let validationReport: BundleValidationReport?
     public let actions: CaptureRootActions
 
     public init(
@@ -32,6 +37,8 @@ public struct CaptureRootView: View {
         cameraPermission: CameraPermissionStatus? = nil,
         lastFailure: CaptureFailureCode? = nil,
         workingSetStatus: String? = nil,
+        qualityReport: CaptureQualityReport? = nil,
+        validationReport: BundleValidationReport? = nil,
         actions: CaptureRootActions = CaptureRootActions()
     ) {
         self.state = state
@@ -39,6 +46,8 @@ public struct CaptureRootView: View {
         self.cameraPermission = cameraPermission
         self.lastFailure = lastFailure
         self.workingSetStatus = workingSetStatus
+        self.qualityReport = qualityReport
+        self.validationReport = validationReport
         self.actions = actions
     }
 
@@ -89,21 +98,48 @@ public struct CaptureRootView: View {
                     controls
                 }
 
-                if state == .reviewing {
-                    Section("Working revision") {
-                        Text(
-                            "The RoomPlan scan ended without pausing the "
-                            + "shared ARSession. Raw RoomPlan evidence, "
-                            + "postprocessed RoomPlan evidence, and the final "
-                            + "active mesh snapshot are persisted into the "
-                            + "mutable capture working set as they become "
-                            + "available."
+                if state == .reviewing,
+                   let qualityReport
+                {
+                    Section("Quality") {
+                        LabeledContent(
+                            "HTDT ingestion",
+                            value: qualityReport.readyForHTDTIngestion
+                                ? "Ready"
+                                : "Not ready"
                         )
-                        Text(
-                            "Quality gating, finalization, and export remain "
-                            + "separate follow-up authorities."
+                        LabeledContent(
+                            "Integrity preflight",
+                            value: qualityReport.integrityStatus.rawValue
                         )
-                        .font(.caption)
+                        NavigationLink("Review diagnostics") {
+                            CaptureReviewView(
+                                quality: qualityReport
+                            )
+                        }
+                    }
+                }
+
+                if state == .finalized,
+                   let qualityReport,
+                   let validationReport
+                {
+                    Section("Finalized bundle") {
+                        LabeledContent(
+                            "Validator",
+                            value: validationReport.valid
+                                ? "Pass"
+                                : "Fail"
+                        )
+                        Text(validationReport.bundleDigest.description)
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
+                        NavigationLink("Review finalized capture") {
+                            CaptureReviewView(
+                                quality: qualityReport,
+                                validation: validationReport
+                            )
+                        }
                     }
                 }
             }
@@ -137,7 +173,18 @@ public struct CaptureRootView: View {
             )
 
         case .reviewing:
-            Text("Scan ended; shared AR world frame remains active.")
+            if let qualityReport {
+                Button(
+                    "Validate and finalize",
+                    action: actions.finalizeCapture
+                )
+                .disabled(
+                    !qualityReport.readyForHTDTIngestion
+                    || qualityReport.integrityStatus != .pass
+                )
+            } else {
+                progressRow("Waiting for persisted evidence…")
+            }
 
         case .failed:
             Button("Reset capture", action: actions.resetAfterFailure)
@@ -146,10 +193,10 @@ public struct CaptureRootView: View {
             Text("Annotation workflow is not wired to the host app yet.")
 
         case .validating:
-            progressRow("Validating capture…")
+            progressRow("Validating and finalizing capture…")
 
         case .finalized:
-            Text("Capture revision finalized.")
+            Text("Capture revision finalized and validated.")
 
         case .exported:
             Text("Capture bundle exported.")

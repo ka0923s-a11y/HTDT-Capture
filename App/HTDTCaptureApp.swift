@@ -26,9 +26,12 @@ private struct HTDTCaptureHostView: View {
             cameraPermission: coordinator.cameraPermission,
             lastFailure: coordinator.lastFailure,
             workingSetStatus: coordinator.workingSetStatus,
+            qualityReport: coordinator.qualityReport,
+            validationReport: coordinator.validationReport,
             actions: CaptureRootActions(
                 beginCapture: coordinator.beginCapture,
                 beginReview: coordinator.beginReview,
+                finalizeCapture: coordinator.finalizeCapture,
                 resetAfterFailure: coordinator.resetAfterFailure
             )
         )
@@ -42,12 +45,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set) var cameraPermission: CameraPermissionStatus
     @Published private(set) var lastFailure: CaptureFailureCode?
     @Published private(set) var workingSetStatus = "Not prepared"
+    @Published private(set) var qualityReport: CaptureQualityReport?
+    @Published private(set) var validationReport: BundleValidationReport?
 
     private var stateMachine = CaptureStateMachine()
     private var sessionController = SharedARSessionController()
     private var workingSetStore: CaptureWorkingSetStore?
     private var captureGeneration = UUID()
     private var isEndingScan = false
+    private let qualityRequirements = CaptureQualityRequirements()
 
     init() {
         capabilities = PlatformCapabilityProbe.current()
@@ -58,6 +64,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard state == .idle else {
             return
         }
+
+        qualityReport = nil
+        validationReport = nil
 
         do {
             try transition(.beginCapabilityCheck)
@@ -82,6 +91,35 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
+    func finalizeCapture() {
+        guard state == .reviewing,
+              let qualityReport,
+              qualityReport.readyForHTDTIngestion,
+              qualityReport.integrityStatus == .pass,
+              let store = workingSetStore
+        else {
+            return
+        }
+
+        do {
+            try transition(.beginValidation)
+        } catch {
+            fail(.unknown)
+            return
+        }
+
+        workingSetStatus = "Persisting quality and finalizing revision"
+
+        let generation = captureGeneration
+        Task {
+            await performFinalization(
+                store: store,
+                quality: qualityReport,
+                generation: generation
+            )
+        }
+    }
+
     func resetAfterFailure() {
         guard state == .failed else {
             return
@@ -98,6 +136,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         sessionController = SharedARSessionController()
         workingSetStore = nil
+        qualityReport = nil
+        validationReport = nil
         workingSetStatus = "Failed revision retained; new capture not prepared"
         isEndingScan = false
         capabilities = PlatformCapabilityProbe.current()
@@ -240,15 +280,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             try await store.persistMeshPackage(meshPackage)
             try await store.persistFramePackage(framePackage)
-            let snapshot = await store.snapshot()
-            workingSetStatus =
-                "Reviewing; "
-                + String(snapshot.payloadDeclarations.count)
-                + " payloads, "
-                + String(snapshot.evidenceFrameCount)
-                + " frame(s), "
-                + String(snapshot.depthEvidenceCount)
-                + " depth observation(s) persisted"
+            await refreshQuality(
+                store: store,
+                generation: captureGeneration
+            )
         } catch {
             fail(.persistenceFailure)
         }
@@ -331,17 +366,102 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 try await store.persistProcessedRoomPlan(
                     processed
                 )
-                let snapshot = await store.snapshot()
-                guard self.captureGeneration == generation else {
-                    return
-                }
-                self.workingSetStatus =
-                    "Reviewing; "
-                    + String(snapshot.payloadDeclarations.count)
-                    + " payloads persisted"
+                await self.refreshQuality(
+                    store: store,
+                    generation: generation
+                )
             } catch {
                 self.fail(.persistenceFailure)
             }
+        }
+    }
+
+    private func refreshQuality(
+        store: CaptureWorkingSetStore,
+        generation: UUID
+    ) async {
+        let report = await store.evaluateQuality(
+            requirements: qualityRequirements
+        )
+
+        guard captureGeneration == generation,
+              state == .reviewing
+        else {
+            return
+        }
+
+        qualityReport = report
+        let snapshot = await store.snapshot()
+
+        if report.readyForHTDTIngestion {
+            workingSetStatus =
+                "Ready to finalize; "
+                + String(snapshot.payloadDeclarations.count)
+                + " evidence payloads passed preflight"
+        } else {
+            let errorCount = report.diagnostics.filter {
+                $0.severity == .error
+            }.count
+            workingSetStatus =
+                "Reviewing; "
+                + String(errorCount)
+                + " blocking quality diagnostic(s)"
+        }
+    }
+
+    private func performFinalization(
+        store: CaptureWorkingSetStore,
+        quality: CaptureQualityReport,
+        generation: UUID
+    ) async {
+        do {
+            try await store.persistQualityReport(quality)
+            let snapshot = await store.snapshot()
+
+            guard captureGeneration == generation else {
+                return
+            }
+
+            let runtime = PlatformRuntimeProvenance.current()
+            let request =
+                try CaptureWorkingSetFinalizationRequestBuilder.build(
+                    snapshot: snapshot,
+                    qualityReport: quality,
+                    app: BundleAppIdentity(
+                        version: runtime.appVersion,
+                        build: runtime.appBuild
+                    )
+                )
+            let destination = finalizedDirectory(
+                for: snapshot
+            )
+            let finalized =
+                try await BundleRevisionFinalizer().finalize(
+                    stagingDirectory: snapshot.rootDirectory,
+                    destinationDirectory: destination,
+                    request: request
+                )
+            let validation =
+                try BundleDirectoryValidator.validate(
+                    root: finalized.directory
+                )
+            guard validation.bundleDigest == finalized.bundleDigest else {
+                throw BundleFinalizationError.promotionFailed
+            }
+
+            guard captureGeneration == generation else {
+                return
+            }
+
+            sessionController.stopAndPauseARSession()
+            workingSetStore = nil
+            validationReport = validation
+            try transition(.finalize)
+            workingSetStatus =
+                "Finalized revision; bundle digest "
+                + validation.bundleDigest.description
+        } catch {
+            fail(.persistenceFailure)
         }
     }
 
@@ -382,6 +502,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             identity: identity,
             generation: UUID()
         )
+    }
+
+    private func finalizedDirectory(
+        for snapshot: CaptureWorkingSetSnapshot
+    ) -> URL {
+        let applicationRoot = snapshot.rootDirectory
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+
+        return applicationRoot
+            .appendingPathComponent(
+                "finalized",
+                isDirectory: true
+            )
+            .appendingPathComponent(
+                snapshot.identity.captureRevisionID.description,
+                isDirectory: true
+            )
     }
 
     private func transition(_ event: CaptureEvent) throws {
