@@ -1,4 +1,35 @@
+import Foundation
 import HTDTCaptureCore
+
+/// UTC wall-clock rendering for non-manifest timestamps that must keep
+/// sub-second precision.
+///
+/// Manifest canonicalization intentionally remains at whole-second
+/// resolution via `BundleTimestamp.utcString`; do not change that
+/// contract. Timing correlations and similar non-manifest UTC values use
+/// this fractional RFC 3339 / ISO-8601 form instead, so the emitted text
+/// can support the declared `estimated_uncertainty_s`.
+public enum PlatformTimestamp {
+    /// Upper bound of the serialization error introduced by rounding the
+    /// wall-clock midpoint to the millisecond precision emitted by
+    /// `fractionalUtcString(from:)`. Callers declaring a timing
+    /// uncertainty must never report less than this quantization error.
+    public static let fractionalUtcQuantizationSeconds = 0.000_5
+
+    /// Emit `date` as an RFC 3339 / ISO-8601 UTC string carrying
+    /// fractional (millisecond) precision, e.g. `2026-09-20T01:00:00.123Z`.
+    public static func fractionalUtcString(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [
+            .withInternetDateTime,
+            .withDashSeparatorInDate,
+            .withColonSeparatorInTime,
+            .withFractionalSeconds,
+        ]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
+    }
+}
 
 #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
 import ARKit
@@ -677,12 +708,16 @@ public final class SharedARSessionController {
                     + after.timeIntervalSince1970
                 ) / 2
         )
+        // The declared uncertainty must cover both the current-frame
+        // access bracket and the quantization error introduced by the
+        // millisecond-precision UTC serialization below.
         let uncertainty =
             max(0, after.timeIntervalSince(before) / 2)
+            + PlatformTimestamp.fractionalUtcQuantizationSeconds
 
         return try CaptureTimingCorrelation(
             monotonicSeconds: frame.timestamp,
-            utc: BundleTimestamp.utcString(from: midpoint),
+            utc: PlatformTimestamp.fractionalUtcString(from: midpoint),
             method: "bracketed_arframe_current_frame",
             estimatedUncertaintySeconds: uncertainty
         )
