@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 import HTDTCaptureCore
 import HTDTCapturePlatform
 
@@ -29,6 +30,12 @@ public struct CaptureRootActions {
         (CaptureRevisionID) -> Void
     public let removeQuarantinedArtifact:
         (PersistedCaptureQuarantinedArtifact) -> Void
+    public let removeWorkingOrphan:
+        (PersistedCaptureWorkingOrphan) -> Void
+    public let revisePersistedCapture:
+        (PersistedCaptureRecord) -> Void
+    public let reviseAdoptedCapture: () -> Void
+    public let importCaptureArchive: (URL) -> Void
 
     public init(
         beginCapture: @escaping () -> Void = {},
@@ -60,7 +67,14 @@ public struct CaptureRootActions {
             (CaptureRevisionID) -> Void = { _ in },
         removeQuarantinedArtifact: @escaping
             (PersistedCaptureQuarantinedArtifact) -> Void
-                = { _ in }
+                = { _ in },
+        removeWorkingOrphan: @escaping
+            (PersistedCaptureWorkingOrphan) -> Void
+                = { _ in },
+        revisePersistedCapture: @escaping
+            (PersistedCaptureRecord) -> Void = { _ in },
+        reviseAdoptedCapture: @escaping () -> Void = {},
+        importCaptureArchive: @escaping (URL) -> Void = { _ in }
     ) {
         self.beginCapture = beginCapture
         self.beginReview = beginReview
@@ -82,6 +96,10 @@ public struct CaptureRootActions {
         self.deletePersistedCapture = deletePersistedCapture
         self.removeQuarantinedArtifact =
             removeQuarantinedArtifact
+        self.removeWorkingOrphan = removeWorkingOrphan
+        self.revisePersistedCapture = revisePersistedCapture
+        self.reviseAdoptedCapture = reviseAdoptedCapture
+        self.importCaptureArchive = importCaptureArchive
     }
 }
 
@@ -104,6 +122,12 @@ public struct CaptureRootView: View {
     public let annotationCoordinateSpaceID: CoordinateSpaceID?
     public let annotationEvidenceRefs: [String]
     public let annotationAuthorityCommitted: Bool
+    /// Reloaded canonical authority used to seed a pre-finalization
+    /// correction pass through the annotation workspace (#163).
+    public let annotationRevisionSeed: AnnotationWorkspaceSeed?
+    /// Identity of the live working revision; carries the
+    /// series/parent linkage for a revise-existing capture (#155).
+    public let workingSetIdentity: CaptureWorkingSetIdentity?
     public let scanningPreview: AnyView?
     public let scanCoverage: ScanCoverageSummary
     public let observationStability: ObservationStabilitySummary
@@ -119,6 +143,7 @@ public struct CaptureRootView: View {
 
     @State private var pendingDeletion:
         PendingCaptureDeletion?
+    @State private var importingCaptureArchive = false
 
     public init(
         state: CaptureState,
@@ -132,6 +157,8 @@ public struct CaptureRootView: View {
         annotationCoordinateSpaceID: CoordinateSpaceID? = nil,
         annotationEvidenceRefs: [String] = [],
         annotationAuthorityCommitted: Bool = false,
+        annotationRevisionSeed: AnnotationWorkspaceSeed? = nil,
+        workingSetIdentity: CaptureWorkingSetIdentity? = nil,
         scanningPreview: AnyView? = nil,
         scanCoverage: ScanCoverageSummary = .empty,
         observationStability: ObservationStabilitySummary = .empty,
@@ -159,6 +186,8 @@ public struct CaptureRootView: View {
         self.annotationEvidenceRefs = annotationEvidenceRefs
         self.annotationAuthorityCommitted =
             annotationAuthorityCommitted
+        self.annotationRevisionSeed = annotationRevisionSeed
+        self.workingSetIdentity = workingSetIdentity
         self.scanningPreview = scanningPreview
         self.scanCoverage = scanCoverage
         self.observationStability = observationStability
@@ -205,6 +234,9 @@ public struct CaptureRootView: View {
                     availableEvidenceRefs:
                         annotationEvidenceRefs,
                     statusMessage: workingSetStatus,
+                    seed: annotationRevisionSeed,
+                    replacesCommittedAuthority:
+                        annotationAuthorityCommitted,
                     captureRaycastPlacement:
                         actions.captureRaycastPlacement,
                     captureSpeakerOrientation:
@@ -239,6 +271,19 @@ public struct CaptureRootView: View {
                         LabeledContent(
                             "Failure",
                             value: localizedFailure(lastFailure)
+                        )
+                    }
+                    if let identity = workingSetIdentity,
+                       let parent = identity.parentRevisionID
+                    {
+                        LabeledContent(
+                            "Series",
+                            value: identity
+                                .captureSeriesID.description
+                        )
+                        LabeledContent(
+                            "Revises",
+                            value: parent.description
                         )
                     }
                 }
@@ -320,6 +365,20 @@ public struct CaptureRootView: View {
                         Text(validationReport.bundleDigest.description)
                             .font(.caption.monospaced())
                             .textSelection(.enabled)
+                        LabeledContent(
+                            "Series",
+                            value: validationReport.manifest
+                                .captureSeriesID.description
+                        )
+                        if let parent =
+                            validationReport.manifest
+                                .parentRevisionID
+                        {
+                            LabeledContent(
+                                "Revises",
+                                value: parent.description
+                            )
+                        }
                         if let qualityReport {
                             NavigationLink(
                                 "Review finalized capture"
@@ -342,7 +401,11 @@ public struct CaptureRootView: View {
                 }
 
                 if state == .idle,
-                   !persistedInventory.isEmpty
+                   !persistedInventory.captures.isEmpty
+                       || !persistedInventory
+                           .quarantinedArtifacts.isEmpty
+                       || !persistedInventory
+                           .enumerationFailures.isEmpty
                 {
                     Section("Persisted captures") {
                         ForEach(persistedInventory.captures) {
@@ -364,6 +427,25 @@ public struct CaptureRootView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
+                    }
+                }
+
+                if state == .idle,
+                   !persistedInventory
+                       .orphanedWorkingArtifacts.isEmpty
+                {
+                    Section("Abandoned working data") {
+                        ForEach(
+                            persistedInventory
+                                .orphanedWorkingArtifacts
+                        ) { orphan in
+                            workingOrphanRow(orphan)
+                        }
+                        Text(
+                            "Left by an interrupted capture. It is never resumed as an active scan and can be safely deleted."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -397,6 +479,18 @@ public struct CaptureRootView: View {
                         "This permanently deletes the finalized capture and any export archive stored for it from this device."
                     )
                 }
+                .fileImporter(
+                    isPresented: $importingCaptureArchive,
+                    allowedContentTypes: [.htdtCapture],
+                    allowsMultipleSelection: false
+                ) { result in
+                    guard let urls = try? result.get(),
+                          let url = urls.first
+                    else {
+                        return
+                    }
+                    actions.importCaptureArchive(url)
+                }
             }
                 }
             }
@@ -409,6 +503,9 @@ public struct CaptureRootView: View {
         case .idle:
             Button("Start capture", action: actions.beginCapture)
                 .disabled(!capabilities.roomPlanMeshEligible)
+            Button("Import .htdtcapture") {
+                importingCaptureArchive = true
+            }
 
         case .capabilityCheck:
             progressRow("Checking device capabilities…")
@@ -432,17 +529,23 @@ public struct CaptureRootView: View {
             )
 
         case .reviewing:
-            if !annotationAuthorityCommitted,
-               annotationCoordinateSpaceID != nil
-            {
-                Button(
-                    "Continue scanning",
-                    action: actions.continueScanning
-                )
-                Button(
-                    "Add annotations & measurements",
-                    action: actions.beginAnnotation
-                )
+            if annotationCoordinateSpaceID != nil {
+                if !annotationAuthorityCommitted {
+                    Button(
+                        "Continue scanning",
+                        action: actions.continueScanning
+                    )
+                    Button(
+                        "Add annotations & measurements",
+                        action: actions.beginAnnotation
+                    )
+                } else {
+                    Text("Annotation authority saved.")
+                    Button(
+                        "Edit saved annotations & measurements",
+                        action: actions.beginAnnotation
+                    )
+                }
             } else if annotationAuthorityCommitted {
                 Text("Annotation authority saved.")
             }
@@ -482,6 +585,10 @@ public struct CaptureRootView: View {
                 "Start new capture",
                 action: actions.resetCapture
             )
+            Button(
+                "Revise this capture",
+                action: actions.reviseAdoptedCapture
+            )
             if let revisionID =
                 validationReport?.manifest.captureRevisionID
             {
@@ -504,6 +611,10 @@ public struct CaptureRootView: View {
                 Button(
                     "Start new capture",
                     action: actions.resetCapture
+                )
+                Button(
+                    "Revise this capture",
+                    action: actions.reviseAdoptedCapture
                 )
                 if let revisionID =
                     validationReport?.manifest.captureRevisionID
@@ -553,6 +664,13 @@ public struct CaptureRootView: View {
                         )
                     }
                 }
+                if record.canOpen || record.exportArchive != nil {
+                    Button("Revise") {
+                        actions.revisePersistedCapture(
+                            record
+                        )
+                    }
+                }
                 if let archive = record.exportArchive {
                     ShareLink(item: archive) {
                         Label(
@@ -570,6 +688,26 @@ public struct CaptureRootView: View {
                             record.exportArchive != nil
                     )
                 }
+            }
+        }
+    }
+
+    private func workingOrphanRow(
+        _ orphan: PersistedCaptureWorkingOrphan
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LabeledContent(
+                orphan.kind == .abandonedRevision
+                    ? String(localized: "Abandoned revision")
+                    : String(localized: "Writer temp file"),
+                value: orphan.url.lastPathComponent
+            )
+            LabeledContent(
+                "Retained bytes",
+                value: String(orphan.retainedBytes)
+            )
+            Button("Delete", role: .destructive) {
+                actions.removeWorkingOrphan(orphan)
             }
         }
     }

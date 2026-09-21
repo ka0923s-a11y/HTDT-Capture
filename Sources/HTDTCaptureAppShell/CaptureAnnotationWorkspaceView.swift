@@ -3,10 +3,27 @@ import SwiftUI
 import UniformTypeIdentifiers
 import HTDTCaptureCore
 
+/// The canonical annotation/measurement authority already committed in
+/// the working revision, reloaded so a pre-finalization correction
+/// pass starts from the persisted values instead of blank state (#163).
+public struct AnnotationWorkspaceSeed: Sendable, Equatable {
+    public let annotations: [CaptureAnnotationEntity]
+    public let measurements: [CaptureMeasurement]
+
+    public init(
+        annotations: [CaptureAnnotationEntity] = [],
+        measurements: [CaptureMeasurement] = []
+    ) {
+        self.annotations = annotations
+        self.measurements = measurements
+    }
+}
+
 public struct CaptureAnnotationWorkspaceView: View {
     public let coordinateSpaceID: CoordinateSpaceID
     public let availableEvidenceRefs: [String]
     public let statusMessage: String?
+    public let replacesCommittedAuthority: Bool
     public let captureRaycastPlacement:
         () async throws -> AnnotationPlacementAuthority
     public let captureSpeakerOrientation:
@@ -17,8 +34,8 @@ public struct CaptureAnnotationWorkspaceView: View {
     ) -> Void
     public let onCancel: () -> Void
 
-    @State private var annotations: [CaptureAnnotationEntity] = []
-    @State private var measurements: [CaptureMeasurement] = []
+    @State private var annotations: [CaptureAnnotationEntity]
+    @State private var measurements: [CaptureMeasurement]
     @State private var addingAnnotation = false
     @State private var addingMeasurement = false
     @State private var equipmentCatalog:
@@ -30,6 +47,8 @@ public struct CaptureAnnotationWorkspaceView: View {
         coordinateSpaceID: CoordinateSpaceID,
         availableEvidenceRefs: [String] = [],
         statusMessage: String? = nil,
+        seed: AnnotationWorkspaceSeed? = nil,
+        replacesCommittedAuthority: Bool = false,
         captureRaycastPlacement: @escaping
             () async throws -> AnnotationPlacementAuthority = {
                 throw ManualAuthorityBuilderError.invalidPosition
@@ -47,11 +66,19 @@ public struct CaptureAnnotationWorkspaceView: View {
         self.coordinateSpaceID = coordinateSpaceID
         self.availableEvidenceRefs = availableEvidenceRefs.sorted()
         self.statusMessage = statusMessage
+        self.replacesCommittedAuthority =
+            replacesCommittedAuthority
         self.captureRaycastPlacement = captureRaycastPlacement
         self.captureSpeakerOrientation =
             captureSpeakerOrientation
         self.onCommit = onCommit
         self.onCancel = onCancel
+        _annotations = State(
+            initialValue: seed?.annotations ?? []
+        )
+        _measurements = State(
+            initialValue: seed?.measurements ?? []
+        )
     }
 
     public var body: some View {
@@ -147,16 +174,31 @@ public struct CaptureAnnotationWorkspaceView: View {
             }
 
             Section {
-                Button("Save annotation authority") {
+                Button(
+                    replacesCommittedAuthority
+                    ? String(
+                        localized:
+                            "Replace saved annotation authority"
+                    )
+                    : String(
+                        localized: "Save annotation authority"
+                    )
+                ) {
                     onCommit(annotations, measurements)
                 }
                 Button("Cancel", role: .cancel) {
                     onCancel()
                 }
             } footer: {
-                Text(
-                    "Save writes the canonical annotation and measurement collections once. Edit or delete staged records before saving."
-                )
+                if replacesCommittedAuthority {
+                    Text(
+                        "Save replaces the canonical annotation and measurement collections committed earlier in this revision. Cancelling leaves the previous save unchanged."
+                    )
+                } else {
+                    Text(
+                        "Save writes the canonical annotation and measurement collections once. Edit or delete staged records before saving."
+                    )
+                }
             }
         }
         .sheet(isPresented: $addingAnnotation) {
