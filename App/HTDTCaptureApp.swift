@@ -147,6 +147,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var captureGeneration = UUID()
     private var isEndingScan = false
     private var isCapturingEvidenceFrame = false
+    /// Handle on the in-flight manual evidence-save persistence task.
+    /// End drains it before sampling the working set so a committed
+    /// save lands wholly before the End boundary (#179).
+    private var evidenceFrameSaveTask: Task<Void, Never>?
     private var endScanPreflightBlocked = false
     private var captureStartTimingCorrelation:
         CaptureTimingCorrelation?
@@ -403,12 +407,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        Task { @MainActor [weak self] in
+        // Keep a handle on the persistence task so End can claim its
+        // boundary atomically and drain this save before it samples the
+        // working set (#179). While End holds isEndingScan the save's
+        // commit still lands (its bytes are canonically before the End
+        // snapshot) but its UI continuation is suppressed so a stale
+        // continuation cannot overwrite End/Review status.
+        evidenceFrameSaveTask = Task { @MainActor [weak self] in
             guard let self else {
                 return
             }
             defer {
                 self.isCapturingEvidenceFrame = false
+                self.evidenceFrameSaveTask = nil
             }
             guard self.captureGeneration == generation,
                   self.state == .scanning
@@ -426,6 +437,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     previewPayload: artifacts.previewPayload
                 )
             } catch {
+                guard !self.isEndingScan else {
+                    return
+                }
                 self.workingSetStatus =
                     HostLocalization.text(
                         "Evidence frame package could not be built; this scan is still active",
@@ -450,6 +464,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     Self.persistenceDiagnostic(error)
 
                 if error is CaptureWorkingSetError {
+                    // A capture-authority conflict is terminal even when
+                    // End is draining this save: End cannot proceed on a
+                    // corrupted working set either.
                     self.workingSetStatus =
                         HostLocalization.text(
                             "Evidence-frame persistence hit a capture-authority conflict and cannot continue safely",
@@ -462,6 +479,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
 
+                // The partial write must be fully resolved before End
+                // may continue; never leave undeclared bytes behind.
                 do {
                     try await store.discardUncommittedFramePackage(
                         package
@@ -495,7 +514,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     )
                 )
                 guard self.captureGeneration == generation,
-                      self.state == .scanning
+                      self.state == .scanning,
+                      !self.isEndingScan
                 else {
                     return
                 }
@@ -516,7 +536,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
             let snapshot = await store.snapshot()
             guard self.captureGeneration == generation,
-                  self.state == .scanning
+                  self.state == .scanning,
+                  !self.isEndingScan
             else {
                 return
             }
@@ -549,6 +570,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                   self.captureGeneration == generation
             else {
                 return
+            }
+
+            // The End boundary must own a stable evidence set (#179):
+            // drain an in-flight manual evidence save so its commit or
+            // rollback is fully resolved before End snapshots the
+            // working set. isEndingScan already blocks a new save from
+            // starting and suppresses the drained save's UI
+            // continuation, so the drained commit is deterministically
+            // inside the End boundary.
+            if let pendingSave = self.evidenceFrameSaveTask {
+                await pendingSave.value
             }
 
             guard let prepared =
@@ -1388,6 +1420,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         isEndingScan = false
         isCapturingEvidenceFrame = false
+        evidenceFrameSaveTask = nil
         scanTrackingTransitionGate.reset()
         capabilities = PlatformCapabilityProbe.current()
         cameraPermission = CameraPermissionController.currentStatus()
