@@ -43,6 +43,9 @@ public enum MeasurementModelError: Error, Sendable, Equatable {
     case negativeUncertainty
     case missingSpatialCoordinateAuthority
     case userAttestationRequired
+    case derivedAcquisitionNotUserAttestable
+    case invalidObservedTimestamp
+    case invalidCalibrationDate
     case duplicateMeasurementID
 }
 
@@ -192,6 +195,22 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
                   statedUncertainty >= 0
             else {
                 throw MeasurementModelError.negativeUncertainty
+            }
+        }
+        // `observed_at` is `date-time` authority: canonical UTC RFC3339
+        // with a mandatory Z designator.
+        if let observedAtUTC {
+            guard SchemaTimestampText.isUTCTimestamp(observedAtUTC)
+            else {
+                throw MeasurementModelError.invalidObservedTimestamp
+            }
+        }
+        // `instrument.calibration_date` is `date` authority: a valid
+        // YYYY-MM-DD calendar date.
+        if let calibrationDate = instrument?.calibrationDate {
+            guard SchemaTimestampText.isCalendarDate(calibrationDate)
+            else {
+                throw MeasurementModelError.invalidCalibrationDate
             }
         }
         if value.isSpatialVector || !normalizedEndpoints.isEmpty {

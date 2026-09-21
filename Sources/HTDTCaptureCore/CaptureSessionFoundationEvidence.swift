@@ -129,15 +129,27 @@ public struct CaptureSessionDocument: Codable, Sendable, Equatable {
         startedAtUTC: String,
         configurationRef: String,
         timingRef: String
-    ) {
+    ) throws {
+        guard SchemaTimestampText.isUTCTimestamp(startedAtUTC) else {
+            throw CaptureSessionMetadataError.invalidUTCTimestamp
+        }
+        let normalizedConfigurationRef =
+            SchemaOwnedText.nfc(configurationRef)
+        let normalizedTimingRef = SchemaOwnedText.nfc(timingRef)
+        guard !normalizedConfigurationRef.isEmpty,
+              !normalizedTimingRef.isEmpty
+        else {
+            throw CaptureSessionMetadataError.emptySessionReference
+        }
+
         self.schema = "htdt.capture.session"
         self.schemaVersion = "1.0.0"
         self.captureSessionID = captureSessionID
         self.coordinateSpaceID = coordinateSpaceID
         self.captureMode = captureMode
         self.startedAtUTC = startedAtUTC
-        self.configurationRef = SchemaOwnedText.nfc(configurationRef)
-        self.timingRef = SchemaOwnedText.nfc(timingRef)
+        self.configurationRef = normalizedConfigurationRef
+        self.timingRef = normalizedTimingRef
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -247,7 +259,7 @@ public enum CaptureSessionFoundationPackageBuilder {
         let capabilitiesDocument = CaptureCapabilitiesDocument(
             matrix: capabilities
         )
-        let session = CaptureSessionDocument(
+        let session = try CaptureSessionDocument(
             captureSessionID: context.captureSessionID,
             coordinateSpaceID: context.coordinateSpaceID,
             captureMode: configurationProfile.captureMode,
