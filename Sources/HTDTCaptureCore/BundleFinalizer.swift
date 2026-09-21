@@ -11,6 +11,9 @@ public enum BundleFinalizationError: Error, Sendable, Equatable {
         missing: [String],
         undeclared: [String]
     )
+    case qualityPayloadMissing
+    case qualityPayloadUnreadable
+    case qualityPayloadMismatch
     case crossVolumePromotionForbidden
     case promotionFailed
 }
@@ -158,6 +161,32 @@ public actor BundleRevisionFinalizer {
                     .subtracting(declaredSet)
                     .sorted(by: BundleLogicalPath.utf8Less)
             )
+        }
+
+        // The quality report authorizes finalization, so the payload
+        // sealed into the bundle must be that exact report: require the
+        // canonical declaration, then prove the staged bytes decode to
+        // a CaptureQualityReport equal to request.qualityReport.
+        let qualityPath = "quality/capture-quality.json"
+        guard declarations[qualityPath] != nil,
+              let stagedQuality = stagedByPath[qualityPath]
+        else {
+            throw BundleFinalizationError.qualityPayloadMissing
+        }
+        let stagedQualityReport: CaptureQualityReport
+        do {
+            let stagedQualityData = try Data(
+                contentsOf: stagedQuality.url
+            )
+            stagedQualityReport = try JSONDecoder().decode(
+                CaptureQualityReport.self,
+                from: stagedQualityData
+            )
+        } catch {
+            throw BundleFinalizationError.qualityPayloadUnreadable
+        }
+        guard stagedQualityReport == request.qualityReport else {
+            throw BundleFinalizationError.qualityPayloadMismatch
         }
 
         var entries: [BundleFileEntry] = []
