@@ -51,6 +51,31 @@ public struct PackedPixelPlane: Codable, Sendable, Equatable {
         self.packedBytesPerRow = packedBytesPerRow
         self.bytes = bytes
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case width
+        case height
+        case sourceBytesPerRow
+        case packedBytesPerRow
+        case bytes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            width: container.decode(Int.self, forKey: .width),
+            height: container.decode(Int.self, forKey: .height),
+            sourceBytesPerRow: container.decode(
+                Int.self,
+                forKey: .sourceBytesPerRow
+            ),
+            packedBytesPerRow: container.decode(
+                Int.self,
+                forKey: .packedBytesPerRow
+            ),
+            bytes: container.decode(Data.self, forKey: .bytes)
+        )
+    }
 }
 
 public struct PackedPixelBuffer: Codable, Sendable, Equatable {
@@ -76,5 +101,28 @@ public struct PackedPixelBuffer: Codable, Sendable, Equatable {
         self.height = height
         self.pixelFormatFourCC = pixelFormatFourCC
         self.planes = planes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case width
+        case height
+        case pixelFormatFourCC
+        case planes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            width: container.decode(Int.self, forKey: .width),
+            height: container.decode(Int.self, forKey: .height),
+            pixelFormatFourCC: container.decode(
+                UInt32.self,
+                forKey: .pixelFormatFourCC
+            ),
+            planes: container.decode(
+                [PackedPixelPlane].self,
+                forKey: .planes
+            )
+        )
     }
 }

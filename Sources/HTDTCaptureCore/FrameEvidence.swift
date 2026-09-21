@@ -8,10 +8,25 @@ public struct EvidenceFrameID: CaptureIdentifier {
 public enum CameraIntrinsicsError: Error, Sendable, Equatable {
     case invalidElementCount(Int)
     case nonFinite
+    case nonPinholeStructure
+    case nonPositiveFocalLength
+    case invalidPrincipalPoint
 }
 
+/// Column-major 3x3 camera intrinsics authority. The capture contract
+/// uses the documented AR camera matrix form
+/// `| fx  0 cx |`
+/// `|  0 fy cy |`
+/// `|  0  0  1 |`
+/// so the validating initializer rejects arbitrary projective matrices,
+/// non-positive focal lengths and implausible principal points.
 public struct CameraIntrinsics3x3: Codable, Sendable, Equatable {
     public static let representation = "column_major_3x3_f32"
+
+    /// Absolute tolerance for the structurally fixed elements (the zero
+    /// off-diagonal terms and the `1` at row 3, column 3). ARKit emits
+    /// exact `0`/`1` values; the tolerance only absorbs Float32 noise.
+    public static let structureTolerance: Float = 0.0001
 
     public let values: [Float]
 
@@ -22,8 +37,34 @@ public struct CameraIntrinsics3x3: Codable, Sendable, Equatable {
         guard values.allSatisfy(\.isFinite) else {
             throw CameraIntrinsicsError.nonFinite
         }
+
+        // Column-major: elements 1, 2, 3, 5 must be zero and element 8
+        // must be one for the AR pinhole form.
+        guard abs(values[1]) <= Self.structureTolerance,
+              abs(values[2]) <= Self.structureTolerance,
+              abs(values[3]) <= Self.structureTolerance,
+              abs(values[5]) <= Self.structureTolerance,
+              abs(values[8] - 1) <= Self.structureTolerance
+        else {
+            throw CameraIntrinsicsError.nonPinholeStructure
+        }
+        guard values[0] > 0, values[4] > 0 else {
+            throw CameraIntrinsicsError.nonPositiveFocalLength
+        }
+        guard values[6] >= 0, values[7] >= 0 else {
+            throw CameraIntrinsicsError.invalidPrincipalPoint
+        }
         self.values = values
     }
+
+    /// Focal length `fx` in pixels.
+    public var fx: Float { values[0] }
+    /// Focal length `fy` in pixels.
+    public var fy: Float { values[4] }
+    /// Principal point x offset in pixels.
+    public var cx: Float { values[6] }
+    /// Principal point y offset in pixels.
+    public var cy: Float { values[7] }
 
     private enum CodingKeys: String, CodingKey {
         case representation
@@ -95,15 +136,18 @@ public struct DepthEvidenceReference: Codable, Sendable, Equatable {
         confidenceByteCount: Int? = nil,
         confidenceSHA256: EvidenceSHA256? = nil
     ) throws {
-        guard !depthRelativePath.isEmpty else {
+        let normalizedDepthPath = SchemaOwnedText.nfc(depthRelativePath)
+        guard !normalizedDepthPath.isEmpty else {
             throw DepthEvidenceReferenceError.emptyDepthPath
         }
         guard depthByteCount > 0 else {
             throw DepthEvidenceReferenceError.invalidDepthByteCount
         }
 
+        let normalizedConfidencePath =
+            SchemaOwnedText.nfc(confidenceRelativePath)
         let confidenceValues = (
-            confidenceRelativePath,
+            normalizedConfidencePath,
             confidenceByteCount,
             confidenceSHA256
         )
@@ -119,10 +163,10 @@ public struct DepthEvidenceReference: Codable, Sendable, Equatable {
         }
 
         self.kind = kind
-        self.depthRelativePath = depthRelativePath
+        self.depthRelativePath = normalizedDepthPath
         self.depthByteCount = depthByteCount
         self.depthSHA256 = depthSHA256
-        self.confidenceRelativePath = confidenceRelativePath
+        self.confidenceRelativePath = normalizedConfidencePath
         self.confidenceByteCount = confidenceByteCount
         self.confidenceSHA256 = confidenceSHA256
     }
@@ -136,6 +180,37 @@ public struct DepthEvidenceReference: Codable, Sendable, Equatable {
         case confidenceByteCount = "confidence_byte_count"
         case confidenceSHA256 = "confidence_sha256"
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            kind: container.decode(DepthEvidenceKind.self, forKey: .kind),
+            depthRelativePath: container.decode(
+                String.self,
+                forKey: .depthRelativePath
+            ),
+            depthByteCount: container.decode(
+                Int.self,
+                forKey: .depthByteCount
+            ),
+            depthSHA256: container.decode(
+                EvidenceSHA256.self,
+                forKey: .depthSHA256
+            ),
+            confidenceRelativePath: container.decodeIfPresent(
+                String.self,
+                forKey: .confidenceRelativePath
+            ),
+            confidenceByteCount: container.decodeIfPresent(
+                Int.self,
+                forKey: .confidenceByteCount
+            ),
+            confidenceSHA256: container.decodeIfPresent(
+                EvidenceSHA256.self,
+                forKey: .confidenceSHA256
+            )
+        )
+    }
 }
 
 public enum FrameEvidenceDescriptorError: Error, Sendable, Equatable {
@@ -144,6 +219,7 @@ public enum FrameEvidenceDescriptorError: Error, Sendable, Equatable {
     case invalidPixelByteCount
     case emptyPixelPath
     case depthStatusMismatch
+    case principalPointOutsideImage
 }
 
 public struct FrameEvidenceDescriptor: Codable, Sendable, Equatable {
@@ -188,10 +264,18 @@ public struct FrameEvidenceDescriptor: Codable, Sendable, Equatable {
         guard imageWidth > 0, imageHeight > 0 else {
             throw FrameEvidenceDescriptorError.invalidImageDimensions
         }
+        // The principal point must lie within the declared image extent
+        // (conservative bound; ARKit always reports it inside the frame).
+        guard intrinsics.cx <= Float(imageWidth),
+              intrinsics.cy <= Float(imageHeight)
+        else {
+            throw FrameEvidenceDescriptorError.principalPointOutsideImage
+        }
         guard pixelByteCount > 0 else {
             throw FrameEvidenceDescriptorError.invalidPixelByteCount
         }
-        guard !pixelRelativePath.isEmpty else {
+        let normalizedPixelPath = SchemaOwnedText.nfc(pixelRelativePath)
+        guard !normalizedPixelPath.isEmpty else {
             throw FrameEvidenceDescriptorError.emptyPixelPath
         }
 
@@ -219,10 +303,11 @@ public struct FrameEvidenceDescriptor: Codable, Sendable, Equatable {
         self.imageWidth = imageWidth
         self.imageHeight = imageHeight
         self.pixelFormatFourCC = pixelFormatFourCC
-        self.pixelRelativePath = pixelRelativePath
+        self.pixelRelativePath = normalizedPixelPath
         self.pixelByteCount = pixelByteCount
         self.pixelSHA256 = pixelSHA256
-        self.exifAllowlisted = exifAllowlisted
+        self.exifAllowlisted =
+            SchemaOwnedText.nfc(exifAllowlisted)
         self.depthStatus = depthStatus
         self.depth = depth
     }
@@ -243,5 +328,65 @@ public struct FrameEvidenceDescriptor: Codable, Sendable, Equatable {
         case exifAllowlisted = "exif_allowlisted"
         case depthStatus = "depth_status"
         case depth
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            frameID: container.decode(
+                EvidenceFrameID.self,
+                forKey: .frameID
+            ),
+            captureSessionID: container.decode(
+                CaptureSessionID.self,
+                forKey: .captureSessionID
+            ),
+            coordinateSpaceID: container.decode(
+                CoordinateSpaceID.self,
+                forKey: .coordinateSpaceID
+            ),
+            sessionTimestampSeconds: container.decode(
+                Double.self,
+                forKey: .sessionTimestampSeconds
+            ),
+            worldFromCamera: container.decode(
+                Matrix4x4F.self,
+                forKey: .worldFromCamera
+            ),
+            intrinsics: container.decode(
+                CameraIntrinsics3x3.self,
+                forKey: .intrinsics
+            ),
+            imageWidth: container.decode(Int.self, forKey: .imageWidth),
+            imageHeight: container.decode(Int.self, forKey: .imageHeight),
+            pixelFormatFourCC: container.decode(
+                UInt32.self,
+                forKey: .pixelFormatFourCC
+            ),
+            pixelRelativePath: container.decode(
+                String.self,
+                forKey: .pixelRelativePath
+            ),
+            pixelByteCount: container.decode(
+                Int.self,
+                forKey: .pixelByteCount
+            ),
+            pixelSHA256: container.decode(
+                EvidenceSHA256.self,
+                forKey: .pixelSHA256
+            ),
+            exifAllowlisted: container.decode(
+                [String: String].self,
+                forKey: .exifAllowlisted
+            ),
+            depthStatus: container.decode(
+                FrameDepthStatus.self,
+                forKey: .depthStatus
+            ),
+            depth: container.decodeIfPresent(
+                DepthEvidenceReference.self,
+                forKey: .depth
+            )
+        )
     }
 }

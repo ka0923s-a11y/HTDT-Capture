@@ -9,6 +9,7 @@ public enum ManualAuthorityBuilderError:
     case invalidSpeakerYaw
     case invalidSpeakerChannelRole
     case orientationOnlyForSpeaker
+    case derivedAcquisitionNotUserAttestable
 }
 
 public struct AnnotationPlacementAuthority:
@@ -24,12 +25,24 @@ public struct AnnotationPlacementAuthority:
         placement: PlacementProvenance,
         evidenceRefs: [String]
     ) throws {
-        guard Set(evidenceRefs).count == evidenceRefs.count else {
+        let normalizedEvidence = SchemaOwnedText.nfc(evidenceRefs)
+        guard normalizedEvidence.allSatisfy({ !$0.isEmpty }) else {
+            throw AnnotationModelError.emptyAuthorityReference
+        }
+        guard Set(normalizedEvidence).count == normalizedEvidence.count
+        else {
             throw AnnotationModelError.duplicateEvidenceReference
+        }
+        // An evidence-backed placement authority must carry the evidence
+        // it claims; the plain manual path uses a nil authority instead.
+        guard !normalizedEvidence.isEmpty
+                || placement.hasSourceReference
+        else {
+            throw AnnotationModelError.missingEvidenceLink
         }
         self.worldFromAnnotation = worldFromAnnotation
         self.placement = placement
-        self.evidenceRefs = evidenceRefs.sorted()
+        self.evidenceRefs = normalizedEvidence.sorted()
     }
 }
 
@@ -44,11 +57,21 @@ public struct AnnotationOrientationAuthority:
         orientation: OrientationAxes,
         evidenceRefs: [String]
     ) throws {
-        guard Set(evidenceRefs).count == evidenceRefs.count else {
+        let normalizedEvidence = SchemaOwnedText.nfc(evidenceRefs)
+        guard normalizedEvidence.allSatisfy({ !$0.isEmpty }) else {
+            throw AnnotationModelError.emptyAuthorityReference
+        }
+        guard Set(normalizedEvidence).count == normalizedEvidence.count
+        else {
             throw AnnotationModelError.duplicateEvidenceReference
         }
+        // An evidence-backed orientation authority must carry the
+        // evidence it claims; the plain manual path uses nil instead.
+        guard !normalizedEvidence.isEmpty else {
+            throw AnnotationModelError.missingEvidenceLink
+        }
         self.orientation = orientation
-        self.evidenceRefs = evidenceRefs.sorted()
+        self.evidenceRefs = normalizedEvidence.sorted()
     }
 }
 
@@ -188,7 +211,18 @@ public enum ManualAuthorityBuilder {
         sourceValueText: String? = nil,
         evidenceRefs: [String] = []
     ) throws -> CaptureMeasurement {
-        try CaptureMeasurement(
+        // The manual builder always writes a user-attested record, so a
+        // derived acquisition method would be a contradictory provenance
+        // claim. Derived values must use their own evidence path.
+        switch acquisitionMethod {
+        case .lidarDerived, .roomPlanDerived:
+            throw ManualAuthorityBuilderError
+                .derivedAcquisitionNotUserAttestable
+        case .tapeMeasure, .laserDistanceMeter,
+             .manufacturerSpecification, .other:
+            break
+        }
+        return try CaptureMeasurement(
             quantityType: quantityType,
             value: .scalar(value),
             unit: unit,
