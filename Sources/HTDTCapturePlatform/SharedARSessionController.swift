@@ -1021,8 +1021,6 @@ public final class SharedARSessionController {
             return .existingPlaneInfinite
         case .estimatedPlane:
             return .estimatedPlane
-        case .featurePoint:
-            return .featurePoint
         default:
             return .unknown
         }

@@ -360,7 +360,8 @@ public final class CaptureResourceMonitor: NSObject {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
-        sampleDriver.cancel()
+        let driver = sampleDriver
+        Task { @MainActor in driver.cancel() }
     }
 
     public func start() {
