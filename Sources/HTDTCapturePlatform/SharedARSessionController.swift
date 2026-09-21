@@ -61,6 +61,27 @@ public struct CapturedSpeakerOrientation: Sendable {
     }
 }
 
+/// Whole-orientation camera authority in world space (issue #271).
+/// Unlike `CapturedSpeakerOrientation`, which flattens the heading to
+/// the X/Z plane for the speaker-yaw convention, this preserves the
+/// full 3D forward+up axes for measurement-point (microphone capsule)
+/// direction authority.
+public struct CapturedPointOrientation: Sendable {
+    public let frontAxisWorld: SpatialVector3F
+    public let upAxisWorld: SpatialVector3F
+    public let frameArtifacts: CapturedFrameSnapshot
+
+    public init(
+        frontAxisWorld: SpatialVector3F,
+        upAxisWorld: SpatialVector3F,
+        frameArtifacts: CapturedFrameSnapshot
+    ) {
+        self.frontAxisWorld = frontAxisWorld
+        self.upAxisWorld = upAxisWorld
+        self.frameArtifacts = frameArtifacts
+    }
+}
+
 /// Bounded provenance of a live raycast hit used for annotation
 /// placement. Two placements with materially different authority (hit on
 /// observed existing plane geometry vs. an estimated plane fallback)
@@ -277,23 +298,52 @@ private final class ARSessionLifecycleBridge:
     }
 
     // Passthrough-only callbacks: forwarded unchanged so the bridge is
-    // transparent to any delegate that was installed before it.
+    // transparent to any delegate that was installed before it. Mesh
+    // anchors are additionally reported to the lifecycle observer so the
+    // store can keep bounded add/update/remove diagnostics (#268).
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         passthrough?.session?(session, didUpdate: frame)
     }
 
     func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
+        reportMeshAnchors(anchors, kind: .added, session: session)
         passthrough?.session?(session, didAdd: anchors)
     }
 
     func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
+        reportMeshAnchors(anchors, kind: .updated, session: session)
         passthrough?.session?(session, didUpdate: anchors)
     }
 
     func session(_ session: ARSession, didRemove anchors: [ARAnchor]) {
+        reportMeshAnchors(anchors, kind: .removed, session: session)
         passthrough?.session?(session, didRemove: anchors)
     }
+
+    private func reportMeshAnchors(
+        _ anchors: [ARAnchor],
+        kind: MeshAnchorLifecycleKind,
+        session: ARSession
+    ) {
+        let identifiers = anchors.compactMap {
+            ($0 as? ARMeshAnchor)?.identifier
+        }
+        guard !identifiers.isEmpty else { return }
+        meshAnchorHandler?(
+            kind,
+            identifiers,
+            session.currentFrame?.timestamp ?? 0
+        )
+    }
+
+    var meshAnchorHandler: (
+        @MainActor (
+            MeshAnchorLifecycleKind,
+            [UUID],
+            Double
+        ) -> Void
+    )?
 
     func session(
         _ session: ARSession,
@@ -347,6 +397,67 @@ private final class RoomPlanViewDelegateBridge:
     }
 }
 
+/// Forwards RoomPlan coaching/instruction transitions to the host so a
+/// bounded advisory history survives finalization (#260). The full
+/// delegate protocol is implemented; only `didProvide` is consumed.
+// RoomCaptureSessionDelegate is a pure-Swift protocol with nonisolated
+// requirements (unlike the ObjC ARSessionDelegate/RoomCaptureViewDelegate
+// bridges above), so the bridge cannot be MainActor-isolated. The
+// handler is assigned once before `run` and only read afterwards.
+@available(iOS 17.0, *)
+private final class RoomPlanSessionInstructionBridge:
+    RoomCaptureSessionDelegate,
+    @unchecked Sendable
+{
+    nonisolated(unsafe) var instructionHandler: (
+        @Sendable (RoomPlanGuidanceObservation) -> Void
+    )?
+
+    nonisolated func captureSession(
+        _ session: RoomCaptureSession,
+        didProvide instruction: RoomCaptureSession.Instruction
+    ) {
+        instructionHandler?(
+            RoomPlanGuidanceObservation(
+                instruction: String(describing: instruction),
+                sessionTimestampSeconds:
+                    session.arSession.currentFrame?.timestamp ?? 0
+            )
+        )
+    }
+
+    nonisolated func captureSession(
+        _ session: RoomCaptureSession,
+        didUpdate room: CapturedRoom
+    ) {}
+
+    nonisolated func captureSession(
+        _ session: RoomCaptureSession,
+        didAdd room: CapturedRoom
+    ) {}
+
+    nonisolated func captureSession(
+        _ session: RoomCaptureSession,
+        didChange room: CapturedRoom
+    ) {}
+
+    nonisolated func captureSession(
+        _ session: RoomCaptureSession,
+        didRemove room: CapturedRoom
+    ) {}
+
+    nonisolated func captureSession(
+        _ session: RoomCaptureSession,
+        didStartWith configuration: RoomCaptureSession.Configuration
+    ) {}
+
+    nonisolated func captureSession(
+        _ session: RoomCaptureSession,
+        didEndWith data: CapturedRoomData,
+        error: (any Error)?
+    ) {}
+}
+
 @available(iOS 17.0, *)
 @MainActor
 public final class SharedARSessionController {
@@ -360,6 +471,8 @@ public final class SharedARSessionController {
 
     private let roomPlanDelegateBridge =
         RoomPlanViewDelegateBridge()
+    private let roomPlanInstructionBridge =
+        RoomPlanSessionInstructionBridge()
     private let sessionDelegateBridge = ARSessionLifecycleBridge()
     private var liveRoomCaptureViewMountObserved = false
 
@@ -373,6 +486,32 @@ public final class SharedARSessionController {
     )? {
         get { sessionDelegateBridge.eventHandler }
         set { sessionDelegateBridge.eventHandler = newValue }
+    }
+
+    /// Mesh anchor add/update/remove notifications for bounded lifecycle
+    /// diagnostics (#268). Non-mesh anchors are filtered out.
+    public var meshAnchorLifecycleHandler: (
+        @MainActor (
+            MeshAnchorLifecycleKind,
+            [UUID],
+            Double
+        ) -> Void
+    )? {
+        get { sessionDelegateBridge.meshAnchorHandler }
+        set { sessionDelegateBridge.meshAnchorHandler = newValue }
+    }
+
+    /// RoomPlan coaching/instruction observations (#260). Installed as
+    /// `roomCaptureSession.delegate` when RoomPlan runs; invoked from the
+    /// framework's delegate queue (nonisolated), so hop to MainActor
+    /// inside the handler if needed.
+    public var roomPlanInstructionHandler: (
+        @Sendable (RoomPlanGuidanceObservation) -> Void
+    )? {
+        get { roomPlanInstructionBridge.instructionHandler }
+        set {
+            roomPlanInstructionBridge.instructionHandler = newValue
+        }
     }
 
     public init(
@@ -481,6 +620,7 @@ public final class SharedARSessionController {
         guard let roomCaptureSession else {
             throw PlatformCaptureError.roomPlanUnsupported
         }
+        roomCaptureSession.delegate = roomPlanInstructionBridge
         roomCaptureSession.run(configuration: configuration)
         // RoomCaptureView may install itself as the ARSession delegate
         // when its capture session runs; reclaim the delegate while
@@ -926,6 +1066,58 @@ public final class SharedARSessionController {
         )
         return CapturedSpeakerOrientation(
             frontAxisWorld: front,
+            frameArtifacts: try ARFrameArtifactAdapter.snapshot(
+                frame: frame,
+                captureSessionID: context.captureSessionID,
+                coordinateSpaceID: context.coordinateSpaceID,
+                depthSelection: depthSelection
+            )
+        )
+    }
+
+    /// Full 3D camera orientation for measurement-point direction
+    /// authority (issue #271): forward is the -Z camera column, up is
+    /// the +Y column, both expressed in world space without flattening.
+    public func snapshotCameraOrientation(
+        depthSelection: FrameDepthSelection = .discrete
+    ) throws -> CapturedPointOrientation {
+        guard let frame = arSession.currentFrame else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        let camera = frame.camera.transform
+        let front = SIMD3<Float>(
+            -camera.columns.2.x,
+            -camera.columns.2.y,
+            -camera.columns.2.z
+        )
+        let up = SIMD3<Float>(
+            camera.columns.1.x,
+            camera.columns.1.y,
+            camera.columns.1.z
+        )
+        let frontMagnitude =
+            (front.x * front.x + front.y * front.y + front.z * front.z)
+                .squareRoot()
+        let upMagnitude =
+            (up.x * up.x + up.y * up.y + up.z * up.z).squareRoot()
+        guard frontMagnitude.isFinite, frontMagnitude > 0.001,
+              upMagnitude.isFinite, upMagnitude > 0.001
+        else {
+            throw PlatformCaptureError.orientationUnavailable
+        }
+
+        return CapturedPointOrientation(
+            frontAxisWorld: try SpatialVector3F.unit(
+                front.x / frontMagnitude,
+                front.y / frontMagnitude,
+                front.z / frontMagnitude
+            ),
+            upAxisWorld: try SpatialVector3F.unit(
+                up.x / upMagnitude,
+                up.y / upMagnitude,
+                up.z / upMagnitude
+            ),
             frameArtifacts: try ARFrameArtifactAdapter.snapshot(
                 frame: frame,
                 captureSessionID: context.captureSessionID,

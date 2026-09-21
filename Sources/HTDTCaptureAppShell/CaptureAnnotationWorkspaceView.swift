@@ -28,12 +28,21 @@ public struct CaptureAnnotationWorkspaceView: View {
         () async throws -> AnnotationPlacementAuthority
     public let captureSpeakerOrientation:
         () async throws -> AnnotationOrientationAuthority
+    /// Full-3D orientation capture for measurement-point direction
+    /// authority (issue #271).
+    public let capturePointOrientation:
+        () async throws -> AnnotationOrientationAuthority
     /// Validates and adopts an imported catalog snapshot through the
     /// host (#211). The host keeps the catalog alive across this view's
     /// lifecycle (and relaunch, via an app-support cache); the default
     /// only decodes through the validating initializer.
     public let onImportEquipmentCatalog:
         (Data) throws -> HTDTEquipmentCatalogSnapshot
+    /// Operator capture-task profile selection (#217/#259). Nil =
+    /// geometry-only; advisory only, never a quality gate.
+    public let taskProfile: CaptureTaskProfile?
+    public let onSelectTaskProfile:
+        (CaptureTaskProfile?, Set<String>) -> Void
     public let onCommit: (
         [CaptureAnnotationEntity],
         [CaptureMeasurement]
@@ -71,6 +80,11 @@ public struct CaptureAnnotationWorkspaceView: View {
             () async throws -> AnnotationOrientationAuthority = {
                 throw ManualAuthorityBuilderError.invalidSpeakerYaw
             },
+        capturePointOrientation: @escaping
+            () async throws -> AnnotationOrientationAuthority = {
+                throw ManualAuthorityBuilderError
+                    .pointDirectionUnavailable
+            },
         onImportEquipmentCatalog: @escaping
             (Data) throws -> HTDTEquipmentCatalogSnapshot = { data in
                 try JSONDecoder().decode(
@@ -78,6 +92,10 @@ public struct CaptureAnnotationWorkspaceView: View {
                     from: data
                 )
             },
+        taskProfile: CaptureTaskProfile? = nil,
+        onSelectTaskProfile: @escaping
+            (CaptureTaskProfile?, Set<String>) -> Void
+                = { _, _ in },
         onCommit: @escaping (
             [CaptureAnnotationEntity],
             [CaptureMeasurement]
@@ -93,7 +111,11 @@ public struct CaptureAnnotationWorkspaceView: View {
         self.captureRaycastPlacement = captureRaycastPlacement
         self.captureSpeakerOrientation =
             captureSpeakerOrientation
+        self.capturePointOrientation =
+            capturePointOrientation
         self.onImportEquipmentCatalog = onImportEquipmentCatalog
+        self.taskProfile = taskProfile
+        self.onSelectTaskProfile = onSelectTaskProfile
         self.onCommit = onCommit
         self.onCancel = onCancel
         self.onDiscard = onDiscard
@@ -147,6 +169,15 @@ public struct CaptureAnnotationWorkspaceView: View {
                     Text(equipmentCatalogError)
                         .foregroundStyle(.red)
                 }
+            }
+
+            Section("Capture task profile") {
+                taskProfilePicker
+                Text(
+                    "Select the information this capture intends to collect. This is advisory and never gates HTDT ingestion readiness."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section("Spatial annotations") {
@@ -258,6 +289,8 @@ public struct CaptureAnnotationWorkspaceView: View {
                         captureRaycastPlacement,
                     captureSpeakerOrientation:
                         captureSpeakerOrientation,
+                    capturePointOrientation:
+                        capturePointOrientation,
                     equipmentCatalogEntries:
                         equipmentCatalog?.definitions ?? []
                 ) { entity in
@@ -268,7 +301,9 @@ public struct CaptureAnnotationWorkspaceView: View {
         .sheet(isPresented: $addingMeasurement) {
             NavigationStack {
                 ManualMeasurementForm(
-                    availableEvidenceRefs: availableEvidenceRefs
+                    coordinateSpaceID: coordinateSpaceID,
+                    availableEvidenceRefs: availableEvidenceRefs,
+                    endpointCandidates: annotations
                 ) { measurement in
                     measurements.append(measurement)
                 }
@@ -313,6 +348,95 @@ public struct CaptureAnnotationWorkspaceView: View {
         }
     }
 
+    /// Preset capture-task profiles (#217): geometry-only stays valid,
+    /// theater presets pick a speaker-role set the operator expects; a
+    /// host may substitute any custom `CaptureTaskProfile` since the
+    /// completeness model is driven by requirements, not presets.
+    @ViewBuilder
+    private var taskProfilePicker: some View {
+        Picker(
+            String(localized: "Capture task profile"),
+            selection: Binding<String>(
+                get: {
+                    taskProfile?.identifier ?? "geometry_only"
+                },
+                set: { identifier in
+                    onSelectTaskProfile(
+                        Self.profile(forIdentifier: identifier),
+                        []
+                    )
+                }
+            )
+        ) {
+            Text(
+                String(
+                    localized: "Geometry only (no task requirements)"
+                )
+            )
+            .tag("geometry_only")
+            Text(
+                String(
+                    localized: "Room + listening position"
+                )
+            )
+            .tag("room_and_listening_position")
+            Text(String(localized: "Theater layout"))
+                .tag("theater_layout")
+        }
+        if let taskProfile, !taskProfile.requirements.isEmpty {
+            ForEach(
+                taskProfile.requirements,
+                id: \.identifier
+            ) { requirement in
+                HStack {
+                    Text(requirement.identifier)
+                        .font(.caption.monospaced())
+                    Spacer()
+                    Text(
+                        requirement.minimumCount
+                            == requirement.maximumCount
+                            && requirement.maximumCount != nil
+                            ? String(
+                                format: String(
+                                    localized: "exactly %d"
+                                ),
+                                requirement.minimumCount
+                            )
+                            : String(
+                                format: String(
+                                    localized: "min %d"
+                                ),
+                                requirement.minimumCount
+                            )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    static func profile(
+        forIdentifier identifier: String
+    ) -> CaptureTaskProfile? {
+        switch identifier {
+        case "geometry_only":
+            return nil
+        case "room_and_listening_position":
+            return .roomAndListeningPosition
+        case "theater_layout":
+            return .theaterLayout(
+                speakerRoles: [
+                    "L", "C", "R", "SL", "SR", "SBL", "SBR",
+                    "TFL", "TFR", "TML", "TMR",
+                ],
+                subwooferCount: 1
+            )
+        default:
+            return nil
+        }
+    }
+
     private func annotationDetail(
         _ entity: CaptureAnnotationEntity
     ) -> String {
@@ -329,16 +453,44 @@ public struct CaptureAnnotationWorkspaceView: View {
         return parts.joined(separator: " · ")
     }
 
+    private func endpointLabel(_ ref: String) -> String {
+        guard ref.hasPrefix("entity:"),
+              let entity = annotations.first(where: {
+                  "entity:" + $0.entityID.description == ref
+              })
+        else {
+            return ref
+        }
+        return entity.label
+    }
+
     private func measurementDetail(
         _ measurement: CaptureMeasurement
     ) -> String {
+        var detail: String
         switch measurement.value {
         case let .scalar(value):
-            return String(value) + " " + measurement.unit.rawValue
+            detail = String(value) + " "
+                + measurement.unit.rawValue
         case let .vector3(x, y, z):
-            return "[\(x), \(y), \(z)] "
+            detail = "[\(x), \(y), \(z)] "
                 + measurement.unit.rawValue
         }
+        if let sourceValueText = measurement.sourceValueText,
+           sourceValueText != detail
+        {
+            detail += " (source: " + sourceValueText + ")"
+        }
+        detail +=
+            " · " + measurement.acquisitionMethod.rawValue
+            + " · " + measurement.provenanceClass.rawValue
+        if !measurement.endpointRefs.isEmpty {
+            detail += " · "
+                + measurement.endpointRefs
+                    .map(endpointLabel)
+                    .joined(separator: " → ")
+        }
+        return detail
     }
 }
 
@@ -348,6 +500,8 @@ private struct ManualAnnotationForm: View {
     let captureRaycastPlacement:
         () async throws -> AnnotationPlacementAuthority
     let captureSpeakerOrientation:
+        () async throws -> AnnotationOrientationAuthority
+    let capturePointOrientation:
         () async throws -> AnnotationOrientationAuthority
     let equipmentCatalogEntries: [HTDTEquipmentCatalogEntry]
     let onAdd: (CaptureAnnotationEntity) -> Void
@@ -532,7 +686,9 @@ private struct ManualAnnotationForm: View {
                 }
             }
 
-            if type.supportsOrientationAuthority {
+            if type.supportsOrientationAuthority,
+               type != .measurementPoint
+            {
                 Section("Orientation") {
                     if type == .speaker || type == .subwoofer {
                         TextField(
@@ -574,6 +730,58 @@ private struct ManualAnnotationForm: View {
                         .disabled(isCapturingOrientation)
                         Text(
                             "Point the phone in the entity's forward direction, then capture. Only the horizontal heading is adopted; leave yaw blank when no facing authority exists."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if type == .measurementPoint {
+                Section("Point direction") {
+                    if let orientationAuthority {
+                        let front =
+                            orientationAuthority
+                                .orientation.frontAxisLocal
+                        let up =
+                            orientationAuthority
+                                .orientation.upAxisLocal
+                        LabeledContent(
+                            "Captured forward",
+                            value:
+                                "["
+                                + String(format: "%.3f", front.x)
+                                + ", "
+                                + String(format: "%.3f", front.y)
+                                + ", "
+                                + String(format: "%.3f", front.z)
+                                + "]"
+                        )
+                        LabeledContent(
+                            "Captured up",
+                            value:
+                                "["
+                                + String(format: "%.3f", up.x)
+                                + ", "
+                                + String(format: "%.3f", up.y)
+                                + ", "
+                                + String(format: "%.3f", up.z)
+                                + "]"
+                        )
+                        Button("Remove captured direction") {
+                            self.orientationAuthority = nil
+                            evidenceSelection
+                                .replaceOrientationAuthority(nil)
+                        }
+                    } else {
+                        Button(
+                            "Capture current camera direction"
+                        ) {
+                            capturePointDirection()
+                        }
+                        .disabled(isCapturingOrientation)
+                        Text(
+                            "Aim the phone along the microphone's acoustic axis, then capture. The full 3D direction — including pitch — is adopted; nothing is flattened to a horizontal heading."
                         )
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -707,6 +915,29 @@ private struct ManualAnnotationForm: View {
             do {
                 let authority =
                     try await captureSpeakerOrientation()
+                orientationAuthority = authority
+                evidenceSelection
+                    .replaceOrientationAuthority(authority)
+            } catch {
+                errorText = String(describing: error)
+            }
+        }
+    }
+
+    private func capturePointDirection() {
+        guard !isCapturingOrientation else {
+            return
+        }
+        isCapturingOrientation = true
+        errorText = nil
+
+        Task { @MainActor in
+            defer {
+                isCapturingOrientation = false
+            }
+            do {
+                let authority =
+                    try await capturePointOrientation()
                 orientationAuthority = authority
                 evidenceSelection
                     .replaceOrientationAuthority(authority)
@@ -885,58 +1116,278 @@ private struct ManualAnnotationForm: View {
 }
 
 private struct ManualMeasurementForm: View {
+    let coordinateSpaceID: CoordinateSpaceID
     let availableEvidenceRefs: [String]
+    /// Staged entities usable as measurement endpoints (issue #215).
+    let endpointCandidates: [CaptureAnnotationEntity]
     let onAdd: (CaptureMeasurement) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
-    @State private var quantityType = "room_width"
+    private static let customQuantityToken = "__custom"
+
+    @State private var quantityChoice = "room_width"
+    @State private var customQuantityType = ""
     @State private var valueText = ""
-    @State private var unit: MeasurementUnit = .meter
+    @State private var secondaryValueText = ""
+    @State private var vectorXText = ""
+    @State private var vectorYText = ""
+    @State private var vectorZText = ""
+    @State private var inputUnit: MeasurementInputUnit = .meter
+    @State private var customShape: MeasurementValueShape = .scalar
+    @State private var endpointA = ""
+    @State private var endpointB = ""
     @State private var method:
         MeasurementAcquisitionMethod = .laserDistanceMeter
     @State private var uncertaintyText = ""
     @State private var sourceValueText = ""
     @State private var instrumentClass = ""
     @State private var instrumentModel = ""
+    @State private var calibrationStatus = ""
+    @State private var calibrationDate = ""
+    @State private var sourceDocumentRef = ""
+    @State private var sourceDocumentRevision = ""
+    @State private var sourcePropertyKey = ""
+    @State private var sourceSHA256 = ""
+    @State private var sourceEquipmentID = ""
+    @State private var sourceEquipmentVersion = ""
+    @State private var sourceEquipmentHash = ""
     @State private var selectedEvidenceRefs = Set<String>()
     @State private var errorText: String?
 
-    private let units: [MeasurementUnit] = [
-        .meter,
-        .radian,
-        .dimensionless,
-    ]
     // Derived acquisition methods are intentionally absent: every value
-    // this form submits is persisted as `user_attested` /
-    // `user_attested_measurement` by ManualAuthorityBuilder, so a manual
-    // entry must never claim LiDAR/RoomPlan-derived provenance. Real
-    // derived values arrive through their dedicated evidence adapters.
+    // the manual "Add" path submits is persisted as
+    // `user_attested_measurement` by ManualAuthorityBuilder. Real
+    // derived values are produced below through
+    // `DerivedMeasurementBuilder` when both endpoints resolve to
+    // spatial authorities (issue #286).
     private let methods: [MeasurementAcquisitionMethod] = [
         .tapeMeasure,
         .laserDistanceMeter,
+        .externalInstrument,
         .manufacturerSpecification,
         .other,
     ]
 
+    private var effectiveQuantityType: String {
+        quantityChoice == Self.customQuantityToken
+            ? customQuantityType : quantityChoice
+    }
+
+    private var definition: MeasurementQuantityDefinition? {
+        MeasurementQuantityRegistry.definition(
+            for: effectiveQuantityType
+        )
+    }
+
+    private var shape: MeasurementValueShape {
+        definition?.shape ?? customShape
+    }
+
+    private var offeredInputUnits: [MeasurementInputUnit] {
+        let offered =
+            definition?.inputUnits
+            ?? Array(MeasurementInputUnit.allCases)
+        // A two-component feet+inches entry has no place in a
+        // per-component vector form.
+        return shape == .vector3
+            ? offered.filter { !$0.usesSecondaryComponent }
+            : offered
+    }
+
+    private var canonicalUnit: MeasurementUnit {
+        definition?.canonicalUnit ?? inputUnit.canonicalUnit
+    }
+
+    /// Endpoint count semantics from the quantity registry (issue
+    /// #287): `0` hides the pickers, `2` requires both or neither, an
+    /// unregistered quantity leaves endpoints optional.
+    private var expectedEndpoints: Int? {
+        definition?.expectedEndpoints
+    }
+
+    private var endpointsVisible: Bool {
+        expectedEndpoints != 0 && !endpointCandidates.isEmpty
+    }
+
+    private var isManufacturerSource: Bool {
+        method == .manufacturerSpecification
+    }
+
+    /// Observation time is a live-observation authority: recorded at
+    /// save for on-site/instrument readings, never stamped onto a
+    /// manufacturer-document value (issue #238).
+    private var recordsLiveObservation: Bool {
+        !isManufacturerSource
+    }
+
+    private func endpointEntity(_ entityID: String)
+        -> CaptureAnnotationEntity?
+    {
+        endpointCandidates.first {
+            $0.entityID.description == entityID
+        }
+    }
+
     var body: some View {
         Form {
             Section("Measurement") {
-                TextField(
-                    "Quantity type",
-                    text: $quantityType
-                )
-                TextField("Value", text: $valueText)
+                Picker("Quantity", selection: $quantityChoice) {
+                    ForEach(
+                        MeasurementQuantityRegistry.definitions,
+                        id: \.quantityType
+                    ) { entry in
+                        Text(entry.quantityType)
+                            .tag(entry.quantityType)
+                    }
+                    Text("Custom quantity…")
+                        .tag(Self.customQuantityToken)
+                }
+                .onChange(of: quantityChoice) { _, _ in
+                    syncInputUnitWithQuantity()
+                }
 
-                Picker("Unit", selection: $unit) {
-                    ForEach(units, id: \.rawValue) {
-                        Text($0.rawValue).tag($0)
+                if quantityChoice == Self.customQuantityToken {
+                    TextField(
+                        "Custom quantity type",
+                        text: $customQuantityType
+                    )
+                    Picker("Value shape", selection: $customShape) {
+                        Text("Scalar").tag(
+                            MeasurementValueShape.scalar
+                        )
+                        Text("Vector (x, y, z)").tag(
+                            MeasurementValueShape.vector3
+                        )
+                    }
+                    .onChange(of: customShape) { _, _ in
+                        syncInputUnitWithQuantity()
                     }
                 }
+
+                if shape == .scalar {
+                    TextField("Value", text: $valueText)
+                    if inputUnit.usesSecondaryComponent {
+                        TextField(
+                            "Inches component",
+                            text: $secondaryValueText
+                        )
+                    }
+                } else {
+                    TextField("X", text: $vectorXText)
+                    TextField("Y", text: $vectorYText)
+                    TextField("Z", text: $vectorZText)
+                }
+
+                Picker("Input unit", selection: $inputUnit) {
+                    ForEach(offeredInputUnits, id: \.self) {
+                        Text($0.displayToken).tag($0)
+                    }
+                }
+                if inputUnit.canonicalUnit.rawValue
+                    != inputUnit.displayToken
+                {
+                    Text(
+                        "Persists as \(canonicalUnit.rawValue)"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+
                 Picker("Acquisition", selection: $method) {
                     ForEach(methods, id: \.rawValue) {
                         Text($0.rawValue).tag($0)
                     }
+                }
+                Text(
+                    recordsLiveObservation
+                    ? String(localized: "Observation time (UTC) is recorded when you add this measurement.")
+                    : String(localized: "Manufacturer-document values keep their source date — no live observation time is recorded.")
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            if endpointsVisible {
+                Section("Spatial endpoints (optional)") {
+                    EndpointPicker(
+                        title: "Endpoint A",
+                        selection: $endpointA,
+                        candidates: endpointCandidates
+                    )
+                    EndpointPicker(
+                        title: "Endpoint B",
+                        selection: $endpointB,
+                        candidates: endpointCandidates
+                    )
+                    Text(
+                        "Endpoints bind this measurement to exact staged spatial authorities in the capture coordinate space. A typed-in value stays user-attested — endpoints never imply the value was derived from them."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+
+                if !endpointA.isEmpty && !endpointB.isEmpty {
+                    Section("Derived from endpoints") {
+                        if shape == .scalar {
+                            Button(
+                                "Compute distance from endpoints"
+                            ) {
+                                deriveValue(vector: false)
+                            }
+                        } else {
+                            Button(
+                                "Compute displacement vector"
+                            ) {
+                                deriveValue(vector: true)
+                            }
+                        }
+                        Text(
+                            "Computes the value from accepted endpoint geometry and stores it as a separate derived record — RoomPlan/LiDAR provenance when both endpoints share it, otherwise capture_app_derived."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if isManufacturerSource {
+                Section("Specification source") {
+                    TextField(
+                        "Document/catalog reference",
+                        text: $sourceDocumentRef
+                    )
+                    TextField(
+                        "Document revision/version",
+                        text: $sourceDocumentRevision
+                    )
+                    TextField(
+                        "Property key (e.g. cabinet_height)",
+                        text: $sourcePropertyKey
+                    )
+                    TextField(
+                        "Source asset SHA-256 (optional)",
+                        text: $sourceSHA256
+                    )
+                    TextField(
+                        "Equipment ID (optional)",
+                        text: $sourceEquipmentID
+                    )
+                    if !sourceEquipmentID.isEmpty {
+                        TextField(
+                            "Equipment version",
+                            text: $sourceEquipmentVersion
+                        )
+                        TextField(
+                            "Equipment SHA-256",
+                            text: $sourceEquipmentHash
+                        )
+                    }
+                    Text(
+                        "At least one source field is required. Arbitrary web URLs are not source authority — name the document/revision, property key, or pinned equipment identity instead."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
 
@@ -966,13 +1417,14 @@ private struct ManualMeasurementForm: View {
                     "Make/model (optional)",
                     text: $instrumentModel
                 )
-            }
-
-            Section {
-                Text(
-                    "Manual entries are persisted as user-attested measurements; derived LiDAR/RoomPlan values should use their dedicated evidence path instead."
+                TextField(
+                    "Calibration status (optional)",
+                    text: $calibrationStatus
                 )
-                .font(.caption)
+                TextField(
+                    "Calibration date YYYY-MM-DD (optional)",
+                    text: $calibrationDate
+                )
             }
 
             if let errorText {
@@ -997,10 +1449,173 @@ private struct ManualMeasurementForm: View {
         }
     }
 
+    private func syncInputUnitWithQuantity() {
+        let offered = offeredInputUnits
+        if !offered.contains(inputUnit) {
+            inputUnit =
+                offered.first ?? .meter
+        }
+    }
+
+    /// The exact text the operator entered, kept in
+    /// `source_value_text` so the canonical persisted value never loses
+    /// its original representation (issue #235).
+    private var enteredSourceText: String {
+        if shape == .vector3 {
+            return "[\(vectorXText), \(vectorYText), \(vectorZText)] "
+                + inputUnit.displayToken
+        }
+        if inputUnit.usesSecondaryComponent {
+            return "\(valueText) ft \(secondaryValueText) in"
+        }
+        return valueText + " " + inputUnit.displayToken
+    }
+
+    private func parseCanonical(
+        _ text: String
+    ) throws -> Double {
+        guard let parsed = MeasurementInputParser.parse(text)
+        else {
+            throw MeasurementModelError.invalidScalar
+        }
+        return inputUnit.canonicalValue(parsed)
+    }
+
+    private func deriveValue(vector: Bool) {
+        do {
+            guard let entityA = endpointEntity(endpointA),
+                  let entityB = endpointEntity(endpointB)
+            else {
+                throw MeasurementModelError.emptyEndpointReference
+            }
+            let authorityA = try MeasurementEndpointAuthority(
+                entity: entityA
+            )
+            let authorityB = try MeasurementEndpointAuthority(
+                entity: entityB
+            )
+            let measurement: CaptureMeasurement
+            if vector {
+                measurement = try DerivedMeasurementBuilder.displacement(
+                    quantityType: effectiveQuantityType,
+                    endpointA: authorityA,
+                    endpointB: authorityB,
+                    coordinateSpaceID: coordinateSpaceID,
+                    observedAtUTC:
+                        BundleTimestamp.utcString(from: Date()),
+                    evidenceRefs: selectedEvidenceRefs.sorted()
+                )
+            } else {
+                measurement = try DerivedMeasurementBuilder.distance(
+                    quantityType: effectiveQuantityType,
+                    endpointA: authorityA,
+                    endpointB: authorityB,
+                    coordinateSpaceID: coordinateSpaceID,
+                    observedAtUTC:
+                        BundleTimestamp.utcString(from: Date()),
+                    evidenceRefs: selectedEvidenceRefs.sorted()
+                )
+            }
+            onAdd(measurement)
+            dismiss()
+        } catch {
+            errorText = String(describing: error)
+        }
+    }
+
+    private func endpointRefs() throws -> [String] {
+        if !endpointsVisible {
+            return []
+        }
+        switch (endpointA.isEmpty, endpointB.isEmpty) {
+        case (true, true):
+            return []
+        case (false, false):
+            guard endpointA != endpointB else {
+                throw MeasurementModelError
+                    .duplicateEndpointReference
+            }
+            return ["entity:" + endpointA, "entity:" + endpointB]
+        default:
+            throw MeasurementModelError
+                .invalidEndpointCountForQuantity
+        }
+    }
+
+    private func manufacturerSource() throws
+        -> MeasurementSourceAuthority?
+    {
+        guard isManufacturerSource else {
+            return nil
+        }
+        let equipment: HTDTEquipmentReference?
+        if !sourceEquipmentID.isEmpty {
+            let digest = try EvidenceSHA256(
+                sourceEquipmentHash
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    )
+                    .lowercased()
+            )
+            equipment = try HTDTEquipmentReference(
+                equipmentID: sourceEquipmentID,
+                equipmentVersion: sourceEquipmentVersion,
+                equipmentHash: digest
+            )
+        } else {
+            equipment = nil
+        }
+        let sha = sourceSHA256
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return try MeasurementSourceAuthority(
+            equipmentRef: equipment,
+            documentRef:
+                sourceDocumentRef.isEmpty ? nil : sourceDocumentRef,
+            documentRevision:
+                sourceDocumentRevision.isEmpty
+                ? nil : sourceDocumentRevision,
+            propertyKey:
+                sourcePropertyKey.isEmpty ? nil : sourcePropertyKey,
+            sourceSHA256:
+                sha.isEmpty ? nil : EvidenceSHA256(sha.lowercased())
+        )
+    }
+
     private func add() {
         do {
-            guard let value = Double(valueText) else {
-                throw MeasurementModelError.invalidScalar
+            let value: MeasurementValue
+            switch shape {
+            case .scalar:
+                guard let primary =
+                        MeasurementInputParser.parse(valueText)
+                else {
+                    throw MeasurementModelError.invalidScalar
+                }
+                var secondary = 0.0
+                let secondaryText = secondaryValueText
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if inputUnit.usesSecondaryComponent,
+                   !secondaryText.isEmpty
+                {
+                    guard let parsed =
+                            MeasurementInputParser
+                                .parse(secondaryText)
+                    else {
+                        throw MeasurementModelError.invalidScalar
+                    }
+                    secondary = parsed
+                }
+                value = .scalar(
+                    inputUnit.canonicalValue(
+                        primary,
+                        secondary: secondary
+                    )
+                )
+            case .vector3:
+                let x = try parseCanonical(vectorXText)
+                let y = try parseCanonical(vectorYText)
+                let z = try parseCanonical(vectorZText)
+                value = .vector3(x, y, z)
             }
 
             let uncertainty: Double?
@@ -1010,14 +1625,18 @@ private struct ManualMeasurementForm: View {
             {
                 uncertainty = nil
             } else {
-                guard let parsed = Double(uncertaintyText) else {
+                guard let parsed =
+                        MeasurementInputParser.parse(uncertaintyText)
+                else {
                     throw MeasurementModelError.negativeUncertainty
                 }
                 uncertainty = parsed
             }
 
             let instrument: MeasurementInstrument?
-            if instrumentClass.isEmpty && instrumentModel.isEmpty {
+            if instrumentClass.isEmpty && instrumentModel.isEmpty,
+               calibrationStatus.isEmpty, calibrationDate.isEmpty
+            {
                 instrument = nil
             } else {
                 instrument = MeasurementInstrument(
@@ -1026,28 +1645,61 @@ private struct ManualMeasurementForm: View {
                         ? nil : instrumentClass,
                     makeModel:
                         instrumentModel.isEmpty
-                        ? nil : instrumentModel
+                        ? nil : instrumentModel,
+                    calibrationStatus:
+                        calibrationStatus.isEmpty
+                        ? nil : calibrationStatus,
+                    calibrationDate:
+                        calibrationDate.isEmpty
+                        ? nil : calibrationDate
                 )
             }
 
+            let endpoints = try endpointRefs()
             let measurement =
-                try ManualAuthorityBuilder.scalarMeasurement(
-                    quantityType: quantityType,
+                try ManualAuthorityBuilder.measurement(
+                    quantityType: effectiveQuantityType,
                     value: value,
-                    unit: unit,
+                    unit: canonicalUnit,
                     acquisitionMethod: method,
+                    coordinateSpaceID:
+                        endpoints.isEmpty && !value.isSpatialVector
+                        ? nil : coordinateSpaceID,
+                    endpointRefs: endpoints,
                     instrument: instrument,
                     statedUncertainty: uncertainty,
+                    observedAtUTC:
+                        recordsLiveObservation
+                        ? BundleTimestamp.utcString(from: Date())
+                        : nil,
                     sourceValueText:
                         sourceValueText.isEmpty
-                        ? nil : sourceValueText,
-                    evidenceRefs:
-                        selectedEvidenceRefs.sorted()
+                        ? enteredSourceText : sourceValueText,
+                    sourceAuthority: try manufacturerSource(),
+                    evidenceRefs: selectedEvidenceRefs.sorted()
                 )
             onAdd(measurement)
             dismiss()
         } catch {
             errorText = String(describing: error)
+        }
+    }
+}
+
+private struct EndpointPicker: View {
+    let title: String
+    @Binding var selection: String
+    let candidates: [CaptureAnnotationEntity]
+
+    var body: some View {
+        Picker(title, selection: $selection) {
+            Text("None").tag("")
+            ForEach(candidates, id: \.entityID) { entity in
+                Text(
+                    entity.label + " · " + entity.type.rawValue
+                )
+                .tag(entity.entityID.description)
+            }
         }
     }
 }

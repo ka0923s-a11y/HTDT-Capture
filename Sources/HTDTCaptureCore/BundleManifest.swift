@@ -731,6 +731,45 @@ enum BundleReservedPaths {
             provenanceClass: .captureAppDerived,
             role: .canonical
         ),
+        // Advanced workflow payloads (issues #222/#227/#240/#249/#293):
+        // reserved-path-bound but not schema-owned, matching the
+        // coordinate-space-policy precedent.
+        "derived/geometry-candidates.json": Binding(
+            mediaType: "application/json",
+            producer: "derived_geometry",
+            provenanceClass: .captureAppDerived,
+            role: .derived
+        ),
+        "evidence/reference-targets.json": Binding(
+            mediaType: "application/json",
+            producer: "reference_target_capture",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
+        "session/capture-task-plan.json": Binding(
+            mediaType: "application/json",
+            producer: "htdt_plan",
+            provenanceClass: .importedReference,
+            role: .canonical
+        ),
+        "session/connected-spaces.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_session",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
+        "session/task-plan-status.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_session",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
+        "verification/as-built.json": Binding(
+            mediaType: "application/json",
+            producer: "asbuilt_verification",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
     ]
 
     static let patterned:

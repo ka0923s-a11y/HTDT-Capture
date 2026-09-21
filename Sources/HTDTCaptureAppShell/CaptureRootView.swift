@@ -38,11 +38,20 @@ public struct CaptureRootActions {
         () async throws -> AnnotationPlacementAuthority
     public let captureSpeakerOrientation:
         () async throws -> AnnotationOrientationAuthority
+    /// Full-3D orientation capture for measurement-point direction
+    /// authority (issue #271); distinct from the horizontal-heading
+    /// `captureSpeakerOrientation` convention.
+    public let capturePointOrientation:
+        () async throws -> AnnotationOrientationAuthority
     public let commitAnnotationAuthority: (
         [CaptureAnnotationEntity],
         [CaptureMeasurement]
     ) -> Void
     public let cancelAnnotation: () -> Void
+    /// Operator capture-task profile selection (#217/#259): sets the
+    /// capture intent plus optional skipped-requirement outcome.
+    public let selectTaskProfile:
+        (CaptureTaskProfile?, Set<String>) -> Void
     /// Validates and adopts an imported HTDT equipment-catalog snapshot
     /// (#211). The host owns the catalog context for the app session and
     /// mirrors it to a durable app-support cache; the default simply
@@ -136,11 +145,19 @@ public struct CaptureRootActions {
             () async throws -> AnnotationOrientationAuthority = {
                 throw ManualAuthorityBuilderError.invalidSpeakerYaw
             },
+        capturePointOrientation: @escaping
+            () async throws -> AnnotationOrientationAuthority = {
+                throw ManualAuthorityBuilderError
+                    .pointDirectionUnavailable
+            },
         commitAnnotationAuthority: @escaping (
             [CaptureAnnotationEntity],
             [CaptureMeasurement]
         ) -> Void = { _, _ in },
         cancelAnnotation: @escaping () -> Void = {},
+        selectTaskProfile: @escaping
+            (CaptureTaskProfile?, Set<String>) -> Void
+                = { _, _ in },
         importEquipmentCatalog: @escaping
             (Data) throws -> HTDTEquipmentCatalogSnapshot = { data in
                 try JSONDecoder().decode(
@@ -215,9 +232,12 @@ public struct CaptureRootActions {
         self.captureRaycastPlacement = captureRaycastPlacement
         self.captureSpeakerOrientation =
             captureSpeakerOrientation
+        self.capturePointOrientation =
+            capturePointOrientation
         self.commitAnnotationAuthority =
             commitAnnotationAuthority
         self.cancelAnnotation = cancelAnnotation
+        self.selectTaskProfile = selectTaskProfile
         self.importEquipmentCatalog = importEquipmentCatalog
         self.finalizeCapture = finalizeCapture
         self.prepareExport = prepareExport
@@ -387,6 +407,10 @@ public struct CaptureRootView: View {
     public let lastFailure: CaptureFailureCode?
     public let workingSetStatus: String?
     public let qualityReport: CaptureQualityReport?
+    public let advisoryReport: CaptureAdvisoryReport?
+    /// Operator capture-task profile selected for this capture
+    /// (#217/#259). Nil = geometry-only / no profile.
+    public let taskProfile: CaptureTaskProfile?
     public let validationReport: BundleValidationReport?
     public let exportURL: URL?
     public let annotationCoordinateSpaceID: CoordinateSpaceID?
@@ -469,6 +493,8 @@ public struct CaptureRootView: View {
         lastFailure: CaptureFailureCode? = nil,
         workingSetStatus: String? = nil,
         qualityReport: CaptureQualityReport? = nil,
+        advisoryReport: CaptureAdvisoryReport? = nil,
+        taskProfile: CaptureTaskProfile? = nil,
         validationReport: BundleValidationReport? = nil,
         exportURL: URL? = nil,
         annotationCoordinateSpaceID: CoordinateSpaceID? = nil,
@@ -517,6 +543,8 @@ public struct CaptureRootView: View {
         self.lastFailure = lastFailure
         self.workingSetStatus = workingSetStatus
         self.qualityReport = qualityReport
+        self.advisoryReport = advisoryReport
+        self.taskProfile = taskProfile
         self.validationReport = validationReport
         self.exportURL = exportURL
         self.annotationCoordinateSpaceID =
@@ -629,8 +657,13 @@ public struct CaptureRootView: View {
                         actions.captureRaycastPlacement,
                     captureSpeakerOrientation:
                         actions.captureSpeakerOrientation,
+                    capturePointOrientation:
+                        actions.capturePointOrientation,
                     onImportEquipmentCatalog:
                         actions.importEquipmentCatalog,
+                    taskProfile: taskProfile,
+                    onSelectTaskProfile:
+                        actions.selectTaskProfile,
                     onCommit:
                         actions.commitAnnotationAuthority,
                     onCancel: actions.cancelAnnotation,
@@ -764,7 +797,8 @@ public struct CaptureRootView: View {
                         )
                         NavigationLink("Review diagnostics") {
                             CaptureReviewView(
-                                quality: qualityReport
+                                quality: qualityReport,
+                                advisory: advisoryReport
                             )
                         }
                     }
@@ -803,6 +837,7 @@ public struct CaptureRootView: View {
                             ) {
                                 CaptureReviewView(
                                     quality: qualityReport,
+                                    advisory: advisoryReport,
                                     validation: validationReport
                                 )
                             }

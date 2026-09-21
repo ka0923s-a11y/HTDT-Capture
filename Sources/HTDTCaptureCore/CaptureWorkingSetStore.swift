@@ -21,6 +21,7 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     case invalidCoordinateTransition
     case coordinateTransitionLimitExceeded
     case unsafeDiscardPath
+    case invalidSupplementalDocument
     case workingSetSealed
     case workingSetNotSealed
     case workingSetConsumed
@@ -34,6 +35,12 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     /// authority expressed in a different coordinate space than the
     /// record referencing it (issue #199).
     case spatialEvidenceSpaceMismatch(String)
+    /// A benchmark reference failed the immutable/versioned
+    /// `slug@semver` grammar and was rejected (#285).
+    case invalidBenchmarkReference(String)
+    /// A task profile failed validation (empty identity, empty
+    /// requirement identifier, or invalid counts) (#259).
+    case invalidTaskProfile
 }
 
 public struct CaptureWorkingSetIdentity: Sendable, Equatable {
@@ -412,6 +419,11 @@ public actor CaptureWorkingSetStore {
     private var framePreviews: [DerivedFramePreviewReference] = []
     private var annotationCollection: CaptureAnnotationCollection?
     private var measurementCollection: CaptureMeasurementCollection?
+    /// Committed supplemental-document bytes keyed by bundle path —
+    /// the write-once ledger for feature payloads committed through
+    /// `persistSupplementalDocument` (issues #222/#226/#227/#240/
+    /// #249/#293).
+    private var supplementalDocuments: [String: Data] = [:]
     private var annotationKeysPresent: Set<String> = []
     private var measurementQuantityTypesPresent: Set<String> = []
     /// User-confirmed room reference frame (issue #232), iff committed.
@@ -433,6 +445,20 @@ public actor CaptureWorkingSetStore {
     private var usableMeshAnchorCount: Int?
     private var trackingIntervals: [TrackingInterval] = []
     private var resourceEvents: [CaptureResourceEvent] = []
+
+    // Advisory/provenance state (#223, #259, #260, #268, #277, #284,
+    // #285). None of it feeds canonical geometry; it is persisted as a
+    // derived payload at seal and rendered in Review.
+    private var depthSufficiencyAccumulator =
+        DepthSufficiencyAccumulator()
+    private var meshGeometryProfile = MeshGeometryProfile()
+    private var roomPlanGuidanceTracker = RoomPlanGuidanceTracker()
+    private var meshLifecycleTracker = MeshAnchorLifecycleTracker()
+    private var advisoryEndContext: CaptureEndCoverageSummary?
+    private var roomPlanGuidanceAvailable = false
+    private var taskProfile: CaptureTaskProfile?
+    private var skippedTaskRequirementIDs: Set<String> = []
+    private var benchmarkRefs: [String] = []
     /// Advisory provenance notes recorded by the operator or capture
     /// policies; persisted at `advisory/operator-advisories.json` and
     /// surfaced to quality evaluation as advisory findings.
@@ -464,6 +490,10 @@ public actor CaptureWorkingSetStore {
     /// active seal, retained so `unseal` can roll back exactly the bytes
     /// the seal committed.
     private var sealedQualityReport:
+        (data: Data, declaration: BundlePayloadDeclaration)?
+    /// The advisory payload written inside the seal (#223). Rolled
+    /// back with the quality report if the seal is lifted.
+    private var sealedAdvisoryReport:
         (data: Data, declaration: BundlePayloadDeclaration)?
     /// Mutations rejected or dropped since the first seal: typed-error
     /// rejections from throwing entry points and drops from the
@@ -1653,6 +1683,12 @@ public actor CaptureWorkingSetStore {
             if !geometry.vertices.isEmpty, geometry.faceCount > 0 {
                 usableAnchors += 1
             }
+            // Bounded world-space geometry profile for the advisory
+            // RoomPlan/mesh consistency check (#277).
+            meshGeometryProfile.record(
+                worldFromAnchor: record.worldFromAnchor,
+                geometry: geometry
+            )
         }
 
         if let first = package.index.anchors.first {
@@ -1981,6 +2017,20 @@ public actor CaptureWorkingSetStore {
         usableDepthSampleCount += usableSamples
         if usableSamples > 0 {
             usableDepthEvidenceCount += 1
+        }
+
+        // Bounded depth-sufficiency accumulation (#284): the decoded
+        // payload statistics (valid/spatial/confidence distribution)
+        // feed the versioned fallback gate and the advisory payload.
+        if let depthData = package.depthPayload,
+           let depth = try? DepthBinaryCodec.decode(depthData)
+        {
+            let confidence = package.confidencePayload
+                .flatMap { try? ConfidenceBinaryCodec.decode($0) }
+            depthSufficiencyAccumulator.record(
+                depth: depth,
+                confidence: confidence
+            )
         }
 
         if let preview = package.preview {
@@ -3074,6 +3124,146 @@ public actor CaptureWorkingSetStore {
         )
     }
 
+    /// Commits a supplemental feature payload (issues #222/#226/#227/
+    /// #240/#249/#293). Same rules as the typed families: admission is
+    /// reserved, every claimed coordinate space must match the bound
+    /// authority, the committed bytes are write-once, and the
+    /// declaration registers into the manifest set so integrity and
+    /// finalization see the file. Identical replays are idempotent.
+    public func persistSupplementalDocument(
+        _ document: WorkingSetSupplementalDocument
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        let admissionReservation = try reserveAdmission(
+            bytes: document.data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
+
+        for space in document.coordinateSpaceIDs {
+            try validateCoordinateAuthority(space)
+        }
+        if let boundSession = captureSessionID {
+            guard document.captureSessionIDs.allSatisfy({
+                $0 == boundSession
+            }) else {
+                throw CaptureWorkingSetError.authorityMismatch
+            }
+        }
+
+        if let existing = supplementalDocuments[document.path] {
+            if existing == document.data {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(document.path)
+        }
+        if let existing = declarations[document.path],
+           existing != document.declaration
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(document.path)
+        }
+
+        try await writer.writeIfIdentical(
+            document.data,
+            to: CaptureStorePath(document.path)
+        )
+
+        // Re-check after the writer suspension: an identical reentrant
+        // commit is idempotent; any other authority fails closed.
+        if let existing = supplementalDocuments[document.path] {
+            if existing == document.data {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(document.path)
+        }
+        guard declarations[document.path] == nil
+                || declarations[document.path] == document.declaration
+        else {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(document.path)
+        }
+
+        // No suspension points below: binding, declaration, and ledger
+        // publish as one commit (issue #202).
+        for space in document.coordinateSpaceIDs {
+            try publishCoordinateAuthority(space)
+        }
+        declarations[document.path] = document.declaration
+        supplementalDocuments[document.path] = document.data
+    }
+
+    /// Replaces a committed supplemental document (e.g. evolving
+    /// task-plan status, reference-target observations, or a rebuilt
+    /// derived-candidate payload after Continue scanning). The
+    /// manifest declaration for the path must be identical — only the
+    /// payload bytes evolve.
+    public func replaceSupplementalDocument(
+        _ document: WorkingSetSupplementalDocument
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        let admissionReservation = try reserveAdmission(
+            bytes: document.data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
+
+        for space in document.coordinateSpaceIDs {
+            try validateCoordinateAuthority(space)
+        }
+        if let boundSession = captureSessionID {
+            guard document.captureSessionIDs.allSatisfy({
+                $0 == boundSession
+            }) else {
+                throw CaptureWorkingSetError.authorityMismatch
+            }
+        }
+
+        if let existing = supplementalDocuments[document.path],
+           existing == document.data
+        {
+            return
+        }
+        if let existing = declarations[document.path],
+           existing != document.declaration
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(document.path)
+        }
+
+        let prior = supplementalDocuments[document.path]
+        try await writer.writeBatchReplacing([
+            try CaptureFileWriteRequest(
+                data: document.data,
+                path: CaptureStorePath(document.path)
+            ),
+        ])
+
+        // Re-check after actor suspension: a mutation that interleaved
+        // across the write is detected instead of silently mixing
+        // committed bytes.
+        guard supplementalDocuments[document.path] == prior else {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(document.path)
+        }
+        guard declarations[document.path] == nil
+                || declarations[document.path] == document.declaration
+        else {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(document.path)
+        }
+
+        for space in document.coordinateSpaceIDs {
+            try publishCoordinateAuthority(space)
+        }
+        declarations[document.path] = document.declaration
+        supplementalDocuments[document.path] = document.data
+    }
+
     /// Records one tracking-quality sample into bounded canonical history.
     ///
     /// Consecutive samples sharing one state/reason compact into a single
@@ -3206,6 +3396,185 @@ public actor CaptureWorkingSetStore {
         appendResourceEvent(event)
     }
 
+    /// Records one RoomPlan coaching/instruction sample (#260). The
+    /// tracker deduplicates consecutive identical instructions and
+    /// caps the transition history, so per-frame calls stay bounded.
+    /// `instruction` must be the stable framework case identity (e.g.
+    /// `moveCloseToWall`), never a localized string.
+    public func recordRoomPlanGuidanceInstruction(
+        _ observation: RoomPlanGuidanceObservation
+    ) {
+        guard sealState == .mutable else {
+            sealedMutationRejectionCount += 1
+            return
+        }
+        roomPlanGuidanceAvailable = true
+        roomPlanGuidanceTracker.record(observation)
+    }
+
+    /// Marks that the RoomPlan instruction delegate path is not
+    /// available on this run, so the advisory history can state the
+    /// degraded source explicitly instead of looking like a clean
+    /// session (#260).
+    public func recordRoomPlanGuidanceUnavailable() {
+        guard sealState == .mutable else {
+            sealedMutationRejectionCount += 1
+            return
+        }
+        roomPlanGuidanceAvailable = false
+    }
+
+    /// Records a mesh anchor lifecycle event during scanning (#268).
+    /// Bounded: the tracker retains at most
+    /// `MeshAnchorLifecycleTracker.uniqueAnchorLimit` distinct anchors
+    /// and `eventLimit` events.
+    public func recordMeshAnchorLifecycle(
+        _ kind: MeshAnchorLifecycleKind,
+        anchorID: UUID,
+        sessionTimestampSeconds: Double
+    ) {
+        guard sealState == .mutable else {
+            sealedMutationRejectionCount += 1
+            return
+        }
+        meshLifecycleTracker.record(
+            kind,
+            anchorID: anchorID,
+            sessionTimestampSeconds: sessionTimestampSeconds
+        )
+    }
+
+    /// Replaces the advisory End-boundary coverage snapshot (#223). The
+    /// host records it once per accepted End attempt; the latest call
+    /// wins so repeated End presses stay deterministic.
+    public func recordAdvisoryEndContext(
+        _ summary: CaptureEndCoverageSummary
+    ) {
+        guard sealState == .mutable else {
+            sealedMutationRejectionCount += 1
+            return
+        }
+        advisoryEndContext = summary
+    }
+
+    /// Selects (or clears) the operator capture-task profile (#217).
+    /// Task completeness is advisory only — it never feeds
+    /// `ready_for_htdt_ingestion`.
+    public func recordTaskProfile(
+        _ profile: CaptureTaskProfile?,
+        skippedRequirementIDs: Set<String> = []
+    ) throws {
+        try requireMutable()
+        if let profile {
+            guard !profile.identifier.isEmpty,
+                  profile.requirements.allSatisfy({
+                      !$0.identifier.isEmpty
+                  })
+            else {
+                throw CaptureWorkingSetError.invalidTaskProfile
+            }
+        }
+        taskProfile = profile
+        skippedTaskRequirementIDs = skippedRequirementIDs
+    }
+
+    /// Binds benchmark references into the quality report (#285). Only
+    /// immutable/versioned `slug@semver` refs pass validation; anything
+    /// else fails closed.
+    public func recordBenchmarkReferences(_ refs: [String]) throws {
+        try requireMutable()
+        for ref in refs
+        where !BenchmarkReferenceValidator.isValid(ref) {
+            throw CaptureWorkingSetError
+                .invalidBenchmarkReference(ref)
+        }
+        benchmarkRefs = CaptureQualityEvaluator
+            .canonicalBenchmarkRefs(refs)
+    }
+
+    /// Evaluates the advisory diagnostics layer from current state
+    /// (#223). Read-only: identical state produces identical output.
+    /// Used by Review before seal and persisted at seal.
+    public func evaluateAdvisoryDiagnostics() -> CaptureAdvisoryReport? {
+        guard let captureSessionID else { return nil }
+        let endTimestamp = advisoryEndContext?
+            .endSessionTimestampSeconds
+        return CaptureAdvisoryReport(
+            captureSessionID: captureSessionID,
+            generatedAtUTC: BundleTimestamp.utcString(from: Date()),
+            endCoverage: advisoryEndContext,
+            taskCompleteness:
+                CaptureTaskCompletenessEvaluator.evaluate(
+                    profile: taskProfile,
+                    annotations: annotationCollection?.entities ?? [],
+                    measurements: measurementCollection?.measurements
+                        ?? [],
+                    skippedRequirementIDs: skippedTaskRequirementIDs
+                ),
+            roomPlanGuidance: roomPlanGuidanceAvailable
+                ? roomPlanGuidanceTracker.history()
+                : RoomPlanGuidanceHistory(
+                    source: .unavailable,
+                    transitions: [],
+                    truncated: false
+                ),
+            meshLifecycle: meshLifecycleTracker
+                .summary(endSessionTimestampSeconds: endTimestamp),
+            depthSufficiency: depthSufficiencyAccumulator.summary,
+            conflicts: CaptureConflictAnalyzer.analyze(
+                measurements: measurementCollection?.measurements,
+                annotations: annotationCollection?.entities,
+                roomMetadata: capturedRoomMetadata
+            ),
+            geometryConsistency:
+                RoomPlanMeshConsistencyAnalyzer.analyze(
+                    meshProfile: meshGeometryProfile,
+                    roomMetadata: capturedRoomMetadata,
+                    meshCoordinateSpaceID: meshIndex?.anchors.first?
+                        .coordinateSpaceID,
+                    roomPlanCoordinateSpaceID: coordinateSpaceID
+                )
+        )
+    }
+
+    /// Persists the advisory diagnostics payload as a derived bundle
+    /// entry (#223). Role `.derived` with explicit source refs keeps it
+    /// advisory: it is never canonical geometry truth.
+    @discardableResult
+    private func persistAdvisoryDiagnosticsPayload(
+        _ report: CaptureAdvisoryReport
+    ) async throws -> (
+        data: Data,
+        declaration: BundlePayloadDeclaration
+    ) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let data = try encoder.encode(report)
+        let path = CaptureAdvisoryReport.payloadPath
+        let declaration = BundlePayloadDeclaration(
+            path: path,
+            mediaType: "application/json",
+            producer: "capture_quality",
+            provenanceClass: .captureAppDerived,
+            role: .derived,
+            sourceRefs: [
+                "capture_session:\(report.captureSessionID)",
+                "path:quality/capture-quality.json",
+            ]
+        )
+
+        let admissionReservation = try reserveAdmission(
+            bytes: data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
+
+        try await writer.writeIfIdentical(
+            data,
+            to: CaptureStorePath(path)
+        )
+        try register(declaration)
+        return (data, declaration)
+    }
     /// Records one advisory provenance note and rewrites the bounded
     /// `advisory/operator-advisories.json` derived payload. Exact
     /// duplicates (same kind/detail/timestamp) are idempotent so a
@@ -3251,7 +3620,6 @@ public actor CaptureWorkingSetStore {
     public var advisoryFindings: [QualityDiagnostic] {
         advisoryNotes.map(\.qualityDiagnostic)
     }
-
     public func evaluateQuality(
         requirements: CaptureQualityRequirements = .init()
     ) -> CaptureQualityReport {
@@ -3289,11 +3657,15 @@ public actor CaptureWorkingSetStore {
                 depthEvidenceCount: depthEvidenceCount,
                 usableMeshAnchorCount: usableMeshAnchorCount,
                 usableDepthSampleCount: usableDepthSampleCount,
+                coordinateDiscontinuityCount:
+                    coordinateTransitions.count,
+                depthSufficiency: depthSufficiencyAccumulator.summary,
                 annotationKeysPresent: annotationKeysPresent,
                 measurementQuantityTypesPresent:
                     measurementQuantityTypesPresent,
                 resourceEvents: resourceEvents,
                 integrityStatus: integrityStatus,
+                benchmarkRefs: benchmarkRefs,
                 advisoryFindings: advisoryNotes.map(
                     \.qualityDiagnostic
                 )
@@ -3408,6 +3780,17 @@ public actor CaptureWorkingSetStore {
             sealedQualityReport =
                 try await persistQualityReportPayload(report)
 
+            // Advisory provenance payload (#223): derived, bounded, and
+            // rolled back with the quality report if the seal lifts.
+            // Recorded AFTER the canonical quality write so its
+            // path:quality/capture-quality.json source ref resolves.
+            if let advisory = evaluateAdvisoryDiagnostics() {
+                sealedAdvisoryReport =
+                    try await persistAdvisoryDiagnosticsPayload(
+                        advisory
+                    )
+            }
+
             // The report write released the actor; drain any mutation
             // that completed during that suspension, then re-verify the
             // durable bytes — now including the canonical quality
@@ -3432,6 +3815,22 @@ public actor CaptureWorkingSetStore {
             // seal was suspended, leave the committed bytes untouched —
             // they are no longer owned by this attempt.
             if sealState == .sealed, sealGeneration == generation {
+                if let sealedAdvisory = sealedAdvisoryReport {
+                    if declarations[sealedAdvisory.declaration.path]
+                        == sealedAdvisory.declaration
+                    {
+                        declarations.removeValue(
+                            forKey: sealedAdvisory.declaration.path
+                        )
+                    }
+                    try? await writer.removeIfIdentical(
+                        sealedAdvisory.data,
+                        at: CaptureStorePath(
+                            sealedAdvisory.declaration.path
+                        )
+                    )
+                }
+                sealedAdvisoryReport = nil
                 if let sealedReport = sealedQualityReport {
                     if declarations[sealedReport.declaration.path]
                         == sealedReport.declaration
@@ -3471,6 +3870,27 @@ public actor CaptureWorkingSetStore {
             throw CaptureWorkingSetError.workingSetNotSealed
         }
 
+        if let sealedAdvisory = sealedAdvisoryReport {
+            let removedOrAbsent =
+                try await writer.removeIfIdentical(
+                    sealedAdvisory.data,
+                    at: CaptureStorePath(
+                        sealedAdvisory.declaration.path
+                    )
+                )
+            guard removedOrAbsent else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+            if declarations[sealedAdvisory.declaration.path]
+                == sealedAdvisory.declaration
+            {
+                declarations.removeValue(
+                    forKey: sealedAdvisory.declaration.path
+                )
+            }
+            sealedAdvisoryReport = nil
+        }
         if let sealedReport = sealedQualityReport {
             let removedOrAbsent =
                 try await writer.removeIfIdentical(
@@ -3506,6 +3926,7 @@ public actor CaptureWorkingSetStore {
             sealState = .consumed
             sealGeneration += 1
             sealedQualityReport = nil
+            sealedAdvisoryReport = nil
         case .consumed:
             throw CaptureWorkingSetError.workingSetConsumed
         case .mutable:
@@ -3932,6 +4353,17 @@ public actor CaptureWorkingSetStore {
                 }
             }
         }
+
+        // Supplemental documents commit by byte ledger: the sealed set
+        // must hold exactly the bytes that were committed.
+        for (path, data) in supplementalDocuments {
+            try verifyFile(
+                path: path,
+                byteCount: data.count,
+                sha256: EvidenceIntegrity.sha256(of: data),
+                actualByPath: actualByPath
+            )
+        }
     }
 
     private func verifyTypedJSON<T>(
@@ -4005,10 +4437,14 @@ public actor CaptureWorkingSetStore {
             if let provenance,
                provenance != measurement.provenanceClass
             {
-                throw CaptureWorkingSetError
-                    .mixedProvenanceCollection(
-                        MeasurementEvidencePackage.path
-                    )
+                // Issue #286: user-attested and derived measurements
+                // coexist in one collection for conflict review. A
+                // heterogeneous collection declares capture_app_derived
+                // container authority — the same conservative class an
+                // empty collection uses — so the manifest never
+                // overclaims and each record's provenance_class remains
+                // the authoritative statement.
+                return .captureAppDerived
             }
             provenance = measurement.provenanceClass
         }
@@ -4021,7 +4457,7 @@ public actor CaptureWorkingSetStore {
             return .arkitMeshReconstruction
         case .importedReference:
             return .importedReference
-        case nil:
+        case .captureAppDerived, nil:
             return .captureAppDerived
         }
     }
