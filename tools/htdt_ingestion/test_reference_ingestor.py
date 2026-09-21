@@ -31,19 +31,19 @@ FIXTURE = REPO_ROOT / "samples" / "phase6-integration"
 MINIMAL_FIXTURE = REPO_ROOT / "samples" / "minimal-capture"
 
 EXPECTED_BUNDLE_DIGEST = (
-    "3823f3a70e4272db64bd02252d61cc1f15729550f41e927f5eb4e8afa2b5583b"
+    "b002e4ad615abbf4a7e0c10d9172405a0603500a477da8616203992f48dae460"
 )
 EXPECTED_LINEAGE_DIGEST = (
-    "bb8da496704d33a93d82683ce3ca47ac0cf5760f99a1b20d86a1812b39e6a43e"
+    "c8f427015367cc1b278020f2972a2e8ed253d4a36163049c0884b6b90373c42d"
 )
 EXPECTED_RAW_VISUAL_MESH_HANDOFF_ID = (
-    "0f779b6dbcd872f4c22bf2e975778831f299f020d74306f99da9b3c124065feb"
+    "3db2505905efe16220fdd4b4d42f3dbd9a433d68819601e3876477480f58f5c8"
 )
 EXPECTED_ANNOTATION_HANDOFF_ID = (
-    "ff2d190abf30109811df4b62771655b751910e95534fbfce0d735dbd4fa7f4b9"
+    "ef6502fa778e71d3baaa1cb399a17999be34217a46ac2ba9145d5769a78d3adf"
 )
 EXPECTED_MEASUREMENT_HANDOFF_ID = (
-    "26a130ae8dc8935a5072f04517d179af576429aa9352e6c4aa9b7c4f7ba2bf51"
+    "c7518f46c636cf4fe72a7e16107516669d413f8b8f20753aedddc847d2b6a33b"
 )
 ANCHOR_ID = "10000000-0000-4000-8000-000000000005"
 COORDINATE_SPACE_ID = "10000000-0000-4000-8000-000000000004"
@@ -91,12 +91,116 @@ def _drop_payload(copy_root: Path, rel_path: str) -> None:
     manifest_path.write_bytes(canonical_json_bytes(manifest))
 
 
+def _add_payload(
+    copy_root: Path,
+    rel_path: str,
+    payload: bytes,
+    *,
+    media_type: str = "application/json",
+    producer: str = "frame_capture",
+    provenance_class: str = "arkit_frame_observation",
+    role: str = "canonical",
+    source_refs: list[str] | None = None,
+) -> None:
+    """Write a new bundle payload and declare it in the manifest."""
+    target = copy_root / rel_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(payload)
+
+    entry = {
+        "bytes": len(payload),
+        "media_type": media_type,
+        "path": rel_path,
+        "producer": producer,
+        "provenance_class": provenance_class,
+        "role": role,
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+    if source_refs is not None:
+        entry["source_refs"] = source_refs
+
+    manifest_path = copy_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["files"] = [
+        existing
+        for existing in manifest["files"]
+        if existing["path"] != rel_path
+    ]
+    manifest["files"].append(entry)
+    manifest["files"].sort(key=lambda item: item["path"].encode("utf-8"))
+    manifest_path.write_bytes(canonical_json_bytes(manifest))
+
+
+def _frame_descriptor(
+    pixel_path: str,
+    pixel_payload: bytes,
+    *,
+    frame_id: str = "10000000-0000-4000-8000-000000000010",
+    capture_session_id: str = SESSION_ID,
+    coordinate_space_id: str = COORDINATE_SPACE_ID,
+    depth_status: str = "not_requested",
+    depth=None,
+) -> dict:
+    return {
+        "frame_id": frame_id,
+        "capture_session_id": capture_session_id,
+        "coordinate_space_id": coordinate_space_id,
+        "session_timestamp_s": 1.25,
+        "T_world_from_camera": {
+            "representation": "column_major_4x4_f32",
+            "values": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+        },
+        "intrinsics": {
+            "representation": "column_major_3x3_f32",
+            "values": [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        },
+        "image_width": 1920,
+        "image_height": 1440,
+        "pixel_format_fourcc": 875704438,
+        "pixel_relative_path": pixel_path,
+        "pixel_byte_count": len(pixel_payload),
+        "pixel_sha256": hashlib.sha256(pixel_payload).hexdigest(),
+        "exif_allowlisted": {},
+        "depth_status": depth_status,
+        "depth": depth,
+    }
+
+
+def _stage_frame(copy_root: Path, **overrides) -> None:
+    """Add a consistent pixelbin + frame descriptor pair to a bundle."""
+    frame_id = overrides.get("frame_id", "10000000-0000-4000-8000-000000000010")
+    pixel_path = overrides.pop(
+        "pixel_path", f"evidence/frames/{frame_id}.pixelbin"
+    )
+    pixel_payload = overrides.pop("pixel_payload", b"\x10" * 32)
+    descriptor_path = f"evidence/frames/{frame_id}.json"
+    descriptor = _frame_descriptor(pixel_path, pixel_payload, **overrides)
+
+    _add_payload(
+        copy_root,
+        pixel_path,
+        pixel_payload,
+        media_type="application/vnd.htdt.pixelbin",
+    )
+    _add_payload(
+        copy_root,
+        descriptor_path,
+        json.dumps(
+            descriptor,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8"),
+        source_refs=[f"path:{pixel_path}"],
+    )
+
+
 class ReferenceIngestorTests(unittest.TestCase):
     def test_frozen_fixture_validates_with_expected_bundle_digest(self):
         report = validate_bundle(FIXTURE)
         self.assertTrue(report["valid"])
         self.assertEqual(report["bundle_digest"], EXPECTED_BUNDLE_DIGEST)
-        self.assertEqual(report["payload_count"], 7)
+        self.assertEqual(report["payload_count"], 10)
 
     def test_reingestion_is_deterministic_for_pinned_version(self):
         first = build_ingestion_plan(FIXTURE)
@@ -317,6 +421,166 @@ class ReferenceIngestorTests(unittest.TestCase):
 
             with self.assertRaises(ValidationError):
                 build_ingestion_plan(copy_root)
+
+    def test_session_document_identity_mismatch_fails_ingestion(self):
+        for field, value in (
+            ("capture_session_id", "20000000-0000-4000-8000-0000000000aa"),
+            ("coordinate_space_id", "20000000-0000-4000-8000-0000000000bb"),
+        ):
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as td:
+                    copy_root = Path(td) / "bundle"
+                    shutil.copytree(FIXTURE, copy_root)
+
+                    def mutate(document, field=field, value=value):
+                        document[field] = value
+
+                    _rewrite_payload(
+                        copy_root,
+                        "session/capture-session.json",
+                        mutate,
+                    )
+                    validate_bundle(copy_root)
+                    with self.assertRaises(IngestionError):
+                        build_ingestion_plan(copy_root)
+
+    def test_session_document_dangling_timing_ref_fails_ingestion(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+            _drop_payload(copy_root, "session/timing.json")
+
+            manifest_path = copy_root / "manifest.json"
+            manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            session_entry = next(
+                entry
+                for entry in manifest["files"]
+                if entry["path"] == "session/capture-session.json"
+            )
+            session_entry["source_refs"] = [
+                "path:session/capture-configuration.json"
+            ]
+            manifest_path.write_bytes(canonical_json_bytes(manifest))
+
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError) as ctx:
+                build_ingestion_plan(copy_root)
+            self.assertIn("timing_ref", str(ctx.exception))
+
+    def test_session_document_wrong_configuration_ref_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            def mutate(document):
+                document["configuration_ref"] = "session/other.json"
+
+            _rewrite_payload(
+                copy_root, "session/capture-session.json", mutate
+            )
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError) as ctx:
+                build_ingestion_plan(copy_root)
+            self.assertIn("configuration_ref", str(ctx.exception))
+
+    def test_frame_descriptor_with_valid_pixel_link_ingests(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+            _stage_frame(copy_root)
+
+            validate_bundle(copy_root)
+            plan = build_ingestion_plan(copy_root)
+            self.assertIn(
+                "evidence/frames/10000000-0000-4000-8000-000000000010.json",
+                {record["path"] for record in plan["source_evidence"]},
+            )
+
+    def test_frame_with_undeclared_session_or_coordinate_fails(self):
+        for field in ("capture_session_id", "coordinate_space_id"):
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as td:
+                    copy_root = Path(td) / "bundle"
+                    shutil.copytree(FIXTURE, copy_root)
+                    _stage_frame(
+                        copy_root,
+                        **{field: "20000000-0000-4000-8000-0000000000cc"},
+                    )
+
+                    validate_bundle(copy_root)
+                    with self.assertRaises(IngestionError) as ctx:
+                        build_ingestion_plan(copy_root)
+                    self.assertIn(field, str(ctx.exception))
+
+    def test_frame_pixel_reference_must_resolve_to_declared_payload(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+            pixel_payload = b"\x10" * 32
+            descriptor = _frame_descriptor(
+                "evidence/frames/missing.pixelbin", pixel_payload
+            )
+            _add_payload(
+                copy_root,
+                "evidence/frames/10000000-0000-4000-8000-000000000010.json",
+                json.dumps(
+                    descriptor, ensure_ascii=False, sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8"),
+                source_refs=["path:evidence/frames/missing.pixelbin"],
+            )
+
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError) as ctx:
+                build_ingestion_plan(copy_root)
+            self.assertIn("undeclared", str(ctx.exception))
+
+    def test_frame_pixel_hash_mismatch_fails_ingestion(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+            pixel_payload = b"\x10" * 32
+            descriptor = _frame_descriptor(
+                "evidence/frames/10000000-0000-4000-8000-000000000010.pixelbin",
+                pixel_payload,
+            )
+            descriptor["pixel_sha256"] = hashlib.sha256(
+                b"different"
+            ).hexdigest()
+
+            _add_payload(
+                copy_root,
+                descriptor["pixel_relative_path"],
+                pixel_payload,
+                media_type="application/vnd.htdt.pixelbin",
+            )
+            _add_payload(
+                copy_root,
+                "evidence/frames/10000000-0000-4000-8000-000000000010.json",
+                json.dumps(
+                    descriptor, ensure_ascii=False, sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8"),
+                source_refs=[f"path:{descriptor['pixel_relative_path']}"],
+            )
+
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError) as ctx:
+                build_ingestion_plan(copy_root)
+            self.assertIn("inconsistent", str(ctx.exception))
+
+    def test_frame_depth_status_contradicts_missing_depth_reference(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+            _stage_frame(copy_root, depth_status="captured_scene_depth")
+
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError) as ctx:
+                build_ingestion_plan(copy_root)
+            self.assertIn("depth_status", str(ctx.exception))
 
     def test_reference_ingestor_rejects_unknown_source_ref_prefix(self):
         with tempfile.TemporaryDirectory() as td:

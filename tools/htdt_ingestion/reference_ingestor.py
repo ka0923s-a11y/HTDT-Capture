@@ -573,6 +573,344 @@ def _enforce_quality_gate(
         )
 
 
+def _validate_session_document(
+    document: dict,
+    manifest: dict,
+    declared: dict[str, dict],
+) -> None:
+    """Bind ``session/capture-session.json`` to the manifest identity set."""
+    _require_schema(document, SESSION_SCHEMA)
+    field = SESSION_PATH
+    _require_document_keys(
+        document,
+        required={
+            "schema",
+            "schema_version",
+            "capture_session_id",
+            "coordinate_space_id",
+        },
+        optional={
+            "capture_mode",
+            "started_at",
+            "ended_at",
+            "configuration_ref",
+            "timing_ref",
+        },
+        field=field,
+    )
+
+    session_ids = set(manifest["capture_session_ids"])
+    coordinate_ids = set(manifest["coordinate_space_ids"])
+
+    capture_session_id = document["capture_session_id"]
+    validate_uuid4(capture_session_id, f"{field}.capture_session_id")
+    _require_member(
+        capture_session_id,
+        session_ids,
+        f"{field}.capture_session_id",
+    )
+    coordinate_space_id = document["coordinate_space_id"]
+    validate_uuid4(coordinate_space_id, f"{field}.coordinate_space_id")
+    _require_member(
+        coordinate_space_id,
+        coordinate_ids,
+        f"{field}.coordinate_space_id",
+    )
+
+    capture_mode = document.get("capture_mode")
+    if capture_mode is not None and capture_mode not in {
+        "roomplan_mesh",
+        "evidence_depth",
+        "degraded_no_depth",
+    }:
+        raise IngestionError(f"{field}.capture_mode is invalid")
+
+    for key in ("started_at", "ended_at"):
+        value = document.get(key)
+        if value is not None and not isinstance(value, str):
+            raise IngestionError(f"{field}.{key} must be a string or null")
+
+    # Configuration/timing references must resolve to the canonical
+    # session payloads declared in this bundle.
+    for key, canonical in (
+        ("configuration_ref", SESSION_CONFIGURATION_PATH),
+        ("timing_ref", SESSION_TIMING_PATH),
+    ):
+        reference = document.get(key)
+        if reference is None:
+            continue
+        if not isinstance(reference, str) or reference != canonical:
+            raise IngestionError(
+                f"{field}.{key} must be {canonical!r}, got {reference!r}"
+            )
+        if canonical not in declared:
+            raise IngestionError(
+                f"{field}.{key} resolves to undeclared payload: "
+                f"{canonical}"
+            )
+
+
+def _validate_frame_descriptor(
+    document: dict,
+    path: str,
+    manifest: dict,
+    declared: dict[str, dict],
+) -> str:
+    """Validate one ``evidence/frames/*.json`` descriptor and its links.
+
+    Returns the validated ``frame_id`` for the identity registry.
+    """
+    _require_document_keys(
+        document,
+        required={
+            "frame_id",
+            "capture_session_id",
+            "coordinate_space_id",
+            "session_timestamp_s",
+            "T_world_from_camera",
+            "intrinsics",
+            "image_width",
+            "image_height",
+            "pixel_format_fourcc",
+            "pixel_relative_path",
+            "pixel_byte_count",
+            "pixel_sha256",
+            "exif_allowlisted",
+            "depth_status",
+        },
+        optional={"depth"},
+        field=path,
+    )
+
+    frame_id = document["frame_id"]
+    validate_uuid4(frame_id, f"{path}.frame_id")
+
+    session_ids = set(manifest["capture_session_ids"])
+    coordinate_ids = set(manifest["coordinate_space_ids"])
+    validate_uuid4(
+        document["capture_session_id"], f"{path}.capture_session_id"
+    )
+    _require_member(
+        document["capture_session_id"],
+        session_ids,
+        f"{path}.capture_session_id",
+    )
+    validate_uuid4(
+        document["coordinate_space_id"], f"{path}.coordinate_space_id"
+    )
+    _require_member(
+        document["coordinate_space_id"],
+        coordinate_ids,
+        f"{path}.coordinate_space_id",
+    )
+
+    _require_finite_number(
+        document["session_timestamp_s"],
+        f"{path}.session_timestamp_s",
+        minimum=0,
+    )
+    _validate_matrix(
+        document["T_world_from_camera"],
+        f"{path}.T_world_from_camera",
+        "column_major_4x4_f32",
+        16,
+    )
+    _validate_matrix(
+        document["intrinsics"],
+        f"{path}.intrinsics",
+        "column_major_3x3_f32",
+        9,
+    )
+    for key in ("image_width", "image_height"):
+        value = document[key]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise IngestionError(f"{path}.{key} must be a positive integer")
+    pixel_format = document["pixel_format_fourcc"]
+    if (
+        not isinstance(pixel_format, int)
+        or isinstance(pixel_format, bool)
+        or not 0 <= pixel_format <= 0xFFFFFFFF
+    ):
+        raise IngestionError(f"{path}.pixel_format_fourcc is invalid")
+
+    def _resolve_declared_payload(
+        relative_path, byte_count, sha256, ref_field
+    ) -> None:
+        if not isinstance(relative_path, str) or not relative_path:
+            raise IngestionError(
+                f"{path}.{ref_field} must be a non-empty string"
+            )
+        if (
+            not isinstance(byte_count, int)
+            or isinstance(byte_count, bool)
+            or byte_count < 1
+        ):
+            raise IngestionError(
+                f"{path}.{ref_field} byte count must be positive"
+            )
+        target = declared.get(relative_path)
+        if target is None:
+            raise IngestionError(
+                f"{path}.{ref_field} resolves to undeclared payload: "
+                f"{relative_path!r}"
+            )
+        if target["sha256"] != sha256 or target["bytes"] != byte_count:
+            raise IngestionError(
+                f"{path}.{ref_field} is inconsistent with the declared "
+                f"payload at {relative_path!r}"
+            )
+
+    _resolve_declared_payload(
+        document["pixel_relative_path"],
+        document["pixel_byte_count"],
+        _require_sha256_text(
+            document["pixel_sha256"], f"{path}.pixel_sha256"
+        ),
+        "pixel_relative_path",
+    )
+
+    exif = document["exif_allowlisted"]
+    if not isinstance(exif, dict) or not all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in exif.items()
+    ):
+        raise IngestionError(
+            f"{path}.exif_allowlisted must map strings to strings"
+        )
+
+    depth_status = document["depth_status"]
+    if depth_status not in {
+        "not_requested",
+        "unavailable",
+        "captured_scene_depth",
+        "captured_smoothed_scene_depth",
+    }:
+        raise IngestionError(f"{path}.depth_status is invalid")
+
+    depth = document.get("depth")
+    if depth is not None:
+        depth_field = f"{path}.depth"
+        if not isinstance(depth, dict):
+            raise IngestionError(f"{depth_field} must be an object")
+        _require_document_keys(
+            depth,
+            required={
+                "kind",
+                "depth_relative_path",
+                "depth_byte_count",
+                "depth_sha256",
+            },
+            optional={
+                "confidence_relative_path",
+                "confidence_byte_count",
+                "confidence_sha256",
+            },
+            field=depth_field,
+        )
+        if depth["kind"] not in {"scene_depth", "smoothed_scene_depth"}:
+            raise IngestionError(f"{depth_field}.kind is invalid")
+        _resolve_declared_payload(
+            depth["depth_relative_path"],
+            depth["depth_byte_count"],
+            _require_sha256_text(
+                depth["depth_sha256"], f"{depth_field}.depth_sha256"
+            ),
+            "depth.depth_relative_path",
+        )
+        confidence_values = (
+            depth.get("confidence_relative_path"),
+            depth.get("confidence_byte_count"),
+            depth.get("confidence_sha256"),
+        )
+        if any(value is not None for value in confidence_values):
+            if not all(value is not None for value in confidence_values):
+                raise IngestionError(
+                    f"{depth_field} confidence reference is incomplete"
+                )
+            _resolve_declared_payload(
+                depth["confidence_relative_path"],
+                depth["confidence_byte_count"],
+                _require_sha256_text(
+                    depth["confidence_sha256"],
+                    f"{depth_field}.confidence_sha256",
+                ),
+                "depth.confidence_relative_path",
+            )
+
+    # The discrete depth status flag and the depth reference are one
+    # authority; disagreeing halves are an identity contradiction.
+    expected_kind = {
+        "captured_scene_depth": "scene_depth",
+        "captured_smoothed_scene_depth": "smoothed_scene_depth",
+    }.get(depth_status)
+    if expected_kind is None:
+        if depth is not None:
+            raise IngestionError(
+                f"{path}.depth_status {depth_status!r} contradicts the "
+                "present depth reference"
+            )
+    elif depth is None or depth["kind"] != expected_kind:
+        raise IngestionError(
+            f"{path}.depth_status {depth_status!r} requires a "
+            f"{expected_kind!r} depth reference"
+        )
+
+    return frame_id
+
+
+def _validate_identity_membership(
+    reader: ValidatedBundleReader,
+    manifest: dict,
+) -> dict[str, dict]:
+    """Cross-payload identity pass before any source promotion (#153).
+
+    Validates the canonical session authority and every frame descriptor
+    against the manifest's ``capture_session_ids``/``coordinate_space_ids``
+    registry, and resolves each frame's pixel/depth/confidence payload
+    references to declared, hash-consistent bundle files.
+
+    Returns the frame registry ``{frame_id: {"path", "coordinate_space_id"}}``
+    for later evidence-reference resolution.
+    """
+    declared = {entry["path"]: entry for entry in manifest["files"]}
+
+    session_entry = declared.get(SESSION_PATH)
+    if session_entry is not None:
+        if session_entry["media_type"] != JSON_MEDIA_TYPE:
+            raise IngestionError(
+                f"{SESSION_PATH} must declare media_type "
+                f"{JSON_MEDIA_TYPE!r}"
+            )
+        document = parse_json_bytes(reader.read(SESSION_PATH))
+        _validate_session_document(document, manifest, declared)
+
+    frame_registry: dict[str, dict] = {}
+    for path, entry in declared.items():
+        if not (
+            path.startswith(FRAME_DESCRIPTOR_PREFIX)
+            and path.endswith(FRAME_DESCRIPTOR_SUFFIX)
+            and path != FRAME_DESCRIPTOR_PREFIX + FRAME_DESCRIPTOR_SUFFIX
+        ):
+            continue
+        if entry["media_type"] != JSON_MEDIA_TYPE:
+            raise IngestionError(
+                f"{path} must declare media_type {JSON_MEDIA_TYPE!r}"
+            )
+        document = parse_json_bytes(reader.read(path))
+        if not isinstance(document, dict):
+            raise IngestionError(f"{path} must be a JSON object")
+        frame_id = _validate_frame_descriptor(
+            document, path, manifest, declared
+        )
+        if frame_id in frame_registry:
+            raise IngestionError(f"duplicate frame identity: {frame_id}")
+        frame_registry[frame_id] = {
+            "path": path,
+            "coordinate_space_id": document["coordinate_space_id"],
+        }
+    return frame_registry
+
+
 def _build_source_registry(
     manifest: dict,
     bundle_digest: str,
@@ -933,6 +1271,10 @@ def build_ingestion_plan(bundle_path: Path) -> dict:
         # The finalized-capture quality gate runs before any source
         # evidence or downstream handoff is produced (#146).
         _enforce_quality_gate(reader, manifest)
+
+        # Cross-payload identity pass: session and frame identities must be
+        # members of the manifest registry before promotion (#153).
+        frame_registry = _validate_identity_membership(reader, manifest)
 
         source_records, source_by_path = _build_source_registry(
             manifest,
