@@ -743,6 +743,85 @@ final class DerivedShapeProxyTests: XCTestCase {
         }
     }
 
+    func testRadialBoundaryReductionPreservesObservedNotch() {
+        // U-shaped footprint: from the centroid, several rays intersect
+        // the observed boundary twice (inner notch edge and outer edge).
+        // Radial boundary reduction must retain both intersections
+        // instead of deleting the inner concave boundary.
+        let uShape = [
+            DerivedPoint2D(x: -1.2, y: -1.2),
+            DerivedPoint2D(x: 1.2, y: -1.2),
+            DerivedPoint2D(x: 1.2, y: 1.2),
+            DerivedPoint2D(x: 0.6, y: 1.2),
+            DerivedPoint2D(x: 0.6, y: -0.6),
+            DerivedPoint2D(x: -0.6, y: -0.6),
+            DerivedPoint2D(x: -0.6, y: 1.2),
+            DerivedPoint2D(x: -1.2, y: 1.2),
+        ]
+        let input = observation(
+            samplePolygon(uShape, samplesPerEdge: 12)
+        )
+
+        let boundary =
+            DerivedShapeProxyFitter.boundaryObservation(
+                from: input
+            )
+
+        // Inner notch-bottom edge samples (y == -0.6) survive the
+        // reduction, and multi-intersection sectors push the retained
+        // count past the single-farthest-per-bin limit of 48.
+        XCTAssertTrue(
+            boundary.points.contains {
+                abs($0.position.y + 0.6) < 0.01
+                    && abs($0.position.x) <= 0.6
+            }
+        )
+        XCTAssertGreaterThan(boundary.points.count, 48)
+        XCTAssertLessThanOrEqual(boundary.points.count, 96)
+        XCTAssertTrue(
+            boundary.points.allSatisfy {
+                $0.evidenceRef.hasPrefix("synthetic:")
+            }
+        )
+    }
+
+    func testLShapedDepthFootprintResolvesConcaveThroughBoundary() {
+        let lShape = [
+            DerivedPoint2D(x: 0, y: 0),
+            DerivedPoint2D(x: 2, y: 0),
+            DerivedPoint2D(x: 2, y: 0.8),
+            DerivedPoint2D(x: 0.8, y: 0.8),
+            DerivedPoint2D(x: 0.8, y: 2),
+            DerivedPoint2D(x: 0, y: 2),
+        ]
+        let boundary =
+            DerivedShapeProxyFitter.boundaryObservation(
+                from: observation(
+                    samplePolygon(lShape, samplesPerEdge: 12)
+                )
+            )
+
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: boundary
+        )
+
+        XCTAssertEqual(proxy.resolution, .resolved)
+        XCTAssertEqual(proxy.selected?.kind, .polygon)
+        guard case let .polygon(polygon)? =
+            proxy.selected?.geometry
+        else {
+            return XCTFail("Expected polygon geometry")
+        }
+        XCTAssertTrue(polygon.isConcave)
+        XCTAssertEqual(
+            polygon.concavityResolution,
+            .resolvedConcave
+        )
+        XCTAssertTrue(
+            ringIsSimple(polygon.vertices.map(\.position))
+        )
+    }
+
     func testAdversarialPointSetNeverEmitsSelfIntersectingPolygon() {
         // Review reproducer: greedy nearest-edge insertion used to
         // produce a ring with intersecting non-adjacent edges for this
