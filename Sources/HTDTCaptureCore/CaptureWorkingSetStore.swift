@@ -3445,10 +3445,14 @@ public actor CaptureWorkingSetStore {
             if let provenance,
                provenance != measurement.provenanceClass
             {
-                throw CaptureWorkingSetError
-                    .mixedProvenanceCollection(
-                        MeasurementEvidencePackage.path
-                    )
+                // Issue #286: user-attested and derived measurements
+                // coexist in one collection for conflict review. A
+                // heterogeneous collection declares capture_app_derived
+                // container authority — the same conservative class an
+                // empty collection uses — so the manifest never
+                // overclaims and each record's provenance_class remains
+                // the authoritative statement.
+                return .captureAppDerived
             }
             provenance = measurement.provenanceClass
         }
@@ -3461,7 +3465,7 @@ public actor CaptureWorkingSetStore {
             return .arkitMeshReconstruction
         case .importedReference:
             return .importedReference
-        case nil:
+        case .captureAppDerived, nil:
             return .captureAppDerived
         }
     }

@@ -526,7 +526,8 @@
             "acoustic_treatment",
             "equipment_rack",
             "reference_point",
-            "custom"
+            "custom",
+            "measurement_point"
           ]
         },
         "coordinate_space_id": {

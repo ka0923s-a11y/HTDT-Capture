@@ -110,6 +110,8 @@ private struct HTDTCaptureHostView: View {
                     coordinator.captureRaycastPlacement,
                 captureSpeakerOrientation:
                     coordinator.captureSpeakerOrientation,
+                capturePointOrientation:
+                    coordinator.capturePointOrientation,
                 commitAnnotationAuthority:
                     coordinator.commitAnnotationAuthority,
                 cancelAnnotation: coordinator.cancelAnnotation,
@@ -2108,6 +2110,74 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         workingSetStatus = HostLocalization.text(
             "Evidence-linked speaker heading captured",
             "証拠フレームに紐付いたスピーカー向きを取得しました"
+        )
+
+        return authority
+    }
+
+    /// Full-3D orientation capture for measurement-point (microphone
+    /// capsule) direction authority (issue #271). Unlike the speaker
+    /// path this keeps the camera's whole orientation — pitch and roll
+    /// included — because a microphone axis is not a horizontal
+    /// heading.
+    func capturePointOrientation()
+        async throws -> AnnotationOrientationAuthority
+    {
+        guard state == .annotating,
+              let store = workingSetStore
+        else {
+            throw PlatformCaptureError.orientationUnavailable
+        }
+
+        let generation = captureGeneration
+        let snapshot =
+            try sessionController.snapshotCameraOrientation(
+                depthSelection: .discrete
+            )
+        let frameArtifacts =
+            try await ARFrameArtifactAdapter.materialize(
+                snapshot.frameArtifacts
+            )
+        let package = try FrameEvidencePackageBuilder.build(
+            descriptor: frameArtifacts.descriptor,
+            pixelPayload: frameArtifacts.pixelPayload,
+            depthPayload: frameArtifacts.depthPayload,
+            confidencePayload:
+                frameArtifacts.confidencePayload,
+            previewPayload:
+                frameArtifacts.previewPayload
+        )
+        try await store.persistFramePackage(package)
+
+        guard captureGeneration == generation,
+              state == .annotating
+        else {
+            throw PlatformCaptureError.orientationUnavailable
+        }
+
+        let evidenceRef = "path:" + package.descriptorPath
+        let orientation = try OrientationAxes(
+            frontAxisLocal: snapshot.frontAxisWorld,
+            upAxisLocal: snapshot.upAxisWorld
+        )
+        let authority = try AnnotationOrientationAuthority(
+            orientation: orientation,
+            coordinateSpaceID:
+                package.descriptor.coordinateSpaceID,
+            evidenceRefs: [evidenceRef]
+        )
+
+        let workingSnapshot = await store.snapshot()
+        guard captureGeneration == generation,
+              state == .annotating
+        else {
+            throw PlatformCaptureError.orientationUnavailable
+        }
+        annotationEvidenceRefs =
+            workingSnapshot.evidenceFrameRefs
+        workingSetStatus = HostLocalization.text(
+            "Evidence-linked point direction captured",
+            "証拠フレームに紐付いた計測点の向きを取得しました"
         )
 
         return authority
