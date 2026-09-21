@@ -497,4 +497,12 @@ public actor AtomicCaptureFileWriter {
         try fileManager.removeItem(at: target)
     }
 
+    /// Actor fence used by the working-set finalization seal to drain
+    /// previously enqueued write/remove work. Awaiting this function
+    /// returns only after every request submitted to this actor before
+    /// it has completed, giving the sealing caller a deterministic
+    /// quiescence point without touching the filesystem itself
+    /// (issue #180).
+    public func barrier() async {}
+
 }

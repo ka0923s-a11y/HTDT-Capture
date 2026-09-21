@@ -57,4 +57,24 @@ public enum CaptureWorkingSetFinalizationRequestBuilder {
             qualityReport: qualityReport
         )
     }
+
+    /// Builds a promotion request directly from a sealed working set
+    /// (issue #180). The sealed snapshot and quality report are the
+    /// exact state `sealForFinalization` verified after draining
+    /// in-flight writes, so the request can never describe a different
+    /// working set than the one the seal froze.
+    public static func build(
+        sealed: SealedWorkingSet,
+        app: BundleAppIdentity,
+        finalizedAtUTC: String = BundleTimestamp.utcString(
+            from: Date()
+        )
+    ) throws -> BundleFinalizationRequest {
+        try build(
+            snapshot: sealed.snapshot,
+            qualityReport: sealed.qualityReport,
+            app: app,
+            finalizedAtUTC: finalizedAtUTC
+        )
+    }
 }

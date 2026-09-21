@@ -21,6 +21,9 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     case invalidCoordinateTransition
     case coordinateTransitionLimitExceeded
     case unsafeDiscardPath
+    case workingSetSealed
+    case workingSetNotSealed
+    case workingSetConsumed
 }
 
 public struct CaptureWorkingSetIdentity: Sendable, Equatable {
@@ -101,6 +104,33 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         self.usableDepthSampleCount = usableDepthSampleCount
         self.usableDepthEvidenceCount = usableDepthEvidenceCount
         self.evidenceFrameRefs = evidenceFrameRefs
+    }
+}
+
+/// Immutable result of a successful `sealForFinalization` (issue #180).
+/// The snapshot is the exact sealed state — every declaration it lists
+/// was verified durable on disk after all in-flight mutations drained —
+/// and `qualityReport` is the report evaluated from, and persisted
+/// against, that same state. `sealToken` correlates this seal
+/// acquisition for hosts that coordinate promotion; the store itself
+/// enforces the barrier through `sealForFinalization`/`unseal`/
+/// `consumeSealedWorkingSet`, not through the token.
+public struct SealedWorkingSet: Sendable, Equatable {
+    public let sealToken: UUID
+    public let snapshot: CaptureWorkingSetSnapshot
+    public let qualityReport: CaptureQualityReport
+    public let sealedAtUTC: String
+
+    public init(
+        sealToken: UUID,
+        snapshot: CaptureWorkingSetSnapshot,
+        qualityReport: CaptureQualityReport,
+        sealedAtUTC: String
+    ) {
+        self.sealToken = sealToken
+        self.snapshot = snapshot
+        self.qualityReport = qualityReport
+        self.sealedAtUTC = sealedAtUTC
     }
 }
 
@@ -353,6 +383,39 @@ public actor CaptureWorkingSetStore {
     private var usableMeshAnchorCount: Int?
     private var trackingIntervals: [TrackingInterval] = []
     private var resourceEvents: [CaptureResourceEvent] = []
+    private var sealState: SealState = .mutable
+    /// Bumped on every seal-state transition. A `sealForFinalization`
+    /// call captures it so an `unseal`/`consume` that slips into a
+    /// writer suspension deterministically aborts the in-flight seal
+    /// instead of letting it return a snapshot the store no longer
+    /// holds (issue #180).
+    private var sealGeneration = 0
+    /// Mutation entry points currently inside the actor (between their
+    /// entry guard and their return). The finalization seal drains this
+    /// counter to zero — through writer fences — before verifying and
+    /// snapshotting, so the sealed state deterministically contains
+    /// every write that was already owned (issue #180).
+    private var inFlightMutations = 0
+    /// Canonical quality payload bytes plus declaration persisted by the
+    /// active seal, retained so `unseal` can roll back exactly the bytes
+    /// the seal committed.
+    private var sealedQualityReport:
+        (data: Data, declaration: BundlePayloadDeclaration)?
+    /// Mutations rejected or dropped since the first seal: typed-error
+    /// rejections from throwing entry points and drops from the
+    /// non-throwing observation sinks. Exposed for diagnostics because
+    /// the non-throwing sinks cannot surface the typed error.
+    private var sealedMutationRejectionCount = 0
+
+    /// Working-set seal lifecycle for the finalization barrier
+    /// (issue #180): `.mutable` accepts mutations; `.sealed` rejects new
+    /// mutations while `sealForFinalization` drains and snapshots;
+    /// `.consumed` is the terminal state after successful promotion.
+    private enum SealState: Sendable {
+        case mutable
+        case sealed
+        case consumed
+    }
 
     public init(
         identity: CaptureWorkingSetIdentity = CaptureWorkingSetIdentity(),
@@ -368,6 +431,10 @@ public actor CaptureWorkingSetStore {
     public func persistSessionFoundation(
         _ package: CaptureSessionFoundationPackage
     ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { inFlightMutations -= 1 }
+
         guard
             package.session.configurationRef
                 == CaptureSessionFoundationPackage.configurationPath,
@@ -395,6 +462,10 @@ public actor CaptureWorkingSetStore {
     public func persistTimingPackage(
         _ package: CaptureTimingPackage
     ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { inFlightMutations -= 1 }
+
         guard sessionFoundation != nil else {
             throw CaptureWorkingSetError.timingFoundationMissing
         }
@@ -444,6 +515,10 @@ public actor CaptureWorkingSetStore {
         timingPackage: CaptureTimingPackage,
         roomPlanLineage: RoomPlanArtifactLineage
     ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { inFlightMutations -= 1 }
+
         guard sessionFoundation != nil else {
             throw CaptureWorkingSetError.timingFoundationMissing
         }
@@ -674,6 +749,10 @@ public actor CaptureWorkingSetStore {
     public func rollbackAcceptedEndTransaction(
         removeOwnedMesh: Bool
     ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { inFlightMutations -= 1 }
+
         guard sessionFoundation != nil,
               let expectedTiming = timingDocument,
               let expectedRaw = rawRoomPlanDescriptor,
@@ -1007,6 +1086,10 @@ public actor CaptureWorkingSetStore {
     public func persistRawRoomPlan(
         _ payload: RoomPlanRawArtifactPayload
     ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { inFlightMutations -= 1 }
+
         let descriptor = payload.descriptor
 
         guard
@@ -1096,6 +1179,10 @@ public actor CaptureWorkingSetStore {
     public func persistProcessedRoomPlan(
         _ payload: RoomPlanProcessedArtifactPayload
     ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { inFlightMutations -= 1 }
+
         let descriptor = payload.descriptor
 
         guard
@@ -1260,6 +1347,10 @@ public actor CaptureWorkingSetStore {
     public func persistMeshPackage(
         _ package: MeshEvidencePackage
     ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { inFlightMutations -= 1 }
+
         guard
             let decoded = try? JSONDecoder().decode(
                 MeshAnchorEvidenceIndex.self,
@@ -1408,6 +1499,10 @@ public actor CaptureWorkingSetStore {
     }
 
     public func rollbackCurrentMeshPackage() async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { inFlightMutations -= 1 }
+
         guard let expectedMesh = meshIndex else {
             throw CaptureWorkingSetError
                 .integrityVerificationFailed
@@ -1542,6 +1637,10 @@ public actor CaptureWorkingSetStore {
     public func persistFramePackage(
         _ package: FrameEvidencePackage
     ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { inFlightMutations -= 1 }
+
         try bindAuthority(
             captureSessionID: package.descriptor.captureSessionID,
             coordinateSpaceID: package.descriptor.coordinateSpaceID
@@ -1632,6 +1731,10 @@ public actor CaptureWorkingSetStore {
     public func discardUncommittedFramePackage(
         _ package: FrameEvidencePackage
     ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { inFlightMutations -= 1 }
+
         if let existing = frameDescriptors.first(where: {
             $0.frameID == package.descriptor.frameID
         }) {
@@ -1694,6 +1797,10 @@ public actor CaptureWorkingSetStore {
         annotationPackage: AnnotationEvidencePackage,
         measurementPackage: MeasurementEvidencePackage
     ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { inFlightMutations -= 1 }
+
         guard
             let decodedAnnotations = try? JSONDecoder().decode(
                 CaptureAnnotationCollection.self,
@@ -1858,6 +1965,10 @@ public actor CaptureWorkingSetStore {
     public func persistAnnotationPackage(
         _ package: AnnotationEvidencePackage
     ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { inFlightMutations -= 1 }
+
         guard
             let decoded = try? JSONDecoder().decode(
                 CaptureAnnotationCollection.self,
@@ -1904,6 +2015,10 @@ public actor CaptureWorkingSetStore {
     public func persistMeasurementPackage(
         _ package: MeasurementEvidencePackage
     ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { inFlightMutations -= 1 }
+
         guard
             let decoded = try? JSONDecoder().decode(
                 CaptureMeasurementCollection.self,
@@ -1959,6 +2074,14 @@ public actor CaptureWorkingSetStore {
     public func recordTrackingEvent(
         _ event: TrackingQualityEvent
     ) {
+        // Non-throwing observation sink: while the working set is sealed
+        // for finalization the event is dropped and counted rather than
+        // mutating sealed quality inputs (issue #180).
+        guard sealState == .mutable else {
+            sealedMutationRejectionCount += 1
+            return
+        }
+
         let timestamp = event.sessionTimestampSeconds
         var index = trackingIntervals.firstIndex {
             $0.firstSeconds > timestamp
@@ -2025,6 +2148,8 @@ public actor CaptureWorkingSetStore {
         reason: CoordinateDiscontinuityReason,
         sessionTimestampSeconds: Double? = nil
     ) throws {
+        try requireMutable()
+
         guard let bound = coordinateSpaceID else {
             throw CaptureWorkingSetError
                 .coordinateDiscontinuityRequiresBoundSpace
@@ -2060,6 +2185,14 @@ public actor CaptureWorkingSetStore {
     public func recordResourceEvent(
         _ event: CaptureResourceEvent
     ) {
+        // Non-throwing observation sink: while the working set is sealed
+        // for finalization the event is dropped and counted rather than
+        // mutating sealed quality inputs (issue #180).
+        guard sealState == .mutable else {
+            sealedMutationRejectionCount += 1
+            return
+        }
+
         resourceEvents.append(event)
     }
 
@@ -2111,6 +2244,27 @@ public actor CaptureWorkingSetStore {
     public func persistQualityReport(
         _ report: CaptureQualityReport
     ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { inFlightMutations -= 1 }
+
+        try await persistQualityReportPayload(report)
+    }
+
+    /// Shared canonical quality-payload write used by the public
+    /// mutation entry point and by `sealForFinalization` (which is
+    /// itself sealed and therefore cannot pass `requireMutable`). Both
+    /// paths enforce the same readiness/integrity guards, write the
+    /// canonical bytes durably, then register the declaration.
+    /// Returns the exact bytes and declaration committed so the seal can
+    /// roll back attempt-owned bytes on `unseal`.
+    @discardableResult
+    private func persistQualityReportPayload(
+        _ report: CaptureQualityReport
+    ) async throws -> (
+        data: Data,
+        declaration: BundlePayloadDeclaration
+    ) {
         guard report.readyForHTDTIngestion else {
             throw CaptureWorkingSetError.qualityReportNotReady
         }
@@ -2123,25 +2277,199 @@ public actor CaptureWorkingSetStore {
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(report)
         let path = "quality/capture-quality.json"
+        let declaration = BundlePayloadDeclaration(
+            path: path,
+            mediaType: "application/json",
+            producer: "capture_quality",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        )
 
         try await writer.writeIfIdentical(
             data,
             to: CaptureStorePath(path)
         )
-        try register(
-            BundlePayloadDeclaration(
-                path: path,
-                mediaType: "application/json",
-                producer: "capture_quality",
-                provenanceClass: .captureAppDerived,
-                role: .canonical
+        try register(declaration)
+        return (data, declaration)
+    }
+
+    /// Seals the working set for finalization (issue #180).
+    ///
+    /// Once this call flips the seal, every mutation entry point fails
+    /// with `workingSetSealed`. Mutations that were already inside the
+    /// actor are then drained to completion through writer fences —
+    /// their commits are part of the sealed state — before the durable
+    /// bytes are re-verified, quality is evaluated from exactly that
+    /// state, and the matching canonical quality payload is persisted.
+    /// The returned snapshot is the sealed declaration/identity state
+    /// the host must hand to `BundleRevisionFinalizer`.
+    ///
+    /// A failure leaves the store mutable again so the capture can
+    /// continue (for example when quality is not yet ready). A
+    /// successful seal stays in force until `unseal` (pre-promotion
+    /// recoverable failure) or `consumeSealedWorkingSet` (promotion).
+    public func sealForFinalization(
+        requirements: CaptureQualityRequirements = .init()
+    ) async throws -> SealedWorkingSet {
+        switch sealState {
+        case .sealed:
+            throw CaptureWorkingSetError.workingSetSealed
+        case .consumed:
+            throw CaptureWorkingSetError.workingSetConsumed
+        case .mutable:
+            break
+        }
+        sealState = .sealed
+        sealGeneration += 1
+        let generation = sealGeneration
+        do {
+            // Wait for already-owned writes: suspended mutations resume
+            // while this seal parks on the writer fence, finish their
+            // commit, and decrement inFlightMutations. New mutations are
+            // already rejected by requireMutable(), so the counter only
+            // converges to zero.
+            while inFlightMutations > 0 {
+                await writer.barrier()
+                try requireSealHeld(generation)
+            }
+            try verifyIntegrity()
+            let report = evaluateQuality(requirements: requirements)
+            guard report.readyForHTDTIngestion else {
+                throw CaptureWorkingSetError.qualityReportNotReady
+            }
+            sealedQualityReport =
+                try await persistQualityReportPayload(report)
+
+            // The report write released the actor; drain any mutation
+            // that completed during that suspension, then re-verify the
+            // durable bytes — now including the canonical quality
+            // payload — and snapshot the exact sealed state.
+            while inFlightMutations > 0 {
+                await writer.barrier()
+                try requireSealHeld(generation)
+            }
+            try requireSealHeld(generation)
+            try verifyIntegrity()
+            return SealedWorkingSet(
+                sealToken: UUID(),
+                snapshot: snapshot(),
+                qualityReport: report,
+                sealedAtUTC: BundleTimestamp.utcString(from: Date())
             )
-        )
+        } catch {
+            // Roll back the seal attempt only while this attempt still
+            // owns the lifecycle: remove exactly the canonical quality
+            // bytes it persisted, then reopen mutations. If an
+            // unseal/consume already transitioned the store while this
+            // seal was suspended, leave the committed bytes untouched —
+            // they are no longer owned by this attempt.
+            if sealState == .sealed, sealGeneration == generation {
+                if let sealedReport = sealedQualityReport {
+                    if declarations[sealedReport.declaration.path]
+                        == sealedReport.declaration
+                    {
+                        declarations.removeValue(
+                            forKey: sealedReport.declaration.path
+                        )
+                    }
+                    try? await writer.removeIfIdentical(
+                        sealedReport.data,
+                        at: CaptureStorePath(
+                            sealedReport.declaration.path
+                        )
+                    )
+                }
+                sealedQualityReport = nil
+                sealState = .mutable
+                sealGeneration += 1
+            }
+            throw error
+        }
+    }
+
+    /// Rolls a successful seal back after a pre-promotion recoverable
+    /// failure so the host can retry a Review pass. Removes the
+    /// canonical quality payload the seal persisted — it described the
+    /// sealed state and would be stale once mutations resume — then
+    /// reopens mutation entry points. Fails closed and stays sealed
+    /// when the sealed report bytes no longer match disk.
+    public func unseal() async throws {
+        switch sealState {
+        case .sealed:
+            break
+        case .consumed:
+            throw CaptureWorkingSetError.workingSetConsumed
+        case .mutable:
+            throw CaptureWorkingSetError.workingSetNotSealed
+        }
+
+        if let sealedReport = sealedQualityReport {
+            let removedOrAbsent =
+                try await writer.removeIfIdentical(
+                    sealedReport.data,
+                    at: CaptureStorePath(
+                        sealedReport.declaration.path
+                    )
+                )
+            guard removedOrAbsent else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+            if declarations[sealedReport.declaration.path]
+                == sealedReport.declaration
+            {
+                declarations.removeValue(
+                    forKey: sealedReport.declaration.path
+                )
+            }
+            sealedQualityReport = nil
+        }
+        sealState = .mutable
+        sealGeneration += 1
+    }
+
+    /// Marks the sealed working set as permanently consumed after the
+    /// host promoted the staged bundle. Terminal: every mutation entry
+    /// point rejects with `workingSetConsumed` afterwards and the seal
+    /// can no longer be rolled back (issue #180).
+    public func consumeSealedWorkingSet() throws {
+        switch sealState {
+        case .sealed:
+            sealState = .consumed
+            sealGeneration += 1
+            sealedQualityReport = nil
+        case .consumed:
+            throw CaptureWorkingSetError.workingSetConsumed
+        case .mutable:
+            throw CaptureWorkingSetError.workingSetNotSealed
+        }
+    }
+
+    /// Whether the working set is currently sealed for finalization.
+    public var isSealedForFinalization: Bool {
+        sealState == .sealed
+    }
+
+    /// Whether the sealed working set has been permanently consumed by
+    /// a successful promotion.
+    public var isConsumed: Bool {
+        sealState == .consumed
+    }
+
+    /// Mutations rejected with a typed error or dropped by the
+    /// non-throwing observation sinks since the first seal (issue
+    /// #180).
+    public var rejectedSealedMutationCount: Int {
+        sealedMutationRejectionCount
     }
 
     public func discardUncommittedQualityReport(
         _ report: CaptureQualityReport
     ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { inFlightMutations -= 1 }
+
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(report)
@@ -2177,6 +2505,8 @@ public actor CaptureWorkingSetStore {
     }
 
     public func discardIncompleteRevision() throws {
+        try requireMutable()
+
         let resolvedRoot = rootDirectory
             .standardizedFileURL
             .resolvingSymlinksInPath()
@@ -2735,5 +3065,36 @@ public actor CaptureWorkingSetStore {
                 .duplicatePayloadDeclaration(declaration.path)
         }
         declarations[declaration.path] = declaration
+    }
+
+    /// Every mutation entry point calls this before doing any work. The
+    /// seal path flips `sealState` before it first suspends, so a
+    /// mutation that arrives after seal acquisition fails
+    /// deterministically with a typed error instead of mutating the
+    /// sealed working set (issue #180).
+    private func requireMutable() throws {
+        switch sealState {
+        case .mutable:
+            return
+        case .sealed:
+            sealedMutationRejectionCount += 1
+            throw CaptureWorkingSetError.workingSetSealed
+        case .consumed:
+            sealedMutationRejectionCount += 1
+            throw CaptureWorkingSetError.workingSetConsumed
+        }
+    }
+
+    /// Re-validates that a `sealForFinalization` call still owns the
+    /// seal after each suspension: an `unseal`/`consumeSealedWorkingSet`
+    /// that ran during a writer fence bumps `sealGeneration`, so the
+    /// in-flight seal deterministically aborts instead of returning a
+    /// snapshot the store no longer holds (issue #180).
+    private func requireSealHeld(_ generation: Int) throws {
+        guard sealState == .sealed,
+              sealGeneration == generation
+        else {
+            throw CaptureWorkingSetError.workingSetNotSealed
+        }
     }
 }
