@@ -609,12 +609,15 @@ private struct ManualMeasurementForm: View {
         .radian,
         .dimensionless,
     ]
+    // Derived acquisition methods are intentionally absent: every value
+    // this form submits is persisted as `user_attested` /
+    // `user_attested_measurement` by ManualAuthorityBuilder, so a manual
+    // entry must never claim LiDAR/RoomPlan-derived provenance. Real
+    // derived values arrive through their dedicated evidence adapters.
     private let methods: [MeasurementAcquisitionMethod] = [
         .tapeMeasure,
         .laserDistanceMeter,
         .manufacturerSpecification,
-        .lidarDerived,
-        .roomPlanDerived,
         .other,
     ]
 
