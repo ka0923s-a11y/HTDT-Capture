@@ -1660,10 +1660,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
                 try await store.persistFramePackage(package)
 
-                let persistedBytes = artifacts.pixelPayload.count
-                    + (artifacts.depthPayload?.count ?? 0)
-                    + (artifacts.confidencePayload?.count ?? 0)
-                    + (artifacts.previewPayload?.count ?? 0)
+                let pixelBytes = artifacts.pixelPayload.count
+                let depthBytes = artifacts.depthPayload?.count ?? 0
+                let confidenceBytes = artifacts.confidencePayload?.count ?? 0
+                let previewBytes = artifacts.previewPayload?.count ?? 0
+                let persistedBytes =
+                    pixelBytes + depthBytes + confidenceBytes + previewBytes
                 self.automaticKeyframePersistedBytes += persistedBytes
                 self.automaticKeyframeTracker.markRetained(
                     sample,
