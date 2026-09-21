@@ -24,6 +24,16 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     case workingSetSealed
     case workingSetNotSealed
     case workingSetConsumed
+    /// A spatial evidence link (`path:evidence/frames/<id>.json`,
+    /// `frame:<uuid>`, `mesh_anchor:<uuid>`, or a placement's
+    /// `source_mesh_anchor_id`) cannot be resolved to committed
+    /// frame/mesh authority, so its coordinate-space congruence can
+    /// never be proven (issue #199).
+    case unresolvableSpatialEvidenceLink(String)
+    /// A spatial evidence link resolves to committed frame/mesh
+    /// authority expressed in a different coordinate space than the
+    /// record referencing it (issue #199).
+    case spatialEvidenceSpaceMismatch(String)
 }
 
 public struct CaptureWorkingSetIdentity: Sendable, Equatable {
@@ -2078,6 +2088,19 @@ public actor CaptureWorkingSetStore {
             try validateCoordinateAuthority(packageSpace)
         }
 
+        // Issue #199: every spatial evidence link must resolve to
+        // committed frame/mesh authority expressed in the record's own
+        // coordinate space — manifest membership of both space IDs is
+        // not sufficient.
+        for entity in annotationPackage.collection.entities {
+            try requireSpatialEvidenceCongruence(entity: entity)
+        }
+        for measurement in measurementPackage.collection.measurements {
+            try requireSpatialEvidenceCongruence(
+                measurement: measurement
+            )
+        }
+
         // Container provenance is derived from the records it carries:
         // every record must share one provenance class so the manifest
         // declaration cannot contradict record-level authority.
@@ -2358,6 +2381,12 @@ public actor CaptureWorkingSetStore {
             try validateCoordinateAuthority(space)
         }
 
+        // Issue #199: spatial evidence links must resolve to committed
+        // frame/mesh authority in the entity's own coordinate space.
+        for entity in package.collection.entities {
+            try requireSpatialEvidenceCongruence(entity: entity)
+        }
+
         // Write-once replay semantics before any durable work: an
         // identical committed collection is idempotent, a different one
         // fails closed.
@@ -2456,6 +2485,15 @@ public actor CaptureWorkingSetStore {
         // after the canonical file is durable (issue #202).
         if let space = spaces.first {
             try validateCoordinateAuthority(space)
+        }
+
+        // Issue #199: spatial evidence links must resolve to committed
+        // frame/mesh authority in the measurement's own coordinate
+        // space.
+        for measurement in package.collection.measurements {
+            try requireSpatialEvidenceCongruence(
+                measurement: measurement
+            )
         }
 
         // Write-once replay semantics before any durable work: an
@@ -3499,6 +3537,198 @@ public actor CaptureWorkingSetStore {
         )
         self.captureSessionID = captureSessionID
         self.coordinateSpaceID = coordinateSpaceID
+    }
+
+    /// Issue #199: an evidence reference of the form
+    /// `path:evidence/frames/<frame-id>.json`, `frame:<uuid>`, or
+    /// `mesh_anchor:<uuid>` is a *spatial* evidence link — it claims
+    /// support from frame/mesh authority expressed in a coordinate
+    /// space. Resolve every such link against committed authority and
+    /// require the referenced coordinate space to equal the record's
+    /// own: manifest membership alone never satisfies congruence, a
+    /// link that does not resolve to committed spatial authority can
+    /// never prove it, and v1 defines no cross-space alignment
+    /// authority — so every mismatch or unresolvable link fails closed.
+    /// References with other prefixes (`entity:`, `measurement:`,
+    /// `user:`, `sha256:`, non-frame `path:` values, and
+    /// annotation-authored tokens) carry no spatial authority and are
+    /// out of scope.
+    private func requireSpatialEvidenceLinkCongruence(
+        _ ref: String,
+        coordinateSpaceID: CoordinateSpaceID
+    ) throws {
+        guard let separator = ref.firstIndex(of: ":") else {
+            return
+        }
+        let prefix = ref[..<separator]
+        let value = String(ref[ref.index(after: separator)...])
+
+        switch prefix {
+        case "path":
+            // Frame-descriptor paths resolve to the committed
+            // descriptor; mesh-geometry paths resolve to the committed
+            // anchor record that owns the geometry. Other `path:` links
+            // carry no spatial authority and are validated by the
+            // manifest/dangling-reference checks, not congruence.
+            let components = value.split(
+                separator: "/",
+                omittingEmptySubsequences: false
+            )
+            if components.count == 3,
+               components[0] == "evidence",
+               components[1] == "frames",
+               components[2].hasSuffix(".json"),
+               components[2].count > ".json".count
+            {
+                let stem = String(
+                    components[2].dropLast(".json".count)
+                )
+                guard let frameID = EvidenceFrameID(
+                    canonicalString: stem
+                ) else {
+                    throw CaptureWorkingSetError
+                        .unresolvableSpatialEvidenceLink(ref)
+                }
+                try requireFrameLinkCongruence(
+                    frameID,
+                    ref: ref,
+                    coordinateSpaceID: coordinateSpaceID
+                )
+                return
+            }
+            if value.hasPrefix("mesh/geometry/"),
+               value.hasSuffix(".meshbin")
+            {
+                guard let record = meshIndex?.anchors.first(where: {
+                    $0.geometryPath == value
+                }) else {
+                    throw CaptureWorkingSetError
+                        .unresolvableSpatialEvidenceLink(ref)
+                }
+                guard record.coordinateSpaceID == coordinateSpaceID
+                else {
+                    throw CaptureWorkingSetError
+                        .spatialEvidenceSpaceMismatch(ref)
+                }
+            }
+            return
+
+        case "frame":
+            guard let frameID = EvidenceFrameID(
+                canonicalString: value
+            ) else {
+                throw CaptureWorkingSetError
+                    .unresolvableSpatialEvidenceLink(ref)
+            }
+            try requireFrameLinkCongruence(
+                frameID,
+                ref: ref,
+                coordinateSpaceID: coordinateSpaceID
+            )
+
+        case "mesh_anchor":
+            guard let anchorID = UUID(
+                canonicalUUIDv4Text: value
+            ) else {
+                throw CaptureWorkingSetError
+                    .unresolvableSpatialEvidenceLink(ref)
+            }
+            try requireMeshAnchorLinkCongruence(
+                anchorID,
+                ref: ref,
+                coordinateSpaceID: coordinateSpaceID
+            )
+
+        default:
+            return
+        }
+    }
+
+    /// Resolves a frame link to the committed descriptor and requires
+    /// its coordinate space to equal the referencing record's space.
+    private func requireFrameLinkCongruence(
+        _ frameID: EvidenceFrameID,
+        ref: String,
+        coordinateSpaceID: CoordinateSpaceID
+    ) throws {
+        guard let descriptor = frameDescriptors.first(where: {
+            $0.frameID == frameID
+        }) else {
+            throw CaptureWorkingSetError
+                .unresolvableSpatialEvidenceLink(ref)
+        }
+        guard descriptor.coordinateSpaceID == coordinateSpaceID else {
+            throw CaptureWorkingSetError
+                .spatialEvidenceSpaceMismatch(ref)
+        }
+    }
+
+    /// Resolves a mesh-anchor link to the committed index record and
+    /// requires its coordinate space to equal the referencing record's
+    /// space.
+    private func requireMeshAnchorLinkCongruence(
+        _ anchorID: UUID,
+        ref: String,
+        coordinateSpaceID: CoordinateSpaceID
+    ) throws {
+        let anchorText = anchorID.uuidString.lowercased()
+        guard let record = meshIndex?.anchors.first(where: {
+            $0.anchorID == anchorText
+        }) else {
+            throw CaptureWorkingSetError
+                .unresolvableSpatialEvidenceLink(ref)
+        }
+        guard record.coordinateSpaceID == coordinateSpaceID else {
+            throw CaptureWorkingSetError
+                .spatialEvidenceSpaceMismatch(ref)
+        }
+    }
+
+    /// Every spatial authority claim carried by an annotation entity:
+    /// record-level evidence refs, placement source refs, the
+    /// placement's mesh anchor, and a prefixed acoustic-center
+    /// authority ref.
+    private func requireSpatialEvidenceCongruence(
+        entity: CaptureAnnotationEntity
+    ) throws {
+        for ref in entity.evidenceRefs
+            + entity.placement.sourceEvidenceRefs
+        {
+            try requireSpatialEvidenceLinkCongruence(
+                ref,
+                coordinateSpaceID: entity.coordinateSpaceID
+            )
+        }
+        if let anchorID = entity.placement.sourceMeshAnchorID {
+            try requireMeshAnchorLinkCongruence(
+                anchorID,
+                ref: "mesh_anchor:\(anchorID.uuidString.lowercased())",
+                coordinateSpaceID: entity.coordinateSpaceID
+            )
+        }
+        if let authorityRef = entity.acousticCenter?.authorityRef {
+            try requireSpatialEvidenceLinkCongruence(
+                authorityRef,
+                coordinateSpaceID: entity.coordinateSpaceID
+            )
+        }
+    }
+
+    /// Every spatial authority claim carried by a spatial measurement:
+    /// record-level evidence refs and endpoint refs. Non-spatial
+    /// measurements (no coordinate space) carry no congruence claim.
+    private func requireSpatialEvidenceCongruence(
+        measurement: CaptureMeasurement
+    ) throws {
+        guard let space = measurement.coordinateSpaceID else {
+            return
+        }
+        for ref in measurement.evidenceRefs + measurement.endpointRefs {
+            try requireSpatialEvidenceLinkCongruence(
+                ref,
+                coordinateSpaceID: space
+            )
+        }
     }
 
     /// Counts depth samples that carry real geometric information: a

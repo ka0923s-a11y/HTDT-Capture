@@ -112,12 +112,14 @@ func evidenceLinkedRaycastPlacementOverridesManualPosition() throws {
         0, 0, 1, 0,
         4, 5, 6, 1,
     ])
+    let space = CoordinateSpaceID()
     let authority = try AnnotationPlacementAuthority(
         worldFromAnnotation: transform,
         placement: try PlacementProvenance(
             method: .raycast,
             sourceEvidenceRefs: [reference]
         ),
+        coordinateSpaceID: space,
         evidenceRefs: [reference]
     )
 
@@ -127,7 +129,7 @@ func evidenceLinkedRaycastPlacementOverridesManualPosition() throws {
         xMeters: 99,
         yMeters: 99,
         zMeters: 99,
-        coordinateSpaceID: CoordinateSpaceID(),
+        coordinateSpaceID: space,
         placementAuthority: authority
     )
 
@@ -148,8 +150,10 @@ func evidenceLinkedSpeakerOrientationOverridesManualYaw() throws {
         frontAxisLocal: .unit(0.6, 0, -0.8),
         upAxisLocal: .unit(0, 1, 0)
     )
+    let space = CoordinateSpaceID()
     let authority = try AnnotationOrientationAuthority(
         orientation: orientation,
+        coordinateSpaceID: space,
         evidenceRefs: [reference]
     )
 
@@ -159,7 +163,7 @@ func evidenceLinkedSpeakerOrientationOverridesManualYaw() throws {
         xMeters: 0,
         yMeters: 0,
         zMeters: 1,
-        coordinateSpaceID: CoordinateSpaceID(),
+        coordinateSpaceID: space,
         speakerChannelRole: "C",
         speakerYawDegrees: nil,
         orientationAuthority: authority
@@ -172,11 +176,13 @@ func evidenceLinkedSpeakerOrientationOverridesManualYaw() throws {
 
 @Test
 func capturedOrientationCannotBeAppliedToNonSpeaker() throws {
+    let space = CoordinateSpaceID()
     let authority = try AnnotationOrientationAuthority(
         orientation: try OrientationAxes(
             frontAxisLocal: .unit(0, 0, -1),
             upAxisLocal: .unit(0, 1, 0)
         ),
+        coordinateSpaceID: space,
         evidenceRefs: ["path:evidence/frames/example.json"]
     )
 
@@ -187,7 +193,7 @@ func capturedOrientationCannotBeAppliedToNonSpeaker() throws {
             xMeters: 0,
             yMeters: 0,
             zMeters: 0,
-            coordinateSpaceID: CoordinateSpaceID(),
+            coordinateSpaceID: space,
             orientationAuthority: authority
         )
     }
