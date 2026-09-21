@@ -181,6 +181,18 @@ public struct CaptureQualityObservation: Sendable, Equatable {
     public var activeMeshAnchorCount: Int
     public var evidenceFrameCount: Int
     public var depthEvidenceCount: Int
+    /// Number of mesh anchors that carry at least one geometric
+    /// primitive (a usable anchor), as summarized by the persistence
+    /// authority. A nil value means usable geometry was not measured;
+    /// the evaluator then falls back to `activeMeshAnchorCount` so
+    /// pre-metric observations keep their legacy semantics.
+    public var usableMeshAnchorCount: Int?
+    /// Number of valid, positive depth samples observed across the
+    /// retained depth evidence. A nil value means usable geometry was
+    /// not measured; the evaluator then falls back to
+    /// `depthEvidenceCount` so pre-metric observations keep their
+    /// legacy semantics.
+    public var usableDepthSampleCount: Int?
     public var annotationKeysPresent: Set<String>
     public var measurementQuantityTypesPresent: Set<String>
     public var resourceEvents: [CaptureResourceEvent]
@@ -193,6 +205,8 @@ public struct CaptureQualityObservation: Sendable, Equatable {
         activeMeshAnchorCount: Int = 0,
         evidenceFrameCount: Int = 0,
         depthEvidenceCount: Int = 0,
+        usableMeshAnchorCount: Int? = nil,
+        usableDepthSampleCount: Int? = nil,
         annotationKeysPresent: Set<String> = [],
         measurementQuantityTypesPresent: Set<String> = [],
         resourceEvents: [CaptureResourceEvent] = [],
@@ -204,6 +218,8 @@ public struct CaptureQualityObservation: Sendable, Equatable {
         self.activeMeshAnchorCount = activeMeshAnchorCount
         self.evidenceFrameCount = evidenceFrameCount
         self.depthEvidenceCount = depthEvidenceCount
+        self.usableMeshAnchorCount = usableMeshAnchorCount
+        self.usableDepthSampleCount = usableDepthSampleCount
         self.annotationKeysPresent = annotationKeysPresent
         self.measurementQuantityTypesPresent =
             measurementQuantityTypesPresent
@@ -259,6 +275,11 @@ public struct CaptureQualityReport: Codable, Sendable, Equatable {
     public let activeMeshAnchorCount: Int
     public let evidenceFrameCount: Int
     public let depthEvidenceCount: Int
+    /// Usable-geometry summary the gate actually evaluated; nil when
+    /// the observation predates usable-geometry measurement (additive
+    /// schema fields, omitted from the payload when absent).
+    public let usableMeshAnchorCount: Int?
+    public let usableDepthSampleCount: Int?
     public let annotationCompleteness: CompletenessStatus
     public let measurementCompleteness: CompletenessStatus
     public let resourceEvents: [CaptureResourceEvent]
@@ -276,6 +297,8 @@ public struct CaptureQualityReport: Codable, Sendable, Equatable {
         case activeMeshAnchorCount = "active_mesh_anchor_count"
         case evidenceFrameCount = "evidence_frame_count"
         case depthEvidenceCount = "depth_evidence_count"
+        case usableMeshAnchorCount = "usable_mesh_anchor_count"
+        case usableDepthSampleCount = "usable_depth_sample_count"
         case annotationCompleteness = "annotation_completeness"
         case measurementCompleteness = "measurement_completeness"
         case resourceEvents = "resource_events"
@@ -298,6 +321,15 @@ public enum CaptureQualityEvaluator {
             required: requirements.requiredMeasurementQuantityTypes,
             present: observation.measurementQuantityTypesPresent
         )
+
+        // Geometry readiness counts usable geometry, not containers.
+        // When the persistence authority did not measure usable
+        // geometry the legacy container counts stand in so pre-metric
+        // observations keep their semantics.
+        let usableMeshAnchors = observation.usableMeshAnchorCount
+            ?? observation.activeMeshAnchorCount
+        let usableDepthSamples = observation.usableDepthSampleCount
+            ?? observation.depthEvidenceCount
 
         // Deterministic resource chronology: events carrying an
         // explicit sequence number order first, ascending; events
@@ -336,11 +368,11 @@ public enum CaptureQualityEvaluator {
             )
         }
 
-        if observation.activeMeshAnchorCount
+        if usableMeshAnchors
             < requirements.minimumActiveMeshAnchors
         {
             if requirements.allowDepthEvidenceAsMeshFallback,
-               observation.depthEvidenceCount > 0
+               usableDepthSamples > 0
             {
                 diagnostics.append(
                     QualityDiagnostic(
@@ -376,7 +408,7 @@ public enum CaptureQualityEvaluator {
         }
 
         if requirements.requireDepthEvidence,
-           observation.depthEvidenceCount == 0
+           usableDepthSamples == 0
         {
             diagnostics.append(
                 QualityDiagnostic(
@@ -489,6 +521,8 @@ public enum CaptureQualityEvaluator {
             activeMeshAnchorCount: observation.activeMeshAnchorCount,
             evidenceFrameCount: observation.evidenceFrameCount,
             depthEvidenceCount: observation.depthEvidenceCount,
+            usableMeshAnchorCount: observation.usableMeshAnchorCount,
+            usableDepthSampleCount: observation.usableDepthSampleCount,
             annotationCompleteness: annotationStatus,
             measurementCompleteness: measurementStatus,
             resourceEvents: orderedResourceEvents,
