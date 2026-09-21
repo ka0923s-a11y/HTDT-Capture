@@ -2288,21 +2288,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 from: $0
             ).records
         }
-        return (
-            AnnotationWorkspaceSeed(
-                annotations: annotations,
-                measurements: measurements,
-                equipmentIdentityRecords: identityRecords ?? []
-            ),
-            identityData
         let authorities = try loadCollection(
             TheaterAuthorityCollection.self,
             at: TheaterAuthorityPackage.path
         )
-        return AnnotationWorkspaceSeed(
-            annotations: annotations,
-            measurements: measurements,
-            authorities: authorities
+        return (
+            AnnotationWorkspaceSeed(
+                annotations: annotations,
+                measurements: measurements,
+                equipmentIdentityRecords: identityRecords ?? [],
+                authorities: authorities
+            ),
+            identityData
         )
     }
 
@@ -2387,7 +2384,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         let generation = captureGeneration
         let snapshot =
-            try sessionController.snapshotCameraAim(
+            try sessionController.snapshotCameraOrientation(
                 depthSelection: .discrete
             )
         // #177: materialize performs packing/hashing/HEIC off
@@ -3027,8 +3024,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func commitAnnotationAuthority(
         annotations: [CaptureAnnotationEntity],
         measurements: [CaptureMeasurement],
-        identityRecords: [EquipmentIdentityRecord]
-        measurements: [CaptureMeasurement],
+        identityRecords: [EquipmentIdentityRecord],
         authorities: TheaterAuthorityCollection
     ) {
         guard state == .annotating,
