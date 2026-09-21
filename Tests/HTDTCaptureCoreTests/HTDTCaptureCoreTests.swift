@@ -111,15 +111,15 @@ func capabilityMatrixRequiresPhysicalProbeWhenDepthExists() {
 }
 
 @Test
-func admissionControllerBoundsPendingEvidence() async throws {
+func admissionControllerBoundsPendingEvidence() throws {
     let controller = CaptureStoreAdmissionController(
         maxBytes: 10,
         maxItems: 2
     )
 
-    let first = try await controller.reserve(bytes: 6)
+    let first = try controller.reserve(bytes: 6)
     do {
-        _ = try await controller.reserve(bytes: 5)
+        _ = try controller.reserve(bytes: 5)
         Issue.record("Expected byte limit rejection")
     } catch let error as CaptureStoreAdmissionError {
         #expect(
@@ -131,8 +131,8 @@ func admissionControllerBoundsPendingEvidence() async throws {
         )
     }
 
-    try await controller.release(first)
-    let snapshot = await controller.snapshot()
+    try controller.release(first)
+    let snapshot = controller.snapshot()
     #expect(snapshot.reservedBytes == 0)
     #expect(snapshot.reservedItems == 0)
 }
