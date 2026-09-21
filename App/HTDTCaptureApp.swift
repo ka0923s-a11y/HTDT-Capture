@@ -263,6 +263,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         rulesetVersion: "1.1.0",
         allowDepthEvidenceAsMeshFallback: true
     )
+    /// Bounded wait for a RoomPlan completion callback that never
+    /// arrives (#96): warn the operator after `warningDelay`, then
+    /// terminate the unresolved End attempt at `terminationDelay`
+    /// instead of leaving the capture locked in `isEndingScan`.
+    private static let roomPlanEndTimeoutPolicy =
+        RoomPlanEndTimeoutPolicy()
 
     init() {
         capabilities = PlatformCapabilityProbe.current()
@@ -3245,8 +3251,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         sessionController.stopRoomPlanPreservingARSession()
 
         let attemptID = attempt.id
+        let timeoutPolicy = Self.roomPlanEndTimeoutPolicy
         Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(8))
+            try? await Task.sleep(for: timeoutPolicy.warningDelay)
             guard let self,
                   self.captureGeneration == generation,
                   self.state == .scanning,
@@ -3261,7 +3268,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // Restarting the same RoomCaptureSession here could let a late
             // callback from this unresolved stop be consumed by a later End
             // attempt. Keep waiting briefly, but never leave the operator in
-            // an unbounded pseudo-scanning state.
+            // an unbounded pseudo-scanning state (#96).
             self.workingSetStatus = HostLocalization.text(
                 "RoomPlan is still producing the final result",
                 "RoomPlan の最終結果を引き続き生成中です"
@@ -3271,7 +3278,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 "RoomPlan の終了処理に通常より時間がかかっています。アプリを前面にしたまま待ってください。完了しない場合は、この未解決の終了処理を HTDT が停止します。"
             )
 
-            try? await Task.sleep(for: .seconds(22))
+            try? await Task.sleep(
+                for: timeoutPolicy.unresolvedGracePeriod
+            )
             guard self.captureGeneration == generation,
                   self.state == .scanning,
                   self.isEndingScan,

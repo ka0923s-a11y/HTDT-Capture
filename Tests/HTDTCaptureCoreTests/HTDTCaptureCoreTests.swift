@@ -82,6 +82,56 @@ func failureAndResetAreExplicit() throws {
 }
 
 @Test
+func unresolvedRoomPlanEndTimeoutIsBoundedAndWarnsFirst() {
+    // #96: a lost RoomPlan completion callback must never leave the
+    // capture UI locked in `isEndingScan` — the wait has a hard bound
+    // and the operator warning is observable before termination.
+    let policy = RoomPlanEndTimeoutPolicy()
+    #expect(policy.warningDelay == .seconds(8))
+    #expect(policy.terminationDelay == .seconds(30))
+    #expect(policy.warningDelay < policy.terminationDelay)
+    #expect(policy.unresolvedGracePeriod == .seconds(22))
+    #expect(policy.unresolvedGracePeriod > .zero)
+}
+
+@Test
+func unresolvedRoomPlanEndTerminatesFailedNotPseudoScanning() throws {
+    // #96: when no correlated RoomPlan completion arrives inside the
+    // bounded window the host resolves the attempt as a precise
+    // terminal failure — never storage/persistence — and the capture
+    // cannot silently return to scanning or reviewing without an
+    // explicit reset.
+    var machine = CaptureStateMachine(state: .scanning)
+    try machine.apply(.fail(.roomPlanFailure))
+    #expect(machine.state == .failed)
+    #expect(machine.lastFailure == .roomPlanFailure)
+    #expect(machine.lastFailure != .persistenceFailure)
+    #expect(machine.lastFailure != .storagePressure)
+
+    // From .failed there is no path back into a live capture state:
+    // the ended attempt is never left half-live.
+    var reviewAttempt = machine
+    #expect(throws: CaptureStateMachineError.self) {
+        try reviewAttempt.apply(.beginReview)
+    }
+    var resumeAttempt = machine
+    #expect(throws: CaptureStateMachineError.self) {
+        try resumeAttempt.apply(.resumeScanning)
+    }
+    var scanAttempt = machine
+    #expect(throws: CaptureStateMachineError.self) {
+        try scanAttempt.apply(.prepared)
+    }
+    #expect(reviewAttempt.state == .failed)
+    #expect(resumeAttempt.state == .failed)
+    #expect(scanAttempt.state == .failed)
+
+    try machine.apply(.reset)
+    #expect(machine.state == .idle)
+    #expect(machine.lastFailure == nil)
+}
+
+@Test
 func coordinateDiscontinuityCreatesNewAuthority() {
     var context = CaptureSessionContext()
     let previous = context.coordinateSpaceID
