@@ -32,10 +32,23 @@ public struct QualityDiagnostic: Codable, Sendable, Equatable {
         message: String,
         evidenceRefs: [String] = []
     ) {
+        // Producer-side wire invariants: the quality schema requires
+        // non-empty code/message and unique, non-empty evidence refs.
+        precondition(
+            !code.isEmpty,
+            "quality diagnostic code must be non-empty"
+        )
+        precondition(
+            !message.isEmpty,
+            "quality diagnostic message must be non-empty"
+        )
         self.code = code
         self.severity = severity
         self.message = message
-        self.evidenceRefs = evidenceRefs
+        var seen = Set<String>()
+        self.evidenceRefs = evidenceRefs.filter {
+            !$0.isEmpty && seen.insert($0).inserted
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -76,7 +89,12 @@ public struct TrackingQualityEvent: Codable, Sendable, Equatable {
         state: TrackingQualityState,
         reason: String? = nil
     ) {
-        self.sessionTimestampSeconds = sessionTimestampSeconds
+        // The quality schema requires a finite, non-negative session
+        // timestamp and canonical JSON cannot represent non-finite
+        // values, so invalid inputs normalize to the session origin.
+        self.sessionTimestampSeconds = sessionTimestampSeconds.isFinite
+            ? max(0, sessionTimestampSeconds)
+            : 0
         self.state = state
         self.reason = reason
     }
@@ -85,6 +103,24 @@ public struct TrackingQualityEvent: Codable, Sendable, Equatable {
         case sessionTimestampSeconds = "session_timestamp_s"
         case state
         case reason
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            sessionTimestampSeconds: try container.decode(
+                Double.self,
+                forKey: .sessionTimestampSeconds
+            ),
+            state: try container.decode(
+                TrackingQualityState.self,
+                forKey: .state
+            ),
+            reason: try container.decodeIfPresent(
+                String.self,
+                forKey: .reason
+            )
+        )
     }
 }
 
@@ -101,15 +137,61 @@ public struct CaptureResourceEvent: Codable, Sendable, Equatable {
     public let kind: CaptureResourceEventKind
     public let severity: QualityDiagnosticSeverity
     public let detail: String
+    /// RFC 3339 UTC timestamp identifying when the event occurred. A nil
+    /// value means the producing clock authority could not supply an
+    /// occurrence time; precision is never fabricated.
+    public let occurredAtUtc: String?
+    /// Monotonic per-session sequence number assigned by the recording
+    /// authority. A nil value marks an event recorded before sequencing
+    /// existed (or by a producer without a clock domain); see
+    /// `CaptureQualityEvaluator` for the deterministic ordering policy.
+    public let sequence: UInt64?
 
     public init(
         kind: CaptureResourceEventKind,
         severity: QualityDiagnosticSeverity,
-        detail: String
+        detail: String,
+        occurredAtUtc: String? = nil,
+        sequence: UInt64? = nil
     ) {
         self.kind = kind
         self.severity = severity
         self.detail = detail
+        self.occurredAtUtc = occurredAtUtc
+        self.sequence = sequence
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case severity
+        case detail
+        case occurredAtUtc = "occurred_at_utc"
+        case sequence
+    }
+
+    // `occurred_at_utc` and `sequence` are additive optional fields:
+    // events persisted by earlier versions decode with nil values.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            kind: try container.decode(
+                CaptureResourceEventKind.self,
+                forKey: .kind
+            ),
+            severity: try container.decode(
+                QualityDiagnosticSeverity.self,
+                forKey: .severity
+            ),
+            detail: try container.decode(String.self, forKey: .detail),
+            occurredAtUtc: try container.decodeIfPresent(
+                String.self,
+                forKey: .occurredAtUtc
+            ),
+            sequence: try container.decodeIfPresent(
+                UInt64.self,
+                forKey: .sequence
+            )
+        )
     }
 }
 
@@ -119,9 +201,14 @@ public struct CompletenessStatus: Codable, Sendable, Equatable {
     public let missing: [String]
 
     public init(required: Set<String>, present: Set<String>) {
-        self.required = required.sorted()
-        self.present = present.sorted()
-        self.missing = required.subtracting(present).sorted()
+        // The quality schema requires unique, non-empty string entries.
+        let normalizedRequired = required.filter { !$0.isEmpty }
+        let normalizedPresent = present.filter { !$0.isEmpty }
+        self.required = normalizedRequired.sorted()
+        self.present = normalizedPresent.sorted()
+        self.missing = normalizedRequired
+            .subtracting(normalizedPresent)
+            .sorted()
     }
 
     public var isComplete: Bool {
@@ -135,6 +222,18 @@ public struct CaptureQualityObservation: Sendable, Equatable {
     public var activeMeshAnchorCount: Int
     public var evidenceFrameCount: Int
     public var depthEvidenceCount: Int
+    /// Number of mesh anchors that carry at least one geometric
+    /// primitive (a usable anchor), as summarized by the persistence
+    /// authority. A nil value means usable geometry was not measured;
+    /// the evaluator then falls back to `activeMeshAnchorCount` so
+    /// pre-metric observations keep their legacy semantics.
+    public var usableMeshAnchorCount: Int?
+    /// Number of valid, positive depth samples observed across the
+    /// retained depth evidence. A nil value means usable geometry was
+    /// not measured; the evaluator then falls back to
+    /// `depthEvidenceCount` so pre-metric observations keep their
+    /// legacy semantics.
+    public var usableDepthSampleCount: Int?
     public var annotationKeysPresent: Set<String>
     public var measurementQuantityTypesPresent: Set<String>
     public var resourceEvents: [CaptureResourceEvent]
@@ -147,6 +246,8 @@ public struct CaptureQualityObservation: Sendable, Equatable {
         activeMeshAnchorCount: Int = 0,
         evidenceFrameCount: Int = 0,
         depthEvidenceCount: Int = 0,
+        usableMeshAnchorCount: Int? = nil,
+        usableDepthSampleCount: Int? = nil,
         annotationKeysPresent: Set<String> = [],
         measurementQuantityTypesPresent: Set<String> = [],
         resourceEvents: [CaptureResourceEvent] = [],
@@ -155,9 +256,14 @@ public struct CaptureQualityObservation: Sendable, Equatable {
     ) {
         self.trackingEvents = trackingEvents
         self.roomPlanStatus = roomPlanStatus
-        self.activeMeshAnchorCount = activeMeshAnchorCount
-        self.evidenceFrameCount = evidenceFrameCount
-        self.depthEvidenceCount = depthEvidenceCount
+        // The quality schema requires non-negative counts.
+        self.activeMeshAnchorCount = max(0, activeMeshAnchorCount)
+        self.evidenceFrameCount = max(0, evidenceFrameCount)
+        self.depthEvidenceCount = max(0, depthEvidenceCount)
+        self.usableMeshAnchorCount = usableMeshAnchorCount
+            .map { max(0, $0) }
+        self.usableDepthSampleCount = usableDepthSampleCount
+            .map { max(0, $0) }
         self.annotationKeysPresent = annotationKeysPresent
         self.measurementQuantityTypesPresent =
             measurementQuantityTypesPresent
@@ -178,6 +284,69 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
     public let requiredMeasurementQuantityTypes: Set<String>
     public let requireIntegrityPass: Bool
 
+    /// Canonical requirement definitions bound to published ruleset
+    /// versions. A published version identifier always denotes exactly
+    /// this requirement set: constructing requirements with a published
+    /// version pins every gate parameter to the registry entry, so an
+    /// arbitrary threshold set can never claim a published identity.
+    /// Ruleset changes require a new version entry here; existing
+    /// bundles keep decoding only `ruleset_version` and remain
+    /// interpretable through `forRuleset(version:)`.
+    /// Versions absent from this registry are unpublished/experimental
+    /// identities and may carry arbitrary parameters.
+    private static let publishedRequirements:
+        [String: CaptureQualityRequirements] = [
+            "1.1.0": CaptureQualityRequirements(
+                pinnedRulesetVersion: "1.1.0",
+                requireCompletedRoomPlan: true,
+                minimumActiveMeshAnchors: 1,
+                allowDepthEvidenceAsMeshFallback: true,
+                minimumEvidenceFrames: 1,
+                requireDepthEvidence: false,
+                requiredAnnotationKeys: [],
+                requiredMeasurementQuantityTypes: [],
+                requireIntegrityPass: true
+            )
+        ]
+
+    /// Returns the canonical requirements bound to a published ruleset
+    /// version, or nil when the version is not published.
+    public static func forRuleset(
+        version: String
+    ) -> CaptureQualityRequirements? {
+        publishedRequirements[version]
+    }
+
+    /// Published ruleset version identities, sorted for deterministic
+    /// presentation.
+    public static var publishedRulesetVersions: [String] {
+        publishedRequirements.keys.sorted()
+    }
+
+    private init(
+        pinnedRulesetVersion: String,
+        requireCompletedRoomPlan: Bool,
+        minimumActiveMeshAnchors: Int,
+        allowDepthEvidenceAsMeshFallback: Bool,
+        minimumEvidenceFrames: Int,
+        requireDepthEvidence: Bool,
+        requiredAnnotationKeys: Set<String>,
+        requiredMeasurementQuantityTypes: Set<String>,
+        requireIntegrityPass: Bool
+    ) {
+        self.rulesetVersion = pinnedRulesetVersion
+        self.requireCompletedRoomPlan = requireCompletedRoomPlan
+        self.minimumActiveMeshAnchors = minimumActiveMeshAnchors
+        self.allowDepthEvidenceAsMeshFallback =
+            allowDepthEvidenceAsMeshFallback
+        self.minimumEvidenceFrames = minimumEvidenceFrames
+        self.requireDepthEvidence = requireDepthEvidence
+        self.requiredAnnotationKeys = requiredAnnotationKeys
+        self.requiredMeasurementQuantityTypes =
+            requiredMeasurementQuantityTypes
+        self.requireIntegrityPass = requireIntegrityPass
+    }
+
     public init(
         rulesetVersion: String = "1.0.0",
         requireCompletedRoomPlan: Bool = true,
@@ -189,12 +358,20 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
         requiredMeasurementQuantityTypes: Set<String> = [],
         requireIntegrityPass: Bool = true
     ) {
+        precondition(
+            !rulesetVersion.isEmpty,
+            "quality ruleset version must be a non-empty identity"
+        )
+        if let published = Self.publishedRequirements[rulesetVersion] {
+            self = published
+            return
+        }
         self.rulesetVersion = rulesetVersion
         self.requireCompletedRoomPlan = requireCompletedRoomPlan
-        self.minimumActiveMeshAnchors = minimumActiveMeshAnchors
+        self.minimumActiveMeshAnchors = max(0, minimumActiveMeshAnchors)
         self.allowDepthEvidenceAsMeshFallback =
             allowDepthEvidenceAsMeshFallback
-        self.minimumEvidenceFrames = minimumEvidenceFrames
+        self.minimumEvidenceFrames = max(0, minimumEvidenceFrames)
         self.requireDepthEvidence = requireDepthEvidence
         self.requiredAnnotationKeys = requiredAnnotationKeys
         self.requiredMeasurementQuantityTypes =
@@ -213,6 +390,11 @@ public struct CaptureQualityReport: Codable, Sendable, Equatable {
     public let activeMeshAnchorCount: Int
     public let evidenceFrameCount: Int
     public let depthEvidenceCount: Int
+    /// Usable-geometry summary the gate actually evaluated; nil when
+    /// the observation predates usable-geometry measurement (additive
+    /// schema fields, omitted from the payload when absent).
+    public let usableMeshAnchorCount: Int?
+    public let usableDepthSampleCount: Int?
     public let annotationCompleteness: CompletenessStatus
     public let measurementCompleteness: CompletenessStatus
     public let resourceEvents: [CaptureResourceEvent]
@@ -230,6 +412,8 @@ public struct CaptureQualityReport: Codable, Sendable, Equatable {
         case activeMeshAnchorCount = "active_mesh_anchor_count"
         case evidenceFrameCount = "evidence_frame_count"
         case depthEvidenceCount = "depth_evidence_count"
+        case usableMeshAnchorCount = "usable_mesh_anchor_count"
+        case usableDepthSampleCount = "usable_depth_sample_count"
         case annotationCompleteness = "annotation_completeness"
         case measurementCompleteness = "measurement_completeness"
         case resourceEvents = "resource_events"
@@ -253,6 +437,37 @@ public enum CaptureQualityEvaluator {
             present: observation.measurementQuantityTypesPresent
         )
 
+        // Geometry readiness counts usable geometry, not containers.
+        // When the persistence authority did not measure usable
+        // geometry the legacy container counts stand in so pre-metric
+        // observations keep their semantics.
+        let usableMeshAnchors = observation.usableMeshAnchorCount
+            ?? observation.activeMeshAnchorCount
+        let usableDepthSamples = observation.usableDepthSampleCount
+            ?? observation.depthEvidenceCount
+
+        // Deterministic resource chronology: events carrying an
+        // explicit sequence number order first, ascending; events
+        // without a sequence then order by occurred_at_utc (absent
+        // sorts first); the final tie-breaker is original insertion
+        // order so equal-time events serialize deterministically.
+        let orderedResourceEvents = observation.resourceEvents
+            .enumerated()
+            .sorted { lhs, rhs in
+                let lhsSequence = lhs.element.sequence ?? UInt64.max
+                let rhsSequence = rhs.element.sequence ?? UInt64.max
+                if lhsSequence != rhsSequence {
+                    return lhsSequence < rhsSequence
+                }
+                let lhsTime = lhs.element.occurredAtUtc ?? ""
+                let rhsTime = rhs.element.occurredAtUtc ?? ""
+                if lhsTime != rhsTime {
+                    return lhsTime < rhsTime
+                }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
+
         var diagnostics: [QualityDiagnostic] = []
 
         if requirements.requireCompletedRoomPlan,
@@ -268,11 +483,11 @@ public enum CaptureQualityEvaluator {
             )
         }
 
-        if observation.activeMeshAnchorCount
+        if usableMeshAnchors
             < requirements.minimumActiveMeshAnchors
         {
             if requirements.allowDepthEvidenceAsMeshFallback,
-               observation.depthEvidenceCount > 0
+               usableDepthSamples > 0
             {
                 diagnostics.append(
                     QualityDiagnostic(
@@ -308,7 +523,7 @@ public enum CaptureQualityEvaluator {
         }
 
         if requirements.requireDepthEvidence,
-           observation.depthEvidenceCount == 0
+           usableDepthSamples == 0
         {
             diagnostics.append(
                 QualityDiagnostic(
@@ -365,7 +580,7 @@ public enum CaptureQualityEvaluator {
             )
         }
 
-        for event in observation.resourceEvents where event.severity == .error {
+        for event in orderedResourceEvents where event.severity == .error {
             diagnostics.append(
                 QualityDiagnostic(
                     code: "resource_error",
@@ -400,11 +615,24 @@ public enum CaptureQualityEvaluator {
             }
         }
 
+        // Total deterministic ordering for serialized diagnostics:
+        // severity rank (error first), then code, then message, then a
+        // lexicographic evidence-ref comparison. Distinct diagnostics
+        // can never tie on insertion order alone, so the canonical
+        // payload is stable regardless of sort-implementation details.
         diagnostics.sort {
             if $0.severity != $1.severity {
                 return $0.severity > $1.severity
             }
-            return $0.code < $1.code
+            if $0.code != $1.code {
+                return $0.code < $1.code
+            }
+            if $0.message != $1.message {
+                return $0.message < $1.message
+            }
+            return $0.evidenceRefs.lexicographicallyPrecedes(
+                $1.evidenceRefs
+            )
         }
 
         let ready = !diagnostics.contains {
@@ -421,12 +649,32 @@ public enum CaptureQualityEvaluator {
             activeMeshAnchorCount: observation.activeMeshAnchorCount,
             evidenceFrameCount: observation.evidenceFrameCount,
             depthEvidenceCount: observation.depthEvidenceCount,
+            usableMeshAnchorCount: observation.usableMeshAnchorCount,
+            usableDepthSampleCount: observation.usableDepthSampleCount,
             annotationCompleteness: annotationStatus,
             measurementCompleteness: measurementStatus,
-            resourceEvents: observation.resourceEvents,
+            resourceEvents: orderedResourceEvents,
             integrityStatus: observation.integrityStatus,
-            benchmarkRefs: observation.benchmarkRefs.sorted(),
+            benchmarkRefs: canonicalBenchmarkRefs(
+                observation.benchmarkRefs
+            ),
             diagnostics: diagnostics
         )
+    }
+
+    /// Canonical benchmark-ref policy: empty refs are dropped and the
+    /// remainder is deduplicated then sorted ascending, matching the
+    /// unique, non-empty wire invariant deterministically.
+    private static func canonicalBenchmarkRefs(
+        _ refs: [String]
+    ) -> [String] {
+        var seen = Set<String>()
+        var canonical: [String] = []
+        for ref in refs.sorted() where !ref.isEmpty {
+            if seen.insert(ref).inserted {
+                canonical.append(ref)
+            }
+        }
+        return canonical
     }
 }

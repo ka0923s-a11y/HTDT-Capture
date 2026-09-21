@@ -62,6 +62,14 @@
       "type": "integer",
       "minimum": 0
     },
+    "usable_mesh_anchor_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "usable_depth_sample_count": {
+      "type": "integer",
+      "minimum": 0
+    },
     "annotation_completeness": {
       "$ref": "#/$defs/completeness"
     },
@@ -187,6 +195,14 @@
         },
         "detail": {
           "type": "string"
+        },
+        "occurred_at_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
