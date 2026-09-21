@@ -144,13 +144,14 @@ public struct HTDTEquipmentCatalogEntry:
         return definitionID
     }
 
-    public func equipmentReference()
-        throws -> HTDTEquipmentReference
-    {
+    public func equipmentReference(
+        authorityVersion: String
+    ) throws -> HTDTEquipmentReference {
         try HTDTEquipmentReference(
             equipmentID: definitionID,
             equipmentVersion: version,
-            equipmentHash: semanticSHA256
+            equipmentHash: semanticSHA256,
+            authorityVersion: authorityVersion
         )
     }
 
@@ -232,6 +233,15 @@ public struct HTDTEquipmentCatalogSnapshot:
         self.definitions = definitions
     }
 
+    /// Annotation types this snapshot's catalog may attach to (#237).
+    /// Nil/unknown authority versions are surfaced as
+    /// `unknownAuthorityVersion` by `HTDTEquipmentCompatibility.check`.
+    public var compatibleAnnotationTypes: Set<AnnotationEntityType> {
+        HTDTEquipmentCompatibility.compatibleTypes(
+            authorityVersion: authorityVersion
+        ) ?? []
+    }
+
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(
             keyedBy: CodingKeys.self
@@ -273,6 +283,41 @@ public struct HTDTEquipmentCatalogSnapshot:
         case schemaVersion = "schema_version"
         case authorityVersion = "authority_version"
         case definitions
+    }
+}
+
+/// Versioned taxonomy mapping catalog `authority_version` strings to
+/// the annotation types that may carry those references (#237).
+///
+/// `o100c-equipment-definition-1` is the acoustic-source equipment
+/// catalog — its exact tuples are compatible with `speaker` and
+/// `subwoofer` entities only. Future equipment classes (projector,
+/// display, AV electronics, ...) extend this map with their own
+/// authority versions rather than widening the existing one.
+public enum HTDTEquipmentCompatibility {
+    /// Compatible annotation types for a catalog authority version,
+    /// or nil when the version is unknown to this build's taxonomy.
+    public static func compatibleTypes(
+        authorityVersion: String
+    ) -> Set<AnnotationEntityType>? {
+        switch authorityVersion {
+        case HTDTEquipmentCatalogSnapshot.expectedAuthorityVersion:
+            return [.speaker, .subwoofer]
+        default:
+            return nil
+        }
+    }
+
+    public static func check(
+        reference: HTDTEquipmentReference,
+        entityType: AnnotationEntityType
+    ) -> EquipmentReferenceCompatibility {
+        guard let types = compatibleTypes(
+            authorityVersion: reference.resolvedAuthorityVersion
+        ) else {
+            return .unknownAuthorityVersion
+        }
+        return types.contains(entityType) ? .compatible : .incompatible
     }
 }
 
