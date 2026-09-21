@@ -160,6 +160,26 @@ public struct CaptureAnnotationWorkspaceView: View {
                     .onDelete { offsets in
                         annotations.remove(atOffsets: offsets)
                     }
+
+                    let findings =
+                        AnnotationContractReview.findings(
+                            in: annotations
+                        )
+                    if !findings.isEmpty {
+                        ForEach(findings, id: \.self) { finding in
+                            Text(
+                                finding.severity.rawValue
+                                    + ": "
+                                    + finding.detail
+                            )
+                            .font(.caption)
+                            .foregroundStyle(
+                                finding.severity == .info
+                                    ? Color.secondary
+                                    : Color.orange
+                            )
+                        }
+                    }
                 }
 
                 Button("Add spatial annotation") {
@@ -288,10 +308,17 @@ public struct CaptureAnnotationWorkspaceView: View {
     private func annotationDetail(
         _ entity: CaptureAnnotationEntity
     ) -> String {
+        var parts = [entity.type.rawValue]
         if let role = entity.channelRole {
-            return entity.type.rawValue + " · " + role.rawValue
+            parts.append(role.rawValue)
         }
-        return entity.type.rawValue
+        if let role = entity.listeningRole {
+            parts.append(role.rawValue)
+        }
+        if entity.physicalEnvelope != nil {
+            parts.append("envelope")
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func measurementDetail(
@@ -344,7 +371,28 @@ private struct ManualAnnotationForm: View {
         AnnotationOrientationAuthority?
     @State private var isCapturingOrientation = false
 
+    @State private var listeningRole: ListeningPositionRole = .primary
+    @State private var semanticsSelection = ""
+    @State private var referencePointConstruction:
+        ReferencePointConstruction = .surfaceHitConfirmed
+    @State private var offsetXText = "0"
+    @State private var offsetYText = "0"
+    @State private var offsetZText = "0"
+    @State private var envelopeWidthText = ""
+    @State private var envelopeHeightText = ""
+    @State private var envelopeDepthText = ""
+
     @State private var errorText: String?
+
+    /// The current HTDT catalog's acoustic-source authority only
+    /// covers speaker/subwoofer annotations (#237); other types never
+    /// see the equipment picker.
+    private var equipmentCompatible: Bool {
+        HTDTEquipmentCompatibility.compatibleTypes(
+            authorityVersion: HTDTEquipmentCatalogSnapshot
+                .expectedAuthorityVersion
+        )?.contains(type) ?? false
+    }
 
     var body: some View {
         Form {
@@ -357,7 +405,34 @@ private struct ManualAnnotationForm: View {
                         Text(value.rawValue).tag(value)
                     }
                 }
+                .onChange(of: type) { _, newType in
+                    channelRole = newType == .subwoofer ? "LFE1" : "L"
+                    yawText = newType == .speaker ? "0" : ""
+                    semanticsSelection = ""
+                    if !equipmentCompatible {
+                        includeEquipmentReference = false
+                        selectedEquipmentKey = ""
+                    }
+                }
                 TextField("Label", text: $label)
+            }
+
+            if type == .listeningPosition {
+                Section("Listening position role") {
+                    Picker("Role", selection: $listeningRole) {
+                        ForEach(
+                            ListeningPositionRole.allCases,
+                            id: \.self
+                        ) { role in
+                            Text(role.rawValue).tag(role)
+                        }
+                    }
+                    Text(
+                        "The role is machine-readable; the label stays a free human name. Exactly one primary MLP is expected per layout."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
             }
 
             Section("Position in capture world (m)") {
@@ -386,12 +461,79 @@ private struct ManualAnnotationForm: View {
                 }
             }
 
-            if type == .speaker {
-                Section("Speaker orientation") {
-                    TextField(
-                        "Channel role (L, C, R, ...)",
-                        text: $channelRole
+            if placementAuthority != nil {
+                Section("Reference point") {
+                    Picker(
+                        "Construction",
+                        selection: $referencePointConstruction
+                    ) {
+                        Text("Confirmed surface hit")
+                            .tag(
+                                ReferencePointConstruction
+                                    .surfaceHitConfirmed
+                            )
+                        Text("Offset from surface")
+                            .tag(
+                                ReferencePointConstruction
+                                    .offsetFromSurface
+                            )
+                    }
+                    if referencePointConstruction
+                        == .offsetFromSurface
+                    {
+                        TextField("Offset X (m)", text: $offsetXText)
+                        TextField("Offset Y (m)", text: $offsetYText)
+                        TextField("Offset Z (m)", text: $offsetZText)
+                        Text(
+                            "The offset is applied in capture-world axes to the raycast hit — e.g. ear height above a seat hit — so the semantic point does not silently coincide with an arbitrary surface."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if let semantics = type.allowedReferenceSemantics,
+               semantics.count > 1
+            {
+                Section("Reference point semantics") {
+                    Picker("Semantics", selection: $semanticsSelection) {
+                        Text("Type default").tag("")
+                        ForEach(
+                            semantics.sorted {
+                                $0.rawValue < $1.rawValue
+                            },
+                            id: \.self
+                        ) { token in
+                            Text(token.rawValue).tag(token.rawValue)
+                        }
+                    }
+                }
+            }
+
+            if type != .listeningPosition && type != .referencePoint {
+                Section("Physical envelope (m, optional)") {
+                    TextField("Width", text: $envelopeWidthText)
+                    TextField("Height", text: $envelopeHeightText)
+                    TextField("Depth", text: $envelopeDepthText)
+                    Text(
+                        "Dimensions are stored with user_measured provenance. Leave blank when unknown — nothing is inferred."
                     )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+
+            if type.supportsOrientationAuthority {
+                Section("Orientation") {
+                    if type == .speaker || type == .subwoofer {
+                        TextField(
+                            type == .subwoofer
+                            ? "Subwoofer role (LFE1, LFE2, ...)"
+                            : "Channel role (L, C, R, ...)",
+                            text: $channelRole
+                        )
+                    }
 
                     if let orientationAuthority {
                         let front =
@@ -423,7 +565,7 @@ private struct ManualAnnotationForm: View {
                         }
                         .disabled(isCapturingOrientation)
                         Text(
-                            "Point the phone in the speaker's forward direction, then capture. Only the horizontal heading is adopted."
+                            "Point the phone in the entity's forward direction, then capture. Only the horizontal heading is adopted; leave yaw blank when no facing authority exists."
                         )
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -440,7 +582,8 @@ private struct ManualAnnotationForm: View {
                 )
             }
 
-            Section("Pinned HTDT equipment authority") {
+            if equipmentCompatible {
+                Section("Pinned HTDT equipment authority") {
                 Toggle(
                     "Attach equipment reference",
                     isOn: $includeEquipmentReference
@@ -498,6 +641,7 @@ private struct ManualAnnotationForm: View {
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                }
                 }
             }
 
@@ -623,10 +767,73 @@ private struct ManualAnnotationForm: View {
                 equipment = try HTDTEquipmentReference(
                     equipmentID: equipmentID,
                     equipmentVersion: equipmentVersion,
-                    equipmentHash: digest
+                    equipmentHash: digest,
+                    authorityVersion: HTDTEquipmentCatalogSnapshot
+                        .expectedAuthorityVersion
                 )
             } else {
                 equipment = nil
+            }
+
+            let envelope: EntityPhysicalEnvelope?
+            if [envelopeWidthText, envelopeHeightText,
+                envelopeDepthText]
+                .allSatisfy({
+                    $0.trimmingCharacters(in: .whitespaces).isEmpty
+                })
+            {
+                envelope = nil
+            } else {
+                let parseDim: (String) throws -> Double? = { text in
+                    let trimmed =
+                        text.trimmingCharacters(in: .whitespaces)
+                    if trimmed.isEmpty {
+                        return nil
+                    }
+                    guard let value = Double(trimmed) else {
+                        throw AnnotationModelError.invalidEnvelope
+                    }
+                    return value
+                }
+                envelope = try EntityPhysicalEnvelope(
+                    widthMeters: try parseDim(envelopeWidthText),
+                    heightMeters: try parseDim(envelopeHeightText),
+                    depthMeters: try parseDim(envelopeDepthText),
+                    provenance: .userMeasured
+                )
+            }
+
+            let referencePointOffset: SpatialVector3F?
+            if placementAuthority != nil,
+               referencePointConstruction == .offsetFromSurface
+            {
+                guard let ox = Double(offsetXText),
+                      let oy = Double(offsetYText),
+                      let oz = Double(offsetZText)
+                else {
+                    throw AnnotationModelError
+                        .invalidReferencePointAuthority
+                }
+                referencePointOffset = try SpatialVector3F(
+                    Float(ox),
+                    Float(oy),
+                    Float(oz)
+                )
+            } else {
+                referencePointOffset = nil
+            }
+
+            let enteredYaw =
+                yawText.trimmingCharacters(in: .whitespaces)
+            let orientationYawDegrees: Double?
+            if type == .speaker || enteredYaw.isEmpty {
+                orientationYawDegrees = nil
+            } else {
+                guard let yaw = Double(enteredYaw) else {
+                    throw ManualAuthorityBuilderError
+                        .invalidOrientationYaw
+                }
+                orientationYawDegrees = yaw
             }
 
             let entity = try ManualAuthorityBuilder.annotation(
@@ -640,6 +847,22 @@ private struct ManualAnnotationForm: View {
                     type == .speaker ? channelRole : nil,
                 speakerYawDegrees:
                     type == .speaker ? Double(yawText) : nil,
+                subwooferChannelRole:
+                    type == .subwoofer ? channelRole : nil,
+                orientationYawDegrees: orientationYawDegrees,
+                listeningRole:
+                    type == .listeningPosition ? listeningRole : nil,
+                referencePointSemantics: semanticsSelection.isEmpty
+                    ? nil
+                    : ReferencePointSemantics(
+                        rawValue: semanticsSelection
+                    ),
+                referencePointConstruction:
+                    placementAuthority != nil
+                    ? referencePointConstruction
+                    : nil,
+                referencePointOffset: referencePointOffset,
+                physicalEnvelope: envelope,
                 equipmentReference: equipment,
                 evidenceRefs: evidenceSelection.effectiveRefs,
                 placementAuthority: placementAuthority,

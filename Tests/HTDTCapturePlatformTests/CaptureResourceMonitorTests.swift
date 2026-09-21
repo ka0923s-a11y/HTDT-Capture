@@ -527,6 +527,36 @@ func preflightAssessmentStillWorksAfterStop() throws {
 
 @Test
 @MainActor
+func stoppedAssessmentReflectsRecoveryForRetry() throws {
+    var capacity: Int64 = healthyBytes
+    let recorder = ResourceEventRecorder()
+    let monitor = CaptureResourceMonitor(
+        rootDirectory: URL(fileURLWithPath: "/tmp"),
+        capacitySource: { capacity },
+        thermalStateProvider: { .nominal },
+        sampleDriver: ManualStorageSampleDriver(),
+        eventHandler: recorder.handler
+    )
+
+    monitor.start()
+    monitor.stop()
+
+    // The deferred finalization retry re-assesses the stopped monitor
+    // synchronously; a recovered capacity must clear the earlier critical
+    // result instead of leaving the retry permanently deferred.
+    capacity = criticalThresholdBytes - 1
+    #expect(
+        try #require(monitor.currentStorageAssessment()).failure
+            == .storagePressure
+    )
+
+    capacity = healthyBytes
+    #expect(monitor.currentStorageAssessment() == nil)
+    #expect(recorder.events.isEmpty)
+}
+
+@Test
+@MainActor
 func sampleStorageIsIgnoredUntilStarted() {
     let recorder = ResourceEventRecorder()
     let monitor = CaptureResourceMonitor(

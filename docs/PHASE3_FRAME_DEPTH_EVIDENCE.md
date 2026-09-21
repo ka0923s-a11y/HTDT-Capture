@@ -132,6 +132,23 @@ ARFrame jointly with the final active mesh snapshot immediately before ending
 RoomPlan. Manual evidence frames therefore add context without replacing the
 scan-boundary evidence.
 
+## Bounded automatic keyframes (policy `auto_keyframe_v1`)
+
+During scanning the host also evaluates a bounded opportunistic selector on the
+existing coverage samples (policy version `auto_keyframe_v1`, recorded on each
+`automatic_keyframe` advisory note). A candidate may be retained only when
+tracking is normal and it is spatially novel: at least
+`minimumTranslationMeters` or `minimumRotationRadians` away from every retained
+automatic frame, and at least `minimumIntervalSeconds` after the previous
+retention. Retention is hard-capped at `maximumRetainedFrames` and
+`maximumRetainedBytes` (estimated and persisted byte authorities both checked),
+with a bounded `maximumNoDepthFrames` allowance for frames lacking scene depth.
+Manual **Save evidence** is never classified as redundant and is always
+persisted on demand. Candidates flagged `.unusable` by the
+`frame_usability_v1` diagnostic are skipped when alternatives remain; a
+manual save of a suspect/unusable frame is force-retained with an advisory
+warning instead.
+
 
 ## Optional derived HEIC preview
 

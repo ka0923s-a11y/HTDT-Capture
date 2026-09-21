@@ -347,11 +347,35 @@ public struct ScanMotionGuidanceTracker: Sendable {
     private var movementCapability: ScanMovementCapability =
         .unrestricted
     private var completedSpatialGuidanceAttemptCount = 0
+    /// Coverage cells the operator declared intentionally unresolved
+    /// (#257). Declared regions stay classified unresolved but stop
+    /// producing movement guidance and no longer count as actionable.
+    private var declaredRegionKeys: Set<SpatialCoverageCellKey> = []
 
     public init(
         configuration: ScanMotionGuidanceConfiguration = .standard
     ) {
         self.configuration = configuration
+    }
+
+    /// Replaces the operator-declared region set (#257). If the
+    /// currently selected guidance targets a freshly declared cell,
+    /// it is dropped so the next `record` picks a different target
+    /// instead of continuing to coach a region the operator cannot
+    /// reach.
+    public mutating func setDeclaredRegionKeys(
+        _ keys: Set<SpatialCoverageCellKey>
+    ) {
+        declaredRegionKeys = keys
+        if let key = currentGuidance?.targetRegionKey,
+           keys.contains(key)
+        {
+            currentGuidance = nil
+            currentSelectedAtSeconds = nil
+            currentStartCameraPosition = nil
+            currentStartDiversityCount = nil
+            currentStartDistanceBucket = nil
+        }
     }
 
     @discardableResult
@@ -483,6 +507,7 @@ public struct ScanMotionGuidanceTracker: Sendable {
     ) -> ScanGuidanceProgress {
         let actionable = spatialCoverage.regions.filter {
             $0.classification == .weak
+                && !declaredRegionKeys.contains($0.key)
                 && (weakGuidanceAttempts[$0.key] ?? 0)
                     < configuration.maximumWeakRegionGuidanceAttempts
                 && (spatialCoverage.displayBounds?
@@ -490,6 +515,7 @@ public struct ScanMotionGuidanceTracker: Sendable {
         }.count
         let saturated = spatialCoverage.regions.filter {
             $0.classification == .weak
+                && !declaredRegionKeys.contains($0.key)
                 && (weakGuidanceAttempts[$0.key] ?? 0)
                     >= configuration.maximumWeakRegionGuidanceAttempts
         }.count
@@ -888,6 +914,7 @@ public struct ScanMotionGuidanceTracker: Sendable {
         return spatialCoverage.regions
             .filter {
                 $0.classification == .weak
+                    && !declaredRegionKeys.contains($0.key)
                     && (weakGuidanceAttempts[$0.key] ?? 0)
                         < configuration
                             .maximumWeakRegionGuidanceAttempts

@@ -12,6 +12,7 @@ HTDT-Capture now has a typed, versioned in-memory/JSON authority for:
 - speakers;
 - subwoofers;
 - displays and projection screens;
+- projectors;
 - listening positions and seats;
 - acoustic treatments;
 - equipment racks;
@@ -26,7 +27,28 @@ Every entity carries:
 - stable reference-point semantics token;
 - provenance and verification state;
 - placement provenance;
-- evidence references.
+- evidence references;
+- creation/revision lifecycle metadata (`created_at_utc`, optional
+  `updated_at_utc` / `observed_at_utc` / `source_created_at_utc` /
+  `supersedes_entity_id`).
+
+Optional contract extensions (annotation_contract cluster):
+
+- `physical_envelope`: user-measured / catalog-derived / imported
+  width-height-depth authority, never inferred by the app (#230);
+- `listening_role`: typed primary/secondary/measurement-reference
+  role for listening positions, independent of the human label
+  (#243);
+- `uncertainty`: optional isotropic/per-axis/angular uncertainty with
+  a stated basis — user, instrument, or app estimate (#258);
+- `authority`: per-component verification detail (placement,
+  orientation, equipment, reference point, semantic role) so a mixed
+  record never overstates which fields are evidence-backed; the
+  aggregate `verification_state` remains the derived summary (#263);
+- `reference_point`: explicit construction record for
+  evidence-captured placements — a raycast hit cannot silently claim
+  a semantic point such as `ear_center` without `surface_hit_confirmed`
+  or `offset_from_surface` (#291).
 
 ### Speaker-specific authority
 
@@ -38,6 +60,12 @@ A speaker cannot be constructed without:
 Axes must be unit length and orthogonal.
 
 Supported built-in role tokens include L/C/R, SL/SR, SBL/SBR, LFE, and common top channels. The role type also accepts additional uppercase stable tokens rather than geometry free text.
+
+Subwoofers carry the same topology authority (#244): every subwoofer
+requires a typed channel/instance role (LFE1/LFE2/... or a custom
+token) and may carry an optional captured or yaw-entered body
+orientation — so multi-sub layouts are distinguishable without label
+parsing.
 
 ### Acoustic-center safety
 
@@ -54,9 +82,18 @@ Optional equipment binding is not a loose model-name string. It stores:
 
 - equipment ID;
 - equipment version;
-- exact equipment authority hash.
+- exact equipment authority hash;
+- the catalog authority version the tuple was selected under.
 
 This is sufficient to bind capture annotations to a pinned HTDT equipment authority later.
+
+Compatibility is enforced below the UI (#237): the current
+`o100c-equipment-definition-1` acoustic-source catalog contract only
+authorizes equipment references on speaker/subwoofer annotations. The
+builder rejects a tuple attached to an incompatible type or stamped
+with an unknown authority version; legacy unversioned tuples resolve
+to the original catalog contract and remain readable, with any
+semantic mismatch surfaced in Review rather than silently ignored.
 
 ### Placement provenance
 
@@ -140,14 +177,24 @@ host does not pretend that the immutable payload can be edited in place.
 The current software-only editor supports:
 
 - annotation entity type and label;
+- typed listening-position role (primary / secondary / measurement
+  reference) for listening positions;
 - explicit X/Y/Z position in the active Capture coordinate space;
-- speaker channel role;
-- speaker yaw, encoded as an explicit normalized front axis with +Y up;
+- channel role for speakers and subwoofers;
+- orientation yaw for any type with body/plane semantics, encoded as
+  an explicit normalized front axis with +Y up;
+- optional physical-envelope dimensions with `user_measured`
+  provenance;
+- type-appropriate reference-point semantics selection;
 - optional pinned HTDT equipment reference requiring exact
-  equipment ID + version + SHA-256.
+  equipment ID + version + SHA-256, offered only for compatible
+  annotation types (#237).
 
-Placement provenance is `manual_numeric`; no raycast or mesh-hit provenance is
-fabricated by this UI.
+Placement provenance is `manual_numeric` unless the live raycast
+action is used; no raycast or mesh-hit provenance is fabricated by
+this UI. An evidence-captured placement additionally requires an
+explicit reference-point construction choice (confirmed hit vs.
+surface offset) before the record can be authored (#291).
 
 ### Measurement inputs
 

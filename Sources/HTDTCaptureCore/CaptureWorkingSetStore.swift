@@ -399,6 +399,10 @@ public actor CaptureWorkingSetStore {
     private var usableMeshAnchorCount: Int?
     private var trackingIntervals: [TrackingInterval] = []
     private var resourceEvents: [CaptureResourceEvent] = []
+    /// Advisory provenance notes recorded by the operator or capture
+    /// policies; persisted at `advisory/operator-advisories.json` and
+    /// surfaced to quality evaluation as advisory findings.
+    private var advisoryNotes: [CaptureAdvisoryNote] = []
     private var sealState: SealState = .mutable
     /// Bounded pending-write admission ledger shared by every mutation
     /// entry point: evidence bytes are reserved before they become
@@ -457,6 +461,11 @@ public actor CaptureWorkingSetStore {
     public static let defaultAdmissionMaxPendingItems = 64
     /// Bounded diagnostic history for resource/persistence events.
     public static let maxResourceEvents = 256
+    /// Deterministic bound on operator/policy advisory provenance
+    /// notes (#216/#257/#273/#274). Each note is a bounded record; a
+    /// count far beyond this indicates abuse rather than legitimate
+    /// scan annotations.
+    public static let maxAdvisoryNotes = 128
 
     public init(
         identity: CaptureWorkingSetIdentity = CaptureWorkingSetIdentity(),
@@ -2839,6 +2848,52 @@ public actor CaptureWorkingSetStore {
         appendResourceEvent(event)
     }
 
+    /// Records one advisory provenance note and rewrites the bounded
+    /// `advisory/operator-advisories.json` derived payload. Exact
+    /// duplicates (same kind/detail/timestamp) are idempotent so a
+    /// retried record does not grow history.
+    public func recordAdvisoryNote(
+        _ note: CaptureAdvisoryNote
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+
+        if !advisoryNotes.contains(note) {
+            guard advisoryNotes.count < Self.maxAdvisoryNotes else {
+                return
+            }
+            advisoryNotes.append(note)
+        }
+
+        let document = CaptureAdvisoryNoteDocument(
+            captureRevisionID: identity.captureRevisionID,
+            notes: advisoryNotes
+        )
+        let data = try document.encoded()
+        let reservation = try reserveAdmission(bytes: data.count)
+        defer { releaseAdmission(reservation) }
+        try await writer.writeIfIdentical(
+            data,
+            to: CaptureStorePath(CaptureAdvisoryNoteDocument.path)
+        )
+        try register(
+            BundlePayloadDeclaration(
+                path: CaptureAdvisoryNoteDocument.path,
+                mediaType: "application/json",
+                producer: "capture_advisory",
+                provenanceClass: .captureAppDerived,
+                role: .derived
+            )
+        )
+    }
+
+    /// The advisory findings currently recorded, exposed as the
+    /// quality-evaluation input.
+    public var advisoryFindings: [QualityDiagnostic] {
+        advisoryNotes.map(\.qualityDiagnostic)
+    }
+
     public func evaluateQuality(
         requirements: CaptureQualityRequirements = .init()
     ) -> CaptureQualityReport {
@@ -2880,7 +2935,10 @@ public actor CaptureWorkingSetStore {
                 measurementQuantityTypesPresent:
                     measurementQuantityTypesPresent,
                 resourceEvents: resourceEvents,
-                integrityStatus: integrityStatus
+                integrityStatus: integrityStatus,
+                advisoryFindings: advisoryNotes.map(
+                    \.qualityDiagnostic
+                )
             ),
             requirements: requirements
         )
@@ -3629,10 +3687,18 @@ public actor CaptureWorkingSetStore {
     private func annotationQualityKey(
         _ entity: CaptureAnnotationEntity
     ) -> String {
-        if entity.type == .speaker,
+        if entity.type == .speaker
+            || entity.type == .subwoofer,
            let role = entity.channelRole
         {
-            return "speaker:\(role.rawValue)"
+            return entity.type.rawValue + ":" + role.rawValue
+        }
+        // Listening-position completeness keys on the typed role,
+        // not the free-text label (#243).
+        if entity.type == .listeningPosition,
+           let role = entity.listeningRole
+        {
+            return entity.type.rawValue + ":" + role.rawValue
         }
         return entity.type.rawValue + ":" + entity.label
     }
@@ -3850,6 +3916,7 @@ public actor CaptureWorkingSetStore {
     ) throws {
         for ref in entity.evidenceRefs
             + entity.placement.sourceEvidenceRefs
+            + entity.contractEvidenceRefs
         {
             try requireSpatialEvidenceLinkCongruence(
                 ref,
