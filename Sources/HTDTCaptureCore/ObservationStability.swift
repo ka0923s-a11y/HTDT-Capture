@@ -19,6 +19,31 @@ public enum ObservationRecheckReason:
     case supportingEvidenceDropped = "supporting_evidence_dropped"
 }
 
+/// Geometry evidence path the scan session is actually capturing.
+///
+/// The tracker infers this from the observed samples rather than from an
+/// assumed configuration: `hasSceneDepth` proves the session produces
+/// scene-depth evidence and `activeMeshAnchorCount > 0` proves it
+/// produces mesh anchors. A session whose active depth strategy is the
+/// bounded scene-depth fallback never reports mesh anchors, so requiring
+/// mesh support would make stability unreachable; conversely a session
+/// that has produced both kinds of evidence keeps the stronger combined
+/// criterion.
+public enum ObservationGeometryEvidenceMode:
+    String,
+    Sendable,
+    Equatable
+{
+    /// No geometry evidence has been observed in the session yet.
+    case none
+    /// Only scene-depth evidence has been observed (depth fallback).
+    case depthOnly = "depth_only"
+    /// Only mesh-anchor evidence has been observed.
+    case meshOnly = "mesh_only"
+    /// Both depth and mesh evidence have been observed.
+    case meshAndDepth = "mesh_and_depth"
+}
+
 public struct ObservationStabilitySummary:
     Sendable,
     Equatable
@@ -34,6 +59,7 @@ public struct ObservationStabilitySummary:
     public let meshSupportFraction: Double
     public let movementConsistencyFraction: Double
     public let recheckReason: ObservationRecheckReason?
+    public let geometryEvidenceMode: ObservationGeometryEvidenceMode
 
     public init(
         sectorCount: Int,
@@ -46,7 +72,8 @@ public struct ObservationStabilitySummary:
         depthSupportFraction: Double,
         meshSupportFraction: Double,
         movementConsistencyFraction: Double,
-        recheckReason: ObservationRecheckReason?
+        recheckReason: ObservationRecheckReason?,
+        geometryEvidenceMode: ObservationGeometryEvidenceMode = .none
     ) {
         self.sectorCount = sectorCount
         self.referenceYawRadians = referenceYawRadians
@@ -59,6 +86,7 @@ public struct ObservationStabilitySummary:
         self.meshSupportFraction = meshSupportFraction
         self.movementConsistencyFraction = movementConsistencyFraction
         self.recheckReason = recheckReason
+        self.geometryEvidenceMode = geometryEvidenceMode
     }
 
     public static var empty: ObservationStabilitySummary {
@@ -73,7 +101,8 @@ public struct ObservationStabilitySummary:
             depthSupportFraction: 0,
             meshSupportFraction: 0,
             movementConsistencyFraction: 0,
-            recheckReason: nil
+            recheckReason: nil,
+            geometryEvidenceMode: .none
         )
     }
 
@@ -106,6 +135,8 @@ public struct ObservationStabilityTracker: Sendable {
     private var referenceYawRadians: Double?
     private var currentSectorIndex: Int?
     private var regions: [RegionEvidence]
+    private var sessionDepthEvidenceObserved = false
+    private var sessionMeshEvidenceObserved = false
 
     public init(sectorCount: Int = 12) {
         precondition(sectorCount > 0)
@@ -120,6 +151,16 @@ public struct ObservationStabilityTracker: Sendable {
     public mutating func record(
         _ sample: ScanCoverageSample
     ) -> ObservationStabilitySummary {
+        // The active geometry evidence path is session-level metadata:
+        // a sample still proves depth/mesh availability even when its
+        // pose or tracking is not usable for region accumulation.
+        if sample.hasSceneDepth {
+            sessionDepthEvidenceObserved = true
+        }
+        if sample.activeMeshAnchorCount > 0 {
+            sessionMeshEvidenceObserved = true
+        }
+
         guard sample.yawRadians.isFinite,
               sample.pitchRadians.isFinite
         else {
@@ -189,7 +230,10 @@ public struct ObservationStabilityTracker: Sendable {
             region.consecutiveWeakSupportCount = 0
         }
 
-        if Self.isWellObserved(region) {
+        if Self.isWellObserved(
+            region,
+            geometryEvidenceMode: geometryEvidenceMode
+        ) {
             region.reachedWellObserved = true
         }
 
@@ -212,7 +256,8 @@ public struct ObservationStabilityTracker: Sendable {
                 depthSupportFraction: 0,
                 meshSupportFraction: 0,
                 movementConsistencyFraction: 0,
-                recheckReason: nil
+                recheckReason: nil,
+                geometryEvidenceMode: geometryEvidenceMode
             )
         }
 
@@ -250,7 +295,10 @@ public struct ObservationStabilityTracker: Sendable {
         let state: ObservationConfidenceState
         if normalCount < 3 {
             state = .provisional
-        } else if Self.isWellObserved(region),
+        } else if Self.isWellObserved(
+                      region,
+                      geometryEvidenceMode: geometryEvidenceMode
+                  ),
                   stabilityScore >= 0.68
         {
             state = .wellObserved
@@ -266,7 +314,11 @@ public struct ObservationStabilityTracker: Sendable {
         } else if normalCount >= 10,
                   diversityCount >= 3,
                   region.consistentMovementCount >= 2,
-                  (depthFraction < 0.35 || meshFraction < 0.35)
+                  Self.activeGeometrySupportFraction(
+                      geometryEvidenceMode: geometryEvidenceMode,
+                      depthFraction: depthFraction,
+                      meshFraction: meshFraction
+                  ) < 0.35
         {
             recheckReason = .supportingEvidenceWeak
         } else {
@@ -284,18 +336,79 @@ public struct ObservationStabilityTracker: Sendable {
             depthSupportFraction: depthFraction,
             meshSupportFraction: meshFraction,
             movementConsistencyFraction: movementFraction,
-            recheckReason: recheckReason
+            recheckReason: recheckReason,
+            geometryEvidenceMode: geometryEvidenceMode
         )
     }
 
+    /// Geometry evidence path inferred from the samples recorded so far.
+    ///
+    /// The required supporting evidence follows this mode: a session that
+    /// has only produced scene depth is scored on depth alone (the bounded
+    /// fallback must not demand nonexistent mesh anchors), a mesh-only
+    /// session is scored on mesh alone, a session producing both keeps the
+    /// stronger combined requirement, and a session with no geometry
+    /// evidence can never be well observed.
+    private var geometryEvidenceMode: ObservationGeometryEvidenceMode {
+        switch (
+            sessionMeshEvidenceObserved,
+            sessionDepthEvidenceObserved
+        ) {
+        case (true, true):
+            return .meshAndDepth
+        case (true, false):
+            return .meshOnly
+        case (false, true):
+            return .depthOnly
+        case (false, false):
+            return .none
+        }
+    }
+
     private static func isWellObserved(
-        _ region: RegionEvidence
+        _ region: RegionEvidence,
+        geometryEvidenceMode: ObservationGeometryEvidenceMode
     ) -> Bool {
-        region.normalObservationCount >= 8
-        && region.viewAngleMask.nonzeroBitCount >= 3
-        && region.depthSupportCount >= 4
-        && region.meshSupportCount >= 4
-        && region.consistentMovementCount >= 2
+        guard region.normalObservationCount >= 8,
+              region.viewAngleMask.nonzeroBitCount >= 3,
+              region.consistentMovementCount >= 2
+        else {
+            return false
+        }
+
+        switch geometryEvidenceMode {
+        case .meshAndDepth:
+            return region.depthSupportCount >= 4
+                && region.meshSupportCount >= 4
+        case .depthOnly:
+            return region.depthSupportCount >= 4
+        case .meshOnly:
+            return region.meshSupportCount >= 4
+        case .none:
+            return false
+        }
+    }
+
+    /// Fraction of normal observations carrying the session's active
+    /// geometry evidence. A mesh+depth session is scored by the weaker of
+    /// its two evidence paths, while a single-path session is scored only
+    /// on the path it is actually capturing. A session with no observed
+    /// geometry evidence reports zero so weak support still rechecks.
+    private static func activeGeometrySupportFraction(
+        geometryEvidenceMode: ObservationGeometryEvidenceMode,
+        depthFraction: Double,
+        meshFraction: Double
+    ) -> Double {
+        switch geometryEvidenceMode {
+        case .meshAndDepth:
+            return min(depthFraction, meshFraction)
+        case .depthOnly:
+            return depthFraction
+        case .meshOnly:
+            return meshFraction
+        case .none:
+            return 0
+        }
     }
 
     private func sectorIndex(
