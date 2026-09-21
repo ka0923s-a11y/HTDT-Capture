@@ -10,7 +10,7 @@ import argparse
 import hashlib
 import json
 import math
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import sys
 import unicodedata
 import zipfile
@@ -22,7 +22,9 @@ if __package__ in (None, ""):
 
 from tools.bundle_validator.validator import (
     PROVENANCE,
+    DirectorySource,
     ValidationError,
+    ZipSource,
     canonical_json_bytes,
     parse_json_bytes,
     validate_bundle,
@@ -90,34 +92,88 @@ def canonical_plan_bytes(value) -> bytes:
 
 
 class ValidatedBundleReader:
+    """Serves bundle payloads from bytes frozen at the validation boundary.
+
+    ``validate_bundle(path)`` proves the on-disk bundle matches its canonical
+    manifest and yields the authoritative ``bundle_digest``. The reader then
+    snapshots every bundle member once through the validator's own source
+    abstraction and re-verifies the snapshot against the validated manifest:
+    the frozen manifest must hash to ``bundle_digest``, the frozen file set
+    must equal the declared payload set, and every frozen payload must match
+    its manifest byte length and SHA-256. All ``read`` calls then serve only
+    these frozen, hash-verified bytes, so the bytes parsed by ingestion are
+    exactly the bytes hashed into ``bundle_digest`` even if the supplied path
+    mutates after validation. A mutable input therefore fails closed instead
+    of producing lineage bound to stale hashes.
+    """
+
     def __init__(self, path: Path):
         self.path = path
         self.report = validate_bundle(path)
-        self._archive: zipfile.ZipFile | None = None
-        if path.is_file():
-            self._archive = zipfile.ZipFile(path, "r")
+        self._payloads = self._freeze_verified_payloads()
+
+    def _freeze_verified_payloads(self) -> dict[str, bytes]:
+        source: DirectorySource | ZipSource
+        archive: zipfile.ZipFile | None = None
+        if self.path.is_dir():
+            source = DirectorySource(self.path)
+        else:
+            source = ZipSource(self.path)
+            archive = source.zf
+        try:
+            payloads = {
+                name: source.read_bytes(name)
+                for name in source.list_files()
+            }
+        finally:
+            if archive is not None:
+                archive.close()
+
+        manifest_bytes = payloads.get("manifest.json")
+        if manifest_bytes is None:
+            raise IngestionError(
+                "manifest.json missing from bundle after validation"
+            )
+        digest = hashlib.sha256(manifest_bytes).hexdigest()
+        if digest != self.report["bundle_digest"]:
+            raise IngestionError(
+                "bundle manifest changed after validation: "
+                "refusing to ingest bytes outside the validated digest"
+            )
+
+        manifest = parse_json_bytes(manifest_bytes)
+        declared = {entry["path"]: entry for entry in manifest["files"]}
+        expected = set(declared) | {"manifest.json"}
+        if set(payloads) != expected:
+            raise IngestionError(
+                "bundle file set changed after validation: "
+                "refusing to ingest a mutated bundle"
+            )
+        for entry_path, entry in declared.items():
+            data = payloads[entry_path]
+            if (
+                len(data) != entry["bytes"]
+                or hashlib.sha256(data).hexdigest() != entry["sha256"]
+            ):
+                raise IngestionError(
+                    "bundle payload changed after validation: "
+                    f"{entry_path}"
+                )
+        return payloads
 
     def close(self) -> None:
-        if self._archive is not None:
-            self._archive.close()
-            self._archive = None
+        self._payloads = None
 
     def read(self, logical_path: str) -> bytes:
         logical_path = validate_relative_path(logical_path)
-        if self._archive is not None:
-            try:
-                return self._archive.read(logical_path)
-            except KeyError as exc:
-                raise IngestionError(
-                    f"validated archive member unexpectedly missing: {logical_path}"
-                ) from exc
-
-        target = self.path.joinpath(*PurePosixPath(logical_path).parts)
-        if not target.is_file():
+        if self._payloads is None:
+            raise IngestionError("bundle reader is closed")
+        try:
+            return self._payloads[logical_path]
+        except KeyError as exc:
             raise IngestionError(
-                f"validated directory payload unexpectedly missing: {logical_path}"
-            )
-        return target.read_bytes()
+                f"validated bundle payload unexpectedly missing: {logical_path}"
+            ) from exc
 
 
 def _source_evidence_id(
