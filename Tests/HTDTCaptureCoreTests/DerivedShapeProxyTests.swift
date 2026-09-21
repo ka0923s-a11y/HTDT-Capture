@@ -978,6 +978,55 @@ final class DerivedShapeProxyTests: XCTestCase {
         )
     }
 
+    func testUnclassifiedMeshFacesAreNotFurnitureEvidence()
+        throws
+    {
+        // The object-shape fallback is limited to semantically supported
+        // furniture classes (table=4, seat=5). Unclassified faces (none=0)
+        // must not be promoted into an object footprint just because the
+        // focused depth target was unresolved.
+        let coordinateSpaceID = testCoordinateSpaceID
+        let geometry = try MeshGeometryPayload(
+            vertices: [
+                Float3(-1, 0, -1),
+                Float3(1, 0, -1),
+                Float3(1, 0, 1),
+                Float3(-1, 0, 1),
+            ],
+            triangleIndices: [
+                0, 1, 2,
+                0, 2, 3,
+            ],
+            faceClassifications: [0, 0]
+        )
+        let snapshot = MeshAnchorSnapshot(
+            anchorID: UUID(
+                uuidString:
+                    "00000000-0000-4000-8000-000000000444"
+            )!,
+            captureSessionID: CaptureSessionID(
+                rawValue: UUID(
+                    uuidString:
+                        "00000000-0000-4000-8000-000000000555"
+                )!
+            ),
+            coordinateSpaceID: coordinateSpaceID,
+            worldFromAnchor: .identity,
+            sessionTimestampSeconds: 7.5,
+            geometry: geometry
+        )
+
+        let extracted =
+            try MeshDerivedShapeObservationBuilder.build(
+                snapshots: [snapshot],
+                allowedFaceClassifications: [4, 5],
+                voxelSizeMeters: 0.01,
+                maxPoints: 16
+            )
+
+        XCTAssertNil(extracted)
+    }
+
     private var testCoordinateSpaceID: CoordinateSpaceID {
         CoordinateSpaceID(
             rawValue: UUID(
@@ -1072,7 +1121,7 @@ final class DerivedShapeProxyTests: XCTestCase {
             {
                 let b1 = ring[j]
                 let b2 = ring[(j + 1) % count]
-                if testSegmentsShareAnyPoint(
+                if segmentsShareAnyPoint(
                     a1, a2, b1, b2
                 ) {
                     return false
@@ -1082,7 +1131,7 @@ final class DerivedShapeProxyTests: XCTestCase {
         return true
     }
 
-    private func testSegmentsShareAnyPoint(
+    private func segmentsShareAnyPoint(
         _ p1: DerivedPoint2D,
         _ p2: DerivedPoint2D,
         _ q1: DerivedPoint2D,
