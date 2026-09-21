@@ -49,6 +49,21 @@ private func finalizeFixture(
             isDirectory: false
         )
     )
+    let qualityDirectory = staging.appendingPathComponent(
+        "quality",
+        isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+        at: qualityDirectory,
+        withIntermediateDirectories: true
+    )
+    let qualityEncoder = JSONEncoder()
+    qualityEncoder.outputFormatting = [.sortedKeys]
+    try qualityEncoder.encode(inventoryTestQuality()).write(
+        to: qualityDirectory.appendingPathComponent(
+            "capture-quality.json"
+        )
+    )
 
     let request = BundleFinalizationRequest(
         captureSeriesID: CaptureSeriesID(),
@@ -66,6 +81,13 @@ private func finalizeFixture(
                 path: "payload.bin",
                 mediaType: "application/octet-stream",
                 producer: "inventory-test",
+                provenanceClass: .captureAppDerived,
+                role: .canonical
+            ),
+            BundlePayloadDeclaration(
+                path: "quality/capture-quality.json",
+                mediaType: "application/json",
+                producer: "capture_quality",
                 provenanceClass: .captureAppDerived,
                 role: .canonical
             ),
