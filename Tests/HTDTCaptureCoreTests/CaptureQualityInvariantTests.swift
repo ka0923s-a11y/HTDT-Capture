@@ -66,7 +66,11 @@ func evaluatorDiagnosticsHaveTotalDeterministicOrder() {
     ]
 
     let forward = evaluate([firstEvent, secondEvent])
-    #expect(forward.map { ($0.code, $0.message) } == expected)
+    // Tuples are not Equatable; compare as two-element arrays.
+    #expect(
+        forward.map { [$0.code, $0.message] }
+            == expected.map { [$0.0, $0.1] }
+    )
 
     // Same logical observation, different arrival order: identical
     // serialized diagnostics.

@@ -10,81 +10,75 @@ func trackingGateRecordsBaselineThenCompactsIdenticalSamples() {
         sessionTimestampSeconds: 1.0,
         state: .normal
     )
-    #expect(gate.shouldRecord(first))
+    let baseline = gate.shouldRecord(first)
+    #expect(baseline)
 
     // Same state and reason, advancing timestamps: compacted away.
-    #expect(
-        !gate.shouldRecord(
-            TrackingQualityEvent(
-                sessionTimestampSeconds: 1.25,
-                state: .normal
-            )
+    let repeatA = gate.shouldRecord(
+        TrackingQualityEvent(
+            sessionTimestampSeconds: 1.25,
+            state: .normal
         )
     )
-    #expect(
-        !gate.shouldRecord(
-            TrackingQualityEvent(
-                sessionTimestampSeconds: 1.5,
-                state: .normal
-            )
+    #expect(!repeatA)
+    let repeatB = gate.shouldRecord(
+        TrackingQualityEvent(
+            sessionTimestampSeconds: 1.5,
+            state: .normal
         )
     )
+    #expect(!repeatB)
 }
 
 @Test
 func trackingGateEmitsStateAndReasonTransitions() {
     var gate = ScanTrackingTransitionGate()
 
-    #expect(
-        gate.shouldRecord(
-            TrackingQualityEvent(
-                sessionTimestampSeconds: 0.0,
-                state: .normal
-            )
+    let baseline = gate.shouldRecord(
+        TrackingQualityEvent(
+            sessionTimestampSeconds: 0.0,
+            state: .normal
         )
     )
+    #expect(baseline)
 
     // normal -> limited (with reason) is a transition.
-    #expect(
-        gate.shouldRecord(
-            TrackingQualityEvent(
-                sessionTimestampSeconds: 0.5,
-                state: .limited,
-                reason: "insufficient_features"
-            )
+    let toLimited = gate.shouldRecord(
+        TrackingQualityEvent(
+            sessionTimestampSeconds: 0.5,
+            state: .limited,
+            reason: "insufficient_features"
         )
     )
+    #expect(toLimited)
 
     // Same state, changed reason is also a transition.
-    #expect(
-        gate.shouldRecord(
-            TrackingQualityEvent(
-                sessionTimestampSeconds: 0.75,
-                state: .limited,
-                reason: "excessive_motion"
-            )
+    let reasonChange = gate.shouldRecord(
+        TrackingQualityEvent(
+            sessionTimestampSeconds: 0.75,
+            state: .limited,
+            reason: "excessive_motion"
         )
     )
+    #expect(reasonChange)
 
     // limited -> unavailable is a transition.
-    #expect(
-        gate.shouldRecord(
-            TrackingQualityEvent(
-                sessionTimestampSeconds: 1.0,
-                state: .unavailable
-            )
+    let toUnavailable = gate.shouldRecord(
+        TrackingQualityEvent(
+            sessionTimestampSeconds: 1.0,
+            state: .unavailable
         )
     )
+    #expect(toUnavailable)
 
     // unavailable -> normal recovery is a transition.
-    #expect(
-        gate.shouldRecord(
-            TrackingQualityEvent(
-                sessionTimestampSeconds: 1.5,
-                state: .normal
-            )
+    let recovered = gate.shouldRecord(
+        TrackingQualityEvent(
+            sessionTimestampSeconds: 1.5,
+            state: .normal
         )
     )
+    #expect(recovered)
 }
 
 @Test
@@ -96,9 +90,12 @@ func trackingGateResetRestoresBaselineRecording() {
         state: .limited,
         reason: "relocalizing"
     )
-    #expect(gate.shouldRecord(event))
-    #expect(!gate.shouldRecord(event))
+    let first = gate.shouldRecord(event)
+    #expect(first)
+    let repeatSame = gate.shouldRecord(event)
+    #expect(!repeatSame)
 
     gate.reset()
-    #expect(gate.shouldRecord(event))
+    let afterReset = gate.shouldRecord(event)
+    #expect(afterReset)
 }

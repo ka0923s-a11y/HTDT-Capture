@@ -942,11 +942,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // finalization; the Review working set is still correctable.
             reviewOperationInFlight = true
             let generation = captureGeneration
-            let rootDirectory = store.rootDirectory
             Task { @MainActor [weak self] in
                 guard let self else {
                     return
                 }
+                let rootDirectory = await store.rootDirectory
                 let loaded = await Task.detached(
                     priority: .userInitiated
                 ) { () -> AnnotationWorkspaceSeed? in
@@ -1853,7 +1853,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
             let activeRevisionID =
-                self.workingSetStore?.identity.captureRevisionID
+                await self.workingSetStore?.identity.captureRevisionID
             let inventory = await Task.detached(
                 priority: .utility
             ) {

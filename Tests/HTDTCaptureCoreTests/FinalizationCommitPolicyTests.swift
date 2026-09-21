@@ -47,7 +47,9 @@ func adoptFinalizedIsRejectedOutsideCommitBoundaries() {
 func inactiveCommitDoesNotFenceFailures() {
     var policy = FinalizationCommitPolicy()
     #expect(!policy.isClaimed)
-    #expect(policy.fenceLifecycleFailure(.interrupted) == false)
+    let fencedInactive =
+        policy.fenceLifecycleFailure(.interrupted)
+    #expect(fencedInactive == false)
     #expect(policy.preCommitFailure() == nil)
     #expect(policy.postCommitFailure() == nil)
 }
@@ -58,14 +60,18 @@ func claimedCommitFencesLifecycleFailureBeforePromotion() {
     policy.claimCommit()
 
     #expect(policy.isClaimed)
-    #expect(policy.fenceLifecycleFailure(.interrupted))
+    let fencedInterrupted =
+        policy.fenceLifecycleFailure(.interrupted)
+    #expect(fencedInterrupted)
     // Non-lifecycle failures are never fenced.
-    #expect(
-        policy.fenceLifecycleFailure(.persistenceFailure) == false
-    )
+    let fencedPersistence =
+        policy.fenceLifecycleFailure(.persistenceFailure)
+    #expect(fencedPersistence == false)
     // Only the first fenced failure is retained for a deterministic
     // resolution.
-    #expect(policy.fenceLifecycleFailure(.thermalPressure))
+    let fencedThermal =
+        policy.fenceLifecycleFailure(.thermalPressure)
+    #expect(fencedThermal)
     #expect(policy.preCommitFailure() == .interrupted)
     #expect(policy.postCommitFailure() == nil)
 }
@@ -74,7 +80,9 @@ func claimedCommitFencesLifecycleFailureBeforePromotion() {
 func promotedCommitWinsOverFencedFailure() {
     var policy = FinalizationCommitPolicy()
     policy.claimCommit()
-    #expect(policy.fenceLifecycleFailure(.storagePressure))
+    let fencedStorage =
+        policy.fenceLifecycleFailure(.storagePressure)
+    #expect(fencedStorage)
 
     policy.markPromoted()
     #expect(policy.isPromoted)
@@ -87,7 +95,9 @@ func promotedCommitWinsOverFencedFailure() {
     var promotedPolicy = FinalizationCommitPolicy(
         phase: .promoted
     )
-    #expect(promotedPolicy.fenceLifecycleFailure(.interrupted))
+    let fencedInterrupted =
+        promotedPolicy.fenceLifecycleFailure(.interrupted)
+    #expect(fencedInterrupted)
     #expect(promotedPolicy.postCommitFailure() == .interrupted)
 }
 
@@ -95,12 +105,16 @@ func promotedCommitWinsOverFencedFailure() {
 func resolvedCommitStopsFencing() {
     var policy = FinalizationCommitPolicy()
     policy.claimCommit()
-    #expect(policy.fenceLifecycleFailure(.thermalPressure))
+    let fencedThermal =
+        policy.fenceLifecycleFailure(.thermalPressure)
+    #expect(fencedThermal)
     policy.reset()
 
     #expect(!policy.isClaimed)
     #expect(policy.fencedFailure == nil)
-    #expect(policy.fenceLifecycleFailure(.interrupted) == false)
+    let fencedAfterReset =
+        policy.fenceLifecycleFailure(.interrupted)
+    #expect(fencedAfterReset == false)
     #expect(policy.preCommitFailure() == nil)
     #expect(policy.postCommitFailure() == nil)
 }

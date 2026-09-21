@@ -47,9 +47,10 @@ final class RoomPlanMetadataLineageTests: XCTestCase {
         )
         XCTAssertEqual(document.schema, "htdt.captured-room-metadata")
         XCTAssertEqual(document.schemaVersion, "1.0.0")
+        let revisionID = await store.identity.captureRevisionID
         XCTAssertEqual(
             document.captureRevisionID,
-            store.identity.captureRevisionID
+            revisionID
         )
         XCTAssertEqual(document.captureSessionID, sessionID)
         XCTAssertEqual(document.coordinateSpaceID, coordinateID)
