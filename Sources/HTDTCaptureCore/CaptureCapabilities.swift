@@ -1,5 +1,13 @@
 import Foundation
 
+/// Resolved capture mode (#248). Production startup intentionally
+/// requires `roomPlanMesh` (Option B): a scan only begins on a device
+/// whose configuration can run RoomPlan with scene reconstruction.
+/// `evidenceDepth`/`degradedNoDepth` are *runtime resolution* outcomes
+/// persisted from the active configuration — e.g. mesh reconstruction
+/// missing on the running configuration after a mesh-eligible start —
+/// and the bounded quality fallback, never modes the operator can
+/// select at scan start.
 public enum CaptureMode: String, Codable, Sendable, CaseIterable {
     case roomPlanMesh = "roomplan_mesh"
     case evidenceDepth = "evidence_depth"
@@ -46,6 +54,17 @@ public struct CaptureCapabilityMatrix: Codable, Sendable, Equatable {
             && combinedRoomPlanSceneDepthVerified == nil
     }
 
+    /// Modes a scan may start in (#248, Option B). Production capture
+    /// requires RoomPlan + scene reconstruction, so the only startup
+    /// mode is `roomPlanMesh`.
+    public var startupModes: [CaptureMode] {
+        roomPlanMeshEligible ? [.roomPlanMesh] : []
+    }
+
+    /// Modes the running configuration may resolve to during or after
+    /// a mesh-eligible start. Degraded entries describe observed
+    /// runtime fallbacks for evidence/quality semantics, not operator
+    /// startup choices.
     public var allowedModes: [CaptureMode] {
         guard roomPlanMeshEligible else { return [] }
         var modes: [CaptureMode] = [.roomPlanMesh, .degradedNoDepth]
