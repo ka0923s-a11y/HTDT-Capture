@@ -32,10 +32,23 @@ public struct QualityDiagnostic: Codable, Sendable, Equatable {
         message: String,
         evidenceRefs: [String] = []
     ) {
+        // Producer-side wire invariants: the quality schema requires
+        // non-empty code/message and unique, non-empty evidence refs.
+        precondition(
+            !code.isEmpty,
+            "quality diagnostic code must be non-empty"
+        )
+        precondition(
+            !message.isEmpty,
+            "quality diagnostic message must be non-empty"
+        )
         self.code = code
         self.severity = severity
         self.message = message
-        self.evidenceRefs = evidenceRefs
+        var seen = Set<String>()
+        self.evidenceRefs = evidenceRefs.filter {
+            !$0.isEmpty && seen.insert($0).inserted
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -76,7 +89,12 @@ public struct TrackingQualityEvent: Codable, Sendable, Equatable {
         state: TrackingQualityState,
         reason: String? = nil
     ) {
-        self.sessionTimestampSeconds = sessionTimestampSeconds
+        // The quality schema requires a finite, non-negative session
+        // timestamp and canonical JSON cannot represent non-finite
+        // values, so invalid inputs normalize to the session origin.
+        self.sessionTimestampSeconds = sessionTimestampSeconds.isFinite
+            ? max(0, sessionTimestampSeconds)
+            : 0
         self.state = state
         self.reason = reason
     }
@@ -85,6 +103,24 @@ public struct TrackingQualityEvent: Codable, Sendable, Equatable {
         case sessionTimestampSeconds = "session_timestamp_s"
         case state
         case reason
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            sessionTimestampSeconds: try container.decode(
+                Double.self,
+                forKey: .sessionTimestampSeconds
+            ),
+            state: try container.decode(
+                TrackingQualityState.self,
+                forKey: .state
+            ),
+            reason: try container.decodeIfPresent(
+                String.self,
+                forKey: .reason
+            )
+        )
     }
 }
 
@@ -165,9 +201,14 @@ public struct CompletenessStatus: Codable, Sendable, Equatable {
     public let missing: [String]
 
     public init(required: Set<String>, present: Set<String>) {
-        self.required = required.sorted()
-        self.present = present.sorted()
-        self.missing = required.subtracting(present).sorted()
+        // The quality schema requires unique, non-empty string entries.
+        let normalizedRequired = required.filter { !$0.isEmpty }
+        let normalizedPresent = present.filter { !$0.isEmpty }
+        self.required = normalizedRequired.sorted()
+        self.present = normalizedPresent.sorted()
+        self.missing = normalizedRequired
+            .subtracting(normalizedPresent)
+            .sorted()
     }
 
     public var isComplete: Bool {
@@ -215,11 +256,14 @@ public struct CaptureQualityObservation: Sendable, Equatable {
     ) {
         self.trackingEvents = trackingEvents
         self.roomPlanStatus = roomPlanStatus
-        self.activeMeshAnchorCount = activeMeshAnchorCount
-        self.evidenceFrameCount = evidenceFrameCount
-        self.depthEvidenceCount = depthEvidenceCount
+        // The quality schema requires non-negative counts.
+        self.activeMeshAnchorCount = max(0, activeMeshAnchorCount)
+        self.evidenceFrameCount = max(0, evidenceFrameCount)
+        self.depthEvidenceCount = max(0, depthEvidenceCount)
         self.usableMeshAnchorCount = usableMeshAnchorCount
+            .map { max(0, $0) }
         self.usableDepthSampleCount = usableDepthSampleCount
+            .map { max(0, $0) }
         self.annotationKeysPresent = annotationKeysPresent
         self.measurementQuantityTypesPresent =
             measurementQuantityTypesPresent
@@ -324,10 +368,10 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
         }
         self.rulesetVersion = rulesetVersion
         self.requireCompletedRoomPlan = requireCompletedRoomPlan
-        self.minimumActiveMeshAnchors = minimumActiveMeshAnchors
+        self.minimumActiveMeshAnchors = max(0, minimumActiveMeshAnchors)
         self.allowDepthEvidenceAsMeshFallback =
             allowDepthEvidenceAsMeshFallback
-        self.minimumEvidenceFrames = minimumEvidenceFrames
+        self.minimumEvidenceFrames = max(0, minimumEvidenceFrames)
         self.requireDepthEvidence = requireDepthEvidence
         self.requiredAnnotationKeys = requiredAnnotationKeys
         self.requiredMeasurementQuantityTypes =
@@ -598,8 +642,26 @@ public enum CaptureQualityEvaluator {
             measurementCompleteness: measurementStatus,
             resourceEvents: orderedResourceEvents,
             integrityStatus: observation.integrityStatus,
-            benchmarkRefs: observation.benchmarkRefs.sorted(),
+            benchmarkRefs: canonicalBenchmarkRefs(
+                observation.benchmarkRefs
+            ),
             diagnostics: diagnostics
         )
+    }
+
+    /// Canonical benchmark-ref policy: empty refs are dropped and the
+    /// remainder is deduplicated then sorted ascending, matching the
+    /// unique, non-empty wire invariant deterministically.
+    private static func canonicalBenchmarkRefs(
+        _ refs: [String]
+    ) -> [String] {
+        var seen = Set<String>()
+        var canonical: [String] = []
+        for ref in refs.sorted() where !ref.isEmpty {
+            if seen.insert(ref).inserted {
+                canonical.append(ref)
+            }
+        }
+        return canonical
     }
 }
