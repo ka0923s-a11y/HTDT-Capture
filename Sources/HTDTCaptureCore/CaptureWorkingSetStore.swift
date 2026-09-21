@@ -21,6 +21,7 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     case invalidCoordinateTransition
     case coordinateTransitionLimitExceeded
     case unsafeDiscardPath
+    case invalidSupplementalDocument
     case workingSetSealed
     case workingSetNotSealed
     case workingSetConsumed
@@ -387,6 +388,11 @@ public actor CaptureWorkingSetStore {
     private var framePreviews: [DerivedFramePreviewReference] = []
     private var annotationCollection: CaptureAnnotationCollection?
     private var measurementCollection: CaptureMeasurementCollection?
+    /// Committed supplemental-document bytes keyed by bundle path —
+    /// the write-once ledger for feature payloads committed through
+    /// `persistSupplementalDocument` (issues #222/#226/#227/#240/
+    /// #249/#293).
+    private var supplementalDocuments: [String: Data] = [:]
     private var annotationKeysPresent: Set<String> = []
     private var measurementQuantityTypesPresent: Set<String> = []
     private var sessionFoundation:
@@ -2614,6 +2620,146 @@ public actor CaptureWorkingSetStore {
         )
     }
 
+    /// Commits a supplemental feature payload (issues #222/#226/#227/
+    /// #240/#249/#293). Same rules as the typed families: admission is
+    /// reserved, every claimed coordinate space must match the bound
+    /// authority, the committed bytes are write-once, and the
+    /// declaration registers into the manifest set so integrity and
+    /// finalization see the file. Identical replays are idempotent.
+    public func persistSupplementalDocument(
+        _ document: WorkingSetSupplementalDocument
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        let admissionReservation = try reserveAdmission(
+            bytes: document.data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
+
+        for space in document.coordinateSpaceIDs {
+            try validateCoordinateAuthority(space)
+        }
+        if let boundSession = captureSessionID {
+            guard document.captureSessionIDs.allSatisfy({
+                $0 == boundSession
+            }) else {
+                throw CaptureWorkingSetError.authorityMismatch
+            }
+        }
+
+        if let existing = supplementalDocuments[document.path] {
+            if existing == document.data {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(document.path)
+        }
+        if let existing = declarations[document.path],
+           existing != document.declaration
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(document.path)
+        }
+
+        try await writer.writeIfIdentical(
+            document.data,
+            to: CaptureStorePath(document.path)
+        )
+
+        // Re-check after the writer suspension: an identical reentrant
+        // commit is idempotent; any other authority fails closed.
+        if let existing = supplementalDocuments[document.path] {
+            if existing == document.data {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(document.path)
+        }
+        guard declarations[document.path] == nil
+                || declarations[document.path] == document.declaration
+        else {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(document.path)
+        }
+
+        // No suspension points below: binding, declaration, and ledger
+        // publish as one commit (issue #202).
+        for space in document.coordinateSpaceIDs {
+            try publishCoordinateAuthority(space)
+        }
+        declarations[document.path] = document.declaration
+        supplementalDocuments[document.path] = document.data
+    }
+
+    /// Replaces a committed supplemental document (e.g. evolving
+    /// task-plan status, reference-target observations, or a rebuilt
+    /// derived-candidate payload after Continue scanning). The
+    /// manifest declaration for the path must be identical — only the
+    /// payload bytes evolve.
+    public func replaceSupplementalDocument(
+        _ document: WorkingSetSupplementalDocument
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        let admissionReservation = try reserveAdmission(
+            bytes: document.data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
+
+        for space in document.coordinateSpaceIDs {
+            try validateCoordinateAuthority(space)
+        }
+        if let boundSession = captureSessionID {
+            guard document.captureSessionIDs.allSatisfy({
+                $0 == boundSession
+            }) else {
+                throw CaptureWorkingSetError.authorityMismatch
+            }
+        }
+
+        if let existing = supplementalDocuments[document.path],
+           existing == document.data
+        {
+            return
+        }
+        if let existing = declarations[document.path],
+           existing != document.declaration
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(document.path)
+        }
+
+        let prior = supplementalDocuments[document.path]
+        try await writer.writeBatchReplacing([
+            try CaptureFileWriteRequest(
+                data: document.data,
+                path: CaptureStorePath(document.path)
+            ),
+        ])
+
+        // Re-check after actor suspension: a mutation that interleaved
+        // across the write is detected instead of silently mixing
+        // committed bytes.
+        guard supplementalDocuments[document.path] == prior else {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(document.path)
+        }
+        guard declarations[document.path] == nil
+                || declarations[document.path] == document.declaration
+        else {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(document.path)
+        }
+
+        for space in document.coordinateSpaceIDs {
+            try publishCoordinateAuthority(space)
+        }
+        declarations[document.path] = document.declaration
+        supplementalDocuments[document.path] = document.data
+    }
+
     /// Records one tracking-quality sample into bounded canonical history.
     ///
     /// Consecutive samples sharing one state/reason compact into a single
@@ -3646,6 +3792,17 @@ public actor CaptureWorkingSetStore {
                     )
                 }
             }
+        }
+
+        // Supplemental documents commit by byte ledger: the sealed set
+        // must hold exactly the bytes that were committed.
+        for (path, data) in supplementalDocuments {
+            try verifyFile(
+                path: path,
+                byteCount: data.count,
+                sha256: EvidenceIntegrity.sha256(of: data),
+                actualByPath: actualByPath
+            )
         }
     }
 
