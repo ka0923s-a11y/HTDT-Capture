@@ -150,7 +150,7 @@
           "bytes": 1,
           "media_type": "application/json",
           "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
-          "producer": "roomplan_builder",
+          "producer": "capture_app",
           "provenance_class": "capture_app_derived",
           "role": "canonical"
         }

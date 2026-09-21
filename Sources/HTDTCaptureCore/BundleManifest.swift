@@ -595,7 +595,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
     }
 }
 
-private enum BundleReservedPaths {
+enum BundleReservedPaths {
     struct Binding: Sendable, Equatable {
         let mediaType: String
         let producer: String

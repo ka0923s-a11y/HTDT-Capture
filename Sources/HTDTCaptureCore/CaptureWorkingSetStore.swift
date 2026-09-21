@@ -401,7 +401,8 @@ public actor CaptureWorkingSetStore {
     private var sealGeneration = 0
     /// Mutation entry points currently inside the actor (between their
     /// entry guard and their return). The finalization seal drains this
-    /// counter to zero — through writer fences — before verifying and
+    /// counter to zero — suspending on `mutationDrainers` until the last
+    /// mutation's defer decrements it — before verifying and
     /// snapshotting, so the sealed state deterministically contains
     /// every write that was already owned (issue #180).
     private var inFlightMutations = 0
@@ -415,6 +416,11 @@ public actor CaptureWorkingSetStore {
     /// non-throwing observation sinks. Exposed for diagnostics because
     /// the non-throwing sinks cannot surface the typed error.
     private var sealedMutationRejectionCount = 0
+    /// Suspended seal drains waiting for `inFlightMutations` to reach
+    /// zero. Resumed by the last mutation exit — a direct wakeup instead
+    /// of a writer-actor fence poll, which could starve queued writes
+    /// under the actor executor's non-FIFO job scheduling (issue #180).
+    private var mutationDrainers: [CheckedContinuation<Void, Never>] = []
 
     /// Working-set seal lifecycle for the finalization barrier
     /// (issue #180): `.mutable` accepts mutations; `.sealed` rejects new
@@ -458,7 +464,7 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         try requireMutable()
         inFlightMutations += 1
-        defer { inFlightMutations -= 1 }
+        defer { mutationDidFinish() }
         let admissionReservation = try reserveAdmission(
             bytes: package.sessionData.count
                 + package.capabilitiesData.count
@@ -496,7 +502,7 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         try requireMutable()
         inFlightMutations += 1
-        defer { inFlightMutations -= 1 }
+        defer { mutationDidFinish() }
         let admissionReservation = try reserveAdmission(
             bytes: package.data.count
         )
@@ -553,7 +559,7 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         try requireMutable()
         inFlightMutations += 1
-        defer { inFlightMutations -= 1 }
+        defer { mutationDidFinish() }
 
         guard sessionFoundation != nil else {
             throw CaptureWorkingSetError.timingFoundationMissing
@@ -795,7 +801,7 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         try requireMutable()
         inFlightMutations += 1
-        defer { inFlightMutations -= 1 }
+        defer { mutationDidFinish() }
 
         guard sessionFoundation != nil,
               let expectedTiming = timingDocument,
@@ -1132,7 +1138,7 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         try requireMutable()
         inFlightMutations += 1
-        defer { inFlightMutations -= 1 }
+        defer { mutationDidFinish() }
 
         let descriptor = payload.descriptor
 
@@ -1233,7 +1239,7 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         try requireMutable()
         inFlightMutations += 1
-        defer { inFlightMutations -= 1 }
+        defer { mutationDidFinish() }
 
         let descriptor = payload.descriptor
 
@@ -1423,7 +1429,7 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         try requireMutable()
         inFlightMutations += 1
-        defer { inFlightMutations -= 1 }
+        defer { mutationDidFinish() }
         // One reservation for the whole mesh package: the index plus
         // every geometry blob is one logical pending write, not one
         // admission item per canonical file (issue #147).
@@ -1585,7 +1591,7 @@ public actor CaptureWorkingSetStore {
     public func rollbackCurrentMeshPackage() async throws {
         try requireMutable()
         inFlightMutations += 1
-        defer { inFlightMutations -= 1 }
+        defer { mutationDidFinish() }
 
         guard let expectedMesh = meshIndex else {
             throw CaptureWorkingSetError
@@ -1723,7 +1729,7 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         try requireMutable()
         inFlightMutations += 1
-        defer { inFlightMutations -= 1 }
+        defer { mutationDidFinish() }
         // Reserve the whole frame package — descriptor, pixel, depth,
         // and derived preview payloads — before any of it becomes
         // queued writer work (issue #147).
@@ -1827,7 +1833,7 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         try requireMutable()
         inFlightMutations += 1
-        defer { inFlightMutations -= 1 }
+        defer { mutationDidFinish() }
 
         if let existing = frameDescriptors.first(where: {
             $0.frameID == package.descriptor.frameID
@@ -1973,7 +1979,7 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         try requireMutable()
         inFlightMutations += 1
-        defer { inFlightMutations -= 1 }
+        defer { mutationDidFinish() }
         // One reservation for the two-file transaction — the canonical
         // annotation and measurement files commit together and share
         // one admission item (issue #147).
@@ -2098,7 +2104,7 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         try requireMutable()
         inFlightMutations += 1
-        defer { inFlightMutations -= 1 }
+        defer { mutationDidFinish() }
         let admissionReservation = try reserveAdmission(
             bytes: annotationPackage.data.count
                 + measurementPackage.data.count
@@ -2169,7 +2175,7 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         try requireMutable()
         inFlightMutations += 1
-        defer { inFlightMutations -= 1 }
+        defer { mutationDidFinish() }
         let admissionReservation = try reserveAdmission(
             bytes: package.data.count
         )
@@ -2223,7 +2229,7 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         try requireMutable()
         inFlightMutations += 1
-        defer { inFlightMutations -= 1 }
+        defer { mutationDidFinish() }
         let admissionReservation = try reserveAdmission(
             bytes: package.data.count
         )
@@ -2458,7 +2464,7 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         try requireMutable()
         inFlightMutations += 1
-        defer { inFlightMutations -= 1 }
+        defer { mutationDidFinish() }
 
         try await persistQualityReportPayload(report)
     }
@@ -2541,12 +2547,14 @@ public actor CaptureWorkingSetStore {
         let generation = sealGeneration
         do {
             // Wait for already-owned writes: suspended mutations resume
-            // while this seal parks on the writer fence, finish their
+            // while this seal parks on a drain continuation, finish their
             // commit, and decrement inFlightMutations. New mutations are
             // already rejected by requireMutable(), so the counter only
-            // converges to zero.
+            // converges to zero. The continuation resumes exactly when the
+            // last in-flight mutation leaves — unlike a writer-fence poll
+            // loop it injects no competing jobs onto the writer actor.
             while inFlightMutations > 0 {
-                await writer.barrier()
+                await waitForMutationDrain()
                 try requireSealHeld(generation)
             }
             try verifyIntegrity()
@@ -2562,7 +2570,7 @@ public actor CaptureWorkingSetStore {
             // durable bytes — now including the canonical quality
             // payload — and snapshot the exact sealed state.
             while inFlightMutations > 0 {
-                await writer.barrier()
+                await waitForMutationDrain()
                 try requireSealHeld(generation)
             }
             try requireSealHeld(generation)
@@ -2685,7 +2693,7 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         try requireMutable()
         inFlightMutations += 1
-        defer { inFlightMutations -= 1 }
+        defer { mutationDidFinish() }
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -3312,6 +3320,29 @@ public actor CaptureWorkingSetStore {
               sealGeneration == generation
         else {
             throw CaptureWorkingSetError.workingSetNotSealed
+        }
+    }
+
+    /// Suspends the caller until the in-flight mutation counter drains
+    /// to zero. Must only be called while it is non-zero; the last
+    /// mutation's exit hook resumes every waiter on the actor.
+    private func waitForMutationDrain() async {
+        await withCheckedContinuation { continuation in
+            mutationDrainers.append(continuation)
+        }
+    }
+
+    /// Every mutation entry point decrements through this hook from its
+    /// `defer` so a parked seal drain wakes exactly when the last owned
+    /// mutation leaves the actor (issue #180).
+    private func mutationDidFinish() {
+        inFlightMutations -= 1
+        if inFlightMutations == 0, !mutationDrainers.isEmpty {
+            let drainers = mutationDrainers
+            mutationDrainers.removeAll()
+            for drainer in drainers {
+                drainer.resume(returning: ())
+            }
         }
     }
 

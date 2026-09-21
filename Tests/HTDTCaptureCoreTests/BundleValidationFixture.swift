@@ -43,14 +43,18 @@ enum BundleValidationFixture {
         data: Data,
         mediaType: String
     ) throws -> BundleFileEntry {
-        try BundleFileEntry(
+        // Reserved canonical paths must carry the bound
+        // producer/provenance metadata or the manifest rejects them
+        // before any payload check runs (issue #151).
+        let binding = BundleReservedPaths.binding(for: path)
+        return try BundleFileEntry(
             path: path,
             bytes: data.count,
             mediaType: mediaType,
             sha256: EvidenceIntegrity.sha256(of: data),
-            producer: "test",
-            provenanceClass: .captureAppDerived,
-            role: .canonical
+            producer: binding?.producer ?? "test",
+            provenanceClass: binding?.provenanceClass ?? .captureAppDerived,
+            role: binding?.role ?? .canonical
         )
     }
 

@@ -61,7 +61,10 @@ func scanSurfacesAbandonedWorkingRevision() throws {
         result.orphanedWorkingArtifacts.first
     )
     #expect(orphan.kind == .abandonedRevision)
-    #expect(orphan.url == directory)
+    #expect(
+        orphan.url.resolvingSymlinksInPath()
+            == directory.resolvingSymlinksInPath()
+    )
     #expect(orphan.retainedBytes == 16)
 }
 

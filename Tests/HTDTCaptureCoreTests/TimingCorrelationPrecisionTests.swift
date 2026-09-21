@@ -82,7 +82,7 @@ func fractionalUTCRenderingNearSecondBoundaryIsAccepted() throws {
     #expect(crossing.contains("."))
     #expect(crossing != "2027-01-15T08:00:00Z")
     let reparsed = try #require(
-        ISO8601DateFormatter().date(from: crossing)
+        formatter.date(from: crossing)
     )
     #expect(
         abs(reparsed.timeIntervalSince(crossingInput)) <= 0.001

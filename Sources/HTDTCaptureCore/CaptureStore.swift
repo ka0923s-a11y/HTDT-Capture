@@ -676,4 +676,9 @@ public actor AtomicCaptureFileWriter {
     /// (issue #180).
     public func barrier() async {}
 
+    // NOTE: the finalization seal drains in-flight mutations through a
+    // continuation resume on the store actor (`mutationDrainers`), not
+    // through this fence — a fence-poll loop can starve queued writes
+    // under the actor executor's non-FIFO job scheduling.
+
 }

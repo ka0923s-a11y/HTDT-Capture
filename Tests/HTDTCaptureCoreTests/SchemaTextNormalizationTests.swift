@@ -81,7 +81,7 @@ func placementSourceTextAndRefsAreNormalized() throws {
     )
     #expect(
         placement.sourceEvidenceRefs
-            == ["path:evidence/f\u{0301}".precomposedStringWithCanonicalMapping]
+            == ["path:evidence/f\u{0301}.json".precomposedStringWithCanonicalMapping]
     )
 }
 
