@@ -1638,6 +1638,63 @@ def _validate_entity_placement(
         },
         field=field,
     )
+    raycast = placement.get("raycast")
+    if raycast is not None:
+        if not isinstance(raycast, dict):
+            raise IngestionError(
+                f"{field}.raycast must be an object or null"
+            )
+        _require_document_keys(
+            raycast,
+            required={"target_type"},
+            optional={
+                "hit_distance_m",
+                "hit_anchor_id",
+                "T_world_from_hit",
+            },
+            field=f"{field}.raycast",
+        )
+        if (
+            not isinstance(raycast["target_type"], str)
+            or not raycast["target_type"]
+        ):
+            raise IngestionError(
+                f"{field}.raycast.target_type must be a non-empty string"
+            )
+        hit_distance_m = raycast.get("hit_distance_m")
+        if hit_distance_m is not None and (
+            not isinstance(hit_distance_m, (int, float))
+            or isinstance(hit_distance_m, bool)
+            or not math.isfinite(hit_distance_m)
+            or hit_distance_m < 0
+        ):
+            raise IngestionError(
+                f"{field}.raycast.hit_distance_m must be a "
+                "non-negative finite number or null"
+            )
+        hit_anchor_id = raycast.get("hit_anchor_id")
+        if hit_anchor_id is not None and (
+            not isinstance(hit_anchor_id, str) or not hit_anchor_id
+        ):
+            raise IngestionError(
+                f"{field}.raycast.hit_anchor_id must be a non-empty "
+                "string or null"
+            )
+        world_from_hit = raycast.get("T_world_from_hit")
+        if world_from_hit is not None and (
+            not isinstance(world_from_hit, list)
+            or len(world_from_hit) != 16
+            or any(
+                not isinstance(component, (int, float))
+                or isinstance(component, bool)
+                or not math.isfinite(component)
+                for component in world_from_hit
+            )
+        ):
+            raise IngestionError(
+                f"{field}.raycast.T_world_from_hit must be an array "
+                "of 16 finite numbers or null"
+            )
     method = placement["method"]
     if method not in {
         "manual_numeric",
