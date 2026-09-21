@@ -255,6 +255,47 @@ public struct FinalizationCommitPolicy: Sendable, Equatable {
     }
 }
 
+/// Bounded-wait policy for an unresolved RoomPlan completion at End
+/// (issue #96).
+///
+/// The RoomPlan completion callback carries no HTDT End-attempt token,
+/// so after `RoomCaptureSession.stop` the host must not blindly restart
+/// the session while a stale callback may still arrive. Instead the
+/// host waits a bounded window: it publishes a "still processing"
+/// warning after `warningDelay`, and terminates the unresolved End
+/// attempt with a precise terminal failure once `terminationDelay` has
+/// elapsed without a correlated completion. The bound is what keeps
+/// the capture UI from remaining locked in `isEndingScan` forever when
+/// the completion callback is genuinely lost.
+public struct RoomPlanEndTimeoutPolicy: Sendable, Equatable {
+    /// Delay from RoomPlan stop until the operator warning is
+    /// published.
+    public let warningDelay: Duration
+    /// Total delay from RoomPlan stop until the unresolved attempt is
+    /// terminated. Must exceed `warningDelay` so the warning is
+    /// observable before termination.
+    public let terminationDelay: Duration
+
+    public init(
+        warningDelay: Duration = .seconds(8),
+        terminationDelay: Duration = .seconds(30)
+    ) {
+        precondition(warningDelay > .zero)
+        precondition(
+            terminationDelay > warningDelay,
+            "the End timeout must terminate after the warning delay"
+        )
+        self.warningDelay = warningDelay
+        self.terminationDelay = terminationDelay
+    }
+
+    /// Additional wait between the operator warning and termination of
+    /// the unresolved attempt.
+    public var unresolvedGracePeriod: Duration {
+        terminationDelay - warningDelay
+    }
+}
+
 /// Transition-compaction gate for canonical tracking history (#148).
 ///
 /// The live scan loop samples AR tracking roughly four times per

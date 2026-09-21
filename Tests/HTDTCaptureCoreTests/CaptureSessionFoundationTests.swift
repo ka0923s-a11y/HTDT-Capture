@@ -645,3 +645,360 @@ extension CaptureSessionFoundationTests {
         }
     }
 }
+
+// MARK: - Accepted Review boundary regression coverage (#101, #104, #105)
+
+extension CaptureSessionFoundationTests {
+    private func makeFoundationPackage(
+        context: CaptureSessionContext
+    ) throws -> CaptureSessionFoundationPackage {
+        try CaptureSessionFoundationPackageBuilder.build(
+            context: context,
+            capabilities: CaptureCapabilityMatrix(
+                roomPlanSupported: true,
+                worldTrackingSupported: true,
+                sceneReconstructionSupported: true,
+                sceneDepthSupported: true
+            ),
+            configurationProfile: CaptureConfigurationProfile(
+                captureMode: .roomPlanMesh,
+                worldAlignment: "gravity",
+                sceneReconstruction: "mesh"
+            ),
+            startedAtUTC: "2026-09-20T18:00:00Z",
+            device: try CaptureDeviceDocument(
+                osVersion: "iOS 20.0",
+                hardwareModel: "iPhone99,1",
+                appVersion: "0.1.0",
+                appBuild: "1"
+            )
+        )
+    }
+
+    /// Shared fixture for accepted-Review boundary coverage: a working
+    /// set holding the session foundation plus one fully committed
+    /// strict v1 End transaction (timing + raw -> processed RoomPlan +
+    /// metadata + coordinate-space policy), matching the boundary the
+    /// host rolls back when the operator continues scanning.
+    private func makeAcceptedEndStore(
+        root: URL,
+        marker: String = "accepted"
+    ) async throws -> (
+        store: CaptureWorkingSetStore,
+        context: CaptureSessionContext,
+        lineage: RoomPlanArtifactLineage
+    ) {
+        let context = CaptureSessionContext()
+        let store = try CaptureWorkingSetStore(rootDirectory: root)
+        try await store.persistSessionFoundation(
+            try makeFoundationPackage(context: context)
+        )
+
+        let timing = try CaptureTimingPackageBuilder.build(
+            start: try CaptureTimingCorrelation(
+                monotonicSeconds: 1,
+                utc: "2026-09-20T18:00:00Z",
+                method: "fixture"
+            ),
+            end: try CaptureTimingCorrelation(
+                monotonicSeconds: 8,
+                utc: "2026-09-20T18:00:07Z",
+                method: "fixture"
+            )
+        )
+        let raw = RoomPlanEvidenceArtifactBuilder.buildRaw(
+            data: Data("{\"end\":\"\(marker)\"}".utf8),
+            captureSessionID: context.captureSessionID,
+            coordinateSpaceID: context.coordinateSpaceID,
+            runtime: CaptureRuntimeProvenance(
+                osVersion: "iOS 20.0",
+                appVersion: "0.1.0",
+                appBuild: "1"
+            )
+        )
+        let lineage = RoomPlanEvidenceArtifactBuilder.attachProcessed(
+            data: Data("{\"processed\":\"\(marker)\"}".utf8),
+            to: raw
+        )
+        try await store.persistEndRoomPlanTransaction(
+            timingPackage: timing,
+            roomPlanLineage: lineage
+        )
+        return (store, context, lineage)
+    }
+
+    /// #101: the Review rollback removes canonical files only when they
+    /// match the accepted transaction byte-for-byte. A tampered raw
+    /// RoomPlan payload must fail closed: nothing is removed and the
+    /// accepted in-memory authority stays intact for diagnosis or
+    /// finalization.
+    func testAcceptedEndRollbackFailsClosedOnTamperedCanonicalFile()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let (store, _, lineage) = try await makeAcceptedEndStore(
+            root: root
+        )
+
+        try Data(#"{"raw":"forged"}"#.utf8).write(
+            to: root.appendingPathComponent(
+                RoomPlanEvidenceArtifactBuilder.rawPath
+            ),
+            options: .atomic
+        )
+
+        do {
+            try await store.rollbackAcceptedEndTransaction(
+                removeOwnedMesh: false
+            )
+            XCTFail("expected tampered canonical file rejection")
+        } catch let error as CaptureWorkingSetError {
+            XCTAssertEqual(error, .integrityVerificationFailed)
+        }
+
+        for path in [
+            CaptureTimingPackage.path,
+            RoomPlanEvidenceArtifactBuilder.rawPath,
+            RoomPlanEvidenceArtifactBuilder.processedPath,
+            RoomPlanEvidenceArtifactBuilder.metadataPath,
+            CoordinateSpacePolicyPackage.path,
+        ] {
+            XCTAssertTrue(
+                FileManager.default.fileExists(
+                    atPath: root.appendingPathComponent(path).path
+                ),
+                "rollback must not remove \(path) after a failed ownership check"
+            )
+        }
+
+        let snapshot = await store.snapshot()
+        XCTAssertEqual(
+            snapshot.rawRoomPlanDescriptor,
+            lineage.raw.descriptor
+        )
+        XCTAssertEqual(
+            snapshot.processedRoomPlanDescriptor,
+            lineage.processed?.descriptor
+        )
+        XCTAssertNotNil(snapshot.capturedRoomMetadata)
+        XCTAssertNotNil(snapshot.coordinateSpacePolicy)
+        XCTAssertTrue(
+            snapshot.payloadDeclarations.contains {
+                $0.path == CaptureTimingPackage.path
+                    || $0.path
+                        == RoomPlanEvidenceArtifactBuilder.rawPath
+                    || $0.path
+                        == RoomPlanEvidenceArtifactBuilder.processedPath
+            }
+        )
+    }
+
+    /// #101: rollback is defined only for a committed accepted End
+    /// transaction. Before it exists — and after it was already rolled
+    /// back — the call fails closed instead of inventing removals.
+    func testAcceptedEndRollbackRequiresCommittedEndTransaction()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        // No session foundation and no End transaction at all.
+        let emptyStore = try CaptureWorkingSetStore(
+            rootDirectory: root
+        )
+        do {
+            try await emptyStore.rollbackAcceptedEndTransaction(
+                removeOwnedMesh: false
+            )
+            XCTFail("rollback without any transaction must fail")
+        } catch let error as CaptureWorkingSetError {
+            XCTAssertEqual(error, .integrityVerificationFailed)
+        }
+
+        // Foundation committed but no accepted End boundary yet.
+        let context = CaptureSessionContext()
+        let store = try CaptureWorkingSetStore(
+            rootDirectory: root
+        )
+        try await store.persistSessionFoundation(
+            try makeFoundationPackage(context: context)
+        )
+        do {
+            try await store.rollbackAcceptedEndTransaction(
+                removeOwnedMesh: false
+            )
+            XCTFail("rollback without an accepted End must fail")
+        } catch let error as CaptureWorkingSetError {
+            XCTAssertEqual(error, .integrityVerificationFailed)
+        }
+
+        // Commit the End boundary, roll it back once, then prove the
+        // second call has no accepted transaction left to remove.
+        let timing = try CaptureTimingPackageBuilder.build(
+            start: try CaptureTimingCorrelation(
+                monotonicSeconds: 1,
+                utc: "2026-09-20T18:00:00Z",
+                method: "fixture"
+            ),
+            end: try CaptureTimingCorrelation(
+                monotonicSeconds: 8,
+                utc: "2026-09-20T18:00:07Z",
+                method: "fixture"
+            )
+        )
+        let raw = RoomPlanEvidenceArtifactBuilder.buildRaw(
+            data: Data(#"{"end":"retry"}"#.utf8),
+            captureSessionID: context.captureSessionID,
+            coordinateSpaceID: context.coordinateSpaceID,
+            runtime: CaptureRuntimeProvenance(
+                osVersion: "iOS 20.0",
+                appVersion: "0.1.0",
+                appBuild: "1"
+            )
+        )
+        let lineage = RoomPlanEvidenceArtifactBuilder.attachProcessed(
+            data: Data(#"{"processed":"retry"}"#.utf8),
+            to: raw
+        )
+        try await store.persistEndRoomPlanTransaction(
+            timingPackage: timing,
+            roomPlanLineage: lineage
+        )
+
+        do {
+            try await store.rollbackAcceptedEndTransaction(
+                removeOwnedMesh: false
+            )
+        } catch {
+            XCTFail(
+                "first rollback of the committed transaction must succeed: \(error)"
+            )
+        }
+
+        // The boundary is gone: a second rollback has no accepted
+        // transaction to remove and must fail closed.
+        do {
+            try await store.rollbackAcceptedEndTransaction(
+                removeOwnedMesh: false
+            )
+            XCTFail("a second rollback must fail closed")
+        } catch let error as CaptureWorkingSetError {
+            XCTAssertEqual(error, .integrityVerificationFailed)
+        }
+    }
+
+    /// #101: `removeOwnedMesh` is only valid when the accepted End
+    /// actually committed mesh authority. Requesting mesh removal
+    /// without an owned mesh fails closed and keeps the accepted
+    /// transaction intact for a corrected retry.
+    func testAcceptedEndRollbackRejectsUnownedMeshRemoval()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let (store, _, lineage) = try await makeAcceptedEndStore(
+            root: root
+        )
+
+        do {
+            try await store.rollbackAcceptedEndTransaction(
+                removeOwnedMesh: true
+            )
+            XCTFail("mesh removal without an owned mesh must fail")
+        } catch let error as CaptureWorkingSetError {
+            XCTAssertEqual(error, .integrityVerificationFailed)
+        }
+
+        // The rejected rollback left the accepted boundary untouched.
+        let intact = await store.snapshot()
+        XCTAssertEqual(
+            intact.rawRoomPlanDescriptor,
+            lineage.raw.descriptor
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: root
+                    .appendingPathComponent(CaptureTimingPackage.path)
+                    .path
+            )
+        )
+
+        // A corrected retry without mesh removal succeeds.
+        try await store.rollbackAcceptedEndTransaction(
+            removeOwnedMesh: false
+        )
+        let cleared = await store.snapshot()
+        XCTAssertNil(cleared.rawRoomPlanDescriptor)
+        XCTAssertNil(cleared.processedRoomPlanDescriptor)
+        XCTAssertFalse(
+            cleared.payloadDeclarations.contains {
+                $0.path == CaptureTimingPackage.path
+            }
+        )
+    }
+
+    /// #104/#105: preserved-Review provenance is persisted at warning
+    /// severity, so transient background/thermal/storage pressure
+    /// recorded after an accepted End stays visible in the quality
+    /// record without permanently blocking finalization readiness.
+    func testWarningResourceEventsKeepAcceptedReviewReady()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let (store, _, _) = try await makeAcceptedEndStore(
+            root: root
+        )
+
+        let kinds: [CaptureResourceEventKind] = [
+            .interruption,
+            .thermalPressure,
+            .storagePressure,
+        ]
+        for kind in kinds {
+            await store.recordResourceEvent(
+                CaptureResourceEvent(
+                    kind: kind,
+                    severity: .warning,
+                    detail: "review-preserved \(kind.rawValue)"
+                )
+            )
+        }
+
+        let report = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                minimumActiveMeshAnchors: 0,
+                minimumEvidenceFrames: 0
+            )
+        )
+        XCTAssertEqual(report.integrityStatus, .pass)
+        XCTAssertTrue(report.readyForHTDTIngestion)
+        XCTAssertFalse(
+            report.diagnostics.contains {
+                $0.code == "resource_error"
+            }
+        )
+        XCTAssertEqual(report.resourceEvents.count, 3)
+        XCTAssertTrue(
+            report.resourceEvents.allSatisfy {
+                $0.severity == .warning
+            }
+        )
+    }
+}
