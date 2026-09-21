@@ -177,6 +177,7 @@ def validate_manifest_shape(manifest: dict) -> None:
         for index, value in enumerate(values):
             validate_uuid4(value, f"{field}[{index}]")
 
+    instants = {}
     for field in ("created_at", "finalized_at"):
         value = manifest[field]
         if (
@@ -188,11 +189,18 @@ def validate_manifest_shape(manifest: dict) -> None:
         ):
             raise ValidationError(f"{field} must be UTC RFC3339 text ending in Z")
         try:
-            datetime.fromisoformat(value[:-1] + "+00:00")
+            instants[field] = datetime.fromisoformat(value[:-1] + "+00:00")
         except ValueError as exc:
             raise ValidationError(
                 f"{field} must be a valid UTC RFC3339 date-time"
             ) from exc
+    # Lifecycle timestamps are audit chronology: compare parsed instants
+    # (not raw strings) so fractional-second representations cannot
+    # invert or mask the ordering.
+    if instants["finalized_at"] < instants["created_at"]:
+        raise ValidationError(
+            "finalized_at must not precede created_at"
+        )
 
     app = manifest["app"]
     if not isinstance(app, dict) or set(app) != {"name", "version", "build"}:

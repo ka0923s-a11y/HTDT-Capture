@@ -131,6 +131,7 @@ public enum BundleManifestError: Error, Sendable, Equatable {
     case caseCollidingPayloadPath(String, String)
     case manifestSelfDeclaration
     case invalidTimestamp(String)
+    case finalizedBeforeCreated(String, String)
 }
 
 public struct BundleManifest: Codable, Sendable, Equatable {
@@ -198,11 +199,25 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         else {
             throw BundleManifestError.invalidAppIdentity
         }
-        guard Self.isUTCText(createdAtUTC) else {
+        guard let createdInstant = Self.parseUTCText(
+            createdAtUTC
+        ) else {
             throw BundleManifestError.invalidTimestamp(createdAtUTC)
         }
-        guard Self.isUTCText(finalizedAtUTC) else {
+        guard let finalizedInstant = Self.parseUTCText(
+            finalizedAtUTC
+        ) else {
             throw BundleManifestError.invalidTimestamp(finalizedAtUTC)
+        }
+        // The lifecycle timestamps are audit chronology: a revision
+        // cannot be finalized before it was created. Compare parsed
+        // instants so fractional-second representations cannot invert
+        // the ordering.
+        guard finalizedInstant >= createdInstant else {
+            throw BundleManifestError.finalizedBeforeCreated(
+                createdAtUTC,
+                finalizedAtUTC
+            )
         }
 
         var seen = Set<String>()
@@ -346,7 +361,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         Array(lhs.utf8).lexicographicallyPrecedes(Array(rhs.utf8))
     }
 
-    private static func isUTCText(_ value: String) -> Bool {
+    private static func parseUTCText(_ value: String) -> Date? {
         let pattern =
             #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$"#
         guard value.range(
@@ -354,13 +369,13 @@ public struct BundleManifest: Codable, Sendable, Equatable {
             options: .regularExpression
         ) != nil
         else {
-            return false
+            return nil
         }
 
         let base = ISO8601DateFormatter()
         base.formatOptions = [.withInternetDateTime]
-        if base.date(from: value) != nil {
-            return true
+        if let instant = base.date(from: value) {
+            return instant
         }
 
         let fractional = ISO8601DateFormatter()
@@ -368,7 +383,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
             .withInternetDateTime,
             .withFractionalSeconds,
         ]
-        return fractional.date(from: value) != nil
+        return fractional.date(from: value)
     }
 
     private static func isUUIDv4(_ uuid: UUID) -> Bool {

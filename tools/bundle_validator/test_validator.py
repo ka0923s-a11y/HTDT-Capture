@@ -123,13 +123,59 @@ class ValidatorTests(unittest.TestCase):
             shutil.copytree(FIXTURE, dest)
             path = dest / "manifest.json"
             value = json.loads(path.read_text(encoding="utf-8"))
-            value["created_at"] = "2026-09-20T12:34:56.123Z"
+            # Fixture created_at is 2026-09-20T00:00:00Z; keep the
+            # fractional timestamp on finalized_at so the lifecycle
+            # ordering invariant (finalized_at >= created_at) holds.
+            value["finalized_at"] = "2026-09-20T12:34:56.123Z"
             path.write_bytes(canonical_json_bytes(value))
 
             # Manifest bytes changed, but no payload declaration/digest
             # depends on manifest bytes themselves.
             report = validate_bundle(dest)
             self.assertTrue(report["valid"])
+
+    def test_shared_manifest_lifecycle_vectors(self):
+        vector_path = (
+            REPO_ROOT
+            / "schemas"
+            / "capture-bundle-v1"
+            / "manifest-lifecycle-vectors.json"
+        )
+        document = json.loads(vector_path.read_text(encoding="utf-8"))
+        self.assertTrue(document["vectors"])
+        for vector in document["vectors"]:
+            with self.subTest(vector=vector["name"]):
+                with tempfile.TemporaryDirectory() as td:
+                    dest = Path(td) / "bundle"
+                    shutil.copytree(FIXTURE, dest)
+                    path = dest / "manifest.json"
+                    value = json.loads(path.read_text(encoding="utf-8"))
+                    value["created_at"] = vector["created_at"]
+                    value["finalized_at"] = vector["finalized_at"]
+                    path.write_bytes(canonical_json_bytes(value))
+                    if vector["valid"]:
+                        self.assertTrue(validate_bundle(dest)["valid"])
+                    else:
+                        with self.assertRaisesRegex(
+                            ValidationError,
+                            "finalized_at must not precede created_at",
+                        ):
+                            validate_bundle(dest)
+
+    def test_finalized_before_created_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, dest)
+            path = dest / "manifest.json"
+            value = json.loads(path.read_text(encoding="utf-8"))
+            value["created_at"] = "2026-09-20T00:00:01Z"
+            value["finalized_at"] = "2026-09-20T00:00:00Z"
+            path.write_bytes(canonical_json_bytes(value))
+            with self.assertRaisesRegex(
+                ValidationError,
+                "finalized_at must not precede created_at",
+            ):
+                validate_bundle(dest)
 
     def test_zip_path_traversal_fails(self):
         with tempfile.TemporaryDirectory() as td:
