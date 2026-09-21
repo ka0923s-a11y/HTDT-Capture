@@ -39,6 +39,42 @@ func reviewCanReturnToScanningBeforeAuthorityIsSealed() throws {
     #expect(machine.lastFailure == nil)
 }
 
+/// Issue #101: after a Review -> Scanning reopen, the same capture must
+/// be able to End again and walk the ordinary authority path — a later
+/// Review can still annotate and finalize. No phantom revision or
+/// terminal edge is introduced by the round trip.
+@Test
+func reviewReopenRoundTripKeepsLaterAuthorityTransitions() throws {
+    var machine = CaptureStateMachine(state: .scanning)
+
+    try machine.apply(.beginReview)
+    try machine.apply(.resumeScanning)
+    #expect(machine.state == .scanning)
+
+    try machine.apply(.beginReview)
+    #expect(machine.state == .reviewing)
+
+    try machine.apply(.beginAnnotation)
+    try machine.apply(.beginReview)
+    try machine.apply(.beginValidation)
+    try machine.apply(.finalize)
+    #expect(machine.state == .finalized)
+}
+
+/// Issue #101/#102: the reopen edge exists only while Review is live.
+/// Every other state must reject `.resumeScanning` so a reopen cannot
+/// be smuggled past annotation, validation, or terminal authority.
+@Test
+func resumeScanningIsRejectedOutsideReview() {
+    for state in CaptureState.allCases where state != .reviewing {
+        var machine = CaptureStateMachine(state: state)
+        #expect(throws: CaptureStateMachineError.self) {
+            try machine.apply(.resumeScanning)
+        }
+        #expect(machine.state == state)
+    }
+}
+
 @Test
 func finalizedCaptureCanResetWithoutExport() throws {
     var machine = CaptureStateMachine(state: .validating)
