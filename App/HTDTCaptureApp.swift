@@ -1894,6 +1894,26 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         }
 
+        // CONTRACT (#168): the sibling platform agent exposes an
+        // ARSession lifecycle surface `sessionLifecycleHandler` on
+        // SharedARSessionController delivering interruption-began,
+        // interruption-ended, and terminal-failure events on MainActor.
+        // Bind it to this capture generation so stale callbacks from a
+        // prior session authority cannot reach the current working set.
+        sessionController.sessionLifecycleHandler = {
+            [weak self] event in
+            guard let self,
+                  self.captureGeneration == generation
+            else {
+                return
+            }
+            self.handleSessionLifecycleEvent(
+                event,
+                store: store,
+                generation: generation
+            )
+        }
+
         do {
             try transition(.prepared)
         } catch {
@@ -3475,136 +3495,226 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let monitor = CaptureResourceMonitor(
             rootDirectory: rootDirectory
         ) { [weak self] event, failure in
+            self?.applyResourceLifecycleEvent(
+                event,
+                failure: failure,
+                store: store,
+                generation: generation
+            )
+        }
+
+        resourceMonitor = monitor
+        monitor.start()
+    }
+
+    /// Shared ordered entry point for every resource/lifecycle event:
+    /// CaptureResourceMonitor notifications and ARSession lifecycle
+    /// callbacks (#168) converge here so generation fencing, the
+    /// preserved-Review seal, the ordered event-record chain, and the
+    /// finalization commit fence (#185) stay identical across sources.
+    private func applyResourceLifecycleEvent(
+        _ event: CaptureResourceEvent,
+        failure: CaptureFailureCode?,
+        store: CaptureWorkingSetStore,
+        generation: UUID
+    ) {
+        guard captureGeneration == generation else {
+            return
+        }
+
+        var eventToRecord = event
+        var failureToApply = failure
+        var sealedReviewResourceCondition = false
+        var discardedUnsavedAnnotationEdits = false
+
+        let canPreserveAcceptedReview =
+            (
+                state == .reviewing
+                && !reviewOperationInFlight
+            )
+            || (
+                state == .annotating
+                && !annotationCommitInFlight
+            )
+
+        if let failure,
+           (
+               failure == .interrupted
+               || failure == .thermalPressure
+               || failure == .storagePressure
+           ),
+           canPreserveAcceptedReview,
+           acceptedRoomPlanRawSHA256 != nil,
+           !spatialAuthoritySealedForFinalization
+        {
+            if state == .annotating {
+                do {
+                    try transition(.beginReview)
+                    discardedUnsavedAnnotationEdits = true
+                } catch {
+                    self.fail(.unknown)
+                    return
+                }
+            }
+
+            // Accepted End artifacts are already durable. A transient
+            // resource/lifecycle condition invalidates only future live
+            // spatial continuation; it must not retroactively discard
+            // the evidence accepted before that condition.
+            let detail: String
+            switch failure {
+            case .interrupted:
+                detail =
+                    "application entered background after accepted End; spatial continuation was sealed but persisted Review evidence remains finalizable"
+            case .thermalPressure:
+                detail =
+                    "critical thermal pressure occurred after accepted End; spatial continuation was sealed and finalization is deferred until the device cools"
+            case .storagePressure:
+                detail =
+                    "critical storage pressure occurred after accepted End; spatial continuation was sealed and finalization is deferred until storage recovers"
+            default:
+                detail = event.detail
+            }
+
+            eventToRecord = CaptureResourceEvent(
+                kind: event.kind,
+                severity: .warning,
+                detail:
+                    discardedUnsavedAnnotationEdits
+                    ? detail
+                        + "; unsaved annotation edits were discarded"
+                    : detail
+            )
+            failureToApply = nil
+            sealedReviewResourceCondition = true
+            spatialAuthoritySealedForFinalization = true
+            scanCoverageTask?.cancel()
+            scanCoverageTask = nil
+            sessionController.stopAndPauseARSession()
+            resourceMonitor?.stop()
+            endScanGuidance = nil
+        }
+
+        // Keep resource provenance ordered. Finalization can await this
+        // chain before it freezes quality authority, and reset can drain
+        // it before deleting an incomplete working set.
+        let predecessor = resourceEventTask
+        let task = Task { @MainActor [weak self] in
+            await predecessor?.value
+            await store.recordResourceEvent(eventToRecord)
+
             guard let self,
                   self.captureGeneration == generation
             else {
                 return
             }
 
-            var eventToRecord = event
-            var failureToApply = failure
-            var sealedReviewResourceCondition = false
-            var discardedUnsavedAnnotationEdits = false
-
-            let canPreserveAcceptedReview =
-                (
-                    self.state == .reviewing
-                    && !self.reviewOperationInFlight
+            if self.state == .reviewing {
+                await self.refreshQuality(
+                    store: store,
+                    generation: generation
                 )
-                || (
-                    self.state == .annotating
-                    && !self.annotationCommitInFlight
-                )
-
-            if let failure,
-               (
-                   failure == .interrupted
-                   || failure == .thermalPressure
-                   || failure == .storagePressure
-               ),
-               canPreserveAcceptedReview,
-               self.acceptedRoomPlanRawSHA256 != nil,
-               !self.spatialAuthoritySealedForFinalization
-            {
-                if self.state == .annotating {
-                    do {
-                        try self.transition(.beginReview)
-                        discardedUnsavedAnnotationEdits = true
-                    } catch {
-                        self.fail(.unknown)
-                        return
+                if sealedReviewResourceCondition,
+                   self.state == .reviewing
+                {
+                    if discardedUnsavedAnnotationEdits {
+                        self.workingSetStatus =
+                            HostLocalization.text(
+                                "Review retained after the resource/lifecycle interruption. Unsaved annotation edits were discarded; accepted capture evidence can still be finalized or retried.",
+                                "リソース／ライフサイクル中断後も確認データを保持しました。未保存の注釈編集は破棄されましたが、受理済みキャプチャ証拠は確定または再試行できます。"
+                            )
+                    } else {
+                        self.workingSetStatus =
+                            HostLocalization.text(
+                                "Review retained; additional scanning/annotation is sealed by the current resource/lifecycle condition, while accepted evidence remains available for finalization or retry",
+                                "確認データを保持しました。現在のリソース／ライフサイクル状態により追加スキャン／注釈は封印されていますが、受理済み証拠は確定または再試行に利用できます"
+                            )
                     }
                 }
-
-                // Accepted End artifacts are already durable. A transient
-                // resource/lifecycle condition invalidates only future live
-                // spatial continuation; it must not retroactively discard
-                // the evidence accepted before that condition.
-                let detail: String
-                switch failure {
-                case .interrupted:
-                    detail =
-                        "application entered background after accepted End; spatial continuation was sealed but persisted Review evidence remains finalizable"
-                case .thermalPressure:
-                    detail =
-                        "critical thermal pressure occurred after accepted End; spatial continuation was sealed and finalization is deferred until the device cools"
-                case .storagePressure:
-                    detail =
-                        "critical storage pressure occurred after accepted End; spatial continuation was sealed and finalization is deferred until storage recovers"
-                default:
-                    detail = event.detail
-                }
-
-                eventToRecord = CaptureResourceEvent(
-                    kind: event.kind,
-                    severity: .warning,
-                    detail:
-                        discardedUnsavedAnnotationEdits
-                        ? detail
-                            + "; unsaved annotation edits were discarded"
-                        : detail
-                )
-                failureToApply = nil
-                sealedReviewResourceCondition = true
-                self.spatialAuthoritySealedForFinalization = true
-                self.scanCoverageTask?.cancel()
-                self.scanCoverageTask = nil
-                self.sessionController.stopAndPauseARSession()
-                self.resourceMonitor?.stop()
-                self.endScanGuidance = nil
-            }
-
-            // Keep resource provenance ordered. Finalization can await this
-            // chain before it freezes quality authority, and reset can drain
-            // it before deleting an incomplete working set.
-            let predecessor = self.resourceEventTask
-            let task = Task { @MainActor [weak self] in
-                await predecessor?.value
-                await store.recordResourceEvent(eventToRecord)
-
-                guard let self,
-                      self.captureGeneration == generation
-                else {
-                    return
-                }
-
-                if self.state == .reviewing {
-                    await self.refreshQuality(
-                        store: store,
-                        generation: generation
-                    )
-                    if sealedReviewResourceCondition,
-                       self.state == .reviewing
-                    {
-                        if discardedUnsavedAnnotationEdits {
-                            self.workingSetStatus =
-                                HostLocalization.text(
-                                    "Review retained after the resource/lifecycle interruption. Unsaved annotation edits were discarded; accepted capture evidence can still be finalized or retried.",
-                                    "リソース／ライフサイクル中断後も確認データを保持しました。未保存の注釈編集は破棄されましたが、受理済みキャプチャ証拠は確定または再試行できます。"
-                                )
-                        } else {
-                            self.workingSetStatus =
-                                HostLocalization.text(
-                                    "Review retained; additional scanning/annotation is sealed by the current resource/lifecycle condition, while accepted evidence remains available for finalization or retry",
-                                    "確認データを保持しました。現在のリソース／ライフサイクル状態により追加スキャン／注釈は封印されていますが、受理済み証拠は確定または再試行に利用できます"
-                                )
-                        }
-                    }
-                }
-            }
-            self.resourceEventTask = task
-
-            if let failureToApply,
-               self.state != .failed,
-               self.state != .finalized,
-               self.state != .exported
-            {
-                self.fail(failureToApply)
             }
         }
+        resourceEventTask = task
 
-        resourceMonitor = monitor
-        monitor.start()
+        if let failureToApply,
+           state != .failed,
+           state != .finalized,
+           state != .exported
+        {
+            fail(failureToApply)
+        }
+    }
+
+    /// CONTRACT (#168): the sibling platform agent exposes an ARSession
+    /// lifecycle surface `sessionLifecycleHandler` on
+    /// SharedARSessionController delivering interruption-began,
+    /// interruption-ended, and terminal-failure events on MainActor.
+    /// The event enum name below is the agreed contract; if it lands
+    /// under a different name this method is the single host-side
+    /// adaptation site.
+    private func handleSessionLifecycleEvent(
+        _ event: ARSessionLifecycleEvent,
+        store: CaptureWorkingSetStore,
+        generation: UUID
+    ) {
+        guard captureGeneration == generation else {
+            return
+        }
+
+        switch event {
+        case .interruptionBegan:
+            // Interruption alone is not terminal: the session may
+            // resume. Record warning provenance only; #148's tracking
+            // transition recording captures the observable degradation,
+            // and a genuine coordinate-space reset is registered by the
+            // platform layer when continuity is demonstrably lost.
+            applyResourceLifecycleEvent(
+                CaptureResourceEvent(
+                    kind: .interruption,
+                    severity: .warning,
+                    detail:
+                        "ARSession interruption began during active capture"
+                ),
+                failure: nil,
+                store: store,
+                generation: generation
+            )
+        case .interruptionEnded:
+            applyResourceLifecycleEvent(
+                CaptureResourceEvent(
+                    kind: .interruption,
+                    severity: .warning,
+                    detail:
+                        "ARSession interruption ended; tracking-state transitions continue through canonical tracking history"
+                ),
+                failure: nil,
+                store: store,
+                generation: generation
+            )
+        case .failure(let error):
+            applyResourceLifecycleEvent(
+                CaptureResourceEvent(
+                    kind: .interruption,
+                    severity: .error,
+                    detail:
+                        "ARSession failed: " + String(describing: error)
+                ),
+                failure: .interrupted,
+                store: store,
+                generation: generation
+            )
+        default:
+            applyResourceLifecycleEvent(
+                CaptureResourceEvent(
+                    kind: .interruption,
+                    severity: .warning,
+                    detail:
+                        "ARSession lifecycle event observed during active capture"
+                ),
+                failure: nil,
+                store: store,
+                generation: generation
+            )
+        }
     }
 
     private func makeWorkingSet() throws -> (
