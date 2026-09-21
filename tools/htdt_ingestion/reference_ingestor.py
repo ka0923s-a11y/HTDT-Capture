@@ -21,6 +21,9 @@ if __package__ in (None, ""):
         sys.path.insert(0, str(repo_root))
 
 from tools.bundle_validator.validator import (
+    MAX_SOURCE_REF_BYTES,
+    MAX_SOURCE_REFS_PER_ENTRY,
+    MAX_SOURCE_REFS_TOTAL,
     PROVENANCE,
     DirectorySource,
     ValidationError,
@@ -917,26 +920,59 @@ def _build_source_registry(
 ) -> tuple[list[dict], dict[str, dict]]:
     records: list[dict] = []
     by_path: dict[str, dict] = {}
-    hashes = {entry["sha256"] for entry in manifest["files"]}
+    # Source-lookup indexes are built once (#195): ref resolution is
+    # O(files + refs), never per-ref manifest scans.
     paths = {entry["path"] for entry in manifest["files"]}
+    entries_by_sha256: dict[str, list[dict]] = {}
+    for entry in manifest["files"]:
+        entries_by_sha256.setdefault(
+            entry["sha256"], []
+        ).append(entry)
     raw_roomplan_hashes = {
         entry["sha256"]
         for entry in manifest["files"]
         if entry["provenance_class"] == "apple_roomplan_raw_scan"
     }
 
+    total_refs = 0
     for entry in manifest["files"]:
         path = entry["path"]
         refs = entry.get("source_refs", [])
+        if len(refs) > MAX_SOURCE_REFS_PER_ENTRY:
+            raise IngestionError(
+                f"too many source_refs for {path} "
+                f"(max {MAX_SOURCE_REFS_PER_ENTRY})"
+            )
+        total_refs += len(refs)
+        if total_refs > MAX_SOURCE_REFS_TOTAL:
+            raise IngestionError(
+                "manifest exceeds the aggregate source_ref budget "
+                f"({MAX_SOURCE_REFS_TOTAL})"
+            )
         resolved_sha_refs: list[str] = []
 
         for source_ref in refs:
+            if len(source_ref.encode("utf-8")) > MAX_SOURCE_REF_BYTES:
+                raise IngestionError(
+                    f"oversized source_ref for {path}"
+                )
             if source_ref.startswith("sha256:"):
                 target_hash = source_ref.removeprefix("sha256:")
-                if target_hash not in hashes:
+                # #193: a SHA-256 ref must name exactly one payload
+                # authority. Identical bytes under different paths are
+                # distinct authorities; bind them with a path: ref.
+                matches = entries_by_sha256.get(target_hash, [])
+                if not matches:
                     raise IngestionError(
                         f"unresolved SHA-256 source_ref for {path}: "
                         f"{source_ref}"
+                    )
+                if len(matches) > 1:
+                    raise IngestionError(
+                        f"ambiguous SHA-256 source_ref for {path}: "
+                        f"{source_ref} names {len(matches)} payload "
+                        f"authorities; use a path: reference to bind "
+                        f"exactly one"
                     )
                 resolved_sha_refs.append(target_hash)
             elif source_ref.startswith("path:"):

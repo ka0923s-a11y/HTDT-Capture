@@ -57,19 +57,32 @@ private func makeFinalizedArchiveFixture(
     )
     try Data([1, 2, 3, 4, 5]).write(to: payload)
     let qualityDeclaration = try stageQualityPayload(in: staging)
+    // #194: finalized bundles carry the foundation payload set.
+    let foundationDeclarations =
+        try BundleValidationFixture.stageFoundationPayloads(
+            in: staging
+        )
 
     let request = BundleFinalizationRequest(
         captureSeriesID: CaptureSeriesID(),
         captureRevisionID: CaptureRevisionID(),
-        captureSessionIDs: [CaptureSessionID()],
-        coordinateSpaceIDs: [CoordinateSpaceID()],
+        captureSessionIDs: [
+            CaptureSessionID(
+                canonicalString: BundleValidationFixture.sessionUUID
+            )!
+        ],
+        coordinateSpaceIDs: [
+            CoordinateSpaceID(
+                canonicalString: BundleValidationFixture.spaceUUID
+            )!
+        ],
         createdAtUTC: "2026-09-20T00:00:00Z",
         finalizedAtUTC: "2026-09-20T00:01:00Z",
         app: BundleAppIdentity(
             version: "0.1.0",
             build: "archive-test"
         ),
-        payloads: [
+        payloads: foundationDeclarations + [
             BundlePayloadDeclaration(
                 path: "payload.bin",
                 mediaType: "application/octet-stream",
@@ -118,15 +131,16 @@ func storedZipExportPreservesLogicalBundleDigest() async throws {
 
     #expect(result.archiveURL == destination)
     #expect(result.bundleDigest == finalized.bundleDigest)
-    #expect(result.payloadCount == 2)
-    #expect(result.entryCount == 3)
+    // payload.bin + quality + session×3 foundation (#194)
+    #expect(result.payloadCount == 5)
+    #expect(result.entryCount == 6)
 
     let reopened =
         try StoredCaptureBundleArchiveValidator.validate(
             archive: destination
         )
     #expect(reopened.bundleDigest == finalized.bundleDigest)
-    #expect(reopened.payloadCount == 2)
+    #expect(reopened.payloadCount == 5)
 }
 
 @Test
@@ -375,8 +389,8 @@ func storedArchiveImportStagesRevalidatesAndPreservesDigest()
 
     #expect(result.directoryURL == imported)
     #expect(result.bundleDigest == finalized.bundleDigest)
-    #expect(result.payloadCount == 2)
-    #expect(result.entryCount == 3)
+    #expect(result.payloadCount == 5)
+    #expect(result.entryCount == 6)
     #expect(
         try Data(
             contentsOf:

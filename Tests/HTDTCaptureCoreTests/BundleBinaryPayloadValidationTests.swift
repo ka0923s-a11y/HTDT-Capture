@@ -438,5 +438,6 @@ func consistentBinaryEvidenceBundleAccepted() throws {
 
     let report = try BundleDirectoryValidator.validate(root: root)
     #expect(report.valid)
-    #expect(report.payloadCount == 6)
+    // 6 evidence payloads + auto-staged foundation set (#194)
+    #expect(report.payloadCount == 10)
 }

@@ -31,17 +31,32 @@ public struct BinaryPayloadSummary: Sendable, Equatable {
 
 public struct BundlePayloadCrossCheck: Sendable {
     var meshAnchorIndex: StrictJSONValue?
+    var sessionDocument: StrictJSONValue?
     var frameDescriptors: [(path: String, document: StrictJSONValue)] = []
     var meshGeometry: [String: (vertices: Int, faces: Int)] = [:]
     var pixelGeometry: [String: BinaryPayloadSummary] = [:]
     var depthGeometry: [String: BinaryPayloadSummary] = [:]
     var confidenceGeometry: [String: BinaryPayloadSummary] = [:]
 
+    /// Minimum v1 foundation payload set (#194): the manifest's
+    /// session and coordinate identities must be grounded in declared
+    /// documents. Mirrors ``FOUNDATION_REQUIRED_PATHS`` in the Python
+    /// reference validator.
+    public static let foundationRequiredPaths: Set<String> = [
+        "session/capture-session.json",
+        "session/capture-configuration.json",
+        "session/timing.json",
+        "quality/capture-quality.json",
+    ]
+
     public init() {}
 
     mutating func recordJSON(path: String, value: StrictJSONValue) {
         if path == "mesh/anchors.json" {
             meshAnchorIndex = value
+        }
+        if path == "session/capture-session.json" {
+            sessionDocument = value
         }
         if CaptureBundleSchemaRegistry.schemaName(forPath: path) == "frame" {
             frameDescriptors.append((path: path, document: value))
@@ -71,16 +86,91 @@ public struct BundlePayloadCrossCheck: Sendable {
     }
 
     public func finish(
-        declaredByPath: [String: BundleFileEntry]
+        declaredByPath: [String: BundleFileEntry],
+        manifest: BundleManifest
     ) throws {
         if let index = meshAnchorIndex {
             try checkMeshAnchorIndex(index, declaredByPath: declaredByPath)
         }
+        try checkSessionIdentity(
+            declaredByPath: declaredByPath,
+            manifest: manifest
+        )
+        try checkRoomPlanLineage(declaredByPath: declaredByPath)
         for descriptor in frameDescriptors {
             try checkFrameDescriptor(
                 descriptor.document,
                 descriptorPath: descriptor.path,
                 declaredByPath: declaredByPath
+            )
+        }
+    }
+
+    /// #194: the session document grounds the manifest's declared
+    /// session and coordinate-space identities.
+    private func checkSessionIdentity(
+        declaredByPath: [String: BundleFileEntry],
+        manifest: BundleManifest
+    ) throws {
+        guard let session = sessionDocument else {
+            throw BundleDirectoryValidationError.payloadCrossCheckFailed(
+                path: "session/capture-session.json",
+                detail: "session document missing"
+            )
+        }
+        guard let sessionID = session.member("capture_session_id")?
+            .stringValue,
+            let coordinateID = session.member("coordinate_space_id")?
+            .stringValue
+        else {
+            throw BundleDirectoryValidationError.payloadCrossCheckFailed(
+                path: "session/capture-session.json",
+                detail: "session identity fields missing"
+            )
+        }
+        guard manifest.captureSessionIDs.contains(where: {
+            $0.description == sessionID
+        }) else {
+            throw BundleDirectoryValidationError.payloadCrossCheckFailed(
+                path: "session/capture-session.json",
+                detail: "capture_session_id is not declared in manifest "
+                    + "capture_session_ids"
+            )
+        }
+        guard manifest.coordinateSpaceIDs.contains(where: {
+            $0.description == coordinateID
+        }) else {
+            throw BundleDirectoryValidationError.payloadCrossCheckFailed(
+                path: "session/capture-session.json",
+                detail: "coordinate_space_id is not declared in manifest "
+                    + "coordinate_space_ids"
+            )
+        }
+    }
+
+    /// #194: a processed RoomPlan payload may never be promoted without
+    /// its raw authority bound by digest or path reference.
+    private func checkRoomPlanLineage(
+        declaredByPath: [String: BundleFileEntry]
+    ) throws {
+        let processedPath = "roomplan/captured-room.json"
+        let rawPath = "roomplan/captured-room-data.json"
+        guard let processed = declaredByPath[processedPath] else {
+            return
+        }
+        guard let raw = declaredByPath[rawPath] else {
+            throw BundleDirectoryValidationError.payloadCrossCheckFailed(
+                path: processedPath,
+                detail: "raw lineage payload \(rawPath) is not declared"
+            )
+        }
+        let refs = processed.sourceRefs ?? []
+        let digestRef = "sha256:\(raw.sha256)"
+        guard refs.contains(digestRef) || refs.contains("path:\(rawPath)")
+        else {
+            throw BundleDirectoryValidationError.payloadCrossCheckFailed(
+                path: processedPath,
+                detail: "does not reference its raw authority \(rawPath)"
             )
         }
     }

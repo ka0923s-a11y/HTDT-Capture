@@ -350,8 +350,12 @@ class ReferenceIngestorTests(unittest.TestCase):
             processed["source_refs"] = []
             manifest_path.write_bytes(canonical_json_bytes(manifest))
 
-            validate_bundle(copy_root)
-            with self.assertRaises(IngestionError):
+            # #194: processed-only RoomPlan promotion is rejected at the
+            # validator boundary before ingestion.
+            with self.assertRaises(ValidationError) as ctx:
+                validate_bundle(copy_root)
+            self.assertIn("raw lineage", str(ctx.exception))
+            with self.assertRaises(ValidationError):
                 build_ingestion_plan(copy_root)
 
     def test_processed_roomplan_rejects_non_raw_sha_lineage(self):
@@ -371,8 +375,12 @@ class ReferenceIngestorTests(unittest.TestCase):
             processed["source_refs"] = [f"sha256:{MESH_SHA256}"]
             manifest_path.write_bytes(canonical_json_bytes(manifest))
 
-            validate_bundle(copy_root)
-            with self.assertRaises(IngestionError):
+            # #194: a processed RoomPlan payload that fails to name its
+            # raw authority is rejected at the validator boundary.
+            with self.assertRaises(ValidationError) as ctx:
+                validate_bundle(copy_root)
+            self.assertIn("raw authority", str(ctx.exception))
+            with self.assertRaises(ValidationError):
                 build_ingestion_plan(copy_root)
 
     def test_missing_quality_payload_blocks_ingestion(self):
@@ -381,10 +389,13 @@ class ReferenceIngestorTests(unittest.TestCase):
             shutil.copytree(FIXTURE, copy_root)
             _drop_payload(copy_root, QUALITY_PATH)
 
-            validate_bundle(copy_root)
-            with self.assertRaises(IngestionError) as ctx:
-                build_ingestion_plan(copy_root)
+            # #194: capture-quality.json is a required foundation
+            # payload; the validator fails closed first.
+            with self.assertRaises(ValidationError) as ctx:
+                validate_bundle(copy_root)
             self.assertIn("quality", str(ctx.exception))
+            with self.assertRaises(ValidationError):
+                build_ingestion_plan(copy_root)
 
     def test_not_ready_quality_report_blocks_ingestion(self):
         with tempfile.TemporaryDirectory() as td:
@@ -506,8 +517,13 @@ class ReferenceIngestorTests(unittest.TestCase):
                         "session/capture-session.json",
                         mutate,
                     )
-                    validate_bundle(copy_root)
-                    with self.assertRaises(IngestionError):
+                    # #194: the validator now grounds manifest identity
+                    # arrays in the session authority, so this fails
+                    # closed at validation before ingestion.
+                    with self.assertRaises(ValidationError) as ctx:
+                        validate_bundle(copy_root)
+                    self.assertIn(field, str(ctx.exception))
+                    with self.assertRaises(ValidationError):
                         build_ingestion_plan(copy_root)
 
     def test_session_document_dangling_timing_ref_fails_ingestion(self):
@@ -530,10 +546,14 @@ class ReferenceIngestorTests(unittest.TestCase):
             ]
             manifest_path.write_bytes(canonical_json_bytes(manifest))
 
-            validate_bundle(copy_root)
-            with self.assertRaises(IngestionError) as ctx:
+            # #194: session/timing.json is a required foundation
+            # payload, so the hardened validator fails closed before
+            # the ingestor's timing_ref check is reached.
+            with self.assertRaises(ValidationError) as ctx:
+                validate_bundle(copy_root)
+            self.assertIn("foundation", str(ctx.exception))
+            with self.assertRaises(ValidationError):
                 build_ingestion_plan(copy_root)
-            self.assertIn("timing_ref", str(ctx.exception))
 
     def test_session_document_wrong_configuration_ref_fails(self):
         with tempfile.TemporaryDirectory() as td:

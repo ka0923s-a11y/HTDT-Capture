@@ -13,6 +13,7 @@ public enum CaptureBundleArchiveError:
     case fileOpenFailed(String)
     case archiveMalformed
     case archiveEntryMismatch
+    case archiveEntryTypeForbidden(String)
     case archiveLogicalDigestMismatch
     case atomicPublishFailed
 }
@@ -448,6 +449,9 @@ public enum StoredCaptureBundleArchiveValidator {
                 throw CaptureBundleArchiveError.archiveMalformed
             }
 
+            // version made by: parsed for the record; the file-type
+            // policy below is applied unconditionally (any creator OS)
+            // for parity with the Python reference validator.
             _ = try handle.readLE() as UInt16
             let version: UInt16 = try handle.readLE()
             let flags: UInt16 = try handle.readLE()
@@ -462,7 +466,7 @@ public enum StoredCaptureBundleArchiveValidator {
             let commentLength: UInt16 = try handle.readLE()
             let diskStart: UInt16 = try handle.readLE()
             _ = try handle.readLE() as UInt16
-            _ = try handle.readLE() as UInt32
+            let externalAttributes: UInt32 = try handle.readLE()
             let localOffset: UInt32 = try handle.readLE()
 
             guard version == 20,
@@ -484,6 +488,25 @@ public enum StoredCaptureBundleArchiveValidator {
                 encoding: .utf8
             ) else {
                 throw CaptureBundleArchiveError.archiveMalformed
+            }
+
+            // Entry-type parity with the Python reference validator
+            // (#196): the upper 16 bits of the central-directory external
+            // attributes carry the Unix mode bits for creators that
+            // record them. This validator fails closed on any advertised
+            // file type other than regular/directory/unspecified —
+            // including symlink-marked entries — regardless of the
+            // creator OS in versionMadeBy, matching the reference rule
+            // exactly so the same archive bytes cannot validate
+            // differently across the two authorities.
+            let unixFileType =
+                (externalAttributes >> 16) & 0o170000
+            guard unixFileType == 0
+                  || unixFileType == 0o100000   // S_IFREG
+                  || unixFileType == 0o040000   // S_IFDIR
+            else {
+                throw CaptureBundleArchiveError
+                    .archiveEntryTypeForbidden(path)
             }
 
             guard let local = localByOffset[localOffset],
@@ -580,6 +603,20 @@ public enum StoredCaptureBundleArchiveValidator {
             Set(localByPath.keys)
                 .subtracting(["manifest.json"])
         let declaredPaths = Set(declaredByPath.keys)
+
+        // Minimum foundation payload set (#194): same manifest-level
+        // rule the directory validator and Python validator apply.
+        let missingFoundation = BundlePayloadCrossCheck
+            .foundationRequiredPaths
+            .subtracting(declaredPaths)
+        guard missingFoundation.isEmpty else {
+            throw BundleDirectoryValidationError
+                .declaredPayloadSetMismatch(
+                    missing: missingFoundation
+                        .sorted(by: BundleLogicalPath.utf8Less),
+                    undeclared: []
+                )
+        }
 
         guard actualPayloadPaths == declaredPaths else {
             throw BundleDirectoryValidationError

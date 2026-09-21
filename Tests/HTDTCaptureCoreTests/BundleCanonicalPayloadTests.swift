@@ -37,7 +37,8 @@ func validCanonicalSessionPayloadAccepted() throws {
 
     let report = try BundleDirectoryValidator.validate(root: root)
     #expect(report.valid)
-    #expect(report.payloadCount == 1)
+    // staged session + auto-staged remaining foundation payloads
+    #expect(report.payloadCount == 4)
 }
 
 @Test

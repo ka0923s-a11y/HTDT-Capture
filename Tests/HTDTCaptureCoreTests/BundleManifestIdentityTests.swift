@@ -767,6 +767,11 @@ private func exportIdentityArchive(
             role: .canonical
         )
     )
+    // #194: finalized bundles carry the foundation payload set.
+    declarations.append(
+        contentsOf: try BundleValidationFixture
+            .stageFoundationPayloads(in: staging)
+    )
 
     let finalized = try await BundleRevisionFinalizer().finalize(
         stagingDirectory: staging,
@@ -777,8 +782,18 @@ private func exportIdentityArchive(
         request: BundleFinalizationRequest(
             captureSeriesID: CaptureSeriesID(),
             captureRevisionID: CaptureRevisionID(),
-            captureSessionIDs: [CaptureSessionID()],
-            coordinateSpaceIDs: [CoordinateSpaceID()],
+            captureSessionIDs: [
+                CaptureSessionID(
+                    canonicalString: BundleValidationFixture
+                        .sessionUUID
+                )!
+            ],
+            coordinateSpaceIDs: [
+                CoordinateSpaceID(
+                    canonicalString: BundleValidationFixture
+                        .spaceUUID
+                )!
+            ],
             createdAtUTC: "2026-09-20T00:00:00Z",
             finalizedAtUTC: "2026-09-20T00:01:00Z",
             app: BundleAppIdentity(
@@ -836,7 +851,8 @@ func archiveValidatorIndexesMultiEntryCentralDirectory() async throws {
     let report = try StoredCaptureBundleArchiveValidator.validate(
         archive: archive
     )
-    #expect(report.payloadCount == 25)
+    // 24 named payloads + quality + session×3 foundation (#194)
+    #expect(report.payloadCount == 28)
 }
 
 @Test
