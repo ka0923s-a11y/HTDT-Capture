@@ -509,7 +509,7 @@ final class AuthorityCommitBindingTests: XCTestCase {
             snapshot.payloadDeclarations
                 .filter { $0.path.hasPrefix("session/") }
                 .count,
-            4
+            5
         )
     }
 
@@ -572,7 +572,7 @@ final class AuthorityCommitBindingTests: XCTestCase {
             snapshot.payloadDeclarations
                 .filter { $0.path.hasPrefix("session/") }
                 .count,
-            4
+            5
         )
 
         // The committed authority is durable and internally consistent:

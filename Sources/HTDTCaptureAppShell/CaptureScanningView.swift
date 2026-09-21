@@ -211,8 +211,11 @@ public struct CaptureScanningView: View {
 
                 Text(
                     String(
-                        format: String(localized: "Direction %d%%"),
-                        coveragePercent
+                        format: String(
+                            localized: "Directions %d/%d"
+                        ),
+                        coverage.observedCellCount,
+                        coverage.totalCellCount
                     )
                 )
                 .font(.caption.monospacedDigit().weight(.semibold))
@@ -772,10 +775,7 @@ public struct CaptureScanningView: View {
         }
 
         if scanGuidanceComplete {
-            return String(
-                localized:
-                    "Scan guidance complete. You can end now or continue for more detail."
-            )
+            return guidanceCompletionSentence
         }
 
         if let motionGuidance {
@@ -1406,6 +1406,46 @@ public struct CaptureScanningView: View {
 
     private var coveragePercent: Int {
         Int((coverage.coverageFraction * 100).rounded())
+    }
+
+    /// Completion copy keyed on the typed source (issue #296): a
+    /// budget- or constraint-terminated scan never reads as
+    /// "everything was observed", and the unresolved weak count stays
+    /// visible when the source is not `.observed`.
+    private var guidanceCompletionSentence: String {
+        switch guidanceProgress.completionSource {
+        case .observed:
+            return String(
+                localized:
+                    "Scan guidance complete. You can end now or continue for more detail."
+            )
+        case .weakRegionRetriesExhausted:
+            return String(
+                format: String(
+                    localized:
+                        "Guidance finished: %d weak area(s) did not improve after repeated attempts. They remain reviewable in spatial coverage."
+                ),
+                guidanceProgress.unresolvedWeakRegionCount
+            )
+        case .attemptBudgetExhausted:
+            return String(
+                format: String(
+                    localized:
+                        "Guidance attempt budget used. %d weak area(s) may remain — review spatial coverage before ending."
+                ),
+                guidanceProgress.unresolvedWeakRegionCount
+            )
+        case .movementConstrained:
+            return String(
+                localized:
+                    "Movement-limited scan complete. Movement-dependent checks were skipped; weak or unknown areas may remain."
+            )
+        case .incomplete:
+            return String(
+                localized:
+                    "Scan guidance complete. You can end now or continue for more detail."
+            )
+        }
     }
 
     private var trackingLabel: String {

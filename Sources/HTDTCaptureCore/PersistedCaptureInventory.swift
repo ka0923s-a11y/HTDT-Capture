@@ -285,6 +285,10 @@ public struct PersistedCaptureInventoryResult:
     /// surfaced for bounded deletion.
     public let orphanedWorkingArtifacts:
         [PersistedCaptureWorkingOrphan]
+    /// `working/<uuid>` revisions whose durable phase marker proves an
+    /// accepted End boundary (issue #297). They reopen into a spatially
+    /// sealed Review — never into live capture.
+    public let recoverableDrafts: [RecoverableWorkingRevision]
     public let enumerationFailures: [String]
 
     public init(
@@ -293,11 +297,13 @@ public struct PersistedCaptureInventoryResult:
             [PersistedCaptureQuarantinedArtifact] = [],
         orphanedWorkingArtifacts:
             [PersistedCaptureWorkingOrphan] = [],
+        recoverableDrafts: [RecoverableWorkingRevision] = [],
         enumerationFailures: [String] = []
     ) {
         self.captures = captures
         self.quarantinedArtifacts = quarantinedArtifacts
         self.orphanedWorkingArtifacts = orphanedWorkingArtifacts
+        self.recoverableDrafts = recoverableDrafts
         self.enumerationFailures = enumerationFailures
     }
 
@@ -305,6 +311,7 @@ public struct PersistedCaptureInventoryResult:
         captures.isEmpty
             && quarantinedArtifacts.isEmpty
             && orphanedWorkingArtifacts.isEmpty
+            && recoverableDrafts.isEmpty
             && enumerationFailures.isEmpty
     }
 
@@ -399,6 +406,7 @@ public struct PersistedCaptureInventory: Sendable {
             [PersistedCaptureQuarantinedArtifact] = []
         var orphanedWorking:
             [PersistedCaptureWorkingOrphan] = []
+        var recoverableDrafts: [RecoverableWorkingRevision] = []
         var enumerationFailures: [String] = []
 
         for child in children(
@@ -654,9 +662,10 @@ public struct PersistedCaptureInventory: Sendable {
 
                 switch childKind(child) {
                 case .directory:
-                    guard CaptureRevisionID(
-                        canonicalString: name
-                    ) != nil
+                    guard
+                        let revisionID = CaptureRevisionID(
+                            canonicalString: name
+                        )
                     else {
                         quarantined.append(
                             PersistedCaptureQuarantinedArtifact(
@@ -664,6 +673,34 @@ public struct PersistedCaptureInventory: Sendable {
                                 url: child,
                                 reason:
                                     "unrecognized directory inside the working root; no ownership proof"
+                            )
+                        )
+                        continue
+                    }
+                    // Issue #297: a `working/<uuid>` directory carrying a
+                    // durable end-accepted phase marker is a recoverable
+                    // draft, not an abandoned revision. The marker is
+                    // the only ownership proof — absent, undecodable,
+                    // `live_scan_incomplete`, or practice-mode entries
+                    // all stay on the non-resumable orphan path.
+                    if let state = CaptureWorkingSetStore
+                        .peekRevisionPhase(workingRevisionURL: child),
+                       state.phase.isRecoverableDraft,
+                       !state.practice
+                    {
+                        recoverableDrafts.append(
+                            RecoverableWorkingRevision(
+                                url: child,
+                                revisionID: revisionID,
+                                phase: state.phase,
+                                captureSessionID:
+                                    state.captureSessionID,
+                                coordinateSpaceID:
+                                    state.coordinateSpaceID,
+                                retainedBytes: retainedBytes(
+                                    of: child,
+                                    failures: &enumerationFailures
+                                )
                             )
                         )
                         continue
@@ -738,6 +775,9 @@ public struct PersistedCaptureInventory: Sendable {
                 $0.url.path < $1.url.path
             },
             orphanedWorkingArtifacts: orphanedWorking.sorted {
+                $0.url.path < $1.url.path
+            },
+            recoverableDrafts: recoverableDrafts.sorted {
                 $0.url.path < $1.url.path
             },
             enumerationFailures: enumerationFailures

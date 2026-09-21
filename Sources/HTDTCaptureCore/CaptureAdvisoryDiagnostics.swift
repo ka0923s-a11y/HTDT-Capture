@@ -331,6 +331,11 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
     public let actionableWeakRegionCount: Int
     public let saturatedWeakRegionCount: Int
     public let guidanceComplete: Bool
+    /// Why `guidanceComplete` fired (issue #296): a
+    /// `ScanGuidanceCompletionSource` raw value. Optional so payloads
+    /// persisted before the source was tracked still decode; nil means
+    /// "recorded by an older schema", never "observed".
+    public let guidanceCompletionSource: String?
 
 
     public init(
@@ -360,7 +365,8 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
         guidanceMaximumAttempts: Int,
         actionableWeakRegionCount: Int,
         saturatedWeakRegionCount: Int,
-        guidanceComplete: Bool
+        guidanceComplete: Bool,
+        guidanceCompletionSource: String? = nil
     ) {
         self.algorithm = algorithm
         self.algorithmVersion = algorithmVersion
@@ -393,6 +399,7 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
         self.saturatedWeakRegionCount =
             saturatedWeakRegionCount
         self.guidanceComplete = guidanceComplete
+        self.guidanceCompletionSource = guidanceCompletionSource
     }
 
 
@@ -424,6 +431,7 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
         case actionableWeakRegionCount = "actionable_weak_region_count"
         case saturatedWeakRegionCount = "saturated_weak_region_count"
         case guidanceComplete = "guidance_complete"
+        case guidanceCompletionSource = "guidance_completion_source"
     }
 }
 
