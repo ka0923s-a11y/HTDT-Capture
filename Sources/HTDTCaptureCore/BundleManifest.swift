@@ -133,6 +133,14 @@ public enum BundleManifestError: Error, Sendable, Equatable {
     case invalidTimestamp(String)
     case finalizedBeforeCreated(String, String)
     case selfParentRevision
+    case malformedSourceRef(String, String)
+    case duplicateSourceRef(String, String)
+    case unresolvedSourceRefPath(String, String)
+    case unresolvedSourceRefDigest(String, String)
+    case unknownSourceRefSession(String, String)
+    case selfReferencingSourceRef(String, String)
+    case cyclicSourceRefPath(String, String)
+    case derivedEntryMissingSourceRefs(String)
 }
 
 public struct BundleManifest: Codable, Sendable, Equatable {
@@ -228,6 +236,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
 
         var seen = Set<String>()
         var collisionMap: [String: String] = [:]
+        var declaredByPath: [String: BundleFileEntry] = [:]
         for file in files {
             if file.path == "manifest.json" {
                 throw BundleManifestError.manifestSelfDeclaration
@@ -247,7 +256,28 @@ public struct BundleManifest: Codable, Sendable, Equatable {
                     )
             }
             collisionMap[collisionKey] = file.path
+            declaredByPath[file.path] = file
         }
+
+        var declaredDigests = Set<String>()
+        for file in files {
+            declaredDigests.insert(file.sha256.value)
+        }
+        let declaredSessionIDs = Set(captureSessionIDs)
+        var pathEdges: [String: [String]] = [:]
+        for file in files {
+            try Self.validateSourceRefs(
+                of: file,
+                declaredByPath: declaredByPath,
+                declaredDigests: declaredDigests,
+                sessionIDs: declaredSessionIDs,
+                pathEdges: &pathEdges
+            )
+        }
+        try Self.validateSourceRefPathGraph(
+            pathEdges: pathEdges,
+            declaredPaths: seen.sorted(by: Self.utf8Less)
+        )
 
         self.schema = "htdt.capture.bundle"
         self.schemaVersion = "1.0.0"
@@ -394,6 +424,137 @@ public struct BundleManifest: Codable, Sendable, Equatable {
 
     private static func isUUIDv4(_ uuid: UUID) -> Bool {
         uuid.isCanonicalUUIDv4
+    }
+
+    private static func validateSourceRefs(
+        of file: BundleFileEntry,
+        declaredByPath: [String: BundleFileEntry],
+        declaredDigests: Set<String>,
+        sessionIDs: Set<CaptureSessionID>,
+        pathEdges: inout [String: [String]]
+    ) throws {
+        let refs = file.sourceRefs ?? []
+        if file.role == .derived, refs.isEmpty {
+            throw BundleManifestError.derivedEntryMissingSourceRefs(
+                file.path
+            )
+        }
+        var seenRefs = Set<String>()
+        for ref in refs {
+            guard !ref.isEmpty else {
+                throw BundleManifestError.malformedSourceRef(
+                    file.path,
+                    ref
+                )
+            }
+            guard seenRefs.insert(ref).inserted else {
+                throw BundleManifestError.duplicateSourceRef(
+                    file.path,
+                    ref
+                )
+            }
+            if ref.hasPrefix("path:") {
+                let target = String(ref.dropFirst(5))
+                do {
+                    try BundleLogicalPath.validate(target)
+                } catch {
+                    throw BundleManifestError.malformedSourceRef(
+                        file.path,
+                        ref
+                    )
+                }
+                if target == file.path {
+                    throw BundleManifestError.selfReferencingSourceRef(
+                        file.path,
+                        ref
+                    )
+                }
+                guard declaredByPath[target] != nil else {
+                    throw BundleManifestError.unresolvedSourceRefPath(
+                        file.path,
+                        ref
+                    )
+                }
+                pathEdges[file.path, default: []].append(target)
+            } else if ref.hasPrefix("sha256:") {
+                let value = String(ref.dropFirst(7))
+                guard (try? EvidenceSHA256(value)) != nil else {
+                    throw BundleManifestError.malformedSourceRef(
+                        file.path,
+                        ref
+                    )
+                }
+                if value == file.sha256.value {
+                    throw BundleManifestError.selfReferencingSourceRef(
+                        file.path,
+                        ref
+                    )
+                }
+                guard declaredDigests.contains(value) else {
+                    throw BundleManifestError
+                        .unresolvedSourceRefDigest(
+                            file.path,
+                            ref
+                        )
+                }
+            } else if ref.hasPrefix("capture_session:") {
+                let value = String(ref.dropFirst(16))
+                guard let sessionID =
+                        CaptureSessionID(canonicalString: value)
+                else {
+                    throw BundleManifestError.malformedSourceRef(
+                        file.path,
+                        ref
+                    )
+                }
+                guard sessionIDs.contains(sessionID) else {
+                    throw BundleManifestError.unknownSourceRefSession(
+                        file.path,
+                        ref
+                    )
+                }
+            } else if ref != "roomplan_raw_serialization:unavailable" {
+                throw BundleManifestError.malformedSourceRef(
+                    file.path,
+                    ref
+                )
+            }
+        }
+    }
+
+    private static func validateSourceRefPathGraph(
+        pathEdges: [String: [String]],
+        declaredPaths: [String]
+    ) throws {
+        var visitState: [String: Int] = [:]
+        for root in declaredPaths where visitState[root] == nil {
+            visitState[root] = 1
+            var stack: [(path: String, nextChild: Int)] = [
+                (path: root, nextChild: 0)
+            ]
+            while let frame = stack.last {
+                let children = pathEdges[frame.path] ?? []
+                if frame.nextChild < children.count {
+                    let child = children[frame.nextChild]
+                    stack[stack.count - 1].nextChild += 1
+                    if let childState = visitState[child] {
+                        if childState == 1 {
+                            throw BundleManifestError
+                                .cyclicSourceRefPath(
+                                    frame.path,
+                                    "path:\(child)"
+                                )
+                        }
+                    } else {
+                        visitState[child] = 1
+                        stack.append((path: child, nextChild: 0))
+                    }
+                } else {
+                    visitState[frame.path] = 2
+                    stack.removeLast()
+                }
+            }
+        }
     }
 }
 

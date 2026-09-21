@@ -328,3 +328,215 @@ func revisionVectorsMatchSharedContract() throws {
         }
     }
 }
+
+@Test
+func manifestRejectsMalformedSourceRefNamespace() throws {
+    let entry = try identityEntry(
+        "payloads/a.bin",
+        sourceRefs: ["opaque-token"]
+    )
+    #expect(
+        throws: BundleManifestError.malformedSourceRef(
+            "payloads/a.bin",
+            "opaque-token"
+        )
+    ) {
+        _ = try identityManifest(files: [entry])
+    }
+}
+
+@Test
+func manifestRejectsEmptySourceRef() throws {
+    let entry = try identityEntry(
+        "payloads/a.bin",
+        sourceRefs: [""]
+    )
+    #expect(
+        throws: BundleManifestError.malformedSourceRef(
+            "payloads/a.bin",
+            ""
+        )
+    ) {
+        _ = try identityManifest(files: [entry])
+    }
+}
+
+@Test
+func manifestRejectsDuplicateSourceRef() throws {
+    let bravo = try identityEntry(
+        "payloads/b.bin",
+        sha256:
+            "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d"
+    )
+    let alpha = try identityEntry(
+        "payloads/a.bin",
+        sourceRefs: [
+            "path:payloads/b.bin",
+            "path:payloads/b.bin",
+        ]
+    )
+    #expect(
+        throws: BundleManifestError.duplicateSourceRef(
+            "payloads/a.bin",
+            "path:payloads/b.bin"
+        )
+    ) {
+        _ = try identityManifest(files: [alpha, bravo])
+    }
+}
+
+@Test
+func manifestRejectsDanglingPathSourceRef() throws {
+    let entry = try identityEntry(
+        "payloads/a.bin",
+        sourceRefs: ["path:payloads/missing.bin"]
+    )
+    #expect(
+        throws: BundleManifestError.unresolvedSourceRefPath(
+            "payloads/a.bin",
+            "path:payloads/missing.bin"
+        )
+    ) {
+        _ = try identityManifest(files: [entry])
+    }
+}
+
+@Test
+func manifestRejectsEscapingPathSourceRef() throws {
+    let entry = try identityEntry(
+        "payloads/a.bin",
+        sourceRefs: ["path:../escape.bin"]
+    )
+    #expect(
+        throws: BundleManifestError.malformedSourceRef(
+            "payloads/a.bin",
+            "path:../escape.bin"
+        )
+    ) {
+        _ = try identityManifest(files: [entry])
+    }
+}
+
+@Test
+func manifestRejectsSelfDigestSourceRef() throws {
+    let digest =
+        "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"
+    let entry = try identityEntry(
+        "payloads/a.bin",
+        sha256: digest,
+        sourceRefs: ["sha256:\(digest)"]
+    )
+    #expect(
+        throws: BundleManifestError.selfReferencingSourceRef(
+            "payloads/a.bin",
+            "sha256:\(digest)"
+        )
+    ) {
+        _ = try identityManifest(files: [entry])
+    }
+}
+
+@Test
+func manifestRejectsDanglingDigestSourceRef() throws {
+    let entry = try identityEntry(
+        "payloads/a.bin",
+        sourceRefs: [
+            "sha256:2e7d2c03a9507ae265ecf5b5356885a53393a2029d241394997265a1a25aefc6"
+        ]
+    )
+    #expect(
+        throws: BundleManifestError.unresolvedSourceRefDigest(
+            "payloads/a.bin",
+            "sha256:2e7d2c03a9507ae265ecf5b5356885a53393a2029d241394997265a1a25aefc6"
+        )
+    ) {
+        _ = try identityManifest(files: [entry])
+    }
+}
+
+@Test
+func manifestRejectsUnknownCaptureSessionSourceRef() throws {
+    let entry = try identityEntry(
+        "payloads/a.bin",
+        sourceRefs: [
+            "capture_session:10000000-0000-4000-8000-0000000000bb"
+        ]
+    )
+    #expect(
+        throws: BundleManifestError.unknownSourceRefSession(
+            "payloads/a.bin",
+            "capture_session:10000000-0000-4000-8000-0000000000bb"
+        )
+    ) {
+        _ = try identityManifest(files: [entry])
+    }
+}
+
+@Test
+func manifestRejectsDerivedEntryWithoutSourceRefs() throws {
+    let entry = try identityEntry(
+        "previews/a.heic",
+        mediaType: "image/heic",
+        role: .derived
+    )
+    #expect(
+        throws: BundleManifestError.derivedEntryMissingSourceRefs(
+            "previews/a.heic"
+        )
+    ) {
+        _ = try identityManifest(files: [entry])
+    }
+}
+
+@Test
+func manifestRejectsSourceRefPathCycle() throws {
+    let alpha = try identityEntry(
+        "payloads/a.bin",
+        sourceRefs: ["path:payloads/b.bin"]
+    )
+    let bravo = try identityEntry(
+        "payloads/b.bin",
+        sha256:
+            "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+        sourceRefs: ["path:payloads/a.bin"]
+    )
+    #expect(
+        throws: BundleManifestError.cyclicSourceRefPath(
+            "payloads/b.bin",
+            "path:payloads/a.bin"
+        )
+    ) {
+        _ = try identityManifest(files: [alpha, bravo])
+    }
+}
+
+@Test
+func manifestDecodingRejectsMalformedSourceRef() {
+    let json = identityManifestJSON(
+        revisionID: "10000000-0000-4000-8000-000000000004",
+        parentRevisionIDJSON: "null",
+        filesJSON: """
+            {
+              "path": "payloads/a.bin",
+              "bytes": 1,
+              "media_type": "application/octet-stream",
+              "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+              "producer": "test",
+              "provenance_class": "capture_app_derived",
+              "role": "canonical",
+              "source_refs": ["foo:bar"]
+            }
+            """
+    )
+    #expect(
+        throws: BundleManifestError.malformedSourceRef(
+            "payloads/a.bin",
+            "foo:bar"
+        )
+    ) {
+        _ = try JSONDecoder().decode(
+            BundleManifest.self,
+            from: Data(json.utf8)
+        )
+    }
+}
