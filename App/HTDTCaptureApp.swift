@@ -3365,6 +3365,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             let destination = finalizedDirectory(
                 for: snapshot
             )
+
+            // The atomic move inside finalize(...) is the irreversible
+            // filesystem commit point (#160): the working directory was
+            // renamed into finalized/, so the returned revision is
+            // durable finalized authority. Beyond this line the host
+            // must adopt the revision, never roll it back, and never
+            // classify post-promotion errors as a failed working set.
             let finalized =
                 try await BundleRevisionFinalizer().finalize(
                     stagingDirectory: snapshot.rootDirectory,
@@ -3372,27 +3379,148 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     request: request
                 )
             promotedRevision = finalized
-
-            let validation =
-                try BundleDirectoryValidator.validate(
-                    root: finalized.directory
-                )
-            guard validation.bundleDigest == finalized.bundleDigest else {
-                throw BundleFinalizationError.promotionFailed
-            }
-
+        } catch {
+            // Errors here are strictly pre-commit: promotion never
+            // began, no finalized destination was produced, and the
+            // working set still owns the revision, so the staged
+            // quality payload may be rolled back for a Review retry.
             guard captureGeneration == generation else {
                 return
             }
+            await abortUnpromotedFinalization(
+                diagnostic: Self.persistenceDiagnostic(error),
+                store: store,
+                quality: quality,
+                generation: generation
+            )
+            return
+        }
 
-            sessionController.stopAndPauseARSession()
-            resourceMonitor?.stop()
-            resourceMonitor = nil
-            workingSetStore = nil
-            finalizedRevision = finalized
+        guard let promotedRevision else {
+            return
+        }
+        await adoptPromotedRevision(promotedRevision)
+    }
+
+    /// Shared pre-commit abort for the finalization transaction:
+    /// remove the staged quality payload, record the recoverable
+    /// event, and transition validating -> reviewing so the attempt
+    /// can be retried. The promoted path never reaches here — nothing
+    /// in this method may run after the commit point.
+    private func abortUnpromotedFinalization(
+        diagnostic: String,
+        store: CaptureWorkingSetStore,
+        quality: CaptureQualityReport,
+        generation: UUID
+    ) async {
+        do {
+            try await store.discardUncommittedQualityReport(
+                quality
+            )
+        } catch {
+            workingSetStatus =
+                HostLocalization.text(
+                    "Finalization failed and the staged quality record could not be rolled back safely",
+                    "確定処理に失敗し、途中保存された品質情報を安全に取り消せませんでした"
+                )
+                + " ["
+                + diagnostic
+                + "]"
+            fail(.persistenceFailure)
+            return
+        }
+
+        await store.recordResourceEvent(
+            CaptureResourceEvent(
+                kind: .persistenceFailure,
+                severity: .warning,
+                detail:
+                    "Recoverable finalization failure: "
+                    + diagnostic
+            )
+        )
+
+        guard captureGeneration == generation,
+              state == .validating
+        else {
+            return
+        }
+
+        do {
+            try transition(.validationFailed)
+        } catch {
+            fail(.unknown)
+            return
+        }
+
+        await refreshQuality(
+            store: store,
+            generation: generation
+        )
+
+        guard captureGeneration == generation,
+              state == .reviewing
+        else {
+            return
+        }
+
+        workingSetStatus =
+            HostLocalization.text(
+                "Finalization was not committed. The capture remains in Review and can be retried.",
+                "確定処理はコミットされませんでした。キャプチャは確認画面に保持されており、再試行できます。"
+            )
+            + " ["
+            + diagnostic
+            + "]"
+    }
+
+    /// Post-commit adoption (#160): the working directory was already
+    /// moved into `finalized/` atomically, so the promoted revision is
+    /// durable truth. The independent post-promotion validation runs in
+    /// a bounded detached task so the full re-hash never executes on
+    /// MainActor (#192); only the compact report crosses back.
+    ///
+    /// Commit wins: a generation change alone must not abandon a
+    /// successfully promoted revision, so adoption is unconditional.
+    /// A validation failure never reverts to working-set rollback —
+    /// the host adopts the committed revision as finalized-but-
+    /// unverified and reports that explicitly; the persisted inventory
+    /// re-examines it (and quarantines it if still unreadable) on the
+    /// next scan, keeping exactly one terminal owner.
+    private func adoptPromotedRevision(
+        _ finalized: FinalizedCaptureRevision
+    ) async {
+        let (validation, validationDiagnostic) =
+            await Self.validatePromotedRevision(
+                directory: finalized.directory
+            )
+
+        sessionController.stopAndPauseARSession()
+        resourceMonitor?.stop()
+        resourceMonitor = nil
+        workingSetStore = nil
+        finalizedRevision = finalized
+        exportURL = nil
+
+        if let validation,
+           validation.bundleDigest == finalized.bundleDigest
+        {
             validationReport = validation
-            exportURL = nil
-            try transition(.finalize)
+            do {
+                try transition(.finalize)
+            } catch {
+                // Even when the host transition itself fails, the
+                // committed revision stays adopted; the committed
+                // bytes remain recoverable through the persisted
+                // inventory instead of being misclassified as a
+                // failed working set.
+                workingSetStatus = HostLocalization.text(
+                    "The revision was committed but the host could not reflect finalized state; it stays discoverable in the persisted-capture inventory",
+                    "リビジョンはコミットされましたが、確定状態を反映できませんでした。保存済みキャプチャ一覧から確認できます"
+                )
+                self.loadPersistedCaptures()
+                return
+            }
             workingSetStatus =
                 HostLocalization.isJapanese
                 ? "リビジョンを確定しました。バンドルダイジェスト: "
@@ -3400,87 +3528,74 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 : "Finalized revision; bundle digest "
                     + validation.bundleDigest.description
             self.loadPersistedCaptures()
-        } catch {
-            guard captureGeneration == generation else {
-                return
-            }
-
-            let diagnostic =
-                Self.persistenceDiagnostic(error)
-
-            if promotedRevision != nil {
-                workingSetStatus =
-                    HostLocalization.text(
-                        "The revision was promoted but failed post-promotion validation; capture cannot safely resume",
-                        "リビジョン昇格後の検証に失敗したため、安全にキャプチャへ戻れません"
-                    )
-                    + " ["
-                    + diagnostic
-                    + "]"
-                fail(.persistenceFailure)
-                return
-            }
-
-            do {
-                try await store.discardUncommittedQualityReport(
-                    quality
-                )
-            } catch {
-                workingSetStatus =
-                    HostLocalization.text(
-                        "Finalization failed and the staged quality record could not be rolled back safely",
-                        "確定処理に失敗し、途中保存された品質情報を安全に取り消せませんでした"
-                    )
-                    + " ["
-                    + diagnostic
-                    + "]"
-                fail(.persistenceFailure)
-                return
-            }
-
-            await store.recordResourceEvent(
-                CaptureResourceEvent(
-                    kind: .persistenceFailure,
-                    severity: .warning,
-                    detail:
-                        "Recoverable finalization failure: "
-                        + diagnostic
-                )
-            )
-
-            guard captureGeneration == generation,
-                  state == .validating
-            else {
-                return
-            }
-
-            do {
-                try transition(.validationFailed)
-            } catch {
-                fail(.unknown)
-                return
-            }
-
-            await refreshQuality(
-                store: store,
-                generation: generation
-            )
-
-            guard captureGeneration == generation,
-                  state == .reviewing
-            else {
-                return
-            }
-
-            workingSetStatus =
-                HostLocalization.text(
-                    "Finalization was not committed. The capture remains in Review and can be retried.",
-                    "確定処理はコミットされませんでした。キャプチャは確認画面に保持されており、再試行できます。"
-                )
-                + " ["
-                + diagnostic
-                + "]"
+            return
         }
+
+        // Committed-but-unverified: durable bytes exist under
+        // finalized/, but independent revalidation could not prove
+        // them (or the digest disagreed with the finalizer's manifest
+        // record). Adopt the revision so there is exactly one terminal
+        // owner and surface the unverified state explicitly instead of
+        // Failed + rollback.
+        validationReport = nil
+        let unverifiedDiagnostic =
+            validation == nil
+            ? (validationDiagnostic
+                ?? "post_promotion_validation_unverified")
+            : "bundle_digest_mismatch"
+        do {
+            try transition(.adoptFinalized)
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The revision was committed but the host could not reflect finalized state; it stays discoverable in the persisted-capture inventory",
+                "リビジョンはコミットされましたが、確定状態を反映できませんでした。保存済みキャプチャ一覧から確認できます"
+            )
+            self.loadPersistedCaptures()
+            return
+        }
+        workingSetStatus =
+            HostLocalization.text(
+                "The revision was committed to finalized storage, but post-promotion validation could not prove it; the committed bytes are preserved and stay discoverable through the persisted-capture inventory",
+                "リビジョンは確定済み領域にコミットされましたが、昇格後の検証で証明できませんでした。コミット済みデータは保持され、保存済みキャプチャ一覧から確認できます"
+            )
+            + " ["
+            + unverifiedDiagnostic
+            + "]"
+        self.loadPersistedCaptures()
+    }
+
+    /// Independent post-promotion revalidation (#192): the full
+    /// directory scan + digest run on a bounded detached worker and
+    /// only the compact report (or a diagnostic token) returns to the
+    /// MainActor. One retry distinguishes a transient read failure
+    /// from a genuinely unverifiable committed bundle.
+    nonisolated private static func validatePromotedRevision(
+        directory: URL
+    ) async -> (report: BundleValidationReport?, diagnostic: String?) {
+        var lastError: Error?
+        for attempt in 0..<2 {
+            do {
+                let report = try await Task.detached(
+                    priority: .userInitiated
+                ) {
+                    try BundleDirectoryValidator.validate(
+                        root: directory
+                    )
+                }.value
+                return (report, nil)
+            } catch {
+                lastError = error
+                if attempt == 0 {
+                    try? await Task.sleep(
+                        for: .milliseconds(150)
+                    )
+                }
+            }
+        }
+        let diagnostic =
+            lastError.map { Self.persistenceDiagnostic($0) }
+            ?? "post_promotion_validation_unverified"
+        return (nil, diagnostic)
     }
 
     private func configureResourceMonitor(

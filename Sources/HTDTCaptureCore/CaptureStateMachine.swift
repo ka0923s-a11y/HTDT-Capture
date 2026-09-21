@@ -40,8 +40,12 @@ public enum CaptureEvent: Sendable, Equatable {
     case beginValidation
     case validationFailed
     case finalize
-    /// Adopt an already-persisted, revalidated finalized revision after
-    /// relaunch. This never fabricates Review or scanning state: the
+    /// Adopt an already-persisted finalized revision whose bytes are
+    /// durable truth: after relaunch (from `.idle`), after the
+    /// irreversible commit point when post-promotion validation cannot
+    /// prove the revision (from `.validating`), or when a racing failure
+    /// resolved while a committed promotion was already durable (from
+    /// `.failed`). This never fabricates Review or scanning state: the
     /// working set and its AR coordinate authority are gone.
     case adoptFinalized
     case export
@@ -105,7 +109,8 @@ public struct CaptureStateMachine: Sendable, Equatable {
             state = .reviewing
         case (.validating, .finalize):
             state = .finalized
-        case (.idle, .adoptFinalized):
+        case (.idle, .adoptFinalized), (.validating, .adoptFinalized),
+             (.failed, .adoptFinalized):
             state = .finalized
         case (.finalized, .export):
             state = .exported
