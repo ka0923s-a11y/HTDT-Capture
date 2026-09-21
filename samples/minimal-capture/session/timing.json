@@ -1,0 +1,1 @@
+{"clock_domain":"arkit_arframe_timestamp_seconds","correlations":[{"estimated_uncertainty_s":0.001,"method":"device_uptime_epoch","monotonic_s":0.0,"utc":"2026-09-20T00:00:00Z"},{"estimated_uncertainty_s":0.001,"method":"device_uptime_epoch","monotonic_s":60.0,"utc":"2026-09-20T00:01:00Z"}],"schema":"htdt.capture.timing","schema_version":"1.0.0"}

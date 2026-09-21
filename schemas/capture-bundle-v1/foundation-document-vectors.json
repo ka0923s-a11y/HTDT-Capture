@@ -1,0 +1,318 @@
+{
+  "schema": "htdt.capture.foundation-document-vectors",
+  "schema_version": "1.0.0",
+  "description": "Shared positive/negative vectors for the Phase 1 foundation schemas. Positive documents mirror what the production Swift authority models emit (sorted-keys compact JSON). Each negative vector names the schema, a human-readable mutation, and the mutated document that must be rejected.",
+  "positive": [
+    {
+      "name": "session",
+      "schema_file": "session.schema.json",
+      "document": {
+        "schema": "htdt.capture.session",
+        "schema_version": "1.0.0",
+        "capture_session_id": "00000000-0000-4000-8000-000000000003",
+        "coordinate_space_id": "00000000-0000-4000-8000-000000000004",
+        "capture_mode": "roomplan_mesh",
+        "started_at": "2026-09-20T00:00:00Z",
+        "configuration_ref": "session/capture-configuration.json",
+        "timing_ref": "session/timing.json"
+      }
+    },
+    {
+      "name": "device",
+      "schema_file": "device.schema.json",
+      "document": {
+        "schema": "htdt.capture.device",
+        "schema_version": "1.0.0",
+        "platform": "iOS",
+        "os_version": "26.0",
+        "os_build": "23A100",
+        "hardware_model": "iPhone17,1",
+        "app_version": "1.0.0",
+        "app_build": "42"
+      }
+    },
+    {
+      "name": "capabilities",
+      "schema_file": "capabilities.schema.json",
+      "document": {
+        "schema": "htdt.capture.capabilities",
+        "schema_version": "1.0.0",
+        "roomplan_supported": true,
+        "world_tracking_supported": true,
+        "scene_reconstruction_supported": true,
+        "scene_depth_supported": true,
+        "smoothed_scene_depth_supported": false,
+        "high_resolution_frame_supported": true,
+        "combined_mode_probe": {
+          "roomplan_mesh_ok": true,
+          "roomplan_scene_depth_ok": false,
+          "same_session_depth_after_roomplan_stop_ok": true
+        }
+      }
+    },
+    {
+      "name": "capture-configuration",
+      "schema_file": "capture-configuration.schema.json",
+      "document": {
+        "schema": "htdt.capture.configuration",
+        "schema_version": "1.0.0",
+        "capture_mode": "roomplan_mesh",
+        "world_alignment": "gravity",
+        "plane_detection": ["horizontal", "vertical"],
+        "scene_reconstruction": "mesh_with_classification",
+        "frame_semantics": ["scene_depth", "smoothed_scene_depth"],
+        "video_format": {
+          "width": 1920,
+          "height": 1440,
+          "frames_per_second": 60,
+          "pixel_format": "420f"
+        },
+        "autofocus_enabled": true,
+        "roomplan": {"detail_level": "full"}
+      }
+    },
+    {
+      "name": "timing",
+      "schema_file": "timing.schema.json",
+      "document": {
+        "schema": "htdt.capture.timing",
+        "schema_version": "1.0.0",
+        "clock_domain": "arkit_arframe_timestamp_seconds",
+        "correlations": [
+          {
+            "monotonic_s": 0.0,
+            "utc": "2026-09-20T00:00:00Z",
+            "method": "device_uptime_epoch",
+            "estimated_uncertainty_s": 0.001
+          },
+          {
+            "monotonic_s": 60.0,
+            "utc": "2026-09-20T00:01:00Z",
+            "method": "device_uptime_epoch",
+            "estimated_uncertainty_s": null
+          }
+        ]
+      }
+    }
+  ],
+  "negative": [
+    {
+      "name": "session-missing-capture-mode",
+      "schema_file": "session.schema.json",
+      "mutation": "remove capture_mode",
+      "document": {
+        "schema": "htdt.capture.session",
+        "schema_version": "1.0.0",
+        "capture_session_id": "00000000-0000-4000-8000-000000000003",
+        "coordinate_space_id": "00000000-0000-4000-8000-000000000004",
+        "started_at": "2026-09-20T00:00:00Z",
+        "configuration_ref": "session/capture-configuration.json",
+        "timing_ref": "session/timing.json"
+      }
+    },
+    {
+      "name": "session-missing-started-at",
+      "schema_file": "session.schema.json",
+      "mutation": "remove started_at",
+      "document": {
+        "schema": "htdt.capture.session",
+        "schema_version": "1.0.0",
+        "capture_session_id": "00000000-0000-4000-8000-000000000003",
+        "coordinate_space_id": "00000000-0000-4000-8000-000000000004",
+        "capture_mode": "roomplan_mesh",
+        "configuration_ref": "session/capture-configuration.json",
+        "timing_ref": "session/timing.json"
+      }
+    },
+    {
+      "name": "session-missing-configuration-ref",
+      "schema_file": "session.schema.json",
+      "mutation": "remove configuration_ref",
+      "document": {
+        "schema": "htdt.capture.session",
+        "schema_version": "1.0.0",
+        "capture_session_id": "00000000-0000-4000-8000-000000000003",
+        "coordinate_space_id": "00000000-0000-4000-8000-000000000004",
+        "capture_mode": "roomplan_mesh",
+        "started_at": "2026-09-20T00:00:00Z",
+        "timing_ref": "session/timing.json"
+      }
+    },
+    {
+      "name": "session-missing-timing-ref",
+      "schema_file": "session.schema.json",
+      "mutation": "remove timing_ref",
+      "document": {
+        "schema": "htdt.capture.session",
+        "schema_version": "1.0.0",
+        "capture_session_id": "00000000-0000-4000-8000-000000000003",
+        "coordinate_space_id": "00000000-0000-4000-8000-000000000004",
+        "capture_mode": "roomplan_mesh",
+        "started_at": "2026-09-20T00:00:00Z",
+        "configuration_ref": "session/capture-configuration.json"
+      }
+    },
+    {
+      "name": "session-non-utc-started-at",
+      "schema_file": "session.schema.json",
+      "mutation": "started_at with +02:00 offset instead of Z",
+      "document": {
+        "schema": "htdt.capture.session",
+        "schema_version": "1.0.0",
+        "capture_session_id": "00000000-0000-4000-8000-000000000003",
+        "coordinate_space_id": "00000000-0000-4000-8000-000000000004",
+        "capture_mode": "roomplan_mesh",
+        "started_at": "2026-09-20T02:00:00+02:00",
+        "configuration_ref": "session/capture-configuration.json",
+        "timing_ref": "session/timing.json"
+      }
+    },
+    {
+      "name": "capabilities-missing-smoothed-scene-depth",
+      "schema_file": "capabilities.schema.json",
+      "mutation": "remove smoothed_scene_depth_supported",
+      "document": {
+        "schema": "htdt.capture.capabilities",
+        "schema_version": "1.0.0",
+        "roomplan_supported": true,
+        "world_tracking_supported": true,
+        "scene_reconstruction_supported": true,
+        "scene_depth_supported": true,
+        "high_resolution_frame_supported": true
+      }
+    },
+    {
+      "name": "capabilities-missing-high-resolution-frame",
+      "schema_file": "capabilities.schema.json",
+      "mutation": "remove high_resolution_frame_supported",
+      "document": {
+        "schema": "htdt.capture.capabilities",
+        "schema_version": "1.0.0",
+        "roomplan_supported": true,
+        "world_tracking_supported": true,
+        "scene_reconstruction_supported": true,
+        "scene_depth_supported": true,
+        "smoothed_scene_depth_supported": false
+      }
+    },
+    {
+      "name": "configuration-missing-plane-detection",
+      "schema_file": "capture-configuration.schema.json",
+      "mutation": "remove plane_detection",
+      "document": {
+        "schema": "htdt.capture.configuration",
+        "schema_version": "1.0.0",
+        "capture_mode": "roomplan_mesh",
+        "world_alignment": "gravity",
+        "scene_reconstruction": "mesh_with_classification",
+        "frame_semantics": [],
+        "roomplan": {}
+      }
+    },
+    {
+      "name": "configuration-missing-roomplan",
+      "schema_file": "capture-configuration.schema.json",
+      "mutation": "remove roomplan",
+      "document": {
+        "schema": "htdt.capture.configuration",
+        "schema_version": "1.0.0",
+        "capture_mode": "roomplan_mesh",
+        "world_alignment": "gravity",
+        "plane_detection": [],
+        "scene_reconstruction": "mesh_with_classification",
+        "frame_semantics": []
+      }
+    },
+    {
+      "name": "configuration-roomplan-non-string-value",
+      "schema_file": "capture-configuration.schema.json",
+      "mutation": "roomplan value is a number, not a string",
+      "document": {
+        "schema": "htdt.capture.configuration",
+        "schema_version": "1.0.0",
+        "capture_mode": "roomplan_mesh",
+        "world_alignment": "gravity",
+        "plane_detection": [],
+        "scene_reconstruction": "mesh_with_classification",
+        "frame_semantics": [],
+        "roomplan": {"detail_level": 3}
+      }
+    },
+    {
+      "name": "configuration-video-format-missing-fps",
+      "schema_file": "capture-configuration.schema.json",
+      "mutation": "video_format without frames_per_second",
+      "document": {
+        "schema": "htdt.capture.configuration",
+        "schema_version": "1.0.0",
+        "capture_mode": "roomplan_mesh",
+        "world_alignment": "gravity",
+        "plane_detection": [],
+        "scene_reconstruction": "mesh_with_classification",
+        "frame_semantics": [],
+        "video_format": {"width": 1920, "height": 1440},
+        "roomplan": {}
+      }
+    },
+    {
+      "name": "timing-single-correlation",
+      "schema_file": "timing.schema.json",
+      "mutation": "only one correlation; v1 requires start and end",
+      "document": {
+        "schema": "htdt.capture.timing",
+        "schema_version": "1.0.0",
+        "clock_domain": "arkit_arframe_timestamp_seconds",
+        "correlations": [
+          {
+            "monotonic_s": 0.0,
+            "utc": "2026-09-20T00:00:00Z",
+            "method": "device_uptime_epoch"
+          }
+        ]
+      }
+    },
+    {
+      "name": "timing-three-correlations",
+      "schema_file": "timing.schema.json",
+      "mutation": "three correlations; v1 requires exactly two",
+      "document": {
+        "schema": "htdt.capture.timing",
+        "schema_version": "1.0.0",
+        "clock_domain": "arkit_arframe_timestamp_seconds",
+        "correlations": [
+          {"monotonic_s": 0.0, "utc": "2026-09-20T00:00:00Z", "method": "a"},
+          {"monotonic_s": 30.0, "utc": "2026-09-20T00:00:30Z", "method": "a"},
+          {"monotonic_s": 60.0, "utc": "2026-09-20T00:01:00Z", "method": "a"}
+        ]
+      }
+    },
+    {
+      "name": "timing-non-utc-correlation",
+      "schema_file": "timing.schema.json",
+      "mutation": "correlation utc uses numeric offset instead of Z",
+      "document": {
+        "schema": "htdt.capture.timing",
+        "schema_version": "1.0.0",
+        "clock_domain": "arkit_arframe_timestamp_seconds",
+        "correlations": [
+          {"monotonic_s": 0.0, "utc": "2026-09-20T02:00:00+02:00", "method": "a"},
+          {"monotonic_s": 60.0, "utc": "2026-09-20T00:01:00Z", "method": "a"}
+        ]
+      }
+    },
+    {
+      "name": "timing-negative-monotonic",
+      "schema_file": "timing.schema.json",
+      "mutation": "negative monotonic_s",
+      "document": {
+        "schema": "htdt.capture.timing",
+        "schema_version": "1.0.0",
+        "clock_domain": "arkit_arframe_timestamp_seconds",
+        "correlations": [
+          {"monotonic_s": -1.5, "utc": "2026-09-20T00:00:00Z", "method": "a"},
+          {"monotonic_s": 60.0, "utc": "2026-09-20T00:01:00Z", "method": "a"}
+        ]
+      }
+    }
+  ]
+}
