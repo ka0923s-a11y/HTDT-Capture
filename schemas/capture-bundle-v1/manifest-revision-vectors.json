@@ -1,0 +1,26 @@
+{
+  "schema": "htdt.capture.manifest-revision-vectors",
+  "schema_version": "1.0.0",
+  "description": "Shared revision-ancestry vectors for Capture Bundle v1 manifest validation. Each vector supplies capture_revision_id and parent_revision_id values; validators must accept only vectors marked valid. A self-parent edge is a one-node revision cycle the lifecycle forbids; a null parent is the root revision.",
+  "vectors": [
+    {
+      "name": "root-revision-null-parent",
+      "capture_revision_id": "00000000-0000-4000-8000-000000000002",
+      "parent_revision_id": null,
+      "valid": true
+    },
+    {
+      "name": "distinct-parent-revision",
+      "capture_revision_id": "00000000-0000-4000-8000-000000000002",
+      "parent_revision_id": "00000000-0000-4000-8000-00000000000a",
+      "valid": true
+    },
+    {
+      "name": "self-parent-revision",
+      "capture_revision_id": "00000000-0000-4000-8000-000000000002",
+      "parent_revision_id": "00000000-0000-4000-8000-000000000002",
+      "valid": false,
+      "error": "parent_revision_id must differ from capture_revision_id"
+    }
+  ]
+}

@@ -15,13 +15,85 @@ from uuid import UUID
 from datetime import datetime
 import zipfile
 
+if __package__ in (None, ""):
+    # Allow `python tools/bundle_validator/validator.py <bundle>` direct
+    # execution: put the repository root on sys.path so the sibling helper
+    # modules resolve as package imports.
+    repo_root = Path(__file__).resolve().parents[2]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+
+from tools.bundle_validator.binary_formats import (
+    BinaryFormatError,
+    validate_confidencebin,
+    validate_depthbin,
+    validate_meshbin,
+    validate_pixelbin,
+)
+from tools.bundle_validator.schema_eval import (
+    SchemaError,
+    check_schema,
+    validate as schema_validate,
+)
+
 SCHEMA = "htdt.capture.bundle"
 SCHEMA_VERSION = "1.0.0"
 
 MAX_ENTRIES = 10_000
 MAX_FILE_BYTES = 512 * 1024 * 1024
+# The manifest is metadata, not payload: it must stay far below the generic
+# per-file bound so hostile bundles cannot force a multi-hundred-MiB
+# allocation before semantic validation. 8 MiB comfortably covers
+# MAX_ENTRIES entries with realistic path/reference sizes.
+MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 MAX_TOTAL_BYTES = 4 * 1024 * 1024 * 1024
 MAX_COMPRESSION_RATIO = 200.0
+
+SCHEMA_DIR = (
+    Path(__file__).resolve().parents[2] / "schemas" / "capture-bundle-v1"
+)
+
+# Path -> schema mapping for HTDT-Capture-owned JSON payloads. Opaque
+# Apple/raw artifacts (for example roomplan/captured-room*.json) are
+# deliberately absent: no project-owned schema describes them.
+SCHEMA_OWNED_PATHS = {
+    "manifest.json": "manifest.schema.json",
+    "session/capture-session.json": "session.schema.json",
+    "session/device.json": "device.schema.json",
+    "session/capabilities.json": "capabilities.schema.json",
+    "session/capture-configuration.json": "capture-configuration.schema.json",
+    "session/timing.json": "timing.schema.json",
+    "mesh/anchors.json": "mesh-anchors.schema.json",
+    "annotations/entities.json": "entities.schema.json",
+    "annotations/measurements.json": "measurements.schema.json",
+    "quality/capture-quality.json": "quality.schema.json",
+}
+FRAME_DESCRIPTOR_RE = re.compile(r"^evidence/frames/[^/]+\.json$")
+
+# Canonical binary payload formats keyed by bundle path extension and by
+# manifest media type. Both signals must agree when both are present.
+_BINARY_BY_EXTENSION = {
+    ".meshbin": "meshbin",
+    ".pixelbin": "pixelbin",
+    ".depthbin": "depthbin",
+    ".confidencebin": "confidencebin",
+}
+_BINARY_MEDIA_TYPE = {
+    "meshbin": "application/vnd.htdt.meshbin",
+    "pixelbin": "application/vnd.htdt.pixelbin",
+    "depthbin": "application/vnd.htdt.depthbin",
+    "confidencebin": "application/vnd.htdt.confidencebin",
+}
+_BINARY_BY_MEDIA_TYPE = {v: k for k, v in _BINARY_MEDIA_TYPE.items()}
+_BINARY_VALIDATORS = {
+    "meshbin": validate_meshbin,
+    "pixelbin": validate_pixelbin,
+    "depthbin": validate_depthbin,
+    "confidencebin": validate_confidencebin,
+}
+
+# Frozen v1 source_refs grammar namespaces plus enumerated sentinel refs.
+SOURCE_REF_SENTINELS = {"roomplan_raw_serialization:unavailable"}
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 PROVENANCE = {
@@ -95,9 +167,7 @@ def _walk_json(value, *, reject_floats: bool, path: str = "$"):
     raise ValidationError(f"unsupported JSON value at {path}: {type(value).__name__}")
 
 
-def canonical_json_bytes(value) -> bytes:
-    """Capture Bundle v1 canonical JSON for manifest-compatible values."""
-    _walk_json(value, reject_floats=True)
+def _canonical_dumps(value) -> bytes:
     return json.dumps(
         value,
         ensure_ascii=False,
@@ -105,6 +175,26 @@ def canonical_json_bytes(value) -> bytes:
         separators=(",", ":"),
         allow_nan=False,
     ).encode("utf-8")
+
+
+def canonical_json_bytes(value) -> bytes:
+    """Capture Bundle v1 canonical JSON for manifest-compatible values."""
+    _walk_json(value, reject_floats=True)
+    return _canonical_dumps(value)
+
+
+def canonical_payload_json_bytes(value) -> bytes:
+    """Canonical JSON bytes for schema-owned payload documents.
+
+    The bundle canonical JSON profile (UTF-8, no BOM, no duplicate keys, NFC
+    strings/keys, sorted object keys, no insignificant whitespace, standard
+    escaping, no NaN/Infinity) applies to every HTDT-Capture-owned payload,
+    not only manifest.json. Unlike the manifest, payload schemas legitimately
+    contain finite IEEE-754 numbers, so floats are permitted here but must be
+    finite.
+    """
+    _walk_json(value, reject_floats=False)
+    return _canonical_dumps(value)
 
 
 def validate_relative_path(path: str) -> str:
@@ -167,6 +257,13 @@ def validate_manifest_shape(manifest: dict) -> None:
     validate_uuid4(manifest["capture_revision_id"], "capture_revision_id")
     if manifest["parent_revision_id"] is not None:
         validate_uuid4(manifest["parent_revision_id"], "parent_revision_id")
+        # A correction produces another revision; a revision cannot be its
+        # own parent. (Multi-revision ancestry cycles need repository
+        # context and are out of scope for single-bundle validation.)
+        if manifest["parent_revision_id"] == manifest["capture_revision_id"]:
+            raise ValidationError(
+                "parent_revision_id must differ from capture_revision_id"
+            )
 
     for field in ("capture_session_ids", "coordinate_space_ids"):
         values = manifest[field]
@@ -228,6 +325,7 @@ def validate_manifest_shape(manifest: dict) -> None:
 
     paths = []
     casefold_paths = {}
+    entries_by_path = {}
     for index, entry in enumerate(file_entries):
         if not isinstance(entry, dict):
             raise ValidationError(f"files[{index}] must be an object")
@@ -267,11 +365,121 @@ def validate_manifest_shape(manifest: dict) -> None:
             )
         casefold_paths[folded] = path
         paths.append(path)
+        entries_by_path[path] = entry
 
     if len(set(paths)) != len(paths):
         raise ValidationError("duplicate manifest payload paths")
     if paths != sorted(paths, key=lambda x: x.encode("utf-8")):
         raise ValidationError("manifest files array must be sorted by UTF-8 path bytes")
+
+    _validate_source_refs(manifest, entries_by_path)
+
+
+def _validate_source_refs(manifest: dict, entries_by_path: dict) -> None:
+    """Validate the frozen v1 source_refs grammar and target integrity.
+
+    Recognized forms:
+
+    - ``path:<normalized-bundle-path>`` targeting another declared payload;
+    - ``sha256:<lowercase-hex>`` targeting another declared payload digest;
+    - ``capture_session:<uuidv4>`` naming a manifest ``capture_session_ids``
+      member;
+    - the enumerated sentinel ``roomplan_raw_serialization:unavailable``.
+
+    Anything else fails closed. ``path:`` references additionally must not
+    form lineage cycles.
+    """
+    declared_paths = set(entries_by_path)
+    declared_hashes = {
+        entry["sha256"] for entry in entries_by_path.values()
+    }
+    session_ids = set(manifest["capture_session_ids"])
+
+    path_edges: dict[str, list[str]] = {}
+    for path, entry in entries_by_path.items():
+        refs = entry.get("source_refs") or []
+        for ref in refs:
+            if ref in SOURCE_REF_SENTINELS:
+                continue
+            namespace, separator, target = ref.partition(":")
+            if not separator or not target:
+                raise ValidationError(
+                    f"invalid source_ref grammar for {path}: {ref!r}"
+                )
+            if namespace == "path":
+                try:
+                    target = validate_relative_path(target)
+                except ValidationError as exc:
+                    raise ValidationError(
+                        f"invalid path source_ref for {path}: {ref!r}"
+                    ) from exc
+                if target == path:
+                    raise ValidationError(
+                        f"self-referential path source_ref for {path}: {ref!r}"
+                    )
+                if target not in declared_paths:
+                    raise ValidationError(
+                        f"dangling path source_ref for {path}: {ref!r}"
+                    )
+                path_edges.setdefault(path, []).append(target)
+            elif namespace == "sha256":
+                if not SHA256_RE.fullmatch(target):
+                    raise ValidationError(
+                        f"malformed sha256 source_ref for {path}: {ref!r}"
+                    )
+                if target == entry["sha256"]:
+                    raise ValidationError(
+                        f"self-referential sha256 source_ref for {path}: {ref!r}"
+                    )
+                if target not in declared_hashes:
+                    raise ValidationError(
+                        f"dangling sha256 source_ref for {path}: {ref!r}"
+                    )
+            elif namespace == "capture_session":
+                try:
+                    validate_uuid4(target, "source_ref capture_session")
+                except ValidationError as exc:
+                    raise ValidationError(
+                        f"malformed capture_session source_ref for {path}: "
+                        f"{ref!r}"
+                    ) from exc
+                if target not in session_ids:
+                    raise ValidationError(
+                        f"capture_session source_ref names an unknown session "
+                        f"for {path}: {ref!r}"
+                    )
+            else:
+                raise ValidationError(
+                    f"unknown source_ref namespace for {path}: {ref!r}"
+                )
+
+    # Lineage through path: references must be acyclic. A cycle would let a
+    # payload claim derivation from itself transitively, which the v1
+    # canonical/derived relationship does not permit.
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color: dict[str, int] = {}
+    for start in path_edges:
+        if color.get(start, WHITE) != WHITE:
+            continue
+        stack = [(start, iter(path_edges.get(start, [])))]
+        color[start] = GRAY
+        while stack:
+            node, children = stack[-1]
+            advanced = False
+            for child in children:
+                child_color = color.get(child, WHITE)
+                if child_color == GRAY:
+                    raise ValidationError(
+                        f"source_ref path lineage cycle involving {child!r}"
+                    )
+                if child_color == WHITE:
+                    color[child] = GRAY
+                    stack.append((child, iter(path_edges.get(child, []))))
+                    advanced = True
+                    break
+            if not advanced:
+                color[node] = BLACK
+                stack.pop()
 
 
 class DirectorySource:
@@ -324,19 +532,71 @@ class DirectorySource:
     def read_bytes(self, path: str) -> bytes:
         path = validate_relative_path(path)
         target = self.root.joinpath(*PurePosixPath(path).parts)
-        if target.is_symlink():
-            raise ValidationError(f"symlink payload forbidden: {path}")
-        resolved = target.resolve()
+        bound = (
+            MAX_MANIFEST_BYTES if path == "manifest.json" else MAX_FILE_BYTES
+        )
+
+        # TOCTOU discipline: the scan above is only a fast precheck. The
+        # authoritative identity checks bind a path-level lstat to the same
+        # opened descriptor that supplies the bytes:
+        #
+        # 1. lstat the path to snapshot the expected identity;
+        # 2. open once (with O_NOFOLLOW where the platform supports it, so a
+        #    path that is a symlink at open time fails immediately);
+        # 3. fstat the descriptor and require (st_dev, st_ino) equality with
+        #    the lstat result. If the path was swapped to a symlink between
+        #    the calls, the descriptor refers to the symlink *target* whose
+        #    inode differs, so replacement is detected even on platforms
+        #    without O_NOFOLLOW. If the path was swapped to another regular
+        #    file, the inode mismatch is detected the same way;
+        # 4. enforce regular-file/link-count/size policy on the descriptor;
+        # 5. read through the descriptor with a bound-checked stream.
         try:
-            resolved.relative_to(self.root)
-        except ValueError as exc:
-            raise ValidationError(f"payload escapes root: {path}") from exc
-        if not resolved.is_file():
-            raise ValidationError(f"missing payload: {path}")
-        data = resolved.read_bytes()
-        if len(data) > MAX_FILE_BYTES:
-            raise ValidationError(f"file exceeds limit: {path}")
-        return data
+            pre = os.stat(target, follow_symlinks=False)
+        except FileNotFoundError as exc:
+            raise ValidationError(f"missing payload: {path}") from exc
+        except OSError as exc:
+            raise ValidationError(f"unreadable payload: {path}") from exc
+        if stat.S_ISLNK(pre.st_mode):
+            raise ValidationError(f"symlink payload forbidden: {path}")
+
+        flags = os.O_RDONLY
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        flags |= getattr(os, "O_BINARY", 0)
+        try:
+            descriptor = os.open(target, flags)
+        except OSError as exc:
+            raise ValidationError(f"unreadable payload: {path}") from exc
+        try:
+            info = os.fstat(descriptor)
+            if (info.st_dev, info.st_ino) != (pre.st_dev, pre.st_ino):
+                raise ValidationError(
+                    f"payload replaced during validation: {path}"
+                )
+            if not stat.S_ISREG(info.st_mode):
+                raise ValidationError(f"non-regular payload: {path}")
+            if info.st_nlink > 1:
+                raise ValidationError(f"hard-linked file forbidden: {path}")
+            if info.st_size > bound:
+                raise ValidationError(f"file exceeds limit: {path}")
+            chunks = []
+            remaining = bound + 1
+            while remaining > 0:
+                chunk = os.read(descriptor, min(1 << 20, remaining))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            data = b"".join(chunks)
+            if len(data) > bound:
+                raise ValidationError(f"file exceeds limit: {path}")
+            if len(data) != info.st_size:
+                raise ValidationError(
+                    f"payload size changed during validation: {path}"
+                )
+            return data
+        finally:
+            os.close(descriptor)
 
 
 class ZipSource:
@@ -377,6 +637,10 @@ class ZipSource:
 
             if info.file_size > MAX_FILE_BYTES:
                 raise ValidationError(f"archive member exceeds file limit: {path}")
+            if path == "manifest.json" and info.file_size > MAX_MANIFEST_BYTES:
+                # Reject an oversized manifest from the declared archive
+                # header before any bytes are materialized.
+                raise ValidationError("manifest.json exceeds manifest byte limit")
             total += info.file_size
             if total > MAX_TOTAL_BYTES:
                 raise ValidationError("archive exceeds total expanded byte limit")
@@ -397,10 +661,307 @@ class ZipSource:
         info = self._infos.get(path)
         if info is None:
             raise ValidationError(f"missing archive member: {path}")
+        bound = (
+            MAX_MANIFEST_BYTES if path == "manifest.json" else MAX_FILE_BYTES
+        )
+        if info.file_size > bound:
+            raise ValidationError(f"file exceeds limit: {path}")
         data = self.zf.read(info)
         if len(data) != info.file_size:
             raise ValidationError(f"expanded length mismatch: {path}")
+        if len(data) > bound:
+            raise ValidationError(f"file exceeds limit: {path}")
         return data
+
+
+_schema_cache: dict[str, object] = {}
+
+
+def _schema_for_path(path: str) -> str | None:
+    """Map a bundle payload path to its published schema filename."""
+    if path in SCHEMA_OWNED_PATHS:
+        return SCHEMA_OWNED_PATHS[path]
+    if FRAME_DESCRIPTOR_RE.fullmatch(path):
+        return "frame.schema.json"
+    return None
+
+
+def _load_schema(name: str):
+    schema = _schema_cache.get(name)
+    if schema is None:
+        schema_path = SCHEMA_DIR / name
+        try:
+            schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValidationError(
+                f"published schema {name} unreadable: {exc}"
+            ) from exc
+        # Fail closed if the published schema uses constructs the reference
+        # evaluator does not implement.
+        check_schema(schema)
+        _schema_cache[name] = schema
+    return schema
+
+
+def _binary_format_for(path: str, media_type: str) -> str | None:
+    """Determine the canonical binary format a payload must satisfy."""
+    extension = path.rsplit(".", 1)[-1] if "." in path else ""
+    by_ext = _BINARY_BY_EXTENSION.get(f".{extension}") if extension else None
+    by_media = _BINARY_BY_MEDIA_TYPE.get(media_type)
+    if by_ext is not None and by_media is not None and by_ext != by_media:
+        raise ValidationError(
+            f"binary path/media-type mismatch for {path}: {media_type!r}"
+        )
+    fmt = by_ext or by_media
+    if fmt is not None and media_type != _BINARY_MEDIA_TYPE[fmt]:
+        raise ValidationError(
+            f"binary payload {path} must declare media type "
+            f"{_BINARY_MEDIA_TYPE[fmt]!r}"
+        )
+    return fmt
+
+
+def _validate_schema_owned_payload(
+    path: str, data: bytes, schema_name: str
+):
+    """Enforce canonical JSON bytes and the published schema for a payload."""
+    document = parse_json_bytes(data)
+    canonical = canonical_payload_json_bytes(document)
+    if canonical != data:
+        raise ValidationError(
+            f"{path} is not Capture Bundle v1 canonical JSON"
+        )
+    schema = _load_schema(schema_name)
+    try:
+        schema_validate(document, schema)
+    except SchemaError as exc:
+        raise ValidationError(
+            f"{path} violates {schema_name}: {exc}"
+        ) from exc
+    return document
+
+
+def _require_declared_payload(path: str, declared_entries: dict, field: str):
+    entry = declared_entries.get(path)
+    if entry is None:
+        raise ValidationError(f"{field} does not name a declared payload: {path!r}")
+    return entry
+
+
+def _cross_check_mesh_anchors(
+    document: dict,
+    binary_facts: dict,
+    declared_entries: dict,
+    manifest: dict,
+) -> None:
+    """Bind mesh/anchors.json index records to validated mesh binaries."""
+    session_ids = set(manifest["capture_session_ids"])
+    coordinate_ids = set(manifest["coordinate_space_ids"])
+    for index, anchor in enumerate(document["anchors"]):
+        field = f"anchors[{index}]"
+        anchor_id = anchor["anchor_id"]
+        if anchor["capture_session_id"] not in session_ids:
+            raise ValidationError(
+                f"mesh anchor {field} references undeclared capture_session_id"
+            )
+        if anchor["coordinate_space_id"] not in coordinate_ids:
+            raise ValidationError(
+                f"mesh anchor {field} references undeclared coordinate_space_id"
+            )
+        geometry_path = anchor["geometry_path"]
+        if geometry_path != f"mesh/geometry/{anchor_id}.meshbin":
+            raise ValidationError(
+                f"{field}.geometry_path must be "
+                f"mesh/geometry/{anchor_id}.meshbin, got {geometry_path!r}"
+            )
+        entry = _require_declared_payload(
+            geometry_path, declared_entries, f"{field}.geometry_path"
+        )
+        if anchor["geometry_sha256"] != entry["sha256"]:
+            raise ValidationError(
+                f"{field}.geometry_sha256 does not match manifest digest "
+                f"for {geometry_path}"
+            )
+        facts = binary_facts.get(geometry_path)
+        if facts is None:
+            raise ValidationError(
+                f"{field}.geometry_path is not a validated mesh binary: "
+                f"{geometry_path}"
+            )
+        if facts.vertex_count != anchor["vertex_count"]:
+            raise ValidationError(
+                f"{field}.vertex_count {anchor['vertex_count']} does not "
+                f"match mesh binary header {facts.vertex_count}"
+            )
+        if facts.face_count != anchor["face_count"]:
+            raise ValidationError(
+                f"{field}.face_count {anchor['face_count']} does not "
+                f"match mesh binary header {facts.face_count}"
+            )
+
+
+def _check_descriptor_reference(
+    descriptor_path: str,
+    field: str,
+    expected_path: str,
+    declared_path: str,
+    byte_count,
+    sha256,
+    declared_entries: dict,
+) -> None:
+    if declared_path != expected_path:
+        raise ValidationError(
+            f"{descriptor_path}: {field} must be {expected_path!r}, "
+            f"got {declared_path!r}"
+        )
+    entry = _require_declared_payload(
+        declared_path, declared_entries, f"{descriptor_path}:{field}"
+    )
+    if not isinstance(byte_count, int) or byte_count != entry["bytes"]:
+        raise ValidationError(
+            f"{descriptor_path}: {field} byte count does not match "
+            f"manifest entry for {declared_path}"
+        )
+    if sha256 != entry["sha256"]:
+        raise ValidationError(
+            f"{descriptor_path}: {field} sha256 does not match manifest "
+            f"digest for {declared_path}"
+        )
+
+
+def _cross_check_frame_descriptor(
+    descriptor_path: str,
+    document: dict,
+    binary_facts: dict,
+    declared_entries: dict,
+    manifest: dict,
+) -> None:
+    """Bind an evidence/frames/<id>.json descriptor to validated binaries."""
+    frame_id = document["frame_id"]
+    stem = descriptor_path[len("evidence/frames/") : -len(".json")]
+    if stem != frame_id:
+        raise ValidationError(
+            f"{descriptor_path}: filename must be the frame_id"
+        )
+
+    if document["capture_session_id"] not in set(
+        manifest["capture_session_ids"]
+    ):
+        raise ValidationError(
+            f"{descriptor_path}: undeclared capture_session_id"
+        )
+    if document["coordinate_space_id"] not in set(
+        manifest["coordinate_space_ids"]
+    ):
+        raise ValidationError(
+            f"{descriptor_path}: undeclared coordinate_space_id"
+        )
+
+    pixel_path = document["pixel_relative_path"]
+    _check_descriptor_reference(
+        descriptor_path,
+        "pixel_relative_path",
+        f"evidence/frames/{frame_id}.pixelbin",
+        pixel_path,
+        document["pixel_byte_count"],
+        document["pixel_sha256"],
+        declared_entries,
+    )
+    pixel_facts = binary_facts.get(pixel_path)
+    if pixel_facts is None:
+        raise ValidationError(
+            f"{descriptor_path}: pixel payload is not a validated "
+            f"pixelbin: {pixel_path}"
+        )
+    if (
+        pixel_facts.width != document["image_width"]
+        or pixel_facts.height != document["image_height"]
+    ):
+        raise ValidationError(
+            f"{descriptor_path}: pixelbin dimensions "
+            f"{pixel_facts.width}x{pixel_facts.height} do not match "
+            f"descriptor {document['image_width']}x{document['image_height']}"
+        )
+    if pixel_facts.pixel_format_fourcc != document["pixel_format_fourcc"]:
+        raise ValidationError(
+            f"{descriptor_path}: pixelbin format does not match "
+            f"pixel_format_fourcc"
+        )
+
+    depth = document.get("depth")
+    depth_status = document["depth_status"]
+    depth_kinds = {
+        "captured_scene_depth": "scene_depth",
+        "captured_smoothed_scene_depth": "smoothed_scene_depth",
+    }
+    if depth_status in ("not_requested", "unavailable"):
+        if depth is not None:
+            raise ValidationError(
+                f"{descriptor_path}: depth payload inconsistent with "
+                f"depth_status {depth_status!r}"
+            )
+    else:
+        if not isinstance(depth, dict):
+            raise ValidationError(
+                f"{descriptor_path}: depth_status {depth_status!r} "
+                f"requires a depth reference"
+            )
+        if depth["kind"] != depth_kinds[depth_status]:
+            raise ValidationError(
+                f"{descriptor_path}: depth kind {depth['kind']!r} "
+                f"inconsistent with depth_status {depth_status!r}"
+            )
+        depth_path = depth["depth_relative_path"]
+        _check_descriptor_reference(
+            descriptor_path,
+            "depth.depth_relative_path",
+            f"evidence/depth/{frame_id}.depthbin",
+            depth_path,
+            depth["depth_byte_count"],
+            depth["depth_sha256"],
+            declared_entries,
+        )
+        depth_facts = binary_facts.get(depth_path)
+        if depth_facts is None:
+            raise ValidationError(
+                f"{descriptor_path}: depth payload is not a validated "
+                f"depthbin: {depth_path}"
+            )
+
+        confidence_values = (
+            depth.get("confidence_relative_path"),
+            depth.get("confidence_byte_count"),
+            depth.get("confidence_sha256"),
+        )
+        if any(value is not None for value in confidence_values):
+            if not all(value is not None for value in confidence_values):
+                raise ValidationError(
+                    f"{descriptor_path}: incomplete confidence reference"
+                )
+            confidence_path = confidence_values[0]
+            _check_descriptor_reference(
+                descriptor_path,
+                "depth.confidence_relative_path",
+                f"evidence/depth/{frame_id}.confidencebin",
+                confidence_path,
+                confidence_values[1],
+                confidence_values[2],
+                declared_entries,
+            )
+            confidence_facts = binary_facts.get(confidence_path)
+            if confidence_facts is None:
+                raise ValidationError(
+                    f"{descriptor_path}: confidence payload is not a "
+                    f"validated confidencebin: {confidence_path}"
+                )
+            if (
+                confidence_facts.width != depth_facts.width
+                or confidence_facts.height != depth_facts.height
+            ):
+                raise ValidationError(
+                    f"{descriptor_path}: confidence dimensions do not "
+                    f"match depth dimensions"
+                )
 
 
 def validate_bundle(path: Path) -> dict:
@@ -417,6 +978,16 @@ def validate_bundle(path: Path) -> dict:
     if canonical != manifest_bytes:
         raise ValidationError("manifest.json is not Capture Bundle v1 canonical JSON")
 
+    # The manifest itself is a schema-owned document; run the published
+    # manifest schema as an independent check alongside the dedicated
+    # structural validation above.
+    try:
+        schema_validate(manifest, _load_schema("manifest.schema.json"))
+    except SchemaError as exc:
+        raise ValidationError(
+            f"manifest.json violates manifest.schema.json: {exc}"
+        ) from exc
+
     declared_entries = {entry["path"]: entry for entry in manifest["files"]}
     declared = set(declared_entries)
     actual_payloads = set(actual_files) - {"manifest.json"}
@@ -427,6 +998,8 @@ def validate_bundle(path: Path) -> dict:
             f"declared/present payload mismatch: missing={missing} undeclared={undeclared}"
         )
 
+    schema_documents: dict[str, object] = {}
+    binary_facts: dict[str, object] = {}
     for path_text in sorted(declared, key=lambda x: x.encode("utf-8")):
         entry = declared_entries[path_text]
         data = source.read_bytes(path_text)
@@ -438,6 +1011,37 @@ def validate_bundle(path: Path) -> dict:
         if digest != entry["sha256"]:
             raise ValidationError(
                 f"SHA-256 mismatch for {path_text}: expected {entry['sha256']} got {digest}"
+            )
+
+        schema_name = _schema_for_path(path_text)
+        if schema_name is not None:
+            schema_documents[path_text] = _validate_schema_owned_payload(
+                path_text, data, schema_name
+            )
+
+        binary_format = _binary_format_for(path_text, entry["media_type"])
+        if binary_format is not None:
+            try:
+                binary_facts[path_text] = _BINARY_VALIDATORS[
+                    binary_format
+                ](data)
+            except BinaryFormatError as exc:
+                raise ValidationError(
+                    f"{path_text} is not a valid {binary_format} payload: "
+                    f"{exc}"
+                ) from exc
+
+    # Cross-document checks bind schema-owned indexes/descriptors to the
+    # binary payloads they name.
+    mesh_index = schema_documents.get("mesh/anchors.json")
+    if mesh_index is not None:
+        _cross_check_mesh_anchors(
+            mesh_index, binary_facts, declared_entries, manifest
+        )
+    for path_text, document in schema_documents.items():
+        if FRAME_DESCRIPTOR_RE.fullmatch(path_text):
+            _cross_check_frame_descriptor(
+                path_text, document, binary_facts, declared_entries, manifest
             )
 
     bundle_digest = hashlib.sha256(manifest_bytes).hexdigest()

@@ -9,8 +9,10 @@
     "schema_version",
     "capture_mode",
     "world_alignment",
+    "plane_detection",
     "scene_reconstruction",
-    "frame_semantics"
+    "frame_semantics",
+    "roomplan"
   ],
   "properties": {
     "schema": {
@@ -51,6 +53,11 @@
     "video_format": {
       "type": "object",
       "additionalProperties": false,
+      "required": [
+        "width",
+        "height",
+        "frames_per_second"
+      ],
       "properties": {
         "width": {
           "type": "integer",
@@ -74,10 +81,9 @@
     },
     "roomplan": {
       "type": "object",
-      "additionalProperties": true
-    },
-    "runtime_notes": {
-      "type": "string"
+      "additionalProperties": {
+        "type": "string"
+      }
     }
   }
 }

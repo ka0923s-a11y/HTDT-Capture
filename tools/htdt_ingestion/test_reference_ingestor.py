@@ -194,8 +194,12 @@ class ReferenceIngestorTests(unittest.TestCase):
             mesh_entry["source_refs"] = ["opaque:unsupported"]
             manifest_path.write_bytes(canonical_json_bytes(manifest))
 
-            validate_bundle(copy_root)
-            with self.assertRaises(IngestionError):
+            # The bundle validator now enforces the frozen source_refs
+            # grammar itself, so the unknown namespace fails closed at the
+            # validation boundary before ingestion is ever attempted.
+            with self.assertRaises(ValidationError):
+                validate_bundle(copy_root)
+            with self.assertRaises(ValidationError):
                 build_ingestion_plan(copy_root)
 
     def test_annotation_and_measurement_records_keep_source_authority(self):
@@ -292,8 +296,12 @@ class ReferenceIngestorTests(unittest.TestCase):
                     ).hexdigest()
             manifest_path.write_bytes(canonical_json_bytes(manifest))
 
-            validate_bundle(copy_root)
-            with self.assertRaises(IngestionError):
+            # The validator now cross-checks mesh anchor
+            # coordinate_space_id values against the manifest, so the
+            # rewritten reference fails at the bundle boundary.
+            with self.assertRaises(ValidationError):
+                validate_bundle(copy_root)
+            with self.assertRaises(ValidationError):
                 build_ingestion_plan(copy_root)
 
     def test_tampered_payload_fails_before_ingestion_plan_is_built(self):

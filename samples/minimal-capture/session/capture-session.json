@@ -1,1 +1,1 @@
-{"capture_session_id":"00000000-0000-4000-8000-000000000003","coordinate_space_id":"00000000-0000-4000-8000-000000000004","schema":"htdt.capture.session","schema_version":"1.0.0"}
+{"capture_mode":"degraded_no_depth","capture_session_id":"00000000-0000-4000-8000-000000000003","configuration_ref":"session/capture-configuration.json","coordinate_space_id":"00000000-0000-4000-8000-000000000004","schema":"htdt.capture.session","schema_version":"1.0.0","started_at":"2026-09-20T00:00:00Z","timing_ref":"session/timing.json"}

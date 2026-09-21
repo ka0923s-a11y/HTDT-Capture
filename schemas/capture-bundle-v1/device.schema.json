@@ -32,9 +32,6 @@
       "type": "string",
       "minLength": 1
     },
-    "device_name": {
-      "type": "string"
-    },
     "app_version": {
       "type": "string"
     },

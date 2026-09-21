@@ -10,7 +10,9 @@
     "roomplan_supported",
     "world_tracking_supported",
     "scene_reconstruction_supported",
-    "scene_depth_supported"
+    "scene_depth_supported",
+    "smoothed_scene_depth_supported",
+    "high_resolution_frame_supported"
   ],
   "properties": {
     "schema": {
@@ -49,9 +51,6 @@
         },
         "same_session_depth_after_roomplan_stop_ok": {
           "type": "boolean"
-        },
-        "notes": {
-          "type": "string"
         }
       }
     }
