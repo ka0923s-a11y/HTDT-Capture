@@ -20,6 +20,11 @@ public enum BundleDirectoryValidationError: Error, Sendable, Equatable {
         expected: String,
         actual: String
     )
+    case manifestTooLarge
+    case payloadNotCanonicalJSON(path: String, detail: String)
+    case schemaValidationFailed(path: String, detail: String)
+    case binaryPayloadInvalid(path: String, detail: String)
+    case payloadCrossCheckFailed(path: String, detail: String)
 }
 
 public struct BundleValidationReport: Sendable, Equatable {
@@ -55,12 +60,19 @@ public enum BundleDirectoryValidator {
             throw BundleDirectoryValidationError.manifestMissing
         }
 
-        let manifestData: Data
+        let manifestSnapshot: BundleOpenedFile
         do {
-            manifestData = try Data(contentsOf: manifestFile.url)
+            manifestSnapshot = try BundleFileReader.read(
+                manifestFile.url,
+                maxBytes: limits.maxManifestBytes
+            )
+        } catch BundleFilesystemError.fileSizeLimitExceeded {
+            // dedicated manifest bound: rejected before bytes are read
+            throw BundleDirectoryValidationError.manifestTooLarge
         } catch {
             throw BundleDirectoryValidationError.manifestUnreadable
         }
+        let manifestData = manifestSnapshot.data
 
         let manifest: BundleManifest
         do {
@@ -81,6 +93,11 @@ public enum BundleDirectoryValidator {
         guard canonical == manifestData else {
             throw BundleDirectoryValidationError.manifestNotCanonical
         }
+
+        _ = try CanonicalPayloadValidator.validateSchemaOwnedJSON(
+            path: "manifest.json",
+            data: manifestData
+        )
 
         var declaredByPath: [String: BundleFileEntry] = [:]
         for entry in manifest.files {
@@ -138,6 +155,7 @@ public enum BundleDirectoryValidator {
                 )
         }
 
+        var crossCheck = BundlePayloadCrossCheck()
         for path in declaredSet.sorted(
             by: BundleLogicalPath.utf8Less
         ) {
@@ -147,25 +165,62 @@ public enum BundleDirectoryValidator {
                 continue
             }
 
-            guard Int64(entry.bytes) == actual.bytes else {
-                throw BundleDirectoryValidationError.byteLengthMismatch(
-                    path: path,
-                    expected: entry.bytes,
-                    actual: actual.bytes
+            let needsBytes = CaptureBundleSchemaRegistry.schemaName(
+                forPath: path
+            ) != nil
+                || CanonicalPayloadValidator.isCanonicalBinaryMediaType(
+                    entry.mediaType
                 )
-            }
 
-            let digest = try BundleFileHasher.sha256(
-                url: actual.url
-            )
-            guard digest == entry.sha256 else {
-                throw BundleDirectoryValidationError.hashMismatch(
-                    path: path,
-                    expected: entry.sha256.description,
-                    actual: digest.description
+            if needsBytes {
+                let snapshot = try BundleFileReader.read(
+                    actual.url,
+                    maxBytes: limits.maxFileBytes
                 )
+                guard snapshot.byteCount == Int64(entry.bytes) else {
+                    throw BundleDirectoryValidationError
+                        .byteLengthMismatch(
+                            path: path,
+                            expected: entry.bytes,
+                            actual: snapshot.byteCount
+                        )
+                }
+                guard snapshot.sha256 == entry.sha256 else {
+                    throw BundleDirectoryValidationError.hashMismatch(
+                        path: path,
+                        expected: entry.sha256.description,
+                        actual: snapshot.sha256.description
+                    )
+                }
+                try CanonicalPayloadValidator.validateDeclaredPayload(
+                    path: path,
+                    mediaType: entry.mediaType,
+                    data: snapshot.data,
+                    crossCheck: &crossCheck
+                )
+            } else {
+                let streamed = try BundleFileReader.sha256(
+                    actual.url,
+                    maxBytes: limits.maxFileBytes
+                )
+                guard streamed.byteCount == Int64(entry.bytes) else {
+                    throw BundleDirectoryValidationError
+                        .byteLengthMismatch(
+                            path: path,
+                            expected: entry.bytes,
+                            actual: streamed.byteCount
+                        )
+                }
+                guard streamed.digest == entry.sha256 else {
+                    throw BundleDirectoryValidationError.hashMismatch(
+                        path: path,
+                        expected: entry.sha256.description,
+                        actual: streamed.digest.description
+                    )
+                }
             }
         }
+        try crossCheck.finish(declaredByPath: declaredByPath)
 
         let bundleDigest = EvidenceIntegrity.sha256(
             of: manifestData
