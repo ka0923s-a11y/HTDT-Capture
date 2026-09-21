@@ -1,6 +1,7 @@
 {
   "schema": "htdt.capture.bundle.path-collision-vectors",
   "version": "1",
+  "description": "Shared Capture Bundle v1 path-collision vectors. The v1 collision-key algorithm is: normalize the logical path to Unicode NFC (canonical composition), then apply full Unicode case folding. Reference implementation: unicodedata.normalize(\"NFC\", path).casefold() (Python); String.precomposedStringWithCanonicalMapping then folding(options: [.caseInsensitive], locale: en_US_POSIX) (Swift). Two distinct NFC paths that produce the same key collide and must be rejected by the directory scanner, manifest validation, and archive validator/importer alike. Each vector's left and right spellings must both produce the stated collision_key.",
   "vectors": [
     {
       "left": "Straße/payload.bin",
@@ -11,6 +12,11 @@
       "left": "Étage/A.bin",
       "right": "étage/a.bin",
       "collision_key": "étage/a.bin"
+    },
+    {
+      "left": "E\u0301TAGE/x.bin",
+      "right": "étage/x.bin",
+      "collision_key": "étage/x.bin"
     }
   ]
 }

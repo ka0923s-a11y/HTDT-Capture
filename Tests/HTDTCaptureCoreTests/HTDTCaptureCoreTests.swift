@@ -39,6 +39,42 @@ func reviewCanReturnToScanningBeforeAuthorityIsSealed() throws {
     #expect(machine.lastFailure == nil)
 }
 
+/// Issue #101: after a Review -> Scanning reopen, the same capture must
+/// be able to End again and walk the ordinary authority path — a later
+/// Review can still annotate and finalize. No phantom revision or
+/// terminal edge is introduced by the round trip.
+@Test
+func reviewReopenRoundTripKeepsLaterAuthorityTransitions() throws {
+    var machine = CaptureStateMachine(state: .scanning)
+
+    try machine.apply(.beginReview)
+    try machine.apply(.resumeScanning)
+    #expect(machine.state == .scanning)
+
+    try machine.apply(.beginReview)
+    #expect(machine.state == .reviewing)
+
+    try machine.apply(.beginAnnotation)
+    try machine.apply(.beginReview)
+    try machine.apply(.beginValidation)
+    try machine.apply(.finalize)
+    #expect(machine.state == .finalized)
+}
+
+/// Issue #101/#102: the reopen edge exists only while Review is live.
+/// Every other state must reject `.resumeScanning` so a reopen cannot
+/// be smuggled past annotation, validation, or terminal authority.
+@Test
+func resumeScanningIsRejectedOutsideReview() {
+    for state in CaptureState.allCases where state != .reviewing {
+        var machine = CaptureStateMachine(state: state)
+        #expect(throws: CaptureStateMachineError.self) {
+            try machine.apply(.resumeScanning)
+        }
+        #expect(machine.state == state)
+    }
+}
+
 @Test
 func finalizedCaptureCanResetWithoutExport() throws {
     var machine = CaptureStateMachine(state: .validating)
@@ -76,6 +112,56 @@ func failureAndResetAreExplicit() throws {
     try machine.apply(.fail(.storagePressure))
     #expect(machine.state == .failed)
     #expect(machine.lastFailure == .storagePressure)
+    try machine.apply(.reset)
+    #expect(machine.state == .idle)
+    #expect(machine.lastFailure == nil)
+}
+
+@Test
+func unresolvedRoomPlanEndTimeoutIsBoundedAndWarnsFirst() {
+    // #96: a lost RoomPlan completion callback must never leave the
+    // capture UI locked in `isEndingScan` — the wait has a hard bound
+    // and the operator warning is observable before termination.
+    let policy = RoomPlanEndTimeoutPolicy()
+    #expect(policy.warningDelay == .seconds(8))
+    #expect(policy.terminationDelay == .seconds(30))
+    #expect(policy.warningDelay < policy.terminationDelay)
+    #expect(policy.unresolvedGracePeriod == .seconds(22))
+    #expect(policy.unresolvedGracePeriod > .zero)
+}
+
+@Test
+func unresolvedRoomPlanEndTerminatesFailedNotPseudoScanning() throws {
+    // #96: when no correlated RoomPlan completion arrives inside the
+    // bounded window the host resolves the attempt as a precise
+    // terminal failure — never storage/persistence — and the capture
+    // cannot silently return to scanning or reviewing without an
+    // explicit reset.
+    var machine = CaptureStateMachine(state: .scanning)
+    try machine.apply(.fail(.roomPlanFailure))
+    #expect(machine.state == .failed)
+    #expect(machine.lastFailure == .roomPlanFailure)
+    #expect(machine.lastFailure != .persistenceFailure)
+    #expect(machine.lastFailure != .storagePressure)
+
+    // From .failed there is no path back into a live capture state:
+    // the ended attempt is never left half-live.
+    var reviewAttempt = machine
+    #expect(throws: CaptureStateMachineError.self) {
+        try reviewAttempt.apply(.beginReview)
+    }
+    var resumeAttempt = machine
+    #expect(throws: CaptureStateMachineError.self) {
+        try resumeAttempt.apply(.resumeScanning)
+    }
+    var scanAttempt = machine
+    #expect(throws: CaptureStateMachineError.self) {
+        try scanAttempt.apply(.prepared)
+    }
+    #expect(reviewAttempt.state == .failed)
+    #expect(resumeAttempt.state == .failed)
+    #expect(scanAttempt.state == .failed)
+
     try machine.apply(.reset)
     #expect(machine.state == .idle)
     #expect(machine.lastFailure == nil)
@@ -144,6 +230,21 @@ func bundleCollisionKeyUsesUnicodeCaseFolding() {
             == BundleLogicalPath.collisionKey(
                 "STRASSE/payload.bin"
             )
+    )
+}
+
+@Test
+func bundleCollisionKeyNormalizesNFCBeforeCaseFolding() {
+    // #95: an NFD spelling must land on the same NFC + case-fold key
+    // as its composed equivalent, matching the Python reference
+    // validator's normalize("NFC", path).casefold() authority.
+    #expect(
+        BundleLogicalPath.collisionKey("E\u{0301}TAGE/payload.bin")
+            == "étage/payload.bin"
+    )
+    #expect(
+        BundleLogicalPath.collisionKey("ÉTAGE/payload.bin")
+            == "étage/payload.bin"
     )
 }
 
