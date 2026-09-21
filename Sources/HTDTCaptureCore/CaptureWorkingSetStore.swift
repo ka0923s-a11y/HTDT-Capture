@@ -320,7 +320,7 @@ public enum CoordinateSpacePolicyPackageBuilder {
             transitions: transitions
         )
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(document)
 
         guard
@@ -1887,22 +1887,17 @@ public actor CaptureWorkingSetStore {
         }
     }
 
-    public func persistAnnotationAndMeasurementPackages(
+    /// Shared validation for the paired annotation+measurement commit:
+    /// decodes both packages, enforces the single-coordinate-space
+    /// authority rule, binds that space, and derives the manifest
+    /// declarations whose provenance must match record-level authority.
+    private func validateAnnotationMeasurementPackages(
         annotationPackage: AnnotationEvidencePackage,
         measurementPackage: MeasurementEvidencePackage
-    ) async throws {
-        try requireMutable()
-        inFlightMutations += 1
-        defer { inFlightMutations -= 1 }
-        // One reservation for the two-file transaction — the canonical
-        // annotation and measurement files commit together and share
-        // one admission item (issue #147).
-        let admissionReservation = try reserveAdmission(
-            bytes: annotationPackage.data.count
-                + measurementPackage.data.count
-        )
-        defer { releaseAdmission(admissionReservation) }
-
+    ) throws -> (
+        annotationDeclaration: BundlePayloadDeclaration,
+        measurementDeclaration: BundlePayloadDeclaration
+    ) {
         guard
             let decodedAnnotations = try? JSONDecoder().decode(
                 CaptureAnnotationCollection.self,
@@ -1944,23 +1939,6 @@ public actor CaptureWorkingSetStore {
             try bindCoordinateAuthority(space)
         }
 
-        if let existing = annotationCollection,
-           existing != annotationPackage.collection
-        {
-            throw CaptureWorkingSetError
-                .duplicatePayloadDeclaration(
-                    AnnotationEvidencePackage.path
-                )
-        }
-        if let existing = measurementCollection,
-           existing != measurementPackage.collection
-        {
-            throw CaptureWorkingSetError
-                .duplicatePayloadDeclaration(
-                    MeasurementEvidencePackage.path
-                )
-        }
-
         // Container provenance is derived from the records it carries:
         // every record must share one provenance class so the manifest
         // declaration cannot contradict record-level authority.
@@ -1986,6 +1964,47 @@ public actor CaptureWorkingSetStore {
                     ),
                 role: .canonical
             )
+        return (annotationDeclaration, measurementDeclaration)
+    }
+
+    public func persistAnnotationAndMeasurementPackages(
+        annotationPackage: AnnotationEvidencePackage,
+        measurementPackage: MeasurementEvidencePackage
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { inFlightMutations -= 1 }
+        // One reservation for the two-file transaction — the canonical
+        // annotation and measurement files commit together and share
+        // one admission item (issue #147).
+        let admissionReservation = try reserveAdmission(
+            bytes: annotationPackage.data.count
+                + measurementPackage.data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
+
+        let (annotationDeclaration, measurementDeclaration) =
+            try validateAnnotationMeasurementPackages(
+                annotationPackage: annotationPackage,
+                measurementPackage: measurementPackage
+            )
+
+        if let existing = annotationCollection,
+           existing != annotationPackage.collection
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    AnnotationEvidencePackage.path
+                )
+        }
+        if let existing = measurementCollection,
+           existing != measurementPackage.collection
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    MeasurementEvidencePackage.path
+                )
+        }
         let expectedDeclarations = [
             annotationDeclaration,
             measurementDeclaration,
@@ -2043,6 +2062,87 @@ public actor CaptureWorkingSetStore {
                         declaration.path
                     )
             }
+        }
+
+        declarations[annotationDeclaration.path] =
+            annotationDeclaration
+        declarations[measurementDeclaration.path] =
+            measurementDeclaration
+        annotationCollection = annotationPackage.collection
+        annotationKeysPresent = Set(
+            annotationPackage.collection.entities.map(
+                annotationQualityKey
+            )
+        )
+        measurementCollection =
+            measurementPackage.collection
+        measurementQuantityTypesPresent = Set(
+            measurementPackage.collection.measurements.map(
+                \.quantityType
+            )
+        )
+    }
+
+    /// Replaces the canonical annotation+measurement pair committed
+    /// earlier in this revision (issue #163). Unlike
+    /// `persistAnnotationAndMeasurementPackages`, which enforces
+    /// write-once authority, this path is for the pre-finalization
+    /// editor: the working revision is still mutable, so the operator
+    /// may correct the committed pair. Both files swap atomically as
+    /// one rollback-capable batch — a failed second write restores the
+    /// first file's exact bytes — and in-memory authority updates only
+    /// after both replacements are durable.
+    public func replaceAnnotationAndMeasurementPackages(
+        annotationPackage: AnnotationEvidencePackage,
+        measurementPackage: MeasurementEvidencePackage
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { inFlightMutations -= 1 }
+        let admissionReservation = try reserveAdmission(
+            bytes: annotationPackage.data.count
+                + measurementPackage.data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
+
+        let (annotationDeclaration, measurementDeclaration) =
+            try validateAnnotationMeasurementPackages(
+                annotationPackage: annotationPackage,
+                measurementPackage: measurementPackage
+            )
+
+        // Snapshot pre-write state so a mutation that interleaved across
+        // the write suspension is detected instead of silently mixing
+        // authorities.
+        let priorAnnotations = annotationCollection
+        let priorMeasurements = measurementCollection
+
+        try await writer.writeBatchReplacing([
+            try CaptureFileWriteRequest(
+                data: annotationPackage.data,
+                path: CaptureStorePath(
+                    AnnotationEvidencePackage.path
+                )
+            ),
+            try CaptureFileWriteRequest(
+                data: measurementPackage.data,
+                path: CaptureStorePath(
+                    MeasurementEvidencePackage.path
+                )
+            ),
+        ])
+
+        // Re-check after actor suspension: if another mutation committed
+        // different authority while the replace was in flight, fail
+        // closed rather than publish mixed provenance. Finalization then
+        // refuses the working set on a declaration/payload mismatch.
+        guard annotationCollection == priorAnnotations,
+              measurementCollection == priorMeasurements
+        else {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    AnnotationEvidencePackage.path
+                )
         }
 
         declarations[annotationDeclaration.path] =
@@ -2329,18 +2429,20 @@ public actor CaptureWorkingSetStore {
             roomPlanStatus = .notStarted
         }
 
-        // Quality-facing counts are usable-geometry counts (issue
-        // #169): a committed mesh anchor with zero faces and a depth
-        // map whose samples are all invalid must not satisfy the mesh
-        // requirement or the depth fallback. Raw container counts stay
-        // on the snapshot for diagnostics.
+        // Quality-facing counts pair raw container counts with the
+        // usable-geometry counts (issue #169): a committed mesh anchor
+        // with zero faces and a depth map whose samples are all invalid
+        // must not satisfy the mesh requirement or the depth fallback.
+        // The evaluator prefers the usable counts when present.
         return CaptureQualityEvaluator.evaluate(
             CaptureQualityObservation(
                 trackingEvents: trackingEvents,
                 roomPlanStatus: roomPlanStatus,
-                activeMeshAnchorCount: usableMeshAnchorCount ?? 0,
+                activeMeshAnchorCount: meshAnchorCount ?? 0,
                 evidenceFrameCount: evidenceFrameCount,
-                depthEvidenceCount: usableDepthEvidenceCount,
+                depthEvidenceCount: depthEvidenceCount,
+                usableMeshAnchorCount: usableMeshAnchorCount,
+                usableDepthSampleCount: usableDepthSampleCount,
                 annotationKeysPresent: annotationKeysPresent,
                 measurementQuantityTypesPresent:
                     measurementQuantityTypesPresent,
@@ -2384,7 +2486,7 @@ public actor CaptureWorkingSetStore {
         }
 
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(report)
         let path = "quality/capture-quality.json"
         let declaration = BundlePayloadDeclaration(
@@ -2586,7 +2688,7 @@ public actor CaptureWorkingSetStore {
         defer { inFlightMutations -= 1 }
 
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(report)
         let path = "quality/capture-quality.json"
         let declaration = BundlePayloadDeclaration(

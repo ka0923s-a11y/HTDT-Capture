@@ -8,7 +8,7 @@ import RoomPlan
 public enum RoomPlanArtifactEncoder {
     private static func makeJSONEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         // CapturedRoomData is an opaque Apple payload and can contain
         // exceptional IEEE-754 values in partially observed geometry.
         // JSONEncoder throws on NaN/Infinity by default, which incorrectly

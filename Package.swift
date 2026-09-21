@@ -26,5 +26,9 @@ let package = Package(
             name: "HTDTCaptureCoreTests",
             dependencies: ["HTDTCaptureCore"]
         ),
+        .testTarget(
+            name: "HTDTCapturePlatformTests",
+            dependencies: ["HTDTCapturePlatform"]
+        ),
     ]
 )

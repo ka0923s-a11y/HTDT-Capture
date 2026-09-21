@@ -447,7 +447,7 @@ public enum CaptureSessionFoundationPackageBuilder {
         )
 
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
 
         let sessionData = try encoder.encode(session)
         let capabilitiesData = try encoder.encode(

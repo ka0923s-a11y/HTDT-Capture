@@ -165,11 +165,11 @@ failed import.
 
 Expected logical bundle digest:
 
-`925108a1b3c1b432182efe1b7e18ccb0f1d98f4f17c939ca66a6095b0cc28550`
+`e12b3e9c43fe8b26b151cde32acbbf19e56447750447955ead65e1477c9fcb8a`
 
 Expected reference-ingestor v1.0.0 lineage digest:
 
-`729a7590fb1d1e2142c196187ef11a9078522326daa1ef2fd2364b8fd1ef6bf1`
+`92e81abef2304f4f8bdecbacff394af0ac0e34ed6a33d2321e711fc6b433b69f`
 
 CI verifies that directory and `.htdtcapture` archive wrappers produce the
 same canonical ingestion plan for this fixture.

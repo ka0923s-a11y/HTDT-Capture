@@ -230,4 +230,174 @@ final class AnnotationMeasurementTransactionTests: XCTestCase {
         let quality = await store.evaluateQuality()
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
+
+    /// Issue #163: a re-opened editor commits a corrected
+    /// annotation+measurement pair over the earlier commit. The replace
+    /// is one atomic batch — both canonical files carry the new bytes,
+    /// declarations re-derive, and in-memory authority matches the new
+    /// collections.
+    func testReplaceCommitsCorrectedPairAtomically() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let store = try CaptureWorkingSetStore(rootDirectory: root)
+        try await store.persistAnnotationAndMeasurementPackages(
+            annotationPackage: try annotationPackage(label: "first"),
+            measurementPackage: try measurementPackage(
+                quantityType: "wall_length"
+            )
+        )
+
+        try await store.replaceAnnotationAndMeasurementPackages(
+            annotationPackage: try annotationPackage(label: "corrected"),
+            measurementPackage: try measurementPackage(
+                quantityType: "room_width"
+            )
+        )
+
+        let annotationData = try Data(
+            contentsOf: root.appendingPathComponent(
+                AnnotationEvidencePackage.path
+            )
+        )
+        let decodedAnnotations = try JSONDecoder().decode(
+            CaptureAnnotationCollection.self,
+            from: annotationData
+        )
+        XCTAssertEqual(
+            decodedAnnotations.entities.first?.label,
+            "corrected"
+        )
+
+        let measurementData = try Data(
+            contentsOf: root.appendingPathComponent(
+                MeasurementEvidencePackage.path
+            )
+        )
+        let decodedMeasurements = try JSONDecoder().decode(
+            CaptureMeasurementCollection.self,
+            from: measurementData
+        )
+        XCTAssertEqual(
+            decodedMeasurements.measurements.first?.quantityType,
+            "room_width"
+        )
+
+        let snapshot = await store.snapshot()
+        XCTAssertTrue(
+            snapshot.payloadDeclarations.contains {
+                $0.path == AnnotationEvidencePackage.path
+            }
+        )
+        XCTAssertTrue(
+            snapshot.payloadDeclarations.contains {
+                $0.path == MeasurementEvidencePackage.path
+            }
+        )
+        let quality = await store.evaluateQuality()
+        XCTAssertEqual(quality.integrityStatus, .pass)
+    }
+
+    /// A failed second replacement restores the first file's exact
+    /// prior bytes — the working set never retains a mixed pair.
+    func testFailedSecondReplacementRestoresFirstFile() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let store = try CaptureWorkingSetStore(rootDirectory: root)
+        try await store.persistAnnotationAndMeasurementPackages(
+            annotationPackage: try annotationPackage(label: "first"),
+            measurementPackage: try measurementPackage()
+        )
+        let originalAnnotationBytes = try Data(
+            contentsOf: root.appendingPathComponent(
+                AnnotationEvidencePackage.path
+            )
+        )
+
+        // A directory at the measurement target makes the second
+        // replace fail after the first file was already swapped.
+        let measurementTarget = root.appendingPathComponent(
+            MeasurementEvidencePackage.path
+        )
+        try FileManager.default.removeItem(at: measurementTarget)
+        try FileManager.default.createDirectory(
+            at: measurementTarget,
+            withIntermediateDirectories: true
+        )
+
+        do {
+            try await store.replaceAnnotationAndMeasurementPackages(
+                annotationPackage: try annotationPackage(
+                    label: "corrected"
+                ),
+                measurementPackage: try measurementPackage(
+                    quantityType: "room_width"
+                )
+            )
+            XCTFail("expected replacement failure")
+        } catch {
+            // Any failure is acceptable; the guarantee under test is
+            // the exact-byte restoration of the first file.
+        }
+
+        XCTAssertEqual(
+            try Data(
+                contentsOf: root.appendingPathComponent(
+                    AnnotationEvidencePackage.path
+                )
+            ),
+            originalAnnotationBytes,
+            "first-file bytes were not restored after batch failure"
+        )
+    }
+
+    /// A replacement cannot move the committed pair into a different
+    /// coordinate space than the authority already bound.
+    func testReplaceCannotMoveCoordinateAuthority() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let store = try CaptureWorkingSetStore(rootDirectory: root)
+        try await store.persistAnnotationAndMeasurementPackages(
+            annotationPackage: try annotationPackage(),
+            measurementPackage: try measurementPackage()
+        )
+
+        let foreignSpace = CoordinateSpaceID()
+        do {
+            try await store.replaceAnnotationAndMeasurementPackages(
+                annotationPackage:
+                    AnnotationEvidencePackageBuilder.build(
+                        entities: [
+                            try CaptureAnnotationEntity(
+                                type: .referencePoint,
+                                coordinateSpaceID: foreignSpace,
+                                worldFromAnnotation: .identity,
+                                referencePointSemantics:
+                                    .userReferencePoint,
+                                label: "foreign",
+                                provenanceClass: .userAnnotation,
+                                placement: PlacementProvenance(
+                                    method: .manualNumeric
+                                )
+                            ),
+                        ]
+                    ),
+                measurementPackage: try measurementPackage()
+            )
+            XCTFail("expected coordinate authority rejection")
+        } catch let error as CaptureWorkingSetError {
+            XCTAssertEqual(error, .authorityMismatch)
+        }
+    }
 }

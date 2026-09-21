@@ -114,7 +114,7 @@ public enum CapturedRoomMetadataPackageBuilder {
             summary: summary
         )
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(document)
 
         guard

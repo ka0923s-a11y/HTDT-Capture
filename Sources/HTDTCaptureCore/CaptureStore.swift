@@ -316,6 +316,120 @@ public actor AtomicCaptureFileWriter {
         }
     }
 
+    /// Atomically replaces the target bytes for every request, restoring
+    /// the exact prior bytes if any replacement fails partway through
+    /// (issue #163). Each file is staged through a same-directory
+    /// temporary and swapped atomically, so a reader never observes a
+    /// truncated payload; a failed later request restores each earlier
+    /// target to its original bytes, or removes a path the batch created.
+    public func writeBatchReplacing(
+        _ requests: [CaptureFileWriteRequest]
+    ) throws {
+        var order: [String] = []
+        var uniqueByPath: [String: Data] = [:]
+        for request in requests {
+            let key = request.path.description
+            if let existing = uniqueByPath[key] {
+                guard existing == request.data else {
+                    throw CaptureFileWriterError.alreadyExists(key)
+                }
+                continue
+            }
+            uniqueByPath[key] = request.data
+            order.append(key)
+        }
+
+        struct Applied {
+            let target: URL
+            let path: String
+            /// Original bytes when the path existed before the batch;
+            /// nil marks a path created by this batch whose rollback is
+            /// removal.
+            let originalData: Data?
+        }
+        var applied: [Applied] = []
+        do {
+            for key in order {
+                guard let data = uniqueByPath[key] else { continue }
+                let target = key
+                    .split(separator: "/")
+                    .reduce(rootDirectory) { url, component in
+                        url.appendingPathComponent(
+                            String(component),
+                            isDirectory: false
+                        )
+                    }
+                let parent = target.deletingLastPathComponent()
+                try fileManager.createDirectory(
+                    at: parent,
+                    withIntermediateDirectories: true
+                )
+                let temporary = parent.appendingPathComponent(
+                    ".tmp-\(UUID().uuidString)"
+                )
+                let originalData: Data?
+                do {
+                    try data.write(to: temporary)
+                    if fileManager.fileExists(atPath: target.path) {
+                        originalData = try Data(contentsOf: target)
+                        _ = try fileManager.replaceItemAt(
+                            target,
+                            withItemAt: temporary
+                        )
+                    } else {
+                        originalData = nil
+                        try fileManager.moveItem(
+                            at: temporary,
+                            to: target
+                        )
+                    }
+                } catch {
+                    try? fileManager.removeItem(at: temporary)
+                    throw error
+                }
+                applied.append(
+                    Applied(
+                        target: target,
+                        path: key,
+                        originalData: originalData
+                    )
+                )
+            }
+        } catch {
+            var rollbackFailure: String?
+            for item in applied.reversed() {
+                do {
+                    if let original = item.originalData {
+                        let restoreTemporary = item.target
+                            .deletingLastPathComponent()
+                            .appendingPathComponent(
+                                ".tmp-\(UUID().uuidString)"
+                            )
+                        try original.write(to: restoreTemporary)
+                        _ = try fileManager.replaceItemAt(
+                            item.target,
+                            withItemAt: restoreTemporary
+                        )
+                    } else if fileManager.fileExists(
+                        atPath: item.target.path
+                    ) {
+                        try fileManager.removeItem(at: item.target)
+                    }
+                } catch {
+                    if rollbackFailure == nil {
+                        rollbackFailure = item.path
+                    }
+                }
+            }
+            if let rollbackFailure {
+                throw CaptureFileWriterError.batchRollbackFailed(
+                    rollbackFailure
+                )
+            }
+            throw error
+        }
+    }
+
     public func writeIfIdentical(
         _ data: Data,
         to path: CaptureStorePath

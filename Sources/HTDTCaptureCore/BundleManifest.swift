@@ -634,6 +634,12 @@ private enum BundleReservedPaths {
             provenanceClass: .appleRoomPlanRawScan,
             role: .canonical
         ),
+        "roomplan/captured-room-metadata.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_app",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
         "roomplan/captured-room.json": Binding(
             mediaType: "application/json",
             producer: "roomplan_builder",
@@ -653,6 +659,12 @@ private enum BundleReservedPaths {
             role: .canonical
         ),
         "session/capture-session.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_session",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
+        "session/coordinate-space-policy.json": Binding(
             mediaType: "application/json",
             producer: "capture_session",
             provenanceClass: .captureAppDerived,

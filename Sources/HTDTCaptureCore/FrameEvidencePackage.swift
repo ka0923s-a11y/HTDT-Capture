@@ -296,7 +296,7 @@ public enum FrameEvidencePackageBuilder {
         }
 
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let descriptorData = try encoder.encode(descriptor)
 
         let preview: DerivedFramePreviewReference?

@@ -49,11 +49,11 @@ public enum PlatformCaptureError: Error {
 
 public struct CapturedSpeakerOrientation: Sendable {
     public let frontAxisWorld: SpatialVector3F
-    public let frameArtifacts: CapturedFrameArtifacts
+    public let frameArtifacts: CapturedFrameSnapshot
 
     public init(
         frontAxisWorld: SpatialVector3F,
-        frameArtifacts: CapturedFrameArtifacts
+        frameArtifacts: CapturedFrameSnapshot
     ) {
         self.frontAxisWorld = frontAxisWorld
         self.frameArtifacts = frameArtifacts
@@ -115,7 +115,7 @@ public struct RaycastPlacementProvenance: Sendable, Equatable {
 
 public struct CapturedRaycastPlacement: Sendable {
     public let positionWorld: Float3
-    public let frameArtifacts: CapturedFrameArtifacts
+    public let frameArtifacts: CapturedFrameSnapshot
     /// Provenance of the raycast hit that produced `positionWorld`.
     /// Always populated when produced by
     /// `snapshotCenterRaycastPlacement`; optional only so existing
@@ -124,7 +124,7 @@ public struct CapturedRaycastPlacement: Sendable {
 
     public init(
         positionWorld: Float3,
-        frameArtifacts: CapturedFrameArtifacts,
+        frameArtifacts: CapturedFrameSnapshot,
         raycastProvenance: RaycastPlacementProvenance? = nil
     ) {
         self.positionWorld = positionWorld
@@ -136,13 +136,13 @@ public struct CapturedRaycastPlacement: Sendable {
 public struct CaptureReviewEvidenceSnapshot: Sendable {
     public let meshAnchors: [MeshAnchorSnapshot]
     public let meshSnapshotSucceeded: Bool
-    public let frameArtifacts: CapturedFrameArtifacts
+    public let frameArtifacts: CapturedFrameSnapshot
     public let trackingQualityEvent: TrackingQualityEvent
 
     public init(
         meshAnchors: [MeshAnchorSnapshot],
         meshSnapshotSucceeded: Bool = true,
-        frameArtifacts: CapturedFrameArtifacts,
+        frameArtifacts: CapturedFrameSnapshot,
         trackingQualityEvent: TrackingQualityEvent
     ) {
         self.meshAnchors = meshAnchors
@@ -923,7 +923,7 @@ public final class SharedARSessionController {
         )
         return CapturedSpeakerOrientation(
             frontAxisWorld: front,
-            frameArtifacts: try ARFrameArtifactAdapter.capture(
+            frameArtifacts: try ARFrameArtifactAdapter.snapshot(
                 frame: frame,
                 captureSessionID: context.captureSessionID,
                 coordinateSpaceID: context.coordinateSpaceID,
@@ -1001,7 +1001,7 @@ public final class SharedARSessionController {
                 position.y,
                 position.z
             ),
-            frameArtifacts: try ARFrameArtifactAdapter.capture(
+            frameArtifacts: try ARFrameArtifactAdapter.snapshot(
                 frame: frame,
                 captureSessionID: context.captureSessionID,
                 coordinateSpaceID: context.coordinateSpaceID,
@@ -1160,7 +1160,7 @@ public final class SharedARSessionController {
         return CaptureReviewEvidenceSnapshot(
             meshAnchors: meshAnchors,
             meshSnapshotSucceeded: meshSnapshotSucceeded,
-            frameArtifacts: try ARFrameArtifactAdapter.capture(
+            frameArtifacts: try ARFrameArtifactAdapter.snapshot(
                 frame: frame,
                 captureSessionID: context.captureSessionID,
                 coordinateSpaceID: context.coordinateSpaceID,

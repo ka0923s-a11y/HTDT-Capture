@@ -32,19 +32,19 @@ FIXTURE = REPO_ROOT / "samples" / "phase6-integration"
 MINIMAL_FIXTURE = REPO_ROOT / "samples" / "minimal-capture"
 
 EXPECTED_BUNDLE_DIGEST = (
-    "b002e4ad615abbf4a7e0c10d9172405a0603500a477da8616203992f48dae460"
+    "e12b3e9c43fe8b26b151cde32acbbf19e56447750447955ead65e1477c9fcb8a"
 )
 EXPECTED_LINEAGE_DIGEST = (
-    "c8f427015367cc1b278020f2972a2e8ed253d4a36163049c0884b6b90373c42d"
+    "92e81abef2304f4f8bdecbacff394af0ac0e34ed6a33d2321e711fc6b433b69f"
 )
 EXPECTED_RAW_VISUAL_MESH_HANDOFF_ID = (
-    "3db2505905efe16220fdd4b4d42f3dbd9a433d68819601e3876477480f58f5c8"
+    "34724a36fe89ade1c0613bde2f358c723dc187c15b5c01bc8b39d134a6dade50"
 )
 EXPECTED_ANNOTATION_HANDOFF_ID = (
-    "ef6502fa778e71d3baaa1cb399a17999be34217a46ac2ba9145d5769a78d3adf"
+    "74672397c79a9bc6865a73ba565f5167e7929bd59878bc3e41ead2420930efb0"
 )
 EXPECTED_MEASUREMENT_HANDOFF_ID = (
-    "c7518f46c636cf4fe72a7e16107516669d413f8b8f20753aedddc847d2b6a33b"
+    "0e32a92497a6f950a32dd1cfd129e7e597c6ff47a976f8618a8e667ffcffab52"
 )
 ANCHOR_ID = "10000000-0000-4000-8000-000000000005"
 COORDINATE_SPACE_ID = "10000000-0000-4000-8000-000000000004"
@@ -132,6 +132,55 @@ def _add_payload(
     manifest_path.write_bytes(canonical_json_bytes(manifest))
 
 
+def _pixelbin_payload(width: int = 2, height: int = 2) -> bytes:
+    """Structurally valid HTDTPXL1 v1.0 payload (one 4-byte/px plane)."""
+    import struct
+
+    plane_count = 1
+    header_length = 32 + plane_count * 24
+    packed = width * 4
+    payload_bytes = packed * height
+    header = (
+        b"HTDTPXL1"
+        + struct.pack("<HHI", 1, 0, header_length)
+        + struct.pack("<IIIH H", width, height, 875704438, plane_count, 0)
+        + struct.pack(
+            "<IIIIII",
+            width,
+            height,
+            packed,
+            packed,
+            header_length,
+            payload_bytes,
+        )
+    )
+    return header + b"\x10" * payload_bytes
+
+
+def _depthbin_payload(width: int = 2, height: int = 2) -> bytes:
+    """Structurally valid HTDTDPT1 v1.0 payload (f32 depths)."""
+    import struct
+
+    header = (
+        b"HTDTDPT1"
+        + struct.pack("<HHI", 1, 0, 32)
+        + struct.pack("<IIBBH I", width, height, 1, 0, 0, 0)
+    )
+    return header + struct.pack("<" + "f" * width * height, *([1.0] * width * height))
+
+
+def _confidencebin_payload(width: int = 2, height: int = 2) -> bytes:
+    """Structurally valid HTDTCNF1 v1.0 payload."""
+    import struct
+
+    header = (
+        b"HTDTCNF1"
+        + struct.pack("<HHI", 1, 0, 32)
+        + struct.pack("<IIBBH I", width, height, 1, 0, 0, 0)
+    )
+    return header + bytes([2] * (width * height))
+
+
 def _frame_descriptor(
     pixel_path: str,
     pixel_payload: bytes,
@@ -139,6 +188,8 @@ def _frame_descriptor(
     frame_id: str = "10000000-0000-4000-8000-000000000010",
     capture_session_id: str = SESSION_ID,
     coordinate_space_id: str = COORDINATE_SPACE_ID,
+    image_width: int = 2,
+    image_height: int = 2,
     depth_status: str = "not_requested",
     depth=None,
 ) -> dict:
@@ -155,8 +206,8 @@ def _frame_descriptor(
             "representation": "column_major_3x3_f32",
             "values": [1, 0, 0, 0, 1, 0, 0, 0, 1],
         },
-        "image_width": 1920,
-        "image_height": 1440,
+        "image_width": image_width,
+        "image_height": image_height,
         "pixel_format_fourcc": 875704438,
         "pixel_relative_path": pixel_path,
         "pixel_byte_count": len(pixel_payload),
@@ -173,9 +224,19 @@ def _stage_frame(copy_root: Path, **overrides) -> None:
     pixel_path = overrides.pop(
         "pixel_path", f"evidence/frames/{frame_id}.pixelbin"
     )
-    pixel_payload = overrides.pop("pixel_payload", b"\x10" * 32)
+    width = overrides.pop("image_width", 2)
+    height = overrides.pop("image_height", 2)
+    pixel_payload = overrides.pop(
+        "pixel_payload", _pixelbin_payload(width, height)
+    )
     descriptor_path = f"evidence/frames/{frame_id}.json"
-    descriptor = _frame_descriptor(pixel_path, pixel_payload, **overrides)
+    descriptor = _frame_descriptor(
+        pixel_path,
+        pixel_payload,
+        image_width=width,
+        image_height=height,
+        **overrides,
+    )
 
     _add_payload(
         copy_root,
@@ -370,8 +431,12 @@ class ReferenceIngestorTests(unittest.TestCase):
                 del document["integrity_status"]
 
             _rewrite_payload(copy_root, QUALITY_PATH, malformed)
-            validate_bundle(copy_root)
-            with self.assertRaises(IngestionError):
+            # Malformed schema-owned JSON is rejected at the bundle
+            # validation boundary before the ingestor's own gate runs.
+            with self.assertRaises(ValidationError) as ctx:
+                validate_bundle(copy_root)
+            self.assertIn("integrity_status", str(ctx.exception))
+            with self.assertRaises(ValidationError):
                 build_ingestion_plan(copy_root)
 
     def test_ready_report_with_error_diagnostic_is_contradictory(self):
@@ -510,10 +575,13 @@ class ReferenceIngestorTests(unittest.TestCase):
                         **{field: "20000000-0000-4000-8000-0000000000cc"},
                     )
 
-                    validate_bundle(copy_root)
-                    with self.assertRaises(IngestionError) as ctx:
-                        build_ingestion_plan(copy_root)
+                    # The hardened bundle boundary fails closed before
+                    # the ingestor ever sees the descriptor.
+                    with self.assertRaises(ValidationError) as ctx:
+                        validate_bundle(copy_root)
                     self.assertIn(field, str(ctx.exception))
+                    with self.assertRaises(ValidationError):
+                        build_ingestion_plan(copy_root)
 
     def test_frame_pixel_reference_must_resolve_to_declared_payload(self):
         with tempfile.TemporaryDirectory() as td:
@@ -533,16 +601,17 @@ class ReferenceIngestorTests(unittest.TestCase):
                 source_refs=["path:evidence/frames/missing.pixelbin"],
             )
 
-            validate_bundle(copy_root)
-            with self.assertRaises(IngestionError) as ctx:
+            with self.assertRaises(ValidationError) as ctx:
+                validate_bundle(copy_root)
+            self.assertIn("missing.pixelbin", str(ctx.exception))
+            with self.assertRaises(ValidationError):
                 build_ingestion_plan(copy_root)
-            self.assertIn("undeclared", str(ctx.exception))
 
     def test_frame_pixel_hash_mismatch_fails_ingestion(self):
         with tempfile.TemporaryDirectory() as td:
             copy_root = Path(td) / "bundle"
             shutil.copytree(FIXTURE, copy_root)
-            pixel_payload = b"\x10" * 32
+            pixel_payload = _pixelbin_payload()
             descriptor = _frame_descriptor(
                 "evidence/frames/10000000-0000-4000-8000-000000000010.pixelbin",
                 pixel_payload,
@@ -567,10 +636,11 @@ class ReferenceIngestorTests(unittest.TestCase):
                 source_refs=[f"path:{descriptor['pixel_relative_path']}"],
             )
 
-            validate_bundle(copy_root)
-            with self.assertRaises(IngestionError) as ctx:
+            with self.assertRaises(ValidationError) as ctx:
+                validate_bundle(copy_root)
+            self.assertIn("pixel", str(ctx.exception).lower())
+            with self.assertRaises(ValidationError):
                 build_ingestion_plan(copy_root)
-            self.assertIn("inconsistent", str(ctx.exception))
 
     def test_frame_depth_status_contradicts_missing_depth_reference(self):
         with tempfile.TemporaryDirectory() as td:
@@ -578,10 +648,11 @@ class ReferenceIngestorTests(unittest.TestCase):
             shutil.copytree(FIXTURE, copy_root)
             _stage_frame(copy_root, depth_status="captured_scene_depth")
 
-            validate_bundle(copy_root)
-            with self.assertRaises(IngestionError) as ctx:
-                build_ingestion_plan(copy_root)
+            with self.assertRaises(ValidationError) as ctx:
+                validate_bundle(copy_root)
             self.assertIn("depth_status", str(ctx.exception))
+            with self.assertRaises(ValidationError):
+                build_ingestion_plan(copy_root)
 
     def test_annotation_evidence_refs_resolve_to_mesh_handoff(self):
         plan = build_ingestion_plan(FIXTURE)

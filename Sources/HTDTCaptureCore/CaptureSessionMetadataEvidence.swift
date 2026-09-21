@@ -415,7 +415,7 @@ public enum CaptureTimingPackageBuilder {
             correlations: [start, end]
         )
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(document)
 
         guard

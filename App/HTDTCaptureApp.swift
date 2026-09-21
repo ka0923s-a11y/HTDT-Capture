@@ -570,7 +570,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         do {
             frameSnapshot =
-                try sessionController.snapshotFrameEvidence(
+                try sessionController.snapshotFrameEvidenceCapture(
                     depthSelection: .discrete
                 )
         } catch PlatformCaptureError.currentFrameUnavailable {
@@ -1275,11 +1275,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             do {
-                try await store
-                    .persistAnnotationAndMeasurementPackages(
-                        annotationPackage: annotationPackage,
-                        measurementPackage: measurementPackage
-                    )
+                if isRevisionCommit {
+                    try await store
+                        .replaceAnnotationAndMeasurementPackages(
+                            annotationPackage: annotationPackage,
+                            measurementPackage: measurementPackage
+                        )
+                } else {
+                    try await store
+                        .persistAnnotationAndMeasurementPackages(
+                            annotationPackage: annotationPackage,
+                            measurementPackage: measurementPackage
+                        )
+                }
                 guard self.captureGeneration == generation,
                       self.state == .annotating
                 else {
@@ -1314,18 +1322,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     || error is CaptureFileWriterError
                 {
                     if isRevisionCommit {
-                        // Store API gap (#163): the working-set store
-                        // currently rejects a changed canonical
-                        // collection (write-once authority), so a
-                        // replace commit cannot land yet. This is
-                        // non-terminal: the editor stays open and the
-                        // previously committed pair is byte-for-byte
-                        // intact; cancelling keeps it.
+                        // Revision-commit failures are non-terminal: the
+                        // paired replace is one rollback-capable batch,
+                        // so a recoverable write failure leaves the prior
+                        // pair byte-for-byte intact and the editor stays
+                        // open; cancelling keeps the prior save (#163).
                         self.annotationCommitInFlight = false
                         self.workingSetStatus =
                             HostLocalization.text(
-                                "This build cannot replace the committed annotation authority yet; the previously saved collections are unchanged. Cancel keeps the prior save.",
-                                "このビルドでは確定済みの注釈 authority をまだ置き換えられません。以前に保存した内容は変更されていません。キャンセルすると以前の保存が保持されます。"
+                                "The replacement could not be committed safely; the previously saved annotation and measurement collections remain. Cancel keeps the prior save.",
+                                "置き換えを安全に確定できませんでした。以前に保存した注釈と計測値は保持されています。キャンセルすると以前の保存が保持されます。"
                             )
                             + " ["
                             + diagnostic
@@ -4478,7 +4484,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         switch event {
-        case .interruptionBegan:
+        case .wasInterrupted:
             // Interruption alone is not terminal: the session may
             // resume. Record warning provenance only; #148's tracking
             // transition recording captures the observable degradation,
@@ -4507,30 +4513,36 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 store: store,
                 generation: generation
             )
-        case .failure(let error):
+        case .failed(let reason):
             applyResourceLifecycleEvent(
                 CaptureResourceEvent(
                     kind: .interruption,
                     severity: .error,
-                    detail:
-                        "ARSession failed: " + String(describing: error)
+                    detail: "ARSession failed: " + reason
                 ),
                 failure: .interrupted,
                 store: store,
                 generation: generation
             )
-        default:
-            applyResourceLifecycleEvent(
-                CaptureResourceEvent(
-                    kind: .interruption,
-                    severity: .warning,
-                    detail:
-                        "ARSession lifecycle event observed during active capture"
-                ),
-                failure: nil,
-                store: store,
-                generation: generation
-            )
+        case .cameraTrackingStateChanged(let trackingEvent):
+            // Route through the same transition gate as the scan
+            // coverage loop so delegate-delivered transitions extend
+            // the bounded #148 history without duplicate recordings.
+            guard state == .scanning, !isEndingScan,
+                  scanTrackingTransitionGate
+                    .shouldRecord(trackingEvent)
+            else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                guard self?.captureGeneration == generation else {
+                    return
+                }
+                await store.recordTrackingEvent(trackingEvent)
+            }
+        case .didOutputCollaborationData:
+            // Collaboration data is unused by this capture flow.
+            return
         }
     }
 

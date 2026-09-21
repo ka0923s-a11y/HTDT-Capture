@@ -678,11 +678,9 @@ public final class CaptureResourceMonitor: NSObject {
 
     // MARK: - Emission
 
-    /// Single construction point for `CaptureResourceEvent`. The canonical
-    /// model does not yet carry `occurred_at_utc`/`sequence`; when those
-    /// fields land, populate them here from `utcTimestampProvider()` and
-    /// `emissionSequence` so persisted events share `eventLog` chronology
-    /// (#190).
+    /// Single construction point for `CaptureResourceEvent`. Events are
+    /// stamped with `occurred_at_utc`/`sequence` at emission time in
+    /// `emit` so persisted events share `eventLog` chronology (#190).
     private func makeEvent(
         kind: CaptureResourceEventKind,
         severity: QualityDiagnosticSeverity,
@@ -695,23 +693,44 @@ public final class CaptureResourceMonitor: NSObject {
         )
     }
 
-    /// Central emission path: appends the ordered `eventLog` entry carrying
-    /// the monotonic sequence number and injected UTC timestamp, then
-    /// invokes the host handler (#190).
+    /// Central emission path: stamps the event with the monotonic
+    /// sequence number and injected UTC timestamp, appends the ordered
+    /// `eventLog` entry, then invokes the host handler (#190). Stamping
+    /// here — rather than in `makeEvent` — also covers events that were
+    /// constructed before emission, such as storage assessments.
     private func emit(
         _ event: CaptureResourceEvent,
         failure: CaptureFailureCode?
     ) {
+        let occurredAtUTC = utcTimestampProvider()
+        let stamped = CaptureResourceEvent(
+            kind: event.kind,
+            severity: event.severity,
+            detail: event.detail,
+            occurredAtUtc: Self.utcFormatter.string(
+                from: occurredAtUTC
+            ),
+            sequence: UInt64(emissionSequence)
+        )
         eventLog.append(
             CaptureResourceMonitorLogEntry(
                 sequence: emissionSequence,
-                occurredAtUTC: utcTimestampProvider(),
-                event: event,
+                occurredAtUTC: occurredAtUTC,
+                event: stamped,
                 failure: failure
             )
         )
         emissionSequence += 1
-        eventHandler(event, failure)
+        eventHandler(stamped, failure)
     }
+
+    private static let utcFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [
+            .withInternetDateTime,
+            .withFractionalSeconds,
+        ]
+        return formatter
+    }()
 }
 

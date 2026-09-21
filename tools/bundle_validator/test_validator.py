@@ -33,6 +33,7 @@ from tools.bundle_validator.validator import (
     canonical_payload_json_bytes,
     validate_bundle,
     validate_relative_path,
+    validate_uuid4,
 )
 
 
@@ -495,6 +496,23 @@ class RevisionAncestryTests(unittest.TestCase):
                             ValidationError, "parent_revision_id"
                         ):
                             validate_bundle(dest)
+
+    def test_shared_identifier_vectors(self):
+        vector_path = (
+            REPO_ROOT
+            / "schemas"
+            / "capture-bundle-v1"
+            / "identifier-vectors.json"
+        )
+        document = json.loads(vector_path.read_text(encoding="utf-8"))
+        self.assertTrue(document["vectors"])
+        for vector in document["vectors"]:
+            with self.subTest(vector=vector["name"]):
+                if vector["valid"]:
+                    validate_uuid4(vector["text"], "vector")
+                else:
+                    with self.assertRaises(ValidationError):
+                        validate_uuid4(vector["text"], "vector")
 
 
 class SourceRefTests(unittest.TestCase):
