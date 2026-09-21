@@ -273,19 +273,87 @@ public struct AcousticCenterOffsetAuthority: Codable, Sendable, Equatable {
     }
 }
 
+/// Bounded raycast hit provenance supplied by the platform/host when a
+/// placement is produced by an AR raycast. Keeps the raycast target
+/// classification and hit result so that, for example, an
+/// `estimatedPlane` fallback remains distinguishable from a hit on
+/// existing plane geometry after serialization.
+public struct RaycastPlacementProvenance: Codable, Sendable, Equatable {
+    /// Raycast target classification reported by the host
+    /// (e.g. `"existing_plane_geometry"`, `"estimated_plane"`).
+    public let targetType: String
+    /// Distance from the ray origin to the hit, in meters.
+    public let hitDistanceMeters: Double?
+    /// Identifier of the anchor associated with the hit, when the host
+    /// provided one.
+    public let hitAnchorIdentifier: UUID?
+    /// Final world transform of the hit result, when captured.
+    public let hitTransform: Matrix4x4F?
+
+    public init(
+        targetType: String,
+        hitDistanceMeters: Double? = nil,
+        hitAnchorIdentifier: UUID? = nil,
+        hitTransform: Matrix4x4F? = nil
+    ) throws {
+        let normalizedTarget = SchemaOwnedText.nfc(targetType)
+        guard !normalizedTarget.isEmpty else {
+            throw AnnotationModelError.invalidPlacementReference
+        }
+        if let hitDistanceMeters {
+            guard hitDistanceMeters.isFinite, hitDistanceMeters >= 0
+            else {
+                throw AnnotationModelError.invalidPlacementReference
+            }
+        }
+        self.targetType = normalizedTarget
+        self.hitDistanceMeters = hitDistanceMeters
+        self.hitAnchorIdentifier = hitAnchorIdentifier
+        self.hitTransform = hitTransform
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case targetType = "target_type"
+        case hitDistanceMeters = "hit_distance_m"
+        case hitAnchorIdentifier = "hit_anchor_id"
+        case hitTransform = "T_world_from_hit"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            targetType: container.decode(String.self, forKey: .targetType),
+            hitDistanceMeters: container.decodeIfPresent(
+                Double.self,
+                forKey: .hitDistanceMeters
+            ),
+            hitAnchorIdentifier: container.decodeIfPresent(
+                UUID.self,
+                forKey: .hitAnchorIdentifier
+            ),
+            hitTransform: container.decodeIfPresent(
+                Matrix4x4F.self,
+                forKey: .hitTransform
+            )
+        )
+    }
+}
+
 public struct PlacementProvenance: Codable, Sendable, Equatable {
     public let method: PlacementMethod
     public let sourceSemanticEntityID: String?
     public let sourceMeshAnchorID: UUID?
     public let sourceRoomPlanObjectID: String?
     public let sourceEvidenceRefs: [String]
+    public let raycast: RaycastPlacementProvenance?
 
     public init(
         method: PlacementMethod,
         sourceSemanticEntityID: String? = nil,
         sourceMeshAnchorID: UUID? = nil,
         sourceRoomPlanObjectID: String? = nil,
-        sourceEvidenceRefs: [String] = []
+        sourceEvidenceRefs: [String] = [],
+        raycast: RaycastPlacementProvenance? = nil
     ) throws {
         let normalizedEvidence = SchemaOwnedText.nfc(sourceEvidenceRefs)
         guard normalizedEvidence.allSatisfy({ !$0.isEmpty }) else {
@@ -294,6 +362,11 @@ public struct PlacementProvenance: Codable, Sendable, Equatable {
         guard Set(normalizedEvidence).count == normalizedEvidence.count
         else {
             throw AnnotationModelError.duplicateEvidenceReference
+        }
+        // Raycast hit provenance is only meaningful for the raycast
+        // placement method.
+        guard raycast == nil || method == .raycast else {
+            throw AnnotationModelError.invalidPlacementReference
         }
 
         switch method {
@@ -321,6 +394,7 @@ public struct PlacementProvenance: Codable, Sendable, Equatable {
         self.sourceRoomPlanObjectID =
             SchemaOwnedText.nfc(sourceRoomPlanObjectID)
         self.sourceEvidenceRefs = normalizedEvidence
+        self.raycast = raycast
     }
 
     /// Whether the placement carries at least one source/evidence
@@ -338,6 +412,7 @@ public struct PlacementProvenance: Codable, Sendable, Equatable {
         case sourceMeshAnchorID = "source_mesh_anchor_id"
         case sourceRoomPlanObjectID = "source_roomplan_object_id"
         case sourceEvidenceRefs = "source_evidence_refs"
+        case raycast
     }
 }
 
