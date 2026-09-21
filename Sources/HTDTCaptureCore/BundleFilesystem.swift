@@ -233,7 +233,6 @@ enum BundleFileDescriptor {
         maxBytes: Int64
     ) throws -> (handle: FileHandle, byteCount: Int64) {
         #if canImport(Darwin) || canImport(Glibc) || canImport(Musl)
-        let expected = resolvedPath(of: url)
         let flags = O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC
         #if canImport(Darwin)
         let descriptor = url.path.withCString { pointer in
@@ -271,8 +270,22 @@ enum BundleFileDescriptor {
             guard size >= 0, size <= maxBytes else {
                 throw BundleFilesystemError.fileSizeLimitExceeded(url.path)
             }
-            let actual = try descriptorPath(of: descriptor)
-            guard actual == expected else {
+            // Verify the opened descriptor is still the file `url`
+            // names by comparing filesystem identity rather than path
+            // strings: a descriptor path (F_GETPATH / procfs) and the
+            // URL's spelling can disagree on symlink resolution
+            // (`/var` vs `/private/var`, firmlinks), which would
+            // falsely reject a legitimate open. If the file at `url`
+            // was swapped after open(), the path now resolves to a
+            // different (dev, ino) pair and the read is refused.
+            var reopened = stat()
+            let statStatus = url.path.withCString { pointer in
+                stat(pointer, &reopened)
+            }
+            guard statStatus == 0,
+                  reopened.st_ino == info.st_ino,
+                  reopened.st_dev == info.st_dev
+            else {
                 throw BundleFilesystemError.invalidPath(url.path)
             }
             return (handle, size)
@@ -323,49 +336,6 @@ enum BundleFileDescriptor {
         }
         return data
     }
-
-    private static func resolvedPath(of url: URL) -> String {
-        let directory = url.deletingLastPathComponent()
-            .resolvingSymlinksInPath().path
-        let name = url.lastPathComponent
-        if directory.hasSuffix("/") {
-            return directory + name
-        }
-        return directory + "/" + name
-    }
-
-    #if canImport(Darwin)
-    private static func descriptorPath(of descriptor: Int32) throws -> String {
-        var buffer = [CChar](repeating: 0, count: 8192)
-        let status = buffer.withUnsafeMutableBufferPointer { pointer in
-            fcntl(descriptor, F_GETPATH, pointer.baseAddress!)
-        }
-        guard status == 0 else {
-            throw BundleFilesystemError.fileOpenFailed("<descriptor>")
-        }
-        return buffer.withUnsafeBufferPointer {
-            String(cString: $0.baseAddress!)
-        }
-    }
-    #elseif canImport(Glibc) || canImport(Musl)
-    private static func descriptorPath(of descriptor: Int32) throws -> String {
-        var buffer = [CChar](repeating: 0, count: 8192)
-        let count = buffer.withUnsafeMutableBufferPointer { pointer in
-            readlink(
-                "/proc/self/fd/\(descriptor)",
-                pointer.baseAddress!,
-                pointer.count - 1
-            )
-        }
-        guard count >= 0 else {
-            throw BundleFilesystemError.fileOpenFailed("<descriptor>")
-        }
-        buffer[count] = 0
-        return buffer.withUnsafeBufferPointer {
-            String(cString: $0.baseAddress!)
-        }
-    }
-    #endif
 }
 
 public enum BundleFileReader {
