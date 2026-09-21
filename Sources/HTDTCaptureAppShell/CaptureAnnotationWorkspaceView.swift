@@ -332,7 +332,11 @@ private struct ManualAnnotationForm: View {
     @State private var equipmentVersion = ""
     @State private var equipmentHash = ""
     @State private var selectedEquipmentKey = ""
-    @State private var selectedEvidenceRefs = Set<String>()
+    // Issue #207: evidence refs carry ownership — user-selected refs
+    // survive authority reverts; authority-owned refs disappear with
+    // the authority that introduced them.
+    @State private var evidenceSelection =
+        AnnotationEvidenceSelection()
     @State private var placementAuthority:
         AnnotationPlacementAuthority?
     @State private var isCapturingRaycast = false
@@ -376,6 +380,8 @@ private struct ManualAnnotationForm: View {
                     )
                     Button("Use manual position instead") {
                         placementAuthority = nil
+                        evidenceSelection
+                            .replacePlacementAuthority(nil)
                     }
                 }
             }
@@ -402,6 +408,8 @@ private struct ManualAnnotationForm: View {
                         )
                         Button("Use manual yaw instead") {
                             self.orientationAuthority = nil
+                            evidenceSelection
+                                .replaceOrientationAuthority(nil)
                         }
                     } else {
                         TextField(
@@ -428,7 +436,7 @@ private struct ManualAnnotationForm: View {
                     availableEvidenceRefs:
                         availableEvidenceRefs,
                     selectedEvidenceRefs:
-                        $selectedEvidenceRefs
+                        $evidenceSelection.userSelected
                 )
             }
 
@@ -548,9 +556,8 @@ private struct ManualAnnotationForm: View {
                 let authority =
                     try await captureSpeakerOrientation()
                 orientationAuthority = authority
-                selectedEvidenceRefs.formUnion(
-                    authority.evidenceRefs
-                )
+                evidenceSelection
+                    .replaceOrientationAuthority(authority)
             } catch {
                 errorText = String(describing: error)
             }
@@ -587,9 +594,8 @@ private struct ManualAnnotationForm: View {
                         authority.worldFromAnnotation.values[14]
                     )
                 )
-                selectedEvidenceRefs.formUnion(
-                    authority.evidenceRefs
-                )
+                evidenceSelection
+                    .replacePlacementAuthority(authority)
             } catch {
                 errorText = String(describing: error)
             }
@@ -635,7 +641,7 @@ private struct ManualAnnotationForm: View {
                 speakerYawDegrees:
                     type == .speaker ? Double(yawText) : nil,
                 equipmentReference: equipment,
-                evidenceRefs: selectedEvidenceRefs.sorted(),
+                evidenceRefs: evidenceSelection.effectiveRefs,
                 placementAuthority: placementAuthority,
                 orientationAuthority: orientationAuthority
             )

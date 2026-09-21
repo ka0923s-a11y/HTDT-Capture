@@ -1112,6 +1112,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
         let authority = try AnnotationOrientationAuthority(
             orientation: orientation,
+            coordinateSpaceID:
+                package.descriptor.coordinateSpaceID,
             evidenceRefs: [evidenceRef]
         )
 
@@ -1203,6 +1205,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let authority = try AnnotationPlacementAuthority(
             worldFromAnnotation: transform,
             placement: placement,
+            coordinateSpaceID:
+                package.descriptor.coordinateSpaceID,
             evidenceRefs: [evidenceRef]
         )
 
