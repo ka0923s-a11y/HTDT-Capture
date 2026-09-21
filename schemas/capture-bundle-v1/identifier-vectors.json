@@ -1,0 +1,92 @@
+{
+  "schema": "htdt.capture.bundle.identifier-vectors",
+  "version": "1",
+  "description": "Shared Capture Bundle v1 identifier vectors. Valid identifiers are canonical lowercase RFC 4122 UUID version-4 text (^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$). Other UUID versions, non-RFC-4122 variants, non-lowercase or non-canonical spellings are invalid.",
+  "vectors": [
+    {
+      "name": "valid-v4-variant-a",
+      "text": "88fdaaa8-4c86-411e-a8b7-7ad951788a63",
+      "valid": true
+    },
+    {
+      "name": "valid-v4-variant-b",
+      "text": "af6dac57-7fcd-4559-b5f1-a59957f2106e",
+      "valid": true
+    },
+    {
+      "name": "valid-v4-variant-8",
+      "text": "10000000-0000-4000-8000-000000000003",
+      "valid": true
+    },
+    {
+      "name": "valid-v4-variant-9",
+      "text": "10000000-0000-4000-9000-000000000004",
+      "valid": true
+    },
+    {
+      "name": "invalid-v1",
+      "text": "2bb9cc24-b56a-11f1-8b22-e86538ed3a2e",
+      "valid": false
+    },
+    {
+      "name": "invalid-v3",
+      "text": "c5e5f349-28ef-3f5a-98d6-0b32ee4d1743",
+      "valid": false
+    },
+    {
+      "name": "invalid-v5",
+      "text": "7cb48787-6d91-5b9f-bc60-f30298ea5736",
+      "valid": false
+    },
+    {
+      "name": "invalid-nil-version-0",
+      "text": "00000000-0000-0000-0000-000000000000",
+      "valid": false
+    },
+    {
+      "name": "invalid-v4-ncs-variant-0",
+      "text": "6c797ea7-c3b6-4eec-05e5-5258bcbd7e5f",
+      "valid": false
+    },
+    {
+      "name": "invalid-v4-reserved-variant-c",
+      "text": "6c797ea7-c3b6-4eec-c5e5-5258bcbd7e5f",
+      "valid": false
+    },
+    {
+      "name": "invalid-v4-reserved-variant-d",
+      "text": "6c797ea7-c3b6-4eec-d5e5-5258bcbd7e5f",
+      "valid": false
+    },
+    {
+      "name": "invalid-uppercase-v4",
+      "text": "6C797EA7-C3B6-4EEC-85E5-5258BCBD7E5F",
+      "valid": false
+    },
+    {
+      "name": "invalid-mixed-case-v4",
+      "text": "88fdaaa8-4c86-411e-A8b7-7ad951788a63",
+      "valid": false
+    },
+    {
+      "name": "invalid-unhyphenated",
+      "text": "88fdaaa84c86411ea8b77ad951788a63",
+      "valid": false
+    },
+    {
+      "name": "invalid-truncated",
+      "text": "88fdaaa8-4c86-411e-a8b7-7ad951788a6",
+      "valid": false
+    },
+    {
+      "name": "invalid-non-hex",
+      "text": "88fdaaa8-4c86-411e-a8b7-7ad951788a6z",
+      "valid": false
+    },
+    {
+      "name": "invalid-empty",
+      "text": "",
+      "valid": false
+    }
+  ]
+}

@@ -1,0 +1,619 @@
+{
+  "schema": "htdt.capture.bundle.source-ref-vectors",
+  "version": "1",
+  "description": "Shared Capture Bundle v1 source_refs and reserved-path vectors. Grammar: each ref is 'path:'+declared relative path (never the entry's own path, never undeclared, acyclic across entries), 'sha256:'+64 lowercase hex resolving to a declared payload digest (never the entry's own digest), 'capture_session:'+canonical UUIDv4 member of capture_session_ids, or the exact sentinel 'roomplan_raw_serialization:unavailable'. Empty, duplicated, or otherwise-shaped refs fail. Entries with role=derived require at least one ref. Reserved canonical paths bind exact media_type/producer/provenance_class/role; the device/user provenance classes (arkit_frame_observation, arkit_scene_depth_observation, arkit_mesh_reconstruction, apple_roomplan_raw_scan, apple_roomplan_inference, user_attested_measurement, user_annotation) are only valid on their bound paths. roomplan/captured-room.json additionally requires a sha256: ref to the declared roomplan/captured-room-data.json digest.",
+  "vectors": [
+    {
+      "name": "path-ref-resolves",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical",
+          "source_refs": ["path:payloads/bravo.bin"]
+        },
+        {
+          "path": "payloads/bravo.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical"
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "sha256-ref-resolves",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical",
+          "source_refs": ["sha256:3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d"]
+        },
+        {
+          "path": "payloads/bravo.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical"
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "capture-session-ref-resolves",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical",
+          "source_refs": ["capture_session:10000000-0000-4000-8000-0000000000aa"]
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "sentinel-ref-accepted",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "roomplan/captured-room-data.json",
+          "bytes": 1,
+          "media_type": "application/json",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "roomplan_capture",
+          "provenance_class": "apple_roomplan_raw_scan",
+          "role": "canonical",
+          "source_refs": ["roomplan_raw_serialization:unavailable"]
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "derived-entry-with-path-ref",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical"
+        },
+        {
+          "path": "previews/alpha.heic",
+          "bytes": 1,
+          "media_type": "image/heic",
+          "sha256": "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "derived",
+          "source_refs": ["path:payloads/alpha.bin"]
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "roomplan-lineage-pair",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "roomplan/captured-room-data.json",
+          "bytes": 1,
+          "media_type": "application/json",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "roomplan_capture",
+          "provenance_class": "apple_roomplan_raw_scan",
+          "role": "canonical"
+        },
+        {
+          "path": "roomplan/captured-room.json",
+          "bytes": 1,
+          "media_type": "application/json",
+          "sha256": "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+          "producer": "roomplan_builder",
+          "provenance_class": "apple_roomplan_inference",
+          "role": "canonical",
+          "source_refs": ["sha256:ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"]
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "reserved-directory-free-member",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "roomplan/captured-room-metadata.json",
+          "bytes": 1,
+          "media_type": "application/json",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "roomplan_builder",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical"
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "frame-family-bound-metadata",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "evidence/frames/10000000-0000-4000-8000-00000000000f.json",
+          "bytes": 1,
+          "media_type": "application/json",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "frame_capture",
+          "provenance_class": "arkit_frame_observation",
+          "role": "canonical",
+          "source_refs": ["path:evidence/frames/10000000-0000-4000-8000-00000000000f.pixelbin"]
+        },
+        {
+          "path": "evidence/frames/10000000-0000-4000-8000-00000000000f.pixelbin",
+          "bytes": 1,
+          "media_type": "application/vnd.htdt.pixelbin",
+          "sha256": "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+          "producer": "frame_capture",
+          "provenance_class": "arkit_frame_observation",
+          "role": "canonical"
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "dangling-path-ref",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical",
+          "source_refs": ["path:payloads/missing.bin"]
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "self-referencing-path-ref",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical",
+          "source_refs": ["path:payloads/alpha.bin"]
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "self-referencing-sha256-ref",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical",
+          "source_refs": ["sha256:ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"]
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "malformed-sha256-ref",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical",
+          "source_refs": ["sha256:xyz"]
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "dangling-sha256-ref",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical",
+          "source_refs": ["sha256:2e7d2c03a9507ae265ecf5b5356885a53393a2029d241394997265a1a25aefc6"]
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "unknown-capture-session-ref",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical",
+          "source_refs": ["capture_session:10000000-0000-4000-8000-0000000000bb"]
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "malformed-capture-session-ref",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical",
+          "source_refs": ["capture_session:not-a-uuid"]
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "unknown-ref-namespace",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical",
+          "source_refs": ["foo:bar"]
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "bare-token-ref",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical",
+          "source_refs": ["opaque-token"]
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "duplicate-refs",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical",
+          "source_refs": ["path:payloads/bravo.bin", "path:payloads/bravo.bin"]
+        },
+        {
+          "path": "payloads/bravo.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "empty-ref",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical",
+          "source_refs": [""]
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "derived-entry-orphan",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "previews/alpha.heic",
+          "bytes": 1,
+          "media_type": "image/heic",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "derived"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "path-ref-cycle",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical",
+          "source_refs": ["path:payloads/bravo.bin"]
+        },
+        {
+          "path": "payloads/bravo.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical",
+          "source_refs": ["path:payloads/alpha.bin"]
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "path-ref-escape-segment",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical",
+          "source_refs": ["path:../escape.bin"]
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "roomplan-processed-missing-raw-ref",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "roomplan/captured-room-data.json",
+          "bytes": 1,
+          "media_type": "application/json",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "roomplan_capture",
+          "provenance_class": "apple_roomplan_raw_scan",
+          "role": "canonical"
+        },
+        {
+          "path": "roomplan/captured-room.json",
+          "bytes": 1,
+          "media_type": "application/json",
+          "sha256": "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+          "producer": "roomplan_builder",
+          "provenance_class": "apple_roomplan_inference",
+          "role": "canonical"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "roomplan-processed-wrong-digest-ref",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "2e7d2c03a9507ae265ecf5b5356885a53393a2029d241394997265a1a25aefc6",
+          "producer": "test",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical"
+        },
+        {
+          "path": "roomplan/captured-room-data.json",
+          "bytes": 1,
+          "media_type": "application/json",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "roomplan_capture",
+          "provenance_class": "apple_roomplan_raw_scan",
+          "role": "canonical"
+        },
+        {
+          "path": "roomplan/captured-room.json",
+          "bytes": 1,
+          "media_type": "application/json",
+          "sha256": "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+          "producer": "roomplan_builder",
+          "provenance_class": "apple_roomplan_inference",
+          "role": "canonical",
+          "source_refs": ["sha256:2e7d2c03a9507ae265ecf5b5356885a53393a2029d241394997265a1a25aefc6"]
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "reserved-path-wrong-media-type",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "quality/capture-quality.json",
+          "bytes": 1,
+          "media_type": "text/plain",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "capture_quality",
+          "provenance_class": "capture_app_derived",
+          "role": "canonical"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "reserved-provenance-on-free-path",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "payloads/alpha.bin",
+          "bytes": 1,
+          "media_type": "application/octet-stream",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "test",
+          "provenance_class": "apple_roomplan_raw_scan",
+          "role": "canonical"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "reserved-path-wrong-role",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "mesh/anchors.json",
+          "bytes": 1,
+          "media_type": "application/json",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "mesh_capture",
+          "provenance_class": "arkit_mesh_reconstruction",
+          "role": "derived",
+          "source_refs": ["path:mesh/geometry/10000000-0000-4000-8000-000000000005.meshbin"]
+        },
+        {
+          "path": "mesh/geometry/10000000-0000-4000-8000-000000000005.meshbin",
+          "bytes": 1,
+          "media_type": "application/vnd.htdt.meshbin",
+          "sha256": "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+          "producer": "mesh_capture",
+          "provenance_class": "arkit_mesh_reconstruction",
+          "role": "canonical"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "reserved-pattern-wrong-producer",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "evidence/frames/10000000-0000-4000-8000-00000000000f.json",
+          "bytes": 1,
+          "media_type": "application/json",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "other_producer",
+          "provenance_class": "arkit_frame_observation",
+          "role": "canonical"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "noncanonical-uuid-reserved-pattern-member",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "evidence/frames/2bb9cc24-b56a-11f1-8b22-e86538ed3a2e.json",
+          "bytes": 1,
+          "media_type": "application/json",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "frame_capture",
+          "provenance_class": "arkit_frame_observation",
+          "role": "canonical"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "mesh-index-and-geometry-bound",
+      "capture_session_ids": ["10000000-0000-4000-8000-0000000000aa"],
+      "files": [
+        {
+          "path": "mesh/anchors.json",
+          "bytes": 1,
+          "media_type": "application/json",
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "producer": "mesh_capture",
+          "provenance_class": "arkit_mesh_reconstruction",
+          "role": "canonical",
+          "source_refs": ["path:mesh/geometry/10000000-0000-4000-8000-000000000005.meshbin"]
+        },
+        {
+          "path": "mesh/geometry/10000000-0000-4000-8000-000000000005.meshbin",
+          "bytes": 1,
+          "media_type": "application/vnd.htdt.meshbin",
+          "sha256": "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+          "producer": "mesh_capture",
+          "provenance_class": "arkit_mesh_reconstruction",
+          "role": "canonical"
+        }
+      ],
+      "valid": true
+    }
+  ]
+}
