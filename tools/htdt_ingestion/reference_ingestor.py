@@ -1803,6 +1803,10 @@ def _build_authority_records(
                         f"{record_kind} references unknown coordinate space: "
                         f"{coordinate_space_id}"
                     )
+            elif record_kind == "annotation":
+                raise IngestionError(
+                    f"{record_field}.coordinate_space_id is required"
+                )
 
             evidence_refs = record.get("evidence_refs")
             if evidence_refs is None:
