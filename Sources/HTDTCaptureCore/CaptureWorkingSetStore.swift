@@ -16,6 +16,7 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     case qualityReportIntegrityMissing
     case integrityVerificationFailed
     case duplicatePayloadDeclaration(String)
+    case mixedProvenanceCollection(String)
     case unsafeDiscardPath
 }
 
@@ -1201,12 +1202,18 @@ public actor CaptureWorkingSetStore {
                 )
         }
 
+        // Container provenance is derived from the records it carries:
+        // every record must share one provenance class so the manifest
+        // declaration cannot contradict record-level authority.
         let annotationDeclaration =
             BundlePayloadDeclaration(
                 path: AnnotationEvidencePackage.path,
                 mediaType: "application/json",
                 producer: "annotation",
-                provenanceClass: .userAnnotation,
+                provenanceClass:
+                    try annotationCollectionProvenance(
+                        annotationPackage.collection
+                    ),
                 role: .canonical
             )
         let measurementDeclaration =
@@ -1214,7 +1221,10 @@ public actor CaptureWorkingSetStore {
                 path: MeasurementEvidencePackage.path,
                 mediaType: "application/json",
                 producer: "measurement",
-                provenanceClass: .userAttestedMeasurement,
+                provenanceClass:
+                    try measurementCollectionProvenance(
+                        measurementPackage.collection
+                    ),
                 role: .canonical
             )
         let expectedDeclarations = [
@@ -1318,6 +1328,9 @@ public actor CaptureWorkingSetStore {
             try bindCoordinateAuthority(space)
         }
 
+        let provenance = try annotationCollectionProvenance(
+            package.collection
+        )
         try await writer.writeIfIdentical(
             package.data,
             to: CaptureStorePath(AnnotationEvidencePackage.path)
@@ -1327,7 +1340,7 @@ public actor CaptureWorkingSetStore {
                 path: AnnotationEvidencePackage.path,
                 mediaType: "application/json",
                 producer: "annotation",
-                provenanceClass: .userAnnotation,
+                provenanceClass: provenance,
                 role: .canonical
             )
         )
@@ -1363,6 +1376,9 @@ public actor CaptureWorkingSetStore {
             try bindCoordinateAuthority(space)
         }
 
+        let provenance = try measurementCollectionProvenance(
+            package.collection
+        )
         try await writer.writeIfIdentical(
             package.data,
             to: CaptureStorePath(MeasurementEvidencePackage.path)
@@ -1372,7 +1388,7 @@ public actor CaptureWorkingSetStore {
                 path: MeasurementEvidencePackage.path,
                 mediaType: "application/json",
                 producer: "measurement",
-                provenanceClass: .userAttestedMeasurement,
+                provenanceClass: provenance,
                 role: .canonical
             )
         )
@@ -1780,6 +1796,67 @@ public actor CaptureWorkingSetStore {
               try BundleFileHasher.sha256(url: file.url) == sha256
         else {
             throw CaptureWorkingSetError.integrityVerificationFailed
+        }
+    }
+
+    // Manifest declarations describe the whole collection file, so a
+    // collection is accepted only when every record shares one provenance
+    // class (issue #186, homogeneous-collection policy). A mixed-provenance
+    // payload is rejected rather than mislabeled; an empty collection claims
+    // only app-derived container authority.
+    private func annotationCollectionProvenance(
+        _ collection: CaptureAnnotationCollection
+    ) throws -> BundleProvenanceClass {
+        var provenance: AnnotationProvenanceClass?
+        for entity in collection.entities {
+            if let provenance,
+               provenance != entity.provenanceClass
+            {
+                throw CaptureWorkingSetError
+                    .mixedProvenanceCollection(
+                        AnnotationEvidencePackage.path
+                    )
+            }
+            provenance = entity.provenanceClass
+        }
+        switch provenance {
+        case .userAnnotation:
+            return .userAnnotation
+        case .importedReference:
+            return .importedReference
+        case .captureAppDerived:
+            return .captureAppDerived
+        case nil:
+            return .captureAppDerived
+        }
+    }
+
+    private func measurementCollectionProvenance(
+        _ collection: CaptureMeasurementCollection
+    ) throws -> BundleProvenanceClass {
+        var provenance: MeasurementProvenanceClass?
+        for measurement in collection.measurements {
+            if let provenance,
+               provenance != measurement.provenanceClass
+            {
+                throw CaptureWorkingSetError
+                    .mixedProvenanceCollection(
+                        MeasurementEvidencePackage.path
+                    )
+            }
+            provenance = measurement.provenanceClass
+        }
+        switch provenance {
+        case .userAttestedMeasurement:
+            return .userAttestedMeasurement
+        case .appleRoomPlanInference:
+            return .appleRoomPlanInference
+        case .arkitMeshReconstruction:
+            return .arkitMeshReconstruction
+        case .importedReference:
+            return .importedReference
+        case nil:
+            return .captureAppDerived
         }
     }
 
