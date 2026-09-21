@@ -616,6 +616,84 @@ final class DerivedShapeProxyTests: XCTestCase {
         )
     }
 
+    func testAdversarialPointSetNeverEmitsSelfIntersectingPolygon() {
+        // Review reproducer: greedy nearest-edge insertion used to
+        // produce a ring with intersecting non-adjacent edges for this
+        // point set.
+        let adversarial = [
+            DerivedPoint2D(x: 1.43, y: 1.94),
+            DerivedPoint2D(x: 0.79, y: 3.72),
+            DerivedPoint2D(x: 0.17, y: 2.01),
+            DerivedPoint2D(x: 0.46, y: 2.77),
+            DerivedPoint2D(x: 0.17, y: 0.83),
+            DerivedPoint2D(x: 1.85, y: 1.18),
+            DerivedPoint2D(x: 3.53, y: 2.27),
+            DerivedPoint2D(x: 1.26, y: 0.13),
+            DerivedPoint2D(x: 2.50, y: 0.46),
+            DerivedPoint2D(x: 3.05, y: 0.46),
+        ]
+
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: observation(adversarial)
+        )
+
+        for candidate in proxy.candidates {
+            guard case let .polygon(polygon) =
+                candidate.geometry
+            else {
+                continue
+            }
+            XCTAssertTrue(
+                ringIsSimple(
+                    polygon.vertices.map(\.position)
+                ),
+                "candidate polygon ring must be simple"
+            )
+        }
+        if case let .polygon(selected)? =
+            proxy.selected?.geometry
+        {
+            XCTAssertTrue(
+                ringIsSimple(
+                    selected.vertices.map(\.position)
+                ),
+                "selected polygon ring must be simple"
+            )
+        }
+    }
+
+    func testRotatedAdversarialPointSetStaysSimple() {
+        let adversarial = [
+            DerivedPoint2D(x: 1.43, y: 1.94),
+            DerivedPoint2D(x: 0.79, y: 3.72),
+            DerivedPoint2D(x: 0.17, y: 2.01),
+            DerivedPoint2D(x: 0.46, y: 2.77),
+            DerivedPoint2D(x: 0.17, y: 0.83),
+            DerivedPoint2D(x: 1.85, y: 1.18),
+            DerivedPoint2D(x: 3.53, y: 2.27),
+            DerivedPoint2D(x: 1.26, y: 0.13),
+            DerivedPoint2D(x: 2.50, y: 0.46),
+            DerivedPoint2D(x: 3.05, y: 0.46),
+        ].map { rotate($0, radians: 0.9) }
+
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: observation(adversarial)
+        )
+
+        for candidate in proxy.candidates {
+            guard case let .polygon(polygon) =
+                candidate.geometry
+            else {
+                continue
+            }
+            XCTAssertTrue(
+                ringIsSimple(
+                    polygon.vertices.map(\.position)
+                )
+            )
+        }
+    }
+
     func testOutputIsDeterministic() {
         let points = (0..<72).map { index -> DerivedPoint2D in
             let t = 2 * Double.pi * Double(index) / 72
@@ -768,5 +846,79 @@ final class DerivedShapeProxyTests: XCTestCase {
             x: c * point.x - s * point.y,
             y: s * point.x + c * point.y
         )
+    }
+
+    /// Strict simple-ring check used to verify emitted polygons never
+    /// self-intersect: no two non-adjacent edges may share any point.
+    private func ringIsSimple(
+        _ ring: [DerivedPoint2D]
+    ) -> Bool {
+        let count = ring.count
+        guard count >= 3 else {
+            return false
+        }
+        for i in 0..<count {
+            let a1 = ring[i]
+            let a2 = ring[(i + 1) % count]
+            for j in (i + 1)..<count
+            where (i + 1) % count != j
+                && (j + 1) % count != i
+            {
+                let b1 = ring[j]
+                let b2 = ring[(j + 1) % count]
+                if testSegmentsShareAnyPoint(
+                    a1, a2, b1, b2
+                ) {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
+    private func testSegmentsShareAnyPoint(
+        _ p1: DerivedPoint2D,
+        _ p2: DerivedPoint2D,
+        _ q1: DerivedPoint2D,
+        _ q2: DerivedPoint2D
+    ) -> Bool {
+        func cross3(
+            _ a: DerivedPoint2D,
+            _ b: DerivedPoint2D,
+            _ c: DerivedPoint2D
+        ) -> Double {
+            (b.x - a.x) * (c.y - a.y)
+                - (b.y - a.y) * (c.x - a.x)
+        }
+        func onSegment(
+            _ p: DerivedPoint2D,
+            _ a: DerivedPoint2D,
+            _ b: DerivedPoint2D
+        ) -> Bool {
+            let eps = 0.000_000_001
+            return abs(cross3(a, b, p)) <= 0.000_000_1
+                && p.x >= min(a.x, b.x) - eps
+                && p.x <= max(a.x, b.x) + eps
+                && p.y >= min(a.y, b.y) - eps
+                && p.y <= max(a.y, b.y) + eps
+        }
+
+        let d1 = cross3(q1, q2, p1)
+        let d2 = cross3(q1, q2, p2)
+        let d3 = cross3(p1, p2, q1)
+        let d4 = cross3(p1, p2, q2)
+
+        if (
+            (d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)
+        ) && (
+            (d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0)
+        ) {
+            return true
+        }
+
+        return onSegment(p1, q1, q2)
+            || onSegment(p2, q1, q2)
+            || onSegment(q1, p1, p2)
+            || onSegment(q2, p1, p2)
     }
 }

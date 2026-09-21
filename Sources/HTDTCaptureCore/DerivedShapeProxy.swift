@@ -1691,6 +1691,7 @@ public enum DerivedShapeProxyFitter {
         scale: Double
     ) -> DerivedShapeCandidate? {
         let positions = points.map(\.position)
+        let simplicity = simplicityTolerances(scale: scale)
         var polygonPoints = concavePolygon(
             positions,
             scale: scale,
@@ -1701,27 +1702,51 @@ public enum DerivedShapeProxyFitter {
         }
 
         let detectedConcavity = polygonIsConcave(polygonPoints)
-        let concavityResolution:
+        var concavityResolution:
             DerivedPolygonConcavityResolution
         if detectedConcavity {
-            polygonPoints = supportedConcavityPolygon(
+            if let supported = supportedConcavityPolygon(
                 polygon: polygonPoints,
                 points: points,
                 scale: scale,
                 maximumVertices: 12
-            )
-            if polygonIsConcave(polygonPoints) {
+            ),
+                polygonIsConcave(supported)
+            {
+                polygonPoints = supported
                 concavityResolution = .resolvedConcave
             } else {
                 polygonPoints = convexHull(positions)
                 reduceVertexCount(
                     &polygonPoints,
-                    maximumVertices: 12
+                    maximumVertices: 12,
+                    areaTolerance: simplicity.area,
+                    lengthTolerance: simplicity.length
                 )
                 concavityResolution = .unresolved
             }
         } else {
             concavityResolution = .resolvedConvex
+        }
+
+        // The emitted ring must always be a simple polygon. Concave
+        // insertion, supported-concavity trimming and vertex reduction
+        // each preserve that invariant; if any path still produced a
+        // self-intersecting ring, fail closed to the reduced convex hull
+        // instead of emitting invalid footprint topology.
+        if !isSimpleRing(
+            polygonPoints,
+            areaTolerance: simplicity.area,
+            lengthTolerance: simplicity.length
+        ) {
+            polygonPoints = convexHull(positions)
+            reduceVertexCount(
+                &polygonPoints,
+                maximumVertices: 12,
+                areaTolerance: simplicity.area,
+                lengthTolerance: simplicity.length
+            )
+            concavityResolution = .unresolved
         }
 
         let supportRadius = max(0.08, scale * 0.08)
@@ -2032,18 +2057,27 @@ public enum DerivedShapeProxyFitter {
             return unique
         }
 
+        let simplicity = simplicityTolerances(scale: scale)
+
         var polygon = convexHull(unique)
         reduceVertexCount(
             &polygon,
-            maximumVertices: maximumVertices
+            maximumVertices: maximumVertices,
+            areaTolerance: simplicity.area,
+            lengthTolerance: simplicity.length
         )
 
         let threshold = max(0.025, scale * 0.04)
+        var rejectedIndices = Set<Int>()
         while polygon.count < maximumVertices {
             var bestPoint: DerivedPoint2D?
+            var bestIndex = -1
             var bestDistance = threshold
 
-            for point in unique {
+            for (index, point) in unique.enumerated() {
+                if rejectedIndices.contains(index) {
+                    continue
+                }
                 if polygon.contains(where: {
                     distanceSquared($0, point) < 0.000_000_01
                 }) {
@@ -2064,6 +2098,7 @@ public enum DerivedShapeProxyFitter {
                 {
                     bestDistance = distance
                     bestPoint = point
+                    bestIndex = index
                 }
             }
 
@@ -2071,33 +2106,64 @@ public enum DerivedShapeProxyFitter {
                 break
             }
 
-            var insertionIndex = 0
-            var nearestEdgeDistance = Double.infinity
-            for index in polygon.indices {
+            // Inserting a vertex replaces one ring edge with two new
+            // segments. Try candidate edges in ascending distance order
+            // and accept the first insertion whose replacement segments
+            // do not intersect any non-adjacent ring edge; a point that
+            // cannot be inserted without self-intersecting the ring is
+            // skipped rather than emitted as invalid topology.
+            let edgeOrder = polygon.indices.map {
+                index -> (insertion: Int, distance: Double) in
                 let next = (index + 1) % polygon.count
-                let distance = pointSegmentDistance(
-                    bestPoint,
-                    polygon[index],
-                    polygon[next]
+                return (
+                    insertion: next,
+                    distance: pointSegmentDistance(
+                        bestPoint,
+                        polygon[index],
+                        polygon[next]
+                    )
                 )
-                if distance < nearestEdgeDistance {
-                    nearestEdgeDistance = distance
-                    insertionIndex = next
+            }.sorted { lhs, rhs in
+                if abs(lhs.distance - rhs.distance) > 0.000_000_1 {
+                    return lhs.distance < rhs.distance
+                }
+                return lhs.insertion < rhs.insertion
+            }
+
+            var inserted = false
+            for candidate in edgeOrder {
+                var candidateRing = polygon
+                candidateRing.insert(
+                    bestPoint,
+                    at: candidate.insertion
+                )
+                if isSimpleRing(
+                    candidateRing,
+                    areaTolerance: simplicity.area,
+                    lengthTolerance: simplicity.length
+                ) {
+                    polygon = candidateRing
+                    inserted = true
+                    break
                 }
             }
-            polygon.insert(
-                bestPoint,
-                at: insertionIndex
-            )
+
+            if !inserted {
+                rejectedIndices.insert(bestIndex)
+            }
         }
 
         removeNearCollinearVertices(
             &polygon,
-            tolerance: max(0.002, scale * 0.004)
+            tolerance: max(0.002, scale * 0.004),
+            areaTolerance: simplicity.area,
+            lengthTolerance: simplicity.length
         )
         reduceVertexCount(
             &polygon,
-            maximumVertices: maximumVertices
+            maximumVertices: maximumVertices,
+            areaTolerance: simplicity.area,
+            lengthTolerance: simplicity.length
         )
         return polygon
     }
@@ -2161,35 +2227,67 @@ public enum DerivedShapeProxyFitter {
 
     private static func reduceVertexCount(
         _ polygon: inout [DerivedPoint2D],
-        maximumVertices: Int
+        maximumVertices: Int,
+        areaTolerance: Double,
+        lengthTolerance: Double
     ) {
         while polygon.count > maximumVertices,
               polygon.count > 3
         {
-            var removeIndex = 0
-            var smallestArea = Double.infinity
-            for index in polygon.indices {
-                let previous =
-                    polygon[
-                        (index - 1 + polygon.count)
-                        % polygon.count
-                    ]
-                let current = polygon[index]
-                let next =
-                    polygon[(index + 1) % polygon.count]
-                let area = abs(cross(previous, current, next))
-                if area < smallestArea {
-                    smallestArea = area
-                    removeIndex = index
+            // Removing a vertex replaces its two adjacent edges with a
+            // new segment that may cross a non-adjacent edge. Try
+            // removals in ascending area order and keep the first one
+            // that leaves a simple ring; if every removal would
+            // self-intersect, keep the extra vertex rather than emit
+            // invalid topology (the caller validates the final ring).
+            let candidates = polygon.indices.sorted { lhs, rhs in
+                let count = polygon.count
+                let lhsArea = abs(
+                    cross(
+                        polygon[(lhs - 1 + count) % count],
+                        polygon[lhs],
+                        polygon[(lhs + 1) % count]
+                    )
+                )
+                let rhsArea = abs(
+                    cross(
+                        polygon[(rhs - 1 + count) % count],
+                        polygon[rhs],
+                        polygon[(rhs + 1) % count]
+                    )
+                )
+                if lhsArea != rhsArea {
+                    return lhsArea < rhsArea
+                }
+                return lhs < rhs
+            }
+
+            var removed = false
+            for index in candidates {
+                var candidateRing = polygon
+                candidateRing.remove(at: index)
+                if isSimpleRing(
+                    candidateRing,
+                    areaTolerance: areaTolerance,
+                    lengthTolerance: lengthTolerance
+                ) {
+                    polygon = candidateRing
+                    removed = true
+                    break
                 }
             }
-            polygon.remove(at: removeIndex)
+
+            guard removed else {
+                break
+            }
         }
     }
 
     private static func removeNearCollinearVertices(
         _ polygon: inout [DerivedPoint2D],
-        tolerance: Double
+        tolerance: Double,
+        areaTolerance: Double,
+        lengthTolerance: Double
     ) {
         var changed = true
         while changed, polygon.count > 3 {
@@ -2209,7 +2307,16 @@ public enum DerivedShapeProxyFitter {
                     next
                 ) <= tolerance
                 {
-                    polygon.remove(at: index)
+                    var candidateRing = polygon
+                    candidateRing.remove(at: index)
+                    guard isSimpleRing(
+                        candidateRing,
+                        areaTolerance: areaTolerance,
+                        lengthTolerance: lengthTolerance
+                    ) else {
+                        continue
+                    }
+                    polygon = candidateRing
                     changed = true
                     break
                 }
@@ -2217,16 +2324,23 @@ public enum DerivedShapeProxyFitter {
         }
     }
 
+    /// Returns a ring where every remaining reflex vertex has local
+    /// evidence support, or nil when an unsupported reflex vertex cannot
+    /// be removed without self-intersecting the ring. A nil result is a
+    /// fail-closed signal: the caller falls back to convex geometry
+    /// marked `.unresolved` rather than emitting a polygon that either
+    /// crosses itself or keeps an unobserved concavity.
     private static func supportedConcavityPolygon(
         polygon: [DerivedPoint2D],
         points: [DerivedObservationPoint],
         scale: Double,
         maximumVertices: Int
-    ) -> [DerivedPoint2D] {
+    ) -> [DerivedPoint2D]? {
         guard polygon.count >= 4 else {
             return polygon
         }
 
+        let simplicity = simplicityTolerances(scale: scale)
         var result = polygon
         let vertexRadius = max(0.10, scale * 0.10)
         let edgeRadius = max(0.10, scale * 0.08)
@@ -2244,6 +2358,7 @@ public enum DerivedShapeProxyFitter {
             let orientation =
                 signedArea >= 0 ? 1.0 : -1.0
 
+            var stuckOnUnsupportedReflex = false
             for index in result.indices {
                 let previous =
                     result[
@@ -2268,21 +2383,50 @@ public enum DerivedShapeProxyFitter {
                     vertexRadius: vertexRadius,
                     edgeRadius: edgeRadius
                 ) {
-                    result.remove(at: index)
+                    var candidateRing = result
+                    candidateRing.remove(at: index)
+                    guard isSimpleRing(
+                        candidateRing,
+                        areaTolerance: simplicity.area,
+                        lengthTolerance: simplicity.length
+                    ) else {
+                        // Removing this unsupported vertex would cross
+                        // the ring. Another removable reflex later in
+                        // the pass may still unblock it, so keep scanning
+                        // instead of aborting immediately.
+                        stuckOnUnsupportedReflex = true
+                        continue
+                    }
+                    result = candidateRing
                     changed = true
                     break
                 }
+            }
+
+            if stuckOnUnsupportedReflex && !changed {
+                return nil
             }
         }
 
         removeNearCollinearVertices(
             &result,
-            tolerance: max(0.002, scale * 0.004)
+            tolerance: max(0.002, scale * 0.004),
+            areaTolerance: simplicity.area,
+            lengthTolerance: simplicity.length
         )
         reduceVertexCount(
             &result,
-            maximumVertices: maximumVertices
+            maximumVertices: maximumVertices,
+            areaTolerance: simplicity.area,
+            lengthTolerance: simplicity.length
         )
+        guard isSimpleRing(
+            result,
+            areaTolerance: simplicity.area,
+            lengthTolerance: simplicity.length
+        ) else {
+            return nil
+        }
         return result
     }
 
@@ -2403,6 +2547,131 @@ public enum DerivedShapeProxyFitter {
             point.x - projected.x,
             point.y - projected.y
         )
+    }
+
+    /// Tolerances for simple-ring validation, scaled to the footprint so
+    /// genuinely crossing edges are always detected while numerically
+    /// adjacent vertices are not mistaken for contacts.
+    private static func simplicityTolerances(
+        scale: Double
+    ) -> (area: Double, length: Double) {
+        (
+            area: max(scale * scale * 0.000_000_001, 0.000_000_000_001),
+            length: max(scale * 0.000_001, 0.000_000_01)
+        )
+    }
+
+    /// A polygon ring is simple when no two non-adjacent edges share any
+    /// point. Adjacent edges legitimately share their common vertex.
+    private static func isSimpleRing(
+        _ ring: [DerivedPoint2D],
+        areaTolerance: Double,
+        lengthTolerance: Double
+    ) -> Bool {
+        let count = ring.count
+        guard count >= 3 else {
+            return false
+        }
+        for i in 0..<count {
+            let a1 = ring[i]
+            let a2 = ring[(i + 1) % count]
+            var j = i + 1
+            while j < count {
+                let adjacent =
+                    (i + 1) % count == j
+                    || (j + 1) % count == i
+                if !adjacent {
+                    let b1 = ring[j]
+                    let b2 = ring[(j + 1) % count]
+                    if segmentsConflict(
+                        a1, a2, b1, b2,
+                        areaTolerance: areaTolerance,
+                        lengthTolerance: lengthTolerance
+                    ) {
+                        return false
+                    }
+                }
+                j += 1
+            }
+        }
+        return true
+    }
+
+    /// True when segments p1-p2 and q1-q2 share any point: a strict
+    /// interior crossing, an endpoint lying on the other segment, or a
+    /// collinear overlap.
+    private static func segmentsConflict(
+        _ p1: DerivedPoint2D,
+        _ p2: DerivedPoint2D,
+        _ q1: DerivedPoint2D,
+        _ q2: DerivedPoint2D,
+        areaTolerance: Double,
+        lengthTolerance: Double
+    ) -> Bool {
+        let d1 = cross(q1, q2, p1)
+        let d2 = cross(q1, q2, p2)
+        let d3 = cross(p1, p2, q1)
+        let d4 = cross(p1, p2, q2)
+
+        let strictCrossing =
+            (
+                (d1 > areaTolerance && d2 < -areaTolerance)
+                    || (d1 < -areaTolerance && d2 > areaTolerance)
+            ) && (
+                (d3 > areaTolerance && d4 < -areaTolerance)
+                    || (d3 < -areaTolerance && d4 > areaTolerance)
+            )
+        if strictCrossing {
+            return true
+        }
+
+        if abs(d1) <= areaTolerance,
+           pointOnSegment(
+               p1, q1, q2,
+               tolerance: lengthTolerance
+           )
+        {
+            return true
+        }
+        if abs(d2) <= areaTolerance,
+           pointOnSegment(
+               p2, q1, q2,
+               tolerance: lengthTolerance
+           )
+        {
+            return true
+        }
+        if abs(d3) <= areaTolerance,
+           pointOnSegment(
+               q1, p1, p2,
+               tolerance: lengthTolerance
+           )
+        {
+            return true
+        }
+        if abs(d4) <= areaTolerance,
+           pointOnSegment(
+               q2, p1, p2,
+               tolerance: lengthTolerance
+           )
+        {
+            return true
+        }
+        return false
+    }
+
+    /// Bounding-box containment test; the caller has already established
+    /// that `point` is collinear with segment a-b within tolerance.
+    private static func pointOnSegment(
+        _ point: DerivedPoint2D,
+        _ a: DerivedPoint2D,
+        _ b: DerivedPoint2D,
+        tolerance: Double
+    ) -> Bool {
+        point.x >= min(a.x, b.x) - tolerance
+            && point.x <= max(a.x, b.x) + tolerance
+            && point.y >= min(a.y, b.y) - tolerance
+            && point.y <= max(a.y, b.y) + tolerance
     }
 
     private static func nearestEvidenceRefs(
