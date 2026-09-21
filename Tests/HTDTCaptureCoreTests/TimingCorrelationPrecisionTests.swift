@@ -135,3 +135,169 @@ func wholeSecondUTCRendersUnchangedForManifestPath() {
     )
     #expect(whole == "2027-01-15T08:00:00Z")
 }
+
+// MARK: - Frame-age-corrected correlation (#206)
+//
+// `ARSession.currentFrame` vends the latest already-produced frame;
+// its monotonic timestamp is capture time, not read time, and can lag
+// the wall-clock read by at least a frame interval. The estimator
+// must project the capture instant by the measured monotonic delta
+// and fold the observed frame age into the declared uncertainty, so a
+// stale frame can never report a near-zero error budget.
+
+@Test
+func staleFrameProjectsCaptureInstantAndInflatesUncertainty() {
+    // A frame 10.002 s old at read time: the paired UTC must be
+    // projected back by the measured monotonic delta, and the declared
+    // uncertainty must cover the full observed frame age rather than
+    // only the millisecond-scale read bracket.
+    let estimate = FrameTimingCorrelationEstimator.estimate(
+        frameTimestampSeconds: 100.0,
+        monotonicReadBeforeSeconds: 110.000,
+        monotonicReadAfterSeconds: 110.004,
+        wallClockReadBefore: Date(
+            timeIntervalSince1970: 1_800_000_000.000
+        ),
+        wallClockReadAfter: Date(
+            timeIntervalSince1970: 1_800_000_000.006
+        ),
+        utcSerializationQuantizationSeconds: 0.000_5
+    )
+
+    #expect(
+        abs(estimate.observedFrameDeltaSeconds - 10.002) < 0.000_01
+    )
+    #expect(
+        abs(
+            estimate.captureInstantUTC.timeIntervalSince1970
+                - (1_800_000_000.003 - 10.002)
+        ) < 0.000_01
+    )
+    // wallHalf 0.003 + monoHalf 0.002 + age 10.002 + quant 0.0005.
+    #expect(
+        abs(
+            estimate.uncertaintySeconds
+                - (0.003 + 0.002 + 10.002 + 0.000_5)
+        ) < 0.000_01
+    )
+    #expect(estimate.uncertaintySeconds >= 10.0)
+}
+
+@Test
+func freshFrameCorrelationRemainsPrecise() {
+    // A sub-frame-interval-old frame projects only ~1 ms and keeps a
+    // small honest uncertainty (brackets + age + quantization).
+    let estimate = FrameTimingCorrelationEstimator.estimate(
+        frameTimestampSeconds: 110.001,
+        monotonicReadBeforeSeconds: 110.000,
+        monotonicReadAfterSeconds: 110.004,
+        wallClockReadBefore: Date(
+            timeIntervalSince1970: 1_800_000_000.000
+        ),
+        wallClockReadAfter: Date(
+            timeIntervalSince1970: 1_800_000_000.006
+        ),
+        utcSerializationQuantizationSeconds: 0.000_5
+    )
+
+    #expect(
+        abs(estimate.observedFrameDeltaSeconds - 0.001) < 0.000_01
+    )
+    #expect(estimate.uncertaintySeconds < 0.01)
+    #expect(estimate.uncertaintySeconds >= 0.000_5)
+}
+
+@Test
+func futureDatedFrameTimestampIsNeverProjectedForward() {
+    // A timestamp later than the read bracket is a clock-domain
+    // anomaly: the UTC estimate must not move forward, but the skew
+    // magnitude still widens the declared uncertainty.
+    let estimate = FrameTimingCorrelationEstimator.estimate(
+        frameTimestampSeconds: 110.010,
+        monotonicReadBeforeSeconds: 110.000,
+        monotonicReadAfterSeconds: 110.004,
+        wallClockReadBefore: Date(
+            timeIntervalSince1970: 1_800_000_000.000
+        ),
+        wallClockReadAfter: Date(
+            timeIntervalSince1970: 1_800_000_000.006
+        ),
+        utcSerializationQuantizationSeconds: 0.000_5
+    )
+
+    #expect(estimate.observedFrameDeltaSeconds < 0)
+    #expect(
+        abs(
+            estimate.captureInstantUTC.timeIntervalSince1970
+                - 1_800_000_000.003
+        ) < 0.000_01
+    )
+    #expect(estimate.uncertaintySeconds >= 0.008)
+}
+
+@Test
+func timingPackageBuildsWithDelayedCurrentFrameFixture() throws {
+    // Start/end timing fixture with an intentionally delayed end
+    // frame: the end correlation keeps its (older) monotonic
+    // timestamp, projects the UTC back to capture time, and declares
+    // an uncertainty covering the observed 250 ms staleness.
+    let formatter = fractionalUTCFormatter()
+
+    let startEstimate = FrameTimingCorrelationEstimator.estimate(
+        frameTimestampSeconds: 10.0,
+        monotonicReadBeforeSeconds: 10.000,
+        monotonicReadAfterSeconds: 10.001,
+        wallClockReadBefore: Date(
+            timeIntervalSince1970: 1_800_000_000.000
+        ),
+        wallClockReadAfter: Date(
+            timeIntervalSince1970: 1_800_000_000.002
+        ),
+        utcSerializationQuantizationSeconds: 0.000_5
+    )
+    let start = try CaptureTimingCorrelation(
+        monotonicSeconds: 10.0,
+        utc: formatter.string(
+            from: startEstimate.captureInstantUTC
+        ),
+        method: "bracketed_arframe_current_frame_age_projected",
+        estimatedUncertaintySeconds:
+            startEstimate.uncertaintySeconds
+    )
+
+    let endEstimate = FrameTimingCorrelationEstimator.estimate(
+        frameTimestampSeconds: 60.0,
+        monotonicReadBeforeSeconds: 60.250,
+        monotonicReadAfterSeconds: 60.254,
+        wallClockReadBefore: Date(
+            timeIntervalSince1970: 1_800_000_050.000
+        ),
+        wallClockReadAfter: Date(
+            timeIntervalSince1970: 1_800_000_050.002
+        ),
+        utcSerializationQuantizationSeconds: 0.000_5
+    )
+    let end = try CaptureTimingCorrelation(
+        monotonicSeconds: 60.0,
+        utc: formatter.string(
+            from: endEstimate.captureInstantUTC
+        ),
+        method: "bracketed_arframe_current_frame_age_projected",
+        estimatedUncertaintySeconds:
+            endEstimate.uncertaintySeconds
+    )
+
+    let endUncertainty = try #require(
+        end.estimatedUncertaintySeconds
+    )
+    // A 250 ms-stale frame cannot claim a near-zero uncertainty.
+    #expect(endUncertainty >= 0.25)
+    #expect(end.utc.hasSuffix("Z"))
+    #expect(end.utc.contains("."))
+
+    let package = try CaptureTimingPackageBuilder.build(
+        start: start,
+        end: end
+    )
+    #expect(package.document.correlations == [start, end])
+}
