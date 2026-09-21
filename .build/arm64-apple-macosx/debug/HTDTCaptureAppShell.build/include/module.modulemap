@@ -1,0 +1,3 @@
+module HTDTCaptureAppShell {
+    header "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCaptureAppShell.build/include/HTDTCaptureAppShell-Swift.h"
+}

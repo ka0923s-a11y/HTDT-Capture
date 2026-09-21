@@ -32,6 +32,328 @@
         "type": "number"
       }
     },
+    "uuidV4": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "utcTimestamp": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "physicalEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provenance",
+        "source_evidence_refs"
+      ],
+      "properties": {
+        "width_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "height_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "depth_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "provenance": {
+          "enum": [
+            "user_measured",
+            "equipment_catalog_derived",
+            "roomplan_derived",
+            "imported_reference",
+            "other"
+          ]
+        },
+        "source_evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "width_m": {
+                "enum": [
+                  null
+                ]
+              },
+              "height_m": {
+                "enum": [
+                  null
+                ]
+              },
+              "depth_m": {
+                "enum": [
+                  null
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "width_m": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "width_m"
+            ]
+          }
+        }
+      ]
+    },
+    "spatialUncertainty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "basis"
+      ],
+      "properties": {
+        "isotropic_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "per_axis_m": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/vector3f"
+            }
+          ]
+        },
+        "angular_rad": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "basis": {
+          "enum": [
+            "user_stated",
+            "instrument_stated",
+            "app_estimated",
+            "other"
+          ]
+        },
+        "source_evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "isotropic_m": {
+                "enum": [
+                  null
+                ]
+              },
+              "per_axis_m": {
+                "enum": [
+                  null
+                ]
+              },
+              "angular_rad": {
+                "enum": [
+                  null
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "isotropic_m": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "isotropic_m"
+            ]
+          }
+        }
+      ]
+    },
+    "authorityComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "evidence_refs"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "unverified",
+            "user_attested",
+            "evidence_linked"
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "source_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "authorityComponents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "placement"
+      ],
+      "properties": {
+        "placement": {
+          "$ref": "#/$defs/authorityComponent"
+        },
+        "orientation": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/authorityComponent"
+            }
+          ]
+        },
+        "equipment": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/authorityComponent"
+            }
+          ]
+        },
+        "reference_point": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/authorityComponent"
+            }
+          ]
+        },
+        "semantic_role": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/authorityComponent"
+            }
+          ]
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "created_at_utc"
+      ],
+      "properties": {
+        "created_at_utc": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+        },
+        "updated_at_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "observed_at_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "source_created_at_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "supersedes_entity_id": {
+          "$ref": "#/$defs/uuidV4"
+        }
+      }
+    },
+    "referencePointAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "construction",
+        "source_evidence_refs"
+      ],
+      "properties": {
+        "construction": {
+          "enum": [
+            "direct_placement",
+            "surface_hit_confirmed",
+            "offset_from_surface",
+            "imported_reference"
+          ]
+        },
+        "offset_m": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/vector3f"
+            }
+          ]
+        },
+        "source_evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
     "matrix4f": {
       "type": "object",
       "additionalProperties": false,
@@ -159,15 +481,14 @@
               ]
             },
             "T_world_from_hit": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "items": {
-                "type": "number"
-              },
-              "minItems": 16,
-              "maxItems": 16
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/matrix4f"
+                }
+              ]
             }
           }
         }
@@ -199,6 +520,7 @@
             "subwoofer",
             "display",
             "projection_screen",
+            "projector",
             "listening_position",
             "seat",
             "acoustic_treatment",
@@ -284,6 +606,64 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "physical_envelope": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/physicalEnvelope"
+            }
+          ]
+        },
+        "listening_role": {
+          "enum": [
+            "primary",
+            "secondary",
+            "measurement_reference",
+            null
+          ]
+        },
+        "uncertainty": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/spatialUncertainty"
+            }
+          ]
+        },
+        "authority": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/authorityComponents"
+            }
+          ]
+        },
+        "lifecycle": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/lifecycle"
+            }
+          ]
+        },
+        "reference_point": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/referencePointAuthority"
+            }
+          ]
         }
       },
       "allOf": [
@@ -336,6 +716,13 @@
         "equipment_hash": {
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
+        },
+        "authority_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
         }
       }
     }

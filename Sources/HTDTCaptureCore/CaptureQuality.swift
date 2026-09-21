@@ -248,6 +248,11 @@ public struct CaptureQualityObservation: Sendable, Equatable {
     public var resourceEvents: [CaptureResourceEvent]
     public var integrityStatus: BundleIntegrityStatus
     public var benchmarkRefs: [String]
+    /// Advisory findings produced by operator-facing provenance notes
+    /// (#216/#257/#273/#274). They are appended to the report's
+    /// diagnostics verbatim at info/warning severity and never carry
+    /// gate authority on their own.
+    public var advisoryFindings: [QualityDiagnostic]
 
     public init(
         trackingEvents: [TrackingQualityEvent] = [],
@@ -263,7 +268,8 @@ public struct CaptureQualityObservation: Sendable, Equatable {
         measurementQuantityTypesPresent: Set<String> = [],
         resourceEvents: [CaptureResourceEvent] = [],
         integrityStatus: BundleIntegrityStatus = .notChecked,
-        benchmarkRefs: [String] = []
+        benchmarkRefs: [String] = [],
+        advisoryFindings: [QualityDiagnostic] = []
     ) {
         self.trackingEvents = trackingEvents
         self.roomPlanStatus = roomPlanStatus
@@ -285,6 +291,7 @@ public struct CaptureQualityObservation: Sendable, Equatable {
         self.resourceEvents = resourceEvents
         self.integrityStatus = integrityStatus
         self.benchmarkRefs = benchmarkRefs
+        self.advisoryFindings = advisoryFindings
     }
 }
 
@@ -738,6 +745,12 @@ public enum CaptureQualityEvaluator {
                 )
             }
         }
+
+        // Operator/policy advisory findings flow into the report
+        // verbatim; they are already bounded by the recording
+        // authority, and the deterministic ordering below canonicalizes
+        // their position alongside evaluator-produced diagnostics.
+        diagnostics.append(contentsOf: observation.advisoryFindings)
 
         // Total deterministic ordering for serialized diagnostics:
         // severity rank (error first), then code, then message, then a

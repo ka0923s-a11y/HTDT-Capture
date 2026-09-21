@@ -1,0 +1,110 @@
+{
+  "": {
+    "swift-dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/primary.swiftdeps"
+  },
+  "/Users/devin/repos/HTDT-Capture/Sources/HTDTCapturePlatform/ARConfigurationSnapshotAdapter.swift": {
+    "dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/ARConfigurationSnapshotAdapter.d",
+    "object": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/ARConfigurationSnapshotAdapter.swift.o",
+    "swiftmodule": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/ARConfigurationSnapshotAdapter~partial.swiftmodule",
+    "swift-dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/ARConfigurationSnapshotAdapter.swiftdeps",
+    "diagnostics": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/ARConfigurationSnapshotAdapter.dia"
+  },
+  "/Users/devin/repos/HTDT-Capture/Sources/HTDTCapturePlatform/ARFrameArtifactAdapter.swift": {
+    "dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/ARFrameArtifactAdapter.d",
+    "object": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/ARFrameArtifactAdapter.swift.o",
+    "swiftmodule": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/ARFrameArtifactAdapter~partial.swiftmodule",
+    "swift-dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/ARFrameArtifactAdapter.swiftdeps",
+    "diagnostics": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/ARFrameArtifactAdapter.dia"
+  },
+  "/Users/devin/repos/HTDT-Capture/Sources/HTDTCapturePlatform/ARMeshSnapshotAdapter.swift": {
+    "dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/ARMeshSnapshotAdapter.d",
+    "object": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/ARMeshSnapshotAdapter.swift.o",
+    "swiftmodule": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/ARMeshSnapshotAdapter~partial.swiftmodule",
+    "swift-dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/ARMeshSnapshotAdapter.swiftdeps",
+    "diagnostics": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/ARMeshSnapshotAdapter.dia"
+  },
+  "/Users/devin/repos/HTDT-Capture/Sources/HTDTCapturePlatform/CameraPermissionController.swift": {
+    "dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/CameraPermissionController.d",
+    "object": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/CameraPermissionController.swift.o",
+    "swiftmodule": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/CameraPermissionController~partial.swiftmodule",
+    "swift-dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/CameraPermissionController.swiftdeps",
+    "diagnostics": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/CameraPermissionController.dia"
+  },
+  "/Users/devin/repos/HTDT-Capture/Sources/HTDTCapturePlatform/CaptureResourceMonitor.swift": {
+    "dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/CaptureResourceMonitor.d",
+    "object": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/CaptureResourceMonitor.swift.o",
+    "swiftmodule": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/CaptureResourceMonitor~partial.swiftmodule",
+    "swift-dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/CaptureResourceMonitor.swiftdeps",
+    "diagnostics": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/CaptureResourceMonitor.dia"
+  },
+  "/Users/devin/repos/HTDT-Capture/Sources/HTDTCapturePlatform/DepthDataSnapshotAdapter.swift": {
+    "dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/DepthDataSnapshotAdapter.d",
+    "object": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/DepthDataSnapshotAdapter.swift.o",
+    "swiftmodule": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/DepthDataSnapshotAdapter~partial.swiftmodule",
+    "swift-dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/DepthDataSnapshotAdapter.swiftdeps",
+    "diagnostics": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/DepthDataSnapshotAdapter.dia"
+  },
+  "/Users/devin/repos/HTDT-Capture/Sources/HTDTCapturePlatform/FrameUsabilityProbe.swift": {
+    "dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/FrameUsabilityProbe.d",
+    "object": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/FrameUsabilityProbe.swift.o",
+    "swiftmodule": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/FrameUsabilityProbe~partial.swiftmodule",
+    "swift-dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/FrameUsabilityProbe.swiftdeps",
+    "diagnostics": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/FrameUsabilityProbe.dia"
+  },
+  "/Users/devin/repos/HTDT-Capture/Sources/HTDTCapturePlatform/HTDTCaptureContentType.swift": {
+    "dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/HTDTCaptureContentType.d",
+    "object": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/HTDTCaptureContentType.swift.o",
+    "swiftmodule": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/HTDTCaptureContentType~partial.swiftmodule",
+    "swift-dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/HTDTCaptureContentType.swiftdeps",
+    "diagnostics": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/HTDTCaptureContentType.dia"
+  },
+  "/Users/devin/repos/HTDT-Capture/Sources/HTDTCapturePlatform/PixelBufferSnapshotAdapter.swift": {
+    "dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/PixelBufferSnapshotAdapter.d",
+    "object": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/PixelBufferSnapshotAdapter.swift.o",
+    "swiftmodule": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/PixelBufferSnapshotAdapter~partial.swiftmodule",
+    "swift-dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/PixelBufferSnapshotAdapter.swiftdeps",
+    "diagnostics": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/PixelBufferSnapshotAdapter.dia"
+  },
+  "/Users/devin/repos/HTDT-Capture/Sources/HTDTCapturePlatform/PlatformCapabilityProbe.swift": {
+    "dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/PlatformCapabilityProbe.d",
+    "object": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/PlatformCapabilityProbe.swift.o",
+    "swiftmodule": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/PlatformCapabilityProbe~partial.swiftmodule",
+    "swift-dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/PlatformCapabilityProbe.swiftdeps",
+    "diagnostics": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/PlatformCapabilityProbe.dia"
+  },
+  "/Users/devin/repos/HTDT-Capture/Sources/HTDTCapturePlatform/PlatformRuntimeProvenance.swift": {
+    "dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/PlatformRuntimeProvenance.d",
+    "object": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/PlatformRuntimeProvenance.swift.o",
+    "swiftmodule": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/PlatformRuntimeProvenance~partial.swiftmodule",
+    "swift-dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/PlatformRuntimeProvenance.swiftdeps",
+    "diagnostics": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/PlatformRuntimeProvenance.dia"
+  },
+  "/Users/devin/repos/HTDT-Capture/Sources/HTDTCapturePlatform/RoomPlanArtifactEncoder.swift": {
+    "dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/RoomPlanArtifactEncoder.d",
+    "object": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/RoomPlanArtifactEncoder.swift.o",
+    "swiftmodule": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/RoomPlanArtifactEncoder~partial.swiftmodule",
+    "swift-dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/RoomPlanArtifactEncoder.swiftdeps",
+    "diagnostics": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/RoomPlanArtifactEncoder.dia"
+  },
+  "/Users/devin/repos/HTDT-Capture/Sources/HTDTCapturePlatform/RoomPlanArtifactProcessor.swift": {
+    "dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/RoomPlanArtifactProcessor.d",
+    "object": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/RoomPlanArtifactProcessor.swift.o",
+    "swiftmodule": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/RoomPlanArtifactProcessor~partial.swiftmodule",
+    "swift-dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/RoomPlanArtifactProcessor.swiftdeps",
+    "diagnostics": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/RoomPlanArtifactProcessor.dia"
+  },
+  "/Users/devin/repos/HTDT-Capture/Sources/HTDTCapturePlatform/RoomPlanLiveCaptureView.swift": {
+    "dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/RoomPlanLiveCaptureView.d",
+    "object": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/RoomPlanLiveCaptureView.swift.o",
+    "swiftmodule": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/RoomPlanLiveCaptureView~partial.swiftmodule",
+    "swift-dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/RoomPlanLiveCaptureView.swiftdeps",
+    "diagnostics": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/RoomPlanLiveCaptureView.dia"
+  },
+  "/Users/devin/repos/HTDT-Capture/Sources/HTDTCapturePlatform/SharedARSessionController.swift": {
+    "dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/SharedARSessionController.d",
+    "object": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/SharedARSessionController.swift.o",
+    "swiftmodule": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/SharedARSessionController~partial.swiftmodule",
+    "swift-dependencies": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/SharedARSessionController.swiftdeps",
+    "diagnostics": "/Users/devin/repos/HTDT-Capture/.build/arm64-apple-macosx/debug/HTDTCapturePlatform.build/SharedARSessionController.dia"
+  }
+}

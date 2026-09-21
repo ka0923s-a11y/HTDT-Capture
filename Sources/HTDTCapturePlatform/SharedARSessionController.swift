@@ -723,7 +723,9 @@ public final class SharedARSessionController {
             activeMeshAnchorCount: meshAnchorCount,
             hasSceneDepth:
                 frame.sceneDepth != nil
-                || frame.smoothedSceneDepth != nil
+                || frame.smoothedSceneDepth != nil,
+            ambientLightIntensityLumens:
+                frame.lightEstimate.map { Double($0.ambientIntensity) }
         )
     }
 
@@ -1264,6 +1266,28 @@ public final class SharedARSessionController {
             captureSessionID: context.captureSessionID,
             coordinateSpaceID: context.coordinateSpaceID,
             depthSelection: depthSelection
+        )
+    }
+
+    /// Bounded usability assessment of the current camera frame
+    /// (#274): samples the captured image's luma statistics on the
+    /// fixed probe grid and pairs them with the frame's EXIF exposure
+    /// duration and live tracking state. Returns nil while no frame is
+    /// available; a nil result means "usability unknown", never a pass.
+    public func currentFrameUsabilityAssessment()
+        -> FrameUsabilityAssessment?
+    {
+        guard let frame = arSession.currentFrame else {
+            return nil
+        }
+        var metrics = FrameUsabilityProbe.metrics(
+            from: frame.capturedImage
+        )
+        metrics?.exposureSeconds =
+            (frame.exifData["ExposureTime"] as? NSNumber)?.doubleValue
+        return FrameUsabilityEvaluator().assess(
+            metrics: metrics,
+            trackingState: trackingQualityEvent(from: frame).state
         )
     }
 

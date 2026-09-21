@@ -274,6 +274,11 @@ public struct ScanCoverageSample: Sendable {
     public let trackingReason: String?
     public let activeMeshAnchorCount: Int
     public let hasSceneDepth: Bool
+    /// Ambient scene illumination in lumens from the frame's light
+    /// estimate, when the platform provides one (#283). nil means no
+    /// reading — lighting assessment must then stay `unknown`, never a
+    /// fabricated pass/fail.
+    public let ambientLightIntensityLumens: Double?
 
     public init(
         sessionTimestampSeconds: Double,
@@ -283,7 +288,8 @@ public struct ScanCoverageSample: Sendable {
         trackingState: TrackingQualityState,
         trackingReason: String? = nil,
         activeMeshAnchorCount: Int,
-        hasSceneDepth: Bool
+        hasSceneDepth: Bool,
+        ambientLightIntensityLumens: Double? = nil
     ) {
         self.sessionTimestampSeconds = sessionTimestampSeconds
         self.yawRadians = yawRadians
@@ -293,6 +299,8 @@ public struct ScanCoverageSample: Sendable {
         self.trackingReason = trackingReason
         self.activeMeshAnchorCount = activeMeshAnchorCount
         self.hasSceneDepth = hasSceneDepth
+        self.ambientLightIntensityLumens =
+            ambientLightIntensityLumens
     }
 }
 

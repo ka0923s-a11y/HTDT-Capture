@@ -6,8 +6,27 @@ import HTDTCapturePlatform
 
 public struct CaptureRootActions {
     public let beginCapture: () -> Void
+    /// #212: operator confirmed the pre-capture setup screen; leaves
+    /// `.setup` and starts the real capability→RoomPlan pipeline.
+    public let beginScanning: () -> Void
+    /// #212: operator cancelled setup; back to Idle, no capture made.
+    public let cancelCaptureSetup: () -> Void
     public let beginReview: () -> Void
     public let captureEvidenceFrame: () -> Void
+    /// #250 targeted-object pass actions.
+    public let beginTargetScan: () -> Void
+    public let retakeTargetScan: () -> Void
+    public let acceptTargetScan: () -> Void
+    public let cancelTargetScan: () -> Void
+    /// #257 declared-region actions.
+    public let declareNearestUnresolvedRegion:
+        (DeclaredRegionReason) -> Void
+    public let revokeOperatorRegion:
+        (SpatialCoverageCellKey) -> Void
+    /// #252 non-visual cue switch.
+    public let setGuidanceCuesEnabled: (Bool) -> Void
+    /// #273 return-to-start check arm/disarm.
+    public let setLoopClosureCheckActive: (Bool) -> Void
     public let setScanMovementCapability:
         (ScanMovementCapability) -> Void
     public let continueScanning: () -> Void
@@ -49,8 +68,22 @@ public struct CaptureRootActions {
 
     public init(
         beginCapture: @escaping () -> Void = {},
+        beginScanning: @escaping () -> Void = {},
+        cancelCaptureSetup: @escaping () -> Void = {},
         beginReview: @escaping () -> Void = {},
         captureEvidenceFrame: @escaping () -> Void = {},
+        beginTargetScan: @escaping () -> Void = {},
+        retakeTargetScan: @escaping () -> Void = {},
+        acceptTargetScan: @escaping () -> Void = {},
+        cancelTargetScan: @escaping () -> Void = {},
+        declareNearestUnresolvedRegion: @escaping
+            (DeclaredRegionReason) -> Void = { _ in },
+        revokeOperatorRegion: @escaping
+            (SpatialCoverageCellKey) -> Void = { _ in },
+        setGuidanceCuesEnabled: @escaping
+            (Bool) -> Void = { _ in },
+        setLoopClosureCheckActive: @escaping
+            (Bool) -> Void = { _ in },
         setScanMovementCapability: @escaping
             (ScanMovementCapability) -> Void = { _ in },
         continueScanning: @escaping () -> Void = {},
@@ -97,8 +130,19 @@ public struct CaptureRootActions {
         importCaptureArchive: @escaping (URL) -> Void = { _ in }
     ) {
         self.beginCapture = beginCapture
+        self.beginScanning = beginScanning
+        self.cancelCaptureSetup = cancelCaptureSetup
         self.beginReview = beginReview
         self.captureEvidenceFrame = captureEvidenceFrame
+        self.beginTargetScan = beginTargetScan
+        self.retakeTargetScan = retakeTargetScan
+        self.acceptTargetScan = acceptTargetScan
+        self.cancelTargetScan = cancelTargetScan
+        self.declareNearestUnresolvedRegion =
+            declareNearestUnresolvedRegion
+        self.revokeOperatorRegion = revokeOperatorRegion
+        self.setGuidanceCuesEnabled = setGuidanceCuesEnabled
+        self.setLoopClosureCheckActive = setLoopClosureCheckActive
         self.setScanMovementCapability =
             setScanMovementCapability
         self.continueScanning = continueScanning
@@ -167,6 +211,18 @@ public struct CaptureRootView: View {
     public let derivedShapePreview: DerivedShapePreviewSnapshot
     public let scanEvidenceFrameCount: Int
     public let endScanGuidance: String?
+    /// Pre-capture setup model shown while `state == .setup` (#212).
+    public let captureSetup: CaptureSetupPresentation?
+    /// Scanning surfaces for #250/#257/#252/#273/#279/#216/#283.
+    public let isEndingScan: Bool
+    public let isCapturingEvidence: Bool
+    public let automaticEvidenceCount: Int
+    public let lowLightGuidanceActive: Bool
+    public let targetScanStatus: TargetScanStatus?
+    public let declaredRegions: [DeclaredCoverageRegion]
+    public let loopClosureCheckActive: Bool
+    public let loopClosureAssessment: LoopClosureAssessment?
+    public let guidanceCuesEnabled: Bool
     public let persistedInventory:
         PersistedCaptureInventoryResult
     public let actions: CaptureRootActions
@@ -201,6 +257,16 @@ public struct CaptureRootView: View {
         derivedShapePreview: DerivedShapePreviewSnapshot = .empty,
         scanEvidenceFrameCount: Int = 0,
         endScanGuidance: String? = nil,
+        captureSetup: CaptureSetupPresentation? = nil,
+        isEndingScan: Bool = false,
+        isCapturingEvidence: Bool = false,
+        automaticEvidenceCount: Int = 0,
+        lowLightGuidanceActive: Bool = false,
+        targetScanStatus: TargetScanStatus? = nil,
+        declaredRegions: [DeclaredCoverageRegion] = [],
+        loopClosureCheckActive: Bool = false,
+        loopClosureAssessment: LoopClosureAssessment? = nil,
+        guidanceCuesEnabled: Bool = true,
         persistedInventory:
             PersistedCaptureInventoryResult
                 = PersistedCaptureInventoryResult(),
@@ -233,6 +299,16 @@ public struct CaptureRootView: View {
         self.derivedShapePreview = derivedShapePreview
         self.scanEvidenceFrameCount = scanEvidenceFrameCount
         self.endScanGuidance = endScanGuidance
+        self.captureSetup = captureSetup
+        self.isEndingScan = isEndingScan
+        self.isCapturingEvidence = isCapturingEvidence
+        self.automaticEvidenceCount = automaticEvidenceCount
+        self.lowLightGuidanceActive = lowLightGuidanceActive
+        self.targetScanStatus = targetScanStatus
+        self.declaredRegions = declaredRegions
+        self.loopClosureCheckActive = loopClosureCheckActive
+        self.loopClosureAssessment = loopClosureAssessment
+        self.guidanceCuesEnabled = guidanceCuesEnabled
         self.persistedInventory = persistedInventory
         self.actions = actions
     }
@@ -253,6 +329,27 @@ public struct CaptureRootView: View {
                     evidenceFrameCount: scanEvidenceFrameCount,
                     statusMessage: workingSetStatus,
                     endScanGuidance: endScanGuidance,
+                    isEndingScan: isEndingScan,
+                    isCapturingEvidence: isCapturingEvidence,
+                    automaticEvidenceCount: automaticEvidenceCount,
+                    lowLightGuidanceActive: lowLightGuidanceActive,
+                    targetScanStatus: targetScanStatus,
+                    declaredRegions: declaredRegions,
+                    loopClosureCheckActive: loopClosureCheckActive,
+                    loopClosureAssessment: loopClosureAssessment,
+                    guidanceCuesEnabled: guidanceCuesEnabled,
+                    beginTargetScan: actions.beginTargetScan,
+                    retakeTargetScan: actions.retakeTargetScan,
+                    acceptTargetScan: actions.acceptTargetScan,
+                    cancelTargetScan: actions.cancelTargetScan,
+                    declareNearestUnresolvedRegion:
+                        actions.declareNearestUnresolvedRegion,
+                    revokeOperatorRegion:
+                        actions.revokeOperatorRegion,
+                    setGuidanceCuesEnabled:
+                        actions.setGuidanceCuesEnabled,
+                    setLoopClosureCheckActive:
+                        actions.setLoopClosureCheckActive,
                     captureEvidenceFrame:
                         actions.captureEvidenceFrame,
                     setMovementCapability:
@@ -261,7 +358,15 @@ public struct CaptureRootView: View {
                 )
             } else {
                 NavigationStack {
-            if state == .annotating,
+            if state == .setup,
+               let captureSetup
+            {
+                CaptureSetupView(
+                    presentation: captureSetup,
+                    beginScanning: actions.beginScanning,
+                    cancel: actions.cancelCaptureSetup
+                )
+            } else if state == .annotating,
                let coordinateSpaceID =
                     annotationCoordinateSpaceID
             {
@@ -547,6 +652,9 @@ public struct CaptureRootView: View {
         case .idle:
             Button("Start capture", action: actions.beginCapture)
                 .disabled(!capabilities.roomPlanMeshEligible)
+
+        case .setup:
+            EmptyView()
             Button("Import .htdtcapture") {
                 importingCaptureArchive = true
             }
@@ -784,6 +892,8 @@ public struct CaptureRootView: View {
         switch state {
         case .idle:
             return String(localized: "Idle")
+        case .setup:
+            return String(localized: "Capture setup")
         case .capabilityCheck:
             return String(localized: "Checking capabilities")
         case .permissions:

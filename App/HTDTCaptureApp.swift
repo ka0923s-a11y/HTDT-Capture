@@ -66,12 +66,43 @@ private struct HTDTCaptureHostView: View {
                 coordinator.scanEvidenceFrameCount,
             endScanGuidance:
                 coordinator.endScanGuidance,
+            captureSetup: coordinator.captureSetup,
+            isEndingScan: coordinator.isEndingScan,
+            isCapturingEvidence:
+                coordinator.isCapturingEvidenceFrame,
+            automaticEvidenceCount:
+                coordinator.automaticEvidenceFrameCount,
+            lowLightGuidanceActive:
+                coordinator.lowLightGuidanceActive,
+            targetScanStatus: coordinator.targetScanStatus,
+            declaredRegions: coordinator.declaredRegionList,
+            loopClosureCheckActive:
+                coordinator.loopClosureCheckActive,
+            loopClosureAssessment:
+                coordinator.loopClosureAssessment,
+            guidanceCuesEnabled:
+                coordinator.guidanceCuesEnabled,
             persistedInventory:
                 coordinator.persistedInventory,
             actions: CaptureRootActions(
                 beginCapture: coordinator.beginCapture,
+                beginScanning: coordinator.beginScanning,
+                cancelCaptureSetup:
+                    coordinator.cancelCaptureSetup,
                 beginReview: coordinator.beginReview,
                 captureEvidenceFrame: coordinator.captureEvidenceFrame,
+                beginTargetScan: coordinator.beginTargetScan,
+                retakeTargetScan: coordinator.retakeTargetScan,
+                acceptTargetScan: coordinator.acceptTargetScan,
+                cancelTargetScan: coordinator.cancelTargetScan,
+                declareNearestUnresolvedRegion:
+                    coordinator.declareNearestUnresolvedRegion,
+                revokeOperatorRegion:
+                    coordinator.revokeOperatorRegion,
+                setGuidanceCuesEnabled:
+                    coordinator.setGuidanceCuesEnabled,
+                setLoopClosureCheckActive:
+                    coordinator.setLoopClosureCheckActive,
                 setScanMovementCapability:
                     coordinator.setScanMovementCapability,
                 continueScanning:
@@ -163,6 +194,43 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var scanDepthEvidenceCount = 0
     @Published private(set)
     var endScanGuidance: String?
+    /// Pre-capture setup presentation while the state machine is in
+    /// `.setup` (#212): capabilities, storage preflight, device
+    /// readiness and the resolved production mode, shown before the
+    /// capability/permission/RoomPlan pipeline runs.
+    @Published private(set)
+    var captureSetup: CaptureSetupPresentation?
+    /// Live lighting assessment for dark-room guidance (#283).
+    @Published private(set)
+    var scanLightingStatus: ScanLightingStatus = .unknown
+    /// True when live signals justify surfacing the low-light recovery
+    /// copy instead of generic tracking text (#283).
+    @Published private(set)
+    var lowLightGuidanceActive = false
+    /// Live status of the operator-targeted object orbit pass, if one
+    /// is active (#250).
+    @Published private(set)
+    var targetScanStatus: TargetScanStatus?
+    /// Operator-declared intentionally-unresolved regions (#257), in
+    /// declaration order.
+    @Published private(set)
+    var declaredRegionList: [DeclaredCoverageRegion] = []
+    /// Whether the optional return-to-start consistency check UI is
+    /// active (#273).
+    @Published private(set)
+    var loopClosureCheckActive = false
+    @Published private(set)
+    var loopClosureAssessment: LoopClosureAssessment?
+    /// Evidence frames retained by the automatic keyframe policy this
+    /// scan (#216), shown next to the manual/total count.
+    @Published private(set)
+    var automaticEvidenceFrameCount = 0
+    /// Battery/charging/Low-Power snapshot for the setup screen (#272).
+    @Published private(set)
+    var deviceReadiness: CaptureDeviceReadiness?
+    /// Whether haptic/announcement guidance cues play (#252). Mirrors
+    /// the operator toggle; default on.
+    @Published var guidanceCuesEnabled = true
     @Published private(set)
     var persistedInventory = PersistedCaptureInventoryResult()
     /// Identity of the live working revision; carries the
@@ -193,8 +261,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var resourceMonitor: CaptureResourceMonitor?
     private var resourceEventTask: Task<Void, Never>?
     private var captureGeneration = UUID()
-    private var isEndingScan = false
-    private var isCapturingEvidenceFrame = false
+    /// Published so the scanning UI can show the End transaction as a
+    /// visible busy state instead of leaving controls tappable while
+    /// the host guards make them no-op (#279).
+    @Published private(set) var isEndingScan = false
+    @Published private(set) var isCapturingEvidenceFrame = false
     /// Handle on the in-flight manual evidence-save persistence task.
     /// End drains it before sampling the working set so a committed
     /// save lands wholly before the End boundary (#179).
@@ -265,6 +336,30 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var scanCoverageTask: Task<Void, Never>?
     private var scanTrackingTransitionGate =
         ScanTrackingTransitionGate()
+    private var scanGuidanceCuePolicy = ScanGuidanceCuePolicy()
+    private var automaticKeyframeTracker =
+        AutomaticKeyframeTracker()
+    private var operatorRegionDeclarations =
+        OperatorRegionDeclarations()
+    private var targetScanTracker: TargetedObjectScanTracker?
+    private var loopClosurePolicy = LoopClosureCheckPolicy()
+    private var scanLightingPolicy = ScanLightingPolicy()
+    /// Byte total persisted by automatic keyframes; combined with the
+    /// estimator's own bound so a stored overrun still stops the
+    /// selector (#216).
+    private var automaticKeyframePersistedBytes = 0
+    /// Whether the display idle-timer override is currently held for
+    /// this capture (#272). Restored on every transition out of
+    /// `.scanning`, so failure/End/reset paths cannot leak it.
+    private var displayIdleTimerSuspended = false
+    private var deviceReadinessObserving = false
+    private var deviceReadinessObservers: [NSObjectProtocol] = []
+    /// Latest scan sample's session-clock seconds — the timestamp base
+    /// for advisory notes written from operator actions (#257/#250).
+    private var latestScanTimestampSeconds: Double?
+    /// Bounded in-flight automatic keyframe persistence; End drains it
+    /// with the manual save so the End boundary stays atomic (#179).
+    private var automaticFrameSaveTask: Task<Void, Never>?
     private var memoryWarningCancellable: AnyCancellable?
     private var derivedPreviewSuspendedForMemoryPressure = false
     private var roomPlanModelRenderingEnabled = true
@@ -555,20 +650,239 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         endScanGuidance = nil
         endScanPreflightBlocked = false
         scanTrackingTransitionGate.reset()
+        scanGuidanceCuePolicy.reset()
+        automaticKeyframeTracker = AutomaticKeyframeTracker()
+        automaticKeyframePersistedBytes = 0
+        automaticEvidenceFrameCount = 0
+        automaticFrameSaveTask?.cancel()
+        automaticFrameSaveTask = nil
+        scanLightingStatus = .unknown
+        lowLightGuidanceActive = false
+        endTargetScan()
+        operatorRegionDeclarations = OperatorRegionDeclarations()
+        declaredRegionList = []
+        loopClosureCheckActive = false
+        loopClosureAssessment = nil
+        latestScanTimestampSeconds = nil
         resourceMonitor?.stop()
         resourceMonitor = nil
         resourceEventTask = nil
 
+        do {
+            try transition(.prepareCapture)
+        } catch {
+            fail(.unknown)
+            return
+        }
+
+        // The capability/permission/RoomPlan pipeline and the canonical
+        // session clock start only when the operator confirms on the
+        // setup screen; `.setup` itself creates no capture authority
+        // (#212).
+        refreshCaptureSetupPresentation()
+        startDeviceReadinessObserving()
+    }
+
+    /// Operator confirmed setup: leave `.setup` and run the ordinary
+    /// capability → permission → prepare → RoomPlan pipeline (#212).
+    func beginScanning() {
+        guard state == .setup else {
+            return
+        }
         do {
             try transition(.beginCapabilityCheck)
         } catch {
             fail(.unknown)
             return
         }
+        captureSetup = nil
 
         Task {
             await continueBeginCapture()
         }
+    }
+
+    /// Operator cancelled the pre-capture setup: back to Idle with no
+    /// capture session ever created (#212).
+    func cancelCaptureSetup() {
+        guard state == .setup else {
+            return
+        }
+        do {
+            try transition(.reset)
+        } catch {
+            fail(.unknown)
+            return
+        }
+        captureSetup = nil
+        stopDeviceReadinessObserving()
+        workingSetStatus = HostLocalization.text(
+            "Ready",
+            "開始可能です"
+        )
+    }
+
+    /// Rebuild the setup-screen model with a fresh storage preflight
+    /// and device readiness sample (#212, #272).
+    private func refreshCaptureSetupPresentation() {
+        capabilities = PlatformCapabilityProbe.current()
+        deviceReadiness = Self.currentDeviceReadiness()
+        captureSetup = CaptureSetupPresentation(
+            capabilities: capabilities,
+            storagePreflight: Self.currentStoragePreflight(),
+            deviceReadiness: deviceReadiness,
+            resolvedMode: capabilities.roomPlanMeshEligible
+                ? .roomPlanMesh
+                : nil
+        )
+    }
+
+    /// One-shot storage preflight for the setup screen using the same
+    /// volume and thresholds as the runtime resource monitor (#212).
+    /// An undetermined query stays `unknown`, never a fabricated pass.
+    private static func currentStoragePreflight()
+        -> CaptureStoragePreflight
+    {
+        guard let root = captureRootDirectory() else {
+            return CaptureStoragePreflight(availableBytes: nil)
+        }
+        let policy = CaptureResourceMonitorPolicy()
+        let available = try? root.resourceValues(
+            forKeys: [
+                .volumeAvailableCapacityForImportantUsageKey
+            ]
+        ).volumeAvailableCapacityForImportantUsage
+        return CaptureStoragePreflight(
+            availableBytes: available.map { UInt64(max(0, $0)) },
+            warningBytes: UInt64(policy.storageWarningBytes),
+            criticalBytes: UInt64(policy.storageCriticalBytes)
+        )
+    }
+
+    /// Device battery / power-mode snapshot (#272). On platforms
+    /// without a battery the snapshot reports `unknown` so the UI can
+    /// omit the section instead of fabricating readiness.
+    private static func currentDeviceReadiness()
+        -> CaptureDeviceReadiness
+    {
+        #if canImport(UIKit)
+        let device = UIDevice.current
+        // Monitoring is idempotent; the observer lifetime in
+        // start/stopDeviceReadinessObserving owns the flag.
+        device.isBatteryMonitoringEnabled = true
+        let rawLevel = device.batteryLevel
+        let rawState = device.batteryState
+        let level: Double? =
+            rawLevel >= 0 ? Double(rawLevel) : nil
+        let state: CaptureDeviceReadiness.BatteryState
+        switch rawState {
+        case .unplugged:
+            state = .unplugged
+        case .charging:
+            state = .charging
+        case .full:
+            state = .full
+        case .unknown:
+            state = .unknown
+        @unknown default:
+            state = .unknown
+        }
+        return CaptureDeviceReadiness(
+            batteryLevel: level,
+            batteryState: state,
+            lowPowerModeEnabled:
+                ProcessInfo.processInfo.isLowPowerModeEnabled
+        )
+        #else
+        return CaptureDeviceReadiness(
+            batteryLevel: nil,
+            batteryState: .unknown,
+            lowPowerModeEnabled:
+                ProcessInfo.processInfo.isLowPowerModeEnabled
+        )
+        #endif
+    }
+
+    /// Battery/Low-Power observation while setup or scanning is live
+    /// (#272). Runtime changes refresh the published snapshot and,
+    /// during a scan, surface a non-blocking advisory before the
+    /// battery reaches a critical state.
+    private func startDeviceReadinessObserving() {
+        guard !deviceReadinessObserving else {
+            return
+        }
+        deviceReadinessObserving = true
+        #if canImport(UIKit)
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        let center = NotificationCenter.default
+        let names: [Notification.Name] = [
+            UIDevice.batteryLevelDidChangeNotification,
+            UIDevice.batteryStateDidChangeNotification,
+            .NSProcessInfoPowerStateDidChange,
+        ]
+        for name in names {
+            deviceReadinessObservers.append(
+                center.addObserver(
+                    forName: name,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        self?.deviceReadinessDidChange()
+                    }
+                }
+            )
+        }
+        #endif
+    }
+
+    private func stopDeviceReadinessObserving() {
+        guard deviceReadinessObserving else {
+            return
+        }
+        deviceReadinessObserving = false
+        for observer in deviceReadinessObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        deviceReadinessObservers = []
+        #if canImport(UIKit)
+        UIDevice.current.isBatteryMonitoringEnabled = false
+        #endif
+    }
+
+    private func deviceReadinessDidChange() {
+        let readiness = Self.currentDeviceReadiness()
+        deviceReadiness = readiness
+        if state == .setup {
+            refreshCaptureSetupPresentation()
+        }
+        guard state == .scanning else {
+            return
+        }
+        // Advisory-only runtime surface (#272): warn before the battery
+        // is critical; never a canonical quality rule and never a
+        // failure path.
+        if readiness.hasLowBattery {
+            workingSetStatus = HostLocalization.text(
+                "Battery is low; consider ending soon or connecting power",
+                "バッテリー残量が少なくなっています。まもなく終了するか、充電してください"
+            )
+        }
+    }
+
+    /// Scoped display keep-awake for active capture (#272). The
+    /// override is engaged only while `.scanning`; `transition()` calls
+    /// this on every state change, so any End/failure/reset path
+    /// releases it automatically.
+    private func updateDisplayIdleTimer() {
+        #if canImport(UIKit)
+        let shouldSuspend = state == .scanning
+        guard shouldSuspend != displayIdleTimerSuspended else {
+            return
+        }
+        displayIdleTimerSuspended = shouldSuspend
+        UIApplication.shared.isIdleTimerDisabled = shouldSuspend
+        #endif
     }
 
     func setScanMovementCapability(
@@ -635,6 +949,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 + "]"
             return
         }
+
+        // Advisory usability check on the same AR frame (#274): manual
+        // Save always retains, but a suspect/unusable result is
+        // recorded and surfaced so the operator can retake.
+        let frameUsability =
+            sessionController.currentFrameUsabilityAssessment()
 
         // Keep a handle on the persistence task so End can claim its
         // boundary atomically and drain this save before it samples the
@@ -795,6 +1115,23 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
+            if let usability = frameUsability,
+               usability.status != .usable
+            {
+                self.recordAdvisoryNote(
+                    CaptureAdvisoryNote(
+                        kind: .frameUsability,
+                        sessionTimestampSeconds:
+                            frameSnapshot.sessionTimestampSeconds,
+                        detail:
+                            "status=\(usability.status.rawValue) issues="
+                            + usability.issues
+                                .map(\.rawValue)
+                                .joined(separator: ",")
+                    )
+                )
+            }
+
             let snapshot = await store.snapshot()
             guard self.captureGeneration == generation,
                   self.state == .scanning,
@@ -807,7 +1144,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             self.scanDepthEvidenceCount =
                 snapshot.depthEvidenceCount
             self.updateLiveEndScanGuidance()
-            self.workingSetStatus =
+            if self.guidanceCuesEnabled {
+                self.playCueIfAdmitted(
+                    .evidenceSaved,
+                    timestampSeconds:
+                        frameSnapshot.sessionTimestampSeconds
+                )
+            }
+            var savedStatus =
                 HostLocalization.isJapanese
                 ? "スキャン中：証拠フレームを "
                     + String(snapshot.evidenceFrameCount)
@@ -815,6 +1159,605 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 : "Scanning; "
                     + String(snapshot.evidenceFrameCount)
                     + " evidence frame(s) persisted"
+            if let usability = frameUsability,
+               usability.status != .usable
+            {
+                savedStatus += HostLocalization.text(
+                    " — the saved frame may be unusable (dark, blurred or overexposed); consider a retake",
+                    " — 保存したフレームは使い物にならない可能性があります（暗い・ぶれ・露出オーバー）。撮り直しを検討してください"
+                )
+            }
+            self.workingSetStatus = savedStatus
+        }
+    }
+
+    // MARK: - Operator-targeted object pass (#250)
+
+    /// Begin a "Scan this object" orbit pass. Target authority comes
+    /// from a center-of-view raycast against live mesh/depth evidence —
+    /// a bounded anchor the operator aimed at, never a fabricated
+    /// segmentation.
+    func beginTargetScan() {
+        guard state == .scanning,
+              !isEndingScan,
+              targetScanTracker == nil
+        else {
+            return
+        }
+        do {
+            let placement = try sessionController
+                .snapshotCenterRaycastPlacement()
+            targetScanTracker = TargetedObjectScanTracker(
+                target: ScanTargetAnchor(
+                    x: Double(placement.positionWorld.x),
+                    y: Double(placement.positionWorld.y),
+                    z: Double(placement.positionWorld.z),
+                    radiusMeters: 0.75
+                )
+            )
+            targetScanStatus = TargetScanStatus(
+                angularCoverageFraction: 0,
+                observedBucketCount: 0,
+                totalBucketCount: targetScanTracker?.bucketCount ?? 8,
+                isComplete: false,
+                expired: false,
+                outOfRange: false,
+                guidance: .hold
+            )
+            workingSetStatus = HostLocalization.text(
+                "Object pass started; keep the aimed object centered and move around it",
+                "対象パスを開始しました。対象を画面中央に保ちながら周囲を移動してください"
+            )
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "No surface was detected at the aim point; aim at the object and try again",
+                "照準位置で面を検出できませんでした。対象を画面中央に向けて再度お試しください"
+            )
+        }
+    }
+
+    /// Discard the current pass' observations and start the bounded
+    /// orbit again on the same anchor (Retake).
+    func retakeTargetScan() {
+        guard let anchor = targetScanTracker?.target else {
+            return
+        }
+        targetScanTracker = TargetedObjectScanTracker(target: anchor)
+        targetScanStatus = nil
+    }
+
+    /// Complete the pass: record advisory provenance and leave target
+    /// mode. Partial progress is kept honest in the note detail.
+    func acceptTargetScan() {
+        guard let tracker = targetScanTracker else {
+            return
+        }
+        let status = targetScanStatus
+        endTargetScan()
+        if let status {
+            let detail =
+                "buckets=\(status.observedBucketCount)/"
+                + "\(status.totalBucketCount)"
+                + " expired=\(status.expired)"
+                + " anchor_x=\(tracker.target.x)"
+                + " anchor_z=\(tracker.target.z)"
+            recordAdvisoryNote(
+                CaptureAdvisoryNote(
+                    kind: .targetScanPass,
+                    sessionTimestampSeconds:
+                        latestScanTimestampSeconds ?? 0,
+                    detail: detail
+                )
+            )
+        }
+        workingSetStatus = HostLocalization.text(
+            "Object pass recorded",
+            "対象パスを記録しました"
+        )
+        if guidanceCuesEnabled,
+           let timestamp = latestScanTimestampSeconds
+        {
+            playCueIfAdmitted(
+                .targetObserved,
+                timestampSeconds: timestamp
+            )
+        }
+    }
+
+    /// Leave target mode without recording a completed pass.
+    func cancelTargetScan() {
+        endTargetScan()
+    }
+
+    private func endTargetScan() {
+        targetScanTracker = nil
+        targetScanStatus = nil
+    }
+
+    // MARK: - Operator-declared regions (#257)
+
+    /// Mark a weak/unknown coverage cell intentionally unresolved. The
+    /// cell keeps its classification (never becomes "observed");
+    /// guidance stops steering toward it and the declaration persists
+    /// as advisory provenance through Review/finalization.
+    func declareOperatorRegion(
+        _ key: SpatialCoverageCellKey,
+        reason: DeclaredRegionReason
+    ) {
+        guard state == .scanning else {
+            return
+        }
+        let timestamp = latestScanTimestampSeconds ?? 0
+        operatorRegionDeclarations.declare(
+            DeclaredCoverageRegion(
+                key: key,
+                reason: reason,
+                declaredAtSessionSeconds: timestamp
+            )
+        )
+        declaredRegionList = operatorRegionDeclarations.regions
+        motionGuidanceTracker.setDeclaredRegionKeys(
+            operatorRegionDeclarations.declaredKeys
+        )
+        motionGuidance = motionGuidanceTracker.guidance()
+        scanGuidanceProgress = motionGuidanceTracker.progress(
+            coverage: scanCoverage,
+            spatialCoverage: spatialCoverage
+        )
+        recordAdvisoryNote(
+            CaptureAdvisoryNote(
+                kind: .declaredRegion,
+                sessionTimestampSeconds: timestamp,
+                detail:
+                    "cell_x=\(key.x) cell_z=\(key.z) reason=\(reason.rawValue)"
+            )
+        )
+    }
+
+    /// Declare the nearest still-unresolved (weak/unknown) coverage
+    /// cell to the current camera position. The bounded spatial scope
+    /// comes from the coverage grid, not free text (#257).
+    func declareNearestUnresolvedRegion(
+        reason: DeclaredRegionReason
+    ) {
+        guard state == .scanning else {
+            return
+        }
+        guard let camera = spatialCoverage.currentCameraPosition else {
+            workingSetStatus = HostLocalization.text(
+                "No camera position yet; move a little and try again",
+                "カメラ位置がまだありません。少し移動してから再度お試しください"
+            )
+            return
+        }
+        let cellSize = spatialCoverage.cellSizeMeters
+        let declaredKeys = operatorRegionDeclarations.declaredKeys
+        let candidate = spatialCoverage.regions
+            .filter {
+                $0.classification != .observed
+                    && !declaredKeys.contains($0.key)
+            }
+            .min { a, b in
+                let ax =
+                    (Double(a.key.x) + 0.5) * cellSize - camera.x
+                let az =
+                    (Double(a.key.z) + 0.5) * cellSize - camera.z
+                let bx =
+                    (Double(b.key.x) + 0.5) * cellSize - camera.x
+                let bz =
+                    (Double(b.key.z) + 0.5) * cellSize - camera.z
+                return ax * ax + az * az < bx * bx + bz * bz
+            }
+        guard let candidate else {
+            workingSetStatus = HostLocalization.text(
+                "No unresolved coverage region found near the camera",
+                "カメラの近くに未解決のカバレッジ領域はありません"
+            )
+            return
+        }
+        declareOperatorRegion(candidate.key, reason: reason)
+        workingSetStatus = HostLocalization.text(
+            "Region marked; it stays unresolved but guidance will not request it",
+            "領域を記録しました。未解決のまま残りますが、ガイドは要求しません"
+        )
+    }
+
+    /// Reverse a declaration before finalization; the region returns to
+    /// ordinary guidance eligibility.
+    func revokeOperatorRegion(_ key: SpatialCoverageCellKey) {
+        guard state == .scanning,
+              operatorRegionDeclarations.revoke(key: key)
+        else {
+            return
+        }
+        declaredRegionList = operatorRegionDeclarations.regions
+        motionGuidanceTracker.setDeclaredRegionKeys(
+            operatorRegionDeclarations.declaredKeys
+        )
+        recordAdvisoryNote(
+            CaptureAdvisoryNote(
+                kind: .revokedRegion,
+                sessionTimestampSeconds:
+                    latestScanTimestampSeconds ?? 0,
+                detail: "cell_x=\(key.x) cell_z=\(key.z)"
+            )
+        )
+    }
+
+    // MARK: - Return-to-start consistency check (#273)
+
+    /// Arm/disarm the optional loop-closure check. Arming records the
+    /// intent; the assessment stays advisory and unavailable states
+    /// report `.unavailable`, never a fabricated pass.
+    func setLoopClosureCheckActive(_ active: Bool) {
+        loopClosureCheckActive = active
+        if active {
+            updateLoopClosureAssessment()
+        } else {
+            loopClosureAssessment = nil
+        }
+    }
+
+    private func updateLoopClosureAssessment() {
+        let distance = spatialCoverage.currentCameraPosition.map {
+            hypot($0.x, $0.z)
+        }
+        let heading = spatialCoverage.currentRelativeHeadingRadians
+            .map { abs($0) }
+        loopClosureAssessment = loopClosurePolicy.assess(
+            distanceToStartMeters: distance,
+            headingResidualRadians: heading,
+            referenceAvailable:
+                spatialCoverage.referenceOriginWorld != nil,
+            trackingState: spatialCoverage.latestTrackingState
+        )
+    }
+
+    // MARK: - Non-visual guidance cues (#252)
+
+    func setGuidanceCuesEnabled(_ enabled: Bool) {
+        guidanceCuesEnabled = enabled
+        if !enabled {
+            scanGuidanceCuePolicy.reset()
+        }
+    }
+
+    /// Emit one admitted cue: haptic + VoiceOver announcement. Haptics
+    /// are skipped under Reduce Motion; announcements only reach a
+    /// VoiceOver user, so they stay unconditional.
+    private func playGuidanceCue(_ cue: ScanGuidanceCue) {
+        #if canImport(UIKit)
+        guard !UIAccessibility.isReduceMotionEnabled else {
+            UIAccessibility.post(
+                notification: .announcement,
+                argument: cueAnnouncement(cue)
+            )
+            return
+        }
+        switch cue {
+        case .trackingLost:
+            UINotificationFeedbackGenerator()
+                .notificationOccurred(.error)
+        case .trackingRecovered, .guidanceComplete:
+            UINotificationFeedbackGenerator()
+                .notificationOccurred(.success)
+        case .endAvailable, .targetObserved:
+            UIImpactFeedbackGenerator(style: .medium)
+                .impactOccurred()
+        case .evidenceSaved, .holdSteady:
+            UIImpactFeedbackGenerator(style: .light)
+                .impactOccurred()
+        case .moveLeft, .moveRight, .moveForward, .moveBack,
+             .orbitLeft, .orbitRight:
+            UISelectionFeedbackGenerator().selectionChanged()
+        }
+        UIAccessibility.post(
+            notification: .announcement,
+            argument: cueAnnouncement(cue)
+        )
+        #endif
+    }
+
+    private func playCueIfAdmitted(
+        _ cue: ScanGuidanceCue,
+        timestampSeconds: Double
+    ) {
+        let emitted: ScanGuidanceCue?
+        switch cue {
+        case .evidenceSaved:
+            emitted = scanGuidanceCuePolicy
+                .evidenceSaved(timestampSeconds: timestampSeconds)
+        case .targetObserved:
+            emitted = scanGuidanceCuePolicy
+                .targetObserved(timestampSeconds: timestampSeconds)
+        default:
+            emitted = nil
+        }
+        if let emitted {
+            playGuidanceCue(emitted)
+        }
+    }
+
+    private func cueAnnouncement(_ cue: ScanGuidanceCue) -> String {
+        switch cue {
+        case .trackingLost:
+            return HostLocalization.text(
+                "Tracking lost",
+                "トラッキングが失われました"
+            )
+        case .trackingRecovered:
+            return HostLocalization.text(
+                "Tracking recovered",
+                "トラッキングが回復しました"
+            )
+        case .moveLeft:
+            return HostLocalization.text("Move left", "左へ移動")
+        case .moveRight:
+            return HostLocalization.text("Move right", "右へ移動")
+        case .moveForward:
+            return HostLocalization.text("Move forward", "前へ移動")
+        case .moveBack:
+            return HostLocalization.text("Move back", "後ろへ移動")
+        case .holdSteady:
+            return HostLocalization.text(
+                "Hold steady",
+                "そのまま静止してください"
+            )
+        case .orbitLeft:
+            return HostLocalization.text(
+                "Orbit left",
+                "左へ回り込んでください"
+            )
+        case .orbitRight:
+            return HostLocalization.text(
+                "Orbit right",
+                "右へ回り込んでください"
+            )
+        case .targetObserved:
+            return HostLocalization.text(
+                "Target area observed",
+                "対象領域を観測しました"
+            )
+        case .guidanceComplete:
+            return HostLocalization.text(
+                "Scan guidance complete",
+                "スキャンガイドが完了しました"
+            )
+        case .endAvailable:
+            return HostLocalization.text(
+                "Ending the scan is now reasonable",
+                "スキャンを終了できる状態です"
+            )
+        case .evidenceSaved:
+            return HostLocalization.text(
+                "Evidence frame saved",
+                "証拠フレームを保存しました"
+            )
+        }
+    }
+
+    // MARK: - Automatic evidence keyframes (#216)
+
+    /// Offer the current live sample to the bounded keyframe policy on
+    /// the slow tick. Retention is decided only after frame-usability
+    /// and all budget checks pass; a skipped or failed candidate costs
+    /// the scan nothing.
+    private func considerAutomaticKeyframe(
+        _ sample: ScanCoverageSample
+    ) {
+        guard state == .scanning,
+              !isEndingScan,
+              automaticFrameSaveTask == nil,
+              workingSetStore != nil
+        else {
+            return
+        }
+
+        // The estimator tracks its own byte bound; this persisted-byte
+        // total is the authoritative backstop so a materialized overrun
+        // also stops the selector (#216).
+        guard automaticKeyframePersistedBytes
+                <= automaticKeyframeTracker.configuration
+                    .maximumRetainedBytes
+        else {
+            return
+        }
+
+        let usability =
+            sessionController.currentFrameUsabilityAssessment()
+        let perFrameEstimate = max(
+            automaticEvidenceFrameCount > 0
+                ? automaticKeyframePersistedBytes
+                    / automaticEvidenceFrameCount
+                : 0,
+            8 * 1024 * 1024
+        )
+        let candidate = AutomaticKeyframeSample(
+            timestampSeconds: sample.sessionTimestampSeconds,
+            cameraX: sample.cameraPosition?.x,
+            cameraZ: sample.cameraPosition?.z,
+            yawRadians: sample.yawRadians,
+            trackingState: sample.trackingState,
+            hasSceneDepth: sample.hasSceneDepth,
+            usabilityStatus: usability?.status,
+            estimatedBytes: perFrameEstimate
+        )
+        guard automaticKeyframeTracker.evaluate(candidate)
+                == .retain
+        else {
+            return
+        }
+
+        captureAutomaticEvidenceFrame(
+            candidate,
+            usability: usability
+        )
+    }
+
+    /// Snapshot → materialize → persist an automatic keyframe. Runs off
+    /// the manual save path's flags; End drains this task alongside the
+    /// manual save so the End evidence boundary stays atomic (#179).
+    private func captureAutomaticEvidenceFrame(
+        _ sample: AutomaticKeyframeSample,
+        usability: FrameUsabilityAssessment?
+    ) {
+        guard let store = workingSetStore else {
+            return
+        }
+
+        let generation = captureGeneration
+        let frameSnapshot: CapturedFrameSnapshot
+        do {
+            frameSnapshot =
+                try sessionController.snapshotFrameEvidenceCapture(
+                    depthSelection: .discrete
+                )
+        } catch {
+            return
+        }
+
+        automaticFrameSaveTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            defer {
+                self.automaticFrameSaveTask = nil
+            }
+            await self.persistAutomaticKeyframe(
+                frameSnapshot: frameSnapshot,
+                sample: sample,
+                usability: usability,
+                store: store,
+                generation: generation
+            )
+        }
+    }
+
+    private func persistAutomaticKeyframe(
+        frameSnapshot: CapturedFrameSnapshot,
+        sample: AutomaticKeyframeSample,
+        usability: FrameUsabilityAssessment?,
+        store: CaptureWorkingSetStore,
+        generation: UUID
+    ) async {
+            let artifacts: CapturedFrameArtifacts
+            let package: FrameEvidencePackage
+            do {
+                artifacts = try await ARFrameArtifactAdapter
+                    .materialize(frameSnapshot)
+                package = try FrameEvidencePackageBuilder.build(
+                    descriptor: artifacts.descriptor,
+                    pixelPayload: artifacts.pixelPayload,
+                    depthPayload: artifacts.depthPayload,
+                    confidencePayload: artifacts.confidencePayload,
+                    previewPayload: artifacts.previewPayload
+                )
+            } catch {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "recoverable automatic keyframe failure: "
+                            + Self.persistenceDiagnostic(error)
+                    )
+                )
+                return
+            }
+            do {
+                guard self.captureGeneration == generation,
+                      self.state == .scanning
+                else {
+                    return
+                }
+                try await store.persistFramePackage(package)
+
+                let pixelBytes = artifacts.pixelPayload.count
+                let depthBytes = artifacts.depthPayload?.count ?? 0
+                let confidenceBytes = artifacts.confidencePayload?.count ?? 0
+                let previewBytes = artifacts.previewPayload?.count ?? 0
+                let persistedBytes =
+                    pixelBytes + depthBytes + confidenceBytes + previewBytes
+                self.automaticKeyframePersistedBytes += persistedBytes
+                self.automaticKeyframeTracker.markRetained(
+                    sample,
+                    actualBytes: persistedBytes
+                )
+                self.automaticEvidenceFrameCount += 1
+
+                var detail =
+                    "policy=\(self.automaticKeyframeTracker.policyVersion)"
+                    + " frame=\(frameSnapshot.frameID)"
+                if let usability,
+                   usability.status != .usable
+                {
+                    detail +=
+                        " usability=\(usability.status.rawValue)"
+                }
+                self.recordAdvisoryNote(
+                    CaptureAdvisoryNote(
+                        kind: .automaticKeyframe,
+                        sessionTimestampSeconds:
+                            sample.timestampSeconds,
+                        detail: detail
+                    )
+                )
+
+                if self.guidanceCuesEnabled {
+                    self.playCueIfAdmitted(
+                        .evidenceSaved,
+                        timestampSeconds:
+                            sample.timestampSeconds
+                    )
+                }
+
+                let snapshot = await store.snapshot()
+                guard self.captureGeneration == generation,
+                      self.state == .scanning
+                else {
+                    return
+                }
+                self.scanEvidenceFrameCount =
+                    snapshot.evidenceFrameCount
+                self.scanDepthEvidenceCount =
+                    snapshot.depthEvidenceCount
+                self.updateLiveEndScanGuidance()
+            } catch {
+                // Roll back any partial write so no undeclared bytes
+                // remain; rollback failure escalates to a host failure
+                // because the working set can no longer be trusted.
+                do {
+                    try await store.discardUncommittedFramePackage(
+                        package
+                    )
+                } catch {
+                    self.fail(.persistenceFailure)
+                    return
+                }
+                // Selection/persistence failure is advisory: the scan
+                // continues, the budget is unconsumed (markRetained was
+                // never reached), and the event is recorded for Review.
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "recoverable automatic keyframe failure: "
+                            + Self.persistenceDiagnostic(error)
+                    )
+                )
+            }
+    }
+
+    /// Persist an advisory note when a store is live; silent during
+    /// setup/review when none exists (the note channel only exists for
+    /// a working capture).
+    private func recordAdvisoryNote(_ note: CaptureAdvisoryNote) {
+        guard let store = workingSetStore else {
+            return
+        }
+        Task {
+            try? await store.recordAdvisoryNote(note)
         }
     }
 
@@ -843,6 +1786,37 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             if let pendingSave = self.evidenceFrameSaveTask {
                 await pendingSave.value
             }
+            // The automatic selector's in-flight write lands inside the
+            // same boundary as a manual save (#216, #179).
+            if let pendingAuto = self.automaticFrameSaveTask {
+                await pendingAuto.value
+            }
+
+            // #273: the return-to-start check, when the operator armed
+            // it, leaves its verdict as advisory provenance. The check
+            // never warps coordinates; an un-run or unavailable check
+            // records nothing rather than implying a pass.
+            if let assessment = self.loopClosureAssessment {
+                var detail =
+                    "verdict=\(assessment.verdict.rawValue)"
+                if let residual = assessment.residualMeters {
+                    detail += " residual_m=\(residual)"
+                }
+                if let heading = assessment.headingResidualRadians {
+                    detail += " heading_rad=\(heading)"
+                }
+                self.recordAdvisoryNote(
+                    CaptureAdvisoryNote(
+                        kind: .loopClosureCheck,
+                        sessionTimestampSeconds:
+                            self.latestScanTimestampSeconds ?? 0,
+                        detail: detail
+                    )
+                )
+            }
+            self.loopClosureCheckActive = false
+            self.loopClosureAssessment = nil
+            self.endTargetScan()
 
             guard let prepared =
                     await self.prepareEndScan(
@@ -1291,7 +2265,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             annotationPackage =
                 try AnnotationEvidencePackageBuilder.build(
-                    entities: annotations
+                    entities: annotations,
+                    priorEntities: isRevisionCommit
+                        ? annotationRevisionSeed?.annotations
+                        : nil
                 )
             measurementPackage =
                 try MeasurementEvidencePackageBuilder.build(
@@ -1871,6 +2848,23 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         scanDepthEvidenceCount = 0
         endScanGuidance = nil
         endScanPreflightBlocked = false
+        scanGuidanceCuePolicy.reset()
+        automaticKeyframeTracker = AutomaticKeyframeTracker()
+        automaticKeyframePersistedBytes = 0
+        automaticEvidenceFrameCount = 0
+        automaticFrameSaveTask?.cancel()
+        automaticFrameSaveTask = nil
+        scanLightingStatus = .unknown
+        lowLightGuidanceActive = false
+        endTargetScan()
+        operatorRegionDeclarations = OperatorRegionDeclarations()
+        declaredRegionList = []
+        loopClosureCheckActive = false
+        loopClosureAssessment = nil
+        latestScanTimestampSeconds = nil
+        captureSetup = nil
+        deviceReadiness = nil
+        stopDeviceReadinessObserving()
         resourceMonitor?.stop()
         resourceMonitor = nil
         workingSetStatus =
@@ -3873,6 +4867,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     try? self.sessionController
                         .currentScanCoverageSample()
                 {
+                    self.latestScanTimestampSeconds =
+                        sample.sessionTimestampSeconds
                     self.scanCoverage =
                         self.scanCoverageTracker.record(sample)
                     self.observationStability =
@@ -3893,6 +4889,73 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             coverage: self.scanCoverage,
                             spatialCoverage: self.spatialCoverage
                         )
+
+                    // #283: live lighting assessment drives the
+                    // low-light recovery surface; a missing ambient
+                    // reading leaves the status `unknown`.
+                    self.scanLightingStatus =
+                        self.scanLightingPolicy.assess(
+                            ambientIntensityLumens:
+                                sample.ambientLightIntensityLumens,
+                            trackingState: sample.trackingState,
+                            trackingReason: sample.trackingReason
+                        )
+                    self.lowLightGuidanceActive =
+                        self.scanLightingPolicy
+                            .shouldSurfaceLowLightGuidance(
+                                status: self.scanLightingStatus,
+                                trackingState: sample.trackingState
+                            )
+
+                    // #252: edge-triggered, rate-limited non-visual
+                    // cues; 4 Hz sampling never becomes a stream.
+                    if self.guidanceCuesEnabled {
+                        let cues = self.scanGuidanceCuePolicy.update(
+                            ScanGuidanceCueInputs(
+                                trackingState: sample.trackingState,
+                                guidance: self.motionGuidance,
+                                guidanceComplete:
+                                    self.scanGuidanceProgress
+                                        .isComplete,
+                                endScanAvailable:
+                                    !self.isEndingScan
+                                        && !self.endScanPreflightBlocked
+                            ),
+                            timestampSeconds:
+                                sample.sessionTimestampSeconds
+                        )
+                        for cue in cues {
+                            self.playGuidanceCue(cue)
+                        }
+                    }
+
+                    // #250: a live targeted-object pass tracks camera
+                    // position against its bounded anchor.
+                    if self.targetScanTracker != nil,
+                       let position = sample.cameraPosition
+                    {
+                        self.targetScanStatus =
+                            self.targetScanTracker?.record(
+                                cameraX: position.x,
+                                cameraZ: position.z,
+                                timestampSeconds:
+                                    sample.sessionTimestampSeconds,
+                                trackingState: sample.trackingState
+                            )
+                    }
+
+                    // #273: while the operator armed the return-to-start
+                    // check, keep the residual updated each tick.
+                    if self.loopClosureCheckActive {
+                        self.updateLoopClosureAssessment()
+                    }
+
+                    // #216/#274: bounded automatic keyframe selection,
+                    // evaluated on the slow (4 s) tick so evidence
+                    // writes never join the 250 ms path.
+                    if sampleIndex.isMultiple(of: 16) {
+                        self.considerAutomaticKeyframe(sample)
+                    }
 
                     // Persist transition-compacted tracking history into
                     // the canonical quality authority (#148). The gate
@@ -5091,6 +6154,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         try stateMachine.apply(event)
         state = stateMachine.state
         lastFailure = stateMachine.lastFailure
+        // #272: the display keep-awake override is scoped strictly to
+        // `.scanning`; every transition out of it restores the device
+        // default regardless of which path left scanning.
+        updateDisplayIdleTimer()
+        // Battery observation exists only for setup and the live scan;
+        // any exit to reviewing/failed/finalized drops it.
+        if deviceReadinessObserving,
+           state != .setup, state != .scanning
+        {
+            stopDeviceReadinessObserving()
+        }
     }
 
     private func fail(_ code: CaptureFailureCode) {
@@ -5127,6 +6201,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         scanCoverageTask = nil
         resourceMonitor?.stop()
         resourceMonitor = nil
+        stopDeviceReadinessObserving()
+        endTargetScan()
+        loopClosureCheckActive = false
+        loopClosureAssessment = nil
+        captureSetup = nil
+        automaticFrameSaveTask?.cancel()
+        automaticFrameSaveTask = nil
+        latestScanTimestampSeconds = nil
 
         // Invalidate all in-flight callbacks before stopping RoomPlan. A
         // terminal failure must not accept late evidence into the failed

@@ -15,6 +15,7 @@ Schema family:
 - `measurements.schema.json`
 - `quality.schema.json`
 - `capture-advisory.schema.json` — derived `quality/capture-advisory.json`: bounded advisory diagnostics (End coverage, task completeness, RoomPlan guidance, mesh lifecycle, depth sufficiency, conflicts, geometry consistency). `capture_app_derived`, non-canonical.
+- `advisory-notes.schema.json` (derived `advisory/operator-advisories.json` payload)
 
 The reference bundle validator additionally enforces constraints that JSON Schema cannot safely express alone, including canonical JSON bytes, archive path safety, duplicate/case-colliding entries, SHA-256/length validation, expansion limits, and declared-vs-present payload equality.
 

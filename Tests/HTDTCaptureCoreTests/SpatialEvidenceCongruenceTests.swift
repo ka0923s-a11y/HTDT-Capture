@@ -168,6 +168,7 @@ final class SpatialEvidenceCongruenceTests: XCTestCase {
             zMeters: 1,
             coordinateSpaceID: space,
             speakerChannelRole: "L",
+            referencePointConstruction: .surfaceHitConfirmed,
             placementAuthority: placement,
             orientationAuthority: orientation
         )
