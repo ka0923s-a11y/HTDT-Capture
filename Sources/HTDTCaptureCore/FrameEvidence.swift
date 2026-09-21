@@ -8,10 +8,25 @@ public struct EvidenceFrameID: CaptureIdentifier {
 public enum CameraIntrinsicsError: Error, Sendable, Equatable {
     case invalidElementCount(Int)
     case nonFinite
+    case nonPinholeStructure
+    case nonPositiveFocalLength
+    case invalidPrincipalPoint
 }
 
+/// Column-major 3x3 camera intrinsics authority. The capture contract
+/// uses the documented AR camera matrix form
+/// `| fx  0 cx |`
+/// `|  0 fy cy |`
+/// `|  0  0  1 |`
+/// so the validating initializer rejects arbitrary projective matrices,
+/// non-positive focal lengths and implausible principal points.
 public struct CameraIntrinsics3x3: Codable, Sendable, Equatable {
     public static let representation = "column_major_3x3_f32"
+
+    /// Absolute tolerance for the structurally fixed elements (the zero
+    /// off-diagonal terms and the `1` at row 3, column 3). ARKit emits
+    /// exact `0`/`1` values; the tolerance only absorbs Float32 noise.
+    public static let structureTolerance: Float = 0.0001
 
     public let values: [Float]
 
@@ -22,8 +37,34 @@ public struct CameraIntrinsics3x3: Codable, Sendable, Equatable {
         guard values.allSatisfy(\.isFinite) else {
             throw CameraIntrinsicsError.nonFinite
         }
+
+        // Column-major: elements 1, 2, 3, 5 must be zero and element 8
+        // must be one for the AR pinhole form.
+        guard abs(values[1]) <= Self.structureTolerance,
+              abs(values[2]) <= Self.structureTolerance,
+              abs(values[3]) <= Self.structureTolerance,
+              abs(values[5]) <= Self.structureTolerance,
+              abs(values[8] - 1) <= Self.structureTolerance
+        else {
+            throw CameraIntrinsicsError.nonPinholeStructure
+        }
+        guard values[0] > 0, values[4] > 0 else {
+            throw CameraIntrinsicsError.nonPositiveFocalLength
+        }
+        guard values[6] >= 0, values[7] >= 0 else {
+            throw CameraIntrinsicsError.invalidPrincipalPoint
+        }
         self.values = values
     }
+
+    /// Focal length `fx` in pixels.
+    public var fx: Float { values[0] }
+    /// Focal length `fy` in pixels.
+    public var fy: Float { values[4] }
+    /// Principal point x offset in pixels.
+    public var cx: Float { values[6] }
+    /// Principal point y offset in pixels.
+    public var cy: Float { values[7] }
 
     private enum CodingKeys: String, CodingKey {
         case representation
@@ -147,6 +188,7 @@ public enum FrameEvidenceDescriptorError: Error, Sendable, Equatable {
     case invalidPixelByteCount
     case emptyPixelPath
     case depthStatusMismatch
+    case principalPointOutsideImage
 }
 
 public struct FrameEvidenceDescriptor: Codable, Sendable, Equatable {
@@ -190,6 +232,13 @@ public struct FrameEvidenceDescriptor: Codable, Sendable, Equatable {
         }
         guard imageWidth > 0, imageHeight > 0 else {
             throw FrameEvidenceDescriptorError.invalidImageDimensions
+        }
+        // The principal point must lie within the declared image extent
+        // (conservative bound; ARKit always reports it inside the frame).
+        guard intrinsics.cx <= Float(imageWidth),
+              intrinsics.cy <= Float(imageHeight)
+        else {
+            throw FrameEvidenceDescriptorError.principalPointOutsideImage
         }
         guard pixelByteCount > 0 else {
             throw FrameEvidenceDescriptorError.invalidPixelByteCount
