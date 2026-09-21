@@ -39,6 +39,9 @@ public struct CaptureAnnotationWorkspaceView: View {
         [CaptureMeasurement]
     ) -> Void
     public let onCancel: () -> Void
+    /// Operator-initiated capture discard (#254): asks the host to
+    /// confirm, stop, and remove the whole working revision.
+    public let onDiscard: () -> Void
 
     @State private var annotations: [CaptureAnnotationEntity]
     @State private var measurements: [CaptureMeasurement]
@@ -79,7 +82,8 @@ public struct CaptureAnnotationWorkspaceView: View {
             [CaptureAnnotationEntity],
             [CaptureMeasurement]
         ) -> Void,
-        onCancel: @escaping () -> Void
+        onCancel: @escaping () -> Void,
+        onDiscard: @escaping () -> Void = {}
     ) {
         self.coordinateSpaceID = coordinateSpaceID
         self.availableEvidenceRefs = availableEvidenceRefs.sorted()
@@ -92,6 +96,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         self.onImportEquipmentCatalog = onImportEquipmentCatalog
         self.onCommit = onCommit
         self.onCancel = onCancel
+        self.onDiscard = onDiscard
         _annotations = State(
             initialValue: seed?.annotations ?? []
         )
@@ -208,6 +213,9 @@ public struct CaptureAnnotationWorkspaceView: View {
                 }
                 Button("Cancel", role: .cancel) {
                     onCancel()
+                }
+                Button("Discard capture", role: .destructive) {
+                    onDiscard()
                 }
             } footer: {
                 if replacesCommittedAuthority {

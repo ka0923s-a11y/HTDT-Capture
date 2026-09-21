@@ -66,6 +66,20 @@ private struct HTDTCaptureHostView: View {
                 coordinator.endScanGuidance,
             persistedInventory:
                 coordinator.persistedInventory,
+            reviewWorkspace: coordinator.reviewWorkspace,
+            persistedWorkspace: coordinator.persistedWorkspace,
+            roomFrameOriginPending:
+                coordinator.roomFrameOriginPending,
+            danglingSpatialIssues:
+                coordinator.danglingSpatialIssues,
+            handoffDestinations:
+                coordinator.handoffDestinations,
+            handoffReceipts: coordinator.handoffReceipts,
+            libraryMetadata: coordinator.libraryMetadata,
+            failedInspection: coordinator.failedInspection,
+            spatialCaptureSealed:
+                coordinator.annotationCoordinateSpaceID == nil
+                    && coordinator.annotationAuthorityCommitted,
             actions: CaptureRootActions(
                 beginCapture: coordinator.beginCapture,
                 beginReview: coordinator.beginReview,
@@ -100,7 +114,35 @@ private struct HTDTCaptureHostView: View {
                 reviseAdoptedCapture:
                     coordinator.reviseAdoptedCapture,
                 importCaptureArchive:
-                    coordinator.importCaptureArchive
+                    coordinator.importCaptureArchive,
+                discardActiveCapture:
+                    coordinator.discardActiveCapture,
+                refreshReviewWorkspace:
+                    coordinator.refreshReviewWorkspace,
+                captureRoomFrameOrigin:
+                    coordinator.captureRoomFrameOriginPoint,
+                confirmRoomReferenceFrame:
+                    coordinator.confirmRoomReferenceFrame,
+                openingReviewCandidates:
+                    coordinator.openingReviewCandidates,
+                commitOpeningReview:
+                    coordinator.commitOpeningReview,
+                removeEvidenceFrameForPrivacy:
+                    coordinator.removeEvidenceFrameForPrivacy,
+                loadPersistedWorkspace:
+                    coordinator.loadPersistedWorkspace,
+                compareAdoptedRevisionWithParent:
+                    coordinator.compareAdoptedRevisionWithParent,
+                inspectFailedCapture:
+                    coordinator.inspectFailedCapture,
+                exportFailedCaptureDiagnostics:
+                    coordinator.exportFailedCaptureDiagnostics,
+                sendCaptureToHTDT:
+                    coordinator.sendCaptureToHTDT,
+                deleteExportArchive:
+                    coordinator.deleteExportArchive,
+                updateLibraryEntry:
+                    coordinator.updateLibraryEntry
             )
         )
         .onOpenURL { url in
@@ -161,6 +203,39 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// a stored finalized revision.
     @Published private(set)
     var workingSetIdentity: CaptureWorkingSetIdentity?
+    /// Assembled Review workspace (plan preview, evidence gallery,
+    /// openings, room frame) for the post-End states (#213/#241).
+    @Published private(set)
+    var reviewWorkspace: CaptureReviewWorkspaceModel?
+    /// Read-only workspace model for a persisted capture opened from
+    /// the library (#294). Independent of the live-capture workspace.
+    @Published private(set)
+    var persistedWorkspace: CaptureReviewWorkspaceModel?
+    /// First captured point of the pending two-point room reference
+    /// frame capture (issue #232).
+    @Published private(set)
+    var roomFrameOriginPending: WorldPoint3D?
+    /// Spatial evidence links on committed annotations/measurements
+    /// that no longer resolve after a re-End (issue #236). Surfaced for
+    /// repair; never silently dropped.
+    @Published private(set)
+    var danglingSpatialIssues: [SpatialEvidenceIssue] = []
+    /// Handoff destinations offered for the current finalized capture
+    /// (#225): always the system share/file destination plus any
+    /// operator-configured ingestion endpoints.
+    @Published private(set)
+    var handoffDestinations: [HTDTHandoffDestination] = []
+    /// Receipts recorded for the adopted finalized revision (#225).
+    @Published private(set)
+    var handoffReceipts: [HTDTHandoffReceipt] = []
+    /// Operator-facing library metadata (names, notes) layered over the
+    /// persisted inventory (issue #219).
+    @Published private(set)
+    var libraryMetadata = CaptureLibraryMetadataDocument()
+    /// Inspection of the retained working set of the current failed
+    /// capture (issue #224); populated on demand.
+    @Published private(set)
+    var failedInspection: FailedCaptureInspection?
     /// Seed collections for a pre-finalization annotation edit: the
     /// canonical authority previously committed inside the same working
     /// revision, reloaded for correction (#163).
@@ -496,6 +571,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         scanCoverageTask = nil
         scanCoverageTracker = AdvisoryScanCoverageTracker()
         scanCoverage = scanCoverageTracker.summary()
+        handoffDestinations = []
+        handoffReceipts = []
+        reviewWorkspace = nil
+        persistedWorkspace = nil
+        roomFrameOriginPending = nil
+        danglingSpatialIssues = []
+        failedInspection = nil
         observationStabilityTracker =
             ObservationStabilityTracker()
         observationStability =
@@ -855,10 +937,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     func continueScanningFromReview() {
+        // #236: saved annotation authority no longer blocks Continue
+        // scanning. The committed annotation/measurement collections
+        // and evidence frames survive the End-boundary rollback, so
+        // the operator can keep scanning after saving annotations while
+        // the same AR coordinate authority stays valid. After the next
+        // End, `committedSpatialEvidenceIssues` surfaces any annotation
+        // link left dangling by the replaced mesh/RoomPlan authority
+        // instead of silently dropping it.
         guard state == .reviewing,
               !isEndingScan,
               !reviewOperationInFlight,
-              !annotationAuthorityCommitted,
               !spatialAuthoritySealedForFinalization,
               acceptedRoomPlanRawSHA256 != nil,
               let store = workingSetStore
@@ -962,8 +1051,20 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard state == .reviewing,
               !isEndingScan,
               !reviewOperationInFlight,
-              !spatialAuthoritySealedForFinalization,
               let store = workingSetStore
+        else {
+            return
+        }
+
+        // #276: once the spatial authority was sealed for finalization
+        // (a post-End resource/lifecycle seal, #112), live spatial
+        // capture is unavailable — but the saved annotation authority
+        // can still be reopened for non-spatial edits (label, role,
+        // equipment, scalar corrections). The workspace disables
+        // raycast/orientation/continue-scanning when
+        // `annotationCoordinateSpaceID` is nil.
+        guard !spatialAuthoritySealedForFinalization
+                || annotationAuthorityCommitted
         else {
             return
         }
@@ -1077,6 +1178,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         async throws -> AnnotationOrientationAuthority
     {
         guard state == .annotating,
+              !spatialAuthoritySealedForFinalization,
               let store = workingSetStore
         else {
             throw PlatformCaptureError.orientationUnavailable
@@ -1143,6 +1245,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         async throws -> AnnotationPlacementAuthority
     {
         guard state == .annotating,
+              !spatialAuthoritySealedForFinalization,
               let store = workingSetStore
         else {
             throw PlatformCaptureError.raycastMiss
@@ -1811,6 +1914,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         scanCoverageTask = nil
         scanCoverageTracker = AdvisoryScanCoverageTracker()
         scanCoverage = scanCoverageTracker.summary()
+        handoffDestinations = []
+        handoffReceipts = []
+        reviewWorkspace = nil
+        persistedWorkspace = nil
+        roomFrameOriginPending = nil
+        danglingSpatialIssues = []
+        failedInspection = nil
         observationStabilityTracker =
             ObservationStabilityTracker()
         observationStability =
@@ -1856,6 +1966,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         scanDepthEvidenceCount = 0
         endScanGuidance = nil
         endScanPreflightBlocked = false
+        reviewWorkspace = nil
+        persistedWorkspace = nil
+        roomFrameOriginPending = nil
+        danglingSpatialIssues = []
+        failedInspection = nil
         resourceMonitor?.stop()
         resourceMonitor = nil
         workingSetStatus =
@@ -1896,6 +2011,802 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
+    /// Operator-initiated discard of the active capture (issue #254):
+    /// scanning, paused, review, or annotation state. The caller must
+    /// have already shown a confirmation; this fence is terminal —
+    /// AR is stopped, all in-flight writes are fenced by the store's
+    /// discard barrier, the working revision is deleted, and finalized
+    /// captures are never touched (this state can only run while the
+    /// capture is still a working set).
+    func discardActiveCapture() {
+        guard [.scanning, .paused, .reviewing, .annotating]
+            .contains(state),
+              !isEndingScan,
+              !annotationCommitInFlight,
+              !reviewOperationInFlight,
+              !exportOperationInFlight,
+              !isCapturingEvidenceFrame,
+              !roomPlanCompletionInFlight,
+              let store = workingSetStore
+        else {
+            return
+        }
+
+        // Fence every in-flight callback before tearing down so a late
+        // evidence write cannot land in the revision being discarded.
+        let discardedStore = store
+        captureGeneration = UUID()
+        scanCoverageTask?.cancel()
+        scanCoverageTask = nil
+        resourceMonitor?.stop()
+        resourceMonitor = nil
+        sessionController.stopAndPauseARSession()
+
+        do {
+            try transition(.abortCapture)
+        } catch {
+            return
+        }
+
+        // Reuse the full reset teardown (same field-for-field cleanup as
+        // a failed-capture reset) without re-entering transition: the
+        // state machine is already at .idle.
+        sessionController = SharedARSessionController()
+        workingSetStore = nil
+        finalizedRevision = nil
+        qualityReport = nil
+        validationReport = nil
+        exportURL = nil
+        annotationAuthorityCommitted = false
+        annotationEvidenceRefs = []
+        activeRevisionLineage = nil
+        workingSetIdentity = nil
+        annotationRevisionSeed = nil
+        annotationEditIsRevision = false
+        captureStartTimingCorrelation = nil
+        acceptedRoomPlanRawSHA256 = nil
+        acceptedEndMeshWasPersisted = false
+        annotationCommitInFlight = false
+        reviewOperationInFlight = false
+        exportOperationInFlight = false
+        spatialAuthoritySealedForFinalization = false
+        finalizationCommit.reset()
+        scanCoverageTracker = AdvisoryScanCoverageTracker()
+        scanCoverage = .empty
+        observationStabilityTracker = ObservationStabilityTracker()
+        observationStability = .empty
+        spatialCoverageAggregator = SpatialScanCoverageAggregator()
+        spatialCoverage = .empty
+        motionGuidanceTracker = ScanMotionGuidanceTracker()
+        motionGuidance = nil
+        scanGuidanceProgress = .empty
+        derivedShapePreview = .empty
+        derivedPreviewSuspendedForMemoryPressure = false
+        scanEvidenceFrameCount = 0
+        scanDepthEvidenceCount = 0
+        endScanGuidance = nil
+        endScanPreflightBlocked = false
+        reviewWorkspace = nil
+        persistedWorkspace = nil
+        roomFrameOriginPending = nil
+        danglingSpatialIssues = []
+        failedInspection = nil
+        handoffDestinations = []
+        handoffReceipts = []
+        scanTrackingTransitionGate.reset()
+        isEndingScan = false
+        isCapturingEvidenceFrame = false
+        evidenceFrameSaveTask = nil
+        workingSetStatus = HostLocalization.text(
+            "Discarding the working revision",
+            "作業中のリビジョンを破棄しています"
+        )
+
+        Task { @MainActor [weak self] in
+            do {
+                try await discardedStore.discardIncompleteRevision()
+                guard let self, self.state == .idle else { return }
+                self.workingSetStatus = HostLocalization.text(
+                    "Capture discarded; working revision removed",
+                    "キャプチャを破棄しました。作業中のリビジョンを削除しました"
+                )
+                self.loadPersistedCaptures()
+            } catch {
+                guard let self, self.state == .idle else { return }
+                self.workingSetStatus = HostLocalization.text(
+                    "The capture was stopped but its working data could not be fully removed; it is listed under abandoned working data",
+                    "キャプチャは停止しましたが、作業データを完全に削除できませんでした。放棄された作業データとして一覧に表示されます"
+                ) + " [" + Self.persistenceDiagnostic(error) + "]"
+                self.loadPersistedCaptures()
+            }
+        }
+    }
+
+    /// Rebuilds the review workspace model from the live working set
+    /// (issues #213, #231, #232, #241). Called on entry to Review and
+    /// after every authority commit that changes committed payloads.
+    func refreshReviewWorkspace() {
+        guard state == .reviewing || state == .annotating,
+              let store = workingSetStore
+        else {
+            return
+        }
+        let sealed = spatialAuthoritySealedForFinalization
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let snapshot = await store.snapshot()
+            guard self.state == .reviewing
+                    || self.state == .annotating
+            else {
+                return
+            }
+            var model =
+                CaptureReviewWorkspaceLoader.loadWorkingSet(
+                    snapshot: snapshot,
+                    endBoundaryFrameIDs: Set(
+                        snapshot.endBoundaryFrameIDs
+                    )
+                )
+            if sealed {
+                model = CaptureReviewWorkspaceModel(
+                    captureRevisionID: model.captureRevisionID,
+                    coordinateSpaceID: model.coordinateSpaceID,
+                    roomMetadata: model.roomMetadata,
+                    planPreview: model.planPreview,
+                    evidenceItems: model.evidenceItems,
+                    annotations: model.annotations,
+                    measurements: model.measurements,
+                    openingReview: model.openingReview,
+                    roomReferenceFrame: model.roomReferenceFrame,
+                    qualityReport: model.qualityReport,
+                    readOnly: model.readOnly,
+                    spatialCaptureSealed: true,
+                    issues: model.issues
+                )
+            }
+            #if os(iOS) && canImport(RoomPlan)
+            if #available(iOS 17.0, *) {
+                let processedURL = snapshot.rootDirectory
+                    .appendingPathComponent(
+                        "roomplan/captured-room.json",
+                        isDirectory: false
+                    )
+                if let data = try? Data(contentsOf: processedURL),
+                   let plan = try? RoomPlanReviewDeriver
+                       .planPreview(processedPayload: data)
+                {
+                    model = CaptureReviewWorkspaceModel(
+                        captureRevisionID: model.captureRevisionID,
+                        coordinateSpaceID: model.coordinateSpaceID,
+                        roomMetadata: model.roomMetadata,
+                        planPreview: plan,
+                        evidenceItems: model.evidenceItems,
+                        annotations: model.annotations,
+                        measurements: model.measurements,
+                        openingReview: model.openingReview,
+                        roomReferenceFrame: model.roomReferenceFrame,
+                        qualityReport: model.qualityReport,
+                        readOnly: model.readOnly,
+                        spatialCaptureSealed:
+                            model.spatialCaptureSealed,
+                        issues: model.issues
+                    )
+                }
+            }
+            #endif
+            self.reviewWorkspace = model
+        }
+    }
+
+    /// Captures the operator-confirmed room-origin point for the
+    /// pending room reference frame (issue #232).
+    func captureRoomFrameOriginPoint() {
+        guard state == .reviewing || state == .annotating,
+              !spatialAuthoritySealedForFinalization
+        else {
+            return
+        }
+        do {
+            let sample =
+                try sessionController.currentScanCoverageSample()
+            roomFrameOriginPending = WorldPoint3D(
+                x: sample.cameraPosition.x,
+                y: sample.cameraPosition.y,
+                z: sample.cameraPosition.z
+            )
+            workingSetStatus = HostLocalization.text(
+                "Room origin captured; now point along the room front and confirm the second point",
+                "部屋の原点を記録しました。次に部屋の正面方向を指して2点目を確定してください"
+            )
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "Camera position unavailable for the room frame",
+                "部屋フレーム用のカメラ位置を取得できません"
+            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
+    /// Confirms the two-point room reference frame: builds the typed
+    /// document from the pending origin + a second camera sample and
+    /// commits it to the working set (issue #232).
+    func confirmRoomReferenceFrame() {
+        guard state == .reviewing || state == .annotating,
+              !spatialAuthoritySealedForFinalization,
+              let origin = roomFrameOriginPending,
+              let store = workingSetStore
+        else {
+            return
+        }
+        let generation = captureGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let sample =
+                    try self.sessionController
+                        .currentScanCoverageSample()
+                let front = WorldPoint3D(
+                    x: sample.cameraPosition.x,
+                    y: sample.cameraPosition.y,
+                    z: sample.cameraPosition.z
+                )
+                let snapshot = await store.snapshot()
+                guard let sessionID = snapshot.captureSessionIDs
+                    .first,
+                    let spaceID = snapshot.coordinateSpaceIDs.first
+                else {
+                    throw RoomReferenceFrameError
+                        .coordinateSpaceUnbound
+                }
+                var evidenceRefs: [String] = []
+                for frameID in snapshot.endBoundaryFrameIDs {
+                    evidenceRefs.append(
+                        "frame:" + frameID.description
+                    )
+                }
+                let document = try RoomReferenceFrameDocument(
+                    captureRevisionID:
+                        snapshot.identity.captureRevisionID,
+                    captureSessionID: sessionID,
+                    coordinateSpaceID: spaceID,
+                    originMeters: origin,
+                    frontPointMeters: front,
+                    evidenceRefs: evidenceRefs,
+                    confirmedAtUTC: BundleTimestamp.utcString(
+                        from: Date()
+                    )
+                )
+                let package =
+                    try RoomReferenceFramePackageBuilder.build(
+                        document: document
+                    )
+                try await store.commitRoomReferenceFrame(package)
+                guard self.captureGeneration == generation,
+                      self.state == .reviewing
+                        || self.state == .annotating
+                else {
+                    return
+                }
+                self.roomFrameOriginPending = nil
+                self.workingSetStatus = HostLocalization.text(
+                    "Room reference frame confirmed and saved",
+                    "部屋の基準フレームを確定して保存しました"
+                )
+                self.refreshReviewWorkspace()
+            } catch {
+                guard self.captureGeneration == generation else {
+                    return
+                }
+                self.workingSetStatus = HostLocalization.text(
+                    "The room reference frame could not be saved",
+                    "部屋の基準フレームを保存できませんでした"
+                ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            }
+        }
+    }
+
+    /// Enumerates RoomPlan door/window/opening candidates from the
+    /// committed processed payload and merges them with any committed
+    /// review document (issue #231). Returns nil when no processed
+    /// RoomPlan payload exists.
+    func openingReviewCandidates()
+        async -> [RoomOpeningCandidate]?
+    {
+        guard let store = workingSetStore else { return nil }
+        let snapshot = await store.snapshot()
+        let processedURL = snapshot.rootDirectory
+            .appendingPathComponent(
+                "roomplan/captured-room.json",
+                isDirectory: false
+            )
+        guard let data = try? Data(contentsOf: processedURL) else {
+            return nil
+        }
+        var enumerated: [RoomOpeningCandidate] = []
+        #if os(iOS) && canImport(RoomPlan)
+        if #available(iOS 17.0, *) {
+            enumerated = (try? RoomPlanReviewDeriver
+                .enumerateOpenings(processedPayload: data)) ?? []
+        }
+        #endif
+        let existing = snapshot.openingReview?.openings ?? []
+        return OpeningReviewEditor.merge(
+            existing: existing,
+            enumerated: enumerated
+        )
+    }
+
+    /// Commits a revised opening-review document (issue #231). The
+    /// store enforces revision/session/space binding and evidence-link
+    /// congruence.
+    func commitOpeningReview(
+        _ openings: [RoomOpeningCandidate]
+    ) async -> Bool {
+        guard let store = workingSetStore else { return false }
+        let snapshot = await store.snapshot()
+        guard let sessionID = snapshot.captureSessionIDs.first,
+              let spaceID = snapshot.coordinateSpaceIDs.first
+        else {
+            return false
+        }
+        do {
+            let document = try OpeningReviewDocument(
+                captureRevisionID:
+                    snapshot.identity.captureRevisionID,
+                captureSessionID: sessionID,
+                coordinateSpaceID: spaceID,
+                openings: openings
+            )
+            let package = try OpeningReviewPackageBuilder.build(
+                document: document
+            )
+            try await store.commitOpeningReview(package)
+            refreshReviewWorkspace()
+            return true
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The opening review could not be saved",
+                "開口部レビューを保存できませんでした"
+            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            return false
+        }
+    }
+
+    /// Removes an unreferenced optional evidence frame for privacy
+    /// (issue #241). The store refuses end-boundary and referenced
+    /// frames; on success the workspace is rebuilt so the gallery
+    /// reflects the removal immediately.
+    func removeEvidenceFrameForPrivacy(
+        _ frameID: EvidenceFrameID
+    ) async {
+        guard let store = workingSetStore else { return }
+        do {
+            try await store.removeEvidenceFrame(frameID)
+            await refreshQuality(
+                store: store,
+                generation: captureGeneration
+            )
+            refreshReviewWorkspace()
+            workingSetStatus = HostLocalization.text(
+                "Evidence frame removed",
+                "証拠フレームを削除しました"
+            )
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "This frame is retained: it is closing or referenced evidence",
+                "このフレームは保持されます。終了境界または参照されている証拠です"
+            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
+    /// Loads the read-only persisted-capture workspace for a validated
+    /// finalized record (issue #294). Runs off the main actor.
+    func loadPersistedWorkspace(
+        _ record: PersistedCaptureRecord
+    ) {
+        guard state == .idle || state == .finalized
+                || state == .exported
+        else {
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let model = await Task.detached(
+                priority: .userInitiated
+            ) { () -> CaptureReviewWorkspaceModel? in
+                guard let directory = record.finalizedDirectory
+                else {
+                    return nil
+                }
+                guard let manifest = record.finalizedValidation?
+                    .manifest
+                else {
+                    return nil
+                }
+                return CaptureReviewWorkspaceLoader.loadPersisted(
+                    directory: directory,
+                    manifest: manifest
+                )
+            }.value
+            self.persistedWorkspace = model
+            if model == nil {
+                self.workingSetStatus = HostLocalization.text(
+                    "The persisted capture could not be opened read-only",
+                    "保存済みキャプチャを読み取り専用で開けませんでした"
+                )
+            }
+        }
+    }
+
+    /// Metadata-only comparison of the adopted finalized revision with
+    /// its parent (issue #221). Loads both manifests' decoded contents.
+    func compareAdoptedRevisionWithParent()
+        async -> CaptureRevisionComparison?
+    {
+        guard let manifest = validationReport?.manifest,
+              let parentID = manifest.parentRevisionID,
+              let store = persistedStore
+        else {
+            return nil
+        }
+        guard let finalizedRevision else { return nil }
+        let childDirectory = finalizedRevision.directory
+        let parentRecord = await Task.detached(
+            priority: .userInitiated
+        ) {
+            store.validatedRecord(captureRevisionID: parentID)
+        }.value
+        guard let parentDirectory = parentRecord?.finalizedDirectory
+        else {
+            return nil
+        }
+        return await Task.detached(priority: .userInitiated) {
+            () -> CaptureRevisionComparison? in
+            guard
+                let parent = try? PersistedCaptureContentsLoader
+                    .load(directory: parentDirectory),
+                let child = try? PersistedCaptureContentsLoader
+                    .load(directory: childDirectory)
+            else {
+                return nil
+            }
+            return CaptureRevisionComparator.compare(
+                parent: parent,
+                child: child
+            )
+        }.value
+    }
+
+    /// Inspects the retained working set of the current failed capture
+    /// (issue #224). Runs off the main actor and publishes the result.
+    func inspectFailedCapture() {
+        guard state == .failed,
+              let store = workingSetStore
+        else {
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let inspection = await Task.detached(
+                priority: .userInitiated
+            ) { () async -> FailedCaptureInspection in
+                let root = await store.rootDirectory
+                let identity = await store.identity
+                let events: [CaptureResourceEvent]
+                if let report = try? await store.evaluateQuality() {
+                    events = report.resourceEvents
+                } else {
+                    events = []
+                }
+                return FailedCaptureInspector.inspect(
+                    workingSetRoot: root,
+                    captureRevisionID:
+                        identity.captureRevisionID,
+                    failureCode: self.lastFailure,
+                    resourceEvents: events
+                )
+            }.value
+            guard self.state == .failed else { return }
+            self.failedInspection = inspection
+        }
+    }
+
+    /// Writes the diagnostic package for the current failed capture and
+    /// returns its URL for sharing (issue #224). The package is a
+    /// bounded JSON report — not a capture bundle — listing retained
+    /// files plus decoded session/authority context.
+    func exportFailedCaptureDiagnostics() async -> URL? {
+        guard state == .failed else { return nil }
+        let inspection: FailedCaptureInspection?
+        if let failedInspection {
+            inspection = failedInspection
+        } else {
+            guard let store = workingSetStore else {
+                return nil
+            }
+            inspection = await Task.detached(
+                priority: .userInitiated
+            ) { () async -> FailedCaptureInspection in
+                let root = await store.rootDirectory
+                let identity = await store.identity
+                let events: [CaptureResourceEvent]
+                if let report = try? await store.evaluateQuality() {
+                    events = report.resourceEvents
+                } else {
+                    events = []
+                }
+                return FailedCaptureInspector.inspect(
+                    workingSetRoot: root,
+                    captureRevisionID:
+                        identity.captureRevisionID,
+                    failureCode: self.lastFailure,
+                    resourceEvents: events
+                )
+            }.value
+            self.failedInspection = inspection
+        }
+        guard let inspection,
+              let captureRoot =
+                Self.captureRootDirectory()
+        else {
+            return nil
+        }
+        let stem = inspection.captureRevisionID?.description
+            ?? "failed-capture"
+        do {
+            return try CaptureDiagnosticPackageWriter.write(
+                inspection: inspection,
+                captureRoot: captureRoot,
+                stem: stem
+            )
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The diagnostic package could not be written",
+                "診断パッケージを書き出せませんでした"
+            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            return nil
+        }
+    }
+
+    /// Loads the handoff destinations for `sendCaptureToHTDT`
+    /// (#225): the system file/share destination plus any
+    /// operator-configured ingestion endpoints from
+    /// `<captureRoot>/handoff-destinations.json`.
+    func refreshHandoffDestinations() {
+        var destinations = [
+            HTDTHandoffDestination(
+                name: HostLocalization.text(
+                    "Share archive file",
+                    "アーカイブファイルを共有"
+                ),
+                kind: .shareSheet
+            )
+        ]
+        if let root = Self.captureRootDirectory() {
+            let url = root.appendingPathComponent(
+                "handoff-destinations.json",
+                isDirectory: false
+            )
+            if let data = try? Data(contentsOf: url),
+               let configured = try? JSONDecoder().decode(
+                    [HTDTHandoffDestination].self,
+                    from: data
+               )
+            {
+                for destination in configured
+                where destination.kind == .endpoint {
+                    destinations.append(destination)
+                }
+            }
+        }
+        handoffDestinations = destinations
+    }
+
+    /// Explicit operator Send-to-HTDT action (issue #225). Sends the
+    /// validated archive bytes — the same `.htdtcapture` the share
+    /// flow produces — and records an append-only receipt bound to the
+    /// exact `capture_revision_id` and bundle digest. Never uploads
+    /// silently: the destination is chosen per send and every attempt
+    /// is receipted so it can be retried without weakening the digest
+    /// binding.
+    func sendCaptureToHTDT(
+        destination: HTDTHandoffDestination
+    ) async {
+        guard state == .finalized || state == .exported,
+              let archiveURL = exportURL,
+              let manifest = validationReport?.manifest,
+              let finalizedRevision
+        else {
+            workingSetStatus = HostLocalization.text(
+                "Prepare the validated archive first, then send it",
+                "先に検証済みアーカイブを準備してから送信してください"
+            )
+            return
+        }
+        guard let captureRoot = Self.captureRootDirectory()
+        else {
+            return
+        }
+        let receiptStore = HTDTHandoffReceiptStore(
+            captureRoot: captureRoot
+        )
+        let bundleDigest = finalizedRevision.bundleDigest
+
+        // Digest-preserving check: the archive bytes must hash to the
+        // recorded archive digest AND carry the finalized bundle digest.
+        let archiveSHA: EvidenceSHA256
+        let archiveBytes: Int64
+        do {
+            let data = try Data(contentsOf: archiveURL)
+            archiveSHA = EvidenceIntegrity.sha256(of: data)
+            archiveBytes = Int64(data.count)
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The export archive could not be read for handoff",
+                "送信する書き出しアーカイブを読み込めませんでした"
+            )
+            return
+        }
+
+        var outcome = "delivered"
+        var detail: String? = nil
+        switch destination.kind {
+        case .shareSheet:
+            // The UI layer presents the system share sheet over
+            // archiveURL; the operator's explicit share action is the
+            // handoff and the receipt records it durably.
+            detail = "operator_shared_via_system_sheet"
+        case .endpoint:
+            guard let urlString = destination.url,
+                  let endpoint = URL(string: urlString)
+            else {
+                outcome = "failed"
+                detail = "invalid_endpoint_url"
+                break
+            }
+            do {
+                let response = try await HTDTHandoffClient().submit(
+                    archive: archiveURL,
+                    archiveSHA256: archiveSHA,
+                    archiveByteCount: archiveBytes,
+                    captureRevisionID:
+                        manifest.captureRevisionID,
+                    bundleDigest: bundleDigest,
+                    endpoint: endpoint
+                )
+                if response.ingestionOutcome == "accepted" {
+                    outcome = "delivered"
+                    detail = response.detail
+                } else {
+                    outcome = "failed"
+                    detail = response.detail ?? "rejected"
+                }
+            } catch {
+                outcome = "failed"
+                detail = String(describing: error)
+            }
+        }
+
+        let receipt = HTDTHandoffReceipt(
+            receiptID: UUID().uuidString.lowercased(),
+            captureRevisionID: manifest.captureRevisionID,
+            captureSeriesID: manifest.captureSeriesID,
+            bundleDigest: bundleDigest.value,
+            archiveSHA256: archiveSHA.value,
+            archiveByteCount: archiveBytes,
+            destination: destination,
+            initiatedAtUTC: BundleTimestamp.utcString(
+                from: Date()
+            ),
+            outcome: outcome,
+            detail: detail
+        )
+        do {
+            try receiptStore.append(receipt)
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The handoff completed but its receipt could not be saved",
+                "送信は完了しましたが、受領記録を保存できませんでした"
+            )
+        }
+        handoffReceipts = (try? receiptStore.receipts(
+            for: manifest.captureRevisionID
+        )) ?? [receipt]
+        if outcome == "delivered" {
+            workingSetStatus = HostLocalization.text(
+                "Capture handed off to HTDT; receipt saved",
+                "HTDT に送信しました。受領記録を保存しました"
+            )
+        } else {
+            workingSetStatus = HostLocalization.text(
+                "Handoff failed; the receipt was recorded and Send can be retried",
+                "送信に失敗しました。記録は保存されているので、送信を再試行できます"
+            )
+        }
+    }
+
+    /// Deletes a validated export archive independently of its
+    /// finalized capture (issue #251). Refuses when the finalized copy
+    /// no longer exists on disk — the archive is the last copy, which
+    /// is exactly the case where deleting it would lose the capture.
+    func deleteExportArchive(
+        _ record: PersistedCaptureRecord
+    ) {
+        guard let store = persistedStore,
+              !persistedDeletionInFlight
+        else {
+            return
+        }
+        persistedDeletionInFlight = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.persistedDeletionInFlight = false }
+            do {
+                let removed = await Task.detached(
+                    priority: .userInitiated
+                ) {
+                    try store.deleteExportArchive(
+                        captureRevisionID:
+                            record.captureRevisionID
+                    )
+                }.value
+                self.workingSetStatus = removed
+                    ? HostLocalization.text(
+                        "Export archive deleted; the finalized capture is unchanged",
+                        "書き出しアーカイブを削除しました。確定済みキャプチャは変更されていません"
+                    )
+                    : HostLocalization.text(
+                        "No export archive existed to delete",
+                        "削除対象の書き出しアーカイブは存在しませんでした"
+                    )
+            } catch {
+                self.workingSetStatus = HostLocalization.text(
+                    "The export archive could not be deleted",
+                    "書き出しアーカイブを削除できませんでした"
+                ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            }
+            self.loadPersistedCaptures()
+        }
+    }
+
+    /// Saves operator library metadata — display name and note — for a
+    /// series or a single revision (issue #219). App-local only; the
+    /// capture bundle is never modified.
+    func updateLibraryEntry(
+        revisionID: CaptureRevisionID?,
+        seriesID: CaptureSeriesID?,
+        metadata: CaptureLibraryEntryMetadata
+    ) {
+        guard let captureRoot = Self.captureRootDirectory()
+        else {
+            return
+        }
+        let store = CaptureLibraryMetadataStore(
+            captureRoot: captureRoot
+        )
+        do {
+            if let seriesID {
+                try store.updateSeries(
+                    seriesID,
+                    displayName: metadata.displayName,
+                    note: metadata.note
+                )
+            }
+            if let revisionID {
+                try store.updateRevision(
+                    revisionID,
+                    displayName: metadata.displayName,
+                    note: metadata.note
+                )
+            }
+            libraryMetadata = try store.load()
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "Library metadata could not be saved",
+                "ライブラリメタデータを保存できませんでした"
+            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
     /// Enumerates and validates the app-owned persisted capture roots
     /// (`finalized/` and `exports/`) off the main actor, then publishes
     /// the result. The newest request always wins; stale scans are
@@ -1927,6 +2838,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
             self.persistedInventory = inventory
+            // Operator-facing names/notes layer over the inventory
+            // (issue #219); loaded with each scan so UI edits reflect
+            // the latest document.
+            if let root = Self.captureRootDirectory(),
+               let document = try? CaptureLibraryMetadataStore(
+                captureRoot: root
+            ).load()
+            {
+                self.libraryMetadata = document
+            }
         }
     }
 
@@ -1992,6 +2913,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 manifest: validation.manifest
             )
             self.exportURL = record.exportArchive
+            self.refreshHandoffDestinations()
+            if let captureRoot = Self.captureRootDirectory() {
+                self.handoffReceipts =
+                    (try? HTDTHandoffReceiptStore(
+                        captureRoot: captureRoot
+                    ).receipts(
+                        for: record.captureRevisionID
+                    )) ?? []
+            }
 
             do {
                 try self.transition(.adoptFinalized)
@@ -3100,6 +4030,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
         }
 
+        // Mark the committed End-boundary frame (issue #241): it is the
+        // closing spatial observation and is not removable in the
+        // visual evidence review.
+        try? await store.markEndBoundaryFrames(
+            [prepared.framePackage.descriptor.frameID]
+        )
+
         let frameSnapshot = await store.snapshot()
         guard captureGeneration == generation,
               state == .scanning
@@ -3464,6 +4401,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             self.isEndingScan = false
+
+            // #236: after a re-End following Continue scanning, any
+            // committed annotation link that referenced the rolled-back
+            // mesh/RoomPlan authority must surface for repair — it is
+            // never silently dropped or rewritten.
+            self.danglingSpatialIssues =
+                await store.committedSpatialEvidenceIssues()
+            self.refreshReviewWorkspace()
 
             // A background/thermal/storage event may have sealed spatial
             // continuation while Review quality was being refreshed. In that
@@ -4331,6 +5276,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         workingSetStore = nil
         finalizedRevision = finalized
         exportURL = nil
+        reviewWorkspace = nil
+        danglingSpatialIssues = []
+        refreshHandoffDestinations()
+        if let captureRoot = Self.captureRootDirectory() {
+            handoffReceipts =
+                (try? HTDTHandoffReceiptStore(
+                    captureRoot: captureRoot
+                ).receipts(
+                    for: finalized.captureRevisionID
+                )) ?? []
+        }
 
         if let validation,
            validation.bundleDigest == finalized.bundleDigest
@@ -4562,6 +5518,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     store: store,
                     generation: generation
                 )
+                self.danglingSpatialIssues =
+                    await store.committedSpatialEvidenceIssues()
+                self.refreshReviewWorkspace()
                 if sealedReviewResourceCondition,
                    self.state == .reviewing
                 {
