@@ -987,34 +987,111 @@ def _build_source_registry(
     return records, by_path
 
 
+# Reserved-path metadata contract for canonical RoomPlan payloads (#187):
+# each canonical path binds exactly one RoomPlan semantic role.
+ROOMPLAN_PATH_CONTRACT = {
+    ROOMPLAN_RAW_PATH: {
+        "kind": "raw_scan",
+        "provenance_class": "apple_roomplan_raw_scan",
+        "producer": "roomplan_capture",
+    },
+    ROOMPLAN_PROCESSED_PATH: {
+        "kind": "postprocessed_inference",
+        "provenance_class": "apple_roomplan_inference",
+        "producer": "roomplan_builder",
+    },
+}
+ROOMPLAN_PROVENANCE = {
+    contract["provenance_class"] for contract in ROOMPLAN_PATH_CONTRACT.values()
+}
+
+
+def _roomplan_record(entry: dict, kind: str, source_by_path) -> dict:
+    return {
+        "kind": kind,
+        "source_evidence_id": source_by_path[entry["path"]][
+            "source_evidence_id"
+        ],
+        "path": entry["path"],
+        "payload_sha256": entry["sha256"],
+        "provenance_class": entry["provenance_class"],
+        "source_refs": entry.get("source_refs", []),
+    }
+
+
 def _build_roomplan_records(
     manifest: dict,
     source_by_path: dict[str, dict],
 ) -> list[dict]:
+    """Select RoomPlan handoff records via the canonical path contract.
+
+    When the manifest declares the reserved RoomPlan paths, they are the
+    sole RoomPlan authorities: each must carry its bound media type,
+    producer, provenance class and canonical role, and no other payload may
+    claim RoomPlan provenance. Only when no canonical RoomPlan path is
+    declared at all (legacy bundles) does selection fall back to
+    provenance-class membership.
+    """
+    declared = {entry["path"]: entry for entry in manifest["files"]}
+    canonical_declared = [
+        path for path in ROOMPLAN_PATH_CONTRACT if path in declared
+    ]
+
     result: list[dict] = []
-    for entry in manifest["files"]:
-        provenance = entry["provenance_class"]
-        if provenance not in {
-            "apple_roomplan_raw_scan",
-            "apple_roomplan_inference",
-        }:
-            continue
-        result.append(
-            {
-                "kind": (
-                    "raw_scan"
-                    if provenance == "apple_roomplan_raw_scan"
-                    else "postprocessed_inference"
-                ),
-                "source_evidence_id": source_by_path[entry["path"]][
-                    "source_evidence_id"
-                ],
-                "path": entry["path"],
-                "payload_sha256": entry["sha256"],
-                "provenance_class": provenance,
-                "source_refs": entry.get("source_refs", []),
-            }
+    if canonical_declared:
+        for path in canonical_declared:
+            entry = declared[path]
+            contract = ROOMPLAN_PATH_CONTRACT[path]
+            if entry["media_type"] != JSON_MEDIA_TYPE:
+                raise IngestionError(
+                    f"{path} must declare media_type {JSON_MEDIA_TYPE!r}"
+                )
+            if entry["producer"] != contract["producer"]:
+                raise IngestionError(
+                    f"{path} must declare producer "
+                    f"{contract['producer']!r}"
+                )
+            if entry["provenance_class"] != contract["provenance_class"]:
+                raise IngestionError(
+                    f"{path} must declare provenance_class "
+                    f"{contract['provenance_class']!r}"
+                )
+            if entry["role"] != "canonical":
+                raise IngestionError(
+                    f"{path} must declare canonical role"
+                )
+            result.append(
+                _roomplan_record(entry, contract["kind"], source_by_path)
+            )
+
+        stray = sorted(
+            entry["path"]
+            for entry in manifest["files"]
+            if entry["provenance_class"] in ROOMPLAN_PROVENANCE
+            and entry["path"] not in ROOMPLAN_PATH_CONTRACT
         )
+        if stray:
+            raise IngestionError(
+                "RoomPlan provenance declared outside the canonical "
+                f"RoomPlan paths: {stray}"
+            )
+    else:
+        for entry in manifest["files"]:
+            provenance = entry["provenance_class"]
+            if provenance not in ROOMPLAN_PROVENANCE:
+                continue
+            result.append(
+                _roomplan_record(
+                    entry,
+                    (
+                        "raw_scan"
+                        if provenance == "apple_roomplan_raw_scan"
+                        else "postprocessed_inference"
+                    ),
+                    source_by_path,
+                )
+            )
+
     result.sort(key=lambda item: item["path"].encode("utf-8"))
     return result
 

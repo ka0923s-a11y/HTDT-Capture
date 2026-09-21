@@ -801,6 +801,104 @@ class ReferenceIngestorTests(unittest.TestCase):
                 build_ingestion_plan(copy_root)
             self.assertIn("endpoint_refs", str(ctx.exception))
 
+    def test_roomplan_provenance_at_noncanonical_path_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+            _add_payload(
+                copy_root,
+                "evidence/arbitrary.json",
+                b"{}",
+                producer="annotation",
+                provenance_class="apple_roomplan_raw_scan",
+            )
+
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError) as ctx:
+                build_ingestion_plan(copy_root)
+            self.assertIn("canonical", str(ctx.exception))
+
+    def test_canonical_roomplan_path_with_wrong_metadata_fails(self):
+        mutations = [
+            ("provenance_class", "user_annotation"),
+            ("media_type", "application/octet-stream"),
+            ("producer", "annotation"),
+            ("role", "derived"),
+        ]
+        for field, value in mutations:
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as td:
+                    copy_root = Path(td) / "bundle"
+                    shutil.copytree(FIXTURE, copy_root)
+
+                    manifest_path = copy_root / "manifest.json"
+                    manifest = json.loads(
+                        manifest_path.read_text(encoding="utf-8")
+                    )
+                    entry = next(
+                        item
+                        for item in manifest["files"]
+                        if item["path"]
+                        == "roomplan/captured-room-data.json"
+                    )
+                    entry[field] = value
+                    manifest_path.write_bytes(
+                        canonical_json_bytes(manifest)
+                    )
+
+                    validate_bundle(copy_root)
+                    with self.assertRaises(IngestionError):
+                        build_ingestion_plan(copy_root)
+
+    def test_legacy_bundle_without_canonical_paths_uses_provenance(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            # A legacy bundle carries RoomPlan payloads at non-reserved
+            # paths; selection falls back to provenance-class membership.
+            renames = {
+                "roomplan/captured-room-data.json": (
+                    "legacy/roomplan-raw.json"
+                ),
+                "roomplan/captured-room.json": (
+                    "legacy/roomplan-processed.json"
+                ),
+            }
+            manifest_path = copy_root / "manifest.json"
+            manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            for old_path, new_path in renames.items():
+                payload = (copy_root / old_path).read_bytes()
+                (copy_root / old_path).unlink()
+                target = copy_root / new_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(payload)
+                for entry in manifest["files"]:
+                    if entry["path"] == old_path:
+                        entry["path"] = new_path
+            manifest["files"].sort(
+                key=lambda item: item["path"].encode("utf-8")
+            )
+            manifest_path.write_bytes(canonical_json_bytes(manifest))
+
+            validate_bundle(copy_root)
+            plan = build_ingestion_plan(copy_root)
+            self.assertEqual(
+                [
+                    (record["kind"], record["path"])
+                    for record in plan["roomplan_records"]
+                ],
+                [
+                    (
+                        "postprocessed_inference",
+                        "legacy/roomplan-processed.json",
+                    ),
+                    ("raw_scan", "legacy/roomplan-raw.json"),
+                ],
+            )
+
     def test_reference_ingestor_rejects_unknown_source_ref_prefix(self):
         with tempfile.TemporaryDirectory() as td:
             copy_root = Path(td) / "bundle"
