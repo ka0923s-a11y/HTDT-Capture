@@ -242,3 +242,89 @@ func identifierDecodingRejectsNonV4() {
         )
     }
 }
+
+@Test
+func manifestRejectsSelfParentRevision() {
+    let revision = CaptureRevisionID()
+    #expect(throws: BundleManifestError.selfParentRevision) {
+        _ = try identityManifest(
+            revisionID: revision,
+            parentRevisionID: revision
+        )
+    }
+}
+
+@Test
+func manifestAcceptsNullAndDistinctParents() throws {
+    let revision = CaptureRevisionID()
+    _ = try identityManifest(revisionID: revision)
+    _ = try identityManifest(
+        revisionID: revision,
+        parentRevisionID: CaptureRevisionID()
+    )
+}
+
+@Test
+func manifestDecodingRejectsSelfParentRevision() {
+    let json = identityManifestJSON(
+        revisionID: "10000000-0000-4000-8000-000000000004",
+        parentRevisionIDJSON: "\"10000000-0000-4000-8000-000000000004\""
+    )
+    #expect(throws: BundleManifestError.selfParentRevision) {
+        _ = try JSONDecoder().decode(
+            BundleManifest.self,
+            from: Data(json.utf8)
+        )
+    }
+}
+
+@Test
+func manifestDecodingAcceptsNullAndDistinctParents() throws {
+    for parentJSON in [
+        "null",
+        "\"10000000-0000-4000-8000-00000000000e\"",
+    ] {
+        let json = identityManifestJSON(
+            revisionID: "10000000-0000-4000-8000-000000000004",
+            parentRevisionIDJSON: parentJSON
+        )
+        _ = try JSONDecoder().decode(
+            BundleManifest.self,
+            from: Data(json.utf8)
+        )
+    }
+}
+
+@Test
+func revisionVectorsMatchSharedContract() throws {
+    let document = try identityVectorDocument(
+        "revision-vectors.json",
+        as: RevisionVectorDocument.self
+    )
+    #expect(!document.vectors.isEmpty)
+
+    for vector in document.vectors {
+        let revision = try #require(
+            CaptureRevisionID(
+                canonicalString: vector.captureRevisionID
+            ),
+            "\(vector.name)"
+        )
+        let parent = vector.parentRevisionID.flatMap {
+            CaptureRevisionID(canonicalString: $0)
+        }
+        if vector.valid {
+            _ = try identityManifest(
+                revisionID: revision,
+                parentRevisionID: parent
+            )
+        } else {
+            #expect(throws: BundleManifestError.self) {
+                _ = try identityManifest(
+                    revisionID: revision,
+                    parentRevisionID: parent
+                )
+            }
+        }
+    }
+}

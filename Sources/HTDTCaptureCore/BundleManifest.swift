@@ -132,6 +132,7 @@ public enum BundleManifestError: Error, Sendable, Equatable {
     case manifestSelfDeclaration
     case invalidTimestamp(String)
     case finalizedBeforeCreated(String, String)
+    case selfParentRevision
 }
 
 public struct BundleManifest: Codable, Sendable, Equatable {
@@ -174,6 +175,11 @@ public struct BundleManifest: Codable, Sendable, Equatable {
             throw BundleManifestError.invalidUUIDv4(
                 parentRevisionID.description
             )
+        }
+        if let parentRevisionID,
+           parentRevisionID == captureRevisionID
+        {
+            throw BundleManifestError.selfParentRevision
         }
         guard !captureSessionIDs.isEmpty else {
             throw BundleManifestError.emptySessionIDs

@@ -1,0 +1,25 @@
+{
+  "schema": "htdt.capture.bundle.revision-vectors",
+  "version": "1",
+  "description": "Shared capture_revision_id/parent_revision_id vectors. A root revision keeps parent_revision_id null; a correction points at a distinct prior revision; a self-parent edge is a one-node revision cycle and must be rejected before ingestion.",
+  "vectors": [
+    {
+      "name": "root-null-parent",
+      "capture_revision_id": "88fdaaa8-4c86-411e-a8b7-7ad951788a63",
+      "parent_revision_id": null,
+      "valid": true
+    },
+    {
+      "name": "distinct-parent",
+      "capture_revision_id": "88fdaaa8-4c86-411e-a8b7-7ad951788a63",
+      "parent_revision_id": "af6dac57-7fcd-4559-b5f1-a59957f2106e",
+      "valid": true
+    },
+    {
+      "name": "self-parent",
+      "capture_revision_id": "88fdaaa8-4c86-411e-a8b7-7ad951788a63",
+      "parent_revision_id": "88fdaaa8-4c86-411e-a8b7-7ad951788a63",
+      "valid": false
+    }
+  ]
+}
