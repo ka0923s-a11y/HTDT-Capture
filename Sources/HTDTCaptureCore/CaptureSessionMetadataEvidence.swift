@@ -293,6 +293,120 @@ public struct CaptureTimingCorrelation:
     }
 }
 
+/// Result of `FrameTimingCorrelationEstimator.estimate`: the frame's
+/// projected capture instant and the full uncertainty budget that
+/// instant carries (#206).
+public struct FrameTimingCorrelationEstimate:
+    Sendable,
+    Equatable
+{
+    /// UTC estimate of the instant the frame was captured — the
+    /// wall-clock read midpoint shifted back by the measured frame age.
+    public let captureInstantUTC: Date
+    /// Signed skew between the monotonic read midpoint and the frame's
+    /// own timestamp, in seconds. Positive values are observed frame
+    /// age; a negative value means the timestamp was future-dated
+    /// relative to the read bracket (clock-domain inconsistency) and is
+    /// never projected forward.
+    public let observedFrameDeltaSeconds: Double
+    /// Declared correlation error bound: half the wall-clock read
+    /// bracket, half the monotonic read bracket, the magnitude of the
+    /// observed frame delta, and the caller's UTC serialization
+    /// quantization.
+    public let uncertaintySeconds: Double
+
+    public init(
+        captureInstantUTC: Date,
+        observedFrameDeltaSeconds: Double,
+        uncertaintySeconds: Double
+    ) {
+        self.captureInstantUTC = captureInstantUTC
+        self.observedFrameDeltaSeconds = observedFrameDeltaSeconds
+        self.uncertaintySeconds = uncertaintySeconds
+    }
+}
+
+/// Deterministic frame-age correction for monotonic↔UTC correlation
+/// samples (#206).
+///
+/// `ARSession.currentFrame` vends the latest already-produced frame:
+/// its `timestamp` is the capture instant in the host monotonic clock
+/// domain (the `mach_absolute_time`-derived seconds shared with
+/// `CACurrentMediaTime()`), which always lags the wall-clock read by at
+/// least part of a frame interval and can lag arbitrarily during
+/// scheduling stalls or tracking interruptions. Bracketing the
+/// property read alone therefore bounds only the read latency, not the
+/// frame's age.
+///
+/// Given paired monotonic and wall-clock samples bracketing the frame
+/// read, the estimator projects the frame's capture instant onto the
+/// wall clock by the measured monotonic delta and folds the observed
+/// skew into the declared uncertainty, so a stale `currentFrame` can
+/// never carry a near-zero error budget. Non-finite inputs surface as
+/// non-finite results and are rejected by `CaptureTimingCorrelation`'s
+/// own validation.
+public enum FrameTimingCorrelationEstimator {
+    public static func estimate(
+        frameTimestampSeconds: Double,
+        monotonicReadBeforeSeconds: Double,
+        monotonicReadAfterSeconds: Double,
+        wallClockReadBefore: Date,
+        wallClockReadAfter: Date,
+        utcSerializationQuantizationSeconds: Double
+    ) -> FrameTimingCorrelationEstimate {
+        let wallMidpointSeconds =
+            (
+                wallClockReadBefore.timeIntervalSince1970
+                + wallClockReadAfter.timeIntervalSince1970
+            ) / 2
+        let monotonicMidpointSeconds =
+            (
+                monotonicReadBeforeSeconds
+                + monotonicReadAfterSeconds
+            ) / 2
+
+        // Observed skew between the frame's capture timestamp and the
+        // instant the frame property was actually read, measured in
+        // the shared host monotonic domain.
+        let observedDeltaSeconds =
+            monotonicMidpointSeconds - frameTimestampSeconds
+
+        // Project the wall-clock midpoint back to the capture instant.
+        // A future-dated timestamp (negative delta) is never projected
+        // forward; its magnitude still feeds the uncertainty below.
+        let frameAgeSeconds = max(0, observedDeltaSeconds)
+        let captureInstantUTC = Date(
+            timeIntervalSince1970:
+                wallMidpointSeconds - frameAgeSeconds
+        )
+
+        // The declared error must cover the wall-clock sampling
+        // bracket, the monotonic sampling bracket feeding the
+        // projection, the observed frame staleness/skew itself, and
+        // the quantization error of the emitted UTC text.
+        let uncertaintySeconds =
+            max(
+                0,
+                wallClockReadAfter.timeIntervalSince(
+                    wallClockReadBefore
+                )
+            ) / 2
+            + max(
+                0,
+                monotonicReadAfterSeconds
+                    - monotonicReadBeforeSeconds
+            ) / 2
+            + abs(observedDeltaSeconds)
+            + max(0, utcSerializationQuantizationSeconds)
+
+        return FrameTimingCorrelationEstimate(
+            captureInstantUTC: captureInstantUTC,
+            observedFrameDeltaSeconds: observedDeltaSeconds,
+            uncertaintySeconds: uncertaintySeconds
+        )
+    }
+}
+
 public struct CaptureTimingDocument:
     Codable,
     Sendable,

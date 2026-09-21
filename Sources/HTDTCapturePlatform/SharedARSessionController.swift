@@ -36,6 +36,7 @@ import ARKit
 import CoreMedia
 import CoreVideo
 import Foundation
+import QuartzCore
 import RoomPlan
 import simd
 
@@ -1052,34 +1053,48 @@ public final class SharedARSessionController {
         ])
     }
 
+    /// Capture a monotonic↔UTC correlation pair for the current frame
+    /// (#206).
+    ///
+    /// `ARFrame.timestamp` is the frame's capture instant in the host
+    /// monotonic domain (the `mach_absolute_time`-derived seconds
+    /// shared with `CACurrentMediaTime()`), while `currentFrame` is the
+    /// latest already-produced frame — at least part of a frame
+    /// interval old, and arbitrarily older during scheduling stalls or
+    /// tracking interruptions. Sampling that same monotonic clock
+    /// alongside the wall-clock bracket lets the estimator project the
+    /// frame's capture instant and fold the observed frame age into the
+    /// declared uncertainty instead of reporting only the
+    /// property-access bracket.
     public func snapshotTimingCorrelation()
         throws -> CaptureTimingCorrelation
     {
+        let monotonicBefore = CACurrentMediaTime()
         let before = Date()
         guard let frame = arSession.currentFrame else {
             throw PlatformCaptureError.currentFrameUnavailable
         }
         let after = Date()
+        let monotonicAfter = CACurrentMediaTime()
 
-        let midpoint = Date(
-            timeIntervalSince1970:
-                (
-                    before.timeIntervalSince1970
-                    + after.timeIntervalSince1970
-                ) / 2
+        let estimate = FrameTimingCorrelationEstimator.estimate(
+            frameTimestampSeconds: frame.timestamp,
+            monotonicReadBeforeSeconds: monotonicBefore,
+            monotonicReadAfterSeconds: monotonicAfter,
+            wallClockReadBefore: before,
+            wallClockReadAfter: after,
+            utcSerializationQuantizationSeconds:
+                PlatformTimestamp.fractionalUtcQuantizationSeconds
         )
-        // The declared uncertainty must cover both the current-frame
-        // access bracket and the quantization error introduced by the
-        // millisecond-precision UTC serialization below.
-        let uncertainty =
-            max(0, after.timeIntervalSince(before) / 2)
-            + PlatformTimestamp.fractionalUtcQuantizationSeconds
 
         return try CaptureTimingCorrelation(
             monotonicSeconds: frame.timestamp,
-            utc: PlatformTimestamp.fractionalUtcString(from: midpoint),
-            method: "bracketed_arframe_current_frame",
-            estimatedUncertaintySeconds: uncertainty
+            utc: PlatformTimestamp.fractionalUtcString(
+                from: estimate.captureInstantUTC
+            ),
+            method: "bracketed_arframe_current_frame_age_projected",
+            estimatedUncertaintySeconds:
+                estimate.uncertaintySeconds
         )
     }
 
