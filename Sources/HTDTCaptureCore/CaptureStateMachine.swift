@@ -2,6 +2,7 @@ import Foundation
 
 public enum CaptureState: String, Codable, Sendable, CaseIterable {
     case idle
+    case setup
     case capabilityCheck = "capability_check"
     case permissions
     case preparing
@@ -28,6 +29,11 @@ public enum CaptureFailureCode: String, Codable, Sendable, Equatable {
 }
 
 public enum CaptureEvent: Sendable, Equatable {
+    /// Enter the pre-capture setup step (#212): the operator reviews
+    /// device readiness and room-preparation guidance before the
+    /// capability/permission pipeline runs. No capture session or
+    /// RoomPlan authority exists in this state.
+    case prepareCapture
     case beginCapabilityCheck
     case capabilitiesAccepted
     case permissionsGranted
@@ -83,7 +89,10 @@ public struct CaptureStateMachine: Sendable, Equatable {
         }
 
         switch (state, event) {
-        case (.idle, .beginCapabilityCheck):
+        case (.idle, .prepareCapture):
+            state = .setup
+        case (.setup, .beginCapabilityCheck),
+             (.idle, .beginCapabilityCheck):
             state = .capabilityCheck
         case (.capabilityCheck, .capabilitiesAccepted):
             state = .permissions
@@ -114,8 +123,8 @@ public struct CaptureStateMachine: Sendable, Equatable {
             state = .finalized
         case (.finalized, .export):
             state = .exported
-        case (.failed, .reset), (.finalized, .reset),
-             (.exported, .reset):
+        case (.setup, .reset), (.failed, .reset),
+             (.finalized, .reset), (.exported, .reset):
             state = .idle
             lastFailure = nil
         default:
