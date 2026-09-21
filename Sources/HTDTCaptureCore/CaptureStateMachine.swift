@@ -118,3 +118,48 @@ public struct CaptureStateMachine: Sendable, Equatable {
         }
     }
 }
+
+/// Transition-compaction gate for canonical tracking history (#148).
+///
+/// The live scan loop samples AR tracking roughly four times per
+/// second, but the working-set quality authority must record a bounded
+/// history, not every sample. The gate emits the first observed
+/// (state, reason) pair as the baseline and then emits only genuine
+/// state/reason transitions; identical consecutive samples are
+/// compacted away. The working-set store additionally bounds retained
+/// history.
+///
+/// The gate is deliberately payload-agnostic about severity: a
+/// transition into `.unavailable` is recorded faithfully and the
+/// quality evaluator applies the configured policy to it.
+public struct ScanTrackingTransitionGate: Sendable, Equatable {
+    private var lastState: TrackingQualityState?
+    private var lastReason: String?
+
+    public init() {
+        lastState = nil
+        lastReason = nil
+    }
+
+    /// Whether `event` opens a new state/reason interval that should be
+    /// persisted into the canonical tracking history.
+    public mutating func shouldRecord(
+        _ event: TrackingQualityEvent
+    ) -> Bool {
+        if lastState == event.state,
+           lastReason == event.reason
+        {
+            return false
+        }
+        lastState = event.state
+        lastReason = event.reason
+        return true
+    }
+
+    /// Forget the current interval baseline. A fresh capture must start
+    /// with an empty gate so its first sample is recorded.
+    public mutating func reset() {
+        lastState = nil
+        lastReason = nil
+    }
+}

@@ -198,6 +198,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         )
     private var scanCoverageTask: Task<Void, Never>?
+    private var scanTrackingTransitionGate =
+        ScanTrackingTransitionGate()
     private var memoryWarningCancellable: AnyCancellable?
     private var derivedPreviewSuspendedForMemoryPressure = false
     private var roomPlanModelRenderingEnabled = true
@@ -327,6 +329,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         scanDepthEvidenceCount = 0
         endScanGuidance = nil
         endScanPreflightBlocked = false
+        scanTrackingTransitionGate.reset()
         resourceMonitor?.stop()
         resourceMonitor = nil
         resourceEventTask = nil
@@ -1385,6 +1388,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         isEndingScan = false
         isCapturingEvidenceFrame = false
+        scanTrackingTransitionGate.reset()
         capabilities = PlatformCapabilityProbe.current()
         cameraPermission = CameraPermissionController.currentStatus()
 
@@ -2868,6 +2872,35 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             coverage: self.scanCoverage,
                             spatialCoverage: self.spatialCoverage
                         )
+
+                    // Persist transition-compacted tracking history into
+                    // the canonical quality authority (#148). The gate
+                    // emits the baseline observation and then only
+                    // (state, reason) transitions; identical samples are
+                    // compacted and the store bounds retained history.
+                    // A transition into .unavailable is recorded
+                    // faithfully and surfaces through the existing
+                    // tracking_unavailable_observed quality policy. The
+                    // End path still records the selected final frame's
+                    // tracking event separately; while End holds the
+                    // boundary this loop must not append more history.
+                    if !self.isEndingScan,
+                       let store = self.workingSetStore
+                    {
+                        let trackingEvent = TrackingQualityEvent(
+                            sessionTimestampSeconds:
+                                sample.sessionTimestampSeconds,
+                            state: sample.trackingState,
+                            reason: sample.trackingReason
+                        )
+                        if self.scanTrackingTransitionGate
+                            .shouldRecord(trackingEvent)
+                        {
+                            await store.recordTrackingEvent(
+                                trackingEvent
+                            )
+                        }
+                    }
                 }
 
                 if sampleIndex.isMultiple(of: 2),
