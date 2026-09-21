@@ -24,15 +24,36 @@ public enum CaptureResourceMonitorDetailToken {
 public struct CaptureResourceMonitorPolicy: Sendable, Equatable {
     public let storageWarningBytes: Int64
     public let storageCriticalBytes: Int64
+    /// Low-frequency interval between periodic storage samples while the
+    /// monitor is started (#140).
+    public let storageSampleInterval: Duration
+    /// Capacity margin above a threshold required before the monitor reports
+    /// recovery to a lower-pressure band, so capacity oscillation near a
+    /// boundary does not spam storage-pressure events (#140).
+    public let storageHysteresisBytes: Int64
+    /// Hard bound on periodic samples per `start()` session. `0` disables
+    /// periodic sampling; the explicit preflight assessment is unaffected
+    /// (#140).
+    public let maximumPeriodicStorageSamples: Int
 
     public init(
         storageWarningBytes: Int64 = 2 * 1024 * 1024 * 1024,
-        storageCriticalBytes: Int64 = 512 * 1024 * 1024
+        storageCriticalBytes: Int64 = 512 * 1024 * 1024,
+        storageSampleInterval: Duration = .seconds(5),
+        storageHysteresisBytes: Int64 = 64 * 1024 * 1024,
+        maximumPeriodicStorageSamples: Int = 5760
     ) {
         precondition(storageWarningBytes > storageCriticalBytes)
         precondition(storageCriticalBytes >= 0)
+        precondition(storageSampleInterval > .zero)
+        precondition(storageHysteresisBytes >= 0)
+        precondition(maximumPeriodicStorageSamples >= 0)
         self.storageWarningBytes = storageWarningBytes
         self.storageCriticalBytes = storageCriticalBytes
+        self.storageSampleInterval = storageSampleInterval
+        self.storageHysteresisBytes = storageHysteresisBytes
+        self.maximumPeriodicStorageSamples =
+            maximumPeriodicStorageSamples
     }
 }
 
@@ -79,6 +100,177 @@ public struct CaptureResourceAssessment: Sendable, Equatable {
     }
 }
 
+/// Tracks the last emitted storage condition so periodic sampling emits an
+/// event only when the condition transitions, with a hysteresis margin on
+/// recovery so capacity oscillation near a threshold does not spam events
+/// (#140).
+public struct CaptureStoragePressureTracker: Sendable, Equatable {
+    /// The condition currently treated as emitted/known.
+    public enum State: String, Sendable, Equatable {
+        case healthy
+        case warning
+        case critical
+        /// Capacity could not be determined. Missing metadata and query
+        /// failures share this state so alternating between those causes
+        /// does not re-emit.
+        case undetermined
+    }
+
+    public private(set) var state: State
+
+    public init(state: State = .healthy) {
+        self.state = state
+    }
+
+    /// Records a raw sample and returns the condition that must be emitted,
+    /// or `nil` when the sample does not change the emitted condition.
+    /// Deterioration emits immediately at the raw threshold; recovery
+    /// requires the `policy` hysteresis margin.
+    @discardableResult
+    public mutating func record(
+        sample: CaptureStorageSample,
+        policy: CaptureResourceMonitorPolicy
+    ) -> CaptureStorageCondition? {
+        switch sample {
+        case .measured(let available):
+            return recordMeasured(available, policy: policy)
+        case .capacityUnavailable:
+            guard state != .undetermined else {
+                return nil
+            }
+            state = .undetermined
+            return .capacityUnavailable
+        case .queryFailed(let domain, let code):
+            guard state != .undetermined else {
+                return nil
+            }
+            state = .undetermined
+            return .sampleFailed(domain: domain, code: code)
+        }
+    }
+
+    private mutating func recordMeasured(
+        _ available: Int64,
+        policy: CaptureResourceMonitorPolicy
+    ) -> CaptureStorageCondition? {
+        let next: State
+        switch state {
+        case .critical:
+            if available
+                < policy.storageCriticalBytes
+                    + policy.storageHysteresisBytes
+            {
+                next = .critical
+            } else if available
+                < policy.storageWarningBytes
+                    + policy.storageHysteresisBytes
+            {
+                next = .warning
+            } else {
+                next = .healthy
+            }
+        case .warning:
+            if available < policy.storageCriticalBytes {
+                next = .critical
+            } else if available
+                < policy.storageWarningBytes
+                    + policy.storageHysteresisBytes
+            {
+                next = .warning
+            } else {
+                next = .healthy
+            }
+        case .healthy, .undetermined:
+            if available < policy.storageCriticalBytes {
+                next = .critical
+            } else if available < policy.storageWarningBytes {
+                next = .warning
+            } else {
+                next = .healthy
+            }
+        }
+
+        guard next != state else {
+            return nil
+        }
+        state = next
+        switch next {
+        case .critical:
+            return .storageCritical(availableBytes: available)
+        case .warning:
+            return .storageWarning(availableBytes: available)
+        case .healthy, .undetermined:
+            // Recovery to a healthy reading is non-eventful; `undetermined`
+            // is unreachable for measured samples.
+            return nil
+        }
+    }
+}
+
+/// Drives periodic storage sampling while a monitor is started (#140). The
+/// production driver is a low-frequency task-loop timer; tests inject a
+/// manual driver so no test waits on real time.
+@MainActor
+public protocol CaptureStorageSampleDriver: AnyObject {
+    /// Starts producing ticks at `interval`; `tick` runs on the MainActor
+    /// once per sampling period until `cancel()`.
+    func start(
+        interval: Duration,
+        tick: @escaping @MainActor () -> Void
+    )
+    /// Stops producing ticks; idempotent.
+    func cancel()
+}
+
+/// Default `CaptureStorageSampleDriver`: a task loop sleeping `interval`
+/// between ticks until cancelled (#140).
+@available(iOS 17.0, *)
+@MainActor
+public final class CaptureStorageSampleTimerDriver
+    : CaptureStorageSampleDriver
+{
+    private let sleeper: @Sendable (Duration) async throws -> Void
+    private var task: Task<Void, Never>?
+
+    public init(
+        sleeper: @escaping @Sendable (Duration) async throws -> Void = {
+            try await Task.sleep(for: $0)
+        }
+    ) {
+        self.sleeper = sleeper
+    }
+
+    deinit {
+        task?.cancel()
+    }
+
+    public func start(
+        interval: Duration,
+        tick: @escaping @MainActor () -> Void
+    ) {
+        cancel()
+        let sleeper = self.sleeper
+        task = Task { @MainActor in
+            while !Task.isCancelled {
+                do {
+                    try await sleeper(interval)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else {
+                    return
+                }
+                tick()
+            }
+        }
+    }
+
+    public func cancel() {
+        task?.cancel()
+        task = nil
+    }
+}
+
 /// Ordered emission record for `CaptureResourceMonitor.eventLog`: the
 /// monitor-side chronology authority until `CaptureResourceEvent` carries
 /// `occurred_at_utc`/`sequence` itself (#190).
@@ -119,13 +311,20 @@ public final class CaptureResourceMonitor: NSObject {
     public typealias StorageCapacitySource = () throws -> Int64?
     /// UTC wall-clock source stamped on every emitted event (#190).
     public typealias UTCTimestampProvider = () -> Date
+    /// Thermal-state source; injectable so tests do not depend on the host
+    /// machine's real thermal pressure.
+    public typealias ThermalStateProvider = () -> ProcessInfo.ThermalState
 
     private let rootDirectory: URL
     private let policy: CaptureResourceMonitorPolicy
     private let eventHandler: EventHandler
     private let capacitySource: StorageCapacitySource
     private let utcTimestampProvider: UTCTimestampProvider
+    private let thermalStateProvider: ThermalStateProvider
+    private let sampleDriver: any CaptureStorageSampleDriver
     private var isStarted = false
+    private var storageTracker = CaptureStoragePressureTracker()
+    private var periodicSamplesRemaining = 0
     private var emissionSequence = 0
 
     /// Ordered log of every event this monitor emitted, oldest first. Each
@@ -139,6 +338,10 @@ public final class CaptureResourceMonitor: NSObject {
         policy: CaptureResourceMonitorPolicy = .init(),
         capacitySource: StorageCapacitySource? = nil,
         utcTimestampProvider: @escaping UTCTimestampProvider = { Date() },
+        thermalStateProvider: @escaping ThermalStateProvider = {
+            ProcessInfo.processInfo.thermalState
+        },
+        sampleDriver: (any CaptureStorageSampleDriver)? = nil,
         eventHandler: @escaping EventHandler
     ) {
         self.rootDirectory = rootDirectory
@@ -148,12 +351,16 @@ public final class CaptureResourceMonitor: NSObject {
                 rootDirectory: rootDirectory
             )
         self.utcTimestampProvider = utcTimestampProvider
+        self.thermalStateProvider = thermalStateProvider
+        self.sampleDriver =
+            sampleDriver ?? CaptureStorageSampleTimerDriver()
         self.eventHandler = eventHandler
         super.init()
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        sampleDriver.cancel()
     }
 
     public func start() {
@@ -186,6 +393,7 @@ public final class CaptureResourceMonitor: NSObject {
 
         emitCurrentThermalState()
         sampleStorage()
+        startPeriodicStorageSampling()
     }
 
     public func stop() {
@@ -194,6 +402,11 @@ public final class CaptureResourceMonitor: NSObject {
         }
         isStarted = false
         NotificationCenter.default.removeObserver(self)
+        // Cancel bounded periodic sampling; a later start() re-baselines the
+        // transition tracker (#140).
+        sampleDriver.cancel()
+        periodicSamplesRemaining = 0
+        storageTracker = CaptureStoragePressureTracker()
     }
 
     /// Unconditional storage assessment for explicit preflight checks such
@@ -210,17 +423,14 @@ public final class CaptureResourceMonitor: NSObject {
         return assessment(for: condition)
     }
 
+    /// Performs a bounded one-shot storage sample while started and emits an
+    /// event only when the storage condition transitions (#140). For an
+    /// unconditional preflight assessment use `currentStorageAssessment()`.
     public func sampleStorage() {
-        guard isStarted,
-              let assessment = currentStorageAssessment()
-        else {
+        guard isStarted else {
             return
         }
-
-        emit(
-            assessment.event,
-            failure: assessment.failure
-        )
+        emitStorageTransition(readStorageSample())
     }
 
     @objc
@@ -266,7 +476,7 @@ public final class CaptureResourceMonitor: NSObject {
             return
         }
 
-        switch ProcessInfo.processInfo.thermalState {
+        switch thermalStateProvider() {
         case .nominal:
             break
         case .fair:
@@ -420,6 +630,49 @@ public final class CaptureResourceMonitor: NSObject {
                 failure: nil,
                 condition: condition
             )
+        }
+    }
+
+    private func emitStorageTransition(
+        _ sample: CaptureStorageSample
+    ) {
+        guard let condition = storageTracker.record(
+            sample: sample,
+            policy: policy
+        ) else {
+            return
+        }
+        let assessment = assessment(for: condition)
+        emit(assessment.event, failure: assessment.failure)
+    }
+
+    /// Low-frequency periodic sampling while started (#140). Bounded by
+    /// `policy.maximumPeriodicStorageSamples` and cancelled by `stop()`;
+    /// does not replace the explicit final preflight assessment.
+    private func startPeriodicStorageSampling() {
+        periodicSamplesRemaining = policy.maximumPeriodicStorageSamples
+        guard periodicSamplesRemaining > 0 else {
+            return
+        }
+        sampleDriver.start(
+            interval: policy.storageSampleInterval
+        ) { [weak self] in
+            self?.performPeriodicStorageSample()
+        }
+    }
+
+    private func performPeriodicStorageSample() {
+        guard isStarted,
+              periodicSamplesRemaining > 0
+        else {
+            return
+        }
+        periodicSamplesRemaining -= 1
+        emitStorageTransition(readStorageSample())
+        if periodicSamplesRemaining == 0 {
+            // The sampling budget is exhausted; stop polling rather than
+            // running an unbounded loop (#140).
+            sampleDriver.cancel()
         }
     }
 
