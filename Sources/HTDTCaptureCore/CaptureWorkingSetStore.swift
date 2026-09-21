@@ -80,6 +80,11 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
 }
 
 public actor CaptureWorkingSetStore {
+    /// Deterministic bound on retained tracking-history intervals. Each
+    /// interval contributes at most two quality events, so the canonical
+    /// tracking history stays bounded on arbitrarily long scans.
+    public static let maxTrackingIntervals = 128
+
     public let identity: CaptureWorkingSetIdentity
     public let rootDirectory: URL
 
@@ -102,7 +107,7 @@ public actor CaptureWorkingSetStore {
     private var timingDocument: CaptureTimingDocument?
     private var evidenceFrameCount = 0
     private var depthEvidenceCount = 0
-    private var trackingEvents: [TrackingQualityEvent] = []
+    private var trackingIntervals: [TrackingInterval] = []
     private var resourceEvents: [CaptureResourceEvent] = []
 
     public init(
@@ -1399,13 +1404,69 @@ public actor CaptureWorkingSetStore {
         )
     }
 
+    /// Records one tracking-quality sample into bounded canonical history.
+    ///
+    /// Consecutive samples sharing one state/reason compact into a single
+    /// interval that retains its first and last timestamps, so a scan
+    /// sampled every ~250 ms cannot grow the history without bound. A
+    /// temporary degraded interval therefore remains visible to quality
+    /// evaluation even after tracking recovers before End.
     public func recordTrackingEvent(
         _ event: TrackingQualityEvent
     ) {
-        trackingEvents.append(event)
-        trackingEvents.sort {
-            $0.sessionTimestampSeconds < $1.sessionTimestampSeconds
+        let timestamp = event.sessionTimestampSeconds
+        var index = trackingIntervals.firstIndex {
+            $0.firstSeconds > timestamp
+        } ?? trackingIntervals.count
+
+        // Merge into the immediately preceding interval when the sample
+        // continues the same tracking run (same state and reason).
+        if index > 0 {
+            let previous = index - 1
+            if trackingIntervals[previous].state == event.state,
+               trackingIntervals[previous].reason == event.reason
+            {
+                trackingIntervals[previous].lastSeconds = max(
+                    trackingIntervals[previous].lastSeconds,
+                    timestamp
+                )
+                trackingIntervals[previous].sampleCount += 1
+                index = previous
+
+                // An out-of-order sample can bridge two runs of the same
+                // signature; collapse them into one interval.
+                if index + 1 < trackingIntervals.count,
+                   trackingIntervals[index + 1].state == event.state,
+                   trackingIntervals[index + 1].reason == event.reason
+                {
+                    let next = trackingIntervals.remove(at: index + 1)
+                    trackingIntervals[index].firstSeconds = min(
+                        trackingIntervals[index].firstSeconds,
+                        next.firstSeconds
+                    )
+                    trackingIntervals[index].lastSeconds = max(
+                        trackingIntervals[index].lastSeconds,
+                        next.lastSeconds
+                    )
+                    trackingIntervals[index].sampleCount +=
+                        next.sampleCount
+                }
+                evictTrackingIntervalsIfNeeded()
+                return
+            }
         }
+
+        trackingIntervals.insert(
+            TrackingInterval(
+                state: event.state,
+                reason: event.reason,
+                firstSeconds: timestamp,
+                lastSeconds: timestamp,
+                sampleCount: 1
+            ),
+            at: index
+        )
+        evictTrackingIntervalsIfNeeded()
     }
 
     public func recordResourceEvent(
@@ -1857,6 +1918,67 @@ public actor CaptureWorkingSetStore {
             return .importedReference
         case nil:
             return .captureAppDerived
+        }
+    }
+
+    /// One compacted run of same-state tracking observations.
+    private struct TrackingInterval: Sendable, Equatable {
+        var state: TrackingQualityState
+        var reason: String?
+        var firstSeconds: Double
+        var lastSeconds: Double
+        var sampleCount: Int
+    }
+
+    /// Compacted canonical tracking history: each interval contributes its
+    /// first observation and (when the run spanned more than one distinct
+    /// timestamp) its last observation.
+    private var trackingEvents: [TrackingQualityEvent] {
+        var events: [TrackingQualityEvent] = []
+        events.reserveCapacity(trackingIntervals.count * 2)
+        for interval in trackingIntervals {
+            events.append(
+                TrackingQualityEvent(
+                    sessionTimestampSeconds: interval.firstSeconds,
+                    state: interval.state,
+                    reason: interval.reason
+                )
+            )
+            if interval.lastSeconds > interval.firstSeconds {
+                events.append(
+                    TrackingQualityEvent(
+                        sessionTimestampSeconds: interval.lastSeconds,
+                        state: interval.state,
+                        reason: interval.reason
+                    )
+                )
+            }
+        }
+        return events.sorted {
+            $0.sessionTimestampSeconds < $1.sessionTimestampSeconds
+        }
+    }
+
+    /// Keeps the interval history strictly bounded without ever losing the
+    /// most recent observation of a tracking state: quality evaluation keys
+    /// on state presence, so evicting must preserve at least one interval
+    /// per observed state.
+    private mutating func evictTrackingIntervalsIfNeeded() {
+        while trackingIntervals.count > Self.maxTrackingIntervals {
+            var evicted = false
+            for index in trackingIntervals.indices.dropLast() {
+                let state = trackingIntervals[index].state
+                if trackingIntervals.lastIndex(where: {
+                    $0.state == state
+                }) != index {
+                    trackingIntervals.remove(at: index)
+                    evicted = true
+                    break
+                }
+            }
+            if !evicted {
+                trackingIntervals.remove(at: 0)
+            }
         }
     }
 
