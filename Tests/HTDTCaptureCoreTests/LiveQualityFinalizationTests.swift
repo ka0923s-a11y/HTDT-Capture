@@ -224,8 +224,64 @@ final class LiveQualityFinalizationTests: XCTestCase {
     private func populateCompleteWorkingSet(
         _ store: CaptureWorkingSetStore
     ) async throws {
-        let sessionID = CaptureSessionID()
-        let coordinateID = CoordinateSpaceID()
+        // The finalized v1 contract requires the foundation payload set
+        // (#194): session/capabilities/configuration/device plus the
+        // timing package, all sharing one session/coordinate authority
+        // that every other evidence payload binds to.
+        let context = CaptureSessionContext()
+        let sessionID = context.captureSessionID
+        let coordinateID = context.coordinateSpaceID
+        let foundation = try CaptureSessionFoundationPackageBuilder
+            .build(
+                context: context,
+                capabilities: CaptureCapabilityMatrix(
+                    roomPlanSupported: true,
+                    worldTrackingSupported: true,
+                    sceneReconstructionSupported: true,
+                    sceneDepthSupported: true,
+                    smoothedSceneDepthSupported: true,
+                    highResolutionFrameSupported: false,
+                    combinedRoomPlanSceneDepthVerified: nil,
+                    sameSessionDepthAfterRoomPlanStopVerified: nil
+                ),
+                configurationProfile: CaptureConfigurationProfile(
+                    captureMode: .roomPlanMesh,
+                    worldAlignment: "gravity",
+                    planeDetection: ["vertical", "horizontal"],
+                    sceneReconstruction: "mesh_with_classification",
+                    frameSemantics: ["scene_depth"],
+                    videoFormat: VideoFormatDescriptor(
+                        width: 1920,
+                        height: 1440,
+                        framesPerSecond: 60
+                    ),
+                    autofocusEnabled: true,
+                    roomPlanOptions: [:]
+                ),
+                startedAtUTC: "2026-09-20T01:00:00Z",
+                device: try CaptureDeviceDocument(
+                    osVersion: "iOS 20.0",
+                    hardwareModel: "iPhone99,1",
+                    appVersion: "0.1.0",
+                    appBuild: "1"
+                )
+            )
+        try await store.persistSessionFoundation(foundation)
+        try await store.persistTimingPackage(
+            try CaptureTimingPackageBuilder.build(
+                start: try CaptureTimingCorrelation(
+                    monotonicSeconds: 1.0,
+                    utc: "2026-09-20T01:00:00Z",
+                    method: "fixture"
+                ),
+                end: try CaptureTimingCorrelation(
+                    monotonicSeconds: 5.0,
+                    utc: "2026-09-20T01:00:04Z",
+                    method: "fixture"
+                )
+            )
+        )
+
         let runtime = CaptureRuntimeProvenance(
             osVersion: "test-os",
             appVersion: "0.1.0",

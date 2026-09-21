@@ -139,6 +139,8 @@ public enum BundleManifestError: Error, Sendable, Equatable {
     case duplicateSourceRef(String, String)
     case unresolvedSourceRefPath(String, String)
     case unresolvedSourceRefDigest(String, String)
+    case ambiguousSourceRefDigest(String, String)
+    case sourceRefLimitExceeded(String)
     case unknownSourceRefSession(String, String)
     case selfReferencingSourceRef(String, String)
     case cyclicSourceRefPath(String, String)
@@ -263,19 +265,26 @@ public struct BundleManifest: Codable, Sendable, Equatable {
             try Self.validateReservedPathBinding(file)
         }
 
-        var declaredDigests = Set<String>()
+        // sha256 source_refs must resolve to exactly one payload
+        // authority (#193): identical bytes under different logical
+        // paths are distinct authorities (different producer /
+        // provenance / lineage), so a shared digest cannot disambiguate
+        // them and must be expressed as a path: reference instead.
+        var digestCounts: [String: Int] = [:]
         for file in files {
-            declaredDigests.insert(file.sha256.value)
+            digestCounts[file.sha256.value, default: 0] += 1
         }
         let declaredSessionIDs = Set(captureSessionIDs)
         var pathEdges: [String: [String]] = [:]
+        var totalSourceRefs = 0
         for file in files {
             try Self.validateSourceRefs(
                 of: file,
                 declaredByPath: declaredByPath,
-                declaredDigests: declaredDigests,
+                digestCounts: digestCounts,
                 sessionIDs: declaredSessionIDs,
-                pathEdges: &pathEdges
+                pathEdges: &pathEdges,
+                totalSourceRefs: &totalSourceRefs
             )
         }
         try Self.validateSourceRefPathGraph(
@@ -453,14 +462,29 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         }
     }
 
+    /// v1 source_ref budgets (#195): lineage resolution work must stay
+    /// bounded independently of the manifest byte cap. Identical limits
+    /// are enforced by the Python validator and reference ingestor.
+    static let maxSourceRefsPerEntry = 32
+    static let maxSourceRefBytes = 512
+    static let maxSourceRefsTotal = 65_536
+
     private static func validateSourceRefs(
         of file: BundleFileEntry,
         declaredByPath: [String: BundleFileEntry],
-        declaredDigests: Set<String>,
+        digestCounts: [String: Int],
         sessionIDs: Set<CaptureSessionID>,
-        pathEdges: inout [String: [String]]
+        pathEdges: inout [String: [String]],
+        totalSourceRefs: inout Int
     ) throws {
         let refs = file.sourceRefs ?? []
+        if refs.count > maxSourceRefsPerEntry {
+            throw BundleManifestError.sourceRefLimitExceeded(file.path)
+        }
+        totalSourceRefs += refs.count
+        if totalSourceRefs > maxSourceRefsTotal {
+            throw BundleManifestError.sourceRefLimitExceeded(file.path)
+        }
         if file.role == .derived, refs.isEmpty {
             throw BundleManifestError.derivedEntryMissingSourceRefs(
                 file.path
@@ -472,6 +496,11 @@ public struct BundleManifest: Codable, Sendable, Equatable {
                 throw BundleManifestError.malformedSourceRef(
                     file.path,
                     ref
+                )
+            }
+            guard ref.utf8.count <= maxSourceRefBytes else {
+                throw BundleManifestError.sourceRefLimitExceeded(
+                    file.path
                 )
             }
             guard seenRefs.insert(ref).inserted else {
@@ -517,9 +546,17 @@ public struct BundleManifest: Codable, Sendable, Equatable {
                         ref
                     )
                 }
-                guard declaredDigests.contains(value) else {
+                let digestCount = digestCounts[value] ?? 0
+                guard digestCount > 0 else {
                     throw BundleManifestError
                         .unresolvedSourceRefDigest(
+                            file.path,
+                            ref
+                        )
+                }
+                guard digestCount == 1 else {
+                    throw BundleManifestError
+                        .ambiguousSourceRefDigest(
                             file.path,
                             ref
                         )

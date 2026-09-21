@@ -122,6 +122,16 @@ At capture-session start and end, store a correlation observation containing:
 
 No frame timestamp is converted to UTC without referring to this correlation authority.
 
+The start correlation is the first ARSession frame↔UTC sample available after the
+capture start request — taken before any unrelated configuration wait or metadata
+persistence so the stored interval begins at the true session-start boundary. The
+v1 timing document carries no role field, so the boundary is identified through
+`method`: `bracketed_first_arframe_at_session_start` for the start sample and
+`bracketed_arframe_current_frame` for the end sample. Because RoomPlan's `run()`
+necessarily starts the shared ARSession, framework-internal observations between
+the run request and that first delivered frame precede the stored correlation
+interval; the start method label marks that explicitly.
+
 ## 9. Reset/relocalization events
 
 The session event log records any event that can invalidate spatial assumptions:

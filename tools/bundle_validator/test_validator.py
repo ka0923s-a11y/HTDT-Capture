@@ -647,6 +647,266 @@ class SourceRefTests(unittest.TestCase):
                 validate_bundle(dest)
 
 
+class SourceRefBudgetAndUniquenessTests(unittest.TestCase):
+    """Issues #193/#195: sha256 refs must name exactly one payload
+    authority, and ref work must stay inside explicit budgets."""
+
+    def _manifest_with_refs(self, td, target_path, refs):
+        dest = Path(td) / "bundle"
+        shutil.copytree(FIXTURE, dest)
+
+        def mutate(manifest):
+            for entry in manifest["files"]:
+                if entry["path"] == target_path:
+                    entry["source_refs"] = refs
+
+        _rewrite_manifest(dest, mutate)
+        return dest
+
+    def test_ambiguous_sha256_ref_rejected(self):
+        # Two declared payloads with identical bytes share one digest;
+        # a sha256 ref can no longer disambiguate the authority.
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, dest)
+            shared = (dest / "session" / "device.json").read_bytes()
+            (dest / "annotations").mkdir(exist_ok=True)
+            (dest / "annotations" / "copy.json").write_bytes(shared)
+            digest = hashlib.sha256(shared).hexdigest()
+
+            def mutate(manifest):
+                manifest["files"].append(
+                    {
+                        "path": "annotations/copy.json",
+                        "bytes": len(shared),
+                        "media_type": "application/json",
+                        "sha256": digest,
+                        "producer": "test",
+                        "provenance_class": "capture_app_derived",
+                        "role": "canonical",
+                    }
+                )
+                manifest["files"].sort(
+                    key=lambda entry: entry["path"].encode("utf-8")
+                )
+                for entry in manifest["files"]:
+                    if entry["path"] == "annotations/entities.json":
+                        entry["source_refs"] = [f"sha256:{digest}"]
+
+            _rewrite_manifest(dest, mutate)
+            with self.assertRaisesRegex(
+                ValidationError, "ambiguous sha256 source_ref"
+            ):
+                validate_bundle(dest)
+
+    def test_unique_sha256_ref_still_passes(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, dest)
+            manifest = json.loads(
+                (dest / "manifest.json").read_text(encoding="utf-8")
+            )
+            digest = next(
+                entry["sha256"]
+                for entry in manifest["files"]
+                if entry["path"] == "session/device.json"
+            )
+
+            def mutate(manifest):
+                for entry in manifest["files"]:
+                    if entry["path"] == "annotations/entities.json":
+                        entry["source_refs"] = [f"sha256:{digest}"]
+
+            _rewrite_manifest(dest, mutate)
+            self.assertTrue(validate_bundle(dest)["valid"])
+
+    def test_source_ref_per_entry_budget(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, dest)
+            refs = [
+                "path:session/device.json"
+            ] * 33  # over the 32-ref per-entry budget
+
+            def mutate(manifest):
+                for entry in manifest["files"]:
+                    if entry["path"] == "annotations/entities.json":
+                        entry["source_refs"] = refs
+
+            _rewrite_manifest(dest, mutate)
+            with self.assertRaisesRegex(
+                ValidationError, "too many source_refs"
+            ):
+                validate_bundle(dest)
+
+    def test_source_ref_byte_budget(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, dest)
+            long_ref = "path:" + "a" * 600 + ".json"
+
+            def mutate(manifest):
+                for entry in manifest["files"]:
+                    if entry["path"] == "annotations/entities.json":
+                        entry["source_refs"] = [long_ref]
+
+            _rewrite_manifest(dest, mutate)
+            with self.assertRaisesRegex(
+                ValidationError, "oversized source_ref"
+            ):
+                validate_bundle(dest)
+
+
+class FoundationPayloadSetTests(unittest.TestCase):
+    """Issue #194: a finalized v1 bundle must carry the minimum
+    foundation payload set grounding its manifest identities."""
+
+    def test_empty_files_manifest_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, dest)
+
+            def mutate(manifest):
+                manifest["files"] = []
+
+            _rewrite_manifest(dest, mutate)
+            # minItems: 4 fires at the schema layer; the dedicated
+            # foundation-set check fires for sparser-but-shaped
+            # manifests. Either rejection satisfies #194.
+            with self.assertRaisesRegex(
+                ValidationError, "minItems|foundation"
+            ):
+                validate_bundle(dest)
+
+    def test_missing_foundation_member_rejected(self):
+        for path in (
+            "session/capture-session.json",
+            "session/capture-configuration.json",
+            "session/timing.json",
+            "quality/capture-quality.json",
+        ):
+            with self.subTest(path=path):
+                with tempfile.TemporaryDirectory() as td:
+                    dest = Path(td) / "bundle"
+                    shutil.copytree(FIXTURE, dest)
+
+                    def mutate(manifest, path=path):
+                        manifest["files"] = [
+                            entry
+                            for entry in manifest["files"]
+                            if entry["path"] != path
+                        ]
+                        # Also clear refs that would dangle onto the
+                        # removed path so the foundation check is what
+                        # fires.
+                        for entry in manifest["files"]:
+                            refs = entry.get("source_refs", [])
+                            entry["source_refs"] = [
+                                ref
+                                for ref in refs
+                                if ref != f"path:{path}"
+                            ]
+
+                    _rewrite_manifest(dest, mutate)
+                    with self.assertRaisesRegex(
+                        ValidationError, "missing required foundation"
+                    ):
+                        validate_bundle(dest)
+
+    def test_optional_session_documents_not_required(self):
+        # device/capabilities are intentionally optional (#194).
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, dest)
+            removed = {
+                "session/device.json",
+                "session/capabilities.json",
+            }
+            for path in removed:
+                (dest / path).unlink()
+
+            def mutate(manifest):
+                manifest["files"] = [
+                    entry
+                    for entry in manifest["files"]
+                    if entry["path"] not in removed
+                ]
+                # Strip refs that would dangle onto removed payloads.
+                for entry in manifest["files"]:
+                    refs = entry.get("source_refs", [])
+                    entry["source_refs"] = [
+                        ref
+                        for ref in refs
+                        if ref != "path:session/device.json"
+                        and ref != "path:session/capabilities.json"
+                    ]
+
+            _rewrite_manifest(dest, mutate)
+            self.assertTrue(validate_bundle(dest)["valid"])
+
+    def test_processed_roomplan_without_raw_rejected(self):
+        # A canonical processed RoomPlan payload must never be promoted
+        # without its raw authority (#194).
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, dest)
+            processed = canonical_payload_json_bytes(
+                {"schema": "test", "schema_version": "1.0.0"}
+            )
+            (dest / "roomplan").mkdir(exist_ok=True)
+            (dest / "roomplan" / "captured-room.json").write_bytes(
+                processed
+            )
+
+            def mutate(manifest):
+                manifest["files"].append(
+                    {
+                        "path": "roomplan/captured-room.json",
+                        "bytes": len(processed),
+                        "media_type": "application/json",
+                        "sha256": hashlib.sha256(processed).hexdigest(),
+                        "producer": "capture_app",
+                        "provenance_class": "capture_app_derived",
+                        "role": "canonical",
+                        "source_refs": [],
+                    }
+                )
+                manifest["files"].sort(
+                    key=lambda entry: entry["path"].encode("utf-8")
+                )
+
+            _rewrite_manifest(dest, mutate)
+            with self.assertRaisesRegex(
+                ValidationError, "raw lineage"
+            ):
+                validate_bundle(dest)
+
+    def test_session_identity_must_be_declared(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, dest)
+
+            def mutate(document):
+                document["capture_session_id"] = (
+                    "20000000-0000-4000-8000-0000000000aa"
+                )
+
+            document = json.loads(
+                (dest / "session" / "capture-session.json")
+                .read_text(encoding="utf-8")
+            )
+            mutate(document)
+            _rewrite_payload(
+                dest,
+                "session/capture-session.json",
+                canonical_payload_json_bytes(document),
+            )
+            with self.assertRaisesRegex(
+                ValidationError, "capture_session_id"
+            ):
+                validate_bundle(dest)
+
+
 class SchemaOwnedPayloadTests(unittest.TestCase):
     """Issues #135/#188: schema-owned payloads must satisfy the published
     schema and use canonical JSON bytes."""

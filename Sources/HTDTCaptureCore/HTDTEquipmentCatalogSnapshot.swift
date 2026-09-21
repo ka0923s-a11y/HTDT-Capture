@@ -10,6 +10,33 @@ public enum HTDTEquipmentCatalogError:
     case duplicateDefinitionIdentity
     case duplicateSemanticHash
     case emptyIdentity
+    case unsupportedIdentityKind
+    case emptyDisplayMetadata
+}
+
+/// Closed `identity_kind` token set of the HTDT equipment-catalog v1
+/// entry contract (`Literal['manufacturer', 'user_defined']` in the
+/// backend model). Unknown values must fail catalog import rather than
+/// be mapped onto a supported kind (#201).
+public enum HTDTEquipmentIdentityKind:
+    String,
+    Codable,
+    Sendable,
+    Equatable,
+    Hashable,
+    CaseIterable
+{
+    case manufacturer
+    case userDefined = "user_defined"
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        guard let value = Self(rawValue: raw) else {
+            throw HTDTEquipmentCatalogError.unsupportedIdentityKind
+        }
+        self = value
+    }
 }
 
 public struct HTDTEquipmentCatalogEntry:
@@ -21,25 +48,37 @@ public struct HTDTEquipmentCatalogEntry:
     public let definitionID: String
     public let version: String
     public let semanticSHA256: EvidenceSHA256
-    public let identityKind: String
+    public let identityKind: HTDTEquipmentIdentityKind
     public let manufacturer: String?
     public let model: String?
     public let userLabel: String?
 
+    /// Enforces the exact HTDT equipment-catalog v1 entry contract:
+    /// `definition_id` and `version` are `min_length=1` strings,
+    /// `identity_kind` is the closed manufacturer/user-defined token
+    /// set, and each optional display field is `min_length=1` when
+    /// present — the same constraints the backend pydantic model
+    /// applies. Values are kept byte-exact; this entry is an exact
+    /// selection tuple, not text to normalize.
     public init(
         definitionID: String,
         version: String,
         semanticSHA256: EvidenceSHA256,
-        identityKind: String,
+        identityKind: HTDTEquipmentIdentityKind,
         manufacturer: String? = nil,
         model: String? = nil,
         userLabel: String? = nil
     ) throws {
         guard !definitionID.isEmpty,
-              !version.isEmpty,
-              !identityKind.isEmpty
+              !version.isEmpty
         else {
             throw HTDTEquipmentCatalogError.emptyIdentity
+        }
+        guard !(manufacturer?.isEmpty ?? false),
+              !(model?.isEmpty ?? false),
+              !(userLabel?.isEmpty ?? false)
+        else {
+            throw HTDTEquipmentCatalogError.emptyDisplayMetadata
         }
         self.definitionID = definitionID
         self.version = version
@@ -48,6 +87,43 @@ public struct HTDTEquipmentCatalogEntry:
         self.manufacturer = manufacturer
         self.model = model
         self.userLabel = userLabel
+    }
+
+    /// Untrusted catalog JSON must satisfy the same per-entry
+    /// invariants as the explicit initializer; routing every decoded
+    /// entry through `init(...)` keeps synthesized decoding from
+    /// bypassing validation (#201).
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(
+            keyedBy: CodingKeys.self
+        )
+        try self.init(
+            definitionID: container.decode(
+                String.self,
+                forKey: .definitionID
+            ),
+            version: container.decode(String.self, forKey: .version),
+            semanticSHA256: container.decode(
+                EvidenceSHA256.self,
+                forKey: .semanticSHA256
+            ),
+            identityKind: container.decode(
+                HTDTEquipmentIdentityKind.self,
+                forKey: .identityKind
+            ),
+            manufacturer: container.decodeIfPresent(
+                String.self,
+                forKey: .manufacturer
+            ),
+            model: container.decodeIfPresent(
+                String.self,
+                forKey: .model
+            ),
+            userLabel: container.decodeIfPresent(
+                String.self,
+                forKey: .userLabel
+            )
+        )
     }
 
     public var selectionKey: String {
@@ -197,5 +273,62 @@ public struct HTDTEquipmentCatalogSnapshot:
         case schemaVersion = "schema_version"
         case authorityVersion = "authority_version"
         case definitions
+    }
+}
+
+/// Durable app-local mirror of the last validated HTDT
+/// equipment-catalog snapshot (#211).
+///
+/// The catalog is operator reference context for exact equipment
+/// selection — it is never capture-bundle authority — so it is stored
+/// as a single app-owned JSON file outside the bundle roots. Every
+/// reload runs through the validating snapshot decoder: an unsupported
+/// schema or authority version is dropped rather than silently
+/// substituted, and annotation authority already committed inside a
+/// capture stays valid because it stores only exact equipment tuples.
+public struct HTDTEquipmentCatalogCache: Sendable {
+    /// The app-owned file holding the imported catalog bytes.
+    public let fileURL: URL
+
+    public init(fileURL: URL) {
+        self.fileURL = fileURL
+    }
+
+    /// Validates `data` through the snapshot decoder and, only on
+    /// success, writes those exact bytes atomically. Returns the
+    /// validated snapshot. An invalid candidate throws before any
+    /// write, so a rejected import never replaces the stored snapshot.
+    @discardableResult
+    public func store(
+        _ data: Data
+    ) throws -> HTDTEquipmentCatalogSnapshot {
+        let snapshot = try JSONDecoder().decode(
+            HTDTEquipmentCatalogSnapshot.self,
+            from: data
+        )
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: fileURL, options: .atomic)
+        return snapshot
+    }
+
+    /// Returns the cached snapshot only while it still validates.
+    /// A missing file is a clean miss; a corrupt or now-unsupported
+    /// file is removed so a stale snapshot is never silently reused —
+    /// the caller then requires an explicit re-import.
+    public func load() -> HTDTEquipmentCatalogSnapshot? {
+        guard let data = try? Data(contentsOf: fileURL) else {
+            return nil
+        }
+        guard let snapshot = try? JSONDecoder().decode(
+            HTDTEquipmentCatalogSnapshot.self,
+            from: data
+        ) else {
+            try? FileManager.default.removeItem(at: fileURL)
+            return nil
+        }
+        return snapshot
     }
 }

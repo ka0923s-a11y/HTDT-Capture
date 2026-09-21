@@ -21,6 +21,12 @@ public struct CaptureRootActions {
         [CaptureMeasurement]
     ) -> Void
     public let cancelAnnotation: () -> Void
+    /// Validates and adopts an imported HTDT equipment-catalog snapshot
+    /// (#211). The host owns the catalog context for the app session and
+    /// mirrors it to a durable app-support cache; the default simply
+    /// decodes through the validating initializer without persisting.
+    public let importEquipmentCatalog:
+        (Data) throws -> HTDTEquipmentCatalogSnapshot
     public let finalizeCapture: () -> Void
     public let prepareExport: () -> Void
     public let resetCapture: () -> Void
@@ -58,6 +64,13 @@ public struct CaptureRootActions {
             [CaptureMeasurement]
         ) -> Void = { _, _ in },
         cancelAnnotation: @escaping () -> Void = {},
+        importEquipmentCatalog: @escaping
+            (Data) throws -> HTDTEquipmentCatalogSnapshot = { data in
+                try JSONDecoder().decode(
+                    HTDTEquipmentCatalogSnapshot.self,
+                    from: data
+                )
+            },
         finalizeCapture: @escaping () -> Void = {},
         prepareExport: @escaping () -> Void = {},
         resetCapture: @escaping () -> Void = {},
@@ -89,6 +102,7 @@ public struct CaptureRootActions {
         self.commitAnnotationAuthority =
             commitAnnotationAuthority
         self.cancelAnnotation = cancelAnnotation
+        self.importEquipmentCatalog = importEquipmentCatalog
         self.finalizeCapture = finalizeCapture
         self.prepareExport = prepareExport
         self.resetCapture = resetCapture
@@ -125,6 +139,10 @@ public struct CaptureRootView: View {
     /// Reloaded canonical authority used to seed a pre-finalization
     /// correction pass through the annotation workspace (#163).
     public let annotationRevisionSeed: AnnotationWorkspaceSeed?
+    /// Host-owned HTDT equipment-catalog reference context for the
+    /// annotation workspace (#211). Survives annotation cancel → Review
+    /// → re-enter and relaunch; never part of capture-bundle authority.
+    public let equipmentCatalog: HTDTEquipmentCatalogSnapshot?
     /// Identity of the live working revision; carries the
     /// series/parent linkage for a revise-existing capture (#155).
     public let workingSetIdentity: CaptureWorkingSetIdentity?
@@ -158,6 +176,7 @@ public struct CaptureRootView: View {
         annotationEvidenceRefs: [String] = [],
         annotationAuthorityCommitted: Bool = false,
         annotationRevisionSeed: AnnotationWorkspaceSeed? = nil,
+        equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil,
         workingSetIdentity: CaptureWorkingSetIdentity? = nil,
         scanningPreview: AnyView? = nil,
         scanCoverage: ScanCoverageSummary = .empty,
@@ -187,6 +206,7 @@ public struct CaptureRootView: View {
         self.annotationAuthorityCommitted =
             annotationAuthorityCommitted
         self.annotationRevisionSeed = annotationRevisionSeed
+        self.equipmentCatalog = equipmentCatalog
         self.workingSetIdentity = workingSetIdentity
         self.scanningPreview = scanningPreview
         self.scanCoverage = scanCoverage
@@ -237,10 +257,13 @@ public struct CaptureRootView: View {
                     seed: annotationRevisionSeed,
                     replacesCommittedAuthority:
                         annotationAuthorityCommitted,
+                    equipmentCatalog: equipmentCatalog,
                     captureRaycastPlacement:
                         actions.captureRaycastPlacement,
                     captureSpeakerOrientation:
                         actions.captureSpeakerOrientation,
+                    onImportEquipmentCatalog:
+                        actions.importEquipmentCatalog,
                     onCommit:
                         actions.commitAnnotationAuthority,
                     onCancel: actions.cancelAnnotation

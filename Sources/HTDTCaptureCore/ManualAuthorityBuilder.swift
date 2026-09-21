@@ -10,6 +10,10 @@ public enum ManualAuthorityBuilderError:
     case invalidSpeakerChannelRole
     case orientationOnlyForSpeaker
     case derivedAcquisitionNotUserAttestable
+    /// An evidence-captured authority is expressed in a different
+    /// coordinate space than the annotation it would support (issue
+    /// #199).
+    case authorityCoordinateSpaceMismatch
 }
 
 public struct AnnotationPlacementAuthority:
@@ -18,11 +22,16 @@ public struct AnnotationPlacementAuthority:
 {
     public let worldFromAnnotation: Matrix4x4F
     public let placement: PlacementProvenance
+    /// The coordinate space the captured transform and its evidence
+    /// refs are expressed in. Evidence-linked authority must be bound
+    /// to the referenced frame's coordinate space (issue #199).
+    public let coordinateSpaceID: CoordinateSpaceID
     public let evidenceRefs: [String]
 
     public init(
         worldFromAnnotation: Matrix4x4F,
         placement: PlacementProvenance,
+        coordinateSpaceID: CoordinateSpaceID,
         evidenceRefs: [String]
     ) throws {
         let normalizedEvidence = SchemaOwnedText.nfc(evidenceRefs)
@@ -42,6 +51,7 @@ public struct AnnotationPlacementAuthority:
         }
         self.worldFromAnnotation = worldFromAnnotation
         self.placement = placement
+        self.coordinateSpaceID = coordinateSpaceID
         self.evidenceRefs = normalizedEvidence.sorted()
     }
 }
@@ -51,10 +61,14 @@ public struct AnnotationOrientationAuthority:
     Equatable
 {
     public let orientation: OrientationAxes
+    /// The coordinate space the captured orientation and its evidence
+    /// refs are expressed in (issue #199).
+    public let coordinateSpaceID: CoordinateSpaceID
     public let evidenceRefs: [String]
 
     public init(
         orientation: OrientationAxes,
+        coordinateSpaceID: CoordinateSpaceID,
         evidenceRefs: [String]
     ) throws {
         let normalizedEvidence = SchemaOwnedText.nfc(evidenceRefs)
@@ -71,6 +85,7 @@ public struct AnnotationOrientationAuthority:
             throw AnnotationModelError.missingEvidenceLink
         }
         self.orientation = orientation
+        self.coordinateSpaceID = coordinateSpaceID
         self.evidenceRefs = normalizedEvidence.sorted()
     }
 }
@@ -95,6 +110,26 @@ public enum ManualAuthorityBuilder {
               zMeters.isFinite
         else {
             throw ManualAuthorityBuilderError.invalidPosition
+        }
+
+        // Evidence-captured authorities are bound to the coordinate
+        // space of the frame they were captured from (issue #199).
+        // Applying one to an annotation in a different space would make
+        // the linked evidence geometrically non-comparable; only an
+        // explicit transform/alignment authority could bridge spaces,
+        // and none exists in v1 — manifest membership of both space IDs
+        // is never sufficient.
+        if let placementAuthority,
+           placementAuthority.coordinateSpaceID != coordinateSpaceID
+        {
+            throw ManualAuthorityBuilderError
+                .authorityCoordinateSpaceMismatch
+        }
+        if let orientationAuthority,
+           orientationAuthority.coordinateSpaceID != coordinateSpaceID
+        {
+            throw ManualAuthorityBuilderError
+                .authorityCoordinateSpaceMismatch
         }
 
         let manualTransform = try Matrix4x4F(values: [

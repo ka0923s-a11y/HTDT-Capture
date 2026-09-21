@@ -40,6 +40,8 @@ private struct HTDTCaptureHostView: View {
                 coordinator.annotationAuthorityCommitted,
             annotationRevisionSeed:
                 coordinator.annotationRevisionSeed,
+            equipmentCatalog:
+                coordinator.equipmentCatalog,
             workingSetIdentity:
                 coordinator.workingSetIdentity,
             scanningPreview: AnyView(
@@ -80,6 +82,8 @@ private struct HTDTCaptureHostView: View {
                 commitAnnotationAuthority:
                     coordinator.commitAnnotationAuthority,
                 cancelAnnotation: coordinator.cancelAnnotation,
+                importEquipmentCatalog:
+                    coordinator.importEquipmentCatalog,
                 finalizeCapture: coordinator.finalizeCapture,
                 prepareExport: coordinator.prepareExport,
                 resetCapture: coordinator.resetCapture,
@@ -162,6 +166,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// revision, reloaded for correction (#163).
     @Published private(set)
     var annotationRevisionSeed: AnnotationWorkspaceSeed?
+    /// Operator reference context for exact equipment selection (#211).
+    /// The imported HTDT catalog snapshot is host-owned and mirrored to
+    /// an app-support cache so it survives annotation cancel → Review →
+    /// re-enter and app relaunch. It is never persisted into the capture
+    /// bundle: annotations store only the exact selected equipment
+    /// tuple as immutable authority.
+    @Published private(set)
+    var equipmentCatalog: HTDTEquipmentCatalogSnapshot?
+    private let equipmentCatalogCache =
+        HTDTCaptureHostCoordinator.makeEquipmentCatalogCache()
 
     private var stateMachine = CaptureStateMachine()
     private var sessionController = SharedARSessionController()
@@ -277,6 +291,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         loadPersistedCaptures()
+
+        // #211: restore the last validated equipment-catalog snapshot so
+        // the operator's reference context survives relaunch. A missing
+        // or no-longer-valid cache simply means the annotation workspace
+        // asks for an explicit re-import; annotation authority already
+        // committed in any capture is unaffected.
+        equipmentCatalog = equipmentCatalogCache?.load()
 
         #if canImport(UIKit)
         memoryWarningCancellable =
@@ -926,9 +947,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     func beginAnnotation() {
+        // Annotation editing is spatial continuation authority: once a
+        // post-End resource/lifecycle condition sealed it (#112), the
+        // accepted Review remains finalizable but the annotation
+        // workspace must not reopen — its coordinate space is already
+        // torn down, so an entry here could strand .annotating with no
+        // rendered workspace or Cancel affordance.
         guard state == .reviewing,
               !isEndingScan,
               !reviewOperationInFlight,
+              !spatialAuthoritySealedForFinalization,
               let store = workingSetStore
         else {
             return
@@ -1084,6 +1112,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
         let authority = try AnnotationOrientationAuthority(
             orientation: orientation,
+            coordinateSpaceID:
+                package.descriptor.coordinateSpaceID,
             evidenceRefs: [evidenceRef]
         )
 
@@ -1175,6 +1205,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let authority = try AnnotationPlacementAuthority(
             worldFromAnnotation: transform,
             placement: placement,
+            coordinateSpaceID:
+                package.descriptor.coordinateSpaceID,
             evidenceRefs: [evidenceRef]
         )
 
@@ -1375,6 +1407,32 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     + "]"
             }
         }
+    }
+
+    /// Validates and adopts an imported HTDT equipment-catalog snapshot
+    /// (#211). The snapshot is operator reference context only: it is
+    /// held on the host and mirrored to an app-support cache so it
+    /// survives annotation cancel → Review → re-enter and app relaunch.
+    /// No catalog bytes enter the capture bundle; annotations keep
+    /// storing only the exact selected ID/version/SHA-256 tuple.
+    ///
+    /// A throw means the candidate failed schema/authority validation
+    /// and the previously imported snapshot — if any — stays adopted.
+    /// A failed cache write only means the next launch requires an
+    /// explicit re-import; the in-session context remains usable.
+    func importEquipmentCatalog(
+        from data: Data
+    ) throws -> HTDTEquipmentCatalogSnapshot {
+        let snapshot = try JSONDecoder().decode(
+            HTDTEquipmentCatalogSnapshot.self,
+            from: data
+        )
+        equipmentCatalog = snapshot
+        // Best-effort durable mirror of the exact imported bytes. A
+        // failure only means the next launch requires an explicit
+        // re-import; the in-session context remains usable.
+        _ = try? equipmentCatalogCache?.store(data)
+        return snapshot
     }
 
     func finalizeCapture() {
@@ -1614,12 +1672,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         throw error
                     }
 
-                    if let existingValidation =
-                        try? StoredCaptureBundleArchiveValidator
-                            .validate(archive: destination),
-                       existingValidation.bundleDigest
-                        == finalizedRevision.bundleDigest
-                    {
+                    if ExistingExportArchiveClassifier.disposition(
+                        at: destination,
+                        expectedBundleDigest:
+                            finalizedRevision.bundleDigest
+                    ) == .recoverValidated {
                         self.exportURL = destination
                         try self.transition(.export)
                         self.workingSetStatus = HostLocalization.text(
@@ -2363,6 +2420,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
+    /// App-owned cache for the last validated HTDT equipment-catalog
+    /// snapshot (#211). It lives directly under the capture app-support
+    /// root — outside `finalized/`, `exports/` and `working/` — so the
+    /// persisted-capture inventory never classifies it as a capture
+    /// artifact and no catalog bytes ever enter a bundle.
+    private static func makeEquipmentCatalogCache()
+        -> HTDTEquipmentCatalogCache?
+    {
+        captureRootDirectory().map {
+            HTDTEquipmentCatalogCache(
+                fileURL: $0.appendingPathComponent(
+                    "imported-equipment-catalog.json",
+                    isDirectory: false
+                )
+            )
+        }
+    }
+
     private func continueBeginCapture() async {
         capabilities = PlatformCapabilityProbe.current()
 
@@ -2548,6 +2623,33 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        // #200: RoomPlan's run() necessarily starts the shared ARSession,
+        // so the first usable monotonic↔UTC correlation is captured
+        // immediately here — before the active-configuration retry window
+        // and before session-foundation persistence, which must not delay
+        // the start-boundary sample. The correlation's method label
+        // ("bracketed_first_arframe_at_session_start") records that this
+        // is the first frame delivered after the start request; any
+        // framework-internal observation between run() and that frame
+        // precedes the stored correlation interval.
+        do {
+            captureStartTimingCorrelation =
+                try await waitForInitialTimingCorrelation()
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "AR tracking did not produce an initial frame in time",
+                "AR トラッキングの初期フレームを時間内に取得できませんでした"
+            )
+            fail(.trackingUnavailable)
+            return
+        }
+
+        guard state == .scanning,
+              captureGeneration == generation
+        else {
+            return
+        }
+
         let activeConfiguration: CaptureConfigurationProfile
         do {
             activeConfiguration =
@@ -2586,24 +2688,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 "キャプチャのセッション情報を保存できませんでした"
             )
             fail(.persistenceFailure)
-            return
-        }
-
-        guard state == .scanning,
-              captureGeneration == generation
-        else {
-            return
-        }
-
-        do {
-            captureStartTimingCorrelation =
-                try await waitForInitialTimingCorrelation()
-        } catch {
-            workingSetStatus = HostLocalization.text(
-                "AR tracking did not produce an initial frame in time",
-                "AR トラッキングの初期フレームを時間内に取得できませんでした"
-            )
-            fail(.trackingUnavailable)
             return
         }
 
@@ -2783,7 +2867,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         let endTiming: CaptureTimingCorrelation
         do {
-            endTiming = try sessionController.snapshotTimingCorrelation()
+            endTiming =
+                try sessionController.snapshotTimingCorrelation(
+                    boundary: .sessionEnd
+                )
         } catch {
             endScanGuidance = HostLocalization.text(
                 "Cannot end yet: the current AR frame cannot be correlated to capture time. Keep the phone steady until tracking recovers, then try End again.",
@@ -3023,7 +3110,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     .invalidCorrelationOrder
             }
             let endTiming =
-                try sessionController.snapshotTimingCorrelation()
+                try sessionController.snapshotTimingCorrelation(
+                    boundary: .sessionEnd
+                )
             timingPackage =
                 try CaptureTimingPackageBuilder.build(
                     start: startTiming,
@@ -3257,9 +3346,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
+            // #208: raw/processed RoomPlan JSON materialization, hashing
+            // and descriptor construction are nonisolated CPU work on
+            // the Sendable CapturedRoomData/CapturedRoom values; each
+            // `await` suspends this MainActor task so the encoding runs
+            // on the cooperative executor instead of blocking the
+            // UI/capture actor during the End critical section. The
+            // strict ordering — raw payload, processed lineage, then the
+            // persistence transaction — is unchanged.
             let raw: RoomPlanRawArtifactPayload
             do {
-                raw = try RoomPlanArtifactProcessor.encodeRaw(
+                raw = try await RoomPlanArtifactProcessor.encodeRaw(
                     data,
                     captureSessionID: captureSessionID,
                     coordinateSpaceID: coordinateSpaceID,
@@ -3851,12 +3948,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         throw ARConfigurationSnapshotError.configurationUnavailable
     }
 
+    /// Start-boundary correlation (#200): returns the first bracketed
+    /// ARSession frame↔UTC sample available after the start request,
+    /// labelled `.sessionStart` so the timing document identifies it as
+    /// the earliest observed session time. Invoked immediately after
+    /// `startRoomPlan()`, before any unrelated awaits.
     private func waitForInitialTimingCorrelation()
         async throws -> CaptureTimingCorrelation
     {
         for _ in 0..<40 {
             if let correlation =
-                try? sessionController.snapshotTimingCorrelation()
+                try? sessionController.snapshotTimingCorrelation(
+                    boundary: .sessionStart
+                )
             {
                 return correlation
             }
@@ -3885,6 +3989,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         qualityReport = report
         annotationEvidenceRefs = snapshot.evidenceFrameRefs
+
+        // A resource/lifecycle event may have sealed spatial
+        // continuation while this refresh was suspended on the store
+        // actor. Under the seal the ordered resource-event chain owns
+        // the user-facing recovery status (#115); publishing the
+        // generic Review quality text here could overwrite that
+        // explanation depending on which continuation resumes last.
+        // The refreshed report/refs above still publish so a deferred
+        // finalization retry observes current quality authority.
+        guard !spatialAuthoritySealedForFinalization else {
+            return
+        }
 
         if report.readyForHTDTIngestion {
             workingSetStatus =

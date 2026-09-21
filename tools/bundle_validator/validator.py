@@ -49,6 +49,30 @@ MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 MAX_TOTAL_BYTES = 4 * 1024 * 1024 * 1024
 MAX_COMPRESSION_RATIO = 200.0
 
+# v1 source_ref budgets (#195). Lineage work must stay bounded
+# independently of the manifest byte cap; identical limits are enforced
+# by the Swift manifest validator and the reference ingestor.
+MAX_SOURCE_REFS_PER_ENTRY = 32
+MAX_SOURCE_REF_BYTES = 512
+MAX_SOURCE_REFS_TOTAL = 65_536
+
+# Minimum v1 foundation payload set (#194). The manifest's session and
+# coordinate-space identity arrays are only meaningful with the documents
+# that ground them, and #127 requires the persisted quality authority.
+# session/device.json, session/capabilities.json and
+# roomplan/captured-room-metadata.json are intentionally optional.
+FOUNDATION_REQUIRED_PATHS = frozenset({
+    "quality/capture-quality.json",
+    "session/capture-configuration.json",
+    "session/capture-session.json",
+    "session/timing.json",
+})
+# Processed-only RoomPlan promotion is rejected (#194): whenever the
+# canonical processed payload is declared, the canonical raw authority
+# must be declared and bound in the processed entry's source_refs.
+# Legacy bundles that carry RoomPlan payloads at non-reserved paths are
+# handled by the ingestor's provenance-class fallback instead.
+
 SCHEMA_DIR = (
     Path(__file__).resolve().parents[2] / "schemas" / "capture-bundle-v1"
 )
@@ -355,6 +379,16 @@ def validate_manifest_shape(manifest: dict) -> None:
             refs = entry["source_refs"]
             if not isinstance(refs, list) or not all(isinstance(x, str) and x for x in refs):
                 raise ValidationError(f"invalid source_refs for {path}")
+            if len(refs) > MAX_SOURCE_REFS_PER_ENTRY:
+                raise ValidationError(
+                    f"too many source_refs for {path} "
+                    f"(max {MAX_SOURCE_REFS_PER_ENTRY})"
+                )
+            if any(
+                len(ref.encode("utf-8")) > MAX_SOURCE_REF_BYTES
+                for ref in refs
+            ):
+                raise ValidationError(f"oversized source_ref for {path}")
             if len(set(refs)) != len(refs):
                 raise ValidationError(f"duplicate source_refs for {path}")
 
@@ -390,14 +424,26 @@ def _validate_source_refs(manifest: dict, entries_by_path: dict) -> None:
     form lineage cycles.
     """
     declared_paths = set(entries_by_path)
-    declared_hashes = {
-        entry["sha256"] for entry in entries_by_path.values()
-    }
+    # A sha256 source_ref must name exactly one payload authority (#193):
+    # identical bytes under different logical paths carry different
+    # producer/provenance/lineage, so an ambiguous digest cannot stand in
+    # for a source authority and must be expressed as a path: ref instead.
+    digest_counts: dict[str, int] = {}
+    for entry in entries_by_path.values():
+        digest = entry["sha256"]
+        digest_counts[digest] = digest_counts.get(digest, 0) + 1
     session_ids = set(manifest["capture_session_ids"])
 
     path_edges: dict[str, list[str]] = {}
+    total_refs = 0
     for path, entry in entries_by_path.items():
         refs = entry.get("source_refs") or []
+        total_refs += len(refs)
+        if total_refs > MAX_SOURCE_REFS_TOTAL:
+            raise ValidationError(
+                f"manifest exceeds the aggregate source_ref budget "
+                f"({MAX_SOURCE_REFS_TOTAL})"
+            )
         for ref in refs:
             if ref in SOURCE_REF_SENTINELS:
                 continue
@@ -431,9 +477,16 @@ def _validate_source_refs(manifest: dict, entries_by_path: dict) -> None:
                     raise ValidationError(
                         f"self-referential sha256 source_ref for {path}: {ref!r}"
                     )
-                if target not in declared_hashes:
+                count = digest_counts.get(target, 0)
+                if count == 0:
                     raise ValidationError(
                         f"dangling sha256 source_ref for {path}: {ref!r}"
+                    )
+                if count > 1:
+                    raise ValidationError(
+                        f"ambiguous sha256 source_ref for {path}: {ref!r} "
+                        f"names {count} payload authorities; use a path: "
+                        f"reference to bind exactly one"
                     )
             elif namespace == "capture_session":
                 try:
@@ -990,6 +1043,16 @@ def validate_bundle(path: Path) -> dict:
 
     declared_entries = {entry["path"]: entry for entry in manifest["files"]}
     declared = set(declared_entries)
+
+    # Minimum foundation payload set (#194): a manifest whose identity
+    # arrays have no grounding documents is not a finalized v1 bundle.
+    missing_foundation = sorted(FOUNDATION_REQUIRED_PATHS - declared)
+    if missing_foundation:
+        raise ValidationError(
+            "bundle is missing required foundation payloads: "
+            f"{missing_foundation}"
+        )
+
     actual_payloads = set(actual_files) - {"manifest.json"}
     if declared != actual_payloads:
         missing = sorted(declared - actual_payloads)
@@ -1030,6 +1093,51 @@ def validate_bundle(path: Path) -> dict:
                     f"{path_text} is not a valid {binary_format} payload: "
                     f"{exc}"
                 ) from exc
+
+    # The session document is guaranteed present and schema-valid by the
+    # foundation check above; it grounds the manifest's declared session
+    # and coordinate-space identities (#194).
+    session_document = schema_documents["session/capture-session.json"]
+    if session_document["capture_session_id"] not in set(
+        manifest["capture_session_ids"]
+    ):
+        raise ValidationError(
+            "session/capture-session.json capture_session_id is not "
+            "declared in manifest capture_session_ids"
+        )
+    if session_document["coordinate_space_id"] not in set(
+        manifest["coordinate_space_ids"]
+    ):
+        raise ValidationError(
+            "session/capture-session.json coordinate_space_id is not "
+            "declared in manifest coordinate_space_ids"
+        )
+    # RoomPlan lineage (#194): the processed inference payload may never
+    # be promoted without its raw authority. When the canonical processed
+    # path is declared, the canonical raw payload must be declared and
+    # bound by digest in the processed entry's source_refs. Legacy
+    # bundles carrying RoomPlan payloads at non-reserved paths are left
+    # to the ingestor's provenance-class handling.
+    if "roomplan/captured-room.json" in declared:
+        raw_path = "roomplan/captured-room-data.json"
+        if raw_path not in declared:
+            raise ValidationError(
+                "processed RoomPlan payload roomplan/captured-room.json "
+                "is missing its raw lineage payload "
+                "roomplan/captured-room-data.json"
+            )
+        raw_digest = declared_entries[raw_path]["sha256"]
+        processed_refs = declared_entries["roomplan/captured-room.json"][
+            "source_refs"
+        ]
+        if (
+            f"sha256:{raw_digest}" not in processed_refs
+            and f"path:{raw_path}" not in processed_refs
+        ):
+            raise ValidationError(
+                "roomplan/captured-room.json does not reference its raw "
+                "authority roomplan/captured-room-data.json"
+            )
 
     # Cross-document checks bind schema-owned indexes/descriptors to the
     # binary payloads they name.

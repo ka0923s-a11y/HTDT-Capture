@@ -65,8 +65,15 @@ enum BundleValidationFixture {
             captureSeriesID: CaptureSeriesID(),
             captureRevisionID: CaptureRevisionID(),
             parentRevisionID: nil,
-            captureSessionIDs: [CaptureSessionID()],
-            coordinateSpaceIDs: [CoordinateSpaceID()],
+            // Fixture manifests ground the session document's declared
+            // identities (#194): the session/timing/configuration refs
+            // all resolve to the fixture constants.
+            captureSessionIDs: [
+                CaptureSessionID(canonicalString: sessionUUID)!
+            ],
+            coordinateSpaceIDs: [
+                CoordinateSpaceID(canonicalString: spaceUUID)!
+            ],
             createdAtUTC: "2026-09-20T00:00:00Z",
             finalizedAtUTC: "2026-09-20T00:01:00Z",
             app: BundleAppIdentity(version: "0.1.0", build: "test"),
@@ -78,8 +85,36 @@ enum BundleValidationFixture {
         _ root: URL,
         payloads: [(path: String, data: Data, mediaType: String)]
     ) throws {
+        // Foundation payloads (#194) are auto-staged so every staged
+        // bundle satisfies the finalized-v1 minimum set. Callers may
+        // still override any of them by passing the same path.
+        let foundation: [(path: String, data: Data, mediaType: String)] = [
+            (
+                "session/capture-session.json",
+                try canonical(sessionValue()),
+                "application/json"
+            ),
+            (
+                "session/capture-configuration.json",
+                try canonical(configurationValue()),
+                "application/json"
+            ),
+            (
+                "session/timing.json",
+                try canonical(timingValue()),
+                "application/json"
+            ),
+            (
+                "quality/capture-quality.json",
+                try canonical(qualityValue()),
+                "application/json"
+            ),
+        ]
+        let declaredPaths = Set(payloads.map(\.path))
         var entries: [BundleFileEntry] = []
-        for payload in payloads {
+        for payload in payloads
+            + foundation.filter({ !declaredPaths.contains($0.path) })
+        {
             try write(payload.data, to: payload.path, in: root)
             entries.append(
                 try entry(
@@ -93,6 +128,42 @@ enum BundleValidationFixture {
         try manifest.canonicalBytes().write(
             to: root.appendingPathComponent("manifest.json")
         )
+    }
+
+    static func configurationValue() -> StrictJSONValue {
+        .object([
+            ("schema", .string("htdt.capture.configuration")),
+            ("schema_version", .string("1.0.0")),
+            ("capture_mode", .string("roomplan_mesh")),
+            ("world_alignment", .string("gravity")),
+            ("plane_detection", .array([.string("horizontal")])),
+            ("scene_reconstruction", .string("mesh")),
+            ("frame_semantics", .array([])),
+            ("roomplan", .object([])),
+        ])
+    }
+
+    static func timingValue() -> StrictJSONValue {
+        .object([
+            ("schema", .string("htdt.capture.timing")),
+            ("schema_version", .string("1.0.0")),
+            ("clock_domain", .string("monotonic")),
+            (
+                "correlations",
+                .array([
+                    .object([
+                        ("monotonic_s", .number(1)),
+                        ("utc", .string("2026-09-20T00:00:00Z")),
+                        ("method", .string("test")),
+                    ]),
+                    .object([
+                        ("monotonic_s", .number(2)),
+                        ("utc", .string("2026-09-20T00:01:00Z")),
+                        ("method", .string("test")),
+                    ]),
+                ])
+            ),
+        ])
     }
 
     static func sessionValue() -> StrictJSONValue {
@@ -131,6 +202,51 @@ enum BundleValidationFixture {
             ("benchmark_refs", .array([])),
             ("diagnostics", .array([])),
         ])
+    }
+
+    /// The manifest declarations matching the foundation payloads
+    /// written by ``stageFoundationPayloads`` — useful when a request
+    /// builder needs the declarations separately from the write.
+    static func foundationPayloadDeclarations()
+        -> [BundlePayloadDeclaration]
+    {
+        [
+            "session/capture-session.json",
+            "session/capture-configuration.json",
+            "session/timing.json",
+        ].map { path in
+            let binding = BundleReservedPaths.binding(for: path)!
+            return BundlePayloadDeclaration(
+                path: path,
+                mediaType: "application/json",
+                producer: binding.producer,
+                provenanceClass: binding.provenanceClass,
+                role: binding.role
+            )
+        }
+    }
+
+    /// Writes the minimum foundation payload set (#194) into a staging
+    /// directory and returns the matching payload declarations. The
+    /// caller must pass ``sessionUUID``/``spaceUUID`` as the manifest
+    /// ``captureSessionIDs``/``coordinateSpaceIDs`` so the session
+    /// document grounds the manifest identity arrays.
+    static func stageFoundationPayloads(
+        in staging: URL
+    ) throws -> [BundlePayloadDeclaration] {
+        let payloads: [(path: String, value: StrictJSONValue)] = [
+            ("session/capture-session.json", sessionValue()),
+            (
+                "session/capture-configuration.json",
+                configurationValue()
+            ),
+            ("session/timing.json", timingValue()),
+        ]
+        for payload in payloads {
+            let data = try canonical(payload.value)
+            try write(data, to: payload.path, in: staging)
+        }
+        return foundationPayloadDeclarations()
     }
 
     static func entitiesValue() -> StrictJSONValue {

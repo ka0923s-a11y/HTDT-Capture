@@ -28,6 +28,12 @@ public struct CaptureAnnotationWorkspaceView: View {
         () async throws -> AnnotationPlacementAuthority
     public let captureSpeakerOrientation:
         () async throws -> AnnotationOrientationAuthority
+    /// Validates and adopts an imported catalog snapshot through the
+    /// host (#211). The host keeps the catalog alive across this view's
+    /// lifecycle (and relaunch, via an app-support cache); the default
+    /// only decodes through the validating initializer.
+    public let onImportEquipmentCatalog:
+        (Data) throws -> HTDTEquipmentCatalogSnapshot
     public let onCommit: (
         [CaptureAnnotationEntity],
         [CaptureMeasurement]
@@ -38,6 +44,10 @@ public struct CaptureAnnotationWorkspaceView: View {
     @State private var measurements: [CaptureMeasurement]
     @State private var addingAnnotation = false
     @State private var addingMeasurement = false
+    /// The catalog snapshot currently adopted by the host, seeded when
+    /// this workspace opens (#211). Selecting "Replace equipment
+    /// catalog" always runs through `onImportEquipmentCatalog`, so an
+    /// unsupported file never silently substitutes the kept snapshot.
     @State private var equipmentCatalog:
         HTDTEquipmentCatalogSnapshot?
     @State private var importingEquipmentCatalog = false
@@ -49,6 +59,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         statusMessage: String? = nil,
         seed: AnnotationWorkspaceSeed? = nil,
         replacesCommittedAuthority: Bool = false,
+        equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil,
         captureRaycastPlacement: @escaping
             () async throws -> AnnotationPlacementAuthority = {
                 throw ManualAuthorityBuilderError.invalidPosition
@@ -56,6 +67,13 @@ public struct CaptureAnnotationWorkspaceView: View {
         captureSpeakerOrientation: @escaping
             () async throws -> AnnotationOrientationAuthority = {
                 throw ManualAuthorityBuilderError.invalidSpeakerYaw
+            },
+        onImportEquipmentCatalog: @escaping
+            (Data) throws -> HTDTEquipmentCatalogSnapshot = { data in
+                try JSONDecoder().decode(
+                    HTDTEquipmentCatalogSnapshot.self,
+                    from: data
+                )
             },
         onCommit: @escaping (
             [CaptureAnnotationEntity],
@@ -71,6 +89,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         self.captureRaycastPlacement = captureRaycastPlacement
         self.captureSpeakerOrientation =
             captureSpeakerOrientation
+        self.onImportEquipmentCatalog = onImportEquipmentCatalog
         self.onCommit = onCommit
         self.onCancel = onCancel
         _annotations = State(
@@ -79,6 +98,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         _measurements = State(
             initialValue: seed?.measurements ?? []
         )
+        _equipmentCatalog = State(initialValue: equipmentCatalog)
     }
 
     public var body: some View {
@@ -99,13 +119,13 @@ public struct CaptureAnnotationWorkspaceView: View {
                         )
                     )
                     Text(
-                        "Selections bind exact ID/version/SHA-256 only. The imported catalog is not stored as equipment authority in the capture bundle."
+                        "Selections bind exact ID/version/SHA-256 only. The imported catalog is not stored as equipment authority in the capture bundle; it is kept on this device as reference context and can be replaced explicitly."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 } else {
                     Text(
-                        "Optional. Import a catalog snapshot exported from the HTDT backend."
+                        "Optional. Import a catalog snapshot exported from the HTDT backend. Once imported it stays available for later annotation sessions on this device."
                     )
                     .foregroundStyle(.secondary)
                 }
@@ -252,14 +272,13 @@ public struct CaptureAnnotationWorkspaceView: View {
             }
 
             let data = try Data(contentsOf: url)
-            equipmentCatalog =
-                try JSONDecoder().decode(
-                    HTDTEquipmentCatalogSnapshot.self,
-                    from: data
-                )
+            // The host validates (schema + authority version), adopts
+            // and durably caches the snapshot (#211). A failed import
+            // keeps the previously adopted catalog instead of clearing
+            // it: the error is shown and nothing is silently replaced.
+            equipmentCatalog = try onImportEquipmentCatalog(data)
             equipmentCatalogError = nil
         } catch {
-            equipmentCatalog = nil
             equipmentCatalogError =
                 String(localized: "Catalog import failed: ")
                 + String(describing: error)
@@ -313,7 +332,11 @@ private struct ManualAnnotationForm: View {
     @State private var equipmentVersion = ""
     @State private var equipmentHash = ""
     @State private var selectedEquipmentKey = ""
-    @State private var selectedEvidenceRefs = Set<String>()
+    // Issue #207: evidence refs carry ownership — user-selected refs
+    // survive authority reverts; authority-owned refs disappear with
+    // the authority that introduced them.
+    @State private var evidenceSelection =
+        AnnotationEvidenceSelection()
     @State private var placementAuthority:
         AnnotationPlacementAuthority?
     @State private var isCapturingRaycast = false
@@ -357,6 +380,8 @@ private struct ManualAnnotationForm: View {
                     )
                     Button("Use manual position instead") {
                         placementAuthority = nil
+                        evidenceSelection
+                            .replacePlacementAuthority(nil)
                     }
                 }
             }
@@ -383,6 +408,8 @@ private struct ManualAnnotationForm: View {
                         )
                         Button("Use manual yaw instead") {
                             self.orientationAuthority = nil
+                            evidenceSelection
+                                .replaceOrientationAuthority(nil)
                         }
                     } else {
                         TextField(
@@ -409,7 +436,7 @@ private struct ManualAnnotationForm: View {
                     availableEvidenceRefs:
                         availableEvidenceRefs,
                     selectedEvidenceRefs:
-                        $selectedEvidenceRefs
+                        $evidenceSelection.userSelected
                 )
             }
 
@@ -529,9 +556,8 @@ private struct ManualAnnotationForm: View {
                 let authority =
                     try await captureSpeakerOrientation()
                 orientationAuthority = authority
-                selectedEvidenceRefs.formUnion(
-                    authority.evidenceRefs
-                )
+                evidenceSelection
+                    .replaceOrientationAuthority(authority)
             } catch {
                 errorText = String(describing: error)
             }
@@ -568,9 +594,8 @@ private struct ManualAnnotationForm: View {
                         authority.worldFromAnnotation.values[14]
                     )
                 )
-                selectedEvidenceRefs.formUnion(
-                    authority.evidenceRefs
-                )
+                evidenceSelection
+                    .replacePlacementAuthority(authority)
             } catch {
                 errorText = String(describing: error)
             }
@@ -616,7 +641,7 @@ private struct ManualAnnotationForm: View {
                 speakerYawDegrees:
                     type == .speaker ? Double(yawText) : nil,
                 equipmentReference: equipment,
-                evidenceRefs: selectedEvidenceRefs.sorted(),
+                evidenceRefs: evidenceSelection.effectiveRefs,
                 placementAuthority: placementAuthority,
                 orientationAuthority: orientationAuthority
             )

@@ -354,14 +354,25 @@ func finalizationIsAtomicValidatedAndNoOverwrite() async throws {
         )
     )
 
+    // #194: a finalized v1 bundle carries the foundation payload set;
+    // the manifest identity arrays must match the staged session doc.
+    let foundationDeclarations =
+        try BundleValidationFixture.stageFoundationPayloads(
+            in: staging
+        )
+
     let destination = root.appendingPathComponent(
         "finalized",
         isDirectory: true
     )
     let seriesID = CaptureSeriesID()
     let revisionID = CaptureRevisionID()
-    let sessionID = CaptureSessionID()
-    let spaceID = CoordinateSpaceID()
+    let sessionID = CaptureSessionID(
+        canonicalString: BundleValidationFixture.sessionUUID
+    )!
+    let spaceID = CoordinateSpaceID(
+        canonicalString: BundleValidationFixture.spaceUUID
+    )!
 
     let request = BundleFinalizationRequest(
         captureSeriesID: seriesID,
@@ -374,7 +385,7 @@ func finalizationIsAtomicValidatedAndNoOverwrite() async throws {
             version: "0.1.0",
             build: "test"
         ),
-        payloads: [
+        payloads: foundationDeclarations + [
             BundlePayloadDeclaration(
                 path: "quality/capture-quality.json",
                 mediaType: "application/json",
@@ -407,7 +418,8 @@ func finalizationIsAtomicValidatedAndNoOverwrite() async throws {
         root: destination
     )
     #expect(validation.bundleDigest == finalized.bundleDigest)
-    #expect(validation.payloadCount == 1)
+    // quality + session×3 foundation payloads (#194)
+    #expect(validation.payloadCount == 4)
 
     let secondStaging = root.appendingPathComponent(
         "staging-2",
@@ -521,18 +533,30 @@ func validatorDetectsTamperAfterFinalization() async throws {
         )
     )
 
+    let foundationDeclarations =
+        try BundleValidationFixture.stageFoundationPayloads(
+            in: staging
+        )
     let request = BundleFinalizationRequest(
         captureSeriesID: CaptureSeriesID(),
         captureRevisionID: CaptureRevisionID(),
-        captureSessionIDs: [CaptureSessionID()],
-        coordinateSpaceIDs: [CoordinateSpaceID()],
+        captureSessionIDs: [
+            CaptureSessionID(
+                canonicalString: BundleValidationFixture.sessionUUID
+            )!
+        ],
+        coordinateSpaceIDs: [
+            CoordinateSpaceID(
+                canonicalString: BundleValidationFixture.spaceUUID
+            )!
+        ],
         createdAtUTC: "2026-09-20T00:00:00Z",
         finalizedAtUTC: "2026-09-20T00:01:00Z",
         app: BundleAppIdentity(
             version: "0.1.0",
             build: "test"
         ),
-        payloads: [
+        payloads: foundationDeclarations + [
             BundlePayloadDeclaration(
                 path: "payload.bin",
                 mediaType: "application/octet-stream",

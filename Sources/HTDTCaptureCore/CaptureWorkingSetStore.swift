@@ -24,6 +24,16 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     case workingSetSealed
     case workingSetNotSealed
     case workingSetConsumed
+    /// A spatial evidence link (`path:evidence/frames/<id>.json`,
+    /// `frame:<uuid>`, `mesh_anchor:<uuid>`, or a placement's
+    /// `source_mesh_anchor_id`) cannot be resolved to committed
+    /// frame/mesh authority, so its coordinate-space congruence can
+    /// never be proven (issue #199).
+    case unresolvableSpatialEvidenceLink(String)
+    /// A spatial evidence link resolves to committed frame/mesh
+    /// authority expressed in a different coordinate space than the
+    /// record referencing it (issue #199).
+    case spatialEvidenceSpaceMismatch(String)
 }
 
 public struct CaptureWorkingSetIdentity: Sendable, Equatable {
@@ -485,14 +495,75 @@ public actor CaptureWorkingSetStore {
                 .invalidSessionFoundationPackage
         }
 
-        try bindAuthority(
+        // The session/coordinate binding is part of the logical commit
+        // (issue #202): validate the proposed authority now, but publish
+        // it only after the foundation files are durable. A failed write
+        // leaves the working set's identity exactly as it was.
+        try validateAuthority(
             captureSessionID: package.session.captureSessionID,
             coordinateSpaceID: package.session.coordinateSpaceID
         )
 
+        // The foundation is write-once authority and its four canonical
+        // files are one recoverable transaction (issue #203): an
+        // identical replay is idempotent, and any other package on a
+        // committed foundation is a conflicting canonical payload.
+        // Detecting a committed foundation before writing means a
+        // reentrant attempt never treats a partial-write artifact as a
+        // new commit.
+        if let existing = sessionFoundation {
+            if existing == package {
+                return
+            }
+            throw CaptureWorkingSetError.duplicatePayloadDeclaration(
+                CaptureSessionFoundationPackage.sessionPath
+            )
+        }
+        if let conflicting = package.payloadDeclarations.first(where: {
+            declarations[$0.path] != nil
+                && declarations[$0.path] != $0
+        }) {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(conflicting.path)
+        }
+
+        // All four files commit as one writer-actor batch: files this
+        // attempt creates roll back on a mid-write failure,
+        // byte-identical leftovers from an interrupted attempt are
+        // adopted, and conflicting pre-existing bytes fail closed.
         try await package.persist(using: writer)
+
+        // The store actor may have re-entered while the writer ran: an
+        // identical reentrant commit is harmless, anything else fails
+        // closed rather than mixing foundation authority.
+        if let existing = sessionFoundation {
+            if existing == package {
+                return
+            }
+            throw CaptureWorkingSetError.duplicatePayloadDeclaration(
+                CaptureSessionFoundationPackage.sessionPath
+            )
+        }
+        guard package.payloadDeclarations.allSatisfy({
+            declarations[$0.path] == nil
+                || declarations[$0.path] == $0
+        }) else {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    CaptureSessionFoundationPackage.sessionPath
+                )
+        }
+
+        // No suspension points below: identity binding, all four
+        // declarations, and the foundation record publish as one
+        // logical commit — never a subset of the foundation files
+        // (issues #202/#203).
+        try publishAuthority(
+            captureSessionID: package.session.captureSessionID,
+            coordinateSpaceID: package.session.coordinateSpaceID
+        )
         for declaration in package.payloadDeclarations {
-            try register(declaration)
+            declarations[declaration.path] = declaration
         }
         sessionFoundation = package
     }
@@ -611,7 +682,10 @@ public actor CaptureWorkingSetStore {
                 .invalidProcessedRoomPlanDescriptor
         }
 
-        try bindAuthority(
+        // Validate the proposed authority without mutating it: the
+        // binding publishes only inside the post-write commit block so a
+        // failed transaction cannot leave ghost identity (issue #202).
+        try validateAuthority(
             captureSessionID: raw.descriptor.captureSessionID,
             coordinateSpaceID: raw.descriptor.coordinateSpaceID
         )
@@ -785,7 +859,15 @@ public actor CaptureWorkingSetStore {
         }
 
         // There are no suspension points after this line. Commit the logical
-        // authority atomically after every required file is durable.
+        // authority atomically after every required file is durable. The
+        // session/coordinate binding publishes first: if a reentrant
+        // commit bound a different authority while this transaction was
+        // suspended, publication fails closed instead of rebinding the
+        // revision (issue #202).
+        try publishAuthority(
+            captureSessionID: raw.descriptor.captureSessionID,
+            coordinateSpaceID: raw.descriptor.coordinateSpaceID
+        )
         for declaration in transactionDeclarations {
             declarations[declaration.path] = declaration
         }
@@ -1152,7 +1234,10 @@ public actor CaptureWorkingSetStore {
             throw CaptureWorkingSetError.invalidRawRoomPlanDescriptor
         }
 
-        try bindAuthority(
+        // Validate without mutating: the binding publishes only after
+        // the raw artifact and lineage document are durable (issue
+        // #202).
+        try validateAuthority(
             captureSessionID: descriptor.captureSessionID,
             coordinateSpaceID: descriptor.coordinateSpaceID
         )
@@ -1227,9 +1312,26 @@ public actor CaptureWorkingSetStore {
                 RoomPlanEvidenceArtifactBuilder.rawPath
             )
         }
+        guard declarations[declaration.path] == nil
+                || declarations[declaration.path] == declaration,
+              declarations[metadataDeclaration.path] == nil
+                || declarations[metadataDeclaration.path]
+                    == metadataDeclaration
+        else {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    descriptor.relativePath
+                )
+        }
 
-        try register(declaration)
-        try register(metadataDeclaration)
+        // No suspension points below: identity binding, declarations,
+        // and logical state publish as one commit (issue #202).
+        try publishAuthority(
+            captureSessionID: descriptor.captureSessionID,
+            coordinateSpaceID: descriptor.coordinateSpaceID
+        )
+        declarations[declaration.path] = declaration
+        declarations[metadataDeclaration.path] = metadataDeclaration
         rawRoomPlanDescriptor = descriptor
         capturedRoomMetadata = metadata.document
     }
@@ -1509,7 +1611,9 @@ public actor CaptureWorkingSetStore {
                     throw CaptureWorkingSetError.invalidMeshPackage
                 }
             }
-            try bindAuthority(
+            // Validate without mutating: the authority binding publishes
+            // only inside the post-write commit block (issue #202).
+            try validateAuthority(
                 captureSessionID: first.captureSessionID,
                 coordinateSpaceID: first.coordinateSpaceID
             )
@@ -1558,6 +1662,15 @@ public actor CaptureWorkingSetStore {
                 .duplicatePayloadDeclaration(duplicate)
         }
 
+        // No suspension points below: the authority binding, geometry
+        // declarations, and mesh index publish as one commit (issue
+        // #202). An empty-anchor package binds nothing new.
+        if let first = package.index.anchors.first {
+            try publishAuthority(
+                captureSessionID: first.captureSessionID,
+                coordinateSpaceID: first.coordinateSpaceID
+            )
+        }
         for file in package.geometryFiles {
             try register(
                 BundlePayloadDeclaration(
@@ -1741,7 +1854,11 @@ public actor CaptureWorkingSetStore {
         )
         defer { releaseAdmission(admissionReservation) }
 
-        try bindAuthority(
+        // Validate without mutating: the session/coordinate binding
+        // publishes only after the canonical frame files are durable, so
+        // a failed write cannot leave uncommitted authority (issue
+        // #202).
+        try validateAuthority(
             captureSessionID: package.descriptor.captureSessionID,
             coordinateSpaceID: package.descriptor.coordinateSpaceID
         )
@@ -1754,6 +1871,15 @@ public actor CaptureWorkingSetStore {
             }
             throw CaptureWorkingSetError
                 .duplicatePayloadDeclaration(package.descriptorPath)
+        }
+        if let duplicate = package.canonicalPayloadDeclarations
+            .first(where: {
+                declarations[$0.path] != nil
+                    && declarations[$0.path] != $0
+            })
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(duplicate.path)
         }
 
         try await package.persistCanonical(using: writer)
@@ -1770,9 +1896,23 @@ public actor CaptureWorkingSetStore {
             throw CaptureWorkingSetError
                 .duplicatePayloadDeclaration(package.descriptorPath)
         }
+        guard package.canonicalPayloadDeclarations.allSatisfy({
+            declarations[$0.path] == nil
+                || declarations[$0.path] == $0
+        }) else {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(package.descriptorPath)
+        }
 
+        // No suspension points below: the authority binding, canonical
+        // declarations, and frame state publish as one commit (issue
+        // #202).
+        try publishAuthority(
+            captureSessionID: package.descriptor.captureSessionID,
+            coordinateSpaceID: package.descriptor.coordinateSpaceID
+        )
         for declaration in package.canonicalPayloadDeclarations {
-            try register(declaration)
+            declarations[declaration.path] = declaration
         }
 
         frameDescriptors.append(package.descriptor)
@@ -1895,14 +2035,17 @@ public actor CaptureWorkingSetStore {
 
     /// Shared validation for the paired annotation+measurement commit:
     /// decodes both packages, enforces the single-coordinate-space
-    /// authority rule, binds that space, and derives the manifest
-    /// declarations whose provenance must match record-level authority.
+    /// authority rule, validates the proposed space binding without
+    /// mutating it (issue #202 — callers publish it inside their
+    /// post-write commit block), and derives the manifest declarations
+    /// whose provenance must match record-level authority.
     private func validateAnnotationMeasurementPackages(
         annotationPackage: AnnotationEvidencePackage,
         measurementPackage: MeasurementEvidencePackage
     ) throws -> (
         annotationDeclaration: BundlePayloadDeclaration,
-        measurementDeclaration: BundlePayloadDeclaration
+        measurementDeclaration: BundlePayloadDeclaration,
+        coordinateSpaceID: CoordinateSpaceID?
     ) {
         guard
             let decodedAnnotations = try? JSONDecoder().decode(
@@ -1939,10 +2082,23 @@ public actor CaptureWorkingSetStore {
         else {
             throw CaptureWorkingSetError.authorityMismatch
         }
-        if let space =
+        let packageSpace =
             annotationSpaces.union(measurementSpaces).first
-        {
-            try bindCoordinateAuthority(space)
+        if let packageSpace {
+            try validateCoordinateAuthority(packageSpace)
+        }
+
+        // Issue #199: every spatial evidence link must resolve to
+        // committed frame/mesh authority expressed in the record's own
+        // coordinate space — manifest membership of both space IDs is
+        // not sufficient.
+        for entity in annotationPackage.collection.entities {
+            try requireSpatialEvidenceCongruence(entity: entity)
+        }
+        for measurement in measurementPackage.collection.measurements {
+            try requireSpatialEvidenceCongruence(
+                measurement: measurement
+            )
         }
 
         // Container provenance is derived from the records it carries:
@@ -1970,7 +2126,11 @@ public actor CaptureWorkingSetStore {
                     ),
                 role: .canonical
             )
-        return (annotationDeclaration, measurementDeclaration)
+        return (
+            annotationDeclaration,
+            measurementDeclaration,
+            packageSpace
+        )
     }
 
     public func persistAnnotationAndMeasurementPackages(
@@ -1989,11 +2149,14 @@ public actor CaptureWorkingSetStore {
         )
         defer { releaseAdmission(admissionReservation) }
 
-        let (annotationDeclaration, measurementDeclaration) =
-            try validateAnnotationMeasurementPackages(
-                annotationPackage: annotationPackage,
-                measurementPackage: measurementPackage
-            )
+        let (
+            annotationDeclaration,
+            measurementDeclaration,
+            packageSpace
+        ) = try validateAnnotationMeasurementPackages(
+            annotationPackage: annotationPackage,
+            measurementPackage: measurementPackage
+        )
 
         if let existing = annotationCollection,
            existing != annotationPackage.collection
@@ -2070,6 +2233,12 @@ public actor CaptureWorkingSetStore {
             }
         }
 
+        // No suspension points below: the coordinate-space binding,
+        // declarations, and collection state publish as one commit
+        // (issue #202).
+        if let packageSpace {
+            try publishCoordinateAuthority(packageSpace)
+        }
         declarations[annotationDeclaration.path] =
             annotationDeclaration
         declarations[measurementDeclaration.path] =
@@ -2111,11 +2280,14 @@ public actor CaptureWorkingSetStore {
         )
         defer { releaseAdmission(admissionReservation) }
 
-        let (annotationDeclaration, measurementDeclaration) =
-            try validateAnnotationMeasurementPackages(
-                annotationPackage: annotationPackage,
-                measurementPackage: measurementPackage
-            )
+        let (
+            annotationDeclaration,
+            measurementDeclaration,
+            packageSpace
+        ) = try validateAnnotationMeasurementPackages(
+            annotationPackage: annotationPackage,
+            measurementPackage: measurementPackage
+        )
 
         // Snapshot pre-write state so a mutation that interleaved across
         // the write suspension is detected instead of silently mixing
@@ -2151,6 +2323,12 @@ public actor CaptureWorkingSetStore {
                 )
         }
 
+        // The replacement stays in the validated space; publishing is a
+        // fail-closed re-check in case a different authority committed
+        // while the replace was suspended (issue #202).
+        if let packageSpace {
+            try publishCoordinateAuthority(packageSpace)
+        }
         declarations[annotationDeclaration.path] =
             annotationDeclaration
         declarations[measurementDeclaration.path] =
@@ -2197,27 +2375,77 @@ public actor CaptureWorkingSetStore {
         guard spaces.count <= 1 else {
             throw CaptureWorkingSetError.invalidAnnotationPackage
         }
+        // Validate without mutating: the space binding publishes only
+        // after the canonical file is durable (issue #202).
         if let space = spaces.first {
-            try bindCoordinateAuthority(space)
+            try validateCoordinateAuthority(space)
+        }
+
+        // Issue #199: spatial evidence links must resolve to committed
+        // frame/mesh authority in the entity's own coordinate space.
+        for entity in package.collection.entities {
+            try requireSpatialEvidenceCongruence(entity: entity)
+        }
+
+        // Write-once replay semantics before any durable work: an
+        // identical committed collection is idempotent, a different one
+        // fails closed.
+        if let existing = annotationCollection {
+            if existing == package.collection {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    AnnotationEvidencePackage.path
+                )
         }
 
         let provenance = try annotationCollectionProvenance(
             package.collection
         )
+        let declaration = BundlePayloadDeclaration(
+            path: AnnotationEvidencePackage.path,
+            mediaType: "application/json",
+            producer: "annotation",
+            provenanceClass: provenance,
+            role: .canonical
+        )
+        if let existing = declarations[declaration.path],
+           existing != declaration
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(declaration.path)
+        }
+
         try await writer.writeIfIdentical(
             package.data,
             to: CaptureStorePath(AnnotationEvidencePackage.path)
         )
-        try register(
-            BundlePayloadDeclaration(
-                path: AnnotationEvidencePackage.path,
-                mediaType: "application/json",
-                producer: "annotation",
-                provenanceClass: provenance,
-                role: .canonical
-            )
-        )
 
+        // Re-check after the writer suspension: an identical reentrant
+        // commit is idempotent; any other authority fails closed.
+        if let existing = annotationCollection {
+            if existing == package.collection {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    AnnotationEvidencePackage.path
+                )
+        }
+        guard declarations[declaration.path] == nil
+                || declarations[declaration.path] == declaration
+        else {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(declaration.path)
+        }
+
+        // No suspension points below: binding, declaration, and
+        // collection state publish as one commit (issue #202).
+        if let space = spaces.first {
+            try publishCoordinateAuthority(space)
+        }
+        declarations[declaration.path] = declaration
         annotationCollection = package.collection
         annotationKeysPresent = Set(
             package.collection.entities.map(annotationQualityKey)
@@ -2253,27 +2481,80 @@ public actor CaptureWorkingSetStore {
         guard spaces.count <= 1 else {
             throw CaptureWorkingSetError.invalidMeasurementPackage
         }
+        // Validate without mutating: the space binding publishes only
+        // after the canonical file is durable (issue #202).
         if let space = spaces.first {
-            try bindCoordinateAuthority(space)
+            try validateCoordinateAuthority(space)
+        }
+
+        // Issue #199: spatial evidence links must resolve to committed
+        // frame/mesh authority in the measurement's own coordinate
+        // space.
+        for measurement in package.collection.measurements {
+            try requireSpatialEvidenceCongruence(
+                measurement: measurement
+            )
+        }
+
+        // Write-once replay semantics before any durable work: an
+        // identical committed collection is idempotent, a different one
+        // fails closed.
+        if let existing = measurementCollection {
+            if existing == package.collection {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    MeasurementEvidencePackage.path
+                )
         }
 
         let provenance = try measurementCollectionProvenance(
             package.collection
         )
+        let declaration = BundlePayloadDeclaration(
+            path: MeasurementEvidencePackage.path,
+            mediaType: "application/json",
+            producer: "measurement",
+            provenanceClass: provenance,
+            role: .canonical
+        )
+        if let existing = declarations[declaration.path],
+           existing != declaration
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(declaration.path)
+        }
+
         try await writer.writeIfIdentical(
             package.data,
             to: CaptureStorePath(MeasurementEvidencePackage.path)
         )
-        try register(
-            BundlePayloadDeclaration(
-                path: MeasurementEvidencePackage.path,
-                mediaType: "application/json",
-                producer: "measurement",
-                provenanceClass: provenance,
-                role: .canonical
-            )
-        )
 
+        // Re-check after the writer suspension: an identical reentrant
+        // commit is idempotent; any other authority fails closed.
+        if let existing = measurementCollection {
+            if existing == package.collection {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    MeasurementEvidencePackage.path
+                )
+        }
+        guard declarations[declaration.path] == nil
+                || declarations[declaration.path] == declaration
+        else {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(declaration.path)
+        }
+
+        // No suspension points below: binding, declaration, and
+        // collection state publish as one commit (issue #202).
+        if let space = spaces.first {
+            try publishCoordinateAuthority(space)
+        }
+        declarations[declaration.path] = declaration
         measurementCollection = package.collection
         measurementQuantityTypesPresent = Set(
             package.collection.measurements.map(\.quantityType)
@@ -3199,7 +3480,12 @@ public actor CaptureWorkingSetStore {
         return entity.type.rawValue + ":" + entity.label
     }
 
-    private func bindCoordinateAuthority(
+    /// Validates a proposed coordinate-space binding without mutating
+    /// state (issue #202). The authority binding is part of the logical
+    /// persistence commit: it may only be published after the matching
+    /// durable writes succeed, so validation and publication are split
+    /// across the write suspension.
+    private func validateCoordinateAuthority(
         _ coordinateSpaceID: CoordinateSpaceID
     ) throws {
         if let existing = self.coordinateSpaceID,
@@ -3207,10 +3493,11 @@ public actor CaptureWorkingSetStore {
         {
             throw CaptureWorkingSetError.authorityMismatch
         }
-        self.coordinateSpaceID = coordinateSpaceID
     }
 
-    private func bindAuthority(
+    /// Validates a proposed session/coordinate binding without mutating
+    /// state (issue #202).
+    private func validateAuthority(
         captureSessionID: CaptureSessionID,
         coordinateSpaceID: CoordinateSpaceID
     ) throws {
@@ -3224,8 +3511,224 @@ public actor CaptureWorkingSetStore {
         {
             throw CaptureWorkingSetError.authorityMismatch
         }
+    }
+
+    /// Publishes a coordinate-space binding. Must only run inside the
+    /// post-write commit block, with no suspension point between the
+    /// last re-check and this call. The re-check is retained so a
+    /// reentrant commit of a different authority fails closed instead
+    /// of silently rebinding the revision (issue #202).
+    private func publishCoordinateAuthority(
+        _ coordinateSpaceID: CoordinateSpaceID
+    ) throws {
+        try validateCoordinateAuthority(coordinateSpaceID)
+        self.coordinateSpaceID = coordinateSpaceID
+    }
+
+    /// Publishes a session/coordinate binding under the same rules as
+    /// `publishCoordinateAuthority`.
+    private func publishAuthority(
+        captureSessionID: CaptureSessionID,
+        coordinateSpaceID: CoordinateSpaceID
+    ) throws {
+        try validateAuthority(
+            captureSessionID: captureSessionID,
+            coordinateSpaceID: coordinateSpaceID
+        )
         self.captureSessionID = captureSessionID
         self.coordinateSpaceID = coordinateSpaceID
+    }
+
+    /// Issue #199: an evidence reference of the form
+    /// `path:evidence/frames/<frame-id>.json`, `frame:<uuid>`, or
+    /// `mesh_anchor:<uuid>` is a *spatial* evidence link — it claims
+    /// support from frame/mesh authority expressed in a coordinate
+    /// space. Resolve every such link against committed authority and
+    /// require the referenced coordinate space to equal the record's
+    /// own: manifest membership alone never satisfies congruence, a
+    /// link that does not resolve to committed spatial authority can
+    /// never prove it, and v1 defines no cross-space alignment
+    /// authority — so every mismatch or unresolvable link fails closed.
+    /// References with other prefixes (`entity:`, `measurement:`,
+    /// `user:`, `sha256:`, non-frame `path:` values, and
+    /// annotation-authored tokens) carry no spatial authority and are
+    /// out of scope.
+    private func requireSpatialEvidenceLinkCongruence(
+        _ ref: String,
+        coordinateSpaceID: CoordinateSpaceID
+    ) throws {
+        guard let separator = ref.firstIndex(of: ":") else {
+            return
+        }
+        let prefix = ref[..<separator]
+        let value = String(ref[ref.index(after: separator)...])
+
+        switch prefix {
+        case "path":
+            // Frame-descriptor paths resolve to the committed
+            // descriptor; mesh-geometry paths resolve to the committed
+            // anchor record that owns the geometry. Other `path:` links
+            // carry no spatial authority and are validated by the
+            // manifest/dangling-reference checks, not congruence.
+            let components = value.split(
+                separator: "/",
+                omittingEmptySubsequences: false
+            )
+            if components.count == 3,
+               components[0] == "evidence",
+               components[1] == "frames",
+               components[2].hasSuffix(".json"),
+               components[2].count > ".json".count
+            {
+                let stem = String(
+                    components[2].dropLast(".json".count)
+                )
+                guard let frameID = EvidenceFrameID(
+                    canonicalString: stem
+                ) else {
+                    throw CaptureWorkingSetError
+                        .unresolvableSpatialEvidenceLink(ref)
+                }
+                try requireFrameLinkCongruence(
+                    frameID,
+                    ref: ref,
+                    coordinateSpaceID: coordinateSpaceID
+                )
+                return
+            }
+            if value.hasPrefix("mesh/geometry/"),
+               value.hasSuffix(".meshbin")
+            {
+                guard let record = meshIndex?.anchors.first(where: {
+                    $0.geometryPath == value
+                }) else {
+                    throw CaptureWorkingSetError
+                        .unresolvableSpatialEvidenceLink(ref)
+                }
+                guard record.coordinateSpaceID == coordinateSpaceID
+                else {
+                    throw CaptureWorkingSetError
+                        .spatialEvidenceSpaceMismatch(ref)
+                }
+            }
+            return
+
+        case "frame":
+            guard let frameID = EvidenceFrameID(
+                canonicalString: value
+            ) else {
+                throw CaptureWorkingSetError
+                    .unresolvableSpatialEvidenceLink(ref)
+            }
+            try requireFrameLinkCongruence(
+                frameID,
+                ref: ref,
+                coordinateSpaceID: coordinateSpaceID
+            )
+
+        case "mesh_anchor":
+            guard let anchorID = UUID(
+                canonicalUUIDv4Text: value
+            ) else {
+                throw CaptureWorkingSetError
+                    .unresolvableSpatialEvidenceLink(ref)
+            }
+            try requireMeshAnchorLinkCongruence(
+                anchorID,
+                ref: ref,
+                coordinateSpaceID: coordinateSpaceID
+            )
+
+        default:
+            return
+        }
+    }
+
+    /// Resolves a frame link to the committed descriptor and requires
+    /// its coordinate space to equal the referencing record's space.
+    private func requireFrameLinkCongruence(
+        _ frameID: EvidenceFrameID,
+        ref: String,
+        coordinateSpaceID: CoordinateSpaceID
+    ) throws {
+        guard let descriptor = frameDescriptors.first(where: {
+            $0.frameID == frameID
+        }) else {
+            throw CaptureWorkingSetError
+                .unresolvableSpatialEvidenceLink(ref)
+        }
+        guard descriptor.coordinateSpaceID == coordinateSpaceID else {
+            throw CaptureWorkingSetError
+                .spatialEvidenceSpaceMismatch(ref)
+        }
+    }
+
+    /// Resolves a mesh-anchor link to the committed index record and
+    /// requires its coordinate space to equal the referencing record's
+    /// space.
+    private func requireMeshAnchorLinkCongruence(
+        _ anchorID: UUID,
+        ref: String,
+        coordinateSpaceID: CoordinateSpaceID
+    ) throws {
+        let anchorText = anchorID.uuidString.lowercased()
+        guard let record = meshIndex?.anchors.first(where: {
+            $0.anchorID == anchorText
+        }) else {
+            throw CaptureWorkingSetError
+                .unresolvableSpatialEvidenceLink(ref)
+        }
+        guard record.coordinateSpaceID == coordinateSpaceID else {
+            throw CaptureWorkingSetError
+                .spatialEvidenceSpaceMismatch(ref)
+        }
+    }
+
+    /// Every spatial authority claim carried by an annotation entity:
+    /// record-level evidence refs, placement source refs, the
+    /// placement's mesh anchor, and a prefixed acoustic-center
+    /// authority ref.
+    private func requireSpatialEvidenceCongruence(
+        entity: CaptureAnnotationEntity
+    ) throws {
+        for ref in entity.evidenceRefs
+            + entity.placement.sourceEvidenceRefs
+        {
+            try requireSpatialEvidenceLinkCongruence(
+                ref,
+                coordinateSpaceID: entity.coordinateSpaceID
+            )
+        }
+        if let anchorID = entity.placement.sourceMeshAnchorID {
+            try requireMeshAnchorLinkCongruence(
+                anchorID,
+                ref: "mesh_anchor:\(anchorID.uuidString.lowercased())",
+                coordinateSpaceID: entity.coordinateSpaceID
+            )
+        }
+        if let authorityRef = entity.acousticCenter?.authorityRef {
+            try requireSpatialEvidenceLinkCongruence(
+                authorityRef,
+                coordinateSpaceID: entity.coordinateSpaceID
+            )
+        }
+    }
+
+    /// Every spatial authority claim carried by a spatial measurement:
+    /// record-level evidence refs and endpoint refs. Non-spatial
+    /// measurements (no coordinate space) carry no congruence claim.
+    private func requireSpatialEvidenceCongruence(
+        measurement: CaptureMeasurement
+    ) throws {
+        guard let space = measurement.coordinateSpaceID else {
+            return
+        }
+        for ref in measurement.evidenceRefs + measurement.endpointRefs {
+            try requireSpatialEvidenceLinkCongruence(
+                ref,
+                coordinateSpaceID: space
+            )
+        }
     }
 
     /// Counts depth samples that carry real geometric information: a

@@ -57,19 +57,32 @@ private func makeFinalizedArchiveFixture(
     )
     try Data([1, 2, 3, 4, 5]).write(to: payload)
     let qualityDeclaration = try stageQualityPayload(in: staging)
+    // #194: finalized bundles carry the foundation payload set.
+    let foundationDeclarations =
+        try BundleValidationFixture.stageFoundationPayloads(
+            in: staging
+        )
 
     let request = BundleFinalizationRequest(
         captureSeriesID: CaptureSeriesID(),
         captureRevisionID: CaptureRevisionID(),
-        captureSessionIDs: [CaptureSessionID()],
-        coordinateSpaceIDs: [CoordinateSpaceID()],
+        captureSessionIDs: [
+            CaptureSessionID(
+                canonicalString: BundleValidationFixture.sessionUUID
+            )!
+        ],
+        coordinateSpaceIDs: [
+            CoordinateSpaceID(
+                canonicalString: BundleValidationFixture.spaceUUID
+            )!
+        ],
         createdAtUTC: "2026-09-20T00:00:00Z",
         finalizedAtUTC: "2026-09-20T00:01:00Z",
         app: BundleAppIdentity(
             version: "0.1.0",
             build: "archive-test"
         ),
-        payloads: [
+        payloads: foundationDeclarations + [
             BundlePayloadDeclaration(
                 path: "payload.bin",
                 mediaType: "application/octet-stream",
@@ -118,15 +131,16 @@ func storedZipExportPreservesLogicalBundleDigest() async throws {
 
     #expect(result.archiveURL == destination)
     #expect(result.bundleDigest == finalized.bundleDigest)
-    #expect(result.payloadCount == 2)
-    #expect(result.entryCount == 3)
+    // payload.bin + quality + session×3 foundation (#194)
+    #expect(result.payloadCount == 5)
+    #expect(result.entryCount == 6)
 
     let reopened =
         try StoredCaptureBundleArchiveValidator.validate(
             archive: destination
         )
     #expect(reopened.bundleDigest == finalized.bundleDigest)
-    #expect(reopened.payloadCount == 2)
+    #expect(reopened.payloadCount == 5)
 }
 
 @Test
@@ -299,19 +313,32 @@ private func makeTwoPayloadFinalizedFixture(
         to: staging.appendingPathComponent("bravo.bin")
     )
     let qualityDeclaration = try stageQualityPayload(in: staging)
+    // #194: finalized bundles carry the foundation payload set.
+    let foundationDeclarations =
+        try BundleValidationFixture.stageFoundationPayloads(
+            in: staging
+        )
 
     let request = BundleFinalizationRequest(
         captureSeriesID: CaptureSeriesID(),
         captureRevisionID: CaptureRevisionID(),
-        captureSessionIDs: [CaptureSessionID()],
-        coordinateSpaceIDs: [CoordinateSpaceID()],
+        captureSessionIDs: [
+            CaptureSessionID(
+                canonicalString: BundleValidationFixture.sessionUUID
+            )!
+        ],
+        coordinateSpaceIDs: [
+            CoordinateSpaceID(
+                canonicalString: BundleValidationFixture.spaceUUID
+            )!
+        ],
         createdAtUTC: "2026-09-20T00:00:00Z",
         finalizedAtUTC: "2026-09-20T00:01:00Z",
         app: BundleAppIdentity(
             version: "0.1.0",
             build: "archive-import-test"
         ),
-        payloads: [
+        payloads: foundationDeclarations + [
             BundlePayloadDeclaration(
                 path: "alpha.bin",
                 mediaType: "application/octet-stream",
@@ -375,8 +402,8 @@ func storedArchiveImportStagesRevalidatesAndPreservesDigest()
 
     #expect(result.directoryURL == imported)
     #expect(result.bundleDigest == finalized.bundleDigest)
-    #expect(result.payloadCount == 2)
-    #expect(result.entryCount == 3)
+    #expect(result.payloadCount == 5)
+    #expect(result.entryCount == 6)
     #expect(
         try Data(
             contentsOf:
@@ -616,4 +643,178 @@ func storedArchiveImportAppliesExpandedSizeLimits()
             limits: limits
         )
     }
+}
+
+// MARK: - Existing-archive export recovery (#118)
+
+/// The deterministic export destination is a derived transport wrapper:
+/// a validated archive carrying the finalized revision's digest is
+/// recovered idempotently, while a corrupt or mismatched artifact is
+/// removed and rebuilt once from the immutable finalized directory.
+/// These tests pin the recover-vs-rebuild decision for the valid-
+/// existing and invalid-existing cases.
+@Test
+func existingValidatedArchiveWithMatchingDigestRecovers()
+    async throws
+{
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+
+    let finalized = try await makeFinalizedArchiveFixture(
+        root: root
+    )
+    let destination = root.appendingPathComponent(
+        "capture.htdtcapture"
+    )
+    _ = try CaptureBundleArchiveExporter.export(
+        finalizedDirectory: finalized.directory,
+        destination: destination
+    )
+
+    #expect(
+        ExistingExportArchiveClassifier.disposition(
+            at: destination,
+            expectedBundleDigest: finalized.bundleDigest
+        ) == .recoverValidated
+    )
+}
+
+@Test
+func existingValidArchiveWithMismatchedDigestMustRebuild()
+    async throws
+{
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+
+    let finalized = try await makeFinalizedArchiveFixture(
+        root: root
+    )
+    // A second finalized revision needs its own staging/finalized
+    // directories; the fixture derives them from the given root.
+    let otherRoot = root.appendingPathComponent(
+        "other",
+        isDirectory: true
+    )
+    let otherRevision = try await makeFinalizedArchiveFixture(
+        root: otherRoot
+    )
+    #expect(otherRevision.bundleDigest != finalized.bundleDigest)
+
+    let destination = root.appendingPathComponent(
+        "capture.htdtcapture"
+    )
+    _ = try CaptureBundleArchiveExporter.export(
+        finalizedDirectory: finalized.directory,
+        destination: destination
+    )
+
+    // A structurally valid archive that belongs to a different
+    // finalized revision is not reusable for this destination.
+    #expect(
+        ExistingExportArchiveClassifier.disposition(
+            at: destination,
+            expectedBundleDigest: otherRevision.bundleDigest
+        ) == .rebuild
+    )
+}
+
+@Test
+func corruptExistingArchiveMustRebuild() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+
+    let finalized = try await makeFinalizedArchiveFixture(
+        root: root
+    )
+    let destination = root.appendingPathComponent(
+        "capture.htdtcapture"
+    )
+    try Data("not-an-archive".utf8).write(to: destination)
+
+    #expect(
+        ExistingExportArchiveClassifier.disposition(
+            at: destination,
+            expectedBundleDigest: finalized.bundleDigest
+        ) == .rebuild
+    )
+}
+
+@Test
+func truncatedExistingArchiveMustRebuild() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+
+    let finalized = try await makeFinalizedArchiveFixture(
+        root: root
+    )
+    let destination = root.appendingPathComponent(
+        "capture.htdtcapture"
+    )
+    _ = try CaptureBundleArchiveExporter.export(
+        finalizedDirectory: finalized.directory,
+        destination: destination
+    )
+
+    // Simulate an interrupted earlier export: only part of the stored
+    // archive reached the deterministic path.
+    let complete = try Data(contentsOf: destination)
+    try complete.prefix(complete.count / 2).write(to: destination)
+
+    #expect(
+        ExistingExportArchiveClassifier.disposition(
+            at: destination,
+            expectedBundleDigest: finalized.bundleDigest
+        ) == .rebuild
+    )
+}
+
+@Test
+func missingExistingArchiveMustRebuild() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    let destination = root.appendingPathComponent(
+        "capture.htdtcapture"
+    )
+    let anyDigest = try EvidenceSHA256(
+        String(repeating: "a", count: 64)
+    )
+
+    #expect(
+        ExistingExportArchiveClassifier.disposition(
+            at: destination,
+            expectedBundleDigest: anyDigest
+        ) == .rebuild
+    )
 }

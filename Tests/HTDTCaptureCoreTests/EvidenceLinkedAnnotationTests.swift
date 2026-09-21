@@ -76,10 +76,12 @@ func placementAuthorityRequiresEvidence() throws {
         0, 0, 1, 0,
         1, 2, 3, 1,
     ])
+    let space = CoordinateSpaceID()
     #expect(throws: AnnotationModelError.missingEvidenceLink) {
         _ = try AnnotationPlacementAuthority(
             worldFromAnnotation: transform,
             placement: PlacementProvenance(method: .manualNumeric),
+            coordinateSpaceID: space,
             evidenceRefs: []
         )
     }
@@ -90,6 +92,7 @@ func placementAuthorityRequiresEvidence() throws {
             method: .raycast,
             sourceEvidenceRefs: ["path:evidence/frames/a.json"]
         ),
+        coordinateSpaceID: space,
         evidenceRefs: []
     )
     #expect(authority.placement.hasSourceReference)
@@ -104,6 +107,7 @@ func orientationAuthorityRequiresEvidence() throws {
     #expect(throws: AnnotationModelError.missingEvidenceLink) {
         _ = try AnnotationOrientationAuthority(
             orientation: orientation,
+            coordinateSpaceID: CoordinateSpaceID(),
             evidenceRefs: []
         )
     }
@@ -124,12 +128,14 @@ func builderNeverUpgradesEmptyAuthorityToEvidenceLinked() throws {
 
     // Evidence-backed authority produces evidence_linked with refs.
     let ref = "path:evidence/frames/b.json"
+    let space = CoordinateSpaceID()
     let authority = try AnnotationPlacementAuthority(
         worldFromAnnotation: .identity,
         placement: PlacementProvenance(
             method: .raycast,
             sourceEvidenceRefs: [ref]
         ),
+        coordinateSpaceID: space,
         evidenceRefs: [ref]
     )
     let linked = try ManualAuthorityBuilder.annotation(
@@ -138,7 +144,7 @@ func builderNeverUpgradesEmptyAuthorityToEvidenceLinked() throws {
         xMeters: 0,
         yMeters: 0,
         zMeters: 0,
-        coordinateSpaceID: CoordinateSpaceID(),
+        coordinateSpaceID: space,
         placementAuthority: authority
     )
     #expect(linked.verificationState == .evidenceLinked)

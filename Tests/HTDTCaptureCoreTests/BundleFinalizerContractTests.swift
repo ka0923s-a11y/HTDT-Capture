@@ -60,6 +60,11 @@ private func makeContractStagingArea(
         at: staging,
         withIntermediateDirectories: true
     )
+    // #194: finalized bundles carry the foundation payload set; stage
+    // it up front so every request built for this area validates.
+    _ = try BundleValidationFixture.stageFoundationPayloads(
+        in: staging
+    )
     return ContractStagingArea(
         root: root,
         staging: staging,
@@ -97,15 +102,26 @@ private func makeContractRequest(
     BundleFinalizationRequest(
         captureSeriesID: CaptureSeriesID(),
         captureRevisionID: CaptureRevisionID(),
-        captureSessionIDs: [CaptureSessionID()],
-        coordinateSpaceIDs: [CoordinateSpaceID()],
+        // Identity arrays must match the fixture session document so
+        // the #194 grounding check holds.
+        captureSessionIDs: [
+            CaptureSessionID(
+                canonicalString: BundleValidationFixture.sessionUUID
+            )!
+        ],
+        coordinateSpaceIDs: [
+            CoordinateSpaceID(
+                canonicalString: BundleValidationFixture.spaceUUID
+            )!
+        ],
         createdAtUTC: "2026-09-21T00:00:00Z",
         finalizedAtUTC: "2026-09-21T00:01:00Z",
         app: BundleAppIdentity(
             version: "0.1.0",
             build: "test"
         ),
-        payloads: payloads,
+        payloads: BundleValidationFixture
+            .foundationPayloadDeclarations() + payloads,
         qualityReport: quality
     )
 }

@@ -605,6 +605,7 @@ final class DerivedShapeProxyTests: XCTestCase {
                 )
         )
 
+        XCTAssertTrue(wall.isClosed)
         XCTAssertGreaterThanOrEqual(wall.vertices.count, 4)
         XCTAssertTrue(
             wall.vertices.allSatisfy {
@@ -614,6 +615,293 @@ final class DerivedShapeProxyTests: XCTestCase {
         XCTAssertTrue(
             snapshot.disagreements.contains(.wallHeading)
         )
+    }
+
+    func testClosedRoomWallObservationStaysClosed() {
+        let room = [
+            DerivedPoint2D(x: -2, y: -2),
+            DerivedPoint2D(x: 2, y: -2),
+            DerivedPoint2D(x: 2, y: 2),
+            DerivedPoint2D(x: -2, y: 2),
+        ]
+        let observation = observation(
+            samplePolygon(room, samplesPerEdge: 10)
+        )
+
+        guard let wall =
+            DerivedShapeProxyFitter.wallChain(
+                observation: observation
+            )
+        else {
+            return XCTFail("Expected wall chain")
+        }
+
+        XCTAssertTrue(wall.isClosed)
+        XCTAssertGreaterThanOrEqual(wall.vertices.count, 4)
+    }
+
+    func testPartialWallObservationEmitsOpenChainWithoutSyntheticEdge() {
+        // Three walls of a square room: the fourth side was never
+        // observed, so the chain must stay open and must not emit a
+        // closing segment across the unobserved side.
+        let room = [
+            DerivedPoint2D(x: -2, y: -2),
+            DerivedPoint2D(x: 2, y: -2),
+            DerivedPoint2D(x: 2, y: 2),
+            DerivedPoint2D(x: -2, y: 2),
+        ]
+        var points: [DerivedPoint2D] = []
+        for edge in [0, 1, 3] {
+            let a = room[edge]
+            let b = room[(edge + 1) % room.count]
+            for sample in 0..<10 {
+                let t = Double(sample) / 10
+                points.append(
+                    DerivedPoint2D(
+                        x: a.x + (b.x - a.x) * t,
+                        y: a.y + (b.y - a.y) * t
+                    )
+                )
+            }
+        }
+
+        guard let wall =
+            DerivedShapeProxyFitter.wallChain(
+                observation: observation(points)
+            )
+        else {
+            return XCTFail("Expected wall chain")
+        }
+
+        XCTAssertFalse(wall.isClosed)
+        XCTAssertGreaterThanOrEqual(wall.vertices.count, 3)
+
+        // No emitted segment may bridge the unobserved top side
+        // (y == 2 between the two top corners).
+        for index in wall.vertices.indices {
+            let a = wall.vertices[index].position
+            let b =
+                wall.vertices[
+                    (index + 1) % wall.vertices.count
+                ].position
+            let spansUnobservedSide =
+                abs(a.y - 2) < 0.01
+                && abs(b.y - 2) < 0.01
+                && abs(a.x - b.x) > 1
+            XCTAssertFalse(spansUnobservedSide)
+        }
+
+        // The open endpoints are the wall ends terminating toward the
+        // unobserved side (either traversal direction). Samples never
+        // include the exact corner (t < 1), so the endpoint is the last
+        // observed point on each vertical wall — x at the wall face,
+        // y advanced toward the unobserved top edge rather than
+        // stopping at the bottom.
+        let endpoints = [
+            wall.vertices.first?.position,
+            wall.vertices.last?.position,
+        ]
+        XCTAssertTrue(
+            endpoints.contains {
+                ($0?.x ?? 0) > 1.9 && ($0?.y ?? 0) > 1.0
+            }
+        )
+        XCTAssertTrue(
+            endpoints.contains {
+                ($0?.x ?? 0) < -1.9 && ($0?.y ?? 0) > 1.0
+            }
+        )
+    }
+
+    func testDisconnectedWallRunsAreNotBridged() {
+        // Two opposite walls with nothing observed between them must not
+        // be joined into a closed perimeter.
+        var points: [DerivedPoint2D] = []
+        for x in [-2.0, 2.0] {
+            for sample in 0..<10 {
+                let t = Double(sample) / 10
+                points.append(
+                    DerivedPoint2D(x: x, y: -2 + 4 * t)
+                )
+            }
+        }
+
+        guard let wall =
+            DerivedShapeProxyFitter.wallChain(
+                observation: observation(points)
+            )
+        else {
+            return XCTFail("Expected wall chain")
+        }
+
+        XCTAssertFalse(wall.isClosed)
+        // The emitted run is a single observed wall line, never a
+        // bridging segment across the empty middle of the room.
+        let first = wall.vertices.first?.position
+        let last = wall.vertices.last?.position
+        XCTAssertNotNil(first)
+        XCTAssertNotNil(last)
+        if let first, let last {
+            XCTAssertLessThan(abs(first.x - last.x), 0.05)
+            XCTAssertGreaterThan(abs(first.y - last.y), 3.0)
+        }
+    }
+
+    func testRadialBoundaryReductionPreservesObservedNotch() {
+        // U-shaped footprint: from the centroid, several rays intersect
+        // the observed boundary twice (inner notch edge and outer edge).
+        // Radial boundary reduction must retain both intersections
+        // instead of deleting the inner concave boundary.
+        let uShape = [
+            DerivedPoint2D(x: -1.2, y: -1.2),
+            DerivedPoint2D(x: 1.2, y: -1.2),
+            DerivedPoint2D(x: 1.2, y: 1.2),
+            DerivedPoint2D(x: 0.6, y: 1.2),
+            DerivedPoint2D(x: 0.6, y: -0.6),
+            DerivedPoint2D(x: -0.6, y: -0.6),
+            DerivedPoint2D(x: -0.6, y: 1.2),
+            DerivedPoint2D(x: -1.2, y: 1.2),
+        ]
+        let input = observation(
+            samplePolygon(uShape, samplesPerEdge: 12)
+        )
+
+        let boundary =
+            DerivedShapeProxyFitter.boundaryObservation(
+                from: input
+            )
+
+        // Inner notch-bottom edge samples (y == -0.6) survive the
+        // reduction, and multi-intersection sectors push the retained
+        // count past the single-farthest-per-bin limit of 48.
+        XCTAssertTrue(
+            boundary.points.contains {
+                abs($0.position.y + 0.6) < 0.01
+                    && abs($0.position.x) <= 0.6
+            }
+        )
+        XCTAssertGreaterThan(boundary.points.count, 48)
+        XCTAssertLessThanOrEqual(boundary.points.count, 96)
+        XCTAssertTrue(
+            boundary.points.allSatisfy {
+                $0.evidenceRef.hasPrefix("synthetic:")
+            }
+        )
+    }
+
+    func testLShapedDepthFootprintResolvesConcaveThroughBoundary() {
+        let lShape = [
+            DerivedPoint2D(x: 0, y: 0),
+            DerivedPoint2D(x: 2, y: 0),
+            DerivedPoint2D(x: 2, y: 0.8),
+            DerivedPoint2D(x: 0.8, y: 0.8),
+            DerivedPoint2D(x: 0.8, y: 2),
+            DerivedPoint2D(x: 0, y: 2),
+        ]
+        let boundary =
+            DerivedShapeProxyFitter.boundaryObservation(
+                from: observation(
+                    samplePolygon(lShape, samplesPerEdge: 12)
+                )
+            )
+
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: boundary
+        )
+
+        XCTAssertEqual(proxy.resolution, .resolved)
+        XCTAssertEqual(proxy.selected?.kind, .polygon)
+        guard case let .polygon(polygon)? =
+            proxy.selected?.geometry
+        else {
+            return XCTFail("Expected polygon geometry")
+        }
+        XCTAssertTrue(polygon.isConcave)
+        XCTAssertEqual(
+            polygon.concavityResolution,
+            .resolvedConcave
+        )
+        XCTAssertTrue(
+            ringIsSimple(polygon.vertices.map(\.position))
+        )
+    }
+
+    func testAdversarialPointSetNeverEmitsSelfIntersectingPolygon() {
+        // Review reproducer: greedy nearest-edge insertion used to
+        // produce a ring with intersecting non-adjacent edges for this
+        // point set.
+        let adversarial = [
+            DerivedPoint2D(x: 1.43, y: 1.94),
+            DerivedPoint2D(x: 0.79, y: 3.72),
+            DerivedPoint2D(x: 0.17, y: 2.01),
+            DerivedPoint2D(x: 0.46, y: 2.77),
+            DerivedPoint2D(x: 0.17, y: 0.83),
+            DerivedPoint2D(x: 1.85, y: 1.18),
+            DerivedPoint2D(x: 3.53, y: 2.27),
+            DerivedPoint2D(x: 1.26, y: 0.13),
+            DerivedPoint2D(x: 2.50, y: 0.46),
+            DerivedPoint2D(x: 3.05, y: 0.46),
+        ]
+
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: observation(adversarial)
+        )
+
+        for candidate in proxy.candidates {
+            guard case let .polygon(polygon) =
+                candidate.geometry
+            else {
+                continue
+            }
+            XCTAssertTrue(
+                ringIsSimple(
+                    polygon.vertices.map(\.position)
+                ),
+                "candidate polygon ring must be simple"
+            )
+        }
+        if case let .polygon(selected)? =
+            proxy.selected?.geometry
+        {
+            XCTAssertTrue(
+                ringIsSimple(
+                    selected.vertices.map(\.position)
+                ),
+                "selected polygon ring must be simple"
+            )
+        }
+    }
+
+    func testRotatedAdversarialPointSetStaysSimple() {
+        let adversarial = [
+            DerivedPoint2D(x: 1.43, y: 1.94),
+            DerivedPoint2D(x: 0.79, y: 3.72),
+            DerivedPoint2D(x: 0.17, y: 2.01),
+            DerivedPoint2D(x: 0.46, y: 2.77),
+            DerivedPoint2D(x: 0.17, y: 0.83),
+            DerivedPoint2D(x: 1.85, y: 1.18),
+            DerivedPoint2D(x: 3.53, y: 2.27),
+            DerivedPoint2D(x: 1.26, y: 0.13),
+            DerivedPoint2D(x: 2.50, y: 0.46),
+            DerivedPoint2D(x: 3.05, y: 0.46),
+        ].map { rotate($0, radians: 0.9) }
+
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: observation(adversarial)
+        )
+
+        for candidate in proxy.candidates {
+            guard case let .polygon(polygon) =
+                candidate.geometry
+            else {
+                continue
+            }
+            XCTAssertTrue(
+                ringIsSimple(
+                    polygon.vertices.map(\.position)
+                )
+            )
+        }
     }
 
     func testOutputIsDeterministic() {
@@ -694,6 +982,55 @@ final class DerivedShapeProxyTests: XCTestCase {
         )
     }
 
+    func testUnclassifiedMeshFacesAreNotFurnitureEvidence()
+        throws
+    {
+        // The object-shape fallback is limited to semantically supported
+        // furniture classes (table=4, seat=5). Unclassified faces (none=0)
+        // must not be promoted into an object footprint just because the
+        // focused depth target was unresolved.
+        let coordinateSpaceID = testCoordinateSpaceID
+        let geometry = try MeshGeometryPayload(
+            vertices: [
+                Float3(-1, 0, -1),
+                Float3(1, 0, -1),
+                Float3(1, 0, 1),
+                Float3(-1, 0, 1),
+            ],
+            triangleIndices: [
+                0, 1, 2,
+                0, 2, 3,
+            ],
+            faceClassifications: [0, 0]
+        )
+        let snapshot = MeshAnchorSnapshot(
+            anchorID: UUID(
+                uuidString:
+                    "00000000-0000-4000-8000-000000000444"
+            )!,
+            captureSessionID: CaptureSessionID(
+                rawValue: UUID(
+                    uuidString:
+                        "00000000-0000-4000-8000-000000000555"
+                )!
+            ),
+            coordinateSpaceID: coordinateSpaceID,
+            worldFromAnchor: .identity,
+            sessionTimestampSeconds: 7.5,
+            geometry: geometry
+        )
+
+        let extracted =
+            try MeshDerivedShapeObservationBuilder.build(
+                snapshots: [snapshot],
+                allowedFaceClassifications: [4, 5],
+                voxelSizeMeters: 0.01,
+                maxPoints: 16
+            )
+
+        XCTAssertNil(extracted)
+    }
+
     private var testCoordinateSpaceID: CoordinateSpaceID {
         CoordinateSpaceID(
             rawValue: UUID(
@@ -768,5 +1105,79 @@ final class DerivedShapeProxyTests: XCTestCase {
             x: c * point.x - s * point.y,
             y: s * point.x + c * point.y
         )
+    }
+
+    /// Strict simple-ring check used to verify emitted polygons never
+    /// self-intersect: no two non-adjacent edges may share any point.
+    private func ringIsSimple(
+        _ ring: [DerivedPoint2D]
+    ) -> Bool {
+        let count = ring.count
+        guard count >= 3 else {
+            return false
+        }
+        for i in 0..<count {
+            let a1 = ring[i]
+            let a2 = ring[(i + 1) % count]
+            for j in (i + 1)..<count
+            where (i + 1) % count != j
+                && (j + 1) % count != i
+            {
+                let b1 = ring[j]
+                let b2 = ring[(j + 1) % count]
+                if segmentsShareAnyPoint(
+                    a1, a2, b1, b2
+                ) {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
+    private func segmentsShareAnyPoint(
+        _ p1: DerivedPoint2D,
+        _ p2: DerivedPoint2D,
+        _ q1: DerivedPoint2D,
+        _ q2: DerivedPoint2D
+    ) -> Bool {
+        func cross3(
+            _ a: DerivedPoint2D,
+            _ b: DerivedPoint2D,
+            _ c: DerivedPoint2D
+        ) -> Double {
+            (b.x - a.x) * (c.y - a.y)
+                - (b.y - a.y) * (c.x - a.x)
+        }
+        func onSegment(
+            _ p: DerivedPoint2D,
+            _ a: DerivedPoint2D,
+            _ b: DerivedPoint2D
+        ) -> Bool {
+            let eps = 0.000_000_001
+            return abs(cross3(a, b, p)) <= 0.000_000_1
+                && p.x >= min(a.x, b.x) - eps
+                && p.x <= max(a.x, b.x) + eps
+                && p.y >= min(a.y, b.y) - eps
+                && p.y <= max(a.y, b.y) + eps
+        }
+
+        let d1 = cross3(q1, q2, p1)
+        let d2 = cross3(q1, q2, p2)
+        let d3 = cross3(p1, p2, q1)
+        let d4 = cross3(p1, p2, q2)
+
+        if (
+            (d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)
+        ) && (
+            (d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0)
+        ) {
+            return true
+        }
+
+        return onSegment(p1, q1, q2)
+            || onSegment(p2, q1, q2)
+            || onSegment(q1, p1, p2)
+            || onSegment(q2, p1, p2)
     }
 }

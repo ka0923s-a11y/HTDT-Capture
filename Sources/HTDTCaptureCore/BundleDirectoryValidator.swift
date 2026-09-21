@@ -143,6 +143,21 @@ public enum BundleDirectoryValidator {
         let declaredSet = Set(declaredByPath.keys)
         let actualSet = Set(actualByPath.keys)
 
+        // Minimum foundation payload set (#194): a manifest whose
+        // identity arrays have no grounding documents is not a
+        // finalized v1 bundle. Same rule as the Python validator.
+        let missingFoundation = BundlePayloadCrossCheck
+            .foundationRequiredPaths
+            .subtracting(declaredSet)
+        guard missingFoundation.isEmpty else {
+            throw BundleDirectoryValidationError
+                .declaredPayloadSetMismatch(
+                    missing: missingFoundation
+                        .sorted(by: BundleLogicalPath.utf8Less),
+                    undeclared: []
+                )
+        }
+
         if declaredSet != actualSet {
             throw BundleDirectoryValidationError
                 .declaredPayloadSetMismatch(
@@ -220,7 +235,10 @@ public enum BundleDirectoryValidator {
                 }
             }
         }
-        try crossCheck.finish(declaredByPath: declaredByPath)
+        try crossCheck.finish(
+            declaredByPath: declaredByPath,
+            manifest: manifest
+        )
 
         let bundleDigest = EvidenceIntegrity.sha256(
             of: manifestData
