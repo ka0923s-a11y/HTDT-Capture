@@ -148,6 +148,21 @@ func bundleCollisionKeyUsesUnicodeCaseFolding() {
 }
 
 @Test
+func bundleCollisionKeyNormalizesNFCBeforeCaseFolding() {
+    // #95: an NFD spelling must land on the same NFC + case-fold key
+    // as its composed equivalent, matching the Python reference
+    // validator's normalize("NFC", path).casefold() authority.
+    #expect(
+        BundleLogicalPath.collisionKey("E\u{0301}TAGE/payload.bin")
+            == "étage/payload.bin"
+    )
+    #expect(
+        BundleLogicalPath.collisionKey("ÉTAGE/payload.bin")
+            == "étage/payload.bin"
+    )
+}
+
+@Test
 func storePathRejectsTraversalAndBackslashes() {
     #expect(throws: CaptureStorePathError.self) {
         _ = try CaptureStorePath("../escape")

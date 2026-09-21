@@ -11,6 +11,11 @@
       "left": "Étage/A.bin",
       "right": "étage/a.bin",
       "collision_key": "étage/a.bin"
+    },
+    {
+      "left": "E\u0301TAGE/x.bin",
+      "right": "étage/x.bin",
+      "collision_key": "étage/x.bin"
     }
   ]
 }

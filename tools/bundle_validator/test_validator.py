@@ -172,6 +172,31 @@ class ValidatorTests(unittest.TestCase):
                 self.assertEqual(left, vector["collision_key"])
                 self.assertEqual(right, vector["collision_key"])
 
+    def test_manifest_casefold_collision_fails(self):
+        # #95: two distinct NFC payload paths sharing one Unicode
+        # case-fold key must be rejected even when the filesystem would
+        # happily store both spellings.
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, dest)
+
+            def collide(manifest):
+                template = dict(manifest["files"][0])
+                first = dict(template)
+                first["path"] = "Straße/extra.bin"
+                second = dict(template)
+                second["path"] = "STRASSE/extra.bin"
+                manifest["files"].extend([first, second])
+                manifest["files"].sort(
+                    key=lambda entry: entry["path"].encode("utf-8")
+                )
+
+            _rewrite_manifest(dest, collide)
+            with self.assertRaisesRegex(
+                ValidationError, "case/Unicode-colliding manifest paths"
+            ):
+                validate_bundle(dest)
+
     def test_tampered_payload_fails(self):
         with tempfile.TemporaryDirectory() as td:
             dest = Path(td) / "bundle"
