@@ -162,6 +162,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var reviewOperationInFlight = false
     private var exportOperationInFlight = false
     private var spatialAuthoritySealedForFinalization = false
+    /// Explicit commit-point policy for the finalization transaction
+    /// (#185). While claimed, terminal lifecycle/resource failures are
+    /// fenced instead of invalidating the capture generation; a fenced
+    /// failure either cancels the transaction pre-promotion (no
+    /// finalized destination produced) or is surfaced as post-capture
+    /// status after the promoted revision is adopted (commit wins).
+    private var finalizationCommit = FinalizationCommitPolicy()
     private var persistedStore: PersistedCaptureInventory?
     private var persistedInventoryRequest = 0
     private var persistedAdoptionInFlight = false
@@ -283,6 +290,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewOperationInFlight = false
         exportOperationInFlight = false
         spatialAuthoritySealedForFinalization = false
+        finalizationCommit.reset()
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
         scanCoverageTracker = AdvisoryScanCoverageTracker()
@@ -1411,6 +1419,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewOperationInFlight = false
         exportOperationInFlight = false
         spatialAuthoritySealedForFinalization = false
+        finalizationCommit.reset()
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
         scanCoverageTracker = AdvisoryScanCoverageTracker()
@@ -3342,10 +3351,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         quality: CaptureQualityReport,
         generation: UUID
     ) async {
+        // Claim the commit transaction before the first suspension so a
+        // lifecycle/resource failure can no longer invalidate this
+        // generation underneath an in-flight promotion (#185). Ordinary
+        // stale callbacks still hit the generation guards below.
+        finalizationCommit.claimCommit()
+
         var promotedRevision: FinalizedCaptureRevision?
 
         do {
             try await store.persistQualityReport(quality)
+
+            // CONTRACT (#180): the sibling store agent adds
+            // sealForFinalization()/unseal() on CaptureWorkingSetStore.
+            // The seal drains in-flight writes, then rejects further
+            // working-set mutations for the rest of the commit
+            // transaction so the snapshot and the finalizer's staging
+            // scan describe one frozen authority.
+            try await store.sealForFinalization()
+
             let snapshot = await store.snapshot()
 
             guard captureGeneration == generation else {
@@ -3366,6 +3390,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 for: snapshot
             )
 
+            // Pre-commit cancellation point (#185): a lifecycle failure
+            // fenced before the promotion begins aborts the
+            // transaction. No finalized destination is produced; the
+            // working set returns to Review and the deferred lifecycle
+            // policy is applied there.
+            if let fencedFailure =
+                finalizationCommit.preCommitFailure()
+            {
+                await abortUnpromotedFinalization(
+                    diagnostic: nil,
+                    fencedFailure: fencedFailure,
+                    store: store,
+                    quality: quality,
+                    generation: generation
+                )
+                return
+            }
+
             // The atomic move inside finalize(...) is the irreversible
             // filesystem commit point (#160): the working directory was
             // renamed into finalized/, so the returned revision is
@@ -3379,6 +3421,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     request: request
                 )
             promotedRevision = finalized
+            finalizationCommit.markPromoted()
         } catch {
             // Errors here are strictly pre-commit: promotion never
             // began, no finalized destination was produced, and the
@@ -3389,6 +3432,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
             await abortUnpromotedFinalization(
                 diagnostic: Self.persistenceDiagnostic(error),
+                fencedFailure: finalizationCommit.preCommitFailure(),
                 store: store,
                 quality: quality,
                 generation: generation
@@ -3403,16 +3447,26 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Shared pre-commit abort for the finalization transaction:
-    /// remove the staged quality payload, record the recoverable
-    /// event, and transition validating -> reviewing so the attempt
-    /// can be retried. The promoted path never reaches here — nothing
-    /// in this method may run after the commit point.
+    /// release the working-set seal, remove the staged quality payload,
+    /// record the recoverable event, and transition
+    /// validating -> reviewing so the attempt can be retried — or, when
+    /// a lifecycle failure was fenced before promotion, apply it through
+    /// the ordinary resource/lifecycle policy once the mutable Review
+    /// boundary is restored. The promoted path never reaches here:
+    /// nothing in this method may run after the commit point.
     private func abortUnpromotedFinalization(
-        diagnostic: String,
+        diagnostic: String?,
+        fencedFailure: CaptureFailureCode?,
         store: CaptureWorkingSetStore,
         quality: CaptureQualityReport,
         generation: UUID
     ) async {
+        // Release the seal before any rollback mutation; unseal is
+        // best-effort across the boundary (the seal may not have been
+        // held if the failure preceded it).
+        try? await store.unseal()
+        finalizationCommit.reset()
+
         do {
             try await store.discardUncommittedQualityReport(
                 quality
@@ -3424,21 +3478,23 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     "確定処理に失敗し、途中保存された品質情報を安全に取り消せませんでした"
                 )
                 + " ["
-                + diagnostic
+                + (diagnostic ?? Self.persistenceDiagnostic(error))
                 + "]"
             fail(.persistenceFailure)
             return
         }
 
-        await store.recordResourceEvent(
-            CaptureResourceEvent(
-                kind: .persistenceFailure,
-                severity: .warning,
-                detail:
-                    "Recoverable finalization failure: "
-                    + diagnostic
+        if let diagnostic {
+            await store.recordResourceEvent(
+                CaptureResourceEvent(
+                    kind: .persistenceFailure,
+                    severity: .warning,
+                    detail:
+                        "Recoverable finalization failure: "
+                        + diagnostic
+                )
             )
-        )
+        }
 
         guard captureGeneration == generation,
               state == .validating
@@ -3464,14 +3520,42 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        workingSetStatus =
-            HostLocalization.text(
-                "Finalization was not committed. The capture remains in Review and can be retried.",
-                "確定処理はコミットされませんでした。キャプチャは確認画面に保持されており、再試行できます。"
-            )
-            + " ["
-            + diagnostic
-            + "]"
+        if let fencedFailure {
+            // The lifecycle failure was fenced only while the commit
+            // transaction held the generation. Now that the attempt
+            // aborted back to a mutable Review boundary, the ordinary
+            // resource/lifecycle policy applies it (preserved-Review
+            // seal or terminal failure). It is applied after the outer
+            // operation unwinds so reviewOperationInFlight no longer
+            // suppresses the preserved-Review path.
+            let deferredEvent =
+                Self.lifecycleResourceEvent(for: fencedFailure)
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.captureGeneration == generation
+                else {
+                    return
+                }
+                self.applyResourceLifecycleEvent(
+                    deferredEvent,
+                    failure: fencedFailure,
+                    store: store,
+                    generation: generation
+                )
+            }
+            return
+        }
+
+        if let diagnostic {
+            workingSetStatus =
+                HostLocalization.text(
+                    "Finalization was not committed. The capture remains in Review and can be retried.",
+                    "確定処理はコミットされませんでした。キャプチャは確認画面に保持されており、再試行できます。"
+                )
+                + " ["
+                + diagnostic
+                + "]"
+        }
     }
 
     /// Post-commit adoption (#160): the working directory was already
@@ -3494,6 +3578,26 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             await Self.validatePromotedRevision(
                 directory: finalized.directory
             )
+
+        // Commit wins (#185): a lifecycle failure fenced while the
+        // finalizer or revalidation was suspended becomes post-capture
+        // status, never a reason to abandon the promoted revision.
+        let fencedFailure = finalizationCommit.postCommitFailure()
+        finalizationCommit.reset()
+
+        let fencedNote: String
+        if let fencedFailure {
+            fencedNote = HostLocalization.text(
+                "; a "
+                    + fencedFailure.rawValue
+                    + " lifecycle event arrived during the commit window and was surfaced after adoption",
+                "；コミット中に "
+                    + fencedFailure.rawValue
+                    + " ライフサイクルイベントを検出したため、確定後の状態として記録しました"
+            )
+        } else {
+            fencedNote = ""
+        }
 
         sessionController.stopAndPauseARSession()
         resourceMonitor?.stop()
@@ -3522,11 +3626,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
             workingSetStatus =
-                HostLocalization.isJapanese
-                ? "リビジョンを確定しました。バンドルダイジェスト: "
-                    + validation.bundleDigest.description
-                : "Finalized revision; bundle digest "
-                    + validation.bundleDigest.description
+                (
+                    HostLocalization.isJapanese
+                    ? "リビジョンを確定しました。バンドルダイジェスト: "
+                        + validation.bundleDigest.description
+                    : "Finalized revision; bundle digest "
+                        + validation.bundleDigest.description
+                ) + fencedNote
             self.loadPersistedCaptures()
             return
         }
@@ -3561,6 +3667,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             + " ["
             + unverifiedDiagnostic
             + "]"
+            + fencedNote
         self.loadPersistedCaptures()
     }
 
@@ -3978,6 +4085,33 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             + String(nsError.code)
     }
 
+    /// Map a fenced lifecycle failure to the ordered
+    /// resource/lifecycle event that a live monitor callback would
+    /// have carried, so a deferred application keeps identical
+    /// provenance shape (#185). Warning severity preserves the
+    /// Review-retained quality policy if the deferred application
+    /// lands on a preservable boundary.
+    nonisolated private static func lifecycleResourceEvent(
+        for failure: CaptureFailureCode
+    ) -> CaptureResourceEvent {
+        let kind: CaptureResourceEventKind
+        switch failure {
+        case .thermalPressure:
+            kind = .thermalPressure
+        case .storagePressure:
+            kind = .storagePressure
+        default:
+            kind = .interruption
+        }
+        return CaptureResourceEvent(
+            kind: kind,
+            severity: .warning,
+            detail:
+                "lifecycle failure observed during the finalization commit transaction: "
+                + failure.rawValue
+        )
+    }
+
     private func transition(_ event: CaptureEvent) throws {
         try stateMachine.apply(event)
         state = stateMachine.state
@@ -3985,6 +4119,22 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private func fail(_ code: CaptureFailureCode) {
+        // (#185) While the finalization commit transaction is claimed,
+        // a lifecycle/resource failure is fenced instead of
+        // invalidating the capture generation underneath an in-flight
+        // promotion. The commit path observes the fenced failure at its
+        // pre-commit cancellation point (abort with no finalized
+        // destination produced) or after promotion (commit wins: the
+        // revision is adopted and the failure becomes post-capture
+        // status). A fenced failure is fully absorbed with no side
+        // effects; non-lifecycle failures and ordinary stale callbacks
+        // keep their immediate generation-invalidation handling.
+        if state == .validating,
+           finalizationCommit.fenceLifecycleFailure(code)
+        {
+            return
+        }
+
         annotationCommitInFlight = false
         reviewOperationInFlight = false
         guard state != .finalized,
