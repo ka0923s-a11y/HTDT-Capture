@@ -384,6 +384,15 @@ public actor CaptureWorkingSetStore {
     private var trackingIntervals: [TrackingInterval] = []
     private var resourceEvents: [CaptureResourceEvent] = []
     private var sealState: SealState = .mutable
+    /// Bounded pending-write admission ledger shared by every mutation
+    /// entry point: evidence bytes are reserved before they become
+    /// queued writer work and released deterministically on every exit
+    /// path (issue #147).
+    private let admissionController: CaptureStoreAdmissionController
+    /// Set while a `persistence_backlog` pressure diagnostic is active
+    /// so sustained pressure emits one bounded event rather than one
+    /// per admission.
+    private var backlogPressureActive = false
     /// Bumped on every seal-state transition. A `sealForFinalization`
     /// call captures it so an `unseal`/`consume` that slips into a
     /// writer suspension deterministically aborts the in-flight seal
@@ -417,15 +426,31 @@ public actor CaptureWorkingSetStore {
         case consumed
     }
 
+    /// Default pending-write admission bounds (issue #147): generous
+    /// enough for bursts of frame/depth packages plus an end-scan mesh
+    /// transaction, while bounding how much materialized evidence can
+    /// queue behind the file writer.
+    public static let defaultAdmissionMaxPendingBytes =
+        256 * 1024 * 1024
+    public static let defaultAdmissionMaxPendingItems = 64
+    /// Bounded diagnostic history for resource/persistence events.
+    public static let maxResourceEvents = 256
+
     public init(
         identity: CaptureWorkingSetIdentity = CaptureWorkingSetIdentity(),
-        rootDirectory: URL
+        rootDirectory: URL,
+        admissionController: CaptureStoreAdmissionController? = nil
     ) throws {
         self.identity = identity
         self.rootDirectory = rootDirectory
         self.writer = try AtomicCaptureFileWriter(
             rootDirectory: rootDirectory
         )
+        self.admissionController = admissionController
+            ?? CaptureStoreAdmissionController(
+                maxBytes: Self.defaultAdmissionMaxPendingBytes,
+                maxItems: Self.defaultAdmissionMaxPendingItems
+            )
     }
 
     public func persistSessionFoundation(
@@ -434,6 +459,13 @@ public actor CaptureWorkingSetStore {
         try requireMutable()
         inFlightMutations += 1
         defer { inFlightMutations -= 1 }
+        let admissionReservation = try reserveAdmission(
+            bytes: package.sessionData.count
+                + package.capabilitiesData.count
+                + package.configurationData.count
+                + package.deviceData.count
+        )
+        defer { releaseAdmission(admissionReservation) }
 
         guard
             package.session.configurationRef
@@ -465,6 +497,10 @@ public actor CaptureWorkingSetStore {
         try requireMutable()
         inFlightMutations += 1
         defer { inFlightMutations -= 1 }
+        let admissionReservation = try reserveAdmission(
+            bytes: package.data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
 
         guard sessionFoundation != nil else {
             throw CaptureWorkingSetError.timingFoundationMissing
@@ -695,6 +731,14 @@ public actor CaptureWorkingSetStore {
                 )
             ),
         ]
+
+        // One reservation for the whole logical transaction: the five
+        // canonical files are written by a single writer batch and must
+        // not be double-counted as split-package pending writes.
+        let admissionReservation = try reserveAdmission(
+            bytes: writes.reduce(0) { $0 + $1.data.count }
+        )
+        defer { releaseAdmission(admissionReservation) }
 
         try await writer.writeBatchIfIdentical(writes)
 
@@ -1144,6 +1188,14 @@ public actor CaptureWorkingSetStore {
             processed: nil
         )
 
+        // One reservation covering the raw artifact plus its derived
+        // lineage document before either becomes queued writer work
+        // (issue #147).
+        let admissionReservation = try reserveAdmission(
+            bytes: payload.data.count + metadata.data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
+
         try await writer.writeBatchIfIdentical([
             CaptureFileWriteRequest(
                 data: payload.data,
@@ -1264,6 +1316,13 @@ public actor CaptureWorkingSetStore {
                 .integrityVerificationFailed
         }
 
+        // Reserve the processed payload plus upgraded lineage document
+        // before either becomes queued writer work (issue #147).
+        let admissionReservation = try reserveAdmission(
+            bytes: payload.data.count + metadata.data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
+
         let removedOrAbsent = try await writer.removeIfIdentical(
             previous.data,
             at: CaptureStorePath(
@@ -1365,6 +1424,16 @@ public actor CaptureWorkingSetStore {
         try requireMutable()
         inFlightMutations += 1
         defer { inFlightMutations -= 1 }
+        // One reservation for the whole mesh package: the index plus
+        // every geometry blob is one logical pending write, not one
+        // admission item per canonical file (issue #147).
+        let admissionReservation = try reserveAdmission(
+            bytes: package.indexData.count
+                + package.geometryFiles.reduce(0) {
+                    $0 + $1.data.count
+                }
+        )
+        defer { releaseAdmission(admissionReservation) }
 
         guard
             let decoded = try? JSONDecoder().decode(
@@ -1655,6 +1724,16 @@ public actor CaptureWorkingSetStore {
         try requireMutable()
         inFlightMutations += 1
         defer { inFlightMutations -= 1 }
+        // Reserve the whole frame package — descriptor, pixel, depth,
+        // and derived preview payloads — before any of it becomes
+        // queued writer work (issue #147).
+        let admissionReservation = try reserveAdmission(
+            bytes: package.descriptorData.count
+                + package.pixelPayload.count
+                + (package.depthPayload?.count ?? 0)
+                + (package.previewPayload?.count ?? 0)
+        )
+        defer { releaseAdmission(admissionReservation) }
 
         try bindAuthority(
             captureSessionID: package.descriptor.captureSessionID,
@@ -1731,7 +1810,7 @@ public actor CaptureWorkingSetStore {
                 if let previewPath = try? CaptureStorePath(preview.path) {
                     try? await writer.removeIfPresent(previewPath)
                 }
-                resourceEvents.append(
+                appendResourceEvent(
                     CaptureResourceEvent(
                         kind: .persistenceFailure,
                         severity: .warning,
@@ -1815,6 +1894,14 @@ public actor CaptureWorkingSetStore {
         try requireMutable()
         inFlightMutations += 1
         defer { inFlightMutations -= 1 }
+        // One reservation for the two-file transaction — the canonical
+        // annotation and measurement files commit together and share
+        // one admission item (issue #147).
+        let admissionReservation = try reserveAdmission(
+            bytes: annotationPackage.data.count
+                + measurementPackage.data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
 
         guard
             let decodedAnnotations = try? JSONDecoder().decode(
@@ -1983,6 +2070,10 @@ public actor CaptureWorkingSetStore {
         try requireMutable()
         inFlightMutations += 1
         defer { inFlightMutations -= 1 }
+        let admissionReservation = try reserveAdmission(
+            bytes: package.data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
 
         guard
             let decoded = try? JSONDecoder().decode(
@@ -2033,6 +2124,10 @@ public actor CaptureWorkingSetStore {
         try requireMutable()
         inFlightMutations += 1
         defer { inFlightMutations -= 1 }
+        let admissionReservation = try reserveAdmission(
+            bytes: package.data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
 
         guard
             let decoded = try? JSONDecoder().decode(
@@ -2208,7 +2303,7 @@ public actor CaptureWorkingSetStore {
             return
         }
 
-        resourceEvents.append(event)
+        appendResourceEvent(event)
     }
 
     public func evaluateQuality(
@@ -2299,6 +2394,11 @@ public actor CaptureWorkingSetStore {
             provenanceClass: .captureAppDerived,
             role: .canonical
         )
+
+        let admissionReservation = try reserveAdmission(
+            bytes: data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
 
         try await writer.writeIfIdentical(
             data,
@@ -3110,6 +3210,106 @@ public actor CaptureWorkingSetStore {
               sealGeneration == generation
         else {
             throw CaptureWorkingSetError.workingSetNotSealed
+        }
+    }
+
+    /// Current pending-write admission budget, exposed for
+    /// diagnostics and tests (issue #147).
+    public var admissionBudgetSnapshot: CaptureStoreBudgetSnapshot {
+        admissionController.snapshot()
+    }
+
+    /// Reserves pending-write budget before a package's bytes become
+    /// queued writer work. Exhaustion is a typed
+    /// `CaptureStoreAdmissionError` rejection and emits a bounded
+    /// `persistence_backlog` diagnostic; sustained pressure emits one
+    /// warning diagnostic per transition into the pressured state.
+    /// Returns nil for zero-byte calls so cheap paths do not consume
+    /// reservation items.
+    private func reserveAdmission(
+        bytes: Int
+    ) throws -> CaptureStoreReservation? {
+        guard bytes > 0 else { return nil }
+        do {
+            let reservation = try admissionController.reserve(
+                bytes: bytes
+            )
+            let budget = admissionController.snapshot()
+            let pressured =
+                budget.reservedBytes * 2 > budget.maxBytes
+                || budget.reservedItems * 2 > budget.maxItems
+            if pressured {
+                if !backlogPressureActive {
+                    backlogPressureActive = true
+                    appendResourceEvent(
+                        CaptureResourceEvent(
+                            kind: .persistenceBacklog,
+                            severity: .warning,
+                            detail:
+                                "reserved_bytes=\(budget.reservedBytes) reserved_items=\(budget.reservedItems)"
+                        )
+                    )
+                }
+            } else {
+                backlogPressureActive = false
+            }
+            return reservation
+        } catch let error as CaptureStoreAdmissionError {
+            appendResourceEvent(
+                CaptureResourceEvent(
+                    kind: .persistenceBacklog,
+                    severity: .error,
+                    detail: Self.admissionRejectionDetail(
+                        bytes: bytes,
+                        error: error
+                    )
+                )
+            )
+            throw error
+        }
+    }
+
+    /// Releases a held reservation. Called from `defer` at every
+    /// mutation entry point so success, failure, and cancellation exits
+    /// all release deterministically (issue #147).
+    private func releaseAdmission(
+        _ reservation: CaptureStoreReservation?
+    ) {
+        guard let reservation else { return }
+        // `unknownReservation` can only mean ledger corruption: a held
+        // reservation is released exactly once by its own defer.
+        try? admissionController.release(reservation)
+    }
+
+    private static func admissionRejectionDetail(
+        bytes: Int,
+        error: CaptureStoreAdmissionError
+    ) -> String {
+        switch error {
+        case .invalidByteCount(let invalid):
+            return "admission_rejected invalid_bytes=\(invalid)"
+        case .itemLimitExceeded(let maxItems):
+            return "admission_rejected requested_bytes=\(bytes) max_items=\(maxItems)"
+        case .byteLimitExceeded(
+            let requested,
+            let reserved,
+            let maxBytes
+        ):
+            return "admission_rejected requested_bytes=\(requested) reserved_bytes=\(reserved) max_bytes=\(maxBytes)"
+        case .unknownReservation:
+            return "admission_rejected unknown_reservation"
+        }
+    }
+
+    /// Bounded append for resource diagnostics so persistence and
+    /// backlog events cannot grow the observation history without
+    /// bound (issues #147/#180).
+    private func appendResourceEvent(_ event: CaptureResourceEvent) {
+        resourceEvents.append(event)
+        if resourceEvents.count > Self.maxResourceEvents {
+            resourceEvents.removeFirst(
+                resourceEvents.count - Self.maxResourceEvents
+            )
         }
     }
 }

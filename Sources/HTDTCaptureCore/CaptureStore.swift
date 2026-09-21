@@ -24,7 +24,13 @@ public struct CaptureStoreBudgetSnapshot: Sendable, Equatable {
     public let maxItems: Int
 }
 
-public actor CaptureStoreAdmissionController {
+/// Bounded pending-write admission ledger (issue #147). Serialized by
+/// a lock rather than the actor runtime so `release` can run
+/// synchronously inside `defer` at every persistence entry point —
+/// reservation release must be deterministic on success, failure, and
+/// cancellation exits without an extra suspension.
+public final class CaptureStoreAdmissionController: @unchecked Sendable {
+    private let lock = NSLock()
     private let maxBytes: Int
     private let maxItems: Int
     private var reservations: [UUID: Int] = [:]
@@ -38,6 +44,8 @@ public actor CaptureStoreAdmissionController {
     }
 
     public func reserve(bytes: Int) throws -> CaptureStoreReservation {
+        lock.lock()
+        defer { lock.unlock() }
         guard bytes > 0 else {
             throw CaptureStoreAdmissionError.invalidByteCount(bytes)
         }
@@ -59,6 +67,8 @@ public actor CaptureStoreAdmissionController {
     }
 
     public func release(_ reservation: CaptureStoreReservation) throws {
+        lock.lock()
+        defer { lock.unlock() }
         guard let bytes = reservations.removeValue(forKey: reservation.id) else {
             throw CaptureStoreAdmissionError.unknownReservation
         }
@@ -66,7 +76,9 @@ public actor CaptureStoreAdmissionController {
     }
 
     public func snapshot() -> CaptureStoreBudgetSnapshot {
-        CaptureStoreBudgetSnapshot(
+        lock.lock()
+        defer { lock.unlock() }
+        return CaptureStoreBudgetSnapshot(
             reservedBytes: reservedBytes,
             reservedItems: reservations.count,
             maxBytes: maxBytes,
@@ -128,6 +140,52 @@ public struct CaptureFileWriteRequest: Sendable, Equatable {
 public actor AtomicCaptureFileWriter {
     public let rootDirectory: URL
     private let fileManager: FileManager
+
+    /// Byte-exact comparison between a file on disk and `expected`,
+    /// streamed through bounded chunks instead of materializing a
+    /// second full-size copy of a large payload (issue #147).
+    private func fileBytesEqual(
+        _ url: URL,
+        _ expected: Data
+    ) throws -> Bool {
+        guard fileManager.fileExists(atPath: url.path) else {
+            return false
+        }
+        if let attributes = try? fileManager.attributesOfItem(
+            atPath: url.path
+        ),
+            let size = (attributes[.size] as? NSNumber)?.intValue,
+            size != expected.count
+        {
+            return false
+        }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var offset = 0
+        while offset < expected.count {
+            let length = min(1 << 20, expected.count - offset)
+            guard let chunk = try handle.read(upToCount: length),
+                  chunk.count == length
+            else {
+                return false
+            }
+            guard
+                chunk
+                    == expected.subdata(
+                        in: offset ..< (offset + length)
+                    )
+            else {
+                return false
+            }
+            offset += length
+        }
+        // The file may be longer than `expected` even when the recorded
+        // size attribute was unavailable; confirm end-of-file.
+        guard (try handle.read(upToCount: 1))?.isEmpty ?? true else {
+            return false
+        }
+        return true
+    }
 
     public init(rootDirectory: URL, fileManager: FileManager = .default) throws {
         self.rootDirectory = rootDirectory
@@ -193,8 +251,8 @@ public actor AtomicCaptureFileWriter {
                     }
 
                 if fileManager.fileExists(atPath: target.path) {
-                    let existing = try Data(contentsOf: target)
-                    guard existing == request.data else {
+                    guard try fileBytesEqual(target, request.data)
+                    else {
                         throw CaptureFileWriterError.alreadyExists(
                             request.path.description
                         )
@@ -223,8 +281,8 @@ public actor AtomicCaptureFileWriter {
                     // A writer outside this actor may have won the path race.
                     // Accept it only when it produced the exact same bytes.
                     if fileManager.fileExists(atPath: target.path),
-                       let existing = try? Data(contentsOf: target),
-                       existing == request.data
+                       (try? fileBytesEqual(target, request.data))
+                        == true
                     {
                         continue
                     }
@@ -272,8 +330,7 @@ public actor AtomicCaptureFileWriter {
             }
 
         if fileManager.fileExists(atPath: target.path) {
-            let existing = try Data(contentsOf: target)
-            guard existing == data else {
+            guard try fileBytesEqual(target, data) else {
                 throw CaptureFileWriterError
                     .alreadyExists(path.description)
             }
@@ -302,8 +359,7 @@ public actor AtomicCaptureFileWriter {
             // caller won the atomic move. Accept only byte-identical
             // evidence; never overwrite or accept a conflicting payload.
             if fileManager.fileExists(atPath: target.path),
-               let existing = try? Data(contentsOf: target),
-               existing == data
+               (try? fileBytesEqual(target, data)) == true
             {
                 return
             }
@@ -377,8 +433,10 @@ public actor AtomicCaptureFileWriter {
         }
 
         for item in targets {
-            let existing = try Data(contentsOf: item.url)
-            guard existing == item.request.data else {
+            guard try fileBytesEqual(
+                item.url,
+                item.request.data
+            ) else {
                 throw CaptureFileWriterError.alreadyExists(
                     item.request.path.description
                 )
@@ -472,8 +530,7 @@ public actor AtomicCaptureFileWriter {
             return true
         }
 
-        let existing = try Data(contentsOf: target)
-        guard existing == data else {
+        guard try fileBytesEqual(target, data) else {
             return false
         }
 
