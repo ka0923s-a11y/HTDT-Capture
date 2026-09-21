@@ -376,10 +376,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         isCapturingEvidenceFrame = true
         let generation = captureGeneration
-        let artifacts: CapturedFrameArtifacts
+        // Synchronous MainActor boundary (#177): the platform split API
+        // retains only the frame buffers plus pose/intrinsics metadata
+        // here; binary packing, SHA-256 and HEIC preview generation are
+        // deferred to the async materialize boundary inside the
+        // persistence task so they run off MainActor. CONTRACT:
+        // CapturedFrameSnapshot is the sibling platform agent's
+        // retained-snapshot type name; if it lands under a different
+        // name this annotation is the single host-side rename site.
+        let frameSnapshot: CapturedFrameSnapshot
 
         do {
-            artifacts =
+            frameSnapshot =
                 try sessionController.snapshotFrameEvidence(
                     depthSelection: .discrete
                 )
@@ -421,6 +429,38 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.isCapturingEvidenceFrame = false
                 self.evidenceFrameSaveTask = nil
             }
+            guard self.captureGeneration == generation,
+                  self.state == .scanning
+            else {
+                return
+            }
+
+            // Async boundary (#177): binary packing, SHA-256 and the
+            // derived HEIC preview run off MainActor inside the
+            // platform adapter's materialize step. The retained
+            // snapshot keeps the same-frame pixel/depth/pose
+            // association; a preview failure is non-blocking by
+            // contract. CONTRACT: sibling platform agent exposes
+            // ARFrameArtifactAdapter.materialize(_:) -> CapturedFrameArtifacts.
+            let artifacts: CapturedFrameArtifacts
+            do {
+                artifacts = try await ARFrameArtifactAdapter
+                    .materialize(frameSnapshot)
+            } catch {
+                guard !self.isEndingScan else {
+                    return
+                }
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "Evidence frame could not be prepared; this scan is still active",
+                        "証拠フレームを準備できませんでしたが、現在のスキャンは継続中です"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+                return
+            }
+
             guard self.captureGeneration == generation,
                   self.state == .scanning
             else {
@@ -736,14 +776,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             try sessionController.snapshotHorizontalCameraHeading(
                 depthSelection: .discrete
             )
+        // #177: materialize performs packing/hashing/HEIC off
+        // MainActor; the retained snapshot preserves the same-frame
+        // pose/pixel/depth association.
+        let frameArtifacts =
+            try await ARFrameArtifactAdapter.materialize(
+                snapshot.frameArtifacts
+            )
         let package = try FrameEvidencePackageBuilder.build(
-            descriptor: snapshot.frameArtifacts.descriptor,
-            pixelPayload: snapshot.frameArtifacts.pixelPayload,
-            depthPayload: snapshot.frameArtifacts.depthPayload,
+            descriptor: frameArtifacts.descriptor,
+            pixelPayload: frameArtifacts.pixelPayload,
+            depthPayload: frameArtifacts.depthPayload,
             confidencePayload:
-                snapshot.frameArtifacts.confidencePayload,
+                frameArtifacts.confidencePayload,
             previewPayload:
-                snapshot.frameArtifacts.previewPayload
+                frameArtifacts.previewPayload
         )
         try await store.persistFramePackage(package)
 
@@ -793,14 +840,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             try sessionController.snapshotCenterRaycastPlacement(
                 depthSelection: .discrete
             )
+        // #177: materialize performs packing/hashing/HEIC off
+        // MainActor; the retained snapshot preserves the same-frame
+        // pose/pixel/depth association.
+        let frameArtifacts =
+            try await ARFrameArtifactAdapter.materialize(
+                snapshot.frameArtifacts
+            )
         let package = try FrameEvidencePackageBuilder.build(
-            descriptor: snapshot.frameArtifacts.descriptor,
-            pixelPayload: snapshot.frameArtifacts.pixelPayload,
-            depthPayload: snapshot.frameArtifacts.depthPayload,
+            descriptor: frameArtifacts.descriptor,
+            pixelPayload: frameArtifacts.pixelPayload,
+            depthPayload: frameArtifacts.depthPayload,
             confidencePayload:
-                snapshot.frameArtifacts.confidencePayload,
+                frameArtifacts.confidencePayload,
             previewPayload:
-                snapshot.frameArtifacts.previewPayload
+                frameArtifacts.previewPayload
         )
         try await store.persistFramePackage(package)
 
@@ -2146,16 +2200,39 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return nil
         }
 
+        // #177: binary packing, hashing and the HEIC preview for the
+        // retained End frame run off MainActor inside the materialize
+        // boundary; the synchronous snapshot above already rejected an
+        // unavailable-tracking frame before this expensive step.
+        let endFrameArtifacts: CapturedFrameArtifacts
+        do {
+            endFrameArtifacts = try await ARFrameArtifactAdapter
+                .materialize(evidence.frameArtifacts)
+        } catch {
+            endScanGuidance = HostLocalization.text(
+                "Cannot end yet: the selected camera/depth frame could not be prepared. Hold the phone steady on the target for 1–2 seconds, then try End again.",
+                "まだ終了できません：終了用のカメラ／深度フレームを準備できません。対象へ向けたまま 1〜2 秒静止してから、もう一度「終了」を押してください。"
+            )
+            return nil
+        }
+
+        guard captureGeneration == generation,
+              state == .scanning,
+              isEndingScan
+        else {
+            return nil
+        }
+
         let framePackage: FrameEvidencePackage
         do {
             framePackage = try FrameEvidencePackageBuilder.build(
-                descriptor: evidence.frameArtifacts.descriptor,
-                pixelPayload: evidence.frameArtifacts.pixelPayload,
-                depthPayload: evidence.frameArtifacts.depthPayload,
+                descriptor: endFrameArtifacts.descriptor,
+                pixelPayload: endFrameArtifacts.pixelPayload,
+                depthPayload: endFrameArtifacts.depthPayload,
                 confidencePayload:
-                    evidence.frameArtifacts.confidencePayload,
+                    endFrameArtifacts.confidencePayload,
                 previewPayload:
-                    evidence.frameArtifacts.previewPayload
+                    endFrameArtifacts.previewPayload
             )
             _ = try CaptureTimingPackageBuilder.build(
                 start: startTiming,
@@ -2171,7 +2248,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         let hasDepth =
             snapshot.depthEvidenceCount > 0
-            || evidence.frameArtifacts.depthPayload != nil
+            || endFrameArtifacts.depthPayload != nil
         let hasMesh =
             evidence.meshSnapshotSucceeded
             && !evidence.meshAnchors.isEmpty
