@@ -1611,6 +1611,23 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             defer {
                 self.automaticFrameSaveTask = nil
             }
+            await self.persistAutomaticKeyframe(
+                frameSnapshot: frameSnapshot,
+                sample: sample,
+                usability: usability,
+                store: store,
+                generation: generation
+            )
+        }
+    }
+
+    private func persistAutomaticKeyframe(
+        frameSnapshot: CapturedFrameSnapshot,
+        sample: AutomaticKeyframeSample,
+        usability: FrameUsabilityAssessment?,
+        store: CaptureWorkingSetStore,
+        generation: UUID
+    ) async {
             let artifacts: CapturedFrameArtifacts
             let package: FrameEvidencePackage
             do {
@@ -1716,7 +1733,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     )
                 )
             }
-        }
     }
 
     /// Persist an advisory note when a store is live; silent during
