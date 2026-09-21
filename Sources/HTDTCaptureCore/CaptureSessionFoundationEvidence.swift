@@ -207,22 +207,24 @@ public struct CaptureSessionFoundationPackage: Sendable, Equatable {
     public func persist(
         using writer: AtomicCaptureFileWriter
     ) async throws {
-        try await writer.write(
-            capabilitiesData,
-            to: CaptureStorePath(Self.capabilitiesPath)
-        )
-        try await writer.write(
-            configurationData,
-            to: CaptureStorePath(Self.configurationPath)
-        )
-        try await writer.write(
-            deviceData,
-            to: CaptureStorePath(Self.devicePath)
-        )
-        try await writer.write(
-            sessionData,
-            to: CaptureStorePath(Self.sessionPath)
-        )
+        try await writer.writeBatchIfIdentical([
+            try CaptureFileWriteRequest(
+                data: capabilitiesData,
+                path: CaptureStorePath(Self.capabilitiesPath)
+            ),
+            try CaptureFileWriteRequest(
+                data: configurationData,
+                path: CaptureStorePath(Self.configurationPath)
+            ),
+            try CaptureFileWriteRequest(
+                data: deviceData,
+                path: CaptureStorePath(Self.devicePath)
+            ),
+            try CaptureFileWriteRequest(
+                data: sessionData,
+                path: CaptureStorePath(Self.sessionPath)
+            ),
+        ])
     }
 }
 

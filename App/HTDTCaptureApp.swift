@@ -64,6 +64,8 @@ private struct HTDTCaptureHostView: View {
                 captureEvidenceFrame: coordinator.captureEvidenceFrame,
                 setScanMovementCapability:
                     coordinator.setScanMovementCapability,
+                continueScanning:
+                    coordinator.continueScanningFromReview,
                 beginAnnotation: coordinator.beginAnnotation,
                 captureRaycastPlacement:
                     coordinator.captureRaycastPlacement,
@@ -131,6 +133,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var workingSetStore: CaptureWorkingSetStore?
     private var finalizedRevision: FinalizedCaptureRevision?
     private var resourceMonitor: CaptureResourceMonitor?
+    private var resourceEventTask: Task<Void, Never>?
     private var captureGeneration = UUID()
     private var isEndingScan = false
     private var isCapturingEvidenceFrame = false
@@ -138,8 +141,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var captureStartTimingCorrelation:
         CaptureTimingCorrelation?
     private var acceptedRoomPlanRawSHA256: EvidenceSHA256?
+    private var acceptedEndMeshWasPersisted = false
     private var pendingEndAttempt: PendingEndScanAttempt?
     private var roomPlanCompletionInFlight = false
+    private var annotationCommitInFlight = false
+    private var reviewOperationInFlight = false
+    private var exportOperationInFlight = false
+    private var spatialAuthoritySealedForFinalization = false
     private var scanCoverageTracker =
         AdvisoryScanCoverageTracker()
     private var observationStabilityTracker =
@@ -225,7 +233,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
 
     var annotationCoordinateSpaceID: CoordinateSpaceID? {
-        guard state == .reviewing || state == .annotating else {
+        guard !spatialAuthoritySealedForFinalization,
+              state == .reviewing || state == .annotating
+        else {
             return nil
         }
         return sessionController.context.coordinateSpaceID
@@ -244,8 +254,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         annotationEvidenceRefs = []
         captureStartTimingCorrelation = nil
         acceptedRoomPlanRawSHA256 = nil
+        acceptedEndMeshWasPersisted = false
         pendingEndAttempt = nil
         roomPlanCompletionInFlight = false
+        annotationCommitInFlight = false
+        reviewOperationInFlight = false
+        exportOperationInFlight = false
+        spatialAuthoritySealedForFinalization = false
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
         scanCoverageTracker = AdvisoryScanCoverageTracker()
@@ -298,6 +313,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         endScanPreflightBlocked = false
         resourceMonitor?.stop()
         resourceMonitor = nil
+        resourceEventTask = nil
 
         do {
             try transition(.beginCapabilityCheck)
@@ -346,11 +362,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
         } catch PlatformCaptureError.currentFrameUnavailable {
             isCapturingEvidenceFrame = false
-            fail(.trackingUnavailable)
+            workingSetStatus = HostLocalization.text(
+                "Evidence frame was not captured because the current AR frame is temporarily unavailable; this scan is still active",
+                "現在の AR フレームを一時的に取得できないため証拠フレームを保存しませんでした。現在のスキャンは継続中です"
+            )
+            endScanGuidance = HostLocalization.text(
+                "Hold the phone steady on previously scanned features until tracking is normal, then retry Evidence Save or continue scanning.",
+                "既に撮影した特徴へ向けて iPhone を静止し、トラッキングが正常になってから「証拠保存」を再試行するか、そのままスキャンを続けてください。"
+            )
             return
         } catch {
             isCapturingEvidenceFrame = false
-            fail(.persistenceFailure)
+            workingSetStatus =
+                HostLocalization.text(
+                    "Evidence frame could not be prepared; this scan is still active",
+                    "証拠フレームを準備できませんでしたが、現在のスキャンは継続中です"
+                )
+                + " ["
+                + Self.persistenceDiagnostic(error)
+                + "]"
             return
         }
 
@@ -367,48 +397,123 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
+            let package: FrameEvidencePackage
             do {
-                let package = try FrameEvidencePackageBuilder.build(
+                package = try FrameEvidencePackageBuilder.build(
                     descriptor: artifacts.descriptor,
                     pixelPayload: artifacts.pixelPayload,
                     depthPayload: artifacts.depthPayload,
                     confidencePayload: artifacts.confidencePayload,
                     previewPayload: artifacts.previewPayload
                 )
-                try await store.persistFramePackage(package)
-                let snapshot = await store.snapshot()
-                guard self.captureGeneration == generation,
-                      self.state == .scanning
-                else {
-                    return
-                }
-                self.scanEvidenceFrameCount =
-                    snapshot.evidenceFrameCount
-                self.scanDepthEvidenceCount =
-                    snapshot.depthEvidenceCount
-                self.updateLiveEndScanGuidance()
+            } catch {
                 self.workingSetStatus =
-                    HostLocalization.isJapanese
-                    ? "スキャン中：証拠フレームを "
-                        + String(snapshot.evidenceFrameCount)
-                        + " 件保存しました"
-                    : "Scanning; "
-                        + String(snapshot.evidenceFrameCount)
-                        + " evidence frame(s) persisted"
+                    HostLocalization.text(
+                        "Evidence frame package could not be built; this scan is still active",
+                        "証拠フレームのパッケージを作成できませんでしたが、現在のスキャンは継続中です"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+                return
+            }
+
+            do {
+                try await store.persistFramePackage(package)
             } catch {
                 guard self.captureGeneration == generation,
                       self.state == .scanning
                 else {
-                    // An in-flight manual evidence save must not terminate a
-                    // review that has already begun.
                     return
                 }
-                self.workingSetStatus = HostLocalization.text(
-                    "Evidence frame/depth could not be saved",
-                    "証拠フレーム／深度を保存できませんでした"
+
+                let diagnostic =
+                    Self.persistenceDiagnostic(error)
+
+                if error is CaptureWorkingSetError {
+                    self.workingSetStatus =
+                        HostLocalization.text(
+                            "Evidence-frame persistence hit a capture-authority conflict and cannot continue safely",
+                            "証拠フレームの保存でキャプチャ authority の競合が発生し、安全に継続できません"
+                        )
+                        + " ["
+                        + diagnostic
+                        + "]"
+                    self.fail(.persistenceFailure)
+                    return
+                }
+
+                do {
+                    try await store.discardUncommittedFramePackage(
+                        package
+                    )
+                } catch {
+                    self.workingSetStatus =
+                        HostLocalization.text(
+                            "Evidence-frame persistence failed and partial canonical files could not be rolled back safely",
+                            "証拠フレームの保存に失敗し、部分保存された正規データを安全に取り消せませんでした"
+                        )
+                        + " ["
+                        + diagnostic
+                        + "]"
+                    self.fail(.persistenceFailure)
+                    return
+                }
+
+                guard self.captureGeneration == generation,
+                      self.state == .scanning
+                else {
+                    return
+                }
+
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "Recoverable manual evidence-frame persistence failure: "
+                            + diagnostic
+                    )
                 )
-                self.fail(.persistenceFailure)
+                guard self.captureGeneration == generation,
+                      self.state == .scanning
+                else {
+                    return
+                }
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "Evidence frame was not committed; this scan is still active",
+                        "証拠フレームは確定されませんでしたが、現在のスキャンは継続中です"
+                    )
+                    + " ["
+                    + diagnostic
+                    + "]"
+                self.endScanGuidance = HostLocalization.text(
+                    "Continue scanning or retry Evidence Save. End remains available after the required end evidence can be persisted.",
+                    "スキャンを続けるか「証拠保存」を再試行してください。終了時に必要な証拠データを保存できれば、そのまま「終了」できます。"
+                )
+                return
             }
+
+            let snapshot = await store.snapshot()
+            guard self.captureGeneration == generation,
+                  self.state == .scanning
+            else {
+                return
+            }
+            self.scanEvidenceFrameCount =
+                snapshot.evidenceFrameCount
+            self.scanDepthEvidenceCount =
+                snapshot.depthEvidenceCount
+            self.updateLiveEndScanGuidance()
+            self.workingSetStatus =
+                HostLocalization.isJapanese
+                ? "スキャン中：証拠フレームを "
+                    + String(snapshot.evidenceFrameCount)
+                    + " 件保存しました"
+                : "Scanning; "
+                    + String(snapshot.evidenceFrameCount)
+                    + " evidence frame(s) persisted"
         }
     }
 
@@ -416,27 +521,141 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard state == .scanning, !isEndingScan else {
             return
         }
+
+        let generation = captureGeneration
         isEndingScan = true
 
         Task { @MainActor [weak self] in
-            guard let self else {
+            guard let self,
+                  self.captureGeneration == generation
+            else {
                 return
             }
 
-            guard let prepared = await self.prepareEndScan(),
-                  self.state == .scanning
+            guard let prepared =
+                    await self.prepareEndScan(
+                        generation: generation
+                    ),
+                  self.captureGeneration == generation,
+                  self.state == .scanning,
+                  self.isEndingScan
             else {
-                self.isEndingScan = false
+                if self.captureGeneration == generation {
+                    self.isEndingScan = false
+                }
                 return
             }
 
             self.endScanGuidance = nil
-            await self.endScanForReview(prepared)
+            await self.endScanForReview(
+                prepared,
+                generation: generation
+            )
+        }
+    }
+
+    func continueScanningFromReview() {
+        guard state == .reviewing,
+              !isEndingScan,
+              !reviewOperationInFlight,
+              !annotationAuthorityCommitted,
+              !spatialAuthoritySealedForFinalization,
+              acceptedRoomPlanRawSHA256 != nil,
+              let store = workingSetStore
+        else {
+            return
+        }
+
+        reviewOperationInFlight = true
+        let generation = captureGeneration
+        let removeOwnedMesh = acceptedEndMeshWasPersisted
+        workingSetStatus = HostLocalization.text(
+            "Reopening this capture for additional scanning",
+            "このキャプチャを追加スキャンのために再開しています"
+        )
+
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.captureGeneration == generation,
+                  self.state == .reviewing
+            else {
+                return
+            }
+
+            do {
+                try self.sessionController.startRoomPlan()
+            } catch {
+                self.reviewOperationInFlight = false
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "RoomPlan could not resume additional scanning. The accepted Review evidence was kept intact; you can retry Continue scanning or finalize this capture.",
+                        "RoomPlan で追加スキャンを再開できませんでした。受理済みの確認データはそのまま保持しています。「スキャンを続ける」を再試行するか、このキャプチャを確定できます。"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+                return
+            }
+
+            do {
+                try await store.rollbackAcceptedEndTransaction(
+                    removeOwnedMesh: removeOwnedMesh
+                )
+            } catch {
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "RoomPlan restarted, but the accepted Review boundary could not be rolled back safely",
+                        "RoomPlan は再開しましたが、受理済みの確認境界を安全に取り消せませんでした"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+                self.fail(.persistenceFailure)
+                return
+            }
+
+            guard self.captureGeneration == generation,
+                  self.state == .reviewing
+            else {
+                return
+            }
+
+            do {
+                try self.transition(.resumeScanning)
+            } catch {
+                self.fail(.unknown)
+                return
+            }
+
+            self.reviewOperationInFlight = false
+            self.acceptedRoomPlanRawSHA256 = nil
+            self.acceptedEndMeshWasPersisted = false
+            self.qualityReport = nil
+            self.validationReport = nil
+            self.pendingEndAttempt = nil
+            self.roomPlanCompletionInFlight = false
+            self.isEndingScan = false
+            self.endScanPreflightBlocked = false
+            self.endScanGuidance = HostLocalization.text(
+                "Continue scanning the weak or missing areas, then press End again. Previously saved frame/depth evidence is retained.",
+                "不足している場所を追加スキャンしてから、もう一度「終了」を押してください。以前に保存したフレーム／深度証拠は保持されています。"
+            )
+            self.startScanCoverageSampling(
+                generation: generation,
+                resetTrackers: false
+            )
+            self.workingSetStatus =
+                HostLocalization.text(
+                    "Scanning resumed in the same AR coordinate space",
+                    "同じ AR 座標空間でスキャンを再開しました"
+                )
         }
     }
 
     func beginAnnotation() {
         guard state == .reviewing,
+              !isEndingScan,
+              !reviewOperationInFlight,
               !annotationAuthorityCommitted
         else {
             return
@@ -461,6 +680,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             throw PlatformCaptureError.orientationUnavailable
         }
 
+        let generation = captureGeneration
         let snapshot =
             try sessionController.snapshotHorizontalCameraHeading(
                 depthSelection: .discrete
@@ -476,6 +696,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
         try await store.persistFramePackage(package)
 
+        guard captureGeneration == generation,
+              state == .annotating
+        else {
+            throw PlatformCaptureError.orientationUnavailable
+        }
+
         let evidenceRef = "path:" + package.descriptorPath
         let orientation = try OrientationAxes(
             frontAxisLocal: snapshot.frontAxisWorld,
@@ -487,6 +713,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
 
         let workingSnapshot = await store.snapshot()
+        guard captureGeneration == generation,
+              state == .annotating
+        else {
+            throw PlatformCaptureError.orientationUnavailable
+        }
         annotationEvidenceRefs =
             workingSnapshot.evidenceFrameRefs
         workingSetStatus = HostLocalization.text(
@@ -506,6 +737,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             throw PlatformCaptureError.raycastMiss
         }
 
+        let generation = captureGeneration
         let snapshot =
             try sessionController.snapshotCenterRaycastPlacement(
                 depthSelection: .discrete
@@ -520,6 +752,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 snapshot.frameArtifacts.previewPayload
         )
         try await store.persistFramePackage(package)
+
+        guard captureGeneration == generation,
+              state == .annotating
+        else {
+            throw PlatformCaptureError.raycastMiss
+        }
 
         let evidenceRef = "path:" + package.descriptorPath
         let position = snapshot.positionWorld
@@ -543,6 +781,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
 
         let workingSnapshot = await store.snapshot()
+        guard captureGeneration == generation,
+              state == .annotating
+        else {
+            throw PlatformCaptureError.raycastMiss
+        }
         annotationEvidenceRefs =
             workingSnapshot.evidenceFrameRefs
         workingSetStatus = HostLocalization.text(
@@ -555,6 +798,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     func cancelAnnotation() {
         guard state == .annotating else {
+            return
+        }
+        guard !annotationCommitInFlight else {
+            workingSetStatus = HostLocalization.text(
+                "Annotation authority is currently being saved. Wait for the save result before cancelling.",
+                "注釈 authority を保存中です。保存結果が出るまで待ってからキャンセルしてください。"
+            )
             return
         }
         do {
@@ -573,12 +823,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         measurements: [CaptureMeasurement]
     ) {
         guard state == .annotating,
+              !annotationCommitInFlight,
               !annotationAuthorityCommitted,
               let store = workingSetStore
         else {
             return
         }
 
+        annotationCommitInFlight = true
         let annotationPackage: AnnotationEvidencePackage
         let measurementPackage: MeasurementEvidencePackage
         do {
@@ -591,7 +843,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     measurements: measurements
                 )
         } catch {
-            fail(.persistenceFailure)
+            annotationCommitInFlight = false
+            workingSetStatus =
+                HostLocalization.text(
+                    "Annotation or measurement authority is not internally valid; nothing was committed",
+                    "注釈または計測 authority の内部検証に通りませんでした。データは確定されていません"
+                )
+                + " ["
+                + Self.persistenceDiagnostic(error)
+                + "]"
             return
         }
 
@@ -610,12 +870,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             do {
-                try await store.persistAnnotationPackage(
-                    annotationPackage
-                )
-                try await store.persistMeasurementPackage(
-                    measurementPackage
-                )
+                try await store
+                    .persistAnnotationAndMeasurementPackages(
+                        annotationPackage: annotationPackage,
+                        measurementPackage: measurementPackage
+                    )
                 guard self.captureGeneration == generation,
                       self.state == .annotating
                 else {
@@ -623,49 +882,218 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
 
                 self.annotationAuthorityCommitted = true
+                self.annotationCommitInFlight = false
                 try self.transition(.beginReview)
                 await self.refreshQuality(
                     store: store,
                     generation: generation
                 )
             } catch {
-                self.fail(.persistenceFailure)
+                guard self.captureGeneration == generation,
+                      self.state == .annotating
+                else {
+                    return
+                }
+
+                let diagnostic =
+                    Self.persistenceDiagnostic(error)
+
+                // Typed authority conflicts or a writer-level conflict/
+                // rollback failure are not safe to retry in-place. Ordinary
+                // filesystem/resource failures are safe because the paired
+                // annotation+measurement write is one rollback-capable batch.
+                if error is CaptureWorkingSetError
+                    || error is CaptureFileWriterError
+                {
+                    self.workingSetStatus =
+                        HostLocalization.text(
+                            "Annotation authority could not be committed safely",
+                            "注釈 authority を安全に確定できませんでした"
+                        )
+                        + " ["
+                        + diagnostic
+                        + "]"
+                    self.fail(.persistenceFailure)
+                    return
+                }
+
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "Recoverable annotation/measurement persistence failure: "
+                            + diagnostic
+                    )
+                )
+                guard self.captureGeneration == generation,
+                      self.state == .annotating
+                else {
+                    return
+                }
+                self.annotationCommitInFlight = false
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "Annotation changes were not committed; editing remains open and Save can be retried",
+                        "注釈の変更は確定されていません。編集画面は保持されているため、保存を再試行できます"
+                    )
+                    + " ["
+                    + diagnostic
+                    + "]"
             }
         }
     }
 
     func finalizeCapture() {
         guard state == .reviewing,
-              let qualityReport,
-              qualityReport.readyForHTDTIngestion,
-              qualityReport.integrityStatus == .pass,
+              !isEndingScan,
+              !reviewOperationInFlight,
               let store = workingSetStore
         else {
             return
         }
 
-        resourceMonitor?.sampleStorage()
-        guard state == .reviewing else {
-            return
-        }
-
-        do {
-            try transition(.beginValidation)
-        } catch {
-            fail(.unknown)
-            return
-        }
-
-        workingSetStatus = HostLocalization.text(
-            "Persisting quality and finalizing revision",
-            "品質情報を保存し、リビジョンを確定中"
-        )
-
+        reviewOperationInFlight = true
         let generation = captureGeneration
-        Task {
-            await performFinalization(
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.captureGeneration == generation,
+                  self.state == .reviewing
+            else {
+                return
+            }
+
+            // Finalize is the point where accepted Review becomes
+            // spatially immutable. Stop live resource notifications and AR
+            // synchronously on the MainActor before the first suspension so
+            // a critical callback cannot race this operation into terminal
+            // failure. Keep the stopped monitor object as a synchronous
+            // storage assessor for this attempt and any retry.
+            let pendingBeforeStorage = self.resourceEventTask
+            self.resourceMonitor?.stop()
+            self.spatialAuthoritySealedForFinalization = true
+            self.sessionController.stopAndPauseARSession()
+
+            await pendingBeforeStorage?.value
+
+            guard self.captureGeneration == generation,
+                  self.state == .reviewing
+            else {
+                return
+            }
+
+            if ProcessInfo.processInfo.thermalState == .critical {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .thermalPressure,
+                        severity: .warning,
+                        detail:
+                            "finalization deferred because thermal state is still critical after accepted End"
+                    )
+                )
+                guard self.captureGeneration == generation,
+                      self.state == .reviewing
+                else {
+                    return
+                }
+                await self.refreshQuality(
+                    store: store,
+                    generation: generation
+                )
+                self.reviewOperationInFlight = false
+                self.workingSetStatus = HostLocalization.text(
+                    "Finalization is deferred while the device is critically hot. Let it cool, then retry.",
+                    "端末温度が危険な間は確定を延期します。端末を冷ましてから再試行してください。"
+                )
+                return
+            }
+
+            // Final storage sampling is part of the quality authority, not a
+            // fire-and-forget side channel. A critical result after accepted
+            // End is transient: retain Review, seal spatial continuation, and
+            // retry finalization after storage recovers.
+            if let assessment =
+                self.resourceMonitor?.currentStorageAssessment()
+            {
+                let eventToRecord: CaptureResourceEvent
+                if assessment.failure == .storagePressure {
+                    eventToRecord = CaptureResourceEvent(
+                        kind: .storagePressure,
+                        severity: .warning,
+                        detail:
+                            "finalization deferred because available storage is below the critical threshold after accepted End"
+                    )
+                } else {
+                    eventToRecord = assessment.event
+                }
+
+                await store.recordResourceEvent(
+                    eventToRecord
+                )
+
+                guard self.captureGeneration == generation,
+                      self.state == .reviewing
+                else {
+                    return
+                }
+
+                if assessment.failure == .storagePressure {
+                    await self.refreshQuality(
+                        store: store,
+                        generation: generation
+                    )
+                    self.reviewOperationInFlight = false
+                    self.workingSetStatus = HostLocalization.text(
+                        "Finalization is deferred because storage is critically low. Free storage, then retry.",
+                        "空き容量が危険域のため確定を延期します。空き容量を増やしてから再試行してください。"
+                    )
+                    return
+                }
+
+                await self.refreshQuality(
+                    store: store,
+                    generation: generation
+                )
+            }
+
+            // The monitor was stopped before the first await, so no new
+            // lifecycle/thermal/storage callback can enter the resource-event
+            // chain during the manual final assessment.
+            guard self.captureGeneration == generation,
+                  self.state == .reviewing,
+                  let quality = self.qualityReport,
+                  quality.readyForHTDTIngestion,
+                  quality.integrityStatus == .pass
+            else {
+                self.reviewOperationInFlight = false
+                self.workingSetStatus = HostLocalization.text(
+                    "Review quality changed before finalization; resolve the diagnostics and retry",
+                    "確定直前に品質状態が変化しました。診断内容を確認して解消し、再試行してください"
+                )
+                return
+            }
+
+            // Live spatial/resource authority was already sealed before
+            // this transaction suspended. Drop the drained event-chain
+            // handle; keep the stopped monitor object for retry assessment.
+            self.resourceEventTask = nil
+
+            do {
+                try self.transition(.beginValidation)
+            } catch {
+                self.fail(.unknown)
+                return
+            }
+
+            self.reviewOperationInFlight = false
+            self.workingSetStatus = HostLocalization.text(
+                "Persisting quality and finalizing revision",
+                "品質情報を保存し、リビジョンを確定中"
+            )
+
+            await self.performFinalization(
                 store: store,
-                quality: qualityReport,
+                quality: quality,
                 generation: generation
             )
         }
@@ -673,6 +1101,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     func prepareExport() {
         guard state == .finalized,
+              !exportOperationInFlight,
               let finalizedRevision,
               let validationReport,
               validationReport.bundleDigest
@@ -681,18 +1110,49 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        exportOperationInFlight = true
         workingSetStatus = HostLocalization.text(
             "Creating validated .htdtcapture archive",
             "検証済み .htdtcapture アーカイブを作成中"
         )
         let generation = captureGeneration
 
-        Task {
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            defer {
+                if self.captureGeneration == generation {
+                    self.exportOperationInFlight = false
+                }
+            }
+
+            let destination: URL
             do {
-                let destination = try exportDestination(
+                destination = try self.exportDestination(
                     for: finalizedRevision
                 )
-                let result = try await Task.detached(
+            } catch {
+                guard self.captureGeneration == generation,
+                      self.state == .finalized
+                else {
+                    return
+                }
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "Archive destination could not be prepared. The finalized revision is preserved and export can be retried.",
+                        "アーカイブの保存先を準備できませんでした。確定済みリビジョンは保持されているため、書き出しを再試行できます。"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+                return
+            }
+
+            func exportFreshArchive() async throws
+                -> CaptureBundleArchiveResult
+            {
+                try await Task.detached(
                     priority: .userInitiated
                 ) {
                     try CaptureBundleArchiveExporter.export(
@@ -701,37 +1161,123 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         destination: destination
                     )
                 }.value
+            }
+
+            do {
+                var result: CaptureBundleArchiveResult
+                do {
+                    result = try await exportFreshArchive()
+                } catch {
+                    guard self.captureGeneration == generation,
+                          self.state == .finalized
+                    else {
+                        return
+                    }
+
+                    guard case CaptureBundleArchiveError
+                        .destinationAlreadyExists = error
+                    else {
+                        throw error
+                    }
+
+                    if let existingValidation =
+                        try? StoredCaptureBundleArchiveValidator
+                            .validate(archive: destination),
+                       existingValidation.bundleDigest
+                        == finalizedRevision.bundleDigest
+                    {
+                        self.exportURL = destination
+                        try self.transition(.export)
+                        self.workingSetStatus = HostLocalization.text(
+                            "Existing validated archive recovered and is ready to share",
+                            "既存の検証済みアーカイブを復旧し、共有できる状態にしました"
+                        )
+                        return
+                    }
+
+                    // The destination is app-owned derived transport output.
+                    // A corrupt or digest-mismatched wrapper is not capture
+                    // authority; remove only that wrapper and rebuild once
+                    // from the immutable finalized directory.
+                    do {
+                        try FileManager.default.removeItem(
+                            at: destination
+                        )
+                    } catch {
+                        self.workingSetStatus =
+                            HostLocalization.text(
+                                "A stale export archive blocks rebuilding and could not be removed. The finalized revision is unchanged.",
+                                "古い書き出しアーカイブが再作成を妨げていますが、削除できませんでした。確定済みリビジョン自体は変更されていません。"
+                            )
+                            + " ["
+                            + Self.persistenceDiagnostic(error)
+                            + "]"
+                        return
+                    }
+
+                    result = try await exportFreshArchive()
+                }
+
                 guard result.bundleDigest
                         == finalizedRevision.bundleDigest
                 else {
                     throw CaptureBundleArchiveError
                         .archiveLogicalDigestMismatch
                 }
-                guard captureGeneration == generation,
-                      state == .finalized
+
+                let validation =
+                    try StoredCaptureBundleArchiveValidator
+                        .validate(archive: result.archiveURL)
+                guard validation.bundleDigest
+                        == finalizedRevision.bundleDigest
+                else {
+                    throw CaptureBundleArchiveError
+                        .archiveLogicalDigestMismatch
+                }
+
+                guard self.captureGeneration == generation,
+                      self.state == .finalized
                 else {
                     return
                 }
 
-                exportURL = result.archiveURL
-                try transition(.export)
-                workingSetStatus = HostLocalization.text(
+                self.exportURL = result.archiveURL
+                try self.transition(.export)
+                self.workingSetStatus = HostLocalization.text(
                     "Validated share-ready archive created",
                     "検証済みの共有用アーカイブを作成しました"
                 )
             } catch {
-                fail(.persistenceFailure)
+                guard self.captureGeneration == generation,
+                      self.state == .finalized
+                else {
+                    return
+                }
+
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "Archive export failed. The finalized revision is preserved; retry export when ready.",
+                        "アーカイブの書き出しに失敗しました。確定済みリビジョンは保持されているため、準備ができたら再試行してください。"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
             }
         }
     }
 
     func resetCapture() {
-        guard state == .failed || state == .exported else {
+        guard state == .failed
+                || state == .finalized
+                || state == .exported
+        else {
             return
         }
 
         let failedWorkingSet =
             state == .failed ? workingSetStore : nil
+        let pendingResourceEvents = resourceEventTask
+        resourceEventTask = nil
 
         captureGeneration = UUID()
         sessionController.stopAndPauseARSession()
@@ -752,6 +1298,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         annotationEvidenceRefs = []
         captureStartTimingCorrelation = nil
         acceptedRoomPlanRawSHA256 = nil
+        acceptedEndMeshWasPersisted = false
+        annotationCommitInFlight = false
+        reviewOperationInFlight = false
+        exportOperationInFlight = false
+        spatialAuthoritySealedForFinalization = false
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
         scanCoverageTracker = AdvisoryScanCoverageTracker()
@@ -820,6 +1371,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         if let failedWorkingSet {
             Task { @MainActor [weak self] in
+                await pendingResourceEvents?.value
                 do {
                     try await failedWorkingSet
                         .discardIncompleteRevision()
@@ -874,7 +1426,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let prepared: (
             store: CaptureWorkingSetStore,
             identity: CaptureWorkingSetIdentity,
-            generation: UUID
+            generation: UUID,
+            rootDirectory: URL
         )
         do {
             prepared = try makeWorkingSet()
@@ -923,6 +1476,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        guard state == .scanning,
+              captureGeneration == generation
+        else {
+            return
+        }
+
+        configureResourceMonitor(
+            store: store,
+            rootDirectory: prepared.rootDirectory,
+            generation: generation
+        )
         guard state == .scanning,
               captureGeneration == generation
         else {
@@ -980,6 +1544,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        guard state == .scanning,
+              captureGeneration == generation
+        else {
+            return
+        }
+
         let foundation: CaptureSessionFoundationPackage
         do {
             foundation =
@@ -1002,6 +1572,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        guard state == .scanning,
+              captureGeneration == generation
+        else {
+            return
+        }
+
         do {
             captureStartTimingCorrelation =
                 try await waitForInitialTimingCorrelation()
@@ -1014,11 +1590,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        configureResourceMonitor(
-            store: store,
-            rootDirectory: await store.rootDirectory,
-            generation: generation
-        )
         guard state == .scanning,
               captureGeneration == generation
         else {
@@ -1084,7 +1655,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private struct PreparedEndScanAttempt {
-        let evidence: CaptureReviewEvidenceSnapshot
+        let trackingQualityEvent: TrackingQualityEvent
         let framePackage: FrameEvidencePackage
         let meshPackage: MeshEvidencePackage?
         let meshSnapshotUnavailable: Bool
@@ -1092,15 +1663,28 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     private struct PendingEndScanAttempt {
         let id: UUID
-        let prepared: PreparedEndScanAttempt
         let timingPackage: CaptureTimingPackage
+        let meshSnapshotUnavailable: Bool
     }
 
-    private func prepareEndScan() async -> PreparedEndScanAttempt? {
+    private func prepareEndScan(
+        generation: UUID
+    ) async -> PreparedEndScanAttempt? {
+        guard captureGeneration == generation,
+              state == .scanning,
+              isEndingScan
+        else {
+            return nil
+        }
+
         endScanPreflightBlocked = false
         var succeeded = false
         defer {
-            endScanPreflightBlocked = !succeeded
+            if captureGeneration == generation,
+               state == .scanning
+            {
+                endScanPreflightBlocked = !succeeded
+            }
         }
 
         guard let store = workingSetStore else {
@@ -1120,6 +1704,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         let snapshot = await store.snapshot()
+        guard captureGeneration == generation,
+              state == .scanning,
+              isEndingScan
+        else {
+            return nil
+        }
+
         do {
             let values = try snapshot.rootDirectory.resourceValues(
                 forKeys: [.volumeAvailableCapacityForImportantUsageKey]
@@ -1238,10 +1829,20 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
         }
 
+        if !hasDepth,
+           meshPackage == nil
+        {
+            endScanGuidance = HostLocalization.text(
+                "Cannot end yet: AR mesh anchors were observed, but they could not be converted into valid retained mesh evidence and no Scene Depth fallback exists. Keep scanning a nearby surface until depth evidence is retained, then try End again.",
+                "まだ終了できません：AR メッシュアンカーは観測されていますが、有効な保存用メッシュ証拠へ変換できず、Scene Depth の代替証拠もありません。近くの面を追加スキャンして深度証拠が保存されてから、もう一度「終了」を押してください。"
+            )
+            return nil
+        }
+
         endScanGuidance = nil
         succeeded = true
         return PreparedEndScanAttempt(
-            evidence: evidence,
+            trackingQualityEvent: evidence.trackingQualityEvent,
             framePackage: framePackage,
             meshPackage: meshPackage,
             meshSnapshotUnavailable: meshSnapshotUnavailable
@@ -1249,7 +1850,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private func endScanForReview(
-        _ prepared: PreparedEndScanAttempt
+        _ prepared: PreparedEndScanAttempt,
+        generation: UUID
     ) async {
         var handedOffToRoomPlanCompletion = false
         defer {
@@ -1258,17 +1860,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
         }
 
-        guard let store = workingSetStore else {
-            workingSetStatus = HostLocalization.text(
-                "Capture working set is unavailable",
-                "キャプチャ作業データを利用できません"
-            )
-            fail(.persistenceFailure)
-            return
-        }
-
-        let generation = captureGeneration
-        guard state == .scanning else {
+        guard captureGeneration == generation,
+              state == .scanning,
+              isEndingScan,
+              let store = workingSetStore
+        else {
             return
         }
 
@@ -1334,6 +1930,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
 
+                guard captureGeneration == generation,
+                      state == .scanning
+                else {
+                    return
+                }
+
                 await store.recordResourceEvent(
                     CaptureResourceEvent(
                         kind: .persistenceFailure,
@@ -1343,6 +1945,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             + diagnostic
                     )
                 )
+                guard captureGeneration == generation,
+                      state == .scanning
+                else {
+                    return
+                }
                 workingSetStatus =
                     HostLocalization.text(
                         "End was not committed because the selected frame/depth evidence could not be saved; this scan is still active",
@@ -1396,8 +2003,84 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        // Mesh is optional because retained frame/depth evidence is the
+        // bounded geometry fallback. Commit it only after every recoverable
+        // pre-stop timing check has succeeded, then release its large payload
+        // before RoomPlan allocates the final CapturedRoomData/RoomBuilder
+        // result.
+        var meshSnapshotUnavailable =
+            prepared.meshSnapshotUnavailable
+        if let meshPackage = prepared.meshPackage {
+            workingSetStatus = HostLocalization.text(
+                "Saving available mesh evidence before ending",
+                "終了前に利用可能なメッシュ証拠を保存中"
+            )
+            do {
+                try await store.persistMeshPackage(meshPackage)
+            } catch {
+                let diagnostic =
+                    Self.persistenceDiagnostic(error)
+
+                if error is CaptureWorkingSetError
+                    || error is CaptureFileWriterError
+                {
+                    workingSetStatus =
+                        HostLocalization.text(
+                            "Mesh persistence hit a canonical capture-authority conflict and cannot fall back safely",
+                            "メッシュ保存で正規キャプチャ authority の競合が発生し、安全に代替処理へ進めません"
+                        )
+                        + " ["
+                        + diagnostic
+                        + "]"
+                    fail(.persistenceFailure)
+                    return
+                }
+
+                meshSnapshotUnavailable = true
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "Optional pre-stop mesh persistence failed: "
+                            + diagnostic
+                            + "; retained frame/depth evidence is required for bounded fallback."
+                    )
+                )
+
+                guard captureGeneration == generation,
+                      state == .scanning
+                else {
+                    return
+                }
+
+                if frameSnapshot.depthEvidenceCount == 0 {
+                    workingSetStatus =
+                        HostLocalization.text(
+                            "End was not committed because mesh evidence could not be saved and no retained Scene Depth fallback exists",
+                            "メッシュ証拠を保存できず、保存済み Scene Depth の代替証拠もないため終了していません"
+                        )
+                        + " ["
+                        + diagnostic
+                        + "]"
+                    endScanGuidance = HostLocalization.text(
+                        "This scan is still active. Keep a nearby surface in view until depth evidence is retained, then try End again.",
+                        "このキャプチャはまだ継続中です。近くの面を画面内に保ち、深度証拠が保存されてからもう一度「終了」を押してください。"
+                    )
+                    endScanPreflightBlocked = true
+                    return
+                }
+            }
+        }
+
+        guard captureGeneration == generation,
+              state == .scanning
+        else {
+            return
+        }
+
         await store.recordTrackingEvent(
-            prepared.evidence.trackingQualityEvent
+            prepared.trackingQualityEvent
         )
 
         guard captureGeneration == generation,
@@ -1408,8 +2091,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         let attempt = PendingEndScanAttempt(
             id: UUID(),
-            prepared: prepared,
-            timingPackage: timingPackage
+            timingPackage: timingPackage,
+            meshSnapshotUnavailable: meshSnapshotUnavailable
         )
         pendingEndAttempt = attempt
         roomPlanCompletionInFlight = false
@@ -1421,6 +2104,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             "Waiting for final RoomPlan result",
             "RoomPlan の最終結果を待機中"
         )
+
+        // Advisory live coverage / derived-shape sampling is not End
+        // authority. Stop its 250 ms depth/geometry work before RoomPlan
+        // allocates and processes the final CapturedRoomData. The tracker
+        // state is retained and can resume if this End attempt is rejected.
+        scanCoverageTask?.cancel()
+        scanCoverageTask = nil
 
         handedOffToRoomPlanCompletion = true
         sessionController.stopRoomPlanPreservingARSession()
@@ -1438,11 +2128,54 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            await self.recoverRoomPlanEndAttempt(
-                diagnostic: "roomplan_completion_timeout",
-                store: store,
-                generation: generation
+            // RoomPlan's callback does not carry this End attempt UUID.
+            // Restarting the same RoomCaptureSession here could let a late
+            // callback from this unresolved stop be consumed by a later End
+            // attempt. Keep waiting briefly, but never leave the operator in
+            // an unbounded pseudo-scanning state.
+            self.workingSetStatus = HostLocalization.text(
+                "RoomPlan is still producing the final result",
+                "RoomPlan の最終結果を引き続き生成中です"
             )
+            self.endScanGuidance = HostLocalization.text(
+                "Final RoomPlan processing is taking longer than usual. Keep the app in the foreground; HTDT will stop this unresolved attempt if RoomPlan does not complete.",
+                "RoomPlan の終了処理に通常より時間がかかっています。アプリを前面にしたまま待ってください。完了しない場合は、この未解決の終了処理を HTDT が停止します。"
+            )
+
+            try? await Task.sleep(for: .seconds(22))
+            guard self.captureGeneration == generation,
+                  self.state == .scanning,
+                  self.isEndingScan,
+                  !self.roomPlanCompletionInFlight,
+                  self.pendingEndAttempt?.id == attemptID
+            else {
+                return
+            }
+
+            await store.recordResourceEvent(
+                CaptureResourceEvent(
+                    kind: .interruption,
+                    severity: .error,
+                    detail:
+                        "RoomPlan final completion callback was not observed within the bounded 30-second End window."
+                )
+            )
+
+            guard self.captureGeneration == generation,
+                  self.state == .scanning,
+                  self.isEndingScan,
+                  !self.roomPlanCompletionInFlight,
+                  self.pendingEndAttempt?.id == attemptID
+            else {
+                return
+            }
+
+            self.workingSetStatus = HostLocalization.text(
+                "RoomPlan did not return a final result within the safe End window; retained evidence remains on disk",
+                "RoomPlan が安全な終了待機時間内に最終結果を返しませんでした。保存済みの証拠データは端末上に保持されています"
+            )
+            self.endScanGuidance = nil
+            self.fail(.roomPlanFailure)
         }
     }
 
@@ -1484,8 +2217,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            let raw: RoomPlanRawArtifactPayload?
-            let rawSerializationDiagnostic: String?
+            let raw: RoomPlanRawArtifactPayload
             do {
                 raw = try RoomPlanArtifactProcessor.encodeRaw(
                     data,
@@ -1493,55 +2225,29 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     coordinateSpaceID: coordinateSpaceID,
                     runtime: runtime
                 )
-                rawSerializationDiagnostic = nil
-            } catch {
-                raw = nil
-                rawSerializationDiagnostic =
-                    RoomPlanArtifactEncoder.diagnosticToken(error)
-
-                await store.recordResourceEvent(
-                    CaptureResourceEvent(
-                        kind:
-                            .roomPlanRawSerializationUnavailable,
-                        severity: .warning,
-                        detail:
-                            "Apple CapturedRoomData raw serialization unavailable; processing the in-memory completion directly: "
-                            + (rawSerializationDiagnostic
-                                ?? "encoding_failed")
-                    )
-                )
-            }
-
-            let processed: RoomPlanProcessedArtifactPayload
-            do {
-                if let raw {
-                    let lineage =
-                        try await RoomPlanArtifactProcessor
-                            .deriveProcessed(
-                                from: data,
-                                rawArtifact: raw
-                            )
-                    guard let value = lineage.processed else {
-                        throw CaptureWorkingSetError
-                            .invalidProcessedRoomPlanDescriptor
-                    }
-                    processed = value
-                } else {
-                    processed =
-                        try await RoomPlanArtifactProcessor
-                            .deriveProcessedWithoutRaw(
-                                from: data,
-                                captureSessionID: captureSessionID,
-                                coordinateSpaceID: coordinateSpaceID,
-                                runtime: runtime
-                            )
-                }
             } catch {
                 await self.recoverRoomPlanEndAttempt(
                     diagnostic:
-                        "roomplan_processing_"
+                        "roomplan_raw_"
                         + RoomPlanArtifactEncoder
                             .diagnosticToken(error),
+                    store: store,
+                    generation: generation
+                )
+                return
+            }
+
+            let lineage: RoomPlanArtifactLineage
+            do {
+                lineage =
+                    try await RoomPlanArtifactProcessor
+                        .deriveProcessed(
+                            from: data,
+                            rawArtifact: raw
+                        )
+            } catch {
+                await self.recoverRoomPlanEndAttempt(
+                    diagnostic: "roomplan_processing_failed",
                     store: store,
                     generation: generation
                 )
@@ -1551,8 +2257,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             do {
                 try await store.persistEndRoomPlanTransaction(
                     timingPackage: pending.timingPackage,
-                    rawRoomPlan: raw,
-                    processedRoomPlan: processed
+                    roomPlanLineage: lineage
                 )
             } catch {
                 await self.recoverRoomPlanEndAttempt(
@@ -1572,32 +2277,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            var meshSnapshotUnavailable =
-                pending.prepared.meshSnapshotUnavailable
-            if let meshPackage = pending.prepared.meshPackage {
-                self.workingSetStatus = HostLocalization.text(
-                    "Saving available mesh evidence",
-                    "利用可能なメッシュ証拠を保存中"
-                )
-                do {
-                    try await store.persistMeshPackage(meshPackage)
-                } catch {
-                    meshSnapshotUnavailable = true
-                    await store.recordResourceEvent(
-                        CaptureResourceEvent(
-                            kind: .persistenceFailure,
-                            severity: .warning,
-                            detail:
-                                "Optional end-scan mesh persistence failed; retained frame/depth evidence will be used as the bounded geometry fallback."
-                        )
-                    )
-                }
-            }
-
-            await self.refreshQuality(
-                store: store,
-                generation: generation
-            )
+            let meshSnapshotUnavailable =
+                pending.meshSnapshotUnavailable
 
             guard self.captureGeneration == generation,
                   self.state == .scanning,
@@ -1607,7 +2288,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             self.acceptedRoomPlanRawSHA256 =
-                raw?.descriptor.sha256
+                raw.descriptor.sha256
+            self.acceptedEndMeshWasPersisted =
+                !meshSnapshotUnavailable
             self.pendingEndAttempt = nil
             self.roomPlanCompletionInFlight = false
             self.endScanPreflightBlocked = false
@@ -1623,22 +2306,32 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
+            await self.refreshQuality(
+                store: store,
+                generation: generation
+            )
+
+            guard self.captureGeneration == generation,
+                  self.state == .reviewing
+            else {
+                return
+            }
+
             self.isEndingScan = false
+
+            // A background/thermal/storage event may have sealed spatial
+            // continuation while Review quality was being refreshed. In that
+            // case the ordered resource-event path owns the recovery status;
+            // do not overwrite it with the generic End-success message.
+            guard !self.spatialAuthoritySealedForFinalization else {
+                return
+            }
+
             if meshSnapshotUnavailable {
                 self.workingSetStatus = HostLocalization.text(
                     "Reviewing; frame/depth evidence was retained, but the mesh snapshot was unavailable",
                     "確認中：フレーム／深度証拠は保存しましたが、メッシュスナップショットは取得できませんでした"
                 )
-            } else if raw == nil {
-                self.workingSetStatus =
-                    HostLocalization.text(
-                        "Reviewing; processed RoomPlan and depth evidence were retained. Apple raw RoomPlan serialization was unavailable.",
-                        "確認中：処理済み RoomPlan と深度証拠は保持しました。Apple の RoomPlan 生データシリアライズのみ利用できませんでした。"
-                    )
-                    + " ["
-                    + (rawSerializationDiagnostic
-                        ?? "encoding_failed")
-                    + "]"
             } else {
                 self.workingSetStatus = HostLocalization.text(
                     "Reviewing; required end evidence and RoomPlan result were saved",
@@ -1660,9 +2353,37 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        let ownedMeshWasPersisted =
+            pendingEndAttempt?.meshSnapshotUnavailable == false
         pendingEndAttempt = nil
         roomPlanCompletionInFlight = false
         acceptedRoomPlanRawSHA256 = nil
+        acceptedEndMeshWasPersisted = false
+
+        if ownedMeshWasPersisted {
+            do {
+                try await store.rollbackCurrentMeshPackage()
+            } catch {
+                isEndingScan = false
+                workingSetStatus =
+                    HostLocalization.text(
+                        "The rejected End mesh snapshot could not be rolled back safely",
+                        "受理されなかった終了処理のメッシュスナップショットを安全に取り消せませんでした"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+                fail(.persistenceFailure)
+                return
+            }
+
+            guard captureGeneration == generation,
+                  state == .scanning,
+                  isEndingScan
+            else {
+                return
+            }
+        }
 
         await store.recordResourceEvent(
             CaptureResourceEvent(
@@ -1673,6 +2394,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     + diagnostic
             )
         )
+
+        guard captureGeneration == generation,
+              state == .scanning,
+              isEndingScan
+        else {
+            return
+        }
 
         do {
             try sessionController.startRoomPlan()
@@ -1689,6 +2417,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             fail(.roomPlanFailure)
             return
         }
+
+        guard captureGeneration == generation,
+              state == .scanning,
+              isEndingScan
+        else {
+            return
+        }
+
+        startScanCoverageSampling(
+            generation: generation,
+            resetTrackers: false
+        )
 
         isEndingScan = false
         endScanPreflightBlocked = true
@@ -1707,51 +2447,55 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private func startScanCoverageSampling(
-        generation: UUID
+        generation: UUID,
+        resetTrackers: Bool = true
     ) {
         scanCoverageTask?.cancel()
-        scanCoverageTracker = AdvisoryScanCoverageTracker()
-        scanCoverage = scanCoverageTracker.summary()
-        observationStabilityTracker =
-            ObservationStabilityTracker()
-        observationStability =
-            observationStabilityTracker.summary()
-        spatialCoverageAggregator =
-            SpatialScanCoverageAggregator()
-        spatialCoverage = .empty
-        motionGuidanceTracker = ScanMotionGuidanceTracker()
-        motionGuidance = nil
-        scanGuidanceProgress = .empty
-        derivedObjectFusionTracker =
-            DerivedShapeTemporalFusionTracker(
-                configuration: DerivedShapeTemporalFusionConfiguration(
-                    maximumFrameCount: 6,
-                    maximumAgeSeconds: 24,
-                    voxelSizeMeters: 0.055,
-                    maximumPointCount: 384,
-                    maximumObservationCenterShiftMeters: 0.65
+
+        if resetTrackers {
+            scanCoverageTracker = AdvisoryScanCoverageTracker()
+            scanCoverage = scanCoverageTracker.summary()
+            observationStabilityTracker =
+                ObservationStabilityTracker()
+            observationStability =
+                observationStabilityTracker.summary()
+            spatialCoverageAggregator =
+                SpatialScanCoverageAggregator()
+            spatialCoverage = .empty
+            motionGuidanceTracker = ScanMotionGuidanceTracker()
+            motionGuidance = nil
+            scanGuidanceProgress = .empty
+            derivedObjectFusionTracker =
+                DerivedShapeTemporalFusionTracker(
+                    configuration: DerivedShapeTemporalFusionConfiguration(
+                        maximumFrameCount: 6,
+                        maximumAgeSeconds: 24,
+                        voxelSizeMeters: 0.055,
+                        maximumPointCount: 384,
+                        maximumObservationCenterShiftMeters: 0.65
+                    )
                 )
-            )
-        derivedVolumeFusionTracker =
-            DerivedShapeTemporalFusionTracker(
-                configuration: DerivedShapeTemporalFusionConfiguration(
-                    maximumFrameCount: 6,
-                    maximumAgeSeconds: 24,
-                    voxelSizeMeters: 0.055,
-                    maximumPointCount: 384,
-                    maximumObservationCenterShiftMeters: 0.65
+            derivedVolumeFusionTracker =
+                DerivedShapeTemporalFusionTracker(
+                    configuration: DerivedShapeTemporalFusionConfiguration(
+                        maximumFrameCount: 6,
+                        maximumAgeSeconds: 24,
+                        voxelSizeMeters: 0.055,
+                        maximumPointCount: 384,
+                        maximumObservationCenterShiftMeters: 0.65
+                    )
                 )
-            )
-        derivedWallFusionTracker =
-            DerivedShapeTemporalFusionTracker(
-                configuration: DerivedShapeTemporalFusionConfiguration(
-                    maximumFrameCount: 4,
-                    maximumAgeSeconds: 20,
-                    voxelSizeMeters: 0.08,
-                    maximumPointCount: 256
+            derivedWallFusionTracker =
+                DerivedShapeTemporalFusionTracker(
+                    configuration: DerivedShapeTemporalFusionConfiguration(
+                        maximumFrameCount: 4,
+                        maximumAgeSeconds: 20,
+                        voxelSizeMeters: 0.08,
+                        maximumPointCount: 256
+                    )
                 )
-            )
-        derivedShapePreview = .empty
+            derivedShapePreview = .empty
+        }
 
         scanCoverageTask = Task { @MainActor [weak self] in
             guard let self else {
@@ -2058,7 +2802,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let report = await store.evaluateQuality(
             requirements: qualityRequirements
         )
+        let snapshot = await store.snapshot()
 
+        // Publish Review UI only after every store-actor suspension has
+        // completed. A failure/reset/reopen may invalidate this generation
+        // while either call is suspended.
         guard captureGeneration == generation,
               state == .reviewing
         else {
@@ -2066,7 +2814,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         qualityReport = report
-        let snapshot = await store.snapshot()
         annotationEvidenceRefs = snapshot.evidenceFrameRefs
 
         if report.readyForHTDTIngestion {
@@ -2098,6 +2845,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         quality: CaptureQualityReport,
         generation: UUID
     ) async {
+        var promotedRevision: FinalizedCaptureRevision?
+
         do {
             try await store.persistQualityReport(quality)
             let snapshot = await store.snapshot()
@@ -2125,6 +2874,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     destinationDirectory: destination,
                     request: request
                 )
+            promotedRevision = finalized
+
             let validation =
                 try BundleDirectoryValidator.validate(
                     root: finalized.directory
@@ -2152,7 +2903,85 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 : "Finalized revision; bundle digest "
                     + validation.bundleDigest.description
         } catch {
-            fail(.persistenceFailure)
+            guard captureGeneration == generation else {
+                return
+            }
+
+            let diagnostic =
+                Self.persistenceDiagnostic(error)
+
+            if promotedRevision != nil {
+                workingSetStatus =
+                    HostLocalization.text(
+                        "The revision was promoted but failed post-promotion validation; capture cannot safely resume",
+                        "リビジョン昇格後の検証に失敗したため、安全にキャプチャへ戻れません"
+                    )
+                    + " ["
+                    + diagnostic
+                    + "]"
+                fail(.persistenceFailure)
+                return
+            }
+
+            do {
+                try await store.discardUncommittedQualityReport(
+                    quality
+                )
+            } catch {
+                workingSetStatus =
+                    HostLocalization.text(
+                        "Finalization failed and the staged quality record could not be rolled back safely",
+                        "確定処理に失敗し、途中保存された品質情報を安全に取り消せませんでした"
+                    )
+                    + " ["
+                    + diagnostic
+                    + "]"
+                fail(.persistenceFailure)
+                return
+            }
+
+            await store.recordResourceEvent(
+                CaptureResourceEvent(
+                    kind: .persistenceFailure,
+                    severity: .warning,
+                    detail:
+                        "Recoverable finalization failure: "
+                        + diagnostic
+                )
+            )
+
+            guard captureGeneration == generation,
+                  state == .validating
+            else {
+                return
+            }
+
+            do {
+                try transition(.validationFailed)
+            } catch {
+                fail(.unknown)
+                return
+            }
+
+            await refreshQuality(
+                store: store,
+                generation: generation
+            )
+
+            guard captureGeneration == generation,
+                  state == .reviewing
+            else {
+                return
+            }
+
+            workingSetStatus =
+                HostLocalization.text(
+                    "Finalization was not committed. The capture remains in Review and can be retried.",
+                    "確定処理はコミットされませんでした。キャプチャは確認画面に保持されており、再試行できます。"
+                )
+                + " ["
+                + diagnostic
+                + "]"
         }
     }
 
@@ -2163,6 +2992,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     ) {
         resourceMonitor?.stop()
 
+        resourceEventTask = nil
+
         let monitor = CaptureResourceMonitor(
             rootDirectory: rootDirectory
         ) { [weak self] event, failure in
@@ -2172,22 +3003,125 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            Task {
-                await store.recordResourceEvent(event)
+            var eventToRecord = event
+            var failureToApply = failure
+            var sealedReviewResourceCondition = false
+            var discardedUnsavedAnnotationEdits = false
+
+            let canPreserveAcceptedReview =
+                (
+                    self.state == .reviewing
+                    && !self.reviewOperationInFlight
+                )
+                || (
+                    self.state == .annotating
+                    && !self.annotationCommitInFlight
+                )
+
+            if let failure,
+               (
+                   failure == .interrupted
+                   || failure == .thermalPressure
+                   || failure == .storagePressure
+               ),
+               canPreserveAcceptedReview,
+               self.acceptedRoomPlanRawSHA256 != nil,
+               !self.spatialAuthoritySealedForFinalization
+            {
+                if self.state == .annotating {
+                    do {
+                        try self.transition(.beginReview)
+                        discardedUnsavedAnnotationEdits = true
+                    } catch {
+                        self.fail(.unknown)
+                        return
+                    }
+                }
+
+                // Accepted End artifacts are already durable. A transient
+                // resource/lifecycle condition invalidates only future live
+                // spatial continuation; it must not retroactively discard
+                // the evidence accepted before that condition.
+                let detail: String
+                switch failure {
+                case .interrupted:
+                    detail =
+                        "application entered background after accepted End; spatial continuation was sealed but persisted Review evidence remains finalizable"
+                case .thermalPressure:
+                    detail =
+                        "critical thermal pressure occurred after accepted End; spatial continuation was sealed and finalization is deferred until the device cools"
+                case .storagePressure:
+                    detail =
+                        "critical storage pressure occurred after accepted End; spatial continuation was sealed and finalization is deferred until storage recovers"
+                default:
+                    detail = event.detail
+                }
+
+                eventToRecord = CaptureResourceEvent(
+                    kind: event.kind,
+                    severity: .warning,
+                    detail:
+                        discardedUnsavedAnnotationEdits
+                        ? detail
+                            + "; unsaved annotation edits were discarded"
+                        : detail
+                )
+                failureToApply = nil
+                sealedReviewResourceCondition = true
+                self.spatialAuthoritySealedForFinalization = true
+                self.scanCoverageTask?.cancel()
+                self.scanCoverageTask = nil
+                self.sessionController.stopAndPauseARSession()
+                self.resourceMonitor?.stop()
+                self.endScanGuidance = nil
+            }
+
+            // Keep resource provenance ordered. Finalization can await this
+            // chain before it freezes quality authority, and reset can drain
+            // it before deleting an incomplete working set.
+            let predecessor = self.resourceEventTask
+            let task = Task { @MainActor [weak self] in
+                await predecessor?.value
+                await store.recordResourceEvent(eventToRecord)
+
+                guard let self,
+                      self.captureGeneration == generation
+                else {
+                    return
+                }
+
                 if self.state == .reviewing {
                     await self.refreshQuality(
                         store: store,
                         generation: generation
                     )
+                    if sealedReviewResourceCondition,
+                       self.state == .reviewing
+                    {
+                        if discardedUnsavedAnnotationEdits {
+                            self.workingSetStatus =
+                                HostLocalization.text(
+                                    "Review retained after the resource/lifecycle interruption. Unsaved annotation edits were discarded; accepted capture evidence can still be finalized or retried.",
+                                    "リソース／ライフサイクル中断後も確認データを保持しました。未保存の注釈編集は破棄されましたが、受理済みキャプチャ証拠は確定または再試行できます。"
+                                )
+                        } else {
+                            self.workingSetStatus =
+                                HostLocalization.text(
+                                    "Review retained; additional scanning/annotation is sealed by the current resource/lifecycle condition, while accepted evidence remains available for finalization or retry",
+                                    "確認データを保持しました。現在のリソース／ライフサイクル状態により追加スキャン／注釈は封印されていますが、受理済み証拠は確定または再試行に利用できます"
+                                )
+                        }
+                    }
                 }
             }
+            self.resourceEventTask = task
 
-            if let failure,
+            if let failureToApply,
                self.state != .failed,
                self.state != .finalized,
                self.state != .exported
             {
-                self.fail(failure)
+                self.fail(failureToApply)
             }
         }
 
@@ -2198,7 +3132,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private func makeWorkingSet() throws -> (
         store: CaptureWorkingSetStore,
         identity: CaptureWorkingSetIdentity,
-        generation: UUID
+        generation: UUID,
+        rootDirectory: URL
     ) {
         guard let applicationSupport =
             FileManager.default.urls(
@@ -2230,7 +3165,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 rootDirectory: root
             ),
             identity: identity,
-            generation: UUID()
+            generation: UUID(),
+            rootDirectory: root
         )
     }
 
@@ -2287,6 +3223,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             switch writerError {
             case let .alreadyExists(path):
                 return "file_conflict:" + path
+            case let .batchRollbackFailed(path):
+                return "batch_rollback_failed:" + path
             }
         }
 
@@ -2344,6 +3282,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private func fail(_ code: CaptureFailureCode) {
+        annotationCommitInFlight = false
+        reviewOperationInFlight = false
+        guard state != .finalized,
+              state != .exported
+        else {
+            workingSetStatus =
+                HostLocalization.text(
+                    "A post-finalization operation failed, but the finalized revision remains intact",
+                    "確定後の処理でエラーが発生しましたが、確定済みリビジョンは保持されています"
+                )
+            return
+        }
+
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
         resourceMonitor?.stop()

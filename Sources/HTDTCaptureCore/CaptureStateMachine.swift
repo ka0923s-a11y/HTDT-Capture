@@ -35,8 +35,10 @@ public enum CaptureEvent: Sendable, Equatable {
     case pause
     case resume
     case beginReview
+    case resumeScanning
     case beginAnnotation
     case beginValidation
+    case validationFailed
     case finalize
     case export
     case fail(CaptureFailureCode)
@@ -87,17 +89,22 @@ public struct CaptureStateMachine: Sendable, Equatable {
             state = .scanning
         case (.scanning, .beginReview):
             state = .reviewing
+        case (.reviewing, .resumeScanning):
+            state = .scanning
         case (.reviewing, .beginAnnotation):
             state = .annotating
         case (.annotating, .beginReview):
             state = .reviewing
         case (.reviewing, .beginValidation), (.annotating, .beginValidation):
             state = .validating
+        case (.validating, .validationFailed):
+            state = .reviewing
         case (.validating, .finalize):
             state = .finalized
         case (.finalized, .export):
             state = .exported
-        case (.failed, .reset), (.exported, .reset):
+        case (.failed, .reset), (.finalized, .reset),
+             (.exported, .reset):
             state = .idle
             lastFailure = nil
         default:

@@ -6,6 +6,7 @@ import HTDTCaptureCore
 public struct CaptureAnnotationWorkspaceView: View {
     public let coordinateSpaceID: CoordinateSpaceID
     public let availableEvidenceRefs: [String]
+    public let statusMessage: String?
     public let captureRaycastPlacement:
         () async throws -> AnnotationPlacementAuthority
     public let captureSpeakerOrientation:
@@ -28,6 +29,7 @@ public struct CaptureAnnotationWorkspaceView: View {
     public init(
         coordinateSpaceID: CoordinateSpaceID,
         availableEvidenceRefs: [String] = [],
+        statusMessage: String? = nil,
         captureRaycastPlacement: @escaping
             () async throws -> AnnotationPlacementAuthority = {
                 throw ManualAuthorityBuilderError.invalidPosition
@@ -44,6 +46,7 @@ public struct CaptureAnnotationWorkspaceView: View {
     ) {
         self.coordinateSpaceID = coordinateSpaceID
         self.availableEvidenceRefs = availableEvidenceRefs.sorted()
+        self.statusMessage = statusMessage
         self.captureRaycastPlacement = captureRaycastPlacement
         self.captureSpeakerOrientation =
             captureSpeakerOrientation
@@ -53,6 +56,13 @@ public struct CaptureAnnotationWorkspaceView: View {
 
     public var body: some View {
         List {
+            if let statusMessage {
+                Section("Status") {
+                    Text(statusMessage)
+                        .font(.callout)
+                }
+            }
+
             Section("HTDT equipment catalog") {
                 if let equipmentCatalog {
                     LabeledContent(

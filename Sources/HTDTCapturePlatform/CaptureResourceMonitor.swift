@@ -19,6 +19,19 @@ public struct CaptureResourceMonitorPolicy: Sendable, Equatable {
     }
 }
 
+public struct CaptureResourceAssessment: Sendable {
+    public let event: CaptureResourceEvent
+    public let failure: CaptureFailureCode?
+
+    public init(
+        event: CaptureResourceEvent,
+        failure: CaptureFailureCode?
+    ) {
+        self.event = event
+        self.failure = failure
+    }
+}
+
 @available(iOS 17.0, *)
 @MainActor
 public final class CaptureResourceMonitor: NSObject {
@@ -81,11 +94,9 @@ public final class CaptureResourceMonitor: NSObject {
         NotificationCenter.default.removeObserver(self)
     }
 
-    public func sampleStorage() {
-        guard isStarted else {
-            return
-        }
-
+    public func currentStorageAssessment()
+        -> CaptureResourceAssessment?
+    {
         do {
             let values = try rootDirectory.resourceValues(
                 forKeys: [.volumeAvailableCapacityForImportantUsageKey]
@@ -93,12 +104,12 @@ public final class CaptureResourceMonitor: NSObject {
             guard let available =
                 values.volumeAvailableCapacityForImportantUsage
             else {
-                return
+                return nil
             }
 
             if available < policy.storageCriticalBytes {
-                eventHandler(
-                    CaptureResourceEvent(
+                return CaptureResourceAssessment(
+                    event: CaptureResourceEvent(
                         kind: .storagePressure,
                         severity: .error,
                         detail:
@@ -106,11 +117,12 @@ public final class CaptureResourceMonitor: NSObject {
                             + String(available)
                             + " bytes"
                     ),
-                    .storagePressure
+                    failure: .storagePressure
                 )
-            } else if available < policy.storageWarningBytes {
-                eventHandler(
-                    CaptureResourceEvent(
+            }
+            if available < policy.storageWarningBytes {
+                return CaptureResourceAssessment(
+                    event: CaptureResourceEvent(
                         kind: .storagePressure,
                         severity: .warning,
                         detail:
@@ -118,21 +130,35 @@ public final class CaptureResourceMonitor: NSObject {
                             + String(available)
                             + " bytes"
                     ),
-                    nil
+                    failure: nil
                 )
             }
+            return nil
         } catch {
-            eventHandler(
-                CaptureResourceEvent(
+            return CaptureResourceAssessment(
+                event: CaptureResourceEvent(
                     kind: .storagePressure,
                     severity: .warning,
                     detail:
                         "available storage could not be sampled: "
                         + error.localizedDescription
                 ),
-                nil
+                failure: nil
             )
         }
+    }
+
+    public func sampleStorage() {
+        guard isStarted,
+              let assessment = currentStorageAssessment()
+        else {
+            return
+        }
+
+        eventHandler(
+            assessment.event,
+            assessment.failure
+        )
     }
 
     @objc

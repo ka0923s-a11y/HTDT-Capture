@@ -100,6 +100,125 @@ final class AnnotationWorkingSetTests: XCTestCase {
         )
     }
 
+    func testAnnotationMeasurementTransactionRollsBackWithoutDeletingConflict()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let store = try CaptureWorkingSetStore(
+            rootDirectory: root
+        )
+        let space = CoordinateSpaceID()
+        let annotationPackage =
+            try AnnotationEvidencePackageBuilder.build(
+                entities: [
+                    try speaker(
+                        role: .left,
+                        label: "Left",
+                        space: space
+                    ),
+                ]
+            )
+        let measurementPackage =
+            try MeasurementEvidencePackageBuilder.build(
+                measurements: [
+                    try CaptureMeasurement(
+                        quantityType: "room_width",
+                        value: .scalar(3.4),
+                        unit: .meter,
+                        acquisitionMethod: .laserDistanceMeter,
+                        userAttestation: .attested,
+                        provenanceClass: .userAttestedMeasurement,
+                        sourceValueText: "3.4 m"
+                    ),
+                ]
+            )
+
+        let conflictingBytes = Data("external-conflict".utf8)
+        let writer = try AtomicCaptureFileWriter(
+            rootDirectory: root
+        )
+        try await writer.write(
+            conflictingBytes,
+            to: try CaptureStorePath(
+                MeasurementEvidencePackage.path
+            )
+        )
+
+        do {
+            try await store
+                .persistAnnotationAndMeasurementPackages(
+                    annotationPackage: annotationPackage,
+                    measurementPackage: measurementPackage
+                )
+            XCTFail("expected measurement conflict")
+        } catch {
+            // The batch must remove only files created by this attempt.
+        }
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: root
+                    .appendingPathComponent(
+                        AnnotationEvidencePackage.path
+                    )
+                    .path
+            )
+        )
+        XCTAssertEqual(
+            try Data(
+                contentsOf: root.appendingPathComponent(
+                    MeasurementEvidencePackage.path
+                )
+            ),
+            conflictingBytes
+        )
+
+        var snapshot = await store.snapshot()
+        XCTAssertFalse(
+            snapshot.payloadDeclarations.contains {
+                $0.path == AnnotationEvidencePackage.path
+                    || $0.path == MeasurementEvidencePackage.path
+            }
+        )
+
+        try await writer.removeIfPresent(
+            try CaptureStorePath(
+                MeasurementEvidencePackage.path
+            )
+        )
+        try await store
+            .persistAnnotationAndMeasurementPackages(
+                annotationPackage: annotationPackage,
+                measurementPackage: measurementPackage
+            )
+
+        snapshot = await store.snapshot()
+        XCTAssertTrue(
+            snapshot.payloadDeclarations.contains {
+                $0.path == AnnotationEvidencePackage.path
+            }
+        )
+        XCTAssertTrue(
+            snapshot.payloadDeclarations.contains {
+                $0.path == MeasurementEvidencePackage.path
+            }
+        )
+
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                requireCompletedRoomPlan: false,
+                minimumActiveMeshAnchors: 0,
+                minimumEvidenceFrames: 0
+            )
+        )
+        XCTAssertEqual(quality.integrityStatus, .pass)
+    }
+
     func testAnnotationCoordinateMustMatchWorkingSetAuthority() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

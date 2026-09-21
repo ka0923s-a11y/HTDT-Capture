@@ -353,7 +353,9 @@ public final class SharedARSessionController {
                 }
 
                 let vertices = anchor.geometry.vertices
-                guard vertices.count > 0 else {
+                guard vertices.count > 0,
+                      liveFloat3SourceIsReadable(vertices)
+                else {
                     continue
                 }
 
@@ -489,7 +491,11 @@ public final class SharedARSessionController {
         let meshObjectObservation =
             liveDerivedShapeObservation(
                 anchors: anchors,
-                classifications: [.table, .seat, .none],
+                // Unclassified mesh is not furniture authority. The
+                // automatic fallback is limited to semantic object classes;
+                // otherwise advisory shape remains unresolved instead of
+                // mixing unrelated .none surfaces into one footprint.
+                classifications: [.table, .seat],
                 sessionTimestampSeconds: frame.timestamp,
                 voxelSizeMeters: 0.035,
                 maxPoints: maxObjectPoints,
@@ -760,11 +766,18 @@ public final class SharedARSessionController {
         let depthMap = depthData.depthMap
         let width = CVPixelBufferGetWidth(depthMap)
         let height = CVPixelBufferGetHeight(depthMap)
-        guard width > 1, height > 1 else {
+        guard
+            width > 1,
+            height > 1,
+            CVPixelBufferGetPixelFormatType(depthMap)
+                == kCVPixelFormatType_DepthFloat32,
+            CVPixelBufferLockBaseAddress(
+                depthMap,
+                .readOnly
+            ) == kCVReturnSuccess
+        else {
             return []
         }
-
-        CVPixelBufferLockBaseAddress(depthMap, .readOnly)
         defer {
             CVPixelBufferUnlockBaseAddress(depthMap, .readOnly)
         }
@@ -775,12 +788,26 @@ public final class SharedARSessionController {
             return []
         }
 
-        let confidenceMap = depthData.confidenceMap
-        if let confidenceMap {
-            CVPixelBufferLockBaseAddress(
-                confidenceMap,
+        let candidateConfidenceMap = depthData.confidenceMap
+        var confidenceMap: CVPixelBuffer?
+        if let candidateConfidenceMap,
+           CVPixelBufferGetWidth(candidateConfidenceMap) == width,
+           CVPixelBufferGetHeight(candidateConfidenceMap) == height,
+           CVPixelBufferGetPixelFormatType(candidateConfidenceMap)
+                == kCVPixelFormatType_OneComponent8,
+           CVPixelBufferLockBaseAddress(
+                candidateConfidenceMap,
                 .readOnly
-            )
+           ) == kCVReturnSuccess
+        {
+            if CVPixelBufferGetBaseAddress(candidateConfidenceMap) != nil {
+                confidenceMap = candidateConfidenceMap
+            } else {
+                CVPixelBufferUnlockBaseAddress(
+                    candidateConfidenceMap,
+                    .readOnly
+                )
+            }
         }
         defer {
             if let confidenceMap {
@@ -847,6 +874,17 @@ public final class SharedARSessionController {
             confidenceMap.flatMap {
                 CVPixelBufferGetBaseAddress($0)
             }
+
+        let minimumDepthRowBytes =
+            width * MemoryLayout<Float>.size
+        guard depthBytesPerRow >= minimumDepthRowBytes else {
+            return []
+        }
+        if confidenceMap != nil,
+           confidenceBytesPerRow < width
+        {
+            return []
+        }
 
         var depthSamples: [DepthGridSample] = []
         depthSamples.reserveCapacity(maxPoints)
@@ -1051,7 +1089,13 @@ public final class SharedARSessionController {
             guard let geometryClassifications = geometry.classification,
                   geometry.faces.indexCountPerPrimitive == 3,
                   geometry.faces.bytesPerIndex == 2
-                    || geometry.faces.bytesPerIndex == 4
+                    || geometry.faces.bytesPerIndex == 4,
+                  liveMeshElementIsReadable(geometry.faces),
+                  liveFloat3SourceIsReadable(geometry.vertices),
+                  liveClassificationSourceIsReadable(
+                    geometryClassifications,
+                    minimumCount: geometry.faces.count
+                  )
             else {
                 continue
             }
@@ -1210,7 +1254,15 @@ public final class SharedARSessionController {
         outer: for anchor in anchors {
             let geometry = anchor.geometry
             guard let classifications = geometry.classification,
-                  geometry.faces.indexCountPerPrimitive == 3
+                  geometry.faces.indexCountPerPrimitive == 3,
+                  geometry.faces.bytesPerIndex == 2
+                    || geometry.faces.bytesPerIndex == 4,
+                  liveMeshElementIsReadable(geometry.faces),
+                  liveFloat3SourceIsReadable(geometry.vertices),
+                  liveClassificationSourceIsReadable(
+                    classifications,
+                    minimumCount: geometry.faces.count
+                  )
             else {
                 continue
             }
@@ -1275,6 +1327,87 @@ public final class SharedARSessionController {
         return finite[middle]
     }
 
+    private func liveGeometrySourceHasReadableRange(
+        _ source: ARGeometrySource,
+        bytesPerVector: Int
+    ) -> Bool {
+        guard source.count >= 0,
+              source.offset >= 0,
+              source.stride >= bytesPerVector,
+              bytesPerVector > 0
+        else {
+            return false
+        }
+
+        guard source.count > 0 else {
+            return source.offset <= source.buffer.length
+        }
+
+        let (strideBytes, strideOverflow) =
+            (source.count - 1)
+                .multipliedReportingOverflow(by: source.stride)
+        guard !strideOverflow else {
+            return false
+        }
+        let (lastStart, offsetOverflow) =
+            source.offset.addingReportingOverflow(strideBytes)
+        guard !offsetOverflow else {
+            return false
+        }
+        let (requiredBytes, sizeOverflow) =
+            lastStart.addingReportingOverflow(bytesPerVector)
+        return !sizeOverflow
+            && requiredBytes <= source.buffer.length
+    }
+
+    private func liveFloat3SourceIsReadable(
+        _ source: ARGeometrySource
+    ) -> Bool {
+        source.format == .float3
+            && source.componentsPerVector >= 3
+            && liveGeometrySourceHasReadableRange(
+                source,
+                bytesPerVector: MemoryLayout<Float>.size * 3
+            )
+    }
+
+    private func liveClassificationSourceIsReadable(
+        _ source: ARGeometrySource,
+        minimumCount: Int
+    ) -> Bool {
+        source.format == .uchar
+            && source.componentsPerVector >= 1
+            && source.count >= minimumCount
+            && liveGeometrySourceHasReadableRange(
+                source,
+                bytesPerVector: MemoryLayout<UInt8>.size
+            )
+    }
+
+    private func liveMeshElementIsReadable(
+        _ element: ARGeometryElement
+    ) -> Bool {
+        guard element.count >= 0,
+              element.indexCountPerPrimitive > 0,
+              element.bytesPerIndex > 0
+        else {
+            return false
+        }
+        let (indexCount, countOverflow) =
+            element.count.multipliedReportingOverflow(
+                by: element.indexCountPerPrimitive
+            )
+        guard !countOverflow else {
+            return false
+        }
+        let (requiredBytes, byteOverflow) =
+            indexCount.multipliedReportingOverflow(
+                by: element.bytesPerIndex
+            )
+        return !byteOverflow
+            && requiredBytes <= element.buffer.length
+    }
+
     private func liveMeshFaceIndices(
         geometry: ARMeshGeometry,
         faceIndex: Int
@@ -1284,7 +1417,8 @@ public final class SharedARSessionController {
               faceIndex < faces.count,
               faces.indexCountPerPrimitive == 3,
               faces.bytesPerIndex == 2
-                || faces.bytesPerIndex == 4
+                || faces.bytesPerIndex == 4,
+              liveMeshElementIsReadable(faces)
         else {
             return nil
         }
@@ -1321,7 +1455,8 @@ public final class SharedARSessionController {
     ) -> SIMD3<Float>? {
         let source = geometry.vertices
         guard vertexIndex >= 0,
-              vertexIndex < source.count
+              vertexIndex < source.count,
+              liveFloat3SourceIsReadable(source)
         else {
             return nil
         }

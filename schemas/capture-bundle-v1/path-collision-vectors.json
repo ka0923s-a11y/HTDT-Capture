@@ -1,0 +1,16 @@
+{
+  "schema": "htdt.capture.bundle.path-collision-vectors",
+  "version": "1",
+  "vectors": [
+    {
+      "left": "Straße/payload.bin",
+      "right": "STRASSE/payload.bin",
+      "collision_key": "strasse/payload.bin"
+    },
+    {
+      "left": "Étage/A.bin",
+      "right": "étage/a.bin",
+      "collision_key": "étage/a.bin"
+    }
+  ]
+}

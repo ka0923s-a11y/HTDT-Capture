@@ -11,6 +11,7 @@ public struct CaptureScanningView: View {
     public let guidanceProgress: ScanGuidanceProgress
     public let derivedPreview: DerivedShapePreviewSnapshot
     public let evidenceFrameCount: Int
+    public let statusMessage: String?
     public let endScanGuidance: String?
     public let captureEvidenceFrame: () -> Void
     public let setMovementCapability:
@@ -33,6 +34,7 @@ public struct CaptureScanningView: View {
         guidanceProgress: ScanGuidanceProgress,
         derivedPreview: DerivedShapePreviewSnapshot,
         evidenceFrameCount: Int,
+        statusMessage: String? = nil,
         endScanGuidance: String? = nil,
         captureEvidenceFrame: @escaping () -> Void,
         setMovementCapability: @escaping
@@ -47,6 +49,7 @@ public struct CaptureScanningView: View {
         self.guidanceProgress = guidanceProgress
         self.derivedPreview = derivedPreview
         self.evidenceFrameCount = evidenceFrameCount
+        self.statusMessage = statusMessage
         self.endScanGuidance = endScanGuidance
         self.captureEvidenceFrame = captureEvidenceFrame
         self.setMovementCapability = setMovementCapability
@@ -202,6 +205,24 @@ public struct CaptureScanningView: View {
                     maxWidth: .infinity,
                     alignment: .leading
                 )
+
+            if let statusMessage,
+               !statusMessage.isEmpty
+            {
+                Text(statusMessage)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.78)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .leading
+                    )
+                    .accessibilityLabel(
+                        String(localized: "Capture status")
+                    )
+                    .accessibilityValue(statusMessage)
+            }
 
             mobilityControl
 

@@ -43,6 +43,138 @@ private func readyQualityReport() -> CaptureQualityReport {
     )
 }
 
+private struct CollisionVectorDocument: Decodable {
+    struct Vector: Decodable {
+        let left: String
+        let right: String
+        let collisionKey: String
+
+        private enum CodingKeys: String, CodingKey {
+            case left
+            case right
+            case collisionKey = "collision_key"
+        }
+    }
+
+    let vectors: [Vector]
+}
+
+@Test
+func swiftPathCollisionKeyMatchesSharedV1Vectors() throws {
+    let testFile = URL(fileURLWithPath: #filePath)
+    let repoRoot = testFile
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let vectorURL = repoRoot
+        .appendingPathComponent("schemas")
+        .appendingPathComponent("capture-bundle-v1")
+        .appendingPathComponent(
+            "path-collision-vectors.json"
+        )
+    let document = try JSONDecoder().decode(
+        CollisionVectorDocument.self,
+        from: Data(contentsOf: vectorURL)
+    )
+
+    for vector in document.vectors {
+        #expect(
+            BundleLogicalPath.collisionKey(vector.left)
+                == vector.collisionKey
+        )
+        #expect(
+            BundleLogicalPath.collisionKey(vector.right)
+                == vector.collisionKey
+        )
+    }
+}
+
+@Test
+func manifestRejectsMalformedUTCDateTime() throws {
+    let ids = (
+        series: CaptureSeriesID(),
+        revision: CaptureRevisionID(),
+        session: CaptureSessionID(),
+        coordinate: CoordinateSpaceID()
+    )
+
+    #expect(throws: BundleManifestError.self) {
+        _ = try BundleManifest(
+            captureSeriesID: ids.series,
+            captureRevisionID: ids.revision,
+            parentRevisionID: nil,
+            captureSessionIDs: [ids.session],
+            coordinateSpaceIDs: [ids.coordinate],
+            createdAtUTC: "not-a-dateTgarbageZ",
+            finalizedAtUTC: "2026-09-20T12:34:56Z",
+            app: BundleAppIdentity(
+                version: "test",
+                build: "test"
+            ),
+            files: []
+        )
+    }
+
+    _ = try BundleManifest(
+        captureSeriesID: ids.series,
+        captureRevisionID: ids.revision,
+        parentRevisionID: nil,
+        captureSessionIDs: [ids.session],
+        coordinateSpaceIDs: [ids.coordinate],
+        createdAtUTC: "2026-09-20T12:34:56.123Z",
+        finalizedAtUTC: "2026-09-20T12:35:00Z",
+        app: BundleAppIdentity(
+            version: "test",
+            build: "test"
+        ),
+        files: []
+    )
+}
+
+@Test
+func manifestRejectsUnicodeCaseFoldCollision() throws {
+    let digest = try EvidenceSHA256(
+        String(repeating: "0", count: 64)
+    )
+    let entries = [
+        BundleFileEntry(
+            path: "Straße/payload.bin",
+            bytes: 1,
+            mediaType: "application/octet-stream",
+            sha256: digest,
+            producer: "test",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
+        BundleFileEntry(
+            path: "STRASSE/payload.bin",
+            bytes: 1,
+            mediaType: "application/octet-stream",
+            sha256: digest,
+            producer: "test",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
+    ]
+
+    #expect(throws: BundleManifestError.self) {
+        _ = try BundleManifest(
+            captureSeriesID: CaptureSeriesID(),
+            captureRevisionID: CaptureRevisionID(),
+            parentRevisionID: nil,
+            captureSessionIDs: [CaptureSessionID()],
+            coordinateSpaceIDs: [CoordinateSpaceID()],
+            createdAtUTC: "2026-09-20T00:00:00Z",
+            finalizedAtUTC: "2026-09-20T00:00:01Z",
+            app: BundleAppIdentity(
+                version: "test",
+                build: "test"
+            ),
+            files: entries
+        )
+    }
+}
+
 @Test
 func canonicalJSONMatchesPhase0Vector() throws {
     let value: CanonicalJSONValue = .object([

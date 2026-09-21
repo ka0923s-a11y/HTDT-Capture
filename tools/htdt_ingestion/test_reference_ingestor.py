@@ -124,6 +124,76 @@ class ReferenceIngestorTests(unittest.TestCase):
             ["raw_scan", "postprocessed_inference"],
         )
 
+    def test_processed_roomplan_requires_raw_payload_lineage(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            (copy_root / "roomplan" / "captured-room-data.json").unlink()
+            manifest_path = copy_root / "manifest.json"
+            manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            manifest["files"] = [
+                entry
+                for entry in manifest["files"]
+                if entry["path"]
+                != "roomplan/captured-room-data.json"
+            ]
+            processed = next(
+                entry
+                for entry in manifest["files"]
+                if entry["path"] == "roomplan/captured-room.json"
+            )
+            processed["source_refs"] = []
+            manifest_path.write_bytes(canonical_json_bytes(manifest))
+
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError):
+                build_ingestion_plan(copy_root)
+
+    def test_processed_roomplan_rejects_non_raw_sha_lineage(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            manifest_path = copy_root / "manifest.json"
+            manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            processed = next(
+                entry
+                for entry in manifest["files"]
+                if entry["path"] == "roomplan/captured-room.json"
+            )
+            processed["source_refs"] = [f"sha256:{MESH_SHA256}"]
+            manifest_path.write_bytes(canonical_json_bytes(manifest))
+
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError):
+                build_ingestion_plan(copy_root)
+
+    def test_reference_ingestor_rejects_unknown_source_ref_prefix(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            manifest_path = copy_root / "manifest.json"
+            manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            mesh_entry = next(
+                entry
+                for entry in manifest["files"]
+                if entry["path"] == "mesh/anchors.json"
+            )
+            mesh_entry["source_refs"] = ["opaque:unsupported"]
+            manifest_path.write_bytes(canonical_json_bytes(manifest))
+
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError):
+                build_ingestion_plan(copy_root)
+
     def test_annotation_and_measurement_records_keep_source_authority(self):
         plan = build_ingestion_plan(FIXTURE)
         records = {

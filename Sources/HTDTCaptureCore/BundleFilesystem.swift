@@ -67,7 +67,15 @@ public enum BundleLogicalPath {
     }
 
     public static func collisionKey(_ path: String) -> String {
-        path.precomposedStringWithCanonicalMapping.lowercased()
+        // Match the reference Python validator's NFC + Unicode case-fold
+        // collision semantics rather than simple lowercasing. Simple
+        // lowercasing misses multi-scalar case folds such as ß -> ss and can
+        // make Swift accept a bundle the reference validator rejects.
+        path.precomposedStringWithCanonicalMapping
+            .folding(
+                options: [.caseInsensitive],
+                locale: Locale(identifier: "en_US_POSIX")
+            )
     }
 
     public static func utf8Less(_ lhs: String, _ rhs: String) -> Bool {
@@ -140,7 +148,13 @@ public enum BundleDirectoryScanner {
                 throw BundleFilesystemError.invalidPath(normalized)
             }
 
-            let bytes = Int64(values.fileSize ?? 0)
+            guard let fileSize = values.fileSize else {
+                // Size accounting is a security/resource boundary. If the
+                // provider cannot report a regular file's size, do not treat
+                // it as an empty file and bypass expanded-byte limits.
+                throw BundleFilesystemError.invalidPath(normalized)
+            }
+            let bytes = Int64(fileSize)
             if bytes > limits.maxFileBytes {
                 throw BundleFilesystemError.fileSizeLimitExceeded(
                     normalized

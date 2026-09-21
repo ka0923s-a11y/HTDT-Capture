@@ -128,6 +128,7 @@ public enum BundleManifestError: Error, Sendable, Equatable {
     case duplicateSessionID
     case duplicateCoordinateSpaceID
     case duplicatePayloadPath(String)
+    case caseCollidingPayloadPath(String, String)
     case manifestSelfDeclaration
     case invalidTimestamp(String)
 }
@@ -205,13 +206,26 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         }
 
         var seen = Set<String>()
+        var collisionMap: [String: String] = [:]
         for file in files {
             if file.path == "manifest.json" {
                 throw BundleManifestError.manifestSelfDeclaration
             }
+            try BundleLogicalPath.validate(file.path)
             if !seen.insert(file.path).inserted {
                 throw BundleManifestError.duplicatePayloadPath(file.path)
             }
+
+            let collisionKey =
+                BundleLogicalPath.collisionKey(file.path)
+            if let prior = collisionMap[collisionKey] {
+                throw BundleManifestError
+                    .caseCollidingPayloadPath(
+                        prior,
+                        file.path
+                    )
+            }
+            collisionMap[collisionKey] = file.path
         }
 
         self.schema = "htdt.capture.bundle"
@@ -333,7 +347,28 @@ public struct BundleManifest: Codable, Sendable, Equatable {
     }
 
     private static func isUTCText(_ value: String) -> Bool {
-        value.contains("T") && value.hasSuffix("Z")
+        let pattern =
+            #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$"#
+        guard value.range(
+            of: pattern,
+            options: .regularExpression
+        ) != nil
+        else {
+            return false
+        }
+
+        let base = ISO8601DateFormatter()
+        base.formatOptions = [.withInternetDateTime]
+        if base.date(from: value) != nil {
+            return true
+        }
+
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [
+            .withInternetDateTime,
+            .withFractionalSeconds,
+        ]
+        return fractional.date(from: value) != nil
     }
 
     private static func isUUIDv4(_ uuid: UUID) -> Bool {

@@ -70,6 +70,78 @@ final class LiveQualityFinalizationTests: XCTestCase {
         )
     }
 
+    func testQualityReportCanReplayRollbackAndRetryBeforePromotion()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let store = try CaptureWorkingSetStore(
+            rootDirectory: root
+        )
+        try await populateCompleteWorkingSet(store)
+
+        let quality = await store.evaluateQuality()
+        XCTAssertTrue(quality.readyForHTDTIngestion)
+        XCTAssertEqual(quality.integrityStatus, .pass)
+
+        try await store.persistQualityReport(quality)
+        try await store.persistQualityReport(quality)
+
+        var snapshot = await store.snapshot()
+        XCTAssertEqual(
+            snapshot.payloadDeclarations.filter {
+                $0.path == "quality/capture-quality.json"
+            }.count,
+            1
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: root
+                    .appendingPathComponent(
+                        "quality/capture-quality.json"
+                    )
+                    .path
+            )
+        )
+
+        try await store.discardUncommittedQualityReport(
+            quality
+        )
+
+        snapshot = await store.snapshot()
+        XCTAssertFalse(
+            snapshot.payloadDeclarations.contains {
+                $0.path == "quality/capture-quality.json"
+            }
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: root
+                    .appendingPathComponent(
+                        "quality/capture-quality.json"
+                    )
+                    .path
+            )
+        )
+
+        let afterRollback = await store.evaluateQuality()
+        XCTAssertTrue(afterRollback.readyForHTDTIngestion)
+        XCTAssertEqual(afterRollback.integrityStatus, .pass)
+
+        try await store.persistQualityReport(afterRollback)
+        snapshot = await store.snapshot()
+        XCTAssertEqual(
+            snapshot.payloadDeclarations.filter {
+                $0.path == "quality/capture-quality.json"
+            }.count,
+            1
+        )
+    }
+
     func testSceneDepthCanExplicitlySubstituteForMissingMeshAtReview() {
         let observation = CaptureQualityObservation(
             roomPlanStatus: .completed,

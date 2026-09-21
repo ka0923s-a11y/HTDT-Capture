@@ -30,6 +30,38 @@ func stateMachineHappyPath() throws {
 }
 
 @Test
+func reviewCanReturnToScanningBeforeAuthorityIsSealed() throws {
+    var machine = CaptureStateMachine(state: .reviewing)
+
+    try machine.apply(.resumeScanning)
+
+    #expect(machine.state == .scanning)
+    #expect(machine.lastFailure == nil)
+}
+
+@Test
+func finalizedCaptureCanResetWithoutExport() throws {
+    var machine = CaptureStateMachine(state: .validating)
+    try machine.apply(.finalize)
+    #expect(machine.state == .finalized)
+
+    try machine.apply(.reset)
+    #expect(machine.state == .idle)
+    #expect(machine.lastFailure == nil)
+}
+
+@Test
+func validationFailureReturnsToReviewForRetry() throws {
+    var machine = CaptureStateMachine(state: .reviewing)
+    try machine.apply(.beginValidation)
+    #expect(machine.state == .validating)
+
+    try machine.apply(.validationFailed)
+    #expect(machine.state == .reviewing)
+    #expect(machine.lastFailure == nil)
+}
+
+@Test
 func stateMachineRejectsInvalidTransition() {
     var machine = CaptureStateMachine()
     #expect(throws: CaptureStateMachineError.self) {
@@ -103,6 +135,16 @@ func admissionControllerBoundsPendingEvidence() async throws {
     let snapshot = await controller.snapshot()
     #expect(snapshot.reservedBytes == 0)
     #expect(snapshot.reservedItems == 0)
+}
+
+@Test
+func bundleCollisionKeyUsesUnicodeCaseFolding() {
+    #expect(
+        BundleLogicalPath.collisionKey("straße/payload.bin")
+            == BundleLogicalPath.collisionKey(
+                "STRASSE/payload.bin"
+            )
+    )
 }
 
 @Test

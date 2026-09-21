@@ -161,10 +161,31 @@ public actor CaptureWorkingSetStore {
             throw CaptureWorkingSetError.invalidTimingPackage
         }
 
-        try await writer.write(
+        if let existing = timingDocument {
+            if existing == package.document {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    CaptureTimingPackage.path
+                )
+        }
+
+        try await writer.writeIfIdentical(
             package.data,
             to: CaptureStorePath(CaptureTimingPackage.path)
         )
+
+        if let existing = timingDocument {
+            if existing == package.document {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    CaptureTimingPackage.path
+                )
+        }
+
         try register(package.payloadDeclaration)
         timingDocument = package.document
     }
@@ -172,22 +193,6 @@ public actor CaptureWorkingSetStore {
     public func persistEndRoomPlanTransaction(
         timingPackage: CaptureTimingPackage,
         roomPlanLineage: RoomPlanArtifactLineage
-    ) async throws {
-        guard let processed = roomPlanLineage.processed else {
-            throw CaptureWorkingSetError
-                .invalidProcessedRoomPlanDescriptor
-        }
-        try await persistEndRoomPlanTransaction(
-            timingPackage: timingPackage,
-            rawRoomPlan: roomPlanLineage.raw,
-            processedRoomPlan: processed
-        )
-    }
-
-    public func persistEndRoomPlanTransaction(
-        timingPackage: CaptureTimingPackage,
-        rawRoomPlan: RoomPlanRawArtifactPayload?,
-        processedRoomPlan: RoomPlanProcessedArtifactPayload
     ) async throws {
         guard sessionFoundation != nil else {
             throw CaptureWorkingSetError.timingFoundationMissing
@@ -205,91 +210,52 @@ public actor CaptureWorkingSetStore {
             throw CaptureWorkingSetError.invalidTimingPackage
         }
 
-        let processed = processedRoomPlan
+        let raw = roomPlanLineage.raw
+        guard let processed = roomPlanLineage.processed else {
+            throw CaptureWorkingSetError
+                .invalidProcessedRoomPlanDescriptor
+        }
+
+        guard
+            raw.descriptor.relativePath
+                == RoomPlanEvidenceArtifactBuilder.rawPath,
+            raw.descriptor.byteCount == raw.data.count,
+            raw.descriptor.sha256
+                == EvidenceIntegrity.sha256(of: raw.data)
+        else {
+            throw CaptureWorkingSetError
+                .invalidRawRoomPlanDescriptor
+        }
+
         guard
             processed.descriptor.relativePath
                 == RoomPlanEvidenceArtifactBuilder.processedPath,
             processed.descriptor.byteCount == processed.data.count,
             processed.descriptor.sha256
-                == EvidenceIntegrity.sha256(of: processed.data)
+                == EvidenceIntegrity.sha256(of: processed.data),
+            processed.descriptor.sourceRawSHA256
+                == raw.descriptor.sha256,
+            processed.descriptor.captureSessionID
+                == raw.descriptor.captureSessionID,
+            processed.descriptor.coordinateSpaceID
+                == raw.descriptor.coordinateSpaceID
         else {
             throw CaptureWorkingSetError
                 .invalidProcessedRoomPlanDescriptor
         }
 
-        let sourceRefs: [String]
-        switch processed.descriptor.sourceRawSerializationStatus {
-        case .persisted:
-            guard let raw = rawRoomPlan else {
-                throw CaptureWorkingSetError
-                    .processedRoomPlanRequiresRaw
-            }
-            guard
-                raw.descriptor.relativePath
-                    == RoomPlanEvidenceArtifactBuilder.rawPath,
-                raw.descriptor.byteCount == raw.data.count,
-                raw.descriptor.sha256
-                    == EvidenceIntegrity.sha256(of: raw.data)
-            else {
-                throw CaptureWorkingSetError
-                    .invalidRawRoomPlanDescriptor
-            }
-            guard
-                processed.descriptor.sourceRawSHA256
-                    == raw.descriptor.sha256,
-                processed.descriptor.captureSessionID
-                    == raw.descriptor.captureSessionID,
-                processed.descriptor.coordinateSpaceID
-                    == raw.descriptor.coordinateSpaceID
-            else {
-                throw CaptureWorkingSetError
-                    .processedRoomPlanLineageMismatch
-            }
-            try bindAuthority(
-                captureSessionID: raw.descriptor.captureSessionID,
-                coordinateSpaceID: raw.descriptor.coordinateSpaceID
-            )
-            sourceRefs = [
-                "sha256:\(raw.descriptor.sha256.description)"
-            ]
+        try bindAuthority(
+            captureSessionID: raw.descriptor.captureSessionID,
+            coordinateSpaceID: raw.descriptor.coordinateSpaceID
+        )
 
-        case .unavailable:
-            guard
-                rawRoomPlan == nil,
-                processed.descriptor.sourceRawSHA256 == nil
-            else {
-                throw CaptureWorkingSetError
-                    .processedRoomPlanLineageMismatch
-            }
-            try bindAuthority(
-                captureSessionID:
-                    processed.descriptor.captureSessionID,
-                coordinateSpaceID:
-                    processed.descriptor.coordinateSpaceID
-            )
-            sourceRefs = [
-                "capture_session:"
-                    + processed.descriptor.captureSessionID.description,
-                "roomplan_raw_serialization:unavailable",
-            ]
-        }
-
-        if let existingTiming = timingDocument,
-           let existingProcessed = processedRoomPlanDescriptor
+        if let timingDocument,
+           let rawRoomPlanDescriptor,
+           let processedRoomPlanDescriptor
         {
-            let rawMatches: Bool
-            switch processed.descriptor.sourceRawSerializationStatus {
-            case .persisted:
-                rawMatches =
-                    rawRoomPlanDescriptor
-                        == rawRoomPlan?.descriptor
-            case .unavailable:
-                rawMatches = rawRoomPlanDescriptor == nil
-            }
-
-            if existingTiming == timingPackage.document,
-               existingProcessed == processed.descriptor,
-               rawMatches
+            if timingDocument == timingPackage.document,
+               rawRoomPlanDescriptor == raw.descriptor,
+               processedRoomPlanDescriptor == processed.descriptor
             {
                 return
             }
@@ -307,30 +273,28 @@ public actor CaptureWorkingSetStore {
                 .integrityVerificationFailed
         }
 
-        var transactionDeclarations: [BundlePayloadDeclaration] = [
-            timingPackage.payloadDeclaration,
-        ]
-        if let raw = rawRoomPlan {
-            transactionDeclarations.append(
-                BundlePayloadDeclaration(
-                    path: raw.descriptor.relativePath,
-                    mediaType: "application/json",
-                    producer: "roomplan_capture",
-                    provenanceClass: .appleRoomPlanRawScan,
-                    role: .canonical
-                )
-            )
-        }
-        transactionDeclarations.append(
-            BundlePayloadDeclaration(
-                path: processed.descriptor.relativePath,
-                mediaType: "application/json",
-                producer: "roomplan_builder",
-                provenanceClass: .appleRoomPlanInference,
-                role: .canonical,
-                sourceRefs: sourceRefs
-            )
+        let rawDeclaration = BundlePayloadDeclaration(
+            path: raw.descriptor.relativePath,
+            mediaType: "application/json",
+            producer: "roomplan_capture",
+            provenanceClass: .appleRoomPlanRawScan,
+            role: .canonical
         )
+        let processedDeclaration = BundlePayloadDeclaration(
+            path: processed.descriptor.relativePath,
+            mediaType: "application/json",
+            producer: "roomplan_builder",
+            provenanceClass: .appleRoomPlanInference,
+            role: .canonical,
+            sourceRefs: [
+                "sha256:\(raw.descriptor.sha256.description)"
+            ]
+        )
+        let transactionDeclarations = [
+            timingPackage.payloadDeclaration,
+            rawDeclaration,
+            processedDeclaration,
+        ]
 
         for declaration in transactionDeclarations {
             guard declarations[declaration.path] == nil else {
@@ -341,54 +305,330 @@ public actor CaptureWorkingSetStore {
             }
         }
 
-        var writes: [(Data, CaptureStorePath)] = try [
-            (
-                timingPackage.data,
-                CaptureStorePath(CaptureTimingPackage.path)
-            ),
-        ]
-        if let raw = rawRoomPlan {
-            writes.append(
-                (
-                    raw.data,
-                    try CaptureStorePath(
-                        raw.descriptor.relativePath
-                    )
+        let writes: [CaptureFileWriteRequest] = try [
+            CaptureFileWriteRequest(
+                data: timingPackage.data,
+                path: CaptureStorePath(
+                    CaptureTimingPackage.path
                 )
-            )
-        }
-        writes.append(
-            (
-                processed.data,
-                try CaptureStorePath(
+            ),
+            CaptureFileWriteRequest(
+                data: raw.data,
+                path: CaptureStorePath(
+                    raw.descriptor.relativePath
+                )
+            ),
+            CaptureFileWriteRequest(
+                data: processed.data,
+                path: CaptureStorePath(
                     processed.descriptor.relativePath
                 )
-            )
-        )
+            ),
+        ]
 
-        do {
-            for (data, path) in writes {
-                try await writer.writeIfIdentical(
-                    data,
-                    to: path
-                )
+        try await writer.writeBatchIfIdentical(writes)
+
+        // The store actor may re-enter while awaiting the writer actor.
+        // Another exact transaction can commit first; accept only that exact
+        // replay. Any different logical authority remains fail-closed.
+        if let existingTiming = timingDocument,
+           let existingRaw = rawRoomPlanDescriptor,
+           let existingProcessed = processedRoomPlanDescriptor
+        {
+            if existingTiming == timingPackage.document,
+               existingRaw == raw.descriptor,
+               existingProcessed == processed.descriptor
+            {
+                return
             }
-        } catch {
-            for (data, path) in writes.reversed() {
-                _ = try? await writer.removeIfIdentical(
-                    data,
-                    at: path
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    CaptureTimingPackage.path
                 )
-            }
-            throw error
         }
 
+        guard timingDocument == nil,
+              rawRoomPlanDescriptor == nil,
+              processedRoomPlanDescriptor == nil,
+              transactionDeclarations.allSatisfy({
+                  declarations[$0.path] == nil
+              })
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        // There are no suspension points after this line. Commit the logical
+        // authority atomically after every required file is durable.
         for declaration in transactionDeclarations {
             declarations[declaration.path] = declaration
         }
         timingDocument = timingPackage.document
-        rawRoomPlanDescriptor = rawRoomPlan?.descriptor
+        rawRoomPlanDescriptor = raw.descriptor
         processedRoomPlanDescriptor = processed.descriptor
+    }
+
+    public func rollbackAcceptedEndTransaction(
+        removeOwnedMesh: Bool
+    ) async throws {
+        guard sessionFoundation != nil,
+              let expectedTiming = timingDocument,
+              let expectedRaw = rawRoomPlanDescriptor,
+              let expectedProcessed = processedRoomPlanDescriptor,
+              expectedProcessed.sourceRawSHA256
+                == expectedRaw.sha256,
+              expectedProcessed.captureSessionID
+                == expectedRaw.captureSessionID,
+              expectedProcessed.coordinateSpaceID
+                == expectedRaw.coordinateSpaceID
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        func payloadURL(_ path: String) throws -> URL {
+            try BundleLogicalPath.validate(path)
+            return path
+                .split(separator: "/")
+                .reduce(rootDirectory) {
+                    url,
+                    component in
+                    url.appendingPathComponent(
+                        String(component),
+                        isDirectory: false
+                    )
+                }
+        }
+
+        let timingData = try Data(
+            contentsOf: payloadURL(
+                CaptureTimingPackage.path
+            )
+        )
+        guard
+            let decodedTiming = try? JSONDecoder().decode(
+                CaptureTimingDocument.self,
+                from: timingData
+            ),
+            decodedTiming == expectedTiming
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        let rawData = try Data(
+            contentsOf: payloadURL(expectedRaw.relativePath)
+        )
+        guard
+            rawData.count == expectedRaw.byteCount,
+            EvidenceIntegrity.sha256(of: rawData)
+                == expectedRaw.sha256
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        let processedData = try Data(
+            contentsOf: payloadURL(
+                expectedProcessed.relativePath
+            )
+        )
+        guard
+            processedData.count
+                == expectedProcessed.byteCount,
+            EvidenceIntegrity.sha256(of: processedData)
+                == expectedProcessed.sha256
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        let timingDeclaration =
+            BundlePayloadDeclaration(
+                path: CaptureTimingPackage.path,
+                mediaType: "application/json",
+                producer: "capture_session",
+                provenanceClass: .captureAppDerived,
+                role: .canonical
+            )
+        let rawDeclaration =
+            BundlePayloadDeclaration(
+                path: expectedRaw.relativePath,
+                mediaType: "application/json",
+                producer: "roomplan_capture",
+                provenanceClass: .appleRoomPlanRawScan,
+                role: .canonical
+            )
+        let processedDeclaration =
+            BundlePayloadDeclaration(
+                path: expectedProcessed.relativePath,
+                mediaType: "application/json",
+                producer: "roomplan_builder",
+                provenanceClass: .appleRoomPlanInference,
+                role: .canonical,
+                sourceRefs: [
+                    "sha256:"
+                        + expectedRaw.sha256.description
+                ]
+            )
+
+        var declarationsToRemove = [
+            timingDeclaration,
+            rawDeclaration,
+            processedDeclaration,
+        ]
+        var removals: [CaptureFileWriteRequest] = try [
+            CaptureFileWriteRequest(
+                data: timingData,
+                path: CaptureStorePath(
+                    CaptureTimingPackage.path
+                )
+            ),
+            CaptureFileWriteRequest(
+                data: rawData,
+                path: CaptureStorePath(
+                    expectedRaw.relativePath
+                )
+            ),
+            CaptureFileWriteRequest(
+                data: processedData,
+                path: CaptureStorePath(
+                    expectedProcessed.relativePath
+                )
+            ),
+        ]
+
+        let expectedMesh = removeOwnedMesh
+            ? meshIndex
+            : nil
+        if removeOwnedMesh,
+           let expectedMesh
+        {
+            let indexData = try Data(
+                contentsOf: payloadURL(
+                    MeshEvidencePackage.indexPath
+                )
+            )
+            guard
+                let decodedIndex =
+                    try? JSONDecoder().decode(
+                        MeshAnchorEvidenceIndex.self,
+                        from: indexData
+                    ),
+                decodedIndex == expectedMesh
+            else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+
+            var geometryRefs: [String] = []
+            for record in expectedMesh.anchors {
+                let data = try Data(
+                    contentsOf: payloadURL(
+                        record.geometryPath
+                    )
+                )
+                guard
+                    EvidenceIntegrity.sha256(of: data)
+                        == record.geometrySHA256
+                else {
+                    throw CaptureWorkingSetError
+                        .integrityVerificationFailed
+                }
+                removals.append(
+                    try CaptureFileWriteRequest(
+                        data: data,
+                        path: CaptureStorePath(
+                            record.geometryPath
+                        )
+                    )
+                )
+                declarationsToRemove.append(
+                    BundlePayloadDeclaration(
+                        path: record.geometryPath,
+                        mediaType:
+                            "application/vnd.htdt.meshbin",
+                        producer: "mesh_capture",
+                        provenanceClass:
+                            .arkitMeshReconstruction,
+                        role: .canonical
+                    )
+                )
+                geometryRefs.append(
+                    "path:" + record.geometryPath
+                )
+            }
+
+            removals.append(
+                try CaptureFileWriteRequest(
+                    data: indexData,
+                    path: CaptureStorePath(
+                        MeshEvidencePackage.indexPath
+                    )
+                )
+            )
+            declarationsToRemove.append(
+                BundlePayloadDeclaration(
+                    path: MeshEvidencePackage.indexPath,
+                    mediaType: "application/json",
+                    producer: "mesh_capture",
+                    provenanceClass:
+                        .arkitMeshReconstruction,
+                    role: .canonical,
+                    sourceRefs:
+                        geometryRefs.isEmpty
+                        ? nil
+                        : geometryRefs.sorted()
+                )
+            )
+        } else if removeOwnedMesh {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        for declaration in declarationsToRemove {
+            guard declarations[declaration.path]
+                    == declaration
+            else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+        }
+
+        try await writer.removeBatchIfIdentical(removals)
+
+        // Re-check logical authority after the writer-actor suspension. The
+        // owned files are now absent from the bundle root, so any in-memory
+        // mutation across this await is unsafe and must fail closed.
+        guard timingDocument == expectedTiming,
+              rawRoomPlanDescriptor == expectedRaw,
+              processedRoomPlanDescriptor
+                == expectedProcessed,
+              (
+                !removeOwnedMesh
+                || meshIndex == expectedMesh
+              ),
+              declarationsToRemove.allSatisfy({
+                  declarations[$0.path] == $0
+              })
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        for declaration in declarationsToRemove {
+            declarations.removeValue(
+                forKey: declaration.path
+            )
+        }
+        timingDocument = nil
+        rawRoomPlanDescriptor = nil
+        processedRoomPlanDescriptor = nil
+
+        if removeOwnedMesh {
+            meshIndex = nil
+            meshAnchorCount = nil
+        }
     }
 
     public func persistRawRoomPlan(
@@ -456,43 +696,22 @@ public actor CaptureWorkingSetStore {
                 .invalidProcessedRoomPlanDescriptor
         }
 
-        let sourceRefs: [String]
-        switch descriptor.sourceRawSerializationStatus {
-        case .persisted:
-            guard let raw = rawRoomPlanDescriptor else {
-                throw CaptureWorkingSetError.processedRoomPlanRequiresRaw
-            }
-            guard
-                descriptor.sourceRawSHA256 == raw.sha256,
-                descriptor.captureSessionID == raw.captureSessionID,
-                descriptor.coordinateSpaceID == raw.coordinateSpaceID
-            else {
-                throw CaptureWorkingSetError
-                    .processedRoomPlanLineageMismatch
-            }
-            sourceRefs = [
-                "sha256:\(raw.sha256.description)"
-            ]
-
-        case .unavailable:
-            guard
-                descriptor.sourceRawSHA256 == nil,
-                rawRoomPlanDescriptor == nil
-            else {
-                throw CaptureWorkingSetError
-                    .processedRoomPlanLineageMismatch
-            }
-            try bindAuthority(
-                captureSessionID: descriptor.captureSessionID,
-                coordinateSpaceID: descriptor.coordinateSpaceID
-            )
-            sourceRefs = [
-                "capture_session:"
-                    + descriptor.captureSessionID.description,
-                "roomplan_raw_serialization:unavailable",
-            ]
+        guard let raw = rawRoomPlanDescriptor else {
+            throw CaptureWorkingSetError.processedRoomPlanRequiresRaw
         }
 
+        guard
+            descriptor.sourceRawSHA256 == raw.sha256,
+            descriptor.captureSessionID == raw.captureSessionID,
+            descriptor.coordinateSpaceID == raw.coordinateSpaceID
+        else {
+            throw CaptureWorkingSetError
+                .processedRoomPlanLineageMismatch
+        }
+
+        // Match raw RoomPlan replay semantics after validating bytes and
+        // lineage. Exact duplicate completion is idempotent; a conflicting
+        // canonical payload is rejected.
         if let existing = processedRoomPlanDescriptor {
             if existing == descriptor {
                 return
@@ -514,7 +733,9 @@ public actor CaptureWorkingSetStore {
             producer: "roomplan_builder",
             provenanceClass: .appleRoomPlanInference,
             role: .canonical,
-            sourceRefs: sourceRefs
+            sourceRefs: [
+                "sha256:\(raw.sha256.description)"
+            ]
         )
         try register(declaration)
         processedRoomPlanDescriptor = descriptor
@@ -575,6 +796,16 @@ public actor CaptureWorkingSetStore {
             )
         }
 
+        if let existing = meshIndex {
+            if existing == package.index {
+                return
+            }
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    MeshEvidencePackage.indexPath
+                )
+        }
+
         let meshPaths =
             package.geometryFiles.map(\.path)
             + [MeshEvidencePackage.indexPath]
@@ -585,19 +816,27 @@ public actor CaptureWorkingSetStore {
                 .duplicatePayloadDeclaration(duplicate)
         }
 
-        do {
-            try await package.persist(using: writer)
-        } catch {
-            // Mesh is optional at review time. Keep a failed write from
-            // leaving undeclared complete files that would poison bundle
-            // integrity and prevent the already-persisted frame/depth
-            // fallback from being used.
-            for path in meshPaths {
-                if let storePath = try? CaptureStorePath(path) {
-                    try? await writer.removeIfPresent(storePath)
-                }
+        // MeshEvidencePackage uses one writer-actor batch. A failed batch
+        // rolls back only files created by that batch and never deletes a
+        // pre-existing conflicting path.
+        try await package.persist(using: writer)
+
+        // Re-check after actor suspension. An exact concurrent replay is
+        // harmless; any different committed authority is rejected.
+        if let existing = meshIndex {
+            if existing == package.index {
+                return
             }
-            throw error
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    MeshEvidencePackage.indexPath
+                )
+        }
+        if let duplicate = meshPaths.first(where: {
+            declarations[$0] != nil
+        }) {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(duplicate)
         }
 
         for file in package.geometryFiles {
@@ -627,6 +866,137 @@ public actor CaptureWorkingSetStore {
         )
         meshAnchorCount = package.index.anchors.count
         meshIndex = package.index
+    }
+
+    public func rollbackCurrentMeshPackage() async throws {
+        guard let expectedMesh = meshIndex else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        func payloadURL(_ path: String) throws -> URL {
+            try BundleLogicalPath.validate(path)
+            return path
+                .split(separator: "/")
+                .reduce(rootDirectory) {
+                    url,
+                    component in
+                    url.appendingPathComponent(
+                        String(component),
+                        isDirectory: false
+                    )
+                }
+        }
+
+        let indexData = try Data(
+            contentsOf: payloadURL(
+                MeshEvidencePackage.indexPath
+            )
+        )
+        guard
+            let decodedIndex = try? JSONDecoder().decode(
+                MeshAnchorEvidenceIndex.self,
+                from: indexData
+            ),
+            decodedIndex == expectedMesh
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        var removals: [CaptureFileWriteRequest] = []
+        var expectedDeclarations:
+            [BundlePayloadDeclaration] = []
+        var geometryRefs: [String] = []
+
+        for record in expectedMesh.anchors {
+            let data = try Data(
+                contentsOf: payloadURL(
+                    record.geometryPath
+                )
+            )
+            guard
+                EvidenceIntegrity.sha256(of: data)
+                    == record.geometrySHA256
+            else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+
+            removals.append(
+                try CaptureFileWriteRequest(
+                    data: data,
+                    path: CaptureStorePath(
+                        record.geometryPath
+                    )
+                )
+            )
+            expectedDeclarations.append(
+                BundlePayloadDeclaration(
+                    path: record.geometryPath,
+                    mediaType:
+                        "application/vnd.htdt.meshbin",
+                    producer: "mesh_capture",
+                    provenanceClass:
+                        .arkitMeshReconstruction,
+                    role: .canonical
+                )
+            )
+            geometryRefs.append(
+                "path:" + record.geometryPath
+            )
+        }
+
+        removals.append(
+            try CaptureFileWriteRequest(
+                data: indexData,
+                path: CaptureStorePath(
+                    MeshEvidencePackage.indexPath
+                )
+            )
+        )
+        expectedDeclarations.append(
+            BundlePayloadDeclaration(
+                path: MeshEvidencePackage.indexPath,
+                mediaType: "application/json",
+                producer: "mesh_capture",
+                provenanceClass:
+                    .arkitMeshReconstruction,
+                role: .canonical,
+                sourceRefs:
+                    geometryRefs.isEmpty
+                    ? nil
+                    : geometryRefs.sorted()
+            )
+        )
+
+        for declaration in expectedDeclarations {
+            guard declarations[declaration.path]
+                    == declaration
+            else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+        }
+
+        try await writer.removeBatchIfIdentical(removals)
+
+        guard meshIndex == expectedMesh,
+              expectedDeclarations.allSatisfy({
+                  declarations[$0.path] == $0
+              })
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        for declaration in expectedDeclarations {
+            declarations.removeValue(
+                forKey: declaration.path
+            )
+        }
+        meshIndex = nil
+        meshAnchorCount = nil
     }
 
     public func persistFramePackage(
@@ -687,6 +1057,12 @@ public actor CaptureWorkingSetStore {
                 // preview-only write failed. Remove a conflicting/stale
                 // preview path so bundle integrity does not see an undeclared
                 // derived file.
+                // This path is exclusively a derived convenience
+                // artifact for this exact frame ID. It is never canonical
+                // authority and is not registered unless the preview write
+                // succeeds. Removing a stale/conflicting derived preview is
+                // therefore safe and restores working-set integrity without
+                // mutating the committed canonical frame/depth evidence.
                 if let previewPath = try? CaptureStorePath(preview.path) {
                     try? await writer.removeIfPresent(previewPath)
                 }
@@ -763,6 +1139,162 @@ public actor CaptureWorkingSetStore {
         }
     }
 
+    public func persistAnnotationAndMeasurementPackages(
+        annotationPackage: AnnotationEvidencePackage,
+        measurementPackage: MeasurementEvidencePackage
+    ) async throws {
+        guard
+            let decodedAnnotations = try? JSONDecoder().decode(
+                CaptureAnnotationCollection.self,
+                from: annotationPackage.data
+            ),
+            decodedAnnotations == annotationPackage.collection
+        else {
+            throw CaptureWorkingSetError.invalidAnnotationPackage
+        }
+        guard
+            let decodedMeasurements = try? JSONDecoder().decode(
+                CaptureMeasurementCollection.self,
+                from: measurementPackage.data
+            ),
+            decodedMeasurements == measurementPackage.collection
+        else {
+            throw CaptureWorkingSetError.invalidMeasurementPackage
+        }
+
+        let annotationSpaces = Set(
+            annotationPackage.collection.entities.map(
+                \.coordinateSpaceID
+            )
+        )
+        let measurementSpaces = Set(
+            measurementPackage.collection.measurements.compactMap(
+                \.coordinateSpaceID
+            )
+        )
+        guard annotationSpaces.count <= 1,
+              measurementSpaces.count <= 1,
+              annotationSpaces.union(measurementSpaces).count <= 1
+        else {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        if let space =
+            annotationSpaces.union(measurementSpaces).first
+        {
+            try bindCoordinateAuthority(space)
+        }
+
+        if let existing = annotationCollection,
+           existing != annotationPackage.collection
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    AnnotationEvidencePackage.path
+                )
+        }
+        if let existing = measurementCollection,
+           existing != measurementPackage.collection
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    MeasurementEvidencePackage.path
+                )
+        }
+
+        let annotationDeclaration =
+            BundlePayloadDeclaration(
+                path: AnnotationEvidencePackage.path,
+                mediaType: "application/json",
+                producer: "annotation",
+                provenanceClass: .userAnnotation,
+                role: .canonical
+            )
+        let measurementDeclaration =
+            BundlePayloadDeclaration(
+                path: MeasurementEvidencePackage.path,
+                mediaType: "application/json",
+                producer: "measurement",
+                provenanceClass: .userAttestedMeasurement,
+                role: .canonical
+            )
+        let expectedDeclarations = [
+            annotationDeclaration,
+            measurementDeclaration,
+        ]
+        for declaration in expectedDeclarations {
+            if let existing = declarations[declaration.path],
+               existing != declaration
+            {
+                throw CaptureWorkingSetError
+                    .duplicatePayloadDeclaration(
+                        declaration.path
+                    )
+            }
+        }
+
+        try await writer.writeBatchIfIdentical([
+            try CaptureFileWriteRequest(
+                data: annotationPackage.data,
+                path: CaptureStorePath(
+                    AnnotationEvidencePackage.path
+                )
+            ),
+            try CaptureFileWriteRequest(
+                data: measurementPackage.data,
+                path: CaptureStorePath(
+                    MeasurementEvidencePackage.path
+                )
+            ),
+        ])
+
+        // Re-check after actor suspension. This also repairs a compatible
+        // legacy partial commit without accepting conflicting authority.
+        if let existing = annotationCollection,
+           existing != annotationPackage.collection
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    AnnotationEvidencePackage.path
+                )
+        }
+        if let existing = measurementCollection,
+           existing != measurementPackage.collection
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    MeasurementEvidencePackage.path
+                )
+        }
+        for declaration in expectedDeclarations {
+            if let existing = declarations[declaration.path],
+               existing != declaration
+            {
+                throw CaptureWorkingSetError
+                    .duplicatePayloadDeclaration(
+                        declaration.path
+                    )
+            }
+        }
+
+        declarations[annotationDeclaration.path] =
+            annotationDeclaration
+        declarations[measurementDeclaration.path] =
+            measurementDeclaration
+        annotationCollection = annotationPackage.collection
+        annotationKeysPresent = Set(
+            annotationPackage.collection.entities.map(
+                annotationQualityKey
+            )
+        )
+        measurementCollection =
+            measurementPackage.collection
+        measurementQuantityTypesPresent = Set(
+            measurementPackage.collection.measurements.map(
+                \.quantityType
+            )
+        )
+    }
+
     public func persistAnnotationPackage(
         _ package: AnnotationEvidencePackage
     ) async throws {
@@ -786,7 +1318,7 @@ public actor CaptureWorkingSetStore {
             try bindCoordinateAuthority(space)
         }
 
-        try await writer.write(
+        try await writer.writeIfIdentical(
             package.data,
             to: CaptureStorePath(AnnotationEvidencePackage.path)
         )
@@ -831,7 +1363,7 @@ public actor CaptureWorkingSetStore {
             try bindCoordinateAuthority(space)
         }
 
-        try await writer.write(
+        try await writer.writeIfIdentical(
             package.data,
             to: CaptureStorePath(MeasurementEvidencePackage.path)
         )
@@ -922,7 +1454,7 @@ public actor CaptureWorkingSetStore {
         let data = try encoder.encode(report)
         let path = "quality/capture-quality.json"
 
-        try await writer.write(
+        try await writer.writeIfIdentical(
             data,
             to: CaptureStorePath(path)
         )
@@ -935,6 +1467,43 @@ public actor CaptureWorkingSetStore {
                 role: .canonical
             )
         )
+    }
+
+    public func discardUncommittedQualityReport(
+        _ report: CaptureQualityReport
+    ) async throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(report)
+        let path = "quality/capture-quality.json"
+        let declaration = BundlePayloadDeclaration(
+            path: path,
+            mediaType: "application/json",
+            producer: "capture_quality",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        )
+
+        if let existing = declarations[path],
+           existing != declaration
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(path)
+        }
+
+        let removedOrAbsent =
+            try await writer.removeIfIdentical(
+                data,
+                at: CaptureStorePath(path)
+            )
+        guard removedOrAbsent else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        if declarations[path] == declaration {
+            declarations.removeValue(forKey: path)
+        }
     }
 
     public func discardIncompleteRevision() throws {
@@ -1059,28 +1628,12 @@ public actor CaptureWorkingSetStore {
         }
 
         if let processedRoomPlanDescriptor {
-            switch processedRoomPlanDescriptor
-                .sourceRawSerializationStatus
-            {
-            case .persisted:
-                guard let rawRoomPlanDescriptor,
-                      processedRoomPlanDescriptor.sourceRawSHA256
-                        == rawRoomPlanDescriptor.sha256
-                else {
-                    throw CaptureWorkingSetError
-                        .integrityVerificationFailed
-                }
-
-            case .unavailable:
-                guard
-                    rawRoomPlanDescriptor == nil,
-                    processedRoomPlanDescriptor.sourceRawSHA256 == nil
-                else {
-                    throw CaptureWorkingSetError
-                        .integrityVerificationFailed
-                }
+            guard let rawRoomPlanDescriptor,
+                  processedRoomPlanDescriptor.sourceRawSHA256
+                    == rawRoomPlanDescriptor.sha256
+            else {
+                throw CaptureWorkingSetError.integrityVerificationFailed
             }
-
             try verifyFile(
                 path: processedRoomPlanDescriptor.relativePath,
                 byteCount: processedRoomPlanDescriptor.byteCount,

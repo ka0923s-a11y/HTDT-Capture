@@ -9,6 +9,7 @@ public struct CaptureRootActions {
     public let captureEvidenceFrame: () -> Void
     public let setScanMovementCapability:
         (ScanMovementCapability) -> Void
+    public let continueScanning: () -> Void
     public let beginAnnotation: () -> Void
     public let captureRaycastPlacement:
         () async throws -> AnnotationPlacementAuthority
@@ -29,6 +30,7 @@ public struct CaptureRootActions {
         captureEvidenceFrame: @escaping () -> Void = {},
         setScanMovementCapability: @escaping
             (ScanMovementCapability) -> Void = { _ in },
+        continueScanning: @escaping () -> Void = {},
         beginAnnotation: @escaping () -> Void = {},
         captureRaycastPlacement: @escaping
             () async throws -> AnnotationPlacementAuthority = {
@@ -52,6 +54,7 @@ public struct CaptureRootActions {
         self.captureEvidenceFrame = captureEvidenceFrame
         self.setScanMovementCapability =
             setScanMovementCapability
+        self.continueScanning = continueScanning
         self.beginAnnotation = beginAnnotation
         self.captureRaycastPlacement = captureRaycastPlacement
         self.captureSpeakerOrientation =
@@ -150,6 +153,7 @@ public struct CaptureRootView: View {
                     guidanceProgress: scanGuidanceProgress,
                     derivedPreview: derivedShapePreview,
                     evidenceFrameCount: scanEvidenceFrameCount,
+                    statusMessage: workingSetStatus,
                     endScanGuidance: endScanGuidance,
                     captureEvidenceFrame:
                         actions.captureEvidenceFrame,
@@ -167,6 +171,7 @@ public struct CaptureRootView: View {
                     coordinateSpaceID: coordinateSpaceID,
                     availableEvidenceRefs:
                         annotationEvidenceRefs,
+                    statusMessage: workingSetStatus,
                     captureRaycastPlacement:
                         actions.captureRaycastPlacement,
                     captureSpeakerOrientation:
@@ -340,6 +345,10 @@ public struct CaptureRootView: View {
                annotationCoordinateSpaceID != nil
             {
                 Button(
+                    "Continue scanning",
+                    action: actions.continueScanning
+                )
+                Button(
                     "Add annotations & measurements",
                     action: actions.beginAnnotation
                 )
@@ -377,6 +386,10 @@ public struct CaptureRootView: View {
             Button(
                 "Prepare .htdtcapture",
                 action: actions.prepareExport
+            )
+            Button(
+                "Start new capture",
+                action: actions.resetCapture
             )
 
         case .exported:

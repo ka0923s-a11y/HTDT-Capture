@@ -112,6 +112,17 @@ public struct CaptureStorePath: Hashable, Sendable, CustomStringConvertible {
 
 public enum CaptureFileWriterError: Error, Sendable, Equatable {
     case alreadyExists(String)
+    case batchRollbackFailed(String)
+}
+
+public struct CaptureFileWriteRequest: Sendable, Equatable {
+    public let data: Data
+    public let path: CaptureStorePath
+
+    public init(data: Data, path: CaptureStorePath) {
+        self.data = data
+        self.path = path
+    }
 }
 
 public actor AtomicCaptureFileWriter {
@@ -153,6 +164,100 @@ public actor AtomicCaptureFileWriter {
             throw error
         }
     }
+    public func writeBatchIfIdentical(
+        _ requests: [CaptureFileWriteRequest]
+    ) throws {
+        var uniqueByPath: [String: Data] = [:]
+        for request in requests {
+            if let existing = uniqueByPath[request.path.description] {
+                guard existing == request.data else {
+                    throw CaptureFileWriterError.alreadyExists(
+                        request.path.description
+                    )
+                }
+                continue
+            }
+            uniqueByPath[request.path.description] = request.data
+        }
+
+        var created: [(url: URL, path: String)] = []
+        do {
+            for request in requests {
+                let target = request.path.description
+                    .split(separator: "/")
+                    .reduce(rootDirectory) { url, component in
+                        url.appendingPathComponent(
+                            String(component),
+                            isDirectory: false
+                        )
+                    }
+
+                if fileManager.fileExists(atPath: target.path) {
+                    let existing = try Data(contentsOf: target)
+                    guard existing == request.data else {
+                        throw CaptureFileWriterError.alreadyExists(
+                            request.path.description
+                        )
+                    }
+                    continue
+                }
+
+                let parent = target.deletingLastPathComponent()
+                try fileManager.createDirectory(
+                    at: parent,
+                    withIntermediateDirectories: true
+                )
+
+                let temporary = parent.appendingPathComponent(
+                    ".tmp-\(UUID().uuidString)"
+                )
+                do {
+                    try request.data.write(to: temporary)
+                    try fileManager.moveItem(
+                        at: temporary,
+                        to: target
+                    )
+                } catch {
+                    try? fileManager.removeItem(at: temporary)
+
+                    // A writer outside this actor may have won the path race.
+                    // Accept it only when it produced the exact same bytes.
+                    if fileManager.fileExists(atPath: target.path),
+                       let existing = try? Data(contentsOf: target),
+                       existing == request.data
+                    {
+                        continue
+                    }
+                    throw error
+                }
+
+                created.append(
+                    (target, request.path.description)
+                )
+            }
+        } catch {
+            var rollbackFailure: String?
+            for item in created.reversed() {
+                guard fileManager.fileExists(atPath: item.url.path) else {
+                    continue
+                }
+                do {
+                    try fileManager.removeItem(at: item.url)
+                } catch {
+                    if rollbackFailure == nil {
+                        rollbackFailure = item.path
+                    }
+                }
+            }
+            if let rollbackFailure {
+                throw CaptureFileWriterError.batchRollbackFailed(
+                    rollbackFailure
+                )
+            }
+            throw error
+        }
+    }
+
     public func writeIfIdentical(
         _ data: Data,
         to path: CaptureStorePath
@@ -204,6 +309,150 @@ public actor AtomicCaptureFileWriter {
             }
             throw error
         }
+    }
+
+    public func removeBatchIfIdentical(
+        _ requests: [CaptureFileWriteRequest]
+    ) throws {
+        var ordered: [CaptureFileWriteRequest] = []
+        var uniqueByPath: [String: Data] = [:]
+
+        for request in requests {
+            if let existing =
+                uniqueByPath[request.path.description]
+            {
+                guard existing == request.data else {
+                    throw CaptureFileWriterError.alreadyExists(
+                        request.path.description
+                    )
+                }
+                continue
+            }
+            uniqueByPath[request.path.description] =
+                request.data
+            ordered.append(request)
+        }
+
+        guard !ordered.isEmpty else {
+            return
+        }
+
+        let targets = ordered.map { request in
+            (
+                request: request,
+                url:
+                    request.path.description
+                        .split(separator: "/")
+                        .reduce(rootDirectory) {
+                            url,
+                            component in
+                            url.appendingPathComponent(
+                                String(component),
+                                isDirectory: false
+                            )
+                        }
+            )
+        }
+
+        let present = targets.filter {
+            fileManager.fileExists(atPath: $0.url.path)
+        }
+
+        // Exact concurrent replay after a prior successful rollback is
+        // harmless. A partial set is not: it indicates an already-corrupt
+        // transaction boundary and must fail closed.
+        if present.isEmpty {
+            return
+        }
+        guard present.count == targets.count else {
+            let missing = targets.first {
+                !fileManager.fileExists(
+                    atPath: $0.url.path
+                )
+            }
+            throw CaptureFileWriterError.batchRollbackFailed(
+                missing?.request.path.description
+                    ?? "unknown"
+            )
+        }
+
+        for item in targets {
+            let existing = try Data(contentsOf: item.url)
+            guard existing == item.request.data else {
+                throw CaptureFileWriterError.alreadyExists(
+                    item.request.path.description
+                )
+            }
+        }
+
+        let quarantineParent =
+            rootDirectory.deletingLastPathComponent()
+        let quarantine = quarantineParent
+            .appendingPathComponent(
+                ".rollback-"
+                    + UUID().uuidString.lowercased(),
+                isDirectory: true
+            )
+        try fileManager.createDirectory(
+            at: quarantine,
+            withIntermediateDirectories: false
+        )
+
+        var moved: [
+            (
+                original: URL,
+                quarantine: URL,
+                path: String
+            )
+        ] = []
+
+        do {
+            for (index, item) in targets.enumerated() {
+                let staged = quarantine
+                    .appendingPathComponent(
+                        String(index),
+                        isDirectory: false
+                    )
+                try fileManager.moveItem(
+                    at: item.url,
+                    to: staged
+                )
+                moved.append(
+                    (
+                        original: item.url,
+                        quarantine: staged,
+                        path: item.request.path.description
+                    )
+                )
+            }
+        } catch {
+            var restoreFailure: String?
+            for item in moved.reversed() {
+                do {
+                    try fileManager.moveItem(
+                        at: item.quarantine,
+                        to: item.original
+                    )
+                } catch {
+                    if restoreFailure == nil {
+                        restoreFailure = item.path
+                    }
+                }
+            }
+            try? fileManager.removeItem(at: quarantine)
+
+            if let restoreFailure {
+                throw CaptureFileWriterError
+                    .batchRollbackFailed(restoreFailure)
+            }
+            throw error
+        }
+
+        // The bundle root is already atomically clear of every owned path.
+        // Quarantine cleanup is outside the bundle authority; a best-effort
+        // delete avoids reintroducing any removed canonical file if cleanup
+        // itself fails.
+        try? fileManager.removeItem(at: quarantine)
     }
 
     public func removeIfIdentical(
