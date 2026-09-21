@@ -1307,18 +1307,33 @@ public actor CaptureWorkingSetStore {
         // by this attempt and never deletes pre-existing conflicting
         // bytes. A retry after a failed batch is safe because state
         // mutation only happens after the last suspension point.
-        try await writer.writeBatchIfIdentical([
-            CaptureFileWriteRequest(
-                data: payload.data,
-                path: try CaptureStorePath(descriptor.relativePath)
-            ),
-            CaptureFileWriteRequest(
-                data: metadata.data,
-                path: try CaptureStorePath(
+        do {
+            try await writer.writeBatchIfIdentical([
+                CaptureFileWriteRequest(
+                    data: payload.data,
+                    path: try CaptureStorePath(descriptor.relativePath)
+                ),
+                CaptureFileWriteRequest(
+                    data: metadata.data,
+                    path: try CaptureStorePath(
+                        RoomPlanEvidenceArtifactBuilder.metadataPath
+                    )
+                ),
+            ])
+        } catch {
+            // The raw-only lineage document was removed above to clear
+            // the canonical path. Restore exactly those attempt-owned
+            // bytes so a failed processed commit leaves the verified
+            // raw+metadata state recoverable instead of a gap that
+            // would fail integrity verification.
+            try? await writer.writeIfIdentical(
+                previous.data,
+                to: CaptureStorePath(
                     RoomPlanEvidenceArtifactBuilder.metadataPath
                 )
-            ),
-        ])
+            )
+            throw error
+        }
 
         // Re-check after the writer-actor suspension: an identical
         // reentrant commit is idempotent; any other authority fails.
