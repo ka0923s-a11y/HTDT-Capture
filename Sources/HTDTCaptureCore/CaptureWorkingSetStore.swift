@@ -3015,8 +3015,7 @@ public actor CaptureWorkingSetStore {
                     measurementQuantityTypesPresent,
                 resourceEvents: resourceEvents,
                 integrityStatus: integrityStatus,
-                benchmarkRefs: benchmarkRefs
-                integrityStatus: integrityStatus,
+                benchmarkRefs: benchmarkRefs,
                 advisoryFindings: advisoryNotes.map(
                     \.qualityDiagnostic
                 )
