@@ -606,7 +606,7 @@ public final class SharedARSessionController {
                 frame.sceneDepth != nil
                 || frame.smoothedSceneDepth != nil,
             ambientLightIntensityLumens:
-                frame.lightEstimate?.ambientIntensity.doubleValue
+                frame.lightEstimate.map { Double($0.ambientIntensity) }
         )
     }
 
