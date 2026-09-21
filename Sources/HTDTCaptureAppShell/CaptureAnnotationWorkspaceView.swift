@@ -320,6 +320,26 @@ public struct CaptureAnnotationWorkspaceView: View {
                     .onDelete { offsets in
                         removeAnnotations(at: offsets)
                     }
+
+                    let findings =
+                        AnnotationContractReview.findings(
+                            in: annotations
+                        )
+                    if !findings.isEmpty {
+                        ForEach(findings, id: \.self) { finding in
+                            Text(
+                                finding.severity.rawValue
+                                    + ": "
+                                    + finding.detail
+                            )
+                            .font(.caption)
+                            .foregroundStyle(
+                                finding.severity == .info
+                                    ? Color.secondary
+                                    : Color.orange
+                            )
+                        }
+                    }
                 }
 
                 Button(String(localized: "Add spatial annotation")) {
@@ -656,6 +676,8 @@ public struct CaptureAnnotationWorkspaceView: View {
                     AnnotationPresentation
                         .entityTypeName(entity.type),
                     entity.channelRole?.rawValue,
+                    entity.listeningRole?.rawValue,
+                    entity.physicalEnvelope != nil ? "envelope" : nil,
                     AnnotationPresentation
                         .placementMethodName(
                             entity.placement.method

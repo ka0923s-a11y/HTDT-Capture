@@ -17,6 +17,35 @@ public struct CaptureScanningView: View {
     public let setMovementCapability:
         (ScanMovementCapability) -> Void
     public let endScan: () -> Void
+    /// True while the host is committing the End transaction (#279):
+    /// scan controls are replaced with an explicit busy state instead
+    /// of looking actionable while actions are internally no-op.
+    public let isEndingScan: Bool
+    /// True while a manual evidence save is still in flight.
+    public let isCapturingEvidence: Bool
+    /// Frames retained by the bounded automatic selector (#216).
+    public let automaticEvidenceCount: Int
+    /// Live low-light recovery surface (#283).
+    public let lowLightGuidanceActive: Bool
+    /// Active targeted-object pass status (#250).
+    public let targetScanStatus: TargetScanStatus?
+    /// Operator-declared unresolved regions (#257).
+    public let declaredRegions: [DeclaredCoverageRegion]
+    /// Return-to-start check state (#273).
+    public let loopClosureCheckActive: Bool
+    public let loopClosureAssessment: LoopClosureAssessment?
+    /// Non-visual guidance cue master switch (#252).
+    public let guidanceCuesEnabled: Bool
+    public let beginTargetScan: () -> Void
+    public let retakeTargetScan: () -> Void
+    public let acceptTargetScan: () -> Void
+    public let cancelTargetScan: () -> Void
+    public let declareNearestUnresolvedRegion:
+        (DeclaredRegionReason) -> Void
+    public let revokeOperatorRegion:
+        (SpatialCoverageCellKey) -> Void
+    public let setGuidanceCuesEnabled: (Bool) -> Void
+    public let setLoopClosureCheckActive: (Bool) -> Void
 
     @State private var showingEndScanReview = false
     @State private var isHUDExpanded = false
@@ -36,6 +65,27 @@ public struct CaptureScanningView: View {
         evidenceFrameCount: Int,
         statusMessage: String? = nil,
         endScanGuidance: String? = nil,
+        isEndingScan: Bool = false,
+        isCapturingEvidence: Bool = false,
+        automaticEvidenceCount: Int = 0,
+        lowLightGuidanceActive: Bool = false,
+        targetScanStatus: TargetScanStatus? = nil,
+        declaredRegions: [DeclaredCoverageRegion] = [],
+        loopClosureCheckActive: Bool = false,
+        loopClosureAssessment: LoopClosureAssessment? = nil,
+        guidanceCuesEnabled: Bool = true,
+        beginTargetScan: @escaping () -> Void = {},
+        retakeTargetScan: @escaping () -> Void = {},
+        acceptTargetScan: @escaping () -> Void = {},
+        cancelTargetScan: @escaping () -> Void = {},
+        declareNearestUnresolvedRegion: @escaping
+            (DeclaredRegionReason) -> Void = { _ in },
+        revokeOperatorRegion: @escaping
+            (SpatialCoverageCellKey) -> Void = { _ in },
+        setGuidanceCuesEnabled: @escaping
+            (Bool) -> Void = { _ in },
+        setLoopClosureCheckActive: @escaping
+            (Bool) -> Void = { _ in },
         captureEvidenceFrame: @escaping () -> Void,
         setMovementCapability: @escaping
             (ScanMovementCapability) -> Void,
@@ -51,6 +101,25 @@ public struct CaptureScanningView: View {
         self.evidenceFrameCount = evidenceFrameCount
         self.statusMessage = statusMessage
         self.endScanGuidance = endScanGuidance
+        self.isEndingScan = isEndingScan
+        self.isCapturingEvidence = isCapturingEvidence
+        self.automaticEvidenceCount = automaticEvidenceCount
+        self.lowLightGuidanceActive = lowLightGuidanceActive
+        self.targetScanStatus = targetScanStatus
+        self.declaredRegions = declaredRegions
+        self.loopClosureCheckActive = loopClosureCheckActive
+        self.loopClosureAssessment = loopClosureAssessment
+        self.guidanceCuesEnabled = guidanceCuesEnabled
+        self.beginTargetScan = beginTargetScan
+        self.retakeTargetScan = retakeTargetScan
+        self.acceptTargetScan = acceptTargetScan
+        self.cancelTargetScan = cancelTargetScan
+        self.declareNearestUnresolvedRegion =
+            declareNearestUnresolvedRegion
+        self.revokeOperatorRegion = revokeOperatorRegion
+        self.setGuidanceCuesEnabled = setGuidanceCuesEnabled
+        self.setLoopClosureCheckActive =
+            setLoopClosureCheckActive
         self.captureEvidenceFrame = captureEvidenceFrame
         self.setMovementCapability = setMovementCapability
         self.endScan = endScan
@@ -95,6 +164,11 @@ public struct CaptureScanningView: View {
                             y: geometry.size.height * 0.43
                         )
                         .allowsHitTesting(false)
+                }
+
+                if isEndingScan {
+                    finishingCaptureOverlay
+                        .allowsHitTesting(true)
                 }
             }
         }
@@ -206,6 +280,19 @@ public struct CaptureScanningView: View {
                     alignment: .leading
                 )
 
+            // #283: the low-light prompt is a distinct surface, not
+            // folded into generic tracking wording.
+            if lowLightGuidanceActive {
+                Label(
+                    "The room is too dark for reliable visual capture. Turn on normal room lighting while scanning — it can be dimmed again afterward.",
+                    systemImage: "lightbulb"
+                )
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.yellow)
+                .lineLimit(3)
+                .minimumScaleFactor(0.8)
+            }
+
             if let statusMessage,
                !statusMessage.isEmpty
             {
@@ -293,7 +380,9 @@ public struct CaptureScanningView: View {
         HStack(alignment: .bottom, spacing: 8) {
             Button(action: captureEvidenceFrame) {
                 Label(
-                    "Save evidence",
+                    isCapturingEvidence
+                        ? "Saving…"
+                        : "Save evidence",
                     systemImage: "camera.fill"
                 )
                 .lineLimit(1)
@@ -302,6 +391,7 @@ public struct CaptureScanningView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
+            .disabled(isEndingScan || isCapturingEvidence)
             .accessibilityLabel(
                 String(localized: "Save evidence frame")
             )
@@ -310,7 +400,9 @@ public struct CaptureScanningView: View {
 
             Button(action: requestEndScan) {
                 Label(
-                    "End",
+                    isEndingScan
+                        ? "Finishing…"
+                        : "End",
                     systemImage: "checkmark.circle.fill"
                 )
                 .lineLimit(1)
@@ -324,10 +416,45 @@ public struct CaptureScanningView: View {
                 : (primaryScanReadyToEnd ? .green : nil)
             )
             .controlSize(.regular)
+            .disabled(isEndingScan)
             .accessibilityLabel(
                 String(localized: "End scan")
             )
         }
+    }
+
+    /// Explicit busy state for the End transaction (#279): the
+    /// controls are disabled and this overlay explains that RoomPlan
+    /// is producing the final result, so the operator can distinguish
+    /// "still scanning" from "committing End".
+    private var finishingCaptureOverlay: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.large)
+            Text("Finishing capture…")
+                .font(.headline.weight(.semibold))
+            Text(
+                "RoomPlan is producing the final result. The scan data stays recoverable until it finishes."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .lineLimit(3)
+            .minimumScaleFactor(0.8)
+        }
+        .padding(20)
+        .frame(maxWidth: 300)
+        .background(
+            .ultraThinMaterial,
+            in: RoundedRectangle(
+                cornerRadius: 18,
+                style: .continuous
+            )
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            String(localized: "Finishing capture")
+        )
     }
 
     private var compactEvidenceSummary: some View {
@@ -495,6 +622,11 @@ public struct CaptureScanningView: View {
                     }
                 }
 
+                objectPassSection
+                declaredRegionsSection
+                loopClosureSection
+                guidanceCuesToggle
+
                 Button {
                     showingAuthorityHelp = true
                 } label: {
@@ -541,6 +673,17 @@ public struct CaptureScanningView: View {
                         ),
                         systemImage: "camera"
                     )
+                    if automaticEvidenceCount > 0 {
+                        Label(
+                            String(
+                                format: String(
+                                    localized: "Auto %d"
+                                ),
+                                automaticEvidenceCount
+                            ),
+                            systemImage: "camera.badge.clock"
+                        )
+                    }
                     if coverage.latestHasSceneDepth {
                         Label(
                             String(localized: "Depth"),
@@ -973,6 +1116,266 @@ public struct CaptureScanningView: View {
         case .anchorsObserved:
             return nil
         }
+    }
+
+    // MARK: - Targeted object pass (#250)
+
+    /// Optional "Scan this object" surface: a bounded anchored orbit
+    /// pass with target-specific guidance and explicit
+    /// Accept/Retake/Cancel. Never implies a segmented model.
+    @ViewBuilder
+    private var objectPassSection: some View {
+        if let status = targetScanStatus {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Label(
+                        "Scanning this object",
+                        systemImage: "viewfinder"
+                    )
+                    .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Text(
+                        String(
+                            format: String(localized: "%d / %d angles"),
+                            status.observedBucketCount,
+                            status.totalBucketCount
+                        )
+                    )
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                }
+
+                ProgressView(
+                    value: status.angularCoverageFraction
+                )
+                .tint(status.isComplete ? .green : .accentColor)
+
+                Text(targetGuidanceText(status))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 10) {
+                    Button("Accept") { acceptTargetScan() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(!status.isComplete)
+                    Button("Retake") { retakeTargetScan() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    Button("Cancel", role: .cancel) {
+                        cancelTargetScan()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+            .padding(.top, 6)
+        } else {
+            Button {
+                beginTargetScan()
+            } label: {
+                Label(
+                    "Scan this object",
+                    systemImage: "scope"
+                )
+                .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(isEndingScan)
+            .padding(.top, 6)
+        }
+    }
+
+    private func targetGuidanceText(
+        _ status: TargetScanStatus
+    ) -> String {
+        if status.outOfRange {
+            return String(
+                localized:
+                    "You have drifted too far from the object; move back toward it."
+            )
+        }
+        if status.expired {
+            return String(
+                localized:
+                    "The object pass timed out. Accept or retake to finish it."
+            )
+        }
+        switch status.guidance {
+        case .hold:
+            return String(
+                localized:
+                    "Hold steady on the object until this angle is recorded."
+            )
+        case .approach:
+            return String(
+                localized: "Move closer to the object."
+            )
+        case .retreat:
+            return String(
+                localized: "Step back so the whole object stays in view."
+            )
+        case .orbit(let clockwise):
+            return clockwise
+                ? String(
+                    localized:
+                        "Orbit clockwise around the object to cover new angles."
+                )
+                : String(
+                    localized:
+                        "Orbit counter-clockwise around the object to cover new angles."
+                )
+        }
+    }
+
+    // MARK: - Operator-declared regions (#257)
+
+    /// Declare a bounded unresolved coverage cell as intentionally
+    /// left (inaccessible/occluded/unsafe/out-of-scope); reversible
+    /// until finalization, never reported as observed.
+    @ViewBuilder
+    private var declaredRegionsSection: some View {
+        Menu {
+            ForEach(DeclaredRegionReason.allCases, id: \.self) {
+                reason in
+                Button(declaredReasonLabel(reason)) {
+                    declareNearestUnresolvedRegion(reason)
+                }
+            }
+        } label: {
+            Label(
+                "Mark nearest unresolved area…",
+                systemImage: "exclusionzone"
+            )
+            .font(.caption.weight(.semibold))
+        }
+        .disabled(isEndingScan)
+
+        ForEach(declaredRegions, id: \.key) { region in
+            HStack(spacing: 8) {
+                Text(declaredReasonLabel(region.reason))
+                    .font(.caption2)
+                Spacer()
+                Button(String(localized: "Revoke")) {
+                    revokeOperatorRegion(region.key)
+                }
+                .font(.caption2)
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                .disabled(isEndingScan)
+            }
+        }
+        if !declaredRegions.isEmpty {
+            Text(
+                "Marked areas stay unresolved on purpose; guidance no longer requests them."
+            )
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private func declaredReasonLabel(
+        _ reason: DeclaredRegionReason
+    ) -> String {
+        switch reason {
+        case .inaccessible:
+            return String(localized: "Cannot reach")
+        case .occludedFixedObject:
+            return String(localized: "Blocked by fixed object")
+        case .unsafe:
+            return String(localized: "Unsafe to approach")
+        case .outOfScope:
+            return String(localized: "Out of scope")
+        }
+    }
+
+    // MARK: - Return-to-start check (#273)
+
+    /// Optional advisory loop-closure check: arm it, walk back to the
+    /// scan start, and compare the residual. Never silently corrects
+    /// coordinates.
+    @ViewBuilder
+    private var loopClosureSection: some View {
+        Toggle(
+            isOn: Binding(
+                get: { loopClosureCheckActive },
+                set: { setLoopClosureCheckActive($0) }
+            )
+        ) {
+            Label(
+                "Return-to-start check",
+                systemImage: "arrow.triangle.2.circlepath"
+            )
+            .font(.caption.weight(.semibold))
+        }
+        .toggleStyle(.switch)
+        .controlSize(.small)
+        .disabled(isEndingScan)
+
+        if loopClosureCheckActive {
+            if let assessment = loopClosureAssessment {
+                Text(loopClosureAssessmentText(assessment))
+                    .font(.caption2)
+                    .foregroundStyle(
+                        assessment.verdict == .inconsistent
+                            ? .orange
+                            : .secondary
+                    )
+            } else {
+                Text(
+                    "Walk back to where the scan started; a consistency result appears here."
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func loopClosureAssessmentText(
+        _ assessment: LoopClosureAssessment
+    ) -> String {
+        switch assessment.verdict {
+        case .closed:
+            return String(
+                localized:
+                    "Start region reached and the loop closed within tolerance."
+            )
+        case .inconsistent:
+            return String(
+                localized:
+                    "Back at the start, but the current pose disagrees with the start reference. Consider re-observing or rescanning."
+            )
+        case .notAtStart:
+            return String(
+                localized:
+                    "Move back toward the scan start to complete the check."
+            )
+        case .unavailable:
+            return String(
+                localized:
+                    "Check unavailable: no start reference or tracking is not stable enough."
+            )
+        }
+    }
+
+    // MARK: - Non-visual cues (#252)
+
+    private var guidanceCuesToggle: some View {
+        Toggle(
+            isOn: Binding(
+                get: { guidanceCuesEnabled },
+                set: { setGuidanceCuesEnabled($0) }
+            )
+        ) {
+            Label(
+                "Haptic & spoken cues",
+                systemImage: "waveform"
+            )
+            .font(.caption.weight(.semibold))
+        }
+        .toggleStyle(.switch)
+        .controlSize(.small)
     }
 
     private func requestEndScan() {

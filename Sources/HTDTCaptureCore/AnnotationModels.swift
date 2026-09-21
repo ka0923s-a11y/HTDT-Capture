@@ -40,12 +40,84 @@ public enum AnnotationEntityType: String, Codable, Sendable, CaseIterable {
     case subwoofer
     case display
     case projectionScreen = "projection_screen"
+    case projector
     case listeningPosition = "listening_position"
     case seat
     case acousticTreatment = "acoustic_treatment"
     case equipmentRack = "equipment_rack"
     case referencePoint = "reference_point"
     case custom
+
+    /// The reference-point semantics the manual builder assigns when
+    /// the caller does not name the point actually authored (#291).
+    public var defaultReferenceSemantics: ReferencePointSemantics {
+        switch self {
+        case .speaker, .subwoofer:
+            return .cabinetReferencePoint
+        case .display:
+            return .displayCenter
+        case .projectionScreen:
+            return .screenCenter
+        case .projector:
+            return .projectorBodyReference
+        case .listeningPosition:
+            return .earCenter
+        case .seat:
+            return .seatReferencePoint
+        case .acousticTreatment, .equipmentRack,
+             .referencePoint, .custom:
+            return .userReferencePoint
+        }
+    }
+
+    /// The semantics tokens a point of this type may claim. `nil`
+    /// means unrestricted (`.custom`); an empty intersection is
+    /// impossible because every entry contains the default. Acoustic
+    /// center is deliberately absent: it is governed by the separate
+    /// `acoustic_center` authority (#234) and is never a placement
+    /// label.
+    public var allowedReferenceSemantics: Set<ReferencePointSemantics>? {
+        switch self {
+        case .speaker, .subwoofer:
+            return [.cabinetReferencePoint, .userReferencePoint]
+        case .display:
+            return [.displayCenter, .userReferencePoint]
+        case .projectionScreen:
+            return [.screenCenter, .userReferencePoint]
+        case .projector:
+            return [
+                .projectorBodyReference,
+                .projectorLensCenter,
+                .userReferencePoint,
+            ]
+        case .listeningPosition:
+            return [.earCenter, .seatReferencePoint,
+                    .userReferencePoint]
+        case .seat:
+            return [.seatReferencePoint, .userReferencePoint]
+        case .equipmentRack:
+            return [.cabinetReferencePoint, .userReferencePoint]
+        case .acousticTreatment, .referencePoint:
+            return [.userReferencePoint]
+        case .custom:
+            return nil
+        }
+    }
+
+    /// Whether a captured body/plane orientation may be attached to
+    /// this type (#230, #244). Pure point authorities — listening
+    /// positions and reference points — have no orientation semantics
+    /// in v1.
+    public var supportsOrientationAuthority: Bool {
+        switch self {
+        case .listeningPosition, .referencePoint:
+            return false
+        case .speaker, .subwoofer, .display, .projectionScreen,
+             .projector, .seat, .acousticTreatment, .equipmentRack,
+             .custom:
+            return true
+        }
+    }
 }
 
 public enum AnnotationProvenanceClass: String, Codable, Sendable {
@@ -120,32 +192,62 @@ public struct ReferencePointSemantics: RawRepresentable, Codable, Hashable,
         Self(rawValue: "seat_reference_point")!
     public static let userReferencePoint =
         Self(rawValue: "user_reference_point")!
+    /// Projector body/cabinet reference point (#230). The projector
+    /// type keeps the body point distinct from the optical/lens
+    /// reference so downstream HTDT does not conflate mount placement
+    /// with the lens position.
+    public static let projectorBodyReference =
+        Self(rawValue: "projector_body_reference")!
+    public static let projectorLensCenter =
+        Self(rawValue: "projector_lens_center")!
 }
 
 public struct HTDTEquipmentReference: Codable, Sendable, Equatable {
     public let equipmentID: String
     public let equipmentVersion: String
     public let equipmentHash: EvidenceSHA256
+    /// Which equipment-catalog authority contract this tuple was
+    /// selected under (#237). `nil` means a v1 bundle written before
+    /// the versioned taxonomy existed and is interpreted as the
+    /// acoustic-source catalog contract
+    /// (`HTDTEquipmentCatalogSnapshot.expectedAuthorityVersion`).
+    public let authorityVersion: String?
+
+    /// The catalog contract a legacy (unversioned) tuple resolves to.
+    public static let legacyAuthorityVersion =
+        HTDTEquipmentCatalogSnapshot.expectedAuthorityVersion
 
     public init(
         equipmentID: String,
         equipmentVersion: String,
-        equipmentHash: EvidenceSHA256
+        equipmentHash: EvidenceSHA256,
+        authorityVersion: String? = nil
     ) throws {
         let normalizedID = SchemaOwnedText.nfc(equipmentID)
         let normalizedVersion = SchemaOwnedText.nfc(equipmentVersion)
         guard !normalizedID.isEmpty, !normalizedVersion.isEmpty else {
             throw AnnotationModelError.emptyAuthorityReference
         }
+        let normalizedAuthority = SchemaOwnedText.nfc(authorityVersion)
+        guard !(normalizedAuthority?.isEmpty ?? false) else {
+            throw AnnotationModelError.emptyAuthorityReference
+        }
         self.equipmentID = normalizedID
         self.equipmentVersion = normalizedVersion
         self.equipmentHash = equipmentHash
+        self.authorityVersion = normalizedAuthority
+    }
+
+    /// The effective catalog authority version for this reference.
+    public var resolvedAuthorityVersion: String {
+        authorityVersion ?? Self.legacyAuthorityVersion
     }
 
     private enum CodingKeys: String, CodingKey {
         case equipmentID = "equipment_id"
         case equipmentVersion = "equipment_version"
         case equipmentHash = "equipment_hash"
+        case authorityVersion = "authority_version"
     }
 
     public init(from decoder: Decoder) throws {
@@ -159,6 +261,10 @@ public struct HTDTEquipmentReference: Codable, Sendable, Equatable {
             equipmentHash: container.decode(
                 EvidenceSHA256.self,
                 forKey: .equipmentHash
+            ),
+            authorityVersion: container.decodeIfPresent(
+                String.self,
+                forKey: .authorityVersion
             )
         )
     }
@@ -177,6 +283,15 @@ public enum AnnotationModelError: Error, Sendable, Equatable {
     case duplicateEvidenceReference
     case invalidPlacementReference
     case missingEvidenceLink
+    case invalidTimestamp
+    case invalidEnvelope
+    case invalidUncertainty
+    case invalidReferencePointAuthority
+    case invalidAuthorityComponent
+    case incompatibleListeningRole
+    case incompatibleEquipmentReference
+    case unknownEquipmentAuthority
+    case invalidReferencePointSemantics
 }
 
 public struct SpatialVector3F: Codable, Sendable, Equatable {
@@ -533,6 +648,549 @@ public struct ChannelRole: RawRepresentable, Codable, Hashable, Sendable,
     public static let topMiddleRight = Self(rawValue: "TMR")!
     public static let topRearLeft = Self(rawValue: "TRL")!
     public static let topRearRight = Self(rawValue: "TRR")!
+    /// Convenience tokens for multi-subwoofer topology (#244). The
+    /// token set stays open — any `[A-Z0-9_]+` role is valid — so no
+    /// particular AVR naming convention is baked into the schema.
+    public static let lfe1 = Self(rawValue: "LFE1")!
+    public static let lfe2 = Self(rawValue: "LFE2")!
+    public static let lfe3 = Self(rawValue: "LFE3")!
+    public static let lfe4 = Self(rawValue: "LFE4")!
+}
+
+/// Typed listening-position role (#243). A `listening_position`
+/// annotation's acoustic intent is machine-readable without parsing
+/// the human label; a nil role on a stored entity means the record
+/// predates role semantics (legacy/unknown).
+public enum ListeningPositionRole:
+    String,
+    Codable,
+    Sendable,
+    CaseIterable,
+    Hashable
+{
+    /// The primary optimization/listening point (MLP).
+    case primary
+    /// Any additional listener position.
+    case secondary
+    /// A position captured only as a measurement reference.
+    case measurementReference = "measurement_reference"
+}
+
+/// Where the numbers in `SpatialUncertaintyAuthority` come from
+/// (#258). User/instrument-stated tolerances must remain distinct
+/// from app-estimated quality; the app never fabricates a numeric
+/// uncertainty from ARKit APIs.
+public enum SpatialUncertaintyBasis: String, Codable, Sendable {
+    case userStated = "user_stated"
+    case instrumentStated = "instrument_stated"
+    case appEstimated = "app_estimated"
+    case other
+}
+
+/// Optional quantitative uncertainty for an annotation's spatial
+/// authority (#258). Every component is independently optional; at
+/// least one must be present. Absence is explicitly unknown, never
+/// zero.
+public struct SpatialUncertaintyAuthority: Codable, Sendable, Equatable {
+    /// Isotropic position tolerance in meters.
+    public let isotropicMeters: Double?
+    /// Per-axis position uncertainty in meters.
+    public let perAxisMeters: SpatialVector3F?
+    /// Orientation/aim uncertainty in radians.
+    public let angularRadians: Double?
+    public let basis: SpatialUncertaintyBasis
+    /// Evidence supporting the stated uncertainty (e.g. an instrument
+    /// specification or a calibration record).
+    public let sourceEvidenceRefs: [String]
+
+    public init(
+        isotropicMeters: Double? = nil,
+        perAxisMeters: SpatialVector3F? = nil,
+        angularRadians: Double? = nil,
+        basis: SpatialUncertaintyBasis,
+        sourceEvidenceRefs: [String] = []
+    ) throws {
+        guard isotropicMeters != nil || perAxisMeters != nil
+                || angularRadians != nil
+        else {
+            throw AnnotationModelError.invalidUncertainty
+        }
+        if let value = isotropicMeters {
+            guard value.isFinite, value >= 0 else {
+                throw AnnotationModelError.invalidUncertainty
+            }
+        }
+        if let value = angularRadians {
+            guard value.isFinite, value >= 0 else {
+                throw AnnotationModelError.invalidUncertainty
+            }
+        }
+        if let perAxisMeters {
+            for component in [perAxisMeters.x, perAxisMeters.y,
+                              perAxisMeters.z] {
+                guard component >= 0 else {
+                    throw AnnotationModelError.invalidUncertainty
+                }
+            }
+        }
+        let normalizedEvidence = SchemaOwnedText.nfc(sourceEvidenceRefs)
+        guard normalizedEvidence.allSatisfy({ !$0.isEmpty }) else {
+            throw AnnotationModelError.emptyAuthorityReference
+        }
+        guard Set(normalizedEvidence).count == normalizedEvidence.count
+        else {
+            throw AnnotationModelError.duplicateEvidenceReference
+        }
+        self.isotropicMeters = isotropicMeters
+        self.perAxisMeters = perAxisMeters
+        self.angularRadians = angularRadians
+        self.basis = basis
+        self.sourceEvidenceRefs = normalizedEvidence
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case isotropicMeters = "isotropic_m"
+        case perAxisMeters = "per_axis_m"
+        case angularRadians = "angular_rad"
+        case basis
+        case sourceEvidenceRefs = "source_evidence_refs"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            isotropicMeters: container.decodeIfPresent(
+                Double.self,
+                forKey: .isotropicMeters
+            ),
+            perAxisMeters: container.decodeIfPresent(
+                SpatialVector3F.self,
+                forKey: .perAxisMeters
+            ),
+            angularRadians: container.decodeIfPresent(
+                Double.self,
+                forKey: .angularRadians
+            ),
+            basis: container.decode(
+                SpatialUncertaintyBasis.self,
+                forKey: .basis
+            ),
+            sourceEvidenceRefs: container.decodeIfPresent(
+                [String].self,
+                forKey: .sourceEvidenceRefs
+            ) ?? []
+        )
+    }
+}
+
+/// Provenance of an entity's physical envelope dimensions (#230).
+/// Manually measured dimensions must stay distinct from
+/// catalog-derived ones so a confident-looking size can never
+/// silently pose as measured authority.
+public enum EnvelopeProvenance: String, Codable, Sendable {
+    case userMeasured = "user_measured"
+    case equipmentCatalogDerived = "equipment_catalog_derived"
+    case roomPlanDerived = "roomplan_derived"
+    case importedReference = "imported_reference"
+    case other
+}
+
+/// Bounded physical-envelope authority for an annotation (#230):
+/// width/height/depth where applicable, each independently optional,
+/// with explicit provenance. Never inferred by the app — only
+/// operator-measured, catalog-derived, imported, or otherwise
+/// sourced values are recorded.
+public struct EntityPhysicalEnvelope: Codable, Sendable, Equatable {
+    public let widthMeters: Double?
+    public let heightMeters: Double?
+    public let depthMeters: Double?
+    public let provenance: EnvelopeProvenance
+    public let sourceEvidenceRefs: [String]
+
+    public init(
+        widthMeters: Double? = nil,
+        heightMeters: Double? = nil,
+        depthMeters: Double? = nil,
+        provenance: EnvelopeProvenance,
+        sourceEvidenceRefs: [String] = []
+    ) throws {
+        guard widthMeters != nil || heightMeters != nil
+                || depthMeters != nil
+        else {
+            throw AnnotationModelError.invalidEnvelope
+        }
+        for value in [widthMeters, heightMeters, depthMeters] {
+            if let value {
+                guard value.isFinite, value > 0 else {
+                    throw AnnotationModelError.invalidEnvelope
+                }
+            }
+        }
+        let normalizedEvidence = SchemaOwnedText.nfc(sourceEvidenceRefs)
+        guard normalizedEvidence.allSatisfy({ !$0.isEmpty }) else {
+            throw AnnotationModelError.emptyAuthorityReference
+        }
+        guard Set(normalizedEvidence).count == normalizedEvidence.count
+        else {
+            throw AnnotationModelError.duplicateEvidenceReference
+        }
+        self.widthMeters = widthMeters
+        self.heightMeters = heightMeters
+        self.depthMeters = depthMeters
+        self.provenance = provenance
+        self.sourceEvidenceRefs = normalizedEvidence
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case widthMeters = "width_m"
+        case heightMeters = "height_m"
+        case depthMeters = "depth_m"
+        case provenance
+        case sourceEvidenceRefs = "source_evidence_refs"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            widthMeters: container.decodeIfPresent(
+                Double.self,
+                forKey: .widthMeters
+            ),
+            heightMeters: container.decodeIfPresent(
+                Double.self,
+                forKey: .heightMeters
+            ),
+            depthMeters: container.decodeIfPresent(
+                Double.self,
+                forKey: .depthMeters
+            ),
+            provenance: container.decode(
+                EnvelopeProvenance.self,
+                forKey: .provenance
+            ),
+            sourceEvidenceRefs: container.decodeIfPresent(
+                [String].self,
+                forKey: .sourceEvidenceRefs
+            ) ?? []
+        )
+    }
+}
+
+/// How the authored reference point was actually constructed (#291).
+/// The contract distinguishes a surface hit that merely exists from a
+/// semantic point the operator explicitly confirmed or constructed —
+/// an `ear_center` cannot silently coincide with an arbitrary wall or
+/// furniture hit.
+public enum ReferencePointConstruction:
+    String,
+    Codable,
+    Sendable,
+    CaseIterable,
+    Hashable
+{
+    /// The entered/bound position IS the semantic point (manual
+    /// numeric entry or a semantic-object binding).
+    case directPlacement = "direct_placement"
+    /// The operator explicitly confirms the surface hit is the
+    /// claimed semantic point.
+    case surfaceHitConfirmed = "surface_hit_confirmed"
+    /// The semantic point was constructed from a surface hit plus an
+    /// explicit offset (e.g. ear center above a seat hit).
+    case offsetFromSurface = "offset_from_surface"
+    /// The point arrives from an imported reference authority.
+    case importedReference = "imported_reference"
+}
+
+/// Authority record for the entity's reference point (#291): how the
+/// semantic point was constructed, the applied offset when derived
+/// from a surface, and the evidence that supports the construction.
+public struct ReferencePointAuthority: Codable, Sendable, Equatable {
+    public let construction: ReferencePointConstruction
+    /// World-frame offset applied to the source placement to obtain
+    /// the semantic point. Required for `offset_from_surface`,
+    /// meaningless (and rejected) otherwise.
+    public let offsetMeters: SpatialVector3F?
+    public let sourceEvidenceRefs: [String]
+
+    public init(
+        construction: ReferencePointConstruction,
+        offsetMeters: SpatialVector3F? = nil,
+        sourceEvidenceRefs: [String] = []
+    ) throws {
+        switch construction {
+        case .offsetFromSurface:
+            guard offsetMeters != nil else {
+                throw AnnotationModelError.invalidReferencePointAuthority
+            }
+        case .directPlacement, .surfaceHitConfirmed,
+             .importedReference:
+            guard offsetMeters == nil else {
+                throw AnnotationModelError.invalidReferencePointAuthority
+            }
+        }
+        let normalizedEvidence = SchemaOwnedText.nfc(sourceEvidenceRefs)
+        guard normalizedEvidence.allSatisfy({ !$0.isEmpty }) else {
+            throw AnnotationModelError.emptyAuthorityReference
+        }
+        guard Set(normalizedEvidence).count == normalizedEvidence.count
+        else {
+            throw AnnotationModelError.duplicateEvidenceReference
+        }
+        self.construction = construction
+        self.offsetMeters = offsetMeters
+        self.sourceEvidenceRefs = normalizedEvidence
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case construction
+        case offsetMeters = "offset_m"
+        case sourceEvidenceRefs = "source_evidence_refs"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            construction: container.decode(
+                ReferencePointConstruction.self,
+                forKey: .construction
+            ),
+            offsetMeters: container.decodeIfPresent(
+                SpatialVector3F.self,
+                forKey: .offsetMeters
+            ),
+            sourceEvidenceRefs: container.decodeIfPresent(
+                [String].self,
+                forKey: .sourceEvidenceRefs
+            ) ?? []
+        )
+    }
+}
+
+/// Verification state plus the exact evidence/source for one
+/// component of an annotation's authority (#263).
+public struct AnnotationComponentAuthority: Codable, Sendable, Equatable {
+    public let state: AnnotationVerificationState
+    public let evidenceRefs: [String]
+    /// Optional reference to the authority source (e.g. an
+    /// `equipment:<id>` or `measurement:<id>` style token).
+    public let sourceRef: String?
+
+    public init(
+        state: AnnotationVerificationState,
+        evidenceRefs: [String] = [],
+        sourceRef: String? = nil
+    ) throws {
+        let normalizedEvidence = SchemaOwnedText.nfc(evidenceRefs)
+        guard normalizedEvidence.allSatisfy({ !$0.isEmpty }) else {
+            throw AnnotationModelError.emptyAuthorityReference
+        }
+        guard Set(normalizedEvidence).count == normalizedEvidence.count
+        else {
+            throw AnnotationModelError.duplicateEvidenceReference
+        }
+        let normalizedSource = SchemaOwnedText.nfc(sourceRef)
+        guard !(normalizedSource?.isEmpty ?? false) else {
+            throw AnnotationModelError.emptyAuthorityReference
+        }
+        // `evidence_linked` is a provenance claim: it requires at
+        // least one evidence or source reference, matching the
+        // entity-level rule.
+        if state == .evidenceLinked {
+            guard !normalizedEvidence.isEmpty
+                    || normalizedSource != nil
+            else {
+                throw AnnotationModelError.missingEvidenceLink
+            }
+        }
+        self.state = state
+        self.evidenceRefs = normalizedEvidence
+        self.sourceRef = normalizedSource
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case state
+        case evidenceRefs = "evidence_refs"
+        case sourceRef = "source_ref"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            state: container.decode(
+                AnnotationVerificationState.self,
+                forKey: .state
+            ),
+            evidenceRefs: container.decodeIfPresent(
+                [String].self,
+                forKey: .evidenceRefs
+            ) ?? [],
+            sourceRef: container.decodeIfPresent(
+                String.self,
+                forKey: .sourceRef
+            )
+        )
+    }
+}
+
+/// Per-component authority for an annotation (#263). The aggregate
+/// `verification_state` stays as the legacy summary; this record says
+/// which fields are actually evidence-backed so a mixed record can
+/// never overstate itself. Components not listed carry the legacy
+/// aggregate's claim.
+public struct AnnotationAuthorityComponents:
+    Codable,
+    Sendable,
+    Equatable
+{
+    /// Position/placement verification. Always present when the
+    /// record exists — every entity has a placement method.
+    public let placement: AnnotationComponentAuthority
+    /// Present iff the entity carries an orientation.
+    public let orientation: AnnotationComponentAuthority?
+    /// Present iff the entity carries an equipment reference —
+    /// captures how the entity/equipment match was verified.
+    public let equipment: AnnotationComponentAuthority?
+    /// Present iff the entity carries an explicit reference-point
+    /// construction record.
+    public let referencePoint: AnnotationComponentAuthority?
+    /// Verification of semantic assignments (channel role, listening
+    /// role, label attestation). Optional.
+    public let semanticRole: AnnotationComponentAuthority?
+
+    public init(
+        placement: AnnotationComponentAuthority,
+        orientation: AnnotationComponentAuthority? = nil,
+        equipment: AnnotationComponentAuthority? = nil,
+        referencePoint: AnnotationComponentAuthority? = nil,
+        semanticRole: AnnotationComponentAuthority? = nil
+    ) {
+        self.placement = placement
+        self.orientation = orientation
+        self.equipment = equipment
+        self.referencePoint = referencePoint
+        self.semanticRole = semanticRole
+    }
+
+    /// Every component in field order.
+    public var all: [AnnotationComponentAuthority] {
+        [placement, orientation, equipment, referencePoint,
+         semanticRole].compactMap { $0 }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case placement
+        case orientation
+        case equipment
+        case referencePoint = "reference_point"
+        case semanticRole = "semantic_role"
+    }
+}
+
+/// Versioned lifecycle metadata for an annotation (#267): when the
+/// entity was authored, last revised, and — when known — spatially
+/// observed, plus supersedure. All timestamps are canonical UTC
+/// RFC3339 text (`SchemaTimestampText`); nothing is fabricated for
+/// imported or legacy records.
+public struct AnnotationLifecycle: Codable, Sendable, Equatable {
+    /// When this entity record was authored locally.
+    public let createdAtUTC: String
+    /// When this entity was last revised, if ever.
+    public let updatedAtUTC: String?
+    /// When the spatial authority was observed, when known (e.g. the
+    /// capture time of an evidence-linked raycast).
+    public let observedAtUTC: String?
+    /// The source record's own creation time for imported records —
+    /// distinguishable from the local import/edit time.
+    public let sourceCreatedAtUTC: String?
+    /// The entity this record supersedes, when a correction replaces
+    /// an earlier record rather than editing it in place.
+    public let supersedesEntityID: AnnotationEntityID?
+
+    public init(
+        createdAtUTC: String,
+        updatedAtUTC: String? = nil,
+        observedAtUTC: String? = nil,
+        sourceCreatedAtUTC: String? = nil,
+        supersedesEntityID: AnnotationEntityID? = nil
+    ) throws {
+        for value in [createdAtUTC, updatedAtUTC, observedAtUTC,
+                      sourceCreatedAtUTC].compactMap({ $0 }) {
+            guard SchemaTimestampText.isUTCTimestamp(value) else {
+                throw AnnotationModelError.invalidTimestamp
+            }
+        }
+        self.createdAtUTC = SchemaOwnedText.nfc(createdAtUTC)
+        self.updatedAtUTC = SchemaOwnedText.nfc(updatedAtUTC)
+        self.observedAtUTC = SchemaOwnedText.nfc(observedAtUTC)
+        self.sourceCreatedAtUTC = SchemaOwnedText.nfc(sourceCreatedAtUTC)
+        self.supersedesEntityID = supersedesEntityID
+    }
+
+    /// A copy with `updated_at_utc` set — used when a pre-finalization
+    /// correction revises the same conceptual entity.
+    public func revised(at updatedAtUTC: String) throws
+        -> AnnotationLifecycle
+    {
+        try AnnotationLifecycle(
+            createdAtUTC: createdAtUTC,
+            updatedAtUTC: updatedAtUTC,
+            observedAtUTC: observedAtUTC,
+            sourceCreatedAtUTC: sourceCreatedAtUTC,
+            supersedesEntityID: supersedesEntityID
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case createdAtUTC = "created_at_utc"
+        case updatedAtUTC = "updated_at_utc"
+        case observedAtUTC = "observed_at_utc"
+        case sourceCreatedAtUTC = "source_created_at_utc"
+        case supersedesEntityID = "supersedes_entity_id"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            createdAtUTC: container.decode(
+                String.self,
+                forKey: .createdAtUTC
+            ),
+            updatedAtUTC: container.decodeIfPresent(
+                String.self,
+                forKey: .updatedAtUTC
+            ),
+            observedAtUTC: container.decodeIfPresent(
+                String.self,
+                forKey: .observedAtUTC
+            ),
+            sourceCreatedAtUTC: container.decodeIfPresent(
+                String.self,
+                forKey: .sourceCreatedAtUTC
+            ),
+            supersedesEntityID: container.decodeIfPresent(
+                AnnotationEntityID.self,
+                forKey: .supersedesEntityID
+            )
+        )
+    }
+}
+
+/// How an entity's `equipment_ref` relates to the annotation type
+/// (#237). The check is driven by the versioned catalog taxonomy, not
+/// by label text.
+public enum EquipmentReferenceCompatibility: String, Sendable,
+    Equatable
+{
+    /// No `equipment_ref` is attached.
+    case noReference = "no_reference"
+    /// The annotation type may carry a reference under the
+    /// reference's catalog authority version.
+    case compatible
+    /// The catalog authority version is not in the known taxonomy —
+    /// compatibility cannot be proven either way.
+    case unknownAuthorityVersion = "unknown_authority_version"
+    /// The annotation type may not carry this catalog's references.
+    case incompatible
 }
 
 public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
@@ -550,6 +1208,20 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
     public let acousticCenter: AcousticCenterOffsetAuthority?
     public let equipmentRef: HTDTEquipmentReference?
     public let evidenceRefs: [String]
+    /// Physical envelope authority (#230); nil for point-only records.
+    public let physicalEnvelope: EntityPhysicalEnvelope?
+    /// Typed listening-position role (#243); only meaningful on
+    /// `listening_position`. Nil on a stored entity = legacy/unknown.
+    public let listeningRole: ListeningPositionRole?
+    /// Optional quantitative uncertainty authority (#258).
+    public let uncertainty: SpatialUncertaintyAuthority?
+    /// Per-component verification detail (#263); nil on v1 records
+    /// written before component authority existed.
+    public let authority: AnnotationAuthorityComponents?
+    /// Creation/revision lifecycle metadata (#267).
+    public let lifecycle: AnnotationLifecycle?
+    /// How the reference point itself was authored/confirmed (#291).
+    public let referencePoint: ReferencePointAuthority?
 
     public init(
         entityID: AnnotationEntityID = AnnotationEntityID(),
@@ -565,7 +1237,13 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         channelRole: ChannelRole? = nil,
         acousticCenter: AcousticCenterOffsetAuthority? = nil,
         equipmentRef: HTDTEquipmentReference? = nil,
-        evidenceRefs: [String] = []
+        evidenceRefs: [String] = [],
+        physicalEnvelope: EntityPhysicalEnvelope? = nil,
+        listeningRole: ListeningPositionRole? = nil,
+        uncertainty: SpatialUncertaintyAuthority? = nil,
+        authority: AnnotationAuthorityComponents? = nil,
+        lifecycle: AnnotationLifecycle? = nil,
+        referencePoint: ReferencePointAuthority? = nil
     ) throws {
         let normalizedLabel = SchemaOwnedText.nfc(label)
         guard !normalizedLabel.isEmpty else {
@@ -586,6 +1264,52 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
             }
             guard channelRole != nil else {
                 throw AnnotationModelError.speakerChannelRoleRequired
+            }
+        }
+
+        // `listening_role` is typed authority for listening positions
+        // only (#243); on any other type it is a contradiction.
+        guard listeningRole == nil || type == .listeningPosition else {
+            throw AnnotationModelError.incompatibleListeningRole
+        }
+
+        // A reference-point construction record must be coherent with
+        // the placement method that produced the position (#291): a
+        // surface-derived placement may only carry surface-aware
+        // constructions, and `direct_placement` never applies to a
+        // surface hit.
+        if let referencePoint {
+            let surfaceDerived =
+                placement.method == .raycast
+                    || placement.method == .meshHitTest
+            switch referencePoint.construction {
+            case .surfaceHitConfirmed, .offsetFromSurface:
+                guard surfaceDerived else {
+                    throw AnnotationModelError
+                        .invalidReferencePointAuthority
+                }
+            case .directPlacement:
+                guard !surfaceDerived else {
+                    throw AnnotationModelError
+                        .invalidReferencePointAuthority
+                }
+            case .importedReference:
+                break
+            }
+        }
+
+        // When a component-authority record exists it must describe
+        // the fields actually present: a component is required exactly
+        // when the corresponding field carries authority (#263).
+        if let authority {
+            guard (authority.orientation != nil) == (orientation != nil),
+                  (authority.equipment != nil) == (equipmentRef != nil),
+                  (authority.referencePoint != nil)
+                        == (referencePoint != nil),
+                  (authority.semanticRole != nil)
+                        == (channelRole != nil || listeningRole != nil)
+            else {
+                throw AnnotationModelError.invalidAuthorityComponent
             }
         }
 
@@ -613,6 +1337,77 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         self.acousticCenter = acousticCenter
         self.equipmentRef = equipmentRef
         self.evidenceRefs = normalizedEvidence
+        self.physicalEnvelope = physicalEnvelope
+        self.listeningRole = listeningRole
+        self.uncertainty = uncertainty
+        self.authority = authority
+        self.lifecycle = lifecycle
+        self.referencePoint = referencePoint
+    }
+
+    /// Compatibility between this entity's `equipment_ref` and its
+    /// annotation type under the reference's catalog authority
+    /// version (#237). Legacy records carrying an incompatible tuple
+    /// remain readable; the mismatch is surfaced here and in
+    /// `AnnotationContractReview` rather than silently ignored.
+    public var equipmentCompatibility: EquipmentReferenceCompatibility {
+        guard let equipmentRef else {
+            return .noReference
+        }
+        return HTDTEquipmentCompatibility.check(
+            reference: equipmentRef,
+            entityType: type
+        )
+    }
+
+    /// Every spatial authority claim introduced by the v1.1 contract
+    /// fields, for coordinate-space congruence checks: component
+    /// evidence, reference-point construction sources, envelope and
+    /// uncertainty sources.
+    public var contractEvidenceRefs: [String] {
+        var refs = authority?.all.flatMap(\.evidenceRefs) ?? []
+        refs.append(
+            contentsOf: referencePoint?.sourceEvidenceRefs ?? []
+        )
+        refs.append(
+            contentsOf: physicalEnvelope?.sourceEvidenceRefs ?? []
+        )
+        refs.append(
+            contentsOf: uncertainty?.sourceEvidenceRefs ?? []
+        )
+        return refs
+    }
+
+    /// A copy of this entity with `updated_at_utc` stamped into its
+    /// lifecycle — a revision of the same conceptual entity keeps its
+    /// `entity_id` and creation time (#267).
+    public func revised(at updatedAtUTC: String) throws
+        -> CaptureAnnotationEntity
+    {
+        let base = try lifecycle
+            ?? AnnotationLifecycle(createdAtUTC: updatedAtUTC)
+        return try CaptureAnnotationEntity(
+            entityID: entityID,
+            type: type,
+            coordinateSpaceID: coordinateSpaceID,
+            worldFromAnnotation: worldFromAnnotation,
+            referencePointSemantics: referencePointSemantics,
+            label: label,
+            provenanceClass: provenanceClass,
+            verificationState: verificationState,
+            placement: placement,
+            orientation: orientation,
+            channelRole: channelRole,
+            acousticCenter: acousticCenter,
+            equipmentRef: equipmentRef,
+            evidenceRefs: evidenceRefs,
+            physicalEnvelope: physicalEnvelope,
+            listeningRole: listeningRole,
+            uncertainty: uncertainty,
+            authority: authority,
+            lifecycle: base.revised(at: updatedAtUTC),
+            referencePoint: referencePoint
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -630,6 +1425,12 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         case acousticCenter = "acoustic_center"
         case equipmentRef = "equipment_ref"
         case evidenceRefs = "evidence_refs"
+        case physicalEnvelope = "physical_envelope"
+        case listeningRole = "listening_role"
+        case uncertainty
+        case authority
+        case lifecycle
+        case referencePoint = "reference_point"
     }
 
     public init(from decoder: Decoder) throws {
@@ -687,8 +1488,226 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
             evidenceRefs: container.decode(
                 [String].self,
                 forKey: .evidenceRefs
+            ),
+            physicalEnvelope: container.decodeIfPresent(
+                EntityPhysicalEnvelope.self,
+                forKey: .physicalEnvelope
+            ),
+            listeningRole: container.decodeIfPresent(
+                ListeningPositionRole.self,
+                forKey: .listeningRole
+            ),
+            uncertainty: container.decodeIfPresent(
+                SpatialUncertaintyAuthority.self,
+                forKey: .uncertainty
+            ),
+            authority: container.decodeIfPresent(
+                AnnotationAuthorityComponents.self,
+                forKey: .authority
+            ),
+            lifecycle: container.decodeIfPresent(
+                AnnotationLifecycle.self,
+                forKey: .lifecycle
+            ),
+            referencePoint: container.decodeIfPresent(
+                ReferencePointAuthority.self,
+                forKey: .referencePoint
             )
         )
+    }
+}
+
+/// A semantic contract problem on a stored annotation, surfaced for
+/// reconciliation in Review and available to downstream ingestion
+/// (#237, #243, #244, #291). Findings never mutate or block the
+/// record — legacy bundles stay readable — but a mismatch is never
+/// silently ignored.
+public struct AnnotationContractFinding:
+    Sendable,
+    Equatable,
+    Hashable
+{
+    public enum Severity: String, Sendable {
+        case info
+        case warning
+        case error
+    }
+
+    public enum Code: String, Sendable {
+        /// `equipment_ref` cannot be carried by this annotation type
+        /// under its catalog authority version (#237).
+        case incompatibleEquipmentReference =
+            "incompatible_equipment_reference"
+        /// The `equipment_ref` claims a catalog authority version the
+        /// taxonomy does not know (#237).
+        case unknownEquipmentAuthority =
+            "unknown_equipment_authority"
+        /// More than one `listening_position` claims `primary`
+        /// (#243).
+        case duplicatePrimaryListeningPosition =
+            "duplicate_primary_listening_position"
+        /// A `listening_position` carries no typed role — the record
+        /// is readable but its acoustic intent is label-derived only
+        /// (#243).
+        case listeningRoleMissing = "listening_role_missing"
+        /// Two entities of the same type claim the same channel role
+        /// (#244).
+        case duplicateChannelRole = "duplicate_channel_role"
+        /// A surface-derived placement has no explicit reference-point
+        /// construction record, so the semantic point cannot be proven
+        /// (#291). Expected on records written before the field
+        /// existed — surfaces as a warning.
+        case unverifiedReferencePointSemantics =
+            "unverified_reference_point_semantics"
+    }
+
+    public let entityID: AnnotationEntityID
+    public let code: Code
+    public let severity: Severity
+    public let detail: String
+
+    public init(
+        entityID: AnnotationEntityID,
+        code: Code,
+        severity: Severity,
+        detail: String
+    ) {
+        self.entityID = entityID
+        self.code = code
+        self.severity = severity
+        self.detail = detail
+    }
+}
+
+/// Cross-entity semantic checks over a committed (or staged)
+/// annotation collection.
+public enum AnnotationContractReview {
+    public static func findings(
+        in entities: [CaptureAnnotationEntity]
+    ) -> [AnnotationContractFinding] {
+        var findings: [AnnotationContractFinding] = []
+        var primaries = 0
+        var rolesByTypeAndRole:
+            [String: [CaptureAnnotationEntity]] = [:]
+
+        for entity in entities {
+            switch entity.equipmentCompatibility {
+            case .noReference, .compatible:
+                break
+            case .unknownAuthorityVersion:
+                findings.append(
+                    AnnotationContractFinding(
+                        entityID: entity.entityID,
+                        code: .unknownEquipmentAuthority,
+                        severity: .warning,
+                        detail: "equipment_ref authority version "
+                            + (entity.equipmentRef?.authorityVersion
+                                ?? "legacy")
+                            + " is not in the known catalog taxonomy"
+                    )
+                )
+            case .incompatible:
+                findings.append(
+                    AnnotationContractFinding(
+                        entityID: entity.entityID,
+                        code: .incompatibleEquipmentReference,
+                        severity: .error,
+                        detail: entity.type.rawValue
+                            + " cannot carry an equipment reference "
+                            + "from this catalog contract"
+                    )
+                )
+            }
+
+            if entity.type == .listeningPosition {
+                switch entity.listeningRole {
+                case .primary:
+                    primaries += 1
+                    if primaries > 1 {
+                        findings.append(
+                            AnnotationContractFinding(
+                                entityID: entity.entityID,
+                                code:
+                                    .duplicatePrimaryListeningPosition,
+                                severity: .warning,
+                                detail:
+                                    "multiple listening positions "
+                                    + "claim the primary role"
+                            )
+                        )
+                    }
+                case .secondary, .measurementReference:
+                    break
+                case nil:
+                    findings.append(
+                        AnnotationContractFinding(
+                            entityID: entity.entityID,
+                            code: .listeningRoleMissing,
+                            severity: .info,
+                            detail:
+                                "listening position has no typed role; "
+                                + "label only"
+                        )
+                    )
+                }
+            }
+
+            if let role = entity.channelRole {
+                let key =
+                    entity.type.rawValue + "\u{0}" + role.rawValue
+                rolesByTypeAndRole[key, default: []].append(entity)
+            }
+
+            // A surface-derived placement without a construction
+            // record means the semantic reference point was never
+            // explicitly confirmed (#291).
+            if entity.referencePoint == nil,
+               entity.placement.method == .raycast
+                   || entity.placement.method == .meshHitTest
+            {
+                findings.append(
+                    AnnotationContractFinding(
+                        entityID: entity.entityID,
+                        code: .unverifiedReferencePointSemantics,
+                        severity: .warning,
+                        detail: placementMethodText(entity)
+                            + " placement has no explicit "
+                            + "reference-point construction"
+                    )
+                )
+            }
+        }
+
+        for (_, grouped) in rolesByTypeAndRole
+            where grouped.count > 1
+        {
+            let role = grouped[0].channelRole!.rawValue
+            let type = grouped[0].type.rawValue
+            for entity in grouped {
+                findings.append(
+                    AnnotationContractFinding(
+                        entityID: entity.entityID,
+                        code: .duplicateChannelRole,
+                        severity: .warning,
+                        detail: "duplicate " + type
+                            + " channel role " + role
+                    )
+                )
+            }
+        }
+
+        return findings.sorted {
+            ($0.severity.rawValue, $0.code.rawValue,
+             $0.entityID.rawValue.uuidString)
+                < ($1.severity.rawValue, $1.code.rawValue,
+                   $1.entityID.rawValue.uuidString)
+        }
+    }
+
+    private static func placementMethodText(
+        _ entity: CaptureAnnotationEntity
+    ) -> String {
+        entity.placement.method.rawValue
     }
 }
 
@@ -708,6 +1727,13 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
         self.schema = Self.expectedSchema
         self.schemaVersion = Self.expectedSchemaVersion
         self.entities = entities
+    }
+
+    /// Semantic contract findings across the committed collection —
+    /// duplicate roles, incompatible equipment references, unproven
+    /// reference-point semantics (#237, #243, #244, #291).
+    public func contractFindings() -> [AnnotationContractFinding] {
+        AnnotationContractReview.findings(in: entities)
     }
 
     private enum CodingKeys: String, CodingKey {

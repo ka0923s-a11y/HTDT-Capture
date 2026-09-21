@@ -411,7 +411,11 @@ public struct SpeakerLayoutFlowView: View {
                               $0.selectionKey == selectedEquipmentKey
                           })
             {
-                equipment = try entry.equipmentReference()
+                equipment = try entry.equipmentReference(
+                    authorityVersion:
+                        HTDTEquipmentCatalogSnapshot
+                            .expectedAuthorityVersion
+                )
             } else {
                 equipment = nil
             }
@@ -428,6 +432,19 @@ public struct SpeakerLayoutFlowView: View {
             // (#239) — they stay out of the entity's spatial
             // evidence_refs.
             let selection = AnnotationEvidenceSelection()
+            // The contract is fail-closed: an evidence-captured
+            // placement must declare how the semantic point was
+            // constructed (#291). Surface-derived hits confirm the
+            // cabinet surface; a RoomPlan binding is direct.
+            let construction: ReferencePointConstruction? =
+                placementAuthority.map { authority in
+                    switch authority.placement.method {
+                    case .raycast, .meshHitTest:
+                        return .surfaceHitConfirmed
+                    default:
+                        return .directPlacement
+                    }
+                }
             let entity = try seed.buildEntity(
                 coordinateSpaceID: coordinateSpaceID,
                 type: role.isSubwoofer ? .subwoofer : .speaker,
@@ -435,6 +452,7 @@ public struct SpeakerLayoutFlowView: View {
                 channelRole: role.channelRole,
                 equipmentRef: equipment,
                 yawDegrees: nil,
+                referencePointConstruction: construction,
                 evidenceSelection: selection
             )
 

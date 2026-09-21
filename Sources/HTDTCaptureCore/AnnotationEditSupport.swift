@@ -27,10 +27,18 @@ extension ChannelRole {
         ]
     }
 
+    /// Roles offered for a subwoofer channel (#244): typed instance
+    /// tokens so multiple subs stay distinguishable; the token set is
+    /// open, so custom entries remain possible under Advanced.
+    public static var subwooferRoles: [ChannelRole] {
+        [.lfe1, .lfe2, .lfe3, .lfe4]
+    }
+
     /// Whether the role is in the standard set — nonstandard roles are
     /// still valid, the UI just flags them as custom.
     public var isStandardRole: Bool {
         Self.standardRoles.contains(self)
+            || Self.subwooferRoles.contains(self)
     }
 }
 
@@ -42,21 +50,7 @@ public enum ReferencePointSemanticsCatalog {
     public static func forType(
         _ type: AnnotationEntityType
     ) -> ReferencePointSemantics {
-        switch type {
-        case .speaker, .subwoofer:
-            return .cabinetReferencePoint
-        case .display:
-            return .displayCenter
-        case .projectionScreen:
-            return .screenCenter
-        case .listeningPosition:
-            return .earCenter
-        case .seat:
-            return .seatReferencePoint
-        case .acousticTreatment, .equipmentRack, .custom,
-             .referencePoint:
-            return .userReferencePoint
-        }
+        type.defaultReferenceSemantics
     }
 }
 
@@ -81,6 +75,17 @@ public struct AnnotationEditSeed: Sendable, Equatable {
     public let originalPlacement: PlacementProvenance
     public let originalOrientation: OrientationAxes?
     public let originalTransform: Matrix4x4F
+    /// Contract fields the form carries but does not structurally
+    /// change; they pass through untouched unless the matching form
+    /// control supplied a new value.
+    public let originalReferencePointSemantics: ReferencePointSemantics
+    public let originalReferencePoint: ReferencePointAuthority?
+    public let originalPhysicalEnvelope: EntityPhysicalEnvelope?
+    public let originalListeningRole: ListeningPositionRole?
+    public let originalUncertainty: SpatialUncertaintyAuthority?
+    /// Lifecycle keeps its original `created_at_utc`; a save stamps
+    /// `updated_at_utc` via `revised(at:)` (#267).
+    public let originalLifecycle: AnnotationLifecycle?
 
     /// New placement authority produced by a fresh capture during the
     /// edit session; nil means the original provenance is kept.
@@ -107,6 +112,13 @@ public struct AnnotationEditSeed: Sendable, Equatable {
         )
         self.originalOrientation = nil
         self.originalTransform = .identity
+        self.originalReferencePointSemantics =
+            type.defaultReferenceSemantics
+        self.originalReferencePoint = nil
+        self.originalPhysicalEnvelope = nil
+        self.originalListeningRole = nil
+        self.originalUncertainty = nil
+        self.originalLifecycle = nil
     }
 
     public init(entity: CaptureAnnotationEntity) {
@@ -128,6 +140,13 @@ public struct AnnotationEditSeed: Sendable, Equatable {
         self.originalPlacement = entity.placement
         self.originalOrientation = entity.orientation
         self.originalTransform = entity.worldFromAnnotation
+        self.originalReferencePointSemantics =
+            entity.referencePointSemantics
+        self.originalReferencePoint = entity.referencePoint
+        self.originalPhysicalEnvelope = entity.physicalEnvelope
+        self.originalListeningRole = entity.listeningRole
+        self.originalUncertainty = entity.uncertainty
+        self.originalLifecycle = entity.lifecycle
     }
 
     /// Rebuilds the entity preserving `entityID` and untouched fields.
@@ -141,18 +160,23 @@ public struct AnnotationEditSeed: Sendable, Equatable {
         channelRole: ChannelRole?,
         equipmentRef: HTDTEquipmentReference?,
         yawDegrees: Float?,
+        orientationYawDegrees: Float? = nil,
+        listeningRole: ListeningPositionRole? = nil,
+        referencePointSemantics: ReferencePointSemantics? = nil,
+        referencePointConstruction: ReferencePointConstruction? = nil,
+        referencePointOffset: SpatialVector3F? = nil,
+        physicalEnvelope: EntityPhysicalEnvelope? = nil,
         evidenceSelection: AnnotationEvidenceSelection
     ) throws -> CaptureAnnotationEntity {
         let placement: PlacementProvenance
-        let worldFromAnnotation: Matrix4x4F
+        var transform: Matrix4x4F
         var placementAuthority: AnnotationPlacementAuthority?
         if let replacementPlacement {
             placement = replacementPlacement.placement
-            worldFromAnnotation =
-                replacementPlacement.worldFromAnnotation
+            transform = replacementPlacement.worldFromAnnotation
             placementAuthority = replacementPlacement
         } else if let manualPositionOverride {
-            worldFromAnnotation = try Matrix4x4F(values: [
+            transform = try Matrix4x4F(values: [
                 1, 0, 0, 0,
                 0, 1, 0, 0,
                 0, 0, 1, 0,
@@ -166,7 +190,90 @@ public struct AnnotationEditSeed: Sendable, Equatable {
             )
         } else {
             placement = originalPlacement
-            worldFromAnnotation = originalTransform
+            transform = originalTransform
+        }
+
+        // A fresh evidence-captured placement must say how the
+        // semantic point was constructed — the contract is
+        // fail-closed here (#291). For a roomplan object binding the
+        // point is a direct placement, not a surface hit.
+        let referencePoint: ReferencePointAuthority?
+        if placementAuthority != nil {
+            guard let referencePointConstruction else {
+                throw ManualAuthorityBuilderError
+                    .referencePointConstructionRequired
+            }
+            if referencePointConstruction == .offsetFromSurface {
+                guard let referencePointOffset else {
+                    throw AnnotationModelError
+                        .invalidReferencePointAuthority
+                }
+                var values = transform.values
+                values[12] += referencePointOffset.x
+                values[13] += referencePointOffset.y
+                values[14] += referencePointOffset.z
+                transform = try Matrix4x4F(values: values)
+            }
+            referencePoint = try ReferencePointAuthority(
+                construction: referencePointConstruction,
+                offsetMeters:
+                    referencePointConstruction == .offsetFromSurface
+                    ? referencePointOffset
+                    : nil,
+                sourceEvidenceRefs:
+                    referencePointConstruction
+                        == .surfaceHitConfirmed
+                        || referencePointConstruction
+                            == .offsetFromSurface
+                    ? placement.sourceEvidenceRefs
+                    : []
+            )
+        } else if let original = originalReferencePoint,
+                  Self.construction(
+                      original.construction,
+                      isCompatibleWith: placement.method
+                  )
+        {
+            referencePoint = original
+        } else {
+            referencePoint = nil
+        }
+
+        // The contract requires a typed listening role on authored
+        // listening positions (#243) and channel roles on both
+        // speakers and subwoofers (#244); roles are rejected outright
+        // on types that cannot carry them.
+        if type == .listeningPosition, listeningRole == nil {
+            throw ManualAuthorityBuilderError.listeningRoleRequired
+        }
+        if type == .subwoofer, channelRole == nil {
+            throw ManualAuthorityBuilderError
+                .invalidSubwooferChannelRole
+        }
+        guard type == .speaker || type == .subwoofer
+                || channelRole == nil
+        else {
+            throw AnnotationModelError.invalidAuthorityComponent
+        }
+
+        let semantics = referencePointSemantics
+            ?? (type == self.type
+                ? originalReferencePointSemantics
+                : type.defaultReferenceSemantics)
+        if let allowed = type.allowedReferenceSemantics,
+           !allowed.contains(semantics)
+        {
+            throw AnnotationModelError.invalidReferencePointSemantics
+        }
+
+        let requestedOrientation =
+            replacementOrientation != nil || yawDegrees != nil
+            || orientationYawDegrees != nil
+        if requestedOrientation,
+           !type.supportsOrientationAuthority
+        {
+            throw ManualAuthorityBuilderError
+                .orientationNotSupportedForType
         }
 
         let orientation: OrientationAxes?
@@ -184,8 +291,22 @@ public struct AnnotationEditSeed: Sendable, Equatable {
                 ),
                 upAxisLocal: .unit(0, 1, 0)
             )
+        } else if let orientationYawDegrees {
+            let radians = Double(orientationYawDegrees) * .pi / 180
+            orientation = try OrientationAxes(
+                frontAxisLocal: .unit(
+                    Float(sin(radians)),
+                    0,
+                    Float(-cos(radians))
+                ),
+                upAxisLocal: .unit(0, 1, 0)
+            )
         } else {
-            orientation = originalOrientation
+            // A type that cannot carry orientation semantics drops a
+            // stale captured body orientation on save.
+            orientation = type.supportsOrientationAuthority
+                ? originalOrientation
+                : nil
         }
 
         var selection = evidenceSelection
@@ -196,13 +317,72 @@ public struct AnnotationEditSeed: Sendable, Equatable {
         let hasAuthority =
             placementAuthority != nil || orientationAuthority != nil
             || placement.method != .manualNumeric
+
+        // Per-component authority, mirroring
+        // `ManualAuthorityBuilder.annotation` (#263): preserved
+        // evidence-linked placements still count as evidence-linked
+        // even though no fresh authority object exists this session.
+        let placementEvidence = Array(
+            Set(
+                placement.sourceEvidenceRefs
+                    + (placementAuthority?.evidenceRefs ?? [])
+            )
+        ).sorted()
+        let placementSource =
+            placement.sourceSemanticEntityID
+                ?? placement.sourceMeshAnchorID?
+                    .uuidString.lowercased()
+                ?? placement.sourceRoomPlanObjectID
+        let authority = try AnnotationAuthorityComponents(
+            placement: AnnotationComponentAuthority(
+                state: placementAuthority != nil
+                    || placement.method != .manualNumeric
+                    ? .evidenceLinked
+                    : .userAttested,
+                evidenceRefs: placementEvidence,
+                sourceRef: placementSource
+            ),
+            orientation: try orientation.map { _ in
+                try AnnotationComponentAuthority(
+                    state: orientationAuthority != nil
+                        ? .evidenceLinked
+                        : .userAttested,
+                    evidenceRefs:
+                        orientationAuthority?.evidenceRefs ?? []
+                )
+            },
+            equipment: try equipmentRef.map { ref in
+                try AnnotationComponentAuthority(
+                    state: .userAttested,
+                    sourceRef:
+                        "equipment:" + ref.equipmentID
+                            + "@" + ref.equipmentVersion
+                )
+            },
+            referencePoint: try referencePoint.map { point in
+                try AnnotationComponentAuthority(
+                    state: point.sourceEvidenceRefs.isEmpty
+                        ? .userAttested
+                        : .evidenceLinked,
+                    evidenceRefs: point.sourceEvidenceRefs
+                )
+            },
+            semanticRole: try (channelRole != nil
+                || listeningRole != nil)
+                ? AnnotationComponentAuthority(state: .userAttested)
+                : nil
+        )
+
+        let now = BundleTimestamp.utcString(from: Date())
+        let lifecycle = try originalLifecycle?.revised(at: now)
+            ?? AnnotationLifecycle(createdAtUTC: now)
+
         return try CaptureAnnotationEntity(
             entityID: entityID,
             type: type,
             coordinateSpaceID: coordinateSpaceID,
-            worldFromAnnotation: worldFromAnnotation,
-            referencePointSemantics:
-                ReferencePointSemanticsCatalog.forType(type),
+            worldFromAnnotation: transform,
+            referencePointSemantics: semantics,
             label: label,
             provenanceClass: .userAnnotation,
             verificationState: hasAuthority
@@ -212,8 +392,36 @@ public struct AnnotationEditSeed: Sendable, Equatable {
             orientation: orientation,
             channelRole: channelRole,
             equipmentRef: equipmentRef,
-            evidenceRefs: evidenceRefs
+            evidenceRefs: evidenceRefs,
+            physicalEnvelope: type == self.type
+                ? (physicalEnvelope ?? originalPhysicalEnvelope)
+                : physicalEnvelope,
+            listeningRole: type == .listeningPosition
+                ? (listeningRole ?? originalListeningRole)
+                : nil,
+            uncertainty: originalUncertainty,
+            authority: authority,
+            lifecycle: lifecycle,
+            referencePoint: referencePoint
         )
+    }
+
+    /// Matches the entity contract: surface-aware constructions only
+    /// apply to surface-derived placement methods (#291).
+    private static func construction(
+        _ construction: ReferencePointConstruction,
+        isCompatibleWith method: PlacementMethod
+    ) -> Bool {
+        let surfaceDerived =
+            method == .raycast || method == .meshHitTest
+        switch construction {
+        case .surfaceHitConfirmed, .offsetFromSurface:
+            return surfaceDerived
+        case .directPlacement:
+            return !surfaceDerived
+        case .importedReference:
+            return true
+        }
     }
 }
 

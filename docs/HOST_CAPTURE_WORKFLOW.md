@@ -19,7 +19,8 @@ The concrete host path is:
 
 ```text
 idle
-  -> capability_check
+  -> setup                     // pre-capture room-prep / readiness screen
+  -> capability_check          // only after the operator taps Begin scanning
   -> permissions
   -> preparing
        create unique working revision

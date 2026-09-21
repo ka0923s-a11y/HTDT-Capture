@@ -20,6 +20,8 @@ enum AnnotationPresentation {
             return String(localized: "Display")
         case .projectionScreen:
             return String(localized: "Projection screen")
+        case .projector:
+            return String(localized: "Projector")
         case .listeningPosition:
             return String(localized: "Listening position")
         case .seat:
@@ -45,6 +47,7 @@ enum AnnotationPresentation {
             .subwoofer,
             .display,
             .projectionScreen,
+            .projector,
             .seat,
             .equipmentRack,
             .acousticTreatment,
@@ -62,6 +65,7 @@ enum AnnotationPresentation {
         case .subwoofer: return "Sub"
         case .display: return "Display"
         case .projectionScreen: return "Screen"
+        case .projector: return "Projector"
         case .seat: return "Seat"
         case .equipmentRack: return "Rack"
         case .acousticTreatment: return "Treatment"
@@ -105,8 +109,30 @@ enum AnnotationPresentation {
             return String(localized: "Top rear right")
         case .lfe:
             return String(localized: "Subwoofer (LFE)")
+        case .lfe1:
+            return String(localized: "Subwoofer 1 (LFE1)")
+        case .lfe2:
+            return String(localized: "Subwoofer 2 (LFE2)")
+        case .lfe3:
+            return String(localized: "Subwoofer 3 (LFE3)")
+        case .lfe4:
+            return String(localized: "Subwoofer 4 (LFE4)")
         default:
             return role.rawValue
+        }
+    }
+
+    /// Localized name for a typed listening-position role (#243).
+    static func listeningRoleName(
+        _ role: ListeningPositionRole
+    ) -> String {
+        switch role {
+        case .primary:
+            return String(localized: "Primary (MLP)")
+        case .secondary:
+            return String(localized: "Secondary")
+        case .measurementReference:
+            return String(localized: "Measurement reference")
         }
     }
 
@@ -289,9 +315,21 @@ enum AnnotationPresentation {
             case .invalidSpeakerChannelRole:
                 return String(localized:
                     "Choose a channel role (e.g. L, C, R, SL) for this speaker.")
-            case .orientationOnlyForSpeaker:
+            case .invalidSubwooferChannelRole:
                 return String(localized:
-                    "Facing direction only applies to speaker annotations.")
+                    "Choose a subwoofer role (e.g. LFE1, LFE2) for this subwoofer.")
+            case .invalidOrientationYaw:
+                return String(localized:
+                    "Enter a finite yaw angle in degrees, or leave it empty.")
+            case .orientationNotSupportedForType:
+                return String(localized:
+                    "This item type cannot carry a facing direction.")
+            case .listeningRoleRequired:
+                return String(localized:
+                    "Choose a listening-position role (primary, secondary, or measurement reference).")
+            case .referencePointConstructionRequired:
+                return String(localized:
+                    "Confirm how the captured point was constructed — pick a reference-point construction.")
             case .derivedAcquisitionNotUserAttestable:
                 return String(localized:
                     "Derived acquisition methods are not allowed for manual entries.")

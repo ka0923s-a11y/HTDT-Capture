@@ -59,17 +59,33 @@ public struct AnnotationEntityForm: View {
     @State private var zText = "0"
     @State private var positionEdited = false
 
-    // Speaker orientation: captured heading or manual yaw.
+    // Orientation: captured heading or manual yaw. Only meaningful
+    // on types with body/plane semantics.
     @State private var orientationAuthority:
         AnnotationOrientationAuthority?
     @State private var yawText = ""
     @State private var yawEdited = false
+
+    // Contract detail fields: typed listening role (#243), explicit
+    // reference-point semantics/construction (#291), optional
+    // physical envelope (#230).
+    @State private var listeningRole: ListeningPositionRole
+    @State private var semanticsSelection: String
+    @State private var referencePointConstruction:
+        ReferencePointConstruction = .surfaceHitConfirmed
+    @State private var offsetXText = "0"
+    @State private var offsetYText = "0"
+    @State private var offsetZText = "0"
+    @State private var envelopeWidthText = ""
+    @State private var envelopeHeightText = ""
+    @State private var envelopeDepthText = ""
 
     @State private var includeEquipmentReference = false
     @State private var selectedEquipmentKey = ""
     @State private var equipmentID = ""
     @State private var equipmentVersion = ""
     @State private var equipmentHash = ""
+    @State private var equipmentAuthorityVersion: String?
 
     // Equipment identity evidence (#239).
     @State private var identityEvidenceRefs: [String] = []
@@ -152,6 +168,50 @@ public struct AnnotationEntityForm: View {
                 .map { $0.isStandardRole ? "" : $0.rawValue }
                 ?? ""
         )
+        _listeningRole = State(
+            initialValue:
+                editingEntity?.listeningRole ?? .primary
+        )
+        _semanticsSelection = State(
+            initialValue:
+                editingEntity?.referencePointSemantics.rawValue ?? ""
+        )
+        _referencePointConstruction = State(
+            initialValue: editingEntity?.referencePoint?.construction
+                ?? .surfaceHitConfirmed
+        )
+        let originalOffset =
+            editingEntity?.referencePoint?.offsetMeters
+        _offsetXText = State(
+            initialValue: originalOffset.map {
+                Self.coordText($0.x)
+            } ?? "0"
+        )
+        _offsetYText = State(
+            initialValue: originalOffset.map {
+                Self.coordText($0.y)
+            } ?? "0"
+        )
+        _offsetZText = State(
+            initialValue: originalOffset.map {
+                Self.coordText($0.z)
+            } ?? "0"
+        )
+        _envelopeWidthText = State(
+            initialValue:
+                editingEntity?.physicalEnvelope?.widthMeters
+                    .map { Self.coordText(Float($0)) } ?? ""
+        )
+        _envelopeHeightText = State(
+            initialValue:
+                editingEntity?.physicalEnvelope?.heightMeters
+                    .map { Self.coordText(Float($0)) } ?? ""
+        )
+        _envelopeDepthText = State(
+            initialValue:
+                editingEntity?.physicalEnvelope?.depthMeters
+                    .map { Self.coordText(Float($0)) } ?? ""
+        )
         _xText = State(
             initialValue: Self.coordText(seed.positionMeters.x)
         )
@@ -180,9 +240,16 @@ public struct AnnotationEntityForm: View {
             initialValue: seed.equipmentRef?.equipmentHash
                 .description ?? ""
         )
+        _equipmentAuthorityVersion = State(
+            initialValue: seed.equipmentRef?.authorityVersion
+        )
         _selectedEquipmentKey = State(
             initialValue: equipmentCatalogEntries.first(where: {
-                (try? $0.equipmentReference()) == seed.equipmentRef
+                entry in
+                guard let ref = seed.equipmentRef else { return false }
+                return entry.definitionID == ref.equipmentID
+                    && entry.version == ref.equipmentVersion
+                    && entry.semanticSHA256 == ref.equipmentHash
             })?.selectionKey ?? ""
         )
         _identityEvidenceRefs = State(
@@ -211,6 +278,29 @@ public struct AnnotationEntityForm: View {
 
     private var isSpeakerLike: Bool {
         type == .speaker || type == .subwoofer
+    }
+
+    /// The current HTDT catalog's acoustic-source authority only
+    /// covers speaker/subwoofer annotations (#237); other types never
+    /// see the equipment picker.
+    private var equipmentCompatible: Bool {
+        HTDTEquipmentCompatibility.compatibleTypes(
+            authorityVersion: HTDTEquipmentCatalogSnapshot
+                .expectedAuthorityVersion
+        )?.contains(type) ?? false
+    }
+
+    /// Constructions valid for the currently captured placement
+    /// method (#291): mesh/raycast hits are surface-derived; a
+    /// RoomPlan object binding is a direct placement.
+    private var availableConstructions: [ReferencePointConstruction] {
+        guard let placementAuthority else { return [] }
+        let surfaceDerived =
+            placementAuthority.placement.method == .raycast
+            || placementAuthority.placement.method == .meshHitTest
+        return surfaceDerived
+            ? [.surfaceHitConfirmed, .offsetFromSurface]
+            : [.directPlacement]
     }
 
     public var body: some View {
@@ -244,10 +334,21 @@ public struct AnnotationEntityForm: View {
                         label = AnnotationPresentation
                             .defaultLabel(for: newType)
                     }
-                    if newType != .speaker {
+                    channelRole =
+                        newType == .subwoofer ? .lfe1
+                        : newType == .speaker ? .left
+                        : nil
+                    customRoleText = ""
+                    semanticsSelection = ""
+                    if !newType.supportsOrientationAuthority {
                         orientationAuthority = nil
                         evidenceSelection
                             .replaceOrientationAuthority(nil)
+                        yawText = ""
+                    }
+                    if !equipmentCompatible {
+                        includeEquipmentReference = false
+                        selectedEquipmentKey = ""
                     }
                 }
                 TextField(
@@ -258,11 +359,95 @@ public struct AnnotationEntityForm: View {
 
             positionSection
 
-            if isSpeakerLike {
-                speakerSection
+            if type == .listeningPosition {
+                Section(String(localized: "Listening position role")) {
+                    Picker(
+                        String(localized: "Role"),
+                        selection: $listeningRole
+                    ) {
+                        ForEach(
+                            ListeningPositionRole.allCases,
+                            id: \.self
+                        ) { role in
+                            Text(
+                                AnnotationPresentation
+                                    .listeningRoleName(role)
+                            )
+                            .tag(role)
+                        }
+                    }
+                    Text(
+                        "The role is machine-readable; the label stays a free human name. Exactly one primary MLP is expected per layout."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
             }
 
-            equipmentSection
+            if placementAuthority != nil {
+                referencePointSection
+            }
+
+            if let semantics = type.allowedReferenceSemantics,
+               semantics.count > 1
+            {
+                Section(
+                    String(localized: "Reference point semantics")
+                ) {
+                    Picker(
+                        String(localized: "Semantics"),
+                        selection: $semanticsSelection
+                    ) {
+                        Text(String(localized: "Type default"))
+                            .tag("")
+                        ForEach(
+                            semantics.sorted {
+                                $0.rawValue < $1.rawValue
+                            },
+                            id: \.self
+                        ) { token in
+                            Text(token.rawValue).tag(token.rawValue)
+                        }
+                    }
+                }
+            }
+
+            if type.supportsOrientationAuthority {
+                orientationSection
+            }
+
+            if type != .listeningPosition
+                && type != .referencePoint
+            {
+                Section(
+                    String(localized: "Physical envelope (m, optional)")
+                ) {
+                    TextField(
+                        String(localized: "Width"),
+                        text: $envelopeWidthText
+                    )
+                    .decimalKeyboard()
+                    TextField(
+                        String(localized: "Height"),
+                        text: $envelopeHeightText
+                    )
+                    .decimalKeyboard()
+                    TextField(
+                        String(localized: "Depth (m)"),
+                        text: $envelopeDepthText
+                    )
+                    .decimalKeyboard()
+                    Text(
+                        "Dimensions are stored with user_measured provenance. Leave blank when unknown — nothing is inferred."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+
+            if equipmentCompatible {
+                equipmentSection
+            }
 
             if !evidenceFrames.isEmpty || !otherEvidenceRefs.isEmpty {
                 EvidenceFramePickerView(
@@ -340,6 +525,9 @@ public struct AnnotationEntityForm: View {
                     equipmentID = entry.definitionID
                     equipmentVersion = entry.version
                     equipmentHash = entry.semanticSHA256.description
+                    equipmentAuthorityVersion =
+                        HTDTEquipmentCatalogSnapshot
+                            .expectedAuthorityVersion
                 }
             }
         }
@@ -402,24 +590,93 @@ public struct AnnotationEntityForm: View {
     }
 
     @ViewBuilder
-    private var speakerSection: some View {
-        Section(String(localized: "Speaker")) {
-            Picker(
-                String(localized: "Channel role"),
-                selection: $channelRole
-            ) {
-                Text(String(localized: "Not set"))
-                    .tag(ChannelRole?.none)
-                ForEach(
-                    ChannelRole.standardRoles,
-                    id: \.self
-                ) { role in
-                    channelRoleTag(for: role)
+    private var referencePointSection: some View {
+        Section(String(localized: "Reference point")) {
+            let constructions = availableConstructions
+            if constructions.count > 1 {
+                Picker(
+                    String(localized: "Construction"),
+                    selection: $referencePointConstruction
+                ) {
+                    Text(
+                        String(localized: "Confirmed surface hit")
+                    )
+                    .tag(ReferencePointConstruction.surfaceHitConfirmed)
+                    Text(
+                        String(localized: "Offset from surface")
+                    )
+                    .tag(ReferencePointConstruction.offsetFromSurface)
+                }
+            } else {
+                LabeledContent(
+                    String(localized: "Construction"),
+                    value: String(localized: "Direct placement")
+                )
+            }
+            if referencePointConstruction == .offsetFromSurface,
+               constructions.contains(.offsetFromSurface)
+            {
+                HStack {
+                    TextField(
+                        String(localized: "Offset X (m)"),
+                        text: $offsetXText
+                    )
+                    .decimalKeyboard()
+                    TextField(
+                        String(localized: "Offset Y (m)"),
+                        text: $offsetYText
+                    )
+                    .decimalKeyboard()
+                    TextField(
+                        String(localized: "Offset Z (m)"),
+                        text: $offsetZText
+                    )
+                    .decimalKeyboard()
+                }
+                Text(
+                    "The offset is applied in capture-world axes to the captured hit — e.g. ear height above a seat hit — so the semantic point does not silently coincide with an arbitrary surface."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .onChange(of: availableConstructions) { _, options in
+            if !options.contains(referencePointConstruction) {
+                referencePointConstruction =
+                    options.first ?? .directPlacement
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var orientationSection: some View {
+        Section(
+            isSpeakerLike
+                ? String(localized: "Speaker")
+                : String(localized: "Orientation")
+        ) {
+            if isSpeakerLike {
+                Picker(
+                    type == .subwoofer
+                        ? String(localized: "Subwoofer role")
+                        : String(localized: "Channel role"),
+                    selection: $channelRole
+                ) {
+                    Text(String(localized: "Not set"))
+                        .tag(ChannelRole?.none)
+                    ForEach(
+                        type == .subwoofer
+                            ? ChannelRole.subwooferRoles
+                            : ChannelRole.standardRoles,
+                        id: \.self
+                    ) { role in
+                        channelRoleTag(for: role)
+                    }
                 }
             }
 
-            // Heading capture is available for speakers and
-            // subwoofers; only speakers *require* it.
+            // Heading capture is available for every type with
+            // body/plane semantics; only speakers *require* it.
             if let captured = orientationAuthority {
                 let front =
                     captured.orientation
@@ -461,7 +718,9 @@ public struct AnnotationEntityForm: View {
                     }
                 }
                 Text(
-                    "Aim the phone the way the speaker faces, or enter a yaw angle in Advanced."
+                    isSpeakerLike
+                        ? "Aim the phone the way the speaker faces, or enter a yaw angle in Advanced."
+                        : "Aim the phone in the direction this item faces, or enter a yaw angle in Advanced. Leave it unset when no facing authority exists."
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -620,7 +879,9 @@ public struct AnnotationEntityForm: View {
                 .onChange(of: yText) { _, _ in positionEdited = true }
                 .onChange(of: zText) { _, _ in positionEdited = true }
 
-                if isSpeakerLike, orientationAuthority == nil {
+                if type.supportsOrientationAuthority,
+                   orientationAuthority == nil
+                {
                     TextField(
                         String(localized:
                             "Yaw degrees (0 = -Z, 90 = +X)"),
@@ -699,7 +960,7 @@ public struct AnnotationEntityForm: View {
             seed.replacementOrientation = orientationAuthority
 
             let equipment: HTDTEquipmentReference?
-            if includeEquipmentReference {
+            if includeEquipmentReference, equipmentCompatible {
                 let digest = try EvidenceSHA256(
                     equipmentHash
                         .trimmingCharacters(
@@ -710,7 +971,10 @@ public struct AnnotationEntityForm: View {
                 equipment = try HTDTEquipmentReference(
                     equipmentID: equipmentID,
                     equipmentVersion: equipmentVersion,
-                    equipmentHash: digest
+                    equipmentHash: digest,
+                    authorityVersion: equipmentAuthorityVersion
+                        ?? HTDTEquipmentCatalogSnapshot
+                            .expectedAuthorityVersion
                 )
             } else {
                 equipment = nil
@@ -732,31 +996,90 @@ public struct AnnotationEntityForm: View {
                     throw ManualAuthorityBuilderError
                         .invalidSpeakerChannelRole
                 }
+                if type == .subwoofer, role == nil {
+                    throw ManualAuthorityBuilderError
+                        .invalidSubwooferChannelRole
+                }
             } else {
                 role = nil
             }
 
-            let yawDegrees: Float?
-            if isSpeakerLike, orientationAuthority == nil,
+            var yawDegrees: Float?
+            var orientationYawDegrees: Float?
+            if type.supportsOrientationAuthority,
+               orientationAuthority == nil,
                !isEditing || yawEdited
             {
                 // Editing: an untouched yaw field keeps the original
                 // orientation axes bit-for-bit; only an edited value
-                // rebuilds them (#245).
+                // rebuilds them (#245). Speakers must produce a yaw —
+                // other orientation-capable types may leave it unset.
+                let entered =
+                    yawText.trimmingCharacters(in: .whitespaces)
                 if type == .speaker {
-                    guard let parsed = Double(yawText),
+                    guard let parsed = Double(entered),
                           parsed.isFinite
                     else {
                         throw ManualAuthorityBuilderError
                             .invalidSpeakerYaw
                     }
                     yawDegrees = Float(parsed)
-                } else {
-                    yawDegrees = Double(yawText)
-                        .map { Float($0) }
+                } else if !entered.isEmpty {
+                    guard let parsed = Double(entered),
+                          parsed.isFinite
+                    else {
+                        throw ManualAuthorityBuilderError
+                            .invalidOrientationYaw
+                    }
+                    orientationYawDegrees = Float(parsed)
                 }
+            }
+
+            let envelope: EntityPhysicalEnvelope?
+            if type != .listeningPosition
+                && type != .referencePoint,
+               ![envelopeWidthText, envelopeHeightText,
+                 envelopeDepthText]
+                .allSatisfy({
+                    $0.trimmingCharacters(in: .whitespaces)
+                        .isEmpty
+                })
+            {
+                let parseDim: (String) throws -> Double? = { text in
+                    let trimmed =
+                        text.trimmingCharacters(in: .whitespaces)
+                    if trimmed.isEmpty { return nil }
+                    guard let value = Double(trimmed) else {
+                        throw AnnotationModelError.invalidEnvelope
+                    }
+                    return value
+                }
+                envelope = try EntityPhysicalEnvelope(
+                    widthMeters: try parseDim(envelopeWidthText),
+                    heightMeters: try parseDim(envelopeHeightText),
+                    depthMeters: try parseDim(envelopeDepthText),
+                    provenance: .userMeasured
+                )
             } else {
-                yawDegrees = nil
+                envelope = nil
+            }
+
+            let referencePointOffset: SpatialVector3F?
+            if placementAuthority != nil,
+               referencePointConstruction == .offsetFromSurface
+            {
+                guard let ox = Double(offsetXText),
+                      let oy = Double(offsetYText),
+                      let oz = Double(offsetZText)
+                else {
+                    throw AnnotationModelError
+                        .invalidReferencePointAuthority
+                }
+                referencePointOffset = try SpatialVector3F(
+                    Float(ox), Float(oy), Float(oz)
+                )
+            } else {
+                referencePointOffset = nil
             }
 
             let entity = try seed.buildEntity(
@@ -766,6 +1089,20 @@ public struct AnnotationEntityForm: View {
                 channelRole: role,
                 equipmentRef: equipment,
                 yawDegrees: yawDegrees,
+                orientationYawDegrees: orientationYawDegrees,
+                listeningRole:
+                    type == .listeningPosition ? listeningRole : nil,
+                referencePointSemantics: semanticsSelection.isEmpty
+                    ? nil
+                    : ReferencePointSemantics(
+                        rawValue: semanticsSelection
+                    ),
+                referencePointConstruction:
+                    placementAuthority != nil
+                    ? referencePointConstruction
+                    : nil,
+                referencePointOffset: referencePointOffset,
+                physicalEnvelope: envelope,
                 evidenceSelection: evidenceSelection
             )
 

@@ -758,6 +758,7 @@ final class WorkspaceUIAuthorityTests: XCTestCase {
             channelRole: nil,
             equipmentRef: nil,
             yawDegrees: nil,
+            referencePointConstruction: .surfaceHitConfirmed,
             evidenceSelection: AnnotationEvidenceSelection()
         )
         XCTAssertEqual(rebuilt.placement.method, .raycast)
@@ -819,10 +820,16 @@ final class WorkspaceUIAuthorityTests: XCTestCase {
             "vendor.speaker\u{0}2.0.1\u{0}"
                 + String(repeating: "c", count: 64))
         XCTAssertEqual(
-            try entry.equipmentReference().equipmentID,
+            try entry.equipmentReference(
+                authorityVersion: HTDTEquipmentCatalogSnapshot
+                    .expectedAuthorityVersion
+            ).equipmentID,
             "vendor.speaker")
         XCTAssertEqual(
-            try entry.equipmentReference().equipmentHash,
+            try entry.equipmentReference(
+                authorityVersion: HTDTEquipmentCatalogSnapshot
+                    .expectedAuthorityVersion
+            ).equipmentHash,
             hash)
     }
 }

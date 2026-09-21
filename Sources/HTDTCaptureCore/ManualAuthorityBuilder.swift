@@ -8,7 +8,21 @@ public enum ManualAuthorityBuilderError:
     case invalidPosition
     case invalidSpeakerYaw
     case invalidSpeakerChannelRole
-    case orientationOnlyForSpeaker
+    case invalidSubwooferChannelRole
+    case invalidOrientationYaw
+    /// Orientation authority (captured or yaw-entered) is only
+    /// supported on types with body/plane semantics — see
+    /// `AnnotationEntityType.supportsOrientationAuthority`.
+    case orientationNotSupportedForType
+    /// A typed `listening_role` is required when authoring a
+    /// listening position (#243); legacy records may lack one, new
+    /// authoring cannot.
+    case listeningRoleRequired
+    /// Any evidence-captured placement authority must be paired with
+    /// an explicit `referencePointConstruction` — a raycast hit can
+    /// never silently claim a semantic point like `ear_center`
+    /// (#291).
+    case referencePointConstructionRequired
     case derivedAcquisitionNotUserAttestable
     /// An evidence-captured authority is expressed in a different
     /// coordinate space than the annotation it would support (issue
@@ -100,10 +114,22 @@ public enum ManualAuthorityBuilder {
         coordinateSpaceID: CoordinateSpaceID,
         speakerChannelRole: String? = nil,
         speakerYawDegrees: Double? = nil,
+        subwooferChannelRole: String? = nil,
+        orientationYawDegrees: Double? = nil,
+        listeningRole: ListeningPositionRole? = nil,
+        referencePointSemantics: ReferencePointSemantics? = nil,
+        referencePointConstruction: ReferencePointConstruction? = nil,
+        referencePointOffset: SpatialVector3F? = nil,
+        physicalEnvelope: EntityPhysicalEnvelope? = nil,
+        uncertainty: SpatialUncertaintyAuthority? = nil,
         equipmentReference: HTDTEquipmentReference? = nil,
         evidenceRefs: [String] = [],
         placementAuthority: AnnotationPlacementAuthority? = nil,
-        orientationAuthority: AnnotationOrientationAuthority? = nil
+        orientationAuthority: AnnotationOrientationAuthority? = nil,
+        createdAt: Date = Date(),
+        observedAtUTC: String? = nil,
+        sourceCreatedAtUTC: String? = nil,
+        supersedesEntityID: AnnotationEntityID? = nil
     ) throws -> CaptureAnnotationEntity {
         guard xMeters.isFinite,
               yMeters.isFinite,
@@ -132,6 +158,49 @@ public enum ManualAuthorityBuilder {
                 .authorityCoordinateSpaceMismatch
         }
 
+        // Equipment-reference compatibility is enforced below the UI
+        // (#237): an exact catalog tuple can only be attached to an
+        // annotation type the catalog's authority version actually
+        // covers — a cryptographically-correct tuple on the wrong
+        // entity kind is still meaningless authority.
+        if let equipmentReference {
+            switch HTDTEquipmentCompatibility.check(
+                reference: equipmentReference,
+                entityType: type
+            ) {
+            case .compatible:
+                break
+            case .unknownAuthorityVersion:
+                throw AnnotationModelError.unknownEquipmentAuthority
+            case .incompatible, .noReference:
+                throw AnnotationModelError
+                    .incompatibleEquipmentReference
+            }
+        }
+
+        // Reference semantics describe the point actually authored,
+        // not merely the entity type (#291). The caller may select a
+        // type-appropriate token; the default remains the type's
+        // convention.
+        let semantics =
+            referencePointSemantics ?? type.defaultReferenceSemantics
+        if let allowed = type.allowedReferenceSemantics,
+           !allowed.contains(semantics)
+        {
+            throw AnnotationModelError.invalidReferencePointSemantics
+        }
+
+        // Reference-point construction is fail-closed (#291): any
+        // evidence-captured placement must be paired with an explicit
+        // construction record so a surface hit can never silently
+        // claim a semantic point.
+        if placementAuthority != nil,
+           referencePointConstruction == nil
+        {
+            throw ManualAuthorityBuilderError
+                .referencePointConstructionRequired
+        }
+
         let manualTransform = try Matrix4x4F(values: [
             1, 0, 0, 0,
             0, 1, 0, 0,
@@ -141,9 +210,25 @@ public enum ManualAuthorityBuilder {
             Float(zMeters),
             1,
         ])
-        let transform =
+        var transform =
             placementAuthority?.worldFromAnnotation
             ?? manualTransform
+
+        // `offset_from_surface` constructs the free-space semantic
+        // point by applying an explicit world-frame offset to the
+        // captured surface hit (#291).
+        if referencePointConstruction == .offsetFromSurface {
+            guard let referencePointOffset else {
+                throw AnnotationModelError
+                    .invalidReferencePointAuthority
+            }
+            var values = transform.values
+            values[12] += referencePointOffset.x
+            values[13] += referencePointOffset.y
+            values[14] += referencePointOffset.z
+            transform = try Matrix4x4F(values: values)
+        }
+
         let placement: PlacementProvenance
         if let placementAuthority {
             placement = placementAuthority.placement
@@ -152,6 +237,28 @@ public enum ManualAuthorityBuilder {
                 method: .manualNumeric
             )
         }
+
+        let referencePoint: ReferencePointAuthority?
+        if let referencePointConstruction {
+            // The supporting evidence for a surface-derived
+            // construction is the surface evidence itself.
+            let constructionEvidence =
+                referencePointConstruction == .surfaceHitConfirmed
+                    || referencePointConstruction == .offsetFromSurface
+                ? placement.sourceEvidenceRefs
+                : []
+            referencePoint = try ReferencePointAuthority(
+                construction: referencePointConstruction,
+                offsetMeters:
+                    referencePointConstruction == .offsetFromSurface
+                    ? referencePointOffset
+                    : nil,
+                sourceEvidenceRefs: constructionEvidence
+            )
+        } else {
+            referencePoint = nil
+        }
+
         let mergedEvidenceRefs = Array(
             Set(
                 evidenceRefs
@@ -160,61 +267,141 @@ public enum ManualAuthorityBuilder {
             )
         ).sorted()
 
-        let semantics: ReferencePointSemantics
-        switch type {
-        case .speaker, .subwoofer:
-            semantics = .cabinetReferencePoint
-        case .display:
-            semantics = .displayCenter
-        case .projectionScreen:
-            semantics = .screenCenter
-        case .listeningPosition:
-            semantics = .earCenter
-        case .seat:
-            semantics = .seatReferencePoint
-        case .referencePoint:
-            semantics = .userReferencePoint
-        case .acousticTreatment, .equipmentRack, .custom:
-            semantics = .userReferencePoint
-        }
-
-        if type != .speaker, orientationAuthority != nil {
-            throw ManualAuthorityBuilderError.orientationOnlyForSpeaker
+        // Orientation authority is supported on any type with
+        // body/plane semantics (#230, #244); pure point authorities
+        // (listening position, reference point) reject it.
+        if orientationAuthority != nil || orientationYawDegrees != nil {
+            guard type.supportsOrientationAuthority else {
+                throw ManualAuthorityBuilderError
+                    .orientationNotSupportedForType
+            }
         }
 
         var orientation: OrientationAxes?
+        if let orientationAuthority {
+            orientation = orientationAuthority.orientation
+        } else if let orientationYawDegrees {
+            guard orientationYawDegrees.isFinite else {
+                throw ManualAuthorityBuilderError.invalidOrientationYaw
+            }
+            orientation = try Self.yawOrientation(
+                degrees: orientationYawDegrees
+            )
+        } else if type == .speaker {
+            guard let speakerYawDegrees,
+                  speakerYawDegrees.isFinite
+            else {
+                throw ManualAuthorityBuilderError.invalidSpeakerYaw
+            }
+            orientation = try Self.yawOrientation(
+                degrees: speakerYawDegrees
+            )
+        }
+
         var channelRole: ChannelRole?
-        if type == .speaker {
+        switch type {
+        case .speaker:
             let roleText = speakerChannelRole?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .uppercased() ?? ""
-            guard let parsedRole = ChannelRole(rawValue: roleText) else {
+            guard let parsedRole = ChannelRole(rawValue: roleText)
+            else {
                 throw ManualAuthorityBuilderError
                     .invalidSpeakerChannelRole
             }
-
-            if let orientationAuthority {
-                orientation = orientationAuthority.orientation
-            } else {
-                guard let speakerYawDegrees,
-                      speakerYawDegrees.isFinite
-                else {
-                    throw ManualAuthorityBuilderError.invalidSpeakerYaw
-                }
-                let radians = speakerYawDegrees
-                    * Double.pi / 180.0
-                let front = try SpatialVector3F.unit(
-                    Float(sin(radians)),
-                    0,
-                    Float(-cos(radians))
-                )
-                orientation = try OrientationAxes(
-                    frontAxisLocal: front,
-                    upAxisLocal: .unit(0, 1, 0)
-                )
+            channelRole = parsedRole
+        case .subwoofer:
+            // Subwoofer topology (#244): every sub carries a typed
+            // channel/instance role so multiple subs are
+            // distinguishable without label parsing. The token set is
+            // open (LFE1/LFE2/... or custom) — no AVR convention is
+            // forced.
+            let roleText = subwooferChannelRole?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .uppercased() ?? ""
+            guard let parsedRole = ChannelRole(rawValue: roleText)
+            else {
+                throw ManualAuthorityBuilderError
+                    .invalidSubwooferChannelRole
             }
             channelRole = parsedRole
+        default:
+            guard speakerChannelRole == nil,
+                  subwooferChannelRole == nil
+            else {
+                throw AnnotationModelError.invalidAuthorityComponent
+            }
         }
+
+        // Typed listening-position role (#243): required for new
+        // authored records so the primary MLP is machine-readable.
+        if type == .listeningPosition, listeningRole == nil {
+            throw ManualAuthorityBuilderError.listeningRoleRequired
+        }
+
+        // Component-level authority (#263): the aggregate
+        // `verification_state` stays the legacy summary; `authority`
+        // records which components are actually evidence-backed so a
+        // mixed record never overstates itself.
+        let placementEvidence = Array(
+            Set(
+                placement.sourceEvidenceRefs
+                    + (placementAuthority?.evidenceRefs ?? [])
+            )
+        ).sorted()
+        let placementSource =
+            placement.sourceSemanticEntityID
+                ?? placement.sourceMeshAnchorID?
+                    .uuidString.lowercased()
+                ?? placement.sourceRoomPlanObjectID
+        let authority = try AnnotationAuthorityComponents(
+            placement: AnnotationComponentAuthority(
+                state: placementAuthority != nil
+                    ? .evidenceLinked
+                    : .userAttested,
+                evidenceRefs: placementEvidence,
+                sourceRef: placementSource
+            ),
+            orientation: try orientation.map { _ in
+                try AnnotationComponentAuthority(
+                    state: orientationAuthority != nil
+                        ? .evidenceLinked
+                        : .userAttested,
+                    evidenceRefs:
+                        orientationAuthority?.evidenceRefs ?? []
+                )
+            },
+            equipment: try equipmentReference.map { ref in
+                try AnnotationComponentAuthority(
+                    state: .userAttested,
+                    sourceRef:
+                        "equipment:" + ref.equipmentID
+                            + "@" + ref.equipmentVersion
+                )
+            },
+            referencePoint: try referencePoint.map { point in
+                try AnnotationComponentAuthority(
+                    state: point.sourceEvidenceRefs.isEmpty
+                        ? .userAttested
+                        : .evidenceLinked,
+                    evidenceRefs: point.sourceEvidenceRefs
+                )
+            },
+            semanticRole: try (channelRole != nil
+                || listeningRole != nil)
+                ? AnnotationComponentAuthority(state: .userAttested)
+                : nil
+        )
+
+        // Lifecycle metadata (#267): creation time is always stamped;
+        // observation/source times are recorded only when supplied —
+        // never fabricated for manual or imported records.
+        let lifecycle = try AnnotationLifecycle(
+            createdAtUTC: BundleTimestamp.utcString(from: createdAt),
+            observedAtUTC: observedAtUTC,
+            sourceCreatedAtUTC: sourceCreatedAtUTC,
+            supersedesEntityID: supersedesEntityID
+        )
 
         return try CaptureAnnotationEntity(
             type: type,
@@ -232,7 +419,29 @@ public enum ManualAuthorityBuilder {
             orientation: orientation,
             channelRole: channelRole,
             equipmentRef: equipmentReference,
-            evidenceRefs: mergedEvidenceRefs
+            evidenceRefs: mergedEvidenceRefs,
+            physicalEnvelope: physicalEnvelope,
+            listeningRole: listeningRole,
+            uncertainty: uncertainty,
+            authority: authority,
+            lifecycle: lifecycle,
+            referencePoint: referencePoint
+        )
+    }
+
+    /// Yaw-only body orientation: front = (sin θ, 0, −cos θ), up = +Y.
+    private static func yawOrientation(
+        degrees: Double
+    ) throws -> OrientationAxes {
+        let radians = degrees * Double.pi / 180.0
+        let front = try SpatialVector3F.unit(
+            Float(sin(radians)),
+            0,
+            Float(-cos(radians))
+        )
+        return try OrientationAxes(
+            frontAxisLocal: front,
+            upAxisLocal: .unit(0, 1, 0)
         )
     }
 

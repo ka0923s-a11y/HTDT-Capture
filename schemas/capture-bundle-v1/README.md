@@ -14,6 +14,7 @@ Schema family:
 - `entities.schema.json`
 - `measurements.schema.json`
 - `quality.schema.json`
+- `advisory-notes.schema.json` (derived `advisory/operator-advisories.json` payload)
 
 The reference bundle validator additionally enforces constraints that JSON Schema cannot safely express alone, including canonical JSON bytes, archive path safety, duplicate/case-colliding entries, SHA-256/length validation, expansion limits, and declared-vs-present payload equality.
 
