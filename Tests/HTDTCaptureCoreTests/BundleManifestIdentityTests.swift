@@ -702,3 +702,178 @@ func manifestRejectsRoomPlanProcessedWithoutRawLineage() throws {
         _ = try identityManifest(files: [raw, processed])
     }
 }
+
+private func identityTestQuality() -> CaptureQualityReport {
+    CaptureQualityEvaluator.evaluate(
+        CaptureQualityObservation(
+            roomPlanStatus: .completed,
+            activeMeshAnchorCount: 1,
+            evidenceFrameCount: 1,
+            integrityStatus: .pass
+        ),
+        requirements: CaptureQualityRequirements()
+    )
+}
+
+private func exportIdentityArchive(
+    root: URL,
+    payloadPaths: [String]
+) async throws -> URL {
+    let staging = root.appendingPathComponent(
+        "staging-\(UUID().uuidString)",
+        isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+        at: staging,
+        withIntermediateDirectories: true
+    )
+    var declarations: [BundlePayloadDeclaration] = []
+    for path in payloadPaths {
+        try Data([0x68, 0x74, 0x64, 0x74]).write(
+            to: staging.appendingPathComponent(path)
+        )
+        declarations.append(
+            BundlePayloadDeclaration(
+                path: path,
+                mediaType: "application/octet-stream",
+                producer: "archive-test",
+                provenanceClass: .captureAppDerived,
+                role: .canonical
+            )
+        )
+    }
+
+    let qualityDirectory = staging.appendingPathComponent(
+        "quality",
+        isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+        at: qualityDirectory,
+        withIntermediateDirectories: true
+    )
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    try encoder.encode(identityTestQuality()).write(
+        to: qualityDirectory.appendingPathComponent(
+            "capture-quality.json"
+        )
+    )
+    declarations.append(
+        BundlePayloadDeclaration(
+            path: "quality/capture-quality.json",
+            mediaType: "application/json",
+            producer: "capture_quality",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        )
+    )
+
+    let finalized = try await BundleRevisionFinalizer().finalize(
+        stagingDirectory: staging,
+        destinationDirectory: root.appendingPathComponent(
+            "finalized-\(UUID().uuidString)",
+            isDirectory: true
+        ),
+        request: BundleFinalizationRequest(
+            captureSeriesID: CaptureSeriesID(),
+            captureRevisionID: CaptureRevisionID(),
+            captureSessionIDs: [CaptureSessionID()],
+            coordinateSpaceIDs: [CoordinateSpaceID()],
+            createdAtUTC: "2026-09-20T00:00:00Z",
+            finalizedAtUTC: "2026-09-20T00:01:00Z",
+            app: BundleAppIdentity(
+                version: "0.1.0",
+                build: "archive-test"
+            ),
+            payloads: declarations,
+            qualityReport: identityTestQuality()
+        )
+    )
+
+    let archive = root.appendingPathComponent(
+        "\(UUID().uuidString).htdtcapture"
+    )
+    _ = try CaptureBundleArchiveExporter.export(
+        finalizedDirectory: finalized.directory,
+        destination: archive
+    )
+    return archive
+}
+
+private func centralRecordOffsets(in data: Data) -> [Int] {
+    let needle = Data([0x50, 0x4b, 0x01, 0x02])
+    var result: [Int] = []
+    var start = data.startIndex
+    while start < data.endIndex,
+          let range = data.range(
+            of: needle,
+            options: [],
+            in: start ..< data.endIndex
+          )
+    {
+        result.append(range.lowerBound)
+        start = range.upperBound
+    }
+    return result
+}
+
+@Test
+func archiveValidatorIndexesMultiEntryCentralDirectory() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+
+    let archive = try await exportIdentityArchive(
+        root: root,
+        payloadPaths: (0 ..< 24).map { "p\($0).bin" }
+    )
+    let report = try StoredCaptureBundleArchiveValidator.validate(
+        archive: archive
+    )
+    #expect(report.payloadCount == 25)
+}
+
+@Test
+func archiveValidatorRejectsUnknownCentralLocalOffset() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+
+    let archive = try await exportIdentityArchive(
+        root: root,
+        payloadPaths: ["alpha.bin", "bravo.bin"]
+    )
+    var hostile = try Data(contentsOf: archive)
+    let centralOffsets = centralRecordOffsets(in: hostile)
+    #expect(!centralOffsets.isEmpty)
+
+    // A central record's local-header offset field sits 42 bytes into
+    // the record. Pointing it past any real local entry must fail the
+    // indexed lookup rather than match an unrelated entry.
+    let field = centralOffsets[0] + 42
+    hostile.replaceSubrange(
+        field ..< (field + 4),
+        with: Data([0xff, 0xff, 0xff, 0xff])
+    )
+    try hostile.write(to: archive)
+
+    #expect(
+        throws: CaptureBundleArchiveError.archiveEntryMismatch
+    ) {
+        _ = try StoredCaptureBundleArchiveValidator.validate(
+            archive: archive
+        )
+    }
+}
