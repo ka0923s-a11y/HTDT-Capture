@@ -615,11 +615,24 @@ public enum CaptureQualityEvaluator {
             }
         }
 
+        // Total deterministic ordering for serialized diagnostics:
+        // severity rank (error first), then code, then message, then a
+        // lexicographic evidence-ref comparison. Distinct diagnostics
+        // can never tie on insertion order alone, so the canonical
+        // payload is stable regardless of sort-implementation details.
         diagnostics.sort {
             if $0.severity != $1.severity {
                 return $0.severity > $1.severity
             }
-            return $0.code < $1.code
+            if $0.code != $1.code {
+                return $0.code < $1.code
+            }
+            if $0.message != $1.message {
+                return $0.message < $1.message
+            }
+            return $0.evidenceRefs.lexicographicallyPrecedes(
+                $1.evidenceRefs
+            )
         }
 
         let ready = !diagnostics.contains {
