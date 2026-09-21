@@ -211,7 +211,7 @@ public struct CaptureStoragePressureTracker: Sendable, Equatable {
 /// production driver is a low-frequency task-loop timer; tests inject a
 /// manual driver so no test waits on real time.
 @MainActor
-public protocol CaptureStorageSampleDriver: AnyObject {
+public protocol CaptureStorageSampleDriver: AnyObject, Sendable {
     /// Starts producing ticks at `interval`; `tick` runs on the MainActor
     /// once per sampling period until `cancel()`.
     func start(
