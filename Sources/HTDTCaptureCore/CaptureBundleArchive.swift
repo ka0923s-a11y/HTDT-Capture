@@ -756,6 +756,52 @@ private extension Data {
     }
 }
 
+/// Recovery disposition for a pre-existing artifact occupying the
+/// deterministic app-owned export destination (#118). The `.htdtcapture`
+/// archive at that path is a derived transport wrapper, never capture
+/// authority: a validated archive whose logical bundle digest matches
+/// the finalized revision is reused idempotently, while anything else
+/// is removed so the archive can be rebuilt once from the immutable
+/// finalized directory.
+public enum ExistingExportArchiveDisposition:
+    Sendable,
+    Equatable
+{
+    /// The existing artifact is a validated `.htdtcapture` archive
+    /// carrying the expected logical bundle digest.
+    case recoverValidated
+    /// The existing artifact is unreadable, malformed, fails archive
+    /// validation, or carries a different digest. Only that derived
+    /// wrapper may be removed; the finalized directory is never opened
+    /// for mutation.
+    case rebuild
+}
+
+public enum ExistingExportArchiveClassifier {
+    /// Classify the artifact currently occupying `destination` ahead of
+    /// an export retry. Anything that cannot be proven to hold the
+    /// finalized revision's exact logical bytes — including unreadable
+    /// or truncated files — returns `.rebuild` so a corrupt derived
+    /// archive can never make retry permanently impossible. This never
+    /// inspects or modifies the finalized directory itself.
+    public static func disposition(
+        at destination: URL,
+        expectedBundleDigest: EvidenceSHA256,
+        limits: BundleFilesystemLimits = .init()
+    ) -> ExistingExportArchiveDisposition {
+        guard let validation =
+            try? StoredCaptureBundleArchiveValidator.validate(
+                archive: destination,
+                limits: limits
+            ),
+            validation.bundleDigest == expectedBundleDigest
+        else {
+            return .rebuild
+        }
+        return .recoverValidated
+    }
+}
+
 private extension FileHandle {
     func readExact(count: Int) throws -> Data {
         guard count >= 0 else {

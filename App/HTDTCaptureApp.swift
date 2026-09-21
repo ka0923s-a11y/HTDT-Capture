@@ -1614,12 +1614,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         throw error
                     }
 
-                    if let existingValidation =
-                        try? StoredCaptureBundleArchiveValidator
-                            .validate(archive: destination),
-                       existingValidation.bundleDigest
-                        == finalizedRevision.bundleDigest
-                    {
+                    if ExistingExportArchiveClassifier.disposition(
+                        at: destination,
+                        expectedBundleDigest:
+                            finalizedRevision.bundleDigest
+                    ) == .recoverValidated {
                         self.exportURL = destination
                         try self.transition(.export)
                         self.workingSetStatus = HostLocalization.text(

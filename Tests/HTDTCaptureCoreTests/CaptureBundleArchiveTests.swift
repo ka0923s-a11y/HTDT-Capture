@@ -617,3 +617,177 @@ func storedArchiveImportAppliesExpandedSizeLimits()
         )
     }
 }
+
+// MARK: - Existing-archive export recovery (#118)
+
+/// The deterministic export destination is a derived transport wrapper:
+/// a validated archive carrying the finalized revision's digest is
+/// recovered idempotently, while a corrupt or mismatched artifact is
+/// removed and rebuilt once from the immutable finalized directory.
+/// These tests pin the recover-vs-rebuild decision for the valid-
+/// existing and invalid-existing cases.
+@Test
+func existingValidatedArchiveWithMatchingDigestRecovers()
+    async throws
+{
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+
+    let finalized = try await makeFinalizedArchiveFixture(
+        root: root
+    )
+    let destination = root.appendingPathComponent(
+        "capture.htdtcapture"
+    )
+    _ = try CaptureBundleArchiveExporter.export(
+        finalizedDirectory: finalized.directory,
+        destination: destination
+    )
+
+    #expect(
+        ExistingExportArchiveClassifier.disposition(
+            at: destination,
+            expectedBundleDigest: finalized.bundleDigest
+        ) == .recoverValidated
+    )
+}
+
+@Test
+func existingValidArchiveWithMismatchedDigestMustRebuild()
+    async throws
+{
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+
+    let finalized = try await makeFinalizedArchiveFixture(
+        root: root
+    )
+    // A second finalized revision needs its own staging/finalized
+    // directories; the fixture derives them from the given root.
+    let otherRoot = root.appendingPathComponent(
+        "other",
+        isDirectory: true
+    )
+    let otherRevision = try await makeFinalizedArchiveFixture(
+        root: otherRoot
+    )
+    #expect(otherRevision.bundleDigest != finalized.bundleDigest)
+
+    let destination = root.appendingPathComponent(
+        "capture.htdtcapture"
+    )
+    _ = try CaptureBundleArchiveExporter.export(
+        finalizedDirectory: finalized.directory,
+        destination: destination
+    )
+
+    // A structurally valid archive that belongs to a different
+    // finalized revision is not reusable for this destination.
+    #expect(
+        ExistingExportArchiveClassifier.disposition(
+            at: destination,
+            expectedBundleDigest: otherRevision.bundleDigest
+        ) == .rebuild
+    )
+}
+
+@Test
+func corruptExistingArchiveMustRebuild() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+
+    let finalized = try await makeFinalizedArchiveFixture(
+        root: root
+    )
+    let destination = root.appendingPathComponent(
+        "capture.htdtcapture"
+    )
+    try Data("not-an-archive".utf8).write(to: destination)
+
+    #expect(
+        ExistingExportArchiveClassifier.disposition(
+            at: destination,
+            expectedBundleDigest: finalized.bundleDigest
+        ) == .rebuild
+    )
+}
+
+@Test
+func truncatedExistingArchiveMustRebuild() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+
+    let finalized = try await makeFinalizedArchiveFixture(
+        root: root
+    )
+    let destination = root.appendingPathComponent(
+        "capture.htdtcapture"
+    )
+    _ = try CaptureBundleArchiveExporter.export(
+        finalizedDirectory: finalized.directory,
+        destination: destination
+    )
+
+    // Simulate an interrupted earlier export: only part of the stored
+    // archive reached the deterministic path.
+    let complete = try Data(contentsOf: destination)
+    try complete.prefix(complete.count / 2).write(to: destination)
+
+    #expect(
+        ExistingExportArchiveClassifier.disposition(
+            at: destination,
+            expectedBundleDigest: finalized.bundleDigest
+        ) == .rebuild
+    )
+}
+
+@Test
+func missingExistingArchiveMustRebuild() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    let destination = root.appendingPathComponent(
+        "capture.htdtcapture"
+    )
+    let anyDigest = try EvidenceSHA256(
+        String(repeating: "a", count: 64)
+    )
+
+    #expect(
+        ExistingExportArchiveClassifier.disposition(
+            at: destination,
+            expectedBundleDigest: anyDigest
+        ) == .rebuild
+    )
+}
