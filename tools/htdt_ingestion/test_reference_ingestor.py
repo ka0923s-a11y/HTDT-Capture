@@ -774,12 +774,15 @@ class ReferenceIngestorTests(unittest.TestCase):
                     "target_type": "wall_surface",
                     "hit_distance_m": 2.4,
                     "hit_anchor_id": ANCHOR_ID,
-                    "T_world_from_hit": [
-                        1, 0, 0, 0,
-                        0, 1, 0, 0,
-                        0, 0, 1, 0,
-                        1.0, 0.0, 2.0, 1,
-                    ],
+                    "T_world_from_hit": {
+                        "representation": "column_major_4x4_f32",
+                        "values": [
+                            1, 0, 0, 0,
+                            0, 1, 0, 0,
+                            0, 0, 1, 0,
+                            1.0, 0.0, 2.0, 1,
+                        ],
+                    },
                 }
 
             _rewrite_payload(

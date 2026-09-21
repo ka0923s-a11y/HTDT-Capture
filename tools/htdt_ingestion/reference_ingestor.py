@@ -1681,20 +1681,41 @@ def _validate_entity_placement(
                 "string or null"
             )
         world_from_hit = raycast.get("T_world_from_hit")
-        if world_from_hit is not None and (
-            not isinstance(world_from_hit, list)
-            or len(world_from_hit) != 16
-            or any(
-                not isinstance(component, (int, float))
-                or isinstance(component, bool)
-                or not math.isfinite(component)
-                for component in world_from_hit
+        if world_from_hit is not None:
+            if not isinstance(world_from_hit, dict):
+                raise IngestionError(
+                    f"{field}.raycast.T_world_from_hit must be a "
+                    "matrix4f object or null"
+                )
+            _require_document_keys(
+                world_from_hit,
+                required={"representation", "values"},
+                optional=set(),
+                field=f"{field}.raycast.T_world_from_hit",
             )
-        ):
-            raise IngestionError(
-                f"{field}.raycast.T_world_from_hit must be an array "
-                "of 16 finite numbers or null"
-            )
+            if (
+                world_from_hit["representation"]
+                != "column_major_4x4_f32"
+            ):
+                raise IngestionError(
+                    f"{field}.raycast.T_world_from_hit.representation "
+                    "must be 'column_major_4x4_f32'"
+                )
+            values = world_from_hit["values"]
+            if (
+                not isinstance(values, list)
+                or len(values) != 16
+                or any(
+                    not isinstance(component, (int, float))
+                    or isinstance(component, bool)
+                    or not math.isfinite(component)
+                    for component in values
+                )
+            ):
+                raise IngestionError(
+                    f"{field}.raycast.T_world_from_hit.values must "
+                    "be an array of 16 finite numbers"
+                )
     method = placement["method"]
     if method not in {
         "manual_numeric",

@@ -569,7 +569,9 @@ private struct ManualAnnotationForm: View {
                 }
             }
 
-            if type.supportsOrientationAuthority {
+            if type.supportsOrientationAuthority,
+               type != .measurementPoint
+            {
                 Section("Orientation") {
                     if type == .speaker || type == .subwoofer {
                         TextField(
