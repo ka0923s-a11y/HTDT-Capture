@@ -1019,15 +1019,15 @@ def _build_roomplan_records(
     return result
 
 
-def _build_raw_visual_mesh_handoffs(
+def _load_mesh_anchor_index(
     reader: ValidatedBundleReader,
     manifest: dict,
-    bundle_digest: str,
     source_by_path: dict[str, dict],
-) -> list[dict]:
-    index_path = "mesh/anchors.json"
+) -> dict[str, dict]:
+    """Parse and validate ``mesh/anchors.json`` once for all consumers."""
+    index_path = MESH_ANCHORS_PATH
     if index_path not in source_by_path:
-        return []
+        return {}
 
     index_source = source_by_path[index_path]
     if index_source["provenance_class"] != "arkit_mesh_reconstruction":
@@ -1043,17 +1043,15 @@ def _build_raw_visual_mesh_handoffs(
 
     session_ids = set(manifest["capture_session_ids"])
     coordinate_ids = set(manifest["coordinate_space_ids"])
-    result: list[dict] = []
-    seen_anchors: set[str] = set()
+    result: dict[str, dict] = {}
 
     for index, anchor in enumerate(anchors):
         if not isinstance(anchor, dict):
             raise IngestionError(f"anchors[{index}] must be an object")
         anchor_id = anchor.get("anchor_id")
         validate_uuid4(anchor_id, f"anchors[{index}].anchor_id")
-        if anchor_id in seen_anchors:
+        if anchor_id in result:
             raise IngestionError(f"duplicate mesh anchor ID: {anchor_id}")
-        seen_anchors.add(anchor_id)
 
         capture_session_id = anchor.get("capture_session_id")
         coordinate_space_id = anchor.get("coordinate_space_id")
@@ -1119,6 +1117,30 @@ def _build_raw_visual_mesh_handoffs(
         ):
             raise IngestionError("mesh anchor timestamp must be finite")
 
+        result[anchor_id] = anchor
+    return result
+
+
+def _build_raw_visual_mesh_handoffs(
+    manifest: dict,
+    bundle_digest: str,
+    source_by_path: dict[str, dict],
+    anchor_index: dict[str, dict],
+) -> list[dict]:
+    index_path = MESH_ANCHORS_PATH
+    if not anchor_index:
+        return []
+    index_source = source_by_path[index_path]
+
+    result: list[dict] = []
+    for anchor_id, anchor in anchor_index.items():
+        capture_session_id = anchor["capture_session_id"]
+        coordinate_space_id = anchor["coordinate_space_id"]
+        geometry_path = anchor["geometry_path"]
+        geometry_sha256 = anchor["geometry_sha256"]
+        geometry_source = source_by_path[geometry_path]
+        timestamp = anchor.get("session_timestamp_s")
+
         result.append(
             {
                 "raw_visual_mesh_handoff_id": _raw_visual_mesh_handoff_id(
@@ -1145,8 +1167,8 @@ def _build_raw_visual_mesh_handoffs(
                     "T_world_from_mesh_anchor"
                 ],
                 "session_timestamp_s": timestamp,
-                "vertex_count": vertex_count,
-                "face_count": face_count,
+                "vertex_count": anchor["vertex_count"],
+                "face_count": anchor["face_count"],
             }
         )
 
@@ -1154,25 +1176,326 @@ def _build_raw_visual_mesh_handoffs(
     return result
 
 
+class _EvidenceRefContext:
+    """Bundle-scoped targets an authority-record reference may resolve to."""
+
+    def __init__(
+        self,
+        bundle_digest: str,
+        source_by_path: dict[str, dict],
+        anchor_index: dict[str, dict],
+        mesh_handoff_by_anchor: dict[str, str],
+        frame_registry: dict[str, dict],
+    ):
+        self.bundle_digest = bundle_digest
+        self.source_by_path = source_by_path
+        self.anchor_index = anchor_index
+        self.mesh_handoff_by_anchor = mesh_handoff_by_anchor
+        self.frame_registry = frame_registry
+        self.frame_coordinate_by_path = {
+            frame["path"]: frame["coordinate_space_id"]
+            for frame in frame_registry.values()
+        }
+        self.entity_ids: set[str] = set()
+        self.measurement_ids: set[str] = set()
+        self.entity_source_sha256: str | None = None
+        self.measurement_source_sha256: str | None = None
+
+    def _authority_handoff(self, record_kind: str, record_id: str) -> str:
+        source_sha256 = (
+            self.entity_source_sha256
+            if record_kind == "annotation"
+            else self.measurement_source_sha256
+        )
+        return _authority_record_handoff_id(
+            self.bundle_digest, source_sha256, record_kind, record_id
+        )
+
+    def resolve(self, ref, field: str, coordinate_space_id) -> dict:
+        """Resolve one v1 evidence reference or fail closed.
+
+        Grammar: ``path:<bundle-path>``, ``mesh_anchor:<uuid4>``,
+        ``frame:<uuid4>``, ``entity:<uuid4>``, ``measurement:<uuid4>`` and
+        the annotation-authored ``user:<token>`` marker. Any other form is
+        unsupported evidence grammar and rejects the record.
+        """
+        if not isinstance(ref, str) or not ref:
+            raise IngestionError(f"{field} must be a non-empty string")
+        prefix, separator, value = ref.partition(":")
+        if not separator or not value:
+            raise IngestionError(
+                f"{field} uses unsupported reference grammar: {ref!r}"
+            )
+
+        if prefix == "user":
+            return {"ref": ref, "kind": "annotation_authored", "target": None}
+
+        if prefix == "path":
+            target = self.source_by_path.get(value)
+            if target is None:
+                raise IngestionError(
+                    f"{field} resolves to undeclared bundle path: {ref!r}"
+                )
+            self._require_coordinate_compatible(
+                self.frame_coordinate_by_path.get(value),
+                coordinate_space_id,
+                field,
+                ref,
+            )
+            return {
+                "ref": ref,
+                "kind": "source_evidence",
+                "target": target["source_evidence_id"],
+            }
+
+        if prefix in {"mesh_anchor", "frame", "entity", "measurement"}:
+            validate_uuid4(value, field)
+            if prefix == "mesh_anchor":
+                anchor = self.anchor_index.get(value)
+                if anchor is None:
+                    raise IngestionError(
+                        f"{field} references unknown mesh anchor: {ref!r}"
+                    )
+                self._require_coordinate_compatible(
+                    anchor["coordinate_space_id"],
+                    coordinate_space_id,
+                    field,
+                    ref,
+                )
+                return {
+                    "ref": ref,
+                    "kind": "raw_visual_mesh_handoff",
+                    "target": self.mesh_handoff_by_anchor[value],
+                }
+            if prefix == "frame":
+                frame = self.frame_registry.get(value)
+                if frame is None:
+                    raise IngestionError(
+                        f"{field} references unknown frame: {ref!r}"
+                    )
+                self._require_coordinate_compatible(
+                    frame["coordinate_space_id"],
+                    coordinate_space_id,
+                    field,
+                    ref,
+                )
+                return {
+                    "ref": ref,
+                    "kind": "source_evidence",
+                    "target": self.source_by_path[frame["path"]][
+                        "source_evidence_id"
+                    ],
+                }
+            record_kind = "annotation" if prefix == "entity" else "measurement"
+            id_set = (
+                self.entity_ids
+                if prefix == "entity"
+                else self.measurement_ids
+            )
+            if value not in id_set:
+                raise IngestionError(
+                    f"{field} references unknown {prefix}: {ref!r}"
+                )
+            return {
+                "ref": ref,
+                "kind": "authority_record",
+                "target": self._authority_handoff(record_kind, value),
+            }
+
+        raise IngestionError(
+            f"{field} uses unsupported reference grammar: {ref!r}"
+        )
+
+    @staticmethod
+    def _require_coordinate_compatible(
+        target_coordinate_space_id,
+        record_coordinate_space_id,
+        field: str,
+        ref: str,
+    ) -> None:
+        if (
+            target_coordinate_space_id is not None
+            and record_coordinate_space_id is not None
+            and target_coordinate_space_id != record_coordinate_space_id
+        ):
+            raise IngestionError(
+                f"{field} crosses coordinate spaces: {ref!r} binds "
+                f"{target_coordinate_space_id} but the record lives in "
+                f"{record_coordinate_space_id}"
+            )
+
+
+def _resolve_ref_list(
+    refs,
+    field: str,
+    context: _EvidenceRefContext,
+    coordinate_space_id,
+) -> list[dict]:
+    _require_unique_text_list(refs, field)
+    return [
+        context.resolve(ref, f"{field}[{index}]", coordinate_space_id)
+        for index, ref in enumerate(refs)
+    ]
+
+
+def _validate_entity_placement(
+    placement,
+    field: str,
+    context: _EvidenceRefContext,
+    coordinate_space_id,
+) -> list[dict]:
+    if not isinstance(placement, dict):
+        raise IngestionError(f"{field} must be an object")
+    _require_document_keys(
+        placement,
+        required={"method", "source_evidence_refs"},
+        optional={
+            "source_semantic_entity_id",
+            "source_mesh_anchor_id",
+            "source_roomplan_object_id",
+        },
+        field=field,
+    )
+    method = placement["method"]
+    if method not in {
+        "manual_numeric",
+        "raycast",
+        "mesh_hit_test",
+        "roomplan_binding",
+        "imported_reference",
+        "other",
+    }:
+        raise IngestionError(f"{field}.method is invalid")
+
+    for key in ("source_semantic_entity_id", "source_roomplan_object_id"):
+        value = placement.get(key)
+        if value is not None and (
+            not isinstance(value, str) or not value
+        ):
+            raise IngestionError(
+                f"{field}.{key} must be a non-empty string or null"
+            )
+
+    source_mesh_anchor_id = placement.get("source_mesh_anchor_id")
+    resolutions: list[dict] = []
+    if source_mesh_anchor_id is not None:
+        resolutions.append(
+            context.resolve(
+                f"mesh_anchor:{source_mesh_anchor_id}",
+                f"{field}.source_mesh_anchor_id",
+                coordinate_space_id,
+            )
+        )
+
+    resolutions.extend(
+        _resolve_ref_list(
+            placement["source_evidence_refs"],
+            f"{field}.source_evidence_refs",
+            context,
+            coordinate_space_id,
+        )
+    )
+
+    # The producer requires at least one supporting source for spatial
+    # placements; the ingestor enforces the same coherence.
+    if method in {"raycast", "mesh_hit_test"} and not (
+        source_mesh_anchor_id
+        or placement.get("source_semantic_entity_id")
+        or placement["source_evidence_refs"]
+    ):
+        raise IngestionError(
+            f"{field}.method {method!r} requires supporting source evidence"
+        )
+    if method == "roomplan_binding" and not (
+        placement.get("source_roomplan_object_id")
+        or placement.get("source_semantic_entity_id")
+    ):
+        raise IngestionError(
+            f"{field}.method 'roomplan_binding' requires a RoomPlan or "
+            "semantic source identity"
+        )
+    return resolutions
+
+
+def _validate_acoustic_center(
+    acoustic_center,
+    field: str,
+    context: _EvidenceRefContext,
+    coordinate_space_id,
+) -> list[dict]:
+    if acoustic_center is None:
+        return []
+    if not isinstance(acoustic_center, dict):
+        raise IngestionError(f"{field} must be an object")
+    _require_document_keys(
+        acoustic_center,
+        required={"offset_local_m", "authority_ref"},
+        optional=set(),
+        field=field,
+    )
+    offset = acoustic_center["offset_local_m"]
+    if not isinstance(offset, list) or len(offset) != 3:
+        raise IngestionError(f"{field}.offset_local_m must contain 3 numbers")
+    for index, component in enumerate(offset):
+        if (
+            not isinstance(component, (int, float))
+            or isinstance(component, bool)
+            or not math.isfinite(component)
+        ):
+            raise IngestionError(
+                f"{field}.offset_local_m[{index}] must be finite"
+            )
+    authority_ref = acoustic_center["authority_ref"]
+    if not isinstance(authority_ref, str) or not authority_ref:
+        raise IngestionError(
+            f"{field}.authority_ref must be a non-empty string"
+        )
+    prefix, separator, _ = authority_ref.partition(":")
+    if separator and prefix in {"path", "mesh_anchor", "frame", "entity", "measurement"}:
+        return [
+            context.resolve(
+                authority_ref, f"{field}.authority_ref", coordinate_space_id
+            )
+        ]
+    # Otherwise the authority token is authored by the annotation itself.
+    return [
+        {
+            "ref": authority_ref,
+            "kind": "annotation_authored",
+            "target": None,
+        }
+    ]
+
+
+def _dedupe_resolutions(resolutions: list[dict]) -> list[dict]:
+    by_ref: dict[str, dict] = {}
+    for resolution in resolutions:
+        by_ref.setdefault(resolution["ref"], resolution)
+    return [by_ref[ref] for ref in sorted(by_ref)]
+
+
 def _build_authority_records(
     reader: ValidatedBundleReader,
     manifest: dict,
     bundle_digest: str,
     source_by_path: dict[str, dict],
+    anchor_index: dict[str, dict],
+    mesh_handoff_by_anchor: dict[str, str],
+    frame_registry: dict[str, dict],
 ) -> list[dict]:
     coordinate_ids = set(manifest["coordinate_space_ids"])
     result: list[dict] = []
 
     definitions = [
         (
-            "annotations/entities.json",
+            ENTITIES_PATH,
             "htdt.capture.entities",
             "entities",
             "entity_id",
             "annotation",
         ),
         (
-            "annotations/measurements.json",
+            MEASUREMENTS_PATH,
             "htdt.capture.measurements",
             "measurements",
             "measurement_id",
@@ -1180,23 +1503,26 @@ def _build_authority_records(
         ),
     ]
 
-    for (
-        path,
-        schema,
-        array_key,
-        id_key,
-        record_kind,
-    ) in definitions:
+    context = _EvidenceRefContext(
+        bundle_digest,
+        source_by_path,
+        anchor_index,
+        mesh_handoff_by_anchor,
+        frame_registry,
+    )
+
+    # First pass: parse every authority container and register record IDs so
+    # cross-record entity:/measurement: references resolve against the same
+    # validated bundle.
+    parsed: dict[str, tuple[str, str, str, list]] = {}
+    for path, schema, array_key, id_key, record_kind in definitions:
         if path not in source_by_path:
             continue
-
-        source = source_by_path[path]
         document = parse_json_bytes(reader.read(path))
         _require_schema(document, schema)
         records = document.get(array_key)
         if not isinstance(records, list):
             raise IngestionError(f"{path}:{array_key} must be an array")
-
         seen: set[str] = set()
         for index, record in enumerate(records):
             if not isinstance(record, dict):
@@ -1213,6 +1539,23 @@ def _build_authority_records(
                     f"duplicate {record_kind} record ID: {record_id}"
                 )
             seen.add(record_id)
+        parsed[path] = (array_key, id_key, record_kind, records)
+        if record_kind == "annotation":
+            context.entity_ids = seen
+            context.entity_source_sha256 = source_by_path[path][
+                "payload_sha256"
+            ]
+        else:
+            context.measurement_ids = seen
+            context.measurement_source_sha256 = source_by_path[path][
+                "payload_sha256"
+            ]
+
+    for path, (array_key, id_key, record_kind, records) in parsed.items():
+        source = source_by_path[path]
+        for index, record in enumerate(records):
+            record_field = f"{path}:{array_key}[{index}]"
+            record_id = record[id_key]
 
             provenance = record.get("provenance_class")
             if provenance not in PROVENANCE:
@@ -1224,13 +1567,67 @@ def _build_authority_records(
             if coordinate_space_id is not None:
                 validate_uuid4(
                     coordinate_space_id,
-                    f"{path}:{array_key}[{index}].coordinate_space_id",
+                    f"{record_field}.coordinate_space_id",
                 )
                 if coordinate_space_id not in coordinate_ids:
                     raise IngestionError(
                         f"{record_kind} references unknown coordinate space: "
                         f"{coordinate_space_id}"
                     )
+
+            evidence_refs = record.get("evidence_refs")
+            if evidence_refs is None:
+                raise IngestionError(
+                    f"{record_field}.evidence_refs is required"
+                )
+            resolutions = _resolve_ref_list(
+                evidence_refs,
+                f"{record_field}.evidence_refs",
+                context,
+                coordinate_space_id,
+            )
+
+            endpoint_refs: list[str] = []
+            endpoint_resolutions: list[dict] = []
+            if record_kind == "measurement":
+                endpoint_refs = record.get("endpoint_refs")
+                if endpoint_refs is None:
+                    raise IngestionError(
+                        f"{record_field}.endpoint_refs is required"
+                    )
+                endpoint_resolutions = _resolve_ref_list(
+                    endpoint_refs,
+                    f"{record_field}.endpoint_refs",
+                    context,
+                    coordinate_space_id,
+                )
+                if endpoint_refs and coordinate_space_id is None:
+                    raise IngestionError(
+                        f"{record_field} uses spatial endpoint_refs "
+                        "without a coordinate_space_id"
+                    )
+            else:
+                placement = record.get("placement")
+                if placement is None:
+                    raise IngestionError(
+                        f"{record_field}.placement is required"
+                    )
+                resolutions.extend(
+                    _validate_entity_placement(
+                        placement,
+                        f"{record_field}.placement",
+                        context,
+                        coordinate_space_id,
+                    )
+                )
+                resolutions.extend(
+                    _validate_acoustic_center(
+                        record.get("acoustic_center"),
+                        f"{record_field}.acoustic_center",
+                        context,
+                        coordinate_space_id,
+                    )
+                )
 
             result.append(
                 {
@@ -1250,6 +1647,12 @@ def _build_authority_records(
                     "coordinate_space_id": coordinate_space_id,
                     "source_evidence_id": source["source_evidence_id"],
                     "source_payload_sha256": source["payload_sha256"],
+                    "evidence_refs": list(evidence_refs),
+                    "endpoint_refs": list(endpoint_refs),
+                    "resolved_evidence": _dedupe_resolutions(resolutions),
+                    "resolved_endpoints": _dedupe_resolutions(
+                        endpoint_resolutions
+                    ),
                 }
             )
 
@@ -1284,17 +1687,28 @@ def build_ingestion_plan(bundle_path: Path) -> dict:
             manifest,
             source_by_path,
         )
-        raw_mesh_handoffs = _build_raw_visual_mesh_handoffs(
+        anchor_index = _load_mesh_anchor_index(
             reader,
+            manifest,
+            source_by_path,
+        )
+        raw_mesh_handoffs = _build_raw_visual_mesh_handoffs(
             manifest,
             bundle_digest,
             source_by_path,
+            anchor_index,
         )
         authority_records = _build_authority_records(
             reader,
             manifest,
             bundle_digest,
             source_by_path,
+            anchor_index,
+            {
+                handoff["anchor_id"]: handoff["raw_visual_mesh_handoff_id"]
+                for handoff in raw_mesh_handoffs
+            },
+            frame_registry,
         )
 
         configuration_digest = hashlib.sha256(

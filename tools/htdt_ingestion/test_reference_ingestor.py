@@ -582,6 +582,225 @@ class ReferenceIngestorTests(unittest.TestCase):
                 build_ingestion_plan(copy_root)
             self.assertIn("depth_status", str(ctx.exception))
 
+    def test_annotation_evidence_refs_resolve_to_mesh_handoff(self):
+        plan = build_ingestion_plan(FIXTURE)
+        annotation = next(
+            record
+            for record in plan["authority_records"]
+            if record["record_kind"] == "annotation"
+        )
+        self.assertEqual(
+            annotation["resolved_evidence"],
+            [
+                {
+                    "ref": f"mesh_anchor:{ANCHOR_ID}",
+                    "kind": "raw_visual_mesh_handoff",
+                    "target": EXPECTED_RAW_VISUAL_MESH_HANDOFF_ID,
+                }
+            ],
+        )
+        measurement = next(
+            record
+            for record in plan["authority_records"]
+            if record["record_kind"] == "measurement"
+        )
+        self.assertEqual(
+            measurement["resolved_evidence"],
+            [
+                {
+                    "ref": "user:tape_measure",
+                    "kind": "annotation_authored",
+                    "target": None,
+                }
+            ],
+        )
+
+    def test_dangling_path_evidence_ref_fails_ingestion(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            def mutate(document):
+                document["entities"][0]["evidence_refs"] = [
+                    "path:evidence/frames/missing.json"
+                ]
+
+            _rewrite_payload(
+                copy_root, "annotations/entities.json", mutate
+            )
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError) as ctx:
+                build_ingestion_plan(copy_root)
+            self.assertIn("undeclared bundle path", str(ctx.exception))
+
+    def test_nonexistent_mesh_anchor_ref_fails_ingestion(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            def mutate(document):
+                document["entities"][0]["placement"][
+                    "source_mesh_anchor_id"
+                ] = "20000000-0000-4000-8000-0000000000dd"
+
+            _rewrite_payload(
+                copy_root, "annotations/entities.json", mutate
+            )
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError) as ctx:
+                build_ingestion_plan(copy_root)
+            self.assertIn("unknown mesh anchor", str(ctx.exception))
+
+    def test_wrong_kind_evidence_ref_fails_ingestion(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            def mutate(document):
+                # The anchor UUID exists but is not a frame identity.
+                document["entities"][0]["evidence_refs"] = [
+                    f"frame:{ANCHOR_ID}"
+                ]
+
+            _rewrite_payload(
+                copy_root, "annotations/entities.json", mutate
+            )
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError) as ctx:
+                build_ingestion_plan(copy_root)
+            self.assertIn("unknown frame", str(ctx.exception))
+
+    def test_unsupported_evidence_ref_grammar_fails_ingestion(self):
+        for ref in ("opaque-token", "sha256:" + "0" * 64, "bogus:x"):
+            with self.subTest(ref=ref):
+                with tempfile.TemporaryDirectory() as td:
+                    copy_root = Path(td) / "bundle"
+                    shutil.copytree(FIXTURE, copy_root)
+
+                    def mutate(document, ref=ref):
+                        document["measurements"][0]["evidence_refs"] = [ref]
+
+                    _rewrite_payload(
+                        copy_root, "annotations/measurements.json", mutate
+                    )
+                    validate_bundle(copy_root)
+                    with self.assertRaises(IngestionError) as ctx:
+                        build_ingestion_plan(copy_root)
+                    self.assertIn("reference grammar", str(ctx.exception))
+
+    def test_frame_evidence_ref_resolves_to_frame_source_evidence(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+            frame_id = "10000000-0000-4000-8000-000000000010"
+            _stage_frame(copy_root, frame_id=frame_id)
+
+            def mutate(document):
+                document["entities"][0]["evidence_refs"] = [
+                    f"frame:{frame_id}",
+                    "path:evidence/frames/"
+                    f"{frame_id}.json",
+                ]
+
+            _rewrite_payload(
+                copy_root, "annotations/entities.json", mutate
+            )
+            validate_bundle(copy_root)
+            plan = build_ingestion_plan(copy_root)
+            annotation = next(
+                record
+                for record in plan["authority_records"]
+                if record["record_kind"] == "annotation"
+            )
+            descriptor_evidence_id = next(
+                record["source_evidence_id"]
+                for record in plan["source_evidence"]
+                if record["path"] == f"evidence/frames/{frame_id}.json"
+            )
+            mesh_handoff_id = plan["raw_visual_mesh_handoffs"][0][
+                "raw_visual_mesh_handoff_id"
+            ]
+            self.assertEqual(
+                annotation["resolved_evidence"],
+                [
+                    {
+                        "ref": f"frame:{frame_id}",
+                        "kind": "source_evidence",
+                        "target": descriptor_evidence_id,
+                    },
+                    {
+                        "ref": f"mesh_anchor:{ANCHOR_ID}",
+                        "kind": "raw_visual_mesh_handoff",
+                        "target": mesh_handoff_id,
+                    },
+                    {
+                        "ref": f"path:evidence/frames/{frame_id}.json",
+                        "kind": "source_evidence",
+                        "target": descriptor_evidence_id,
+                    },
+                ],
+            )
+
+    def test_measurement_endpoint_refs_resolve_and_stay_spatial(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            def mutate(document):
+                measurement = document["measurements"][0]
+                measurement["endpoint_refs"] = [
+                    "entity:10000000-0000-4000-8000-000000000006"
+                ]
+
+            _rewrite_payload(
+                copy_root, "annotations/measurements.json", mutate
+            )
+            validate_bundle(copy_root)
+            plan = build_ingestion_plan(copy_root)
+            measurement = next(
+                record
+                for record in plan["authority_records"]
+                if record["record_kind"] == "measurement"
+            )
+            annotation_handoff_id = next(
+                record["authority_record_handoff_id"]
+                for record in plan["authority_records"]
+                if record["record_kind"] == "annotation"
+            )
+            self.assertEqual(
+                measurement["resolved_endpoints"],
+                [
+                    {
+                        "ref": (
+                            "entity:"
+                            "10000000-0000-4000-8000-000000000006"
+                        ),
+                        "kind": "authority_record",
+                        "target": annotation_handoff_id,
+                    }
+                ],
+            )
+
+    def test_measurement_spatial_endpoints_require_coordinate_space(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            def mutate(document):
+                measurement = document["measurements"][0]
+                measurement["coordinate_space_id"] = None
+                measurement["endpoint_refs"] = [
+                    "entity:10000000-0000-4000-8000-000000000006"
+                ]
+
+            _rewrite_payload(
+                copy_root, "annotations/measurements.json", mutate
+            )
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError) as ctx:
+                build_ingestion_plan(copy_root)
+            self.assertIn("endpoint_refs", str(ctx.exception))
+
     def test_reference_ingestor_rejects_unknown_source_ref_prefix(self):
         with tempfile.TemporaryDirectory() as td:
             copy_root = Path(td) / "bundle"
