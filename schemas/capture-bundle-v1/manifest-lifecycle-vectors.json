@@ -1,0 +1,55 @@
+{
+  "schema": "htdt.capture.bundle.manifest-lifecycle-vectors",
+  "version": "1",
+  "description": "Shared created_at/finalized_at ordering vectors. Both timestamps are syntactically valid RFC3339 UTC instants; validity is decided by comparing parsed instants (finalized_at >= created_at), not raw strings.",
+  "vectors": [
+    {
+      "name": "created-before-finalized",
+      "created_at": "2026-09-20T00:00:00Z",
+      "finalized_at": "2026-09-20T00:00:01Z",
+      "valid": true
+    },
+    {
+      "name": "equal-instants",
+      "created_at": "2026-09-20T00:00:00Z",
+      "finalized_at": "2026-09-20T00:00:00Z",
+      "valid": true
+    },
+    {
+      "name": "equal-instants-whole-vs-fractional-zero",
+      "created_at": "2026-09-20T00:00:00Z",
+      "finalized_at": "2026-09-20T00:00:00.000Z",
+      "valid": true
+    },
+    {
+      "name": "equal-instants-different-fractional-precision",
+      "created_at": "2026-09-20T00:00:00.500Z",
+      "finalized_at": "2026-09-20T00:00:00.500000Z",
+      "valid": true
+    },
+    {
+      "name": "subsecond-ordering",
+      "created_at": "2026-09-20T00:00:00.250Z",
+      "finalized_at": "2026-09-20T00:00:00.500Z",
+      "valid": true
+    },
+    {
+      "name": "reversed-pair",
+      "created_at": "2026-09-20T00:00:01Z",
+      "finalized_at": "2026-09-20T00:00:00Z",
+      "valid": false
+    },
+    {
+      "name": "reversed-subsecond",
+      "created_at": "2026-09-20T00:00:00.500Z",
+      "finalized_at": "2026-09-20T00:00:00.499Z",
+      "valid": false
+    },
+    {
+      "name": "reversed-cross-day",
+      "created_at": "2026-09-21T00:00:00Z",
+      "finalized_at": "2026-09-20T23:59:59Z",
+      "valid": false
+    }
+  ]
+}

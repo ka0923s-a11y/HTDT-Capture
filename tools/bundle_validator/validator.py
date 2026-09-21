@@ -177,6 +177,7 @@ def validate_manifest_shape(manifest: dict) -> None:
         for index, value in enumerate(values):
             validate_uuid4(value, f"{field}[{index}]")
 
+    instants = {}
     for field in ("created_at", "finalized_at"):
         value = manifest[field]
         if (
@@ -188,11 +189,18 @@ def validate_manifest_shape(manifest: dict) -> None:
         ):
             raise ValidationError(f"{field} must be UTC RFC3339 text ending in Z")
         try:
-            datetime.fromisoformat(value[:-1] + "+00:00")
+            instants[field] = datetime.fromisoformat(value[:-1] + "+00:00")
         except ValueError as exc:
             raise ValidationError(
                 f"{field} must be a valid UTC RFC3339 date-time"
             ) from exc
+    # Lifecycle timestamps are audit chronology: compare parsed instants
+    # (not raw strings) so fractional-second representations cannot
+    # invert or mask the ordering.
+    if instants["finalized_at"] < instants["created_at"]:
+        raise ValidationError(
+            "finalized_at must not precede created_at"
+        )
 
     app = manifest["app"]
     if not isinstance(app, dict) or set(app) != {"name", "version", "build"}:
@@ -288,7 +296,15 @@ class DirectorySource:
                     raise ValidationError(f"symlink file forbidden: {candidate}")
                 rel = candidate.relative_to(self.root).as_posix()
                 validate_relative_path(rel)
-                size = candidate.stat().st_size
+                info = candidate.stat()
+                # A regular file with more than one hard link shares an
+                # inode with an outside alias; writing through that alias
+                # would mutate a finalized payload after hashing. Only
+                # st_nlink > 1 indicates hard-link aliasing, so ordinary
+                # clone/copy-on-write files (st_nlink == 1) still pass.
+                if info.st_nlink > 1:
+                    raise ValidationError(f"hard-linked file forbidden: {rel}")
+                size = info.st_size
                 if size > MAX_FILE_BYTES:
                     raise ValidationError(f"file exceeds limit: {rel}")
                 total += size
