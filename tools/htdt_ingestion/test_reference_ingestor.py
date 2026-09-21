@@ -31,26 +31,64 @@ FIXTURE = REPO_ROOT / "samples" / "phase6-integration"
 MINIMAL_FIXTURE = REPO_ROOT / "samples" / "minimal-capture"
 
 EXPECTED_BUNDLE_DIGEST = (
-    "925108a1b3c1b432182efe1b7e18ccb0f1d98f4f17c939ca66a6095b0cc28550"
+    "3823f3a70e4272db64bd02252d61cc1f15729550f41e927f5eb4e8afa2b5583b"
 )
 EXPECTED_LINEAGE_DIGEST = (
-    "729a7590fb1d1e2142c196187ef11a9078522326daa1ef2fd2364b8fd1ef6bf1"
+    "bb8da496704d33a93d82683ce3ca47ac0cf5760f99a1b20d86a1812b39e6a43e"
 )
 EXPECTED_RAW_VISUAL_MESH_HANDOFF_ID = (
-    "ed9ef39706c130b44db85939f0f429e46ec24ef0d09590f24776ad39b8871794"
+    "0f779b6dbcd872f4c22bf2e975778831f299f020d74306f99da9b3c124065feb"
 )
 EXPECTED_ANNOTATION_HANDOFF_ID = (
-    "3f53e7ddc86450ac457835ef9b4a152d525369a83c61c8e67eeb00568af47987"
+    "ff2d190abf30109811df4b62771655b751910e95534fbfce0d735dbd4fa7f4b9"
 )
 EXPECTED_MEASUREMENT_HANDOFF_ID = (
-    "05c2d8d741341a6fff2c2ee1a858bef4c71570d4cb40f00920c61d9942ee0f21"
+    "26a130ae8dc8935a5072f04517d179af576429aa9352e6c4aa9b7c4f7ba2bf51"
 )
 ANCHOR_ID = "10000000-0000-4000-8000-000000000005"
 COORDINATE_SPACE_ID = "10000000-0000-4000-8000-000000000004"
+SESSION_ID = "10000000-0000-4000-8000-000000000003"
 MESH_PATH = f"mesh/geometry/{ANCHOR_ID}.meshbin"
 MESH_SHA256 = (
     "9cf9198c431c6a803ecef625cfa96f1ea1b535b536782f4cb272b42e143d9276"
 )
+QUALITY_PATH = "quality/capture-quality.json"
+
+
+def _rewrite_payload(copy_root: Path, rel_path: str, mutate) -> None:
+    """Rewrite a bundle payload and re-commit its manifest entry."""
+    payload_path = copy_root / rel_path
+    document = json.loads(payload_path.read_text(encoding="utf-8"))
+    mutated = mutate(document)
+    encoded = json.dumps(
+        mutated if mutated is not None else document,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    payload_path.write_bytes(encoded)
+
+    manifest_path = copy_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for entry in manifest["files"]:
+        if entry["path"] == rel_path:
+            entry["bytes"] = len(encoded)
+            entry["sha256"] = hashlib.sha256(encoded).hexdigest()
+    manifest_path.write_bytes(canonical_json_bytes(manifest))
+
+
+def _drop_payload(copy_root: Path, rel_path: str) -> None:
+    """Remove a bundle payload and its manifest declaration."""
+    (copy_root / rel_path).unlink()
+    manifest_path = copy_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["files"] = [
+        entry
+        for entry in manifest["files"]
+        if entry["path"] != rel_path
+    ]
+    manifest_path.write_bytes(canonical_json_bytes(manifest))
 
 
 class ReferenceIngestorTests(unittest.TestCase):
@@ -58,7 +96,7 @@ class ReferenceIngestorTests(unittest.TestCase):
         report = validate_bundle(FIXTURE)
         self.assertTrue(report["valid"])
         self.assertEqual(report["bundle_digest"], EXPECTED_BUNDLE_DIGEST)
-        self.assertEqual(report["payload_count"], 6)
+        self.assertEqual(report["payload_count"], 7)
 
     def test_reingestion_is_deterministic_for_pinned_version(self):
         first = build_ingestion_plan(FIXTURE)
@@ -133,17 +171,11 @@ class ReferenceIngestorTests(unittest.TestCase):
             copy_root = Path(td) / "bundle"
             shutil.copytree(FIXTURE, copy_root)
 
-            (copy_root / "roomplan" / "captured-room-data.json").unlink()
+            _drop_payload(copy_root, "roomplan/captured-room-data.json")
             manifest_path = copy_root / "manifest.json"
             manifest = json.loads(
                 manifest_path.read_text(encoding="utf-8")
             )
-            manifest["files"] = [
-                entry
-                for entry in manifest["files"]
-                if entry["path"]
-                != "roomplan/captured-room-data.json"
-            ]
             processed = next(
                 entry
                 for entry in manifest["files"]
@@ -175,6 +207,115 @@ class ReferenceIngestorTests(unittest.TestCase):
 
             validate_bundle(copy_root)
             with self.assertRaises(IngestionError):
+                build_ingestion_plan(copy_root)
+
+    def test_missing_quality_payload_blocks_ingestion(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+            _drop_payload(copy_root, QUALITY_PATH)
+
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError) as ctx:
+                build_ingestion_plan(copy_root)
+            self.assertIn("quality", str(ctx.exception))
+
+    def test_not_ready_quality_report_blocks_ingestion(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            def not_ready(document):
+                document["ready_for_htdt_ingestion"] = False
+                document["diagnostics"] = [
+                    {
+                        "code": "insufficient_mesh_anchors",
+                        "severity": "error",
+                        "message": "Active mesh anchor count is low.",
+                        "evidence_refs": [],
+                    }
+                ]
+
+            _rewrite_payload(copy_root, QUALITY_PATH, not_ready)
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError) as ctx:
+                build_ingestion_plan(copy_root)
+            self.assertIn("ready_for_htdt_ingestion", str(ctx.exception))
+
+    def test_unsupported_quality_ruleset_blocks_ingestion(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            def wrong_ruleset(document):
+                document["ruleset_version"] = "9.9.9"
+
+            _rewrite_payload(copy_root, QUALITY_PATH, wrong_ruleset)
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError) as ctx:
+                build_ingestion_plan(copy_root)
+            self.assertIn("ruleset", str(ctx.exception))
+
+    def test_malformed_quality_payload_blocks_ingestion(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            def malformed(document):
+                del document["integrity_status"]
+
+            _rewrite_payload(copy_root, QUALITY_PATH, malformed)
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError):
+                build_ingestion_plan(copy_root)
+
+    def test_ready_report_with_error_diagnostic_is_contradictory(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            def contradictory(document):
+                document["diagnostics"] = [
+                    {
+                        "code": "insufficient_mesh_anchors",
+                        "severity": "error",
+                        "message": "Active mesh anchor count is low.",
+                        "evidence_refs": [],
+                    }
+                ]
+
+            _rewrite_payload(copy_root, QUALITY_PATH, contradictory)
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError) as ctx:
+                build_ingestion_plan(copy_root)
+            self.assertIn("contradictory", str(ctx.exception))
+
+    def test_ready_report_requires_integrity_pass_assertion(self):
+        for status in ("not_checked", "fail"):
+            with self.subTest(integrity_status=status):
+                with tempfile.TemporaryDirectory() as td:
+                    copy_root = Path(td) / "bundle"
+                    shutil.copytree(FIXTURE, copy_root)
+
+                    def inconsistent(document, status=status):
+                        document["integrity_status"] = status
+
+                    _rewrite_payload(copy_root, QUALITY_PATH, inconsistent)
+                    validate_bundle(copy_root)
+                    with self.assertRaises(IngestionError) as ctx:
+                        build_ingestion_plan(copy_root)
+                    self.assertIn("integrity_status", str(ctx.exception))
+
+    def test_quality_gate_does_not_replace_payload_hash_verification(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+            # The frozen fixture's report asserts integrity_status=pass;
+            # a tampered payload must still fail at manifest verification.
+            with (copy_root / MESH_PATH).open("ab") as handle:
+                handle.write(b"x")
+
+            with self.assertRaises(ValidationError):
                 build_ingestion_plan(copy_root)
 
     def test_reference_ingestor_rejects_unknown_source_ref_prefix(self):

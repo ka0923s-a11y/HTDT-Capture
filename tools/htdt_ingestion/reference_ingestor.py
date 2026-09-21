@@ -41,6 +41,29 @@ CONFIGURATION = {
     "strict": True,
 }
 
+JSON_MEDIA_TYPE = "application/json"
+
+# Canonical reserved payload paths for a finalized Capture Bundle v1.
+QUALITY_PATH = "quality/capture-quality.json"
+QUALITY_SCHEMA = "htdt.capture.quality"
+SESSION_PATH = "session/capture-session.json"
+SESSION_SCHEMA = "htdt.capture.session"
+SESSION_CONFIGURATION_PATH = "session/capture-configuration.json"
+SESSION_TIMING_PATH = "session/timing.json"
+MESH_ANCHORS_PATH = "mesh/anchors.json"
+ENTITIES_PATH = "annotations/entities.json"
+MEASUREMENTS_PATH = "annotations/measurements.json"
+ROOMPLAN_RAW_PATH = "roomplan/captured-room-data.json"
+ROOMPLAN_PROCESSED_PATH = "roomplan/captured-room.json"
+ROOMPLAN_METADATA_PATH = "roomplan/captured-room-metadata.json"
+ROOMPLAN_METADATA_SCHEMA = "htdt.captured-room-metadata"
+FRAME_DESCRIPTOR_PREFIX = "evidence/frames/"
+FRAME_DESCRIPTOR_SUFFIX = ".json"
+
+# Quality ruleset versions this ingestor can evaluate the readiness gate
+# against. A finalized bundle produced under any other ruleset fails closed.
+SUPPORTED_QUALITY_RULESETS = {"1.0.0"}
+
 
 class IngestionError(ValueError):
     pass
@@ -232,23 +255,322 @@ def _require_schema(document: dict, schema: str) -> None:
         )
 
 
-def _validate_transform(value, field: str) -> None:
+def _require_document_keys(
+    document: dict,
+    required: set[str],
+    optional: set[str],
+    field: str,
+) -> None:
+    """Fail closed on missing or unexpected keys of a schema-owned object."""
+    keys = set(document)
+    missing = required - keys
+    extra = keys - required - optional
+    if missing or extra:
+        raise IngestionError(
+            f"{field} keys mismatch: missing={sorted(missing)} "
+            f"extra={sorted(extra)}"
+        )
+
+
+def _require_sha256_text(value, field: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise IngestionError(f"{field} must be lowercase SHA-256 hex text")
+    return value
+
+
+def _require_finite_number(value, field: str, minimum: float | None = None):
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+    ):
+        raise IngestionError(f"{field} must be a finite number")
+    if minimum is not None and value < minimum:
+        raise IngestionError(f"{field} must be >= {minimum}")
+    return value
+
+
+def _require_non_negative_int(value, field: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise IngestionError(f"{field} must be a non-negative integer")
+    return value
+
+
+def _require_unique_text_list(value, field: str) -> list[str]:
+    if not isinstance(value, list):
+        raise IngestionError(f"{field} must be an array")
+    seen: set[str] = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item:
+            raise IngestionError(
+                f"{field}[{index}] must be a non-empty string"
+            )
+        if item in seen:
+            raise IngestionError(f"{field} contains duplicate: {item!r}")
+        seen.add(item)
+    return value
+
+
+def _require_member(value, members: set, field: str) -> None:
+    if value not in members:
+        raise IngestionError(f"{field} is not a manifest member: {value!r}")
+
+
+def _validate_matrix(
+    value,
+    field: str,
+    representation: str,
+    count: int,
+) -> None:
     if not isinstance(value, dict):
         raise IngestionError(f"{field} must be an object")
-    if value.get("representation") != "column_major_4x4_f32":
+    if value.get("representation") != representation:
         raise IngestionError(f"unsupported {field} representation")
     values = value.get("values")
-    if not isinstance(values, list) or len(values) != 16:
-        raise IngestionError(f"{field}.values must contain 16 numbers")
+    if not isinstance(values, list) or len(values) != count:
+        raise IngestionError(
+            f"{field}.values must contain {count} numbers"
+        )
     for index, component in enumerate(values):
         if (
             not isinstance(component, (int, float))
             or isinstance(component, bool)
             or not math.isfinite(component)
         ):
+            raise IngestionError(f"{field}.values[{index}] must be finite")
+
+
+def _validate_transform(value, field: str) -> None:
+    _validate_matrix(value, field, "column_major_4x4_f32", 16)
+
+
+def _validate_completeness_status(value, field: str) -> None:
+    if not isinstance(value, dict):
+        raise IngestionError(f"{field} must be an object")
+    _require_document_keys(
+        value,
+        {"required", "present", "missing"},
+        set(),
+        field,
+    )
+    for key in ("required", "present", "missing"):
+        _require_unique_text_list(value[key], f"{field}.{key}")
+
+
+def _validate_quality_document(document: dict, field: str) -> None:
+    """Schema/semantic validation of ``htdt.capture.quality`` v1.
+
+    Mirrors ``schemas/capture-bundle-v1/quality.schema.json``; kept local
+    because the ingestor must not trust a payload it has not checked.
+    """
+    _require_schema(document, QUALITY_SCHEMA)
+    _require_document_keys(
+        document,
+        required={
+            "schema",
+            "schema_version",
+            "ruleset_version",
+            "ready_for_htdt_ingestion",
+            "tracking_events",
+            "roomplan_status",
+            "active_mesh_anchor_count",
+            "evidence_frame_count",
+            "depth_evidence_count",
+            "annotation_completeness",
+            "measurement_completeness",
+            "resource_events",
+            "integrity_status",
+            "benchmark_refs",
+            "diagnostics",
+        },
+        optional=set(),
+        field=field,
+    )
+
+    ruleset = document["ruleset_version"]
+    if not isinstance(ruleset, str) or not ruleset:
+        raise IngestionError(f"{field}.ruleset_version must be a string")
+    if ruleset not in SUPPORTED_QUALITY_RULESETS:
+        raise IngestionError(
+            f"unsupported quality ruleset_version: {ruleset!r}"
+        )
+
+    if not isinstance(document["ready_for_htdt_ingestion"], bool):
+        raise IngestionError(
+            f"{field}.ready_for_htdt_ingestion must be a boolean"
+        )
+
+    if document["roomplan_status"] not in {
+        "not_started",
+        "running",
+        "completed",
+        "failed",
+        "unavailable",
+    }:
+        raise IngestionError(f"{field}.roomplan_status is invalid")
+
+    for key in (
+        "active_mesh_anchor_count",
+        "evidence_frame_count",
+        "depth_evidence_count",
+    ):
+        _require_non_negative_int(document[key], f"{field}.{key}")
+
+    for key in ("annotation_completeness", "measurement_completeness"):
+        _validate_completeness_status(document[key], f"{field}.{key}")
+
+    tracking_events = document["tracking_events"]
+    if not isinstance(tracking_events, list):
+        raise IngestionError(f"{field}.tracking_events must be an array")
+    for index, event in enumerate(tracking_events):
+        event_field = f"{field}.tracking_events[{index}]"
+        if not isinstance(event, dict):
+            raise IngestionError(f"{event_field} must be an object")
+        _require_document_keys(
+            event,
+            {"session_timestamp_s", "state"},
+            {"reason"},
+            event_field,
+        )
+        _require_finite_number(
+            event["session_timestamp_s"],
+            f"{event_field}.session_timestamp_s",
+            minimum=0,
+        )
+        if event["state"] not in {"normal", "limited", "unavailable"}:
+            raise IngestionError(f"{event_field}.state is invalid")
+        reason = event.get("reason")
+        if reason is not None and not isinstance(reason, str):
             raise IngestionError(
-                f"{field}.values[{index}] must be finite"
+                f"{event_field}.reason must be a string or null"
             )
+
+    resource_events = document["resource_events"]
+    if not isinstance(resource_events, list):
+        raise IngestionError(f"{field}.resource_events must be an array")
+    for index, event in enumerate(resource_events):
+        event_field = f"{field}.resource_events[{index}]"
+        if not isinstance(event, dict):
+            raise IngestionError(f"{event_field} must be an object")
+        _require_document_keys(
+            event,
+            {"kind", "severity", "detail"},
+            set(),
+            event_field,
+        )
+        if event["kind"] not in {
+            "thermal_pressure",
+            "memory_pressure",
+            "storage_pressure",
+            "persistence_backlog",
+            "persistence_failure",
+            "interruption",
+        }:
+            raise IngestionError(f"{event_field}.kind is invalid")
+        if event["severity"] not in {"info", "warning", "error"}:
+            raise IngestionError(f"{event_field}.severity is invalid")
+        if not isinstance(event["detail"], str):
+            raise IngestionError(f"{event_field}.detail must be a string")
+
+    if document["integrity_status"] not in {"not_checked", "pass", "fail"}:
+        raise IngestionError(f"{field}.integrity_status is invalid")
+
+    _require_unique_text_list(
+        document["benchmark_refs"], f"{field}.benchmark_refs"
+    )
+
+    diagnostics = document["diagnostics"]
+    if not isinstance(diagnostics, list):
+        raise IngestionError(f"{field}.diagnostics must be an array")
+    for index, diagnostic in enumerate(diagnostics):
+        diagnostic_field = f"{field}.diagnostics[{index}]"
+        if not isinstance(diagnostic, dict):
+            raise IngestionError(f"{diagnostic_field} must be an object")
+        _require_document_keys(
+            diagnostic,
+            {"code", "severity", "message", "evidence_refs"},
+            set(),
+            diagnostic_field,
+        )
+        for key in ("code", "message"):
+            if not isinstance(diagnostic[key], str) or not diagnostic[key]:
+                raise IngestionError(
+                    f"{diagnostic_field}.{key} must be a non-empty string"
+                )
+        if diagnostic["severity"] not in {"info", "warning", "error"}:
+            raise IngestionError(f"{diagnostic_field}.severity is invalid")
+        _require_unique_text_list(
+            diagnostic["evidence_refs"],
+            f"{diagnostic_field}.evidence_refs",
+        )
+
+
+def _enforce_quality_gate(
+    reader: ValidatedBundleReader,
+    manifest: dict,
+) -> None:
+    """Enforce the finalized-capture quality gate before any promotion.
+
+    The canonical quality authority ``quality/capture-quality.json`` must be
+    manifest-declared (therefore present in the frozen reader), must carry
+    the JSON media type, must validate against the ``htdt.capture.quality``
+    v1 schema, must name a supported ruleset, and must assert
+    ``ready_for_htdt_ingestion``.
+
+    Explicit consistency policy for ``ready_for_htdt_ingestion == true``:
+    the report must assert ``integrity_status == "pass"`` and carry no
+    error-severity diagnostic or resource event. Bundle integrity itself is
+    never taken from the report: ``ValidatedBundleReader`` independently
+    re-verified every manifest byte count and SHA-256 before this gate runs.
+    """
+    entries = {entry["path"]: entry for entry in manifest["files"]}
+    entry = entries.get(QUALITY_PATH)
+    if entry is None:
+        raise IngestionError(
+            f"canonical quality payload missing from manifest: {QUALITY_PATH}"
+        )
+    if entry["media_type"] != JSON_MEDIA_TYPE:
+        raise IngestionError(
+            f"{QUALITY_PATH} must declare media_type {JSON_MEDIA_TYPE!r}"
+        )
+
+    document = parse_json_bytes(reader.read(QUALITY_PATH))
+    _validate_quality_document(document, QUALITY_PATH)
+
+    if document["ready_for_htdt_ingestion"] is not True:
+        raise IngestionError(
+            "quality report does not assert ready_for_htdt_ingestion"
+        )
+    if document["integrity_status"] != "pass":
+        raise IngestionError(
+            "contradictory quality report: ready_for_htdt_ingestion is "
+            f"true but integrity_status is "
+            f"{document['integrity_status']!r}"
+        )
+    error_diagnostics = [
+        diagnostic["code"]
+        for diagnostic in document["diagnostics"]
+        if diagnostic["severity"] == "error"
+    ]
+    if error_diagnostics:
+        raise IngestionError(
+            "contradictory quality report: ready_for_htdt_ingestion is "
+            f"true with error diagnostics {sorted(error_diagnostics)}"
+        )
+    error_events = [
+        event["kind"]
+        for event in document["resource_events"]
+        if event["severity"] == "error"
+    ]
+    if error_events:
+        raise IngestionError(
+            "contradictory quality report: ready_for_htdt_ingestion is "
+            f"true with error resource events {sorted(error_events)}"
+        )
 
 
 def _build_source_registry(
@@ -607,6 +929,10 @@ def build_ingestion_plan(bundle_path: Path) -> dict:
     try:
         manifest = parse_json_bytes(reader.read("manifest.json"))
         bundle_digest = reader.report["bundle_digest"]
+
+        # The finalized-capture quality gate runs before any source
+        # evidence or downstream handoff is produced (#146).
+        _enforce_quality_gate(reader, manifest)
 
         source_records, source_by_path = _build_source_registry(
             manifest,
