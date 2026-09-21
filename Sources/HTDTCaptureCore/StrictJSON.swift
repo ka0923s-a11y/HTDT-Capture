@@ -24,6 +24,36 @@ public indirect enum StrictJSONValue: Sendable, Equatable {
     case boolean(Bool)
     case null
 
+    // Tuples cannot conform to Equatable, so the object case needs a
+    // manual implementation: key order is significant because
+    // StrictJSON preserves source order for diagnostics.
+    public static func == (
+        lhs: StrictJSONValue,
+        rhs: StrictJSONValue
+    ) -> Bool {
+        switch (lhs, rhs) {
+        case let (.object(a), .object(b)):
+            return a.count == b.count
+                && zip(a, b).allSatisfy {
+                    $0.key == $1.key && $0.value == $1.value
+                }
+        case let (.array(a), .array(b)):
+            return a == b
+        case let (.string(a), .string(b)):
+            return a == b
+        case let (.integer(a), .integer(b)):
+            return a == b
+        case let (.number(a), .number(b)):
+            return a == b
+        case let (.boolean(a), .boolean(b)):
+            return a == b
+        case (.null, .null):
+            return true
+        default:
+            return false
+        }
+    }
+
     public var isNull: Bool {
         if case .null = self {
             return true

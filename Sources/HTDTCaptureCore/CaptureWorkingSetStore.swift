@@ -3161,7 +3161,7 @@ public actor CaptureWorkingSetStore {
     /// most recent observation of a tracking state: quality evaluation keys
     /// on state presence, so evicting must preserve at least one interval
     /// per observed state.
-    private mutating func evictTrackingIntervalsIfNeeded() {
+    private func evictTrackingIntervalsIfNeeded() {
         while trackingIntervals.count > Self.maxTrackingIntervals {
             var evicted = false
             for index in trackingIntervals.indices.dropLast() {
