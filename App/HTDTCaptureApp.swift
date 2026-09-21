@@ -2660,13 +2660,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         sessionController.roomPlanInstructionHandler = {
             [weak self] observation in
-            guard let self,
-                  self.captureGeneration == generation
-            else {
-                return
-            }
             Task { @MainActor [weak self] in
-                guard self != nil else { return }
+                guard let self,
+                      self.captureGeneration == generation
+                else {
+                    return
+                }
                 await store.recordRoomPlanGuidanceInstruction(
                     observation
                 )

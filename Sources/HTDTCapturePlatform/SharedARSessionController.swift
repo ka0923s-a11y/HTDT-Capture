@@ -379,16 +379,20 @@ private final class RoomPlanViewDelegateBridge:
 /// Forwards RoomPlan coaching/instruction transitions to the host so a
 /// bounded advisory history survives finalization (#260). The full
 /// delegate protocol is implemented; only `didProvide` is consumed.
+// RoomCaptureSessionDelegate is a pure-Swift protocol with nonisolated
+// requirements (unlike the ObjC ARSessionDelegate/RoomCaptureViewDelegate
+// bridges above), so the bridge cannot be MainActor-isolated. The
+// handler is assigned once before `run` and only read afterwards.
 @available(iOS 17.0, *)
-@MainActor
 private final class RoomPlanSessionInstructionBridge:
-    RoomCaptureSessionDelegate
+    RoomCaptureSessionDelegate,
+    @unchecked Sendable
 {
-    var instructionHandler: (
-        @MainActor (RoomPlanGuidanceObservation) -> Void
+    nonisolated(unsafe) var instructionHandler: (
+        @Sendable (RoomPlanGuidanceObservation) -> Void
     )?
 
-    func captureSession(
+    nonisolated func captureSession(
         _ session: RoomCaptureSession,
         didProvide instruction: RoomCaptureSession.Instruction
     ) {
@@ -401,32 +405,32 @@ private final class RoomPlanSessionInstructionBridge:
         )
     }
 
-    func captureSession(
+    nonisolated func captureSession(
         _ session: RoomCaptureSession,
         didUpdate room: CapturedRoom
     ) {}
 
-    func captureSession(
+    nonisolated func captureSession(
         _ session: RoomCaptureSession,
         didAdd room: CapturedRoom
     ) {}
 
-    func captureSession(
+    nonisolated func captureSession(
         _ session: RoomCaptureSession,
         didChange room: CapturedRoom
     ) {}
 
-    func captureSession(
+    nonisolated func captureSession(
         _ session: RoomCaptureSession,
         didRemove room: CapturedRoom
     ) {}
 
-    func captureSession(
+    nonisolated func captureSession(
         _ session: RoomCaptureSession,
         didStartWith configuration: RoomCaptureSession.Configuration
     ) {}
 
-    func captureSession(
+    nonisolated func captureSession(
         _ session: RoomCaptureSession,
         didEndWith data: CapturedRoomData,
         error: (any Error)?
@@ -477,9 +481,11 @@ public final class SharedARSessionController {
     }
 
     /// RoomPlan coaching/instruction observations (#260). Installed as
-    /// `roomCaptureSession.delegate` when RoomPlan runs.
+    /// `roomCaptureSession.delegate` when RoomPlan runs; invoked from the
+    /// framework's delegate queue (nonisolated), so hop to MainActor
+    /// inside the handler if needed.
     public var roomPlanInstructionHandler: (
-        @MainActor (RoomPlanGuidanceObservation) -> Void
+        @Sendable (RoomPlanGuidanceObservation) -> Void
     )? {
         get { roomPlanInstructionBridge.instructionHandler }
         set {
