@@ -899,6 +899,133 @@ class ReferenceIngestorTests(unittest.TestCase):
                 ],
             )
 
+    def test_absent_roomplan_metadata_yields_no_metadata(self):
+        plan = build_ingestion_plan(FIXTURE)
+        self.assertIsNone(plan["roomplan_capture_metadata"])
+        self.assertTrue(
+            all(
+                record["roomplan_capture_metadata"] is None
+                for record in plan["roomplan_records"]
+            )
+        )
+
+    def _stage_roomplan_metadata(self, copy_root: Path, **overrides):
+        manifest = json.loads(
+            (copy_root / "manifest.json").read_text(encoding="utf-8")
+        )
+        by_path = {entry["path"]: entry for entry in manifest["files"]}
+        document = {
+            "schema": "htdt.captured-room-metadata",
+            "schema_version": "1.0.0",
+            "capture_revision_id": manifest["capture_revision_id"],
+            "capture_session_id": SESSION_ID,
+            "coordinate_space_id": COORDINATE_SPACE_ID,
+            "raw_payload_path": "roomplan/captured-room-data.json",
+            "raw_sha256": by_path["roomplan/captured-room-data.json"][
+                "sha256"
+            ],
+            "processed_payload_path": "roomplan/captured-room.json",
+            "processed_sha256": by_path["roomplan/captured-room.json"][
+                "sha256"
+            ],
+            "surface_count": 4,
+            "object_count": 1,
+            "dimensions": {
+                "width_m": 3.4,
+                "depth_m": 4.0,
+                "height_m": 2.5,
+            },
+        }
+        document.update(overrides)
+        _add_payload(
+            copy_root,
+            "roomplan/captured-room-metadata.json",
+            json.dumps(
+                document,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8"),
+            producer="roomplan_capture",
+            provenance_class="capture_app_derived",
+        )
+
+    def test_roomplan_capture_metadata_binds_records_and_plan(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+            self._stage_roomplan_metadata(copy_root)
+
+            validate_bundle(copy_root)
+            plan = build_ingestion_plan(copy_root)
+            metadata = plan["roomplan_capture_metadata"]
+            self.assertEqual(
+                metadata["schema"], "htdt.captured-room-metadata"
+            )
+            self.assertEqual(metadata["surface_count"], 4)
+
+            by_path = {
+                record["path"]: record
+                for record in plan["roomplan_records"]
+            }
+            self.assertIs(
+                by_path["roomplan/captured-room-data.json"][
+                    "roomplan_capture_metadata"
+                ],
+                metadata,
+            )
+            self.assertIs(
+                by_path["roomplan/captured-room.json"][
+                    "roomplan_capture_metadata"
+                ],
+                metadata,
+            )
+
+    def test_roomplan_metadata_identity_conflict_fails(self):
+        for field, value in (
+            ("capture_revision_id", "20000000-0000-4000-8000-0000000000ee"),
+            ("capture_session_id", "20000000-0000-4000-8000-0000000000ee"),
+            ("coordinate_space_id", "20000000-0000-4000-8000-0000000000ee"),
+        ):
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as td:
+                    copy_root = Path(td) / "bundle"
+                    shutil.copytree(FIXTURE, copy_root)
+                    self._stage_roomplan_metadata(
+                        copy_root, **{field: value}
+                    )
+                    validate_bundle(copy_root)
+                    with self.assertRaises(IngestionError):
+                        build_ingestion_plan(copy_root)
+
+    def test_roomplan_metadata_wrong_raw_path_or_hash_fails(self):
+        for field, value in (
+            ("raw_payload_path", "roomplan/captured-room.json"),
+            ("raw_sha256", "0" * 64),
+            ("processed_sha256", "0" * 64),
+        ):
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as td:
+                    copy_root = Path(td) / "bundle"
+                    shutil.copytree(FIXTURE, copy_root)
+                    self._stage_roomplan_metadata(
+                        copy_root, **{field: value}
+                    )
+                    validate_bundle(copy_root)
+                    with self.assertRaises(IngestionError):
+                        build_ingestion_plan(copy_root)
+
+    def test_roomplan_metadata_incomplete_processed_pair_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+            self._stage_roomplan_metadata(
+                copy_root, processed_sha256=None
+            )
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError):
+                build_ingestion_plan(copy_root)
+
     def test_reference_ingestor_rejects_unknown_source_ref_prefix(self):
         with tempfile.TemporaryDirectory() as td:
             copy_root = Path(td) / "bundle"

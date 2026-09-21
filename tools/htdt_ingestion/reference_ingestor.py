@@ -1096,6 +1096,158 @@ def _build_roomplan_records(
     return result
 
 
+def _load_roomplan_capture_metadata(
+    reader: ValidatedBundleReader,
+    manifest: dict,
+    source_by_path: dict[str, dict],
+    roomplan_records: list[dict],
+) -> dict | None:
+    """Validate and carry ``roomplan/captured-room-metadata.json`` (#152).
+
+    The canonical metadata payload binds the raw and processed RoomPlan
+    artifacts to the manifest identity registry. It is optional evidence:
+    an undeclared path yields ``None``; a declared but malformed or
+    identity-conflicting document fails closed.
+    """
+    entry = source_by_path.get(ROOMPLAN_METADATA_PATH)
+    if entry is None:
+        return None
+    if entry["media_type"] != JSON_MEDIA_TYPE:
+        raise IngestionError(
+            f"{ROOMPLAN_METADATA_PATH} must declare media_type "
+            f"{JSON_MEDIA_TYPE!r}"
+        )
+
+    document = parse_json_bytes(reader.read(ROOMPLAN_METADATA_PATH))
+    _require_schema(document, ROOMPLAN_METADATA_SCHEMA)
+    field = ROOMPLAN_METADATA_PATH
+    _require_document_keys(
+        document,
+        required={
+            "schema",
+            "schema_version",
+            "capture_revision_id",
+            "capture_session_id",
+            "coordinate_space_id",
+            "raw_payload_path",
+            "raw_sha256",
+        },
+        optional={
+            "processed_payload_path",
+            "processed_sha256",
+            "surface_count",
+            "object_count",
+            "dimensions",
+        },
+        field=field,
+    )
+
+    validate_uuid4(
+        document["capture_revision_id"], f"{field}.capture_revision_id"
+    )
+    if document["capture_revision_id"] != manifest["capture_revision_id"]:
+        raise IngestionError(
+            f"{field}.capture_revision_id conflicts with the manifest"
+        )
+    validate_uuid4(
+        document["capture_session_id"], f"{field}.capture_session_id"
+    )
+    _require_member(
+        document["capture_session_id"],
+        set(manifest["capture_session_ids"]),
+        f"{field}.capture_session_id",
+    )
+    validate_uuid4(
+        document["coordinate_space_id"], f"{field}.coordinate_space_id"
+    )
+    _require_member(
+        document["coordinate_space_id"],
+        set(manifest["coordinate_space_ids"]),
+        f"{field}.coordinate_space_id",
+    )
+
+    declared = {entry["path"]: entry for entry in manifest["files"]}
+    raw_paths = {
+        record["path"]
+        for record in roomplan_records
+        if record["kind"] == "raw_scan"
+    }
+    processed_paths = {
+        record["path"]
+        for record in roomplan_records
+        if record["kind"] == "postprocessed_inference"
+    }
+
+    raw_payload_path = document["raw_payload_path"]
+    if not isinstance(raw_payload_path, str) or not raw_payload_path:
+        raise IngestionError(
+            f"{field}.raw_payload_path must be a non-empty string"
+        )
+    _require_sha256_text(document["raw_sha256"], f"{field}.raw_sha256")
+    if raw_payload_path not in raw_paths:
+        raise IngestionError(
+            f"{field}.raw_payload_path does not name the selected raw "
+            f"RoomPlan record: {raw_payload_path!r}"
+        )
+    if declared[raw_payload_path]["sha256"] != document["raw_sha256"]:
+        raise IngestionError(
+            f"{field}.raw_sha256 conflicts with the manifest"
+        )
+
+    processed_payload_path = document.get("processed_payload_path")
+    processed_sha256 = document.get("processed_sha256")
+    if (processed_payload_path is None) != (processed_sha256 is None):
+        raise IngestionError(
+            f"{field} processed payload reference is incomplete"
+        )
+    if processed_payload_path is not None:
+        if (
+            not isinstance(processed_payload_path, str)
+            or not processed_payload_path
+        ):
+            raise IngestionError(
+                f"{field}.processed_payload_path must be a non-empty "
+                "string"
+            )
+        _require_sha256_text(
+            processed_sha256, f"{field}.processed_sha256"
+        )
+        if processed_payload_path not in processed_paths:
+            raise IngestionError(
+                f"{field}.processed_payload_path does not name the "
+                f"selected processed RoomPlan record: "
+                f"{processed_payload_path!r}"
+            )
+        if (
+            declared[processed_payload_path]["sha256"]
+            != processed_sha256
+        ):
+            raise IngestionError(
+                f"{field}.processed_sha256 conflicts with the manifest"
+            )
+
+    for key in ("surface_count", "object_count"):
+        value = document.get(key)
+        if value is not None:
+            _require_non_negative_int(value, f"{field}.{key}")
+
+    dimensions = document.get("dimensions")
+    if dimensions is not None:
+        if not isinstance(dimensions, dict):
+            raise IngestionError(f"{field}.dimensions must be an object")
+        for name, value in dimensions.items():
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(value)
+            ):
+                raise IngestionError(
+                    f"{field}.dimensions[{name!r}] must be finite"
+                )
+
+    return document
+
+
 def _load_mesh_anchor_index(
     reader: ValidatedBundleReader,
     manifest: dict,
@@ -1764,6 +1916,26 @@ def build_ingestion_plan(bundle_path: Path) -> dict:
             manifest,
             source_by_path,
         )
+        roomplan_metadata = _load_roomplan_capture_metadata(
+            reader,
+            manifest,
+            source_by_path,
+            roomplan_records,
+        )
+        metadata_paths = (
+            {
+                roomplan_metadata["raw_payload_path"],
+                roomplan_metadata.get("processed_payload_path"),
+            }
+            if roomplan_metadata is not None
+            else set()
+        )
+        for record in roomplan_records:
+            record["roomplan_capture_metadata"] = (
+                roomplan_metadata
+                if record["path"] in metadata_paths
+                else None
+            )
         anchor_index = _load_mesh_anchor_index(
             reader,
             manifest,
@@ -1831,6 +2003,7 @@ def build_ingestion_plan(bundle_path: Path) -> dict:
             },
             "source_evidence": source_records,
             "roomplan_records": roomplan_records,
+            "roomplan_capture_metadata": roomplan_metadata,
             "raw_visual_mesh_handoffs": raw_mesh_handoffs,
             "authority_records": authority_records,
             "lineage_digest": lineage_digest,
