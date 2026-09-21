@@ -135,6 +135,7 @@ final class CaptureWorkingSetStoreTests: XCTestCase {
                 "mesh/anchors.json",
                 "mesh/geometry/10000000-0000-4000-8000-000000000005.meshbin",
                 "roomplan/captured-room-data.json",
+                "roomplan/captured-room-metadata.json",
                 "roomplan/captured-room.json",
             ]
         )

@@ -47,6 +47,7 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
     public let payloadDeclarations: [BundlePayloadDeclaration]
     public let rawRoomPlanDescriptor: RoomPlanRawEvidenceDescriptor?
     public let processedRoomPlanDescriptor: RoomPlanProcessedEvidenceDescriptor?
+    public let capturedRoomMetadata: CapturedRoomMetadataDocument?
     public let meshAnchorCount: Int?
     public let evidenceFrameCount: Int
     public let depthEvidenceCount: Int
@@ -60,6 +61,7 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         payloadDeclarations: [BundlePayloadDeclaration],
         rawRoomPlanDescriptor: RoomPlanRawEvidenceDescriptor?,
         processedRoomPlanDescriptor: RoomPlanProcessedEvidenceDescriptor?,
+        capturedRoomMetadata: CapturedRoomMetadataDocument?,
         meshAnchorCount: Int?,
         evidenceFrameCount: Int,
         depthEvidenceCount: Int,
@@ -72,6 +74,7 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         self.payloadDeclarations = payloadDeclarations
         self.rawRoomPlanDescriptor = rawRoomPlanDescriptor
         self.processedRoomPlanDescriptor = processedRoomPlanDescriptor
+        self.capturedRoomMetadata = capturedRoomMetadata
         self.meshAnchorCount = meshAnchorCount
         self.evidenceFrameCount = evidenceFrameCount
         self.depthEvidenceCount = depthEvidenceCount
@@ -94,6 +97,7 @@ public actor CaptureWorkingSetStore {
     private var declarations: [String: BundlePayloadDeclaration] = [:]
     private var rawRoomPlanDescriptor: RoomPlanRawEvidenceDescriptor?
     private var processedRoomPlanDescriptor: RoomPlanProcessedEvidenceDescriptor?
+    private var capturedRoomMetadata: CapturedRoomMetadataDocument?
     private var meshAnchorCount: Int?
     private var meshIndex: MeshAnchorEvidenceIndex?
     private var frameDescriptors: [FrameEvidenceDescriptor] = []
@@ -255,13 +259,25 @@ public actor CaptureWorkingSetStore {
             coordinateSpaceID: raw.descriptor.coordinateSpaceID
         )
 
+        // Lineage metadata derives deterministically from the validated
+        // descriptors, so it is part of the same logical transaction and
+        // must replay byte-identically.
+        let metadata = try CapturedRoomMetadataPackageBuilder.build(
+            captureRevisionID: identity.captureRevisionID,
+            raw: raw.descriptor,
+            processed: processed.descriptor,
+            summary: processed.metadataSummary
+        )
+
         if let timingDocument,
            let rawRoomPlanDescriptor,
-           let processedRoomPlanDescriptor
+           let processedRoomPlanDescriptor,
+           let capturedRoomMetadata
         {
             if timingDocument == timingPackage.document,
                rawRoomPlanDescriptor == raw.descriptor,
-               processedRoomPlanDescriptor == processed.descriptor
+               processedRoomPlanDescriptor == processed.descriptor,
+               capturedRoomMetadata == metadata.document
             {
                 return
             }
@@ -273,7 +289,8 @@ public actor CaptureWorkingSetStore {
 
         guard timingDocument == nil,
               rawRoomPlanDescriptor == nil,
-              processedRoomPlanDescriptor == nil
+              processedRoomPlanDescriptor == nil,
+              capturedRoomMetadata == nil
         else {
             throw CaptureWorkingSetError
                 .integrityVerificationFailed
@@ -296,10 +313,15 @@ public actor CaptureWorkingSetStore {
                 "sha256:\(raw.descriptor.sha256.description)"
             ]
         )
+        let metadataDeclaration = roomPlanMetadataDeclaration(
+            raw: raw.descriptor,
+            processed: processed.descriptor
+        )
         let transactionDeclarations = [
             timingPackage.payloadDeclaration,
             rawDeclaration,
             processedDeclaration,
+            metadataDeclaration,
         ]
 
         for declaration in transactionDeclarations {
@@ -330,6 +352,12 @@ public actor CaptureWorkingSetStore {
                     processed.descriptor.relativePath
                 )
             ),
+            CaptureFileWriteRequest(
+                data: metadata.data,
+                path: CaptureStorePath(
+                    RoomPlanEvidenceArtifactBuilder.metadataPath
+                )
+            ),
         ]
 
         try await writer.writeBatchIfIdentical(writes)
@@ -339,11 +367,13 @@ public actor CaptureWorkingSetStore {
         // replay. Any different logical authority remains fail-closed.
         if let existingTiming = timingDocument,
            let existingRaw = rawRoomPlanDescriptor,
-           let existingProcessed = processedRoomPlanDescriptor
+           let existingProcessed = processedRoomPlanDescriptor,
+           let existingMetadata = capturedRoomMetadata
         {
             if existingTiming == timingPackage.document,
                existingRaw == raw.descriptor,
-               existingProcessed == processed.descriptor
+               existingProcessed == processed.descriptor,
+               existingMetadata == metadata.document
             {
                 return
             }
@@ -356,6 +386,7 @@ public actor CaptureWorkingSetStore {
         guard timingDocument == nil,
               rawRoomPlanDescriptor == nil,
               processedRoomPlanDescriptor == nil,
+              capturedRoomMetadata == nil,
               transactionDeclarations.allSatisfy({
                   declarations[$0.path] == nil
               })
@@ -372,6 +403,7 @@ public actor CaptureWorkingSetStore {
         timingDocument = timingPackage.document
         rawRoomPlanDescriptor = raw.descriptor
         processedRoomPlanDescriptor = processed.descriptor
+        capturedRoomMetadata = metadata.document
     }
 
     public func rollbackAcceptedEndTransaction(
@@ -381,6 +413,7 @@ public actor CaptureWorkingSetStore {
               let expectedTiming = timingDocument,
               let expectedRaw = rawRoomPlanDescriptor,
               let expectedProcessed = processedRoomPlanDescriptor,
+              let expectedMetadata = capturedRoomMetadata,
               expectedProcessed.sourceRawSHA256
                 == expectedRaw.sha256,
               expectedProcessed.captureSessionID
@@ -449,6 +482,23 @@ public actor CaptureWorkingSetStore {
                 .integrityVerificationFailed
         }
 
+        let metadataData = try Data(
+            contentsOf: payloadURL(
+                RoomPlanEvidenceArtifactBuilder.metadataPath
+            )
+        )
+        guard
+            let decodedMetadata =
+                try? JSONDecoder().decode(
+                    CapturedRoomMetadataDocument.self,
+                    from: metadataData
+                ),
+            decodedMetadata == expectedMetadata
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
         let timingDeclaration =
             BundlePayloadDeclaration(
                 path: CaptureTimingPackage.path,
@@ -478,10 +528,17 @@ public actor CaptureWorkingSetStore {
                 ]
             )
 
+        let metadataDeclaration =
+            roomPlanMetadataDeclaration(
+                raw: expectedRaw,
+                processed: expectedProcessed
+            )
+
         var declarationsToRemove = [
             timingDeclaration,
             rawDeclaration,
             processedDeclaration,
+            metadataDeclaration,
         ]
         var removals: [CaptureFileWriteRequest] = try [
             CaptureFileWriteRequest(
@@ -500,6 +557,13 @@ public actor CaptureWorkingSetStore {
                 data: processedData,
                 path: CaptureStorePath(
                     expectedProcessed.relativePath
+                )
+            ),
+            CaptureFileWriteRequest(
+                data: metadataData,
+                path: CaptureStorePath(
+                    RoomPlanEvidenceArtifactBuilder
+                        .metadataPath
                 )
             ),
         ]
@@ -610,6 +674,7 @@ public actor CaptureWorkingSetStore {
               rawRoomPlanDescriptor == expectedRaw,
               processedRoomPlanDescriptor
                 == expectedProcessed,
+              capturedRoomMetadata == expectedMetadata,
               (
                 !removeOwnedMesh
                 || meshIndex == expectedMesh
@@ -630,6 +695,7 @@ public actor CaptureWorkingSetStore {
         timingDocument = nil
         rawRoomPlanDescriptor = nil
         processedRoomPlanDescriptor = nil
+        capturedRoomMetadata = nil
 
         if removeOwnedMesh {
             meshIndex = nil
@@ -652,28 +718,35 @@ public actor CaptureWorkingSetStore {
             throw CaptureWorkingSetError.invalidRawRoomPlanDescriptor
         }
 
+        try bindAuthority(
+            captureSessionID: descriptor.captureSessionID,
+            coordinateSpaceID: descriptor.coordinateSpaceID
+        )
+
+        // The lineage document commits alongside the raw artifact so the
+        // RoomPlan session/coordinate/runtime authority survives
+        // finalization even if no processed artifact ever lands (issue
+        // #152). A later processed commit replaces these exact bytes with
+        // the full raw+processed lineage document.
+        let metadata = try CapturedRoomMetadataPackageBuilder.build(
+            captureRevisionID: identity.captureRevisionID,
+            raw: descriptor,
+            processed: nil
+        )
+
         // RoomCaptureView can deliver the same completion payload more than
         // once around stop()/review transition. Validate the replay bytes
         // first, then treat an exact descriptor replay as harmless.
         if let existing = rawRoomPlanDescriptor {
-            if existing == descriptor {
+            if existing == descriptor,
+               capturedRoomMetadata == metadata.document
+            {
                 return
             }
             throw CaptureWorkingSetError.duplicatePayloadDeclaration(
                 RoomPlanEvidenceArtifactBuilder.rawPath
             )
         }
-
-        try bindAuthority(
-            captureSessionID: descriptor.captureSessionID,
-            coordinateSpaceID: descriptor.coordinateSpaceID
-        )
-
-        let path = try CaptureStorePath(descriptor.relativePath)
-        try await writer.writeIfIdentical(
-            payload.data,
-            to: path
-        )
 
         let declaration = BundlePayloadDeclaration(
             path: descriptor.relativePath,
@@ -682,8 +755,41 @@ public actor CaptureWorkingSetStore {
             provenanceClass: .appleRoomPlanRawScan,
             role: .canonical
         )
+        let metadataDeclaration = roomPlanMetadataDeclaration(
+            raw: descriptor,
+            processed: nil
+        )
+
+        try await writer.writeBatchIfIdentical([
+            CaptureFileWriteRequest(
+                data: payload.data,
+                path: try CaptureStorePath(descriptor.relativePath)
+            ),
+            CaptureFileWriteRequest(
+                data: metadata.data,
+                path: try CaptureStorePath(
+                    RoomPlanEvidenceArtifactBuilder.metadataPath
+                )
+            ),
+        ])
+
+        // Re-check after the writer-actor suspension: an identical
+        // reentrant commit is idempotent; any other authority fails.
+        if let existing = rawRoomPlanDescriptor {
+            if existing == descriptor,
+               capturedRoomMetadata == metadata.document
+            {
+                return
+            }
+            throw CaptureWorkingSetError.duplicatePayloadDeclaration(
+                RoomPlanEvidenceArtifactBuilder.rawPath
+            )
+        }
+
         try register(declaration)
+        try register(metadataDeclaration)
         rawRoomPlanDescriptor = descriptor
+        capturedRoomMetadata = metadata.document
     }
 
     public func persistProcessedRoomPlan(
@@ -715,11 +821,23 @@ public actor CaptureWorkingSetStore {
                 .processedRoomPlanLineageMismatch
         }
 
+        // The lineage document derives deterministically from the
+        // validated descriptors, so a repeated call always produces
+        // byte-identical metadata.
+        let metadata = try CapturedRoomMetadataPackageBuilder.build(
+            captureRevisionID: identity.captureRevisionID,
+            raw: raw,
+            processed: descriptor,
+            summary: payload.metadataSummary
+        )
+
         // Match raw RoomPlan replay semantics after validating bytes and
         // lineage. Exact duplicate completion is idempotent; a conflicting
         // canonical payload is rejected.
         if let existing = processedRoomPlanDescriptor {
-            if existing == descriptor {
+            if existing == descriptor,
+               capturedRoomMetadata == metadata.document
+            {
                 return
             }
             throw CaptureWorkingSetError.duplicatePayloadDeclaration(
@@ -727,11 +845,59 @@ public actor CaptureWorkingSetStore {
             )
         }
 
-        let path = try CaptureStorePath(descriptor.relativePath)
-        try await writer.writeIfIdentical(
-            payload.data,
-            to: path
+        // The raw commit already wrote a raw-only lineage document. Rebuild
+        // its exact bytes and remove only those bytes so the full
+        // raw+processed document can take the canonical path. The in-memory
+        // document is compared against a deterministic rebuild and the
+        // declaration is re-verified, so nothing this attempt did not own
+        // can be removed.
+        guard let previousMetadata = capturedRoomMetadata else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+        let previous = try CapturedRoomMetadataPackageBuilder.build(
+            captureRevisionID: identity.captureRevisionID,
+            raw: raw,
+            processed: nil
         )
+        guard previousMetadata == previous.document else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+        let previousMetadataDeclaration =
+            roomPlanMetadataDeclaration(
+                raw: raw,
+                processed: nil
+            )
+        guard declarations[previousMetadataDeclaration.path]
+                == previousMetadataDeclaration
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        let removedOrAbsent = try await writer.removeIfIdentical(
+            previous.data,
+            at: CaptureStorePath(
+                RoomPlanEvidenceArtifactBuilder.metadataPath
+            )
+        )
+        guard removedOrAbsent else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
+        // Re-check after the writer-actor suspension: no other commit may
+        // have advanced RoomPlan authority while the old bytes were
+        // removed.
+        guard processedRoomPlanDescriptor == nil,
+              capturedRoomMetadata == previousMetadata,
+              declarations[previousMetadataDeclaration.path]
+                == previousMetadataDeclaration
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
 
         let declaration = BundlePayloadDeclaration(
             path: descriptor.relativePath,
@@ -743,8 +909,51 @@ public actor CaptureWorkingSetStore {
                 "sha256:\(raw.sha256.description)"
             ]
         )
+        let metadataDeclaration = roomPlanMetadataDeclaration(
+            raw: raw,
+            processed: descriptor
+        )
+
+        // Processed RoomPlan and its upgraded lineage metadata commit as
+        // one writer-actor batch: a failure rolls back only files created
+        // by this attempt and never deletes pre-existing conflicting
+        // bytes. A retry after a failed batch is safe because state
+        // mutation only happens after the last suspension point.
+        try await writer.writeBatchIfIdentical([
+            CaptureFileWriteRequest(
+                data: payload.data,
+                path: try CaptureStorePath(descriptor.relativePath)
+            ),
+            CaptureFileWriteRequest(
+                data: metadata.data,
+                path: try CaptureStorePath(
+                    RoomPlanEvidenceArtifactBuilder.metadataPath
+                )
+            ),
+        ])
+
+        // Re-check after the writer-actor suspension: an identical
+        // reentrant commit is idempotent; any other authority fails.
+        if let existing = processedRoomPlanDescriptor {
+            if existing == descriptor,
+               capturedRoomMetadata == metadata.document
+            {
+                return
+            }
+            throw CaptureWorkingSetError.duplicatePayloadDeclaration(
+                RoomPlanEvidenceArtifactBuilder.processedPath
+            )
+        }
+
+        guard capturedRoomMetadata == previousMetadata else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
         try register(declaration)
+        declarations[metadataDeclaration.path] = metadataDeclaration
         processedRoomPlanDescriptor = descriptor
+        capturedRoomMetadata = metadata.document
     }
 
     public func persistMeshPackage(
@@ -1619,6 +1828,7 @@ public actor CaptureWorkingSetStore {
             },
             rawRoomPlanDescriptor: rawRoomPlanDescriptor,
             processedRoomPlanDescriptor: processedRoomPlanDescriptor,
+            capturedRoomMetadata: capturedRoomMetadata,
             meshAnchorCount: meshAnchorCount,
             evidenceFrameCount: evidenceFrameCount,
             depthEvidenceCount: depthEvidenceCount,
@@ -1696,6 +1906,9 @@ public actor CaptureWorkingSetStore {
         }
 
         if let rawRoomPlanDescriptor {
+            guard capturedRoomMetadata != nil else {
+                throw CaptureWorkingSetError.integrityVerificationFailed
+            }
             try verifyFile(
                 path: rawRoomPlanDescriptor.relativePath,
                 byteCount: rawRoomPlanDescriptor.byteCount,
@@ -1707,7 +1920,9 @@ public actor CaptureWorkingSetStore {
         if let processedRoomPlanDescriptor {
             guard let rawRoomPlanDescriptor,
                   processedRoomPlanDescriptor.sourceRawSHA256
-                    == rawRoomPlanDescriptor.sha256
+                    == rawRoomPlanDescriptor.sha256,
+                  capturedRoomMetadata?.processedSHA256
+                    == processedRoomPlanDescriptor.sha256
             else {
                 throw CaptureWorkingSetError.integrityVerificationFailed
             }
@@ -1715,6 +1930,33 @@ public actor CaptureWorkingSetStore {
                 path: processedRoomPlanDescriptor.relativePath,
                 byteCount: processedRoomPlanDescriptor.byteCount,
                 sha256: processedRoomPlanDescriptor.sha256,
+                actualByPath: actualByPath
+            )
+        }
+
+        // The lineage document is committed iff raw RoomPlan evidence is
+        // committed, and it records processed lineage iff the processed
+        // descriptor is committed.
+        if let capturedRoomMetadata {
+            guard let rawRoomPlanDescriptor,
+                  capturedRoomMetadata.captureSessionID
+                    == rawRoomPlanDescriptor.captureSessionID,
+                  capturedRoomMetadata.coordinateSpaceID
+                    == rawRoomPlanDescriptor.coordinateSpaceID,
+                  capturedRoomMetadata.rawPayloadPath
+                    == rawRoomPlanDescriptor.relativePath,
+                  capturedRoomMetadata.rawSHA256
+                    == rawRoomPlanDescriptor.sha256,
+                  (
+                    capturedRoomMetadata.processedSHA256
+                        == nil
+                    ) == (processedRoomPlanDescriptor == nil)
+            else {
+                throw CaptureWorkingSetError.integrityVerificationFailed
+            }
+            try verifyTypedJSON(
+                path: RoomPlanEvidenceArtifactBuilder.metadataPath,
+                expected: capturedRoomMetadata,
                 actualByPath: actualByPath
             )
         }
@@ -2020,6 +2262,29 @@ public actor CaptureWorkingSetStore {
         }
         self.captureSessionID = captureSessionID
         self.coordinateSpaceID = coordinateSpaceID
+    }
+
+    /// The lineage document declaration must be byte-identical between the
+    /// persistence paths and rollback verification, so it is constructed in
+    /// exactly one place. A raw-only lineage document references just the
+    /// raw artifact; the processed commit swaps in the two-artifact
+    /// declaration.
+    private func roomPlanMetadataDeclaration(
+        raw: RoomPlanRawEvidenceDescriptor,
+        processed: RoomPlanProcessedEvidenceDescriptor?
+    ) -> BundlePayloadDeclaration {
+        var sourceRefs = ["path:\(raw.relativePath)"]
+        if let processed {
+            sourceRefs.append("path:\(processed.relativePath)")
+        }
+        return BundlePayloadDeclaration(
+            path: RoomPlanEvidenceArtifactBuilder.metadataPath,
+            mediaType: "application/json",
+            producer: "capture_app",
+            provenanceClass: .captureAppDerived,
+            role: .canonical,
+            sourceRefs: sourceRefs
+        )
     }
 
     private func register(
