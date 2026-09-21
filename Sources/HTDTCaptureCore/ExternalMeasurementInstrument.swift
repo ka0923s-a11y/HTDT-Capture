@@ -113,7 +113,7 @@ public struct InstrumentAdapterDescriptor: Sendable, Equatable {
         }
         switch acquisitionMethod {
         case .tapeMeasure, .laserDistanceMeter,
-             .manufacturerSpecification, .other:
+             .manufacturerSpecification, .externalInstrument, .other:
             break
         case .lidarDerived, .roomPlanDerived:
             throw InstrumentMeasurementError.invalidInstrumentMethod

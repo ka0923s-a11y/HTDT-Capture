@@ -653,6 +653,12 @@ enum BundleReservedPaths {
             provenanceClass: .userAttestedMeasurement,
             role: .canonical
         ),
+        "annotations/opening-review.json": Binding(
+            mediaType: "application/json",
+            producer: "annotation",
+            provenanceClass: .userAnnotation,
+            role: .canonical
+        ),
         "mesh/anchors.json": Binding(
             mediaType: "application/json",
             producer: "mesh_capture",
@@ -711,6 +717,12 @@ enum BundleReservedPaths {
             mediaType: "application/json",
             producer: "capture_session",
             provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
+        "session/room-reference-frame.json": Binding(
+            mediaType: "application/json",
+            producer: "room_frame",
+            provenanceClass: .userAnnotation,
             role: .canonical
         ),
         "session/timing.json": Binding(

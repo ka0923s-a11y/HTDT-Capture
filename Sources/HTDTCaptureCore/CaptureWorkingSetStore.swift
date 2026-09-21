@@ -86,6 +86,13 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
     /// sample — the fallback-satisfying depth evidence count.
     public let usableDepthEvidenceCount: Int
     public let evidenceFrameRefs: [String]
+    /// Committed room reference frame document (issue #232), if any.
+    public let roomReferenceFrame: RoomReferenceFrameDocument?
+    /// Committed opening-review document (issue #231), if any.
+    public let openingReview: OpeningReviewDocument?
+    /// Frame ids committed by the accepted End boundary (issue #241);
+    /// these are the non-removable closing observations of the scan.
+    public let endBoundaryFrameIDs: [EvidenceFrameID]
 
     public init(
         identity: CaptureWorkingSetIdentity,
@@ -103,7 +110,10 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         depthEvidenceCount: Int,
         usableDepthSampleCount: Int,
         usableDepthEvidenceCount: Int,
-        evidenceFrameRefs: [String]
+        evidenceFrameRefs: [String],
+        roomReferenceFrame: RoomReferenceFrameDocument? = nil,
+        openingReview: OpeningReviewDocument? = nil,
+        endBoundaryFrameIDs: [EvidenceFrameID] = []
     ) {
         self.identity = identity
         self.rootDirectory = rootDirectory
@@ -121,6 +131,9 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         self.usableDepthSampleCount = usableDepthSampleCount
         self.usableDepthEvidenceCount = usableDepthEvidenceCount
         self.evidenceFrameRefs = evidenceFrameRefs
+        self.roomReferenceFrame = roomReferenceFrame
+        self.openingReview = openingReview
+        self.endBoundaryFrameIDs = endBoundaryFrameIDs
     }
 }
 
@@ -358,6 +371,24 @@ public enum CoordinateSpacePolicyPackageBuilder {
     }
 }
 
+/// One unresolved or space-mismatched spatial evidence link on a
+/// committed record (issue #236). Reported — never silently repaired —
+/// so the host can name the dangling reference for repair.
+public struct SpatialEvidenceIssue:
+    Sendable,
+    Equatable
+{
+    public let owner: String
+    public let ref: String
+    public let reason: String
+
+    public init(owner: String, ref: String, reason: String) {
+        self.owner = owner
+        self.ref = ref
+        self.reason = reason
+    }
+}
+
 public actor CaptureWorkingSetStore {
     /// Deterministic bound on retained tracking-history intervals. Each
     /// interval contributes at most two quality events, so the canonical
@@ -395,6 +426,15 @@ public actor CaptureWorkingSetStore {
     private var supplementalDocuments: [String: Data] = [:]
     private var annotationKeysPresent: Set<String> = []
     private var measurementQuantityTypesPresent: Set<String> = []
+    /// User-confirmed room reference frame (issue #232), iff committed.
+    private var roomReferenceFrame: RoomReferenceFrameDocument?
+    /// Operator opening-review document (issue #231), iff committed.
+    private var openingReviewDocument: OpeningReviewDocument?
+    /// Frames committed by an accepted End boundary (issue #241). The
+    /// marker is in-memory host bookkeeping — cleared when the End
+    /// transaction is rolled back by Continue scanning — and never a
+    /// persisted field, so it carries no cross-launch semantics.
+    private var endBoundaryFrameIDs: Set<EvidenceFrameID> = []
     private var sessionFoundation:
         CaptureSessionFoundationPackage?
     private var timingDocument: CaptureTimingDocument?
@@ -1246,6 +1286,10 @@ public actor CaptureWorkingSetStore {
         processedRoomPlanDescriptor = nil
         capturedRoomMetadata = nil
         coordinateSpacePolicy = nil
+        // The End boundary that marked closing frames no longer exists;
+        // its markers must not outlive the accepted transaction
+        // (issue #241).
+        endBoundaryFrameIDs = []
 
         if removeOwnedMesh {
             meshIndex = nil
@@ -2407,6 +2451,466 @@ public actor CaptureWorkingSetStore {
         )
     }
 
+    /// Commits or replaces the operator-confirmed room reference frame
+    /// (issue #232). The frame is one canonical JSON payload bound to
+    /// the revision's session and coordinate space; replacement before
+    /// finalization is a single atomic rewrite so a re-capture never
+    /// leaves a half-updated frame behind.
+    public func commitRoomReferenceFrame(
+        _ package: RoomReferenceFramePackage
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        let admissionReservation = try reserveAdmission(
+            bytes: package.data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
+
+        guard let decoded = try? JSONDecoder().decode(
+            RoomReferenceFrameDocument.self,
+            from: package.data
+        ), decoded == package.document else {
+            throw CaptureWorkingSetError
+                .invalidSessionFoundationPackage
+        }
+        let document = package.document
+        guard document.captureRevisionID
+                == identity.captureRevisionID,
+              let captureSessionID,
+              document.captureSessionID == captureSessionID
+        else {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        try validateCoordinateAuthority(
+            document.coordinateSpaceID
+        )
+        for ref in document.evidenceRefs {
+            try requireSpatialEvidenceLinkCongruence(
+                ref,
+                coordinateSpaceID: document.coordinateSpaceID
+            )
+        }
+
+        let declaration = package.payloadDeclaration
+        if let existing = declarations[declaration.path] {
+            guard existing.path == declaration.path,
+                  existing.mediaType == declaration.mediaType,
+                  existing.producer == declaration.producer,
+                  existing.provenanceClass
+                    == declaration.provenanceClass,
+                  existing.role == declaration.role
+            else {
+                throw CaptureWorkingSetError
+                    .duplicatePayloadDeclaration(
+                        declaration.path
+                    )
+            }
+        }
+
+        try await writer.writeBatchReplacing([
+            try CaptureFileWriteRequest(
+                data: package.data,
+                path: CaptureStorePath(
+                    RoomReferenceFramePackage.path
+                )
+            ),
+        ])
+
+        // Re-check after the write suspension (#202).
+        guard let captureSessionIDAfter = self.captureSessionID,
+              document.captureSessionID == captureSessionIDAfter
+        else {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        try publishCoordinateAuthority(
+            document.coordinateSpaceID
+        )
+        declarations[declaration.path] = declaration
+        roomReferenceFrame = document
+    }
+
+    /// Removes the room reference frame payload entirely (issue #232).
+    /// The frame is optional authority and entities never reference it
+    /// implicitly, so removal is safe whenever the set is mutable.
+    public func removeRoomReferenceFrame() async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        guard roomReferenceFrame != nil else {
+            return
+        }
+        try await writer.removeIfPresent(
+            CaptureStorePath(RoomReferenceFramePackage.path)
+        )
+        declarations.removeValue(
+            forKey: RoomReferenceFramePackage.path
+        )
+        roomReferenceFrame = nil
+    }
+
+    /// Commits or replaces the operator's opening-review document
+    /// (issue #231). Upsert semantics: each review pass rewrites the
+    /// whole candidate set atomically, so disposition edits never
+    /// produce a torn document.
+    public func commitOpeningReview(
+        _ package: OpeningReviewPackage
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        let admissionReservation = try reserveAdmission(
+            bytes: package.data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
+
+        guard let decoded = try? JSONDecoder().decode(
+            OpeningReviewDocument.self,
+            from: package.data
+        ), decoded == package.document else {
+            throw CaptureWorkingSetError.invalidAnnotationPackage
+        }
+        let document = package.document
+        guard document.captureRevisionID
+                == identity.captureRevisionID,
+              let captureSessionID,
+              document.captureSessionID == captureSessionID
+        else {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        try validateCoordinateAuthority(
+            document.coordinateSpaceID
+        )
+        for opening in document.openings {
+            for ref in opening.evidenceRefs {
+                try requireSpatialEvidenceLinkCongruence(
+                    ref,
+                    coordinateSpaceID:
+                        document.coordinateSpaceID
+                )
+            }
+        }
+
+        let declaration = package.payloadDeclaration
+        if let existing = declarations[declaration.path] {
+            guard existing.path == declaration.path,
+                  existing.mediaType == declaration.mediaType,
+                  existing.producer == declaration.producer,
+                  existing.provenanceClass
+                    == declaration.provenanceClass,
+                  existing.role == declaration.role
+            else {
+                throw CaptureWorkingSetError
+                    .duplicatePayloadDeclaration(
+                        declaration.path
+                    )
+            }
+        }
+
+        try await writer.writeBatchReplacing([
+            try CaptureFileWriteRequest(
+                data: package.data,
+                path: CaptureStorePath(OpeningReviewPackage.path)
+            ),
+        ])
+
+        guard let captureSessionIDAfter = self.captureSessionID,
+              document.captureSessionID == captureSessionIDAfter
+        else {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        try publishCoordinateAuthority(
+            document.coordinateSpaceID
+        )
+        declarations[declaration.path] = declaration
+        openingReviewDocument = document
+    }
+
+    /// Removes the opening-review document (issue #231). The document
+    /// is operator metadata over RoomPlan inference; removing it leaves
+    /// the underlying candidates' source payload intact.
+    public func removeOpeningReview() async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        guard openingReviewDocument != nil else {
+            return
+        }
+        try await writer.removeIfPresent(
+            CaptureStorePath(OpeningReviewPackage.path)
+        )
+        declarations.removeValue(
+            forKey: OpeningReviewPackage.path
+        )
+        openingReviewDocument = nil
+    }
+
+    /// Marks frames committed by the current accepted End boundary
+    /// (issue #241): they are the closing spatial observation of the
+    /// scan and are never removable in the visual evidence review —
+    /// replacing them requires Continue scanning → End again. Runs as
+    /// a mutation entry point so the marker commits inside the same
+    /// fence ordering as the frame persistence it describes.
+    public func markEndBoundaryFrames(
+        _ frameIDs: [EvidenceFrameID]
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        endBoundaryFrameIDs.formUnion(frameIDs)
+    }
+
+    /// Removes one unreferenced optional evidence frame and all of its
+    /// payloads (issue #241). Refuses when the frame is the
+    /// End-boundary observation, when any committed authority
+    /// (annotation, measurement, opening candidate, or the room
+    /// reference frame) still references it, or when any of its
+    /// canonical members fail their recorded hash — a byte-level
+    /// mismatch means the working set is already inconsistent and the
+    /// failure must surface rather than silently delete evidence.
+    public func removeEvidenceFrame(
+        _ frameID: EvidenceFrameID
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+
+        guard let descriptor = frameDescriptors.first(where: {
+            $0.frameID == frameID
+        }) else {
+            throw CaptureWorkingSetError.integrityVerificationFailed
+        }
+        guard !endBoundaryFrameIDs.contains(frameID) else {
+            throw CaptureWorkingSetError
+                .unresolvableSpatialEvidenceLink(
+                    "end_boundary:\(frameID.description)"
+                )
+        }
+
+        // Referenced frames are never removable: deleting one would
+        // leave committed authority pointing at missing evidence.
+        let frameTokens: Set<String> = [
+            "path:evidence/frames/\(frameID.description).json",
+            "path:\(descriptor.pixelRelativePath)",
+            "frame:\(frameID.description)",
+        ]
+        func refsFrame(_ refs: [String]) -> Bool {
+            refs.contains { frameTokens.contains($0) }
+        }
+        for entity in annotationCollection?.entities ?? [] {
+            if refsFrame(
+                entity.evidenceRefs
+                    + entity.placement.sourceEvidenceRefs
+            ) {
+                throw CaptureWorkingSetError
+                    .unresolvableSpatialEvidenceLink(
+                        "referenced:\(entity.entityID.description)"
+                    )
+            }
+        }
+        for measurement in measurementCollection?.measurements ?? [] {
+            if refsFrame(
+                measurement.evidenceRefs + measurement.endpointRefs
+            ) {
+                throw CaptureWorkingSetError
+                    .unresolvableSpatialEvidenceLink(
+                        "referenced:\(measurement.measurementID.description)"
+                    )
+            }
+        }
+        for opening in openingReviewDocument?.openings ?? [] {
+            if refsFrame(opening.evidenceRefs) {
+                throw CaptureWorkingSetError
+                    .unresolvableSpatialEvidenceLink(
+                        "referenced:\(opening.sourceRef)"
+                    )
+            }
+        }
+        if let frame = roomReferenceFrame,
+           refsFrame(frame.evidenceRefs)
+        {
+            throw CaptureWorkingSetError
+                .unresolvableSpatialEvidenceLink(
+                    "referenced:room_reference_frame"
+                )
+        }
+
+        // Collect the frame's canonical + derived paths and verify the
+        // committed descriptor bytes still match before deleting.
+        let descriptorPath =
+            "evidence/frames/\(frameID.description).json"
+        var removals: [String] = [
+            descriptorPath,
+            descriptor.pixelRelativePath,
+        ]
+        if let depth = descriptor.depth {
+            removals.append(depth.depthRelativePath)
+            if let confidencePath = depth.confidenceRelativePath {
+                removals.append(confidencePath)
+            }
+        }
+        let preview = framePreviews.first(where: {
+            $0.path
+                == "evidence/frames/\(frameID.description).preview.heic"
+        })
+        if let preview {
+            removals.append(preview.path)
+        }
+
+        for path in removals {
+            let url = path.split(separator: "/").reduce(
+                rootDirectory
+            ) {
+                $0.appendingPathComponent(
+                    String($1),
+                    isDirectory: false
+                )
+            }
+            guard FileManager.default.fileExists(
+                atPath: url.path
+            ), let bytes = try? Data(contentsOf: url)
+            else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+            switch path {
+            case descriptorPath:
+                guard (try? JSONDecoder().decode(
+                    FrameEvidenceDescriptor.self,
+                    from: bytes
+                )) == descriptor else {
+                    throw CaptureWorkingSetError
+                        .integrityVerificationFailed
+                }
+            case descriptor.pixelRelativePath:
+                guard EvidenceIntegrity.sha256(of: bytes)
+                    == descriptor.pixelSHA256
+                else {
+                    throw CaptureWorkingSetError
+                        .integrityVerificationFailed
+                }
+            default:
+                break
+            }
+            try await writer.removeIfPresent(
+                CaptureStorePath(path)
+            )
+            declarations.removeValue(forKey: path)
+        }
+
+        frameDescriptors.removeAll { $0.frameID == frameID }
+        if let preview {
+            framePreviews.removeAll { $0 == preview }
+        }
+        endBoundaryFrameIDs.remove(frameID)
+        evidenceFrameCount -= 1
+        if descriptor.depth != nil {
+            depthEvidenceCount -= 1
+            // Recompute usable-depth counters: samples are tracked per
+            // package payload, which is no longer retained in memory,
+            // so recount from the remaining descriptors' payloads.
+            var usableSamples = 0
+            var usableFrames = 0
+            for remaining in frameDescriptors {
+                guard let depthPath =
+                        remaining.depth?.depthRelativePath
+                else {
+                    continue
+                }
+                let depthURL = depthPath
+                    .split(separator: "/")
+                    .reduce(rootDirectory) {
+                        $0.appendingPathComponent(
+                            String($1),
+                            isDirectory: false
+                        )
+                    }
+                let payload = try? Data(contentsOf: depthURL)
+                let samples = Self.usableDepthSamples(
+                    in: payload
+                )
+                usableSamples += samples
+                if samples > 0 {
+                    usableFrames += 1
+                }
+            }
+            usableDepthSampleCount = usableSamples
+            usableDepthEvidenceCount = usableFrames
+        }
+    }
+
+    /// Post-commit spatial evidence issues (#236): after a re-End the
+    /// accepted RoomPlan/mesh authority may have been replaced while
+    /// committed annotations still reference the prior mesh anchors or
+    /// frames. Reports every record whose spatial evidence link no
+    /// longer resolves so the host can surface repair targets instead
+    /// of silently dropping them.
+    public func committedSpatialEvidenceIssues()
+        -> [SpatialEvidenceIssue]
+    {
+        var issues: [SpatialEvidenceIssue] = []
+        func check(
+            _ ref: String,
+            space: CoordinateSpaceID,
+            owner: String
+        ) {
+            do {
+                try requireSpatialEvidenceLinkCongruence(
+                    ref,
+                    coordinateSpaceID: space
+                )
+            } catch {
+                issues.append(
+                    SpatialEvidenceIssue(
+                        owner: owner,
+                        ref: ref,
+                        reason: String(describing: error)
+                    )
+                )
+            }
+        }
+        for entity in annotationCollection?.entities ?? [] {
+            for ref in entity.evidenceRefs
+                + entity.placement.sourceEvidenceRefs
+            {
+                check(
+                    ref,
+                    space: entity.coordinateSpaceID,
+                    owner: "entity:\(entity.entityID.description)"
+                )
+            }
+            if let anchorID = entity.placement.sourceMeshAnchorID {
+                check(
+                    "mesh_anchor:\(anchorID.uuidString.lowercased())",
+                    space: entity.coordinateSpaceID,
+                    owner: "entity:\(entity.entityID.description)"
+                )
+            }
+            if let ref = entity.acousticCenter?.authorityRef {
+                check(
+                    ref,
+                    space: entity.coordinateSpaceID,
+                    owner: "entity:\(entity.entityID.description)"
+                )
+            }
+        }
+        for measurement in measurementCollection?.measurements ?? [] {
+            guard let space = measurement.coordinateSpaceID else {
+                continue
+            }
+            for ref in measurement.evidenceRefs
+                + measurement.endpointRefs
+            {
+                check(
+                    ref,
+                    space: space,
+                    owner: "measurement:\(measurement.measurementID.description)"
+                )
+            }
+        }
+        return issues
+    }
+
     public func persistAnnotationPackage(
         _ package: AnnotationEvidencePackage
     ) async throws {
@@ -3489,8 +3993,19 @@ public actor CaptureWorkingSetStore {
         }
     }
 
-    public func discardIncompleteRevision() throws {
+    /// Terminal discard of the whole working revision (issue #254).
+    /// Fencing order: the store first flips to `.consumed` so every
+    /// queued and future mutation entry point fails closed, then the
+    /// writer actor drains already-queued writes, and only then is the
+    /// directory removed — a write that was still queued can never
+    /// resurrect an orphan payload inside a deleted working set.
+    public func discardIncompleteRevision() async throws {
         try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+
+        sealState = .consumed
+        sealGeneration += 1
 
         let resolvedRoot = rootDirectory
             .standardizedFileURL
@@ -3508,6 +4023,9 @@ public actor CaptureWorkingSetStore {
         else {
             throw CaptureWorkingSetError.unsafeDiscardPath
         }
+
+        // Drain queued file writes before deleting the root.
+        await writer.barrier()
 
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: resolvedRoot.path) else {
@@ -3541,7 +4059,12 @@ public actor CaptureWorkingSetStore {
                         + $0.frameID.description
                         + ".json"
                 }
-                .sorted()
+                .sorted(),
+            roomReferenceFrame: roomReferenceFrame,
+            openingReview: openingReviewDocument,
+            endBoundaryFrameIDs: endBoundaryFrameIDs.sorted {
+                $0.description < $1.description
+            }
         )
     }
 
@@ -3681,6 +4204,43 @@ public actor CaptureWorkingSetStore {
             try verifyTypedJSON(
                 path: CoordinateSpacePolicyPackage.path,
                 expected: coordinateSpacePolicy,
+                actualByPath: actualByPath
+            )
+        }
+
+        // The room reference frame and opening review are operator
+        // authority payloads (issues #231/#232): when committed, their
+        // stored bytes must decode byte-exact to the tracked document.
+        if let roomReferenceFrame {
+            guard roomReferenceFrame.captureRevisionID
+                    == identity.captureRevisionID,
+                  roomReferenceFrame.captureSessionID
+                    == captureSessionID,
+                  roomReferenceFrame.coordinateSpaceID
+                    == coordinateSpaceID
+            else {
+                throw CaptureWorkingSetError.integrityVerificationFailed
+            }
+            try verifyTypedJSON(
+                path: RoomReferenceFramePackage.path,
+                expected: roomReferenceFrame,
+                actualByPath: actualByPath
+            )
+        }
+
+        if let openingReviewDocument {
+            guard openingReviewDocument.captureRevisionID
+                    == identity.captureRevisionID,
+                  openingReviewDocument.captureSessionID
+                    == captureSessionID,
+                  openingReviewDocument.coordinateSpaceID
+                    == coordinateSpaceID
+            else {
+                throw CaptureWorkingSetError.integrityVerificationFailed
+            }
+            try verifyTypedJSON(
+                path: OpeningReviewPackage.path,
+                expected: openingReviewDocument,
                 actualByPath: actualByPath
             )
         }

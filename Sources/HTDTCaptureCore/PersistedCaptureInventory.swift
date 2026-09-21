@@ -16,6 +16,11 @@ public enum PersistedCaptureInventoryError:
     /// A storage-protection attribute was applied without an error but
     /// did not verify back on the item.
     case storagePolicyVerificationFailed(String)
+    /// Removing the derived export archive was refused because the
+    /// canonical finalized copy could not be revalidated; deleting the
+    /// archive would have stranded the revision's only local authority
+    /// (issue #251).
+    case exportArchiveRemovalRequiresFinalizedCopy
 }
 
 /// Classifies a filesystem item that lives under an app-owned capture
@@ -81,6 +86,12 @@ public struct PersistedCaptureRecord:
     /// archive's bundle digest was proven identical at scan time.
     public let exportArchive: URL?
     public let exportValidation: BundleValidationReport?
+    /// Bytes retained on disk by the validated finalized directory at
+    /// scan time; nil when no finalized copy exists (issue #251).
+    public let finalizedByteCount: Int64?
+    /// Bytes retained on disk by the validated export archive at scan
+    /// time; nil when no archive exists (issue #251).
+    public let exportArchiveByteCount: Int64?
 
     public init(
         captureRevisionID: CaptureRevisionID,
@@ -89,7 +100,9 @@ public struct PersistedCaptureRecord:
         finalizedDirectory: URL?,
         finalizedValidation: BundleValidationReport?,
         exportArchive: URL?,
-        exportValidation: BundleValidationReport?
+        exportValidation: BundleValidationReport?,
+        finalizedByteCount: Int64? = nil,
+        exportArchiveByteCount: Int64? = nil
     ) {
         self.captureRevisionID = captureRevisionID
         self.captureSeriesID = captureSeriesID
@@ -98,6 +111,8 @@ public struct PersistedCaptureRecord:
         self.finalizedValidation = finalizedValidation
         self.exportArchive = exportArchive
         self.exportValidation = exportValidation
+        self.finalizedByteCount = finalizedByteCount
+        self.exportArchiveByteCount = exportArchiveByteCount
     }
 
     public var id: CaptureRevisionID {
@@ -108,6 +123,21 @@ public struct PersistedCaptureRecord:
     /// be adopted as the host's current finalized revision.
     public var canOpen: Bool {
         finalizedDirectory != nil && finalizedValidation != nil
+    }
+
+    /// True when a validated export archive exists next to the finalized
+    /// copy. The scan only ever attaches an archive whose bundle digest
+    /// proved identical to the finalized bundle, so such an archive is
+    /// fully derived data that can be removed independently and
+    /// regenerated later (issue #251).
+    public var exportArchiveIsDerivedCopy: Bool {
+        finalizedValidation != nil && exportArchive != nil
+    }
+
+    /// Total local bytes attributable to this revision: the finalized
+    /// bundle plus the export archive when both exist (issue #251).
+    public var retainedByteCount: Int64 {
+        (finalizedByteCount ?? 0) + (exportArchiveByteCount ?? 0)
     }
 }
 
@@ -167,6 +197,49 @@ public struct PersistedCaptureRemainingArtifact:
     public init(url: URL, reason: String) {
         self.url = url
         self.reason = reason
+    }
+}
+
+/// One retained file inside an inspected working-root orphan
+/// (issue #224), reported with its size so cleanup decisions carry
+/// concrete evidence.
+public struct PersistedCaptureOrphanEntry:
+    Sendable,
+    Equatable
+{
+    /// Path relative to the orphan root.
+    public let relativePath: String
+    public let byteCount: Int64
+
+    public init(relativePath: String, byteCount: Int64) {
+        self.relativePath = relativePath
+        self.byteCount = byteCount
+    }
+}
+
+/// Bounded listing of what an abandoned working revision or stale
+/// writer file still retains on disk (issue #224). Purely observational
+/// — it never resurrects the revision as resumable authority.
+public struct PersistedCaptureOrphanInspection:
+    Sendable,
+    Equatable
+{
+    public let url: URL
+    public let entries: [PersistedCaptureOrphanEntry]
+    public let enumerationFailures: [String]
+
+    public init(
+        url: URL,
+        entries: [PersistedCaptureOrphanEntry],
+        enumerationFailures: [String] = []
+    ) {
+        self.url = url
+        self.entries = entries
+        self.enumerationFailures = enumerationFailures
+    }
+
+    public var totalByteCount: Int64 {
+        entries.reduce(0) { $0 + $1.byteCount }
     }
 }
 
@@ -233,6 +306,18 @@ public struct PersistedCaptureInventoryResult:
             && quarantinedArtifacts.isEmpty
             && orphanedWorkingArtifacts.isEmpty
             && enumerationFailures.isEmpty
+    }
+
+    /// Total bytes retained by every inventoried artifact: validated
+    /// finalized bundles, validated export archives (counted separately
+    /// so storage UX can show the duplicate-derived share), and
+    /// non-resumable working orphans (issue #251). Quarantined items
+    /// are not sized here; each carries its own deletion path.
+    public var totalRetainedBytes: Int64 {
+        captures.reduce(0) { $0 + $1.retainedByteCount }
+            + orphanedWorkingArtifacts.reduce(0) {
+                $0 + $1.retainedBytes
+            }
     }
 }
 
@@ -382,7 +467,11 @@ public struct PersistedCaptureInventory: Sendable {
                     ),
                     finalizedValidation: report,
                     exportArchive: nil,
-                    exportValidation: nil
+                    exportValidation: nil,
+                    finalizedByteCount: retainedBytes(
+                        of: child,
+                        failures: &enumerationFailures
+                    )
                 )
                 order.append(revisionID)
 
@@ -466,6 +555,10 @@ public struct PersistedCaptureInventory: Sendable {
                     continue
                 }
 
+                let archiveBytes = retainedBytes(
+                    of: child,
+                    failures: &enumerationFailures
+                )
                 if let existing = captures[revisionID] {
                     guard existing.finalizedValidation?
                         .bundleDigest == report.bundleDigest
@@ -495,7 +588,10 @@ public struct PersistedCaptureInventory: Sendable {
                             exportArchive: exportArchiveURL(
                                 for: revisionID
                             ),
-                            exportValidation: report
+                            exportValidation: report,
+                            finalizedByteCount:
+                                existing.finalizedByteCount,
+                            exportArchiveByteCount: archiveBytes
                         )
                 } else {
                     captures[revisionID] =
@@ -512,7 +608,9 @@ public struct PersistedCaptureInventory: Sendable {
                             exportArchive: exportArchiveURL(
                                 for: revisionID
                             ),
-                            exportValidation: report
+                            exportValidation: report,
+                            finalizedByteCount: nil,
+                            exportArchiveByteCount: archiveBytes
                         )
                     order.append(revisionID)
                 }
@@ -685,6 +783,7 @@ public struct PersistedCaptureInventory: Sendable {
             exportValidation = archiveReport
         }
 
+        var sizingFailures: [String] = []
         return PersistedCaptureRecord(
             captureRevisionID: captureRevisionID,
             captureSeriesID: report.manifest.captureSeriesID,
@@ -692,7 +791,151 @@ public struct PersistedCaptureInventory: Sendable {
             finalizedDirectory: directory,
             finalizedValidation: report,
             exportArchive: exportArchive,
-            exportValidation: exportValidation
+            exportValidation: exportValidation,
+            finalizedByteCount: retainedBytes(
+                of: directory,
+                failures: &sizingFailures
+            ),
+            exportArchiveByteCount: exportArchive.map {
+                retainedBytes(
+                    of: $0,
+                    failures: &sizingFailures
+                )
+            }
+        )
+    }
+
+    /// Removes only the derived export archive for one revision while
+    /// retaining the canonical finalized bundle (issue #251). Refused
+    /// when the finalized directory cannot be revalidated as belonging
+    /// to `captureRevisionID`: without proven canonical bytes on disk,
+    /// deleting the last remaining copy would silently destroy the
+    /// revision's only local authority. The archive itself is derived
+    /// data — it can always be regenerated from the finalized bundle —
+    /// so its removal never requires revalidating its own contents.
+    /// Returns true when the archive slot is now empty.
+    @discardableResult
+    public func deleteExportArchive(
+        captureRevisionID: CaptureRevisionID
+    ) throws -> Bool {
+        let directory = finalizedDirectory(
+            for: captureRevisionID
+        )
+        guard let report = try? BundleDirectoryValidator.validate(
+            root: directory,
+            limits: limits
+        ), report.manifest.captureRevisionID == captureRevisionID
+        else {
+            throw PersistedCaptureInventoryError
+                .exportArchiveRemovalRequiresFinalizedCopy
+        }
+
+        let archive = exportArchiveURL(
+            for: captureRevisionID
+        )
+        guard FileManager.default.fileExists(atPath: archive.path)
+        else {
+            return false
+        }
+        try FileManager.default.removeItem(at: archive)
+        return true
+    }
+
+    /// Bounded inspection of a working-root orphan (issue #224):
+    /// enumerates the retained payload paths and byte sizes so the
+    /// operator can see what the failed/abandoned revision captured
+    /// before deciding to export diagnostics or discard. Paths are
+    /// reported relative to the orphan root; enumeration is capped so
+    /// a pathological directory cannot stall the UI.
+    public func inspectWorkingOrphan(
+        _ orphan: PersistedCaptureWorkingOrphan,
+        maxEntries: Int = 512
+    ) throws -> PersistedCaptureOrphanInspection {
+        guard let workingRoot else {
+            throw PersistedCaptureInventoryError
+                .unsafeWorkingOrphanLocation
+        }
+        let resolved = orphan.url
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        guard resolved.deletingLastPathComponent()
+            == workingRoot
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+        else {
+            throw PersistedCaptureInventoryError
+                .unsafeWorkingOrphanLocation
+        }
+
+        var entries: [PersistedCaptureOrphanEntry] = []
+        var failures: [String] = []
+        switch childKind(resolved) {
+        case .regularFile:
+            let values = try? resolved.resourceValues(
+                forKeys: [.fileSizeKey]
+            )
+            entries.append(
+                PersistedCaptureOrphanEntry(
+                    relativePath: resolved.lastPathComponent,
+                    byteCount: Int64(values?.fileSize ?? 0)
+                )
+            )
+        case .directory:
+            if let enumerator = FileManager.default.enumerator(
+                at: resolved,
+                includingPropertiesForKeys: [
+                    .fileSizeKey,
+                    .isRegularFileKey,
+                ],
+                options: []
+            ) {
+                for case let file as URL in enumerator {
+                    guard entries.count < maxEntries else {
+                        failures.append(
+                            "inspection truncated at \(maxEntries) entries"
+                        )
+                        break
+                    }
+                    let values = try? file.resourceValues(
+                        forKeys: [
+                            .fileSizeKey,
+                            .isRegularFileKey,
+                        ]
+                    )
+                    guard values?.isRegularFile == true else {
+                        continue
+                    }
+                    let rootPath =
+                        resolved.standardizedFileURL.path
+                    var relative = file.standardizedFileURL.path
+                    if relative.hasPrefix(rootPath + "/") {
+                        relative = String(
+                            relative.dropFirst(rootPath.count + 1)
+                        )
+                    }
+                    entries.append(
+                        PersistedCaptureOrphanEntry(
+                            relativePath: relative,
+                            byteCount: Int64(
+                                values?.fileSize ?? 0
+                            )
+                        )
+                    )
+                }
+            } else {
+                failures.append(
+                    "directory contents could not be enumerated"
+                )
+            }
+        case .symbolicLink, .unreadable, .other:
+            failures.append("item is not inspectable")
+        }
+
+        entries.sort { $0.relativePath < $1.relativePath }
+        return PersistedCaptureOrphanInspection(
+            url: orphan.url,
+            entries: entries,
+            enumerationFailures: failures
         )
     }
 
