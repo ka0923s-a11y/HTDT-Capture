@@ -489,10 +489,16 @@ public struct SpatialScanCoverageTracker: Sendable {
     ) -> SpatialCoverageClassification {
         let angleDiversity = region.viewAngleBucketMask.nonzeroBitCount
 
-        let geometricSupportCount = max(
-            region.meshSupportCount,
-            region.depthObservationCount
-        )
+        // Each recorded observation contributes to exactly one modality
+        // counter (mesh anchors or discrete scene depth). Both modalities
+        // are acceptable geometric evidence for this advisory
+        // classification, so promotion counts valid observation
+        // occasions across a source transition rather than discarding the
+        // earlier modality's evidence. The per-modality counters remain
+        // stored/emitted separately for diagnostics.
+        let geometricSupportCount =
+            region.meshSupportCount
+            + region.depthObservationCount
 
         if region.normalTrackingObservationCount
                 >= minimumNormalObservations,
