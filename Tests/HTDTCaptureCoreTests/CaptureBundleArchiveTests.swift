@@ -14,6 +14,33 @@ private func archiveReadyQuality() -> CaptureQualityReport {
     )
 }
 
+private func stageQualityPayload(
+    in staging: URL
+) throws -> BundlePayloadDeclaration {
+    let qualityDirectory = staging.appendingPathComponent(
+        "quality",
+        isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+        at: qualityDirectory,
+        withIntermediateDirectories: true
+    )
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    try encoder.encode(archiveReadyQuality()).write(
+        to: qualityDirectory.appendingPathComponent(
+            "capture-quality.json"
+        )
+    )
+    return BundlePayloadDeclaration(
+        path: "quality/capture-quality.json",
+        mediaType: "application/json",
+        producer: "capture_quality",
+        provenanceClass: .captureAppDerived,
+        role: .canonical
+    )
+}
+
 private func makeFinalizedArchiveFixture(
     root: URL
 ) async throws -> FinalizedCaptureRevision {
@@ -29,6 +56,7 @@ private func makeFinalizedArchiveFixture(
         "payload.bin"
     )
     try Data([1, 2, 3, 4, 5]).write(to: payload)
+    let qualityDeclaration = try stageQualityPayload(in: staging)
 
     let request = BundleFinalizationRequest(
         captureSeriesID: CaptureSeriesID(),
@@ -49,6 +77,7 @@ private func makeFinalizedArchiveFixture(
                 provenanceClass: .captureAppDerived,
                 role: .canonical
             ),
+            qualityDeclaration,
         ],
         qualityReport: archiveReadyQuality()
     )
@@ -89,15 +118,15 @@ func storedZipExportPreservesLogicalBundleDigest() async throws {
 
     #expect(result.archiveURL == destination)
     #expect(result.bundleDigest == finalized.bundleDigest)
-    #expect(result.payloadCount == 1)
-    #expect(result.entryCount == 2)
+    #expect(result.payloadCount == 2)
+    #expect(result.entryCount == 3)
 
     let reopened =
         try StoredCaptureBundleArchiveValidator.validate(
             archive: destination
         )
     #expect(reopened.bundleDigest == finalized.bundleDigest)
-    #expect(reopened.payloadCount == 1)
+    #expect(reopened.payloadCount == 2)
 }
 
 @Test
@@ -269,6 +298,7 @@ private func makeTwoPayloadFinalizedFixture(
     try Data([2]).write(
         to: staging.appendingPathComponent("bravo.bin")
     )
+    let qualityDeclaration = try stageQualityPayload(in: staging)
 
     let request = BundleFinalizationRequest(
         captureSeriesID: CaptureSeriesID(),
@@ -296,6 +326,7 @@ private func makeTwoPayloadFinalizedFixture(
                 provenanceClass: .captureAppDerived,
                 role: .canonical
             ),
+            qualityDeclaration,
         ],
         qualityReport: archiveReadyQuality()
     )
@@ -344,8 +375,8 @@ func storedArchiveImportStagesRevalidatesAndPreservesDigest()
 
     #expect(result.directoryURL == imported)
     #expect(result.bundleDigest == finalized.bundleDigest)
-    #expect(result.payloadCount == 1)
-    #expect(result.entryCount == 2)
+    #expect(result.payloadCount == 2)
+    #expect(result.entryCount == 3)
     #expect(
         try Data(
             contentsOf:
