@@ -16,13 +16,18 @@ public extension CaptureIdentifier {
     }
 
     init?(canonicalString: String) {
-        guard canonicalString == canonicalString.lowercased(),
-              let uuid = UUID(uuidString: canonicalString),
-              uuid.uuidString.lowercased() == canonicalString
+        guard let uuid = UUID(canonicalUUIDv4Text: canonicalString)
         else {
             return nil
         }
         self.init(rawValue: uuid)
+    }
+
+    init?(validatingRawValue rawValue: UUID) {
+        guard rawValue.isCanonicalUUIDv4 else {
+            return nil
+        }
+        self.init(rawValue: rawValue)
     }
 
     var description: String {
@@ -35,7 +40,8 @@ public extension CaptureIdentifier {
         guard let value = Self(canonicalString: string) else {
             throw DecodingError.dataCorruptedError(
                 in: container,
-                debugDescription: "Expected canonical lowercase UUID text"
+                debugDescription:
+                    "Expected canonical lowercase UUIDv4 text"
             )
         }
         self = value
@@ -65,4 +71,26 @@ public struct CaptureSessionID: CaptureIdentifier {
 public struct CoordinateSpaceID: CaptureIdentifier {
     public let rawValue: UUID
     public init(rawValue: UUID) { self.rawValue = rawValue }
+}
+
+extension UUID {
+    var isCanonicalUUIDv4: Bool {
+        var value = uuid
+        let bytes = withUnsafeBytes(of: &value) {
+            Array($0)
+        }
+        return (bytes[6] & 0xf0) == 0x40
+            && (bytes[8] & 0xc0) == 0x80
+    }
+
+    init?(canonicalUUIDv4Text text: String) {
+        guard text == text.lowercased(),
+              let uuid = UUID(uuidString: text),
+              uuid.uuidString.lowercased() == text,
+              uuid.isCanonicalUUIDv4
+        else {
+            return nil
+        }
+        self = uuid
+    }
 }

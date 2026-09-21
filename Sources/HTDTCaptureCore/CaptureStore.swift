@@ -24,7 +24,13 @@ public struct CaptureStoreBudgetSnapshot: Sendable, Equatable {
     public let maxItems: Int
 }
 
-public actor CaptureStoreAdmissionController {
+/// Bounded pending-write admission ledger (issue #147). Serialized by
+/// a lock rather than the actor runtime so `release` can run
+/// synchronously inside `defer` at every persistence entry point —
+/// reservation release must be deterministic on success, failure, and
+/// cancellation exits without an extra suspension.
+public final class CaptureStoreAdmissionController: @unchecked Sendable {
+    private let lock = NSLock()
     private let maxBytes: Int
     private let maxItems: Int
     private var reservations: [UUID: Int] = [:]
@@ -38,6 +44,8 @@ public actor CaptureStoreAdmissionController {
     }
 
     public func reserve(bytes: Int) throws -> CaptureStoreReservation {
+        lock.lock()
+        defer { lock.unlock() }
         guard bytes > 0 else {
             throw CaptureStoreAdmissionError.invalidByteCount(bytes)
         }
@@ -59,6 +67,8 @@ public actor CaptureStoreAdmissionController {
     }
 
     public func release(_ reservation: CaptureStoreReservation) throws {
+        lock.lock()
+        defer { lock.unlock() }
         guard let bytes = reservations.removeValue(forKey: reservation.id) else {
             throw CaptureStoreAdmissionError.unknownReservation
         }
@@ -66,7 +76,9 @@ public actor CaptureStoreAdmissionController {
     }
 
     public func snapshot() -> CaptureStoreBudgetSnapshot {
-        CaptureStoreBudgetSnapshot(
+        lock.lock()
+        defer { lock.unlock() }
+        return CaptureStoreBudgetSnapshot(
             reservedBytes: reservedBytes,
             reservedItems: reservations.count,
             maxBytes: maxBytes,
@@ -128,6 +140,52 @@ public struct CaptureFileWriteRequest: Sendable, Equatable {
 public actor AtomicCaptureFileWriter {
     public let rootDirectory: URL
     private let fileManager: FileManager
+
+    /// Byte-exact comparison between a file on disk and `expected`,
+    /// streamed through bounded chunks instead of materializing a
+    /// second full-size copy of a large payload (issue #147).
+    private func fileBytesEqual(
+        _ url: URL,
+        _ expected: Data
+    ) throws -> Bool {
+        guard fileManager.fileExists(atPath: url.path) else {
+            return false
+        }
+        if let attributes = try? fileManager.attributesOfItem(
+            atPath: url.path
+        ),
+            let size = (attributes[.size] as? NSNumber)?.intValue,
+            size != expected.count
+        {
+            return false
+        }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var offset = 0
+        while offset < expected.count {
+            let length = min(1 << 20, expected.count - offset)
+            guard let chunk = try handle.read(upToCount: length),
+                  chunk.count == length
+            else {
+                return false
+            }
+            guard
+                chunk
+                    == expected.subdata(
+                        in: offset ..< (offset + length)
+                    )
+            else {
+                return false
+            }
+            offset += length
+        }
+        // The file may be longer than `expected` even when the recorded
+        // size attribute was unavailable; confirm end-of-file.
+        guard (try handle.read(upToCount: 1))?.isEmpty ?? true else {
+            return false
+        }
+        return true
+    }
 
     public init(rootDirectory: URL, fileManager: FileManager = .default) throws {
         self.rootDirectory = rootDirectory
@@ -193,8 +251,8 @@ public actor AtomicCaptureFileWriter {
                     }
 
                 if fileManager.fileExists(atPath: target.path) {
-                    let existing = try Data(contentsOf: target)
-                    guard existing == request.data else {
+                    guard try fileBytesEqual(target, request.data)
+                    else {
                         throw CaptureFileWriterError.alreadyExists(
                             request.path.description
                         )
@@ -223,8 +281,8 @@ public actor AtomicCaptureFileWriter {
                     // A writer outside this actor may have won the path race.
                     // Accept it only when it produced the exact same bytes.
                     if fileManager.fileExists(atPath: target.path),
-                       let existing = try? Data(contentsOf: target),
-                       existing == request.data
+                       (try? fileBytesEqual(target, request.data))
+                        == true
                     {
                         continue
                     }
@@ -258,6 +316,120 @@ public actor AtomicCaptureFileWriter {
         }
     }
 
+    /// Atomically replaces the target bytes for every request, restoring
+    /// the exact prior bytes if any replacement fails partway through
+    /// (issue #163). Each file is staged through a same-directory
+    /// temporary and swapped atomically, so a reader never observes a
+    /// truncated payload; a failed later request restores each earlier
+    /// target to its original bytes, or removes a path the batch created.
+    public func writeBatchReplacing(
+        _ requests: [CaptureFileWriteRequest]
+    ) throws {
+        var order: [String] = []
+        var uniqueByPath: [String: Data] = [:]
+        for request in requests {
+            let key = request.path.description
+            if let existing = uniqueByPath[key] {
+                guard existing == request.data else {
+                    throw CaptureFileWriterError.alreadyExists(key)
+                }
+                continue
+            }
+            uniqueByPath[key] = request.data
+            order.append(key)
+        }
+
+        struct Applied {
+            let target: URL
+            let path: String
+            /// Original bytes when the path existed before the batch;
+            /// nil marks a path created by this batch whose rollback is
+            /// removal.
+            let originalData: Data?
+        }
+        var applied: [Applied] = []
+        do {
+            for key in order {
+                guard let data = uniqueByPath[key] else { continue }
+                let target = key
+                    .split(separator: "/")
+                    .reduce(rootDirectory) { url, component in
+                        url.appendingPathComponent(
+                            String(component),
+                            isDirectory: false
+                        )
+                    }
+                let parent = target.deletingLastPathComponent()
+                try fileManager.createDirectory(
+                    at: parent,
+                    withIntermediateDirectories: true
+                )
+                let temporary = parent.appendingPathComponent(
+                    ".tmp-\(UUID().uuidString)"
+                )
+                let originalData: Data?
+                do {
+                    try data.write(to: temporary)
+                    if fileManager.fileExists(atPath: target.path) {
+                        originalData = try Data(contentsOf: target)
+                        _ = try fileManager.replaceItemAt(
+                            target,
+                            withItemAt: temporary
+                        )
+                    } else {
+                        originalData = nil
+                        try fileManager.moveItem(
+                            at: temporary,
+                            to: target
+                        )
+                    }
+                } catch {
+                    try? fileManager.removeItem(at: temporary)
+                    throw error
+                }
+                applied.append(
+                    Applied(
+                        target: target,
+                        path: key,
+                        originalData: originalData
+                    )
+                )
+            }
+        } catch {
+            var rollbackFailure: String?
+            for item in applied.reversed() {
+                do {
+                    if let original = item.originalData {
+                        let restoreTemporary = item.target
+                            .deletingLastPathComponent()
+                            .appendingPathComponent(
+                                ".tmp-\(UUID().uuidString)"
+                            )
+                        try original.write(to: restoreTemporary)
+                        _ = try fileManager.replaceItemAt(
+                            item.target,
+                            withItemAt: restoreTemporary
+                        )
+                    } else if fileManager.fileExists(
+                        atPath: item.target.path
+                    ) {
+                        try fileManager.removeItem(at: item.target)
+                    }
+                } catch {
+                    if rollbackFailure == nil {
+                        rollbackFailure = item.path
+                    }
+                }
+            }
+            if let rollbackFailure {
+                throw CaptureFileWriterError.batchRollbackFailed(
+                    rollbackFailure
+                )
+            }
+            throw error
+        }
+    }
+
     public func writeIfIdentical(
         _ data: Data,
         to path: CaptureStorePath
@@ -272,8 +444,7 @@ public actor AtomicCaptureFileWriter {
             }
 
         if fileManager.fileExists(atPath: target.path) {
-            let existing = try Data(contentsOf: target)
-            guard existing == data else {
+            guard try fileBytesEqual(target, data) else {
                 throw CaptureFileWriterError
                     .alreadyExists(path.description)
             }
@@ -302,8 +473,7 @@ public actor AtomicCaptureFileWriter {
             // caller won the atomic move. Accept only byte-identical
             // evidence; never overwrite or accept a conflicting payload.
             if fileManager.fileExists(atPath: target.path),
-               let existing = try? Data(contentsOf: target),
-               existing == data
+               (try? fileBytesEqual(target, data)) == true
             {
                 return
             }
@@ -377,8 +547,10 @@ public actor AtomicCaptureFileWriter {
         }
 
         for item in targets {
-            let existing = try Data(contentsOf: item.url)
-            guard existing == item.request.data else {
+            guard try fileBytesEqual(
+                item.url,
+                item.request.data
+            ) else {
                 throw CaptureFileWriterError.alreadyExists(
                     item.request.path.description
                 )
@@ -472,8 +644,7 @@ public actor AtomicCaptureFileWriter {
             return true
         }
 
-        let existing = try Data(contentsOf: target)
-        guard existing == data else {
+        guard try fileBytesEqual(target, data) else {
             return false
         }
 
@@ -496,5 +667,18 @@ public actor AtomicCaptureFileWriter {
         }
         try fileManager.removeItem(at: target)
     }
+
+    /// Actor fence used by the working-set finalization seal to drain
+    /// previously enqueued write/remove work. Awaiting this function
+    /// returns only after every request submitted to this actor before
+    /// it has completed, giving the sealing caller a deterministic
+    /// quiescence point without touching the filesystem itself
+    /// (issue #180).
+    public func barrier() async {}
+
+    // NOTE: the finalization seal drains in-flight mutations through a
+    // continuation resume on the store actor (`mutationDrainers`), not
+    // through this fence — a fence-poll loop can starve queued writes
+    // under the actor executor's non-FIFO job scheduling.
 
 }

@@ -23,7 +23,8 @@
     },
     "correlations": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 2,
+      "maxItems": 2,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -34,11 +35,13 @@
         ],
         "properties": {
           "monotonic_s": {
-            "type": "number"
+            "type": "number",
+            "minimum": 0
           },
           "utc": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
           },
           "method": {
             "type": "string",

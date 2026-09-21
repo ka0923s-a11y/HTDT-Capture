@@ -41,6 +41,29 @@ CONFIGURATION = {
     "strict": True,
 }
 
+JSON_MEDIA_TYPE = "application/json"
+
+# Canonical reserved payload paths for a finalized Capture Bundle v1.
+QUALITY_PATH = "quality/capture-quality.json"
+QUALITY_SCHEMA = "htdt.capture.quality"
+SESSION_PATH = "session/capture-session.json"
+SESSION_SCHEMA = "htdt.capture.session"
+SESSION_CONFIGURATION_PATH = "session/capture-configuration.json"
+SESSION_TIMING_PATH = "session/timing.json"
+MESH_ANCHORS_PATH = "mesh/anchors.json"
+ENTITIES_PATH = "annotations/entities.json"
+MEASUREMENTS_PATH = "annotations/measurements.json"
+ROOMPLAN_RAW_PATH = "roomplan/captured-room-data.json"
+ROOMPLAN_PROCESSED_PATH = "roomplan/captured-room.json"
+ROOMPLAN_METADATA_PATH = "roomplan/captured-room-metadata.json"
+ROOMPLAN_METADATA_SCHEMA = "htdt.captured-room-metadata"
+FRAME_DESCRIPTOR_PREFIX = "evidence/frames/"
+FRAME_DESCRIPTOR_SUFFIX = ".json"
+
+# Quality ruleset versions this ingestor can evaluate the readiness gate
+# against. A finalized bundle produced under any other ruleset fails closed.
+SUPPORTED_QUALITY_RULESETS = {"1.0.0"}
+
 
 class IngestionError(ValueError):
     pass
@@ -232,23 +255,660 @@ def _require_schema(document: dict, schema: str) -> None:
         )
 
 
-def _validate_transform(value, field: str) -> None:
+def _require_document_keys(
+    document: dict,
+    required: set[str],
+    optional: set[str],
+    field: str,
+) -> None:
+    """Fail closed on missing or unexpected keys of a schema-owned object."""
+    keys = set(document)
+    missing = required - keys
+    extra = keys - required - optional
+    if missing or extra:
+        raise IngestionError(
+            f"{field} keys mismatch: missing={sorted(missing)} "
+            f"extra={sorted(extra)}"
+        )
+
+
+def _require_sha256_text(value, field: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise IngestionError(f"{field} must be lowercase SHA-256 hex text")
+    return value
+
+
+def _require_finite_number(value, field: str, minimum: float | None = None):
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+    ):
+        raise IngestionError(f"{field} must be a finite number")
+    if minimum is not None and value < minimum:
+        raise IngestionError(f"{field} must be >= {minimum}")
+    return value
+
+
+def _require_non_negative_int(value, field: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise IngestionError(f"{field} must be a non-negative integer")
+    return value
+
+
+def _require_unique_text_list(value, field: str) -> list[str]:
+    if not isinstance(value, list):
+        raise IngestionError(f"{field} must be an array")
+    seen: set[str] = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item:
+            raise IngestionError(
+                f"{field}[{index}] must be a non-empty string"
+            )
+        if item in seen:
+            raise IngestionError(f"{field} contains duplicate: {item!r}")
+        seen.add(item)
+    return value
+
+
+def _require_member(value, members: set, field: str) -> None:
+    if value not in members:
+        raise IngestionError(f"{field} is not a manifest member: {value!r}")
+
+
+def _validate_matrix(
+    value,
+    field: str,
+    representation: str,
+    count: int,
+) -> None:
     if not isinstance(value, dict):
         raise IngestionError(f"{field} must be an object")
-    if value.get("representation") != "column_major_4x4_f32":
+    if value.get("representation") != representation:
         raise IngestionError(f"unsupported {field} representation")
     values = value.get("values")
-    if not isinstance(values, list) or len(values) != 16:
-        raise IngestionError(f"{field}.values must contain 16 numbers")
+    if not isinstance(values, list) or len(values) != count:
+        raise IngestionError(
+            f"{field}.values must contain {count} numbers"
+        )
     for index, component in enumerate(values):
         if (
             not isinstance(component, (int, float))
             or isinstance(component, bool)
             or not math.isfinite(component)
         ):
+            raise IngestionError(f"{field}.values[{index}] must be finite")
+
+
+def _validate_transform(value, field: str) -> None:
+    _validate_matrix(value, field, "column_major_4x4_f32", 16)
+
+
+def _validate_completeness_status(value, field: str) -> None:
+    if not isinstance(value, dict):
+        raise IngestionError(f"{field} must be an object")
+    _require_document_keys(
+        value,
+        {"required", "present", "missing"},
+        set(),
+        field,
+    )
+    for key in ("required", "present", "missing"):
+        _require_unique_text_list(value[key], f"{field}.{key}")
+
+
+def _validate_quality_document(document: dict, field: str) -> None:
+    """Schema/semantic validation of ``htdt.capture.quality`` v1.
+
+    Mirrors ``schemas/capture-bundle-v1/quality.schema.json``; kept local
+    because the ingestor must not trust a payload it has not checked.
+    """
+    _require_schema(document, QUALITY_SCHEMA)
+    _require_document_keys(
+        document,
+        required={
+            "schema",
+            "schema_version",
+            "ruleset_version",
+            "ready_for_htdt_ingestion",
+            "tracking_events",
+            "roomplan_status",
+            "active_mesh_anchor_count",
+            "evidence_frame_count",
+            "depth_evidence_count",
+            "annotation_completeness",
+            "measurement_completeness",
+            "resource_events",
+            "integrity_status",
+            "benchmark_refs",
+            "diagnostics",
+        },
+        optional=set(),
+        field=field,
+    )
+
+    ruleset = document["ruleset_version"]
+    if not isinstance(ruleset, str) or not ruleset:
+        raise IngestionError(f"{field}.ruleset_version must be a string")
+    if ruleset not in SUPPORTED_QUALITY_RULESETS:
+        raise IngestionError(
+            f"unsupported quality ruleset_version: {ruleset!r}"
+        )
+
+    if not isinstance(document["ready_for_htdt_ingestion"], bool):
+        raise IngestionError(
+            f"{field}.ready_for_htdt_ingestion must be a boolean"
+        )
+
+    if document["roomplan_status"] not in {
+        "not_started",
+        "running",
+        "completed",
+        "failed",
+        "unavailable",
+    }:
+        raise IngestionError(f"{field}.roomplan_status is invalid")
+
+    for key in (
+        "active_mesh_anchor_count",
+        "evidence_frame_count",
+        "depth_evidence_count",
+    ):
+        _require_non_negative_int(document[key], f"{field}.{key}")
+
+    for key in ("annotation_completeness", "measurement_completeness"):
+        _validate_completeness_status(document[key], f"{field}.{key}")
+
+    tracking_events = document["tracking_events"]
+    if not isinstance(tracking_events, list):
+        raise IngestionError(f"{field}.tracking_events must be an array")
+    for index, event in enumerate(tracking_events):
+        event_field = f"{field}.tracking_events[{index}]"
+        if not isinstance(event, dict):
+            raise IngestionError(f"{event_field} must be an object")
+        _require_document_keys(
+            event,
+            {"session_timestamp_s", "state"},
+            {"reason"},
+            event_field,
+        )
+        _require_finite_number(
+            event["session_timestamp_s"],
+            f"{event_field}.session_timestamp_s",
+            minimum=0,
+        )
+        if event["state"] not in {"normal", "limited", "unavailable"}:
+            raise IngestionError(f"{event_field}.state is invalid")
+        reason = event.get("reason")
+        if reason is not None and not isinstance(reason, str):
             raise IngestionError(
-                f"{field}.values[{index}] must be finite"
+                f"{event_field}.reason must be a string or null"
             )
+
+    resource_events = document["resource_events"]
+    if not isinstance(resource_events, list):
+        raise IngestionError(f"{field}.resource_events must be an array")
+    for index, event in enumerate(resource_events):
+        event_field = f"{field}.resource_events[{index}]"
+        if not isinstance(event, dict):
+            raise IngestionError(f"{event_field} must be an object")
+        _require_document_keys(
+            event,
+            {"kind", "severity", "detail"},
+            set(),
+            event_field,
+        )
+        if event["kind"] not in {
+            "thermal_pressure",
+            "memory_pressure",
+            "storage_pressure",
+            "persistence_backlog",
+            "persistence_failure",
+            "interruption",
+        }:
+            raise IngestionError(f"{event_field}.kind is invalid")
+        if event["severity"] not in {"info", "warning", "error"}:
+            raise IngestionError(f"{event_field}.severity is invalid")
+        if not isinstance(event["detail"], str):
+            raise IngestionError(f"{event_field}.detail must be a string")
+
+    if document["integrity_status"] not in {"not_checked", "pass", "fail"}:
+        raise IngestionError(f"{field}.integrity_status is invalid")
+
+    _require_unique_text_list(
+        document["benchmark_refs"], f"{field}.benchmark_refs"
+    )
+
+    diagnostics = document["diagnostics"]
+    if not isinstance(diagnostics, list):
+        raise IngestionError(f"{field}.diagnostics must be an array")
+    for index, diagnostic in enumerate(diagnostics):
+        diagnostic_field = f"{field}.diagnostics[{index}]"
+        if not isinstance(diagnostic, dict):
+            raise IngestionError(f"{diagnostic_field} must be an object")
+        _require_document_keys(
+            diagnostic,
+            {"code", "severity", "message", "evidence_refs"},
+            set(),
+            diagnostic_field,
+        )
+        for key in ("code", "message"):
+            if not isinstance(diagnostic[key], str) or not diagnostic[key]:
+                raise IngestionError(
+                    f"{diagnostic_field}.{key} must be a non-empty string"
+                )
+        if diagnostic["severity"] not in {"info", "warning", "error"}:
+            raise IngestionError(f"{diagnostic_field}.severity is invalid")
+        _require_unique_text_list(
+            diagnostic["evidence_refs"],
+            f"{diagnostic_field}.evidence_refs",
+        )
+
+
+def _enforce_quality_gate(
+    reader: ValidatedBundleReader,
+    manifest: dict,
+) -> None:
+    """Enforce the finalized-capture quality gate before any promotion.
+
+    The canonical quality authority ``quality/capture-quality.json`` must be
+    manifest-declared (therefore present in the frozen reader), must carry
+    the JSON media type, must validate against the ``htdt.capture.quality``
+    v1 schema, must name a supported ruleset, and must assert
+    ``ready_for_htdt_ingestion``.
+
+    Explicit consistency policy for ``ready_for_htdt_ingestion == true``:
+    the report must assert ``integrity_status == "pass"`` and carry no
+    error-severity diagnostic or resource event. Bundle integrity itself is
+    never taken from the report: ``ValidatedBundleReader`` independently
+    re-verified every manifest byte count and SHA-256 before this gate runs.
+    """
+    entries = {entry["path"]: entry for entry in manifest["files"]}
+    entry = entries.get(QUALITY_PATH)
+    if entry is None:
+        raise IngestionError(
+            f"canonical quality payload missing from manifest: {QUALITY_PATH}"
+        )
+    if entry["media_type"] != JSON_MEDIA_TYPE:
+        raise IngestionError(
+            f"{QUALITY_PATH} must declare media_type {JSON_MEDIA_TYPE!r}"
+        )
+
+    document = parse_json_bytes(reader.read(QUALITY_PATH))
+    _validate_quality_document(document, QUALITY_PATH)
+
+    if document["ready_for_htdt_ingestion"] is not True:
+        raise IngestionError(
+            "quality report does not assert ready_for_htdt_ingestion"
+        )
+    if document["integrity_status"] != "pass":
+        raise IngestionError(
+            "contradictory quality report: ready_for_htdt_ingestion is "
+            f"true but integrity_status is "
+            f"{document['integrity_status']!r}"
+        )
+    error_diagnostics = [
+        diagnostic["code"]
+        for diagnostic in document["diagnostics"]
+        if diagnostic["severity"] == "error"
+    ]
+    if error_diagnostics:
+        raise IngestionError(
+            "contradictory quality report: ready_for_htdt_ingestion is "
+            f"true with error diagnostics {sorted(error_diagnostics)}"
+        )
+    error_events = [
+        event["kind"]
+        for event in document["resource_events"]
+        if event["severity"] == "error"
+    ]
+    if error_events:
+        raise IngestionError(
+            "contradictory quality report: ready_for_htdt_ingestion is "
+            f"true with error resource events {sorted(error_events)}"
+        )
+
+
+def _validate_session_document(
+    document: dict,
+    manifest: dict,
+    declared: dict[str, dict],
+) -> None:
+    """Bind ``session/capture-session.json`` to the manifest identity set."""
+    _require_schema(document, SESSION_SCHEMA)
+    field = SESSION_PATH
+    _require_document_keys(
+        document,
+        required={
+            "schema",
+            "schema_version",
+            "capture_session_id",
+            "coordinate_space_id",
+        },
+        optional={
+            "capture_mode",
+            "started_at",
+            "ended_at",
+            "configuration_ref",
+            "timing_ref",
+        },
+        field=field,
+    )
+
+    session_ids = set(manifest["capture_session_ids"])
+    coordinate_ids = set(manifest["coordinate_space_ids"])
+
+    capture_session_id = document["capture_session_id"]
+    validate_uuid4(capture_session_id, f"{field}.capture_session_id")
+    _require_member(
+        capture_session_id,
+        session_ids,
+        f"{field}.capture_session_id",
+    )
+    coordinate_space_id = document["coordinate_space_id"]
+    validate_uuid4(coordinate_space_id, f"{field}.coordinate_space_id")
+    _require_member(
+        coordinate_space_id,
+        coordinate_ids,
+        f"{field}.coordinate_space_id",
+    )
+
+    capture_mode = document.get("capture_mode")
+    if capture_mode is not None and capture_mode not in {
+        "roomplan_mesh",
+        "evidence_depth",
+        "degraded_no_depth",
+    }:
+        raise IngestionError(f"{field}.capture_mode is invalid")
+
+    for key in ("started_at", "ended_at"):
+        value = document.get(key)
+        if value is not None and not isinstance(value, str):
+            raise IngestionError(f"{field}.{key} must be a string or null")
+
+    # Configuration/timing references must resolve to the canonical
+    # session payloads declared in this bundle.
+    for key, canonical in (
+        ("configuration_ref", SESSION_CONFIGURATION_PATH),
+        ("timing_ref", SESSION_TIMING_PATH),
+    ):
+        reference = document.get(key)
+        if reference is None:
+            continue
+        if not isinstance(reference, str) or reference != canonical:
+            raise IngestionError(
+                f"{field}.{key} must be {canonical!r}, got {reference!r}"
+            )
+        if canonical not in declared:
+            raise IngestionError(
+                f"{field}.{key} resolves to undeclared payload: "
+                f"{canonical}"
+            )
+
+
+def _validate_frame_descriptor(
+    document: dict,
+    path: str,
+    manifest: dict,
+    declared: dict[str, dict],
+) -> str:
+    """Validate one ``evidence/frames/*.json`` descriptor and its links.
+
+    Returns the validated ``frame_id`` for the identity registry.
+    """
+    _require_document_keys(
+        document,
+        required={
+            "frame_id",
+            "capture_session_id",
+            "coordinate_space_id",
+            "session_timestamp_s",
+            "T_world_from_camera",
+            "intrinsics",
+            "image_width",
+            "image_height",
+            "pixel_format_fourcc",
+            "pixel_relative_path",
+            "pixel_byte_count",
+            "pixel_sha256",
+            "exif_allowlisted",
+            "depth_status",
+        },
+        optional={"depth"},
+        field=path,
+    )
+
+    frame_id = document["frame_id"]
+    validate_uuid4(frame_id, f"{path}.frame_id")
+
+    session_ids = set(manifest["capture_session_ids"])
+    coordinate_ids = set(manifest["coordinate_space_ids"])
+    validate_uuid4(
+        document["capture_session_id"], f"{path}.capture_session_id"
+    )
+    _require_member(
+        document["capture_session_id"],
+        session_ids,
+        f"{path}.capture_session_id",
+    )
+    validate_uuid4(
+        document["coordinate_space_id"], f"{path}.coordinate_space_id"
+    )
+    _require_member(
+        document["coordinate_space_id"],
+        coordinate_ids,
+        f"{path}.coordinate_space_id",
+    )
+
+    _require_finite_number(
+        document["session_timestamp_s"],
+        f"{path}.session_timestamp_s",
+        minimum=0,
+    )
+    _validate_matrix(
+        document["T_world_from_camera"],
+        f"{path}.T_world_from_camera",
+        "column_major_4x4_f32",
+        16,
+    )
+    _validate_matrix(
+        document["intrinsics"],
+        f"{path}.intrinsics",
+        "column_major_3x3_f32",
+        9,
+    )
+    for key in ("image_width", "image_height"):
+        value = document[key]
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise IngestionError(f"{path}.{key} must be a positive integer")
+    pixel_format = document["pixel_format_fourcc"]
+    if (
+        not isinstance(pixel_format, int)
+        or isinstance(pixel_format, bool)
+        or not 0 <= pixel_format <= 0xFFFFFFFF
+    ):
+        raise IngestionError(f"{path}.pixel_format_fourcc is invalid")
+
+    def _resolve_declared_payload(
+        relative_path, byte_count, sha256, ref_field
+    ) -> None:
+        if not isinstance(relative_path, str) or not relative_path:
+            raise IngestionError(
+                f"{path}.{ref_field} must be a non-empty string"
+            )
+        if (
+            not isinstance(byte_count, int)
+            or isinstance(byte_count, bool)
+            or byte_count < 1
+        ):
+            raise IngestionError(
+                f"{path}.{ref_field} byte count must be positive"
+            )
+        target = declared.get(relative_path)
+        if target is None:
+            raise IngestionError(
+                f"{path}.{ref_field} resolves to undeclared payload: "
+                f"{relative_path!r}"
+            )
+        if target["sha256"] != sha256 or target["bytes"] != byte_count:
+            raise IngestionError(
+                f"{path}.{ref_field} is inconsistent with the declared "
+                f"payload at {relative_path!r}"
+            )
+
+    _resolve_declared_payload(
+        document["pixel_relative_path"],
+        document["pixel_byte_count"],
+        _require_sha256_text(
+            document["pixel_sha256"], f"{path}.pixel_sha256"
+        ),
+        "pixel_relative_path",
+    )
+
+    exif = document["exif_allowlisted"]
+    if not isinstance(exif, dict) or not all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in exif.items()
+    ):
+        raise IngestionError(
+            f"{path}.exif_allowlisted must map strings to strings"
+        )
+
+    depth_status = document["depth_status"]
+    if depth_status not in {
+        "not_requested",
+        "unavailable",
+        "captured_scene_depth",
+        "captured_smoothed_scene_depth",
+    }:
+        raise IngestionError(f"{path}.depth_status is invalid")
+
+    depth = document.get("depth")
+    if depth is not None:
+        depth_field = f"{path}.depth"
+        if not isinstance(depth, dict):
+            raise IngestionError(f"{depth_field} must be an object")
+        _require_document_keys(
+            depth,
+            required={
+                "kind",
+                "depth_relative_path",
+                "depth_byte_count",
+                "depth_sha256",
+            },
+            optional={
+                "confidence_relative_path",
+                "confidence_byte_count",
+                "confidence_sha256",
+            },
+            field=depth_field,
+        )
+        if depth["kind"] not in {"scene_depth", "smoothed_scene_depth"}:
+            raise IngestionError(f"{depth_field}.kind is invalid")
+        _resolve_declared_payload(
+            depth["depth_relative_path"],
+            depth["depth_byte_count"],
+            _require_sha256_text(
+                depth["depth_sha256"], f"{depth_field}.depth_sha256"
+            ),
+            "depth.depth_relative_path",
+        )
+        confidence_values = (
+            depth.get("confidence_relative_path"),
+            depth.get("confidence_byte_count"),
+            depth.get("confidence_sha256"),
+        )
+        if any(value is not None for value in confidence_values):
+            if not all(value is not None for value in confidence_values):
+                raise IngestionError(
+                    f"{depth_field} confidence reference is incomplete"
+                )
+            _resolve_declared_payload(
+                depth["confidence_relative_path"],
+                depth["confidence_byte_count"],
+                _require_sha256_text(
+                    depth["confidence_sha256"],
+                    f"{depth_field}.confidence_sha256",
+                ),
+                "depth.confidence_relative_path",
+            )
+
+    # The discrete depth status flag and the depth reference are one
+    # authority; disagreeing halves are an identity contradiction.
+    expected_kind = {
+        "captured_scene_depth": "scene_depth",
+        "captured_smoothed_scene_depth": "smoothed_scene_depth",
+    }.get(depth_status)
+    if expected_kind is None:
+        if depth is not None:
+            raise IngestionError(
+                f"{path}.depth_status {depth_status!r} contradicts the "
+                "present depth reference"
+            )
+    elif depth is None or depth["kind"] != expected_kind:
+        raise IngestionError(
+            f"{path}.depth_status {depth_status!r} requires a "
+            f"{expected_kind!r} depth reference"
+        )
+
+    return frame_id
+
+
+def _validate_identity_membership(
+    reader: ValidatedBundleReader,
+    manifest: dict,
+) -> dict[str, dict]:
+    """Cross-payload identity pass before any source promotion (#153).
+
+    Validates the canonical session authority and every frame descriptor
+    against the manifest's ``capture_session_ids``/``coordinate_space_ids``
+    registry, and resolves each frame's pixel/depth/confidence payload
+    references to declared, hash-consistent bundle files.
+
+    Returns the frame registry ``{frame_id: {"path", "coordinate_space_id"}}``
+    for later evidence-reference resolution.
+    """
+    declared = {entry["path"]: entry for entry in manifest["files"]}
+
+    session_entry = declared.get(SESSION_PATH)
+    if session_entry is not None:
+        if session_entry["media_type"] != JSON_MEDIA_TYPE:
+            raise IngestionError(
+                f"{SESSION_PATH} must declare media_type "
+                f"{JSON_MEDIA_TYPE!r}"
+            )
+        document = parse_json_bytes(reader.read(SESSION_PATH))
+        _validate_session_document(document, manifest, declared)
+
+    frame_registry: dict[str, dict] = {}
+    for path, entry in declared.items():
+        if not (
+            path.startswith(FRAME_DESCRIPTOR_PREFIX)
+            and path.endswith(FRAME_DESCRIPTOR_SUFFIX)
+            and path != FRAME_DESCRIPTOR_PREFIX + FRAME_DESCRIPTOR_SUFFIX
+        ):
+            continue
+        if entry["media_type"] != JSON_MEDIA_TYPE:
+            raise IngestionError(
+                f"{path} must declare media_type {JSON_MEDIA_TYPE!r}"
+            )
+        document = parse_json_bytes(reader.read(path))
+        if not isinstance(document, dict):
+            raise IngestionError(f"{path} must be a JSON object")
+        frame_id = _validate_frame_descriptor(
+            document, path, manifest, declared
+        )
+        if frame_id in frame_registry:
+            raise IngestionError(f"duplicate frame identity: {frame_id}")
+        frame_registry[frame_id] = {
+            "path": path,
+            "coordinate_space_id": document["coordinate_space_id"],
+        }
+    return frame_registry
 
 
 def _build_source_registry(
@@ -327,47 +987,276 @@ def _build_source_registry(
     return records, by_path
 
 
+# Reserved-path metadata contract for canonical RoomPlan payloads (#187):
+# each canonical path binds exactly one RoomPlan semantic role.
+ROOMPLAN_PATH_CONTRACT = {
+    ROOMPLAN_RAW_PATH: {
+        "kind": "raw_scan",
+        "provenance_class": "apple_roomplan_raw_scan",
+        "producer": "roomplan_capture",
+    },
+    ROOMPLAN_PROCESSED_PATH: {
+        "kind": "postprocessed_inference",
+        "provenance_class": "apple_roomplan_inference",
+        "producer": "roomplan_builder",
+    },
+}
+ROOMPLAN_PROVENANCE = {
+    contract["provenance_class"] for contract in ROOMPLAN_PATH_CONTRACT.values()
+}
+
+
+def _roomplan_record(entry: dict, kind: str, source_by_path) -> dict:
+    return {
+        "kind": kind,
+        "source_evidence_id": source_by_path[entry["path"]][
+            "source_evidence_id"
+        ],
+        "path": entry["path"],
+        "payload_sha256": entry["sha256"],
+        "provenance_class": entry["provenance_class"],
+        "source_refs": entry.get("source_refs", []),
+    }
+
+
 def _build_roomplan_records(
     manifest: dict,
     source_by_path: dict[str, dict],
 ) -> list[dict]:
+    """Select RoomPlan handoff records via the canonical path contract.
+
+    When the manifest declares the reserved RoomPlan paths, they are the
+    sole RoomPlan authorities: each must carry its bound media type,
+    producer, provenance class and canonical role, and no other payload may
+    claim RoomPlan provenance. Only when no canonical RoomPlan path is
+    declared at all (legacy bundles) does selection fall back to
+    provenance-class membership.
+    """
+    declared = {entry["path"]: entry for entry in manifest["files"]}
+    canonical_declared = [
+        path for path in ROOMPLAN_PATH_CONTRACT if path in declared
+    ]
+
     result: list[dict] = []
-    for entry in manifest["files"]:
-        provenance = entry["provenance_class"]
-        if provenance not in {
-            "apple_roomplan_raw_scan",
-            "apple_roomplan_inference",
-        }:
-            continue
-        result.append(
-            {
-                "kind": (
-                    "raw_scan"
-                    if provenance == "apple_roomplan_raw_scan"
-                    else "postprocessed_inference"
-                ),
-                "source_evidence_id": source_by_path[entry["path"]][
-                    "source_evidence_id"
-                ],
-                "path": entry["path"],
-                "payload_sha256": entry["sha256"],
-                "provenance_class": provenance,
-                "source_refs": entry.get("source_refs", []),
-            }
+    if canonical_declared:
+        for path in canonical_declared:
+            entry = declared[path]
+            contract = ROOMPLAN_PATH_CONTRACT[path]
+            if entry["media_type"] != JSON_MEDIA_TYPE:
+                raise IngestionError(
+                    f"{path} must declare media_type {JSON_MEDIA_TYPE!r}"
+                )
+            if entry["producer"] != contract["producer"]:
+                raise IngestionError(
+                    f"{path} must declare producer "
+                    f"{contract['producer']!r}"
+                )
+            if entry["provenance_class"] != contract["provenance_class"]:
+                raise IngestionError(
+                    f"{path} must declare provenance_class "
+                    f"{contract['provenance_class']!r}"
+                )
+            if entry["role"] != "canonical":
+                raise IngestionError(
+                    f"{path} must declare canonical role"
+                )
+            result.append(
+                _roomplan_record(entry, contract["kind"], source_by_path)
+            )
+
+        stray = sorted(
+            entry["path"]
+            for entry in manifest["files"]
+            if entry["provenance_class"] in ROOMPLAN_PROVENANCE
+            and entry["path"] not in ROOMPLAN_PATH_CONTRACT
         )
+        if stray:
+            raise IngestionError(
+                "RoomPlan provenance declared outside the canonical "
+                f"RoomPlan paths: {stray}"
+            )
+    else:
+        for entry in manifest["files"]:
+            provenance = entry["provenance_class"]
+            if provenance not in ROOMPLAN_PROVENANCE:
+                continue
+            result.append(
+                _roomplan_record(
+                    entry,
+                    (
+                        "raw_scan"
+                        if provenance == "apple_roomplan_raw_scan"
+                        else "postprocessed_inference"
+                    ),
+                    source_by_path,
+                )
+            )
+
     result.sort(key=lambda item: item["path"].encode("utf-8"))
     return result
 
 
-def _build_raw_visual_mesh_handoffs(
+def _load_roomplan_capture_metadata(
     reader: ValidatedBundleReader,
     manifest: dict,
-    bundle_digest: str,
     source_by_path: dict[str, dict],
-) -> list[dict]:
-    index_path = "mesh/anchors.json"
+    roomplan_records: list[dict],
+) -> dict | None:
+    """Validate and carry ``roomplan/captured-room-metadata.json`` (#152).
+
+    The canonical metadata payload binds the raw and processed RoomPlan
+    artifacts to the manifest identity registry. It is optional evidence:
+    an undeclared path yields ``None``; a declared but malformed or
+    identity-conflicting document fails closed.
+    """
+    entry = source_by_path.get(ROOMPLAN_METADATA_PATH)
+    if entry is None:
+        return None
+    if entry["media_type"] != JSON_MEDIA_TYPE:
+        raise IngestionError(
+            f"{ROOMPLAN_METADATA_PATH} must declare media_type "
+            f"{JSON_MEDIA_TYPE!r}"
+        )
+
+    document = parse_json_bytes(reader.read(ROOMPLAN_METADATA_PATH))
+    _require_schema(document, ROOMPLAN_METADATA_SCHEMA)
+    field = ROOMPLAN_METADATA_PATH
+    _require_document_keys(
+        document,
+        required={
+            "schema",
+            "schema_version",
+            "capture_revision_id",
+            "capture_session_id",
+            "coordinate_space_id",
+            "raw_payload_path",
+            "raw_sha256",
+        },
+        optional={
+            "processed_payload_path",
+            "processed_sha256",
+            "surface_count",
+            "object_count",
+            "dimensions",
+        },
+        field=field,
+    )
+
+    validate_uuid4(
+        document["capture_revision_id"], f"{field}.capture_revision_id"
+    )
+    if document["capture_revision_id"] != manifest["capture_revision_id"]:
+        raise IngestionError(
+            f"{field}.capture_revision_id conflicts with the manifest"
+        )
+    validate_uuid4(
+        document["capture_session_id"], f"{field}.capture_session_id"
+    )
+    _require_member(
+        document["capture_session_id"],
+        set(manifest["capture_session_ids"]),
+        f"{field}.capture_session_id",
+    )
+    validate_uuid4(
+        document["coordinate_space_id"], f"{field}.coordinate_space_id"
+    )
+    _require_member(
+        document["coordinate_space_id"],
+        set(manifest["coordinate_space_ids"]),
+        f"{field}.coordinate_space_id",
+    )
+
+    declared = {entry["path"]: entry for entry in manifest["files"]}
+    raw_paths = {
+        record["path"]
+        for record in roomplan_records
+        if record["kind"] == "raw_scan"
+    }
+    processed_paths = {
+        record["path"]
+        for record in roomplan_records
+        if record["kind"] == "postprocessed_inference"
+    }
+
+    raw_payload_path = document["raw_payload_path"]
+    if not isinstance(raw_payload_path, str) or not raw_payload_path:
+        raise IngestionError(
+            f"{field}.raw_payload_path must be a non-empty string"
+        )
+    _require_sha256_text(document["raw_sha256"], f"{field}.raw_sha256")
+    if raw_payload_path not in raw_paths:
+        raise IngestionError(
+            f"{field}.raw_payload_path does not name the selected raw "
+            f"RoomPlan record: {raw_payload_path!r}"
+        )
+    if declared[raw_payload_path]["sha256"] != document["raw_sha256"]:
+        raise IngestionError(
+            f"{field}.raw_sha256 conflicts with the manifest"
+        )
+
+    processed_payload_path = document.get("processed_payload_path")
+    processed_sha256 = document.get("processed_sha256")
+    if (processed_payload_path is None) != (processed_sha256 is None):
+        raise IngestionError(
+            f"{field} processed payload reference is incomplete"
+        )
+    if processed_payload_path is not None:
+        if (
+            not isinstance(processed_payload_path, str)
+            or not processed_payload_path
+        ):
+            raise IngestionError(
+                f"{field}.processed_payload_path must be a non-empty "
+                "string"
+            )
+        _require_sha256_text(
+            processed_sha256, f"{field}.processed_sha256"
+        )
+        if processed_payload_path not in processed_paths:
+            raise IngestionError(
+                f"{field}.processed_payload_path does not name the "
+                f"selected processed RoomPlan record: "
+                f"{processed_payload_path!r}"
+            )
+        if (
+            declared[processed_payload_path]["sha256"]
+            != processed_sha256
+        ):
+            raise IngestionError(
+                f"{field}.processed_sha256 conflicts with the manifest"
+            )
+
+    for key in ("surface_count", "object_count"):
+        value = document.get(key)
+        if value is not None:
+            _require_non_negative_int(value, f"{field}.{key}")
+
+    dimensions = document.get("dimensions")
+    if dimensions is not None:
+        if not isinstance(dimensions, dict):
+            raise IngestionError(f"{field}.dimensions must be an object")
+        for name, value in dimensions.items():
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(value)
+            ):
+                raise IngestionError(
+                    f"{field}.dimensions[{name!r}] must be finite"
+                )
+
+    return document
+
+
+def _load_mesh_anchor_index(
+    reader: ValidatedBundleReader,
+    manifest: dict,
+    source_by_path: dict[str, dict],
+) -> dict[str, dict]:
+    """Parse and validate ``mesh/anchors.json`` once for all consumers."""
+    index_path = MESH_ANCHORS_PATH
     if index_path not in source_by_path:
-        return []
+        return {}
 
     index_source = source_by_path[index_path]
     if index_source["provenance_class"] != "arkit_mesh_reconstruction":
@@ -383,17 +1272,15 @@ def _build_raw_visual_mesh_handoffs(
 
     session_ids = set(manifest["capture_session_ids"])
     coordinate_ids = set(manifest["coordinate_space_ids"])
-    result: list[dict] = []
-    seen_anchors: set[str] = set()
+    result: dict[str, dict] = {}
 
     for index, anchor in enumerate(anchors):
         if not isinstance(anchor, dict):
             raise IngestionError(f"anchors[{index}] must be an object")
         anchor_id = anchor.get("anchor_id")
         validate_uuid4(anchor_id, f"anchors[{index}].anchor_id")
-        if anchor_id in seen_anchors:
+        if anchor_id in result:
             raise IngestionError(f"duplicate mesh anchor ID: {anchor_id}")
-        seen_anchors.add(anchor_id)
 
         capture_session_id = anchor.get("capture_session_id")
         coordinate_space_id = anchor.get("coordinate_space_id")
@@ -459,6 +1346,30 @@ def _build_raw_visual_mesh_handoffs(
         ):
             raise IngestionError("mesh anchor timestamp must be finite")
 
+        result[anchor_id] = anchor
+    return result
+
+
+def _build_raw_visual_mesh_handoffs(
+    manifest: dict,
+    bundle_digest: str,
+    source_by_path: dict[str, dict],
+    anchor_index: dict[str, dict],
+) -> list[dict]:
+    index_path = MESH_ANCHORS_PATH
+    if not anchor_index:
+        return []
+    index_source = source_by_path[index_path]
+
+    result: list[dict] = []
+    for anchor_id, anchor in anchor_index.items():
+        capture_session_id = anchor["capture_session_id"]
+        coordinate_space_id = anchor["coordinate_space_id"]
+        geometry_path = anchor["geometry_path"]
+        geometry_sha256 = anchor["geometry_sha256"]
+        geometry_source = source_by_path[geometry_path]
+        timestamp = anchor.get("session_timestamp_s")
+
         result.append(
             {
                 "raw_visual_mesh_handoff_id": _raw_visual_mesh_handoff_id(
@@ -485,8 +1396,8 @@ def _build_raw_visual_mesh_handoffs(
                     "T_world_from_mesh_anchor"
                 ],
                 "session_timestamp_s": timestamp,
-                "vertex_count": vertex_count,
-                "face_count": face_count,
+                "vertex_count": anchor["vertex_count"],
+                "face_count": anchor["face_count"],
             }
         )
 
@@ -494,25 +1405,326 @@ def _build_raw_visual_mesh_handoffs(
     return result
 
 
+class _EvidenceRefContext:
+    """Bundle-scoped targets an authority-record reference may resolve to."""
+
+    def __init__(
+        self,
+        bundle_digest: str,
+        source_by_path: dict[str, dict],
+        anchor_index: dict[str, dict],
+        mesh_handoff_by_anchor: dict[str, str],
+        frame_registry: dict[str, dict],
+    ):
+        self.bundle_digest = bundle_digest
+        self.source_by_path = source_by_path
+        self.anchor_index = anchor_index
+        self.mesh_handoff_by_anchor = mesh_handoff_by_anchor
+        self.frame_registry = frame_registry
+        self.frame_coordinate_by_path = {
+            frame["path"]: frame["coordinate_space_id"]
+            for frame in frame_registry.values()
+        }
+        self.entity_ids: set[str] = set()
+        self.measurement_ids: set[str] = set()
+        self.entity_source_sha256: str | None = None
+        self.measurement_source_sha256: str | None = None
+
+    def _authority_handoff(self, record_kind: str, record_id: str) -> str:
+        source_sha256 = (
+            self.entity_source_sha256
+            if record_kind == "annotation"
+            else self.measurement_source_sha256
+        )
+        return _authority_record_handoff_id(
+            self.bundle_digest, source_sha256, record_kind, record_id
+        )
+
+    def resolve(self, ref, field: str, coordinate_space_id) -> dict:
+        """Resolve one v1 evidence reference or fail closed.
+
+        Grammar: ``path:<bundle-path>``, ``mesh_anchor:<uuid4>``,
+        ``frame:<uuid4>``, ``entity:<uuid4>``, ``measurement:<uuid4>`` and
+        the annotation-authored ``user:<token>`` marker. Any other form is
+        unsupported evidence grammar and rejects the record.
+        """
+        if not isinstance(ref, str) or not ref:
+            raise IngestionError(f"{field} must be a non-empty string")
+        prefix, separator, value = ref.partition(":")
+        if not separator or not value:
+            raise IngestionError(
+                f"{field} uses unsupported reference grammar: {ref!r}"
+            )
+
+        if prefix == "user":
+            return {"ref": ref, "kind": "annotation_authored", "target": None}
+
+        if prefix == "path":
+            target = self.source_by_path.get(value)
+            if target is None:
+                raise IngestionError(
+                    f"{field} resolves to undeclared bundle path: {ref!r}"
+                )
+            self._require_coordinate_compatible(
+                self.frame_coordinate_by_path.get(value),
+                coordinate_space_id,
+                field,
+                ref,
+            )
+            return {
+                "ref": ref,
+                "kind": "source_evidence",
+                "target": target["source_evidence_id"],
+            }
+
+        if prefix in {"mesh_anchor", "frame", "entity", "measurement"}:
+            validate_uuid4(value, field)
+            if prefix == "mesh_anchor":
+                anchor = self.anchor_index.get(value)
+                if anchor is None:
+                    raise IngestionError(
+                        f"{field} references unknown mesh anchor: {ref!r}"
+                    )
+                self._require_coordinate_compatible(
+                    anchor["coordinate_space_id"],
+                    coordinate_space_id,
+                    field,
+                    ref,
+                )
+                return {
+                    "ref": ref,
+                    "kind": "raw_visual_mesh_handoff",
+                    "target": self.mesh_handoff_by_anchor[value],
+                }
+            if prefix == "frame":
+                frame = self.frame_registry.get(value)
+                if frame is None:
+                    raise IngestionError(
+                        f"{field} references unknown frame: {ref!r}"
+                    )
+                self._require_coordinate_compatible(
+                    frame["coordinate_space_id"],
+                    coordinate_space_id,
+                    field,
+                    ref,
+                )
+                return {
+                    "ref": ref,
+                    "kind": "source_evidence",
+                    "target": self.source_by_path[frame["path"]][
+                        "source_evidence_id"
+                    ],
+                }
+            record_kind = "annotation" if prefix == "entity" else "measurement"
+            id_set = (
+                self.entity_ids
+                if prefix == "entity"
+                else self.measurement_ids
+            )
+            if value not in id_set:
+                raise IngestionError(
+                    f"{field} references unknown {prefix}: {ref!r}"
+                )
+            return {
+                "ref": ref,
+                "kind": "authority_record",
+                "target": self._authority_handoff(record_kind, value),
+            }
+
+        raise IngestionError(
+            f"{field} uses unsupported reference grammar: {ref!r}"
+        )
+
+    @staticmethod
+    def _require_coordinate_compatible(
+        target_coordinate_space_id,
+        record_coordinate_space_id,
+        field: str,
+        ref: str,
+    ) -> None:
+        if (
+            target_coordinate_space_id is not None
+            and record_coordinate_space_id is not None
+            and target_coordinate_space_id != record_coordinate_space_id
+        ):
+            raise IngestionError(
+                f"{field} crosses coordinate spaces: {ref!r} binds "
+                f"{target_coordinate_space_id} but the record lives in "
+                f"{record_coordinate_space_id}"
+            )
+
+
+def _resolve_ref_list(
+    refs,
+    field: str,
+    context: _EvidenceRefContext,
+    coordinate_space_id,
+) -> list[dict]:
+    _require_unique_text_list(refs, field)
+    return [
+        context.resolve(ref, f"{field}[{index}]", coordinate_space_id)
+        for index, ref in enumerate(refs)
+    ]
+
+
+def _validate_entity_placement(
+    placement,
+    field: str,
+    context: _EvidenceRefContext,
+    coordinate_space_id,
+) -> list[dict]:
+    if not isinstance(placement, dict):
+        raise IngestionError(f"{field} must be an object")
+    _require_document_keys(
+        placement,
+        required={"method", "source_evidence_refs"},
+        optional={
+            "source_semantic_entity_id",
+            "source_mesh_anchor_id",
+            "source_roomplan_object_id",
+        },
+        field=field,
+    )
+    method = placement["method"]
+    if method not in {
+        "manual_numeric",
+        "raycast",
+        "mesh_hit_test",
+        "roomplan_binding",
+        "imported_reference",
+        "other",
+    }:
+        raise IngestionError(f"{field}.method is invalid")
+
+    for key in ("source_semantic_entity_id", "source_roomplan_object_id"):
+        value = placement.get(key)
+        if value is not None and (
+            not isinstance(value, str) or not value
+        ):
+            raise IngestionError(
+                f"{field}.{key} must be a non-empty string or null"
+            )
+
+    source_mesh_anchor_id = placement.get("source_mesh_anchor_id")
+    resolutions: list[dict] = []
+    if source_mesh_anchor_id is not None:
+        resolutions.append(
+            context.resolve(
+                f"mesh_anchor:{source_mesh_anchor_id}",
+                f"{field}.source_mesh_anchor_id",
+                coordinate_space_id,
+            )
+        )
+
+    resolutions.extend(
+        _resolve_ref_list(
+            placement["source_evidence_refs"],
+            f"{field}.source_evidence_refs",
+            context,
+            coordinate_space_id,
+        )
+    )
+
+    # The producer requires at least one supporting source for spatial
+    # placements; the ingestor enforces the same coherence.
+    if method in {"raycast", "mesh_hit_test"} and not (
+        source_mesh_anchor_id
+        or placement.get("source_semantic_entity_id")
+        or placement["source_evidence_refs"]
+    ):
+        raise IngestionError(
+            f"{field}.method {method!r} requires supporting source evidence"
+        )
+    if method == "roomplan_binding" and not (
+        placement.get("source_roomplan_object_id")
+        or placement.get("source_semantic_entity_id")
+    ):
+        raise IngestionError(
+            f"{field}.method 'roomplan_binding' requires a RoomPlan or "
+            "semantic source identity"
+        )
+    return resolutions
+
+
+def _validate_acoustic_center(
+    acoustic_center,
+    field: str,
+    context: _EvidenceRefContext,
+    coordinate_space_id,
+) -> list[dict]:
+    if acoustic_center is None:
+        return []
+    if not isinstance(acoustic_center, dict):
+        raise IngestionError(f"{field} must be an object")
+    _require_document_keys(
+        acoustic_center,
+        required={"offset_local_m", "authority_ref"},
+        optional=set(),
+        field=field,
+    )
+    offset = acoustic_center["offset_local_m"]
+    if not isinstance(offset, list) or len(offset) != 3:
+        raise IngestionError(f"{field}.offset_local_m must contain 3 numbers")
+    for index, component in enumerate(offset):
+        if (
+            not isinstance(component, (int, float))
+            or isinstance(component, bool)
+            or not math.isfinite(component)
+        ):
+            raise IngestionError(
+                f"{field}.offset_local_m[{index}] must be finite"
+            )
+    authority_ref = acoustic_center["authority_ref"]
+    if not isinstance(authority_ref, str) or not authority_ref:
+        raise IngestionError(
+            f"{field}.authority_ref must be a non-empty string"
+        )
+    prefix, separator, _ = authority_ref.partition(":")
+    if separator and prefix in {"path", "mesh_anchor", "frame", "entity", "measurement"}:
+        return [
+            context.resolve(
+                authority_ref, f"{field}.authority_ref", coordinate_space_id
+            )
+        ]
+    # Otherwise the authority token is authored by the annotation itself.
+    return [
+        {
+            "ref": authority_ref,
+            "kind": "annotation_authored",
+            "target": None,
+        }
+    ]
+
+
+def _dedupe_resolutions(resolutions: list[dict]) -> list[dict]:
+    by_ref: dict[str, dict] = {}
+    for resolution in resolutions:
+        by_ref.setdefault(resolution["ref"], resolution)
+    return [by_ref[ref] for ref in sorted(by_ref)]
+
+
 def _build_authority_records(
     reader: ValidatedBundleReader,
     manifest: dict,
     bundle_digest: str,
     source_by_path: dict[str, dict],
+    anchor_index: dict[str, dict],
+    mesh_handoff_by_anchor: dict[str, str],
+    frame_registry: dict[str, dict],
 ) -> list[dict]:
     coordinate_ids = set(manifest["coordinate_space_ids"])
     result: list[dict] = []
 
     definitions = [
         (
-            "annotations/entities.json",
+            ENTITIES_PATH,
             "htdt.capture.entities",
             "entities",
             "entity_id",
             "annotation",
         ),
         (
-            "annotations/measurements.json",
+            MEASUREMENTS_PATH,
             "htdt.capture.measurements",
             "measurements",
             "measurement_id",
@@ -520,23 +1732,26 @@ def _build_authority_records(
         ),
     ]
 
-    for (
-        path,
-        schema,
-        array_key,
-        id_key,
-        record_kind,
-    ) in definitions:
+    context = _EvidenceRefContext(
+        bundle_digest,
+        source_by_path,
+        anchor_index,
+        mesh_handoff_by_anchor,
+        frame_registry,
+    )
+
+    # First pass: parse every authority container and register record IDs so
+    # cross-record entity:/measurement: references resolve against the same
+    # validated bundle.
+    parsed: dict[str, tuple[str, str, str, list]] = {}
+    for path, schema, array_key, id_key, record_kind in definitions:
         if path not in source_by_path:
             continue
-
-        source = source_by_path[path]
         document = parse_json_bytes(reader.read(path))
         _require_schema(document, schema)
         records = document.get(array_key)
         if not isinstance(records, list):
             raise IngestionError(f"{path}:{array_key} must be an array")
-
         seen: set[str] = set()
         for index, record in enumerate(records):
             if not isinstance(record, dict):
@@ -553,6 +1768,23 @@ def _build_authority_records(
                     f"duplicate {record_kind} record ID: {record_id}"
                 )
             seen.add(record_id)
+        parsed[path] = (array_key, id_key, record_kind, records)
+        if record_kind == "annotation":
+            context.entity_ids = seen
+            context.entity_source_sha256 = source_by_path[path][
+                "payload_sha256"
+            ]
+        else:
+            context.measurement_ids = seen
+            context.measurement_source_sha256 = source_by_path[path][
+                "payload_sha256"
+            ]
+
+    for path, (array_key, id_key, record_kind, records) in parsed.items():
+        source = source_by_path[path]
+        for index, record in enumerate(records):
+            record_field = f"{path}:{array_key}[{index}]"
+            record_id = record[id_key]
 
             provenance = record.get("provenance_class")
             if provenance not in PROVENANCE:
@@ -564,13 +1796,71 @@ def _build_authority_records(
             if coordinate_space_id is not None:
                 validate_uuid4(
                     coordinate_space_id,
-                    f"{path}:{array_key}[{index}].coordinate_space_id",
+                    f"{record_field}.coordinate_space_id",
                 )
                 if coordinate_space_id not in coordinate_ids:
                     raise IngestionError(
                         f"{record_kind} references unknown coordinate space: "
                         f"{coordinate_space_id}"
                     )
+            elif record_kind == "annotation":
+                raise IngestionError(
+                    f"{record_field}.coordinate_space_id is required"
+                )
+
+            evidence_refs = record.get("evidence_refs")
+            if evidence_refs is None:
+                raise IngestionError(
+                    f"{record_field}.evidence_refs is required"
+                )
+            resolutions = _resolve_ref_list(
+                evidence_refs,
+                f"{record_field}.evidence_refs",
+                context,
+                coordinate_space_id,
+            )
+
+            endpoint_refs: list[str] = []
+            endpoint_resolutions: list[dict] = []
+            if record_kind == "measurement":
+                endpoint_refs = record.get("endpoint_refs")
+                if endpoint_refs is None:
+                    raise IngestionError(
+                        f"{record_field}.endpoint_refs is required"
+                    )
+                endpoint_resolutions = _resolve_ref_list(
+                    endpoint_refs,
+                    f"{record_field}.endpoint_refs",
+                    context,
+                    coordinate_space_id,
+                )
+                if endpoint_refs and coordinate_space_id is None:
+                    raise IngestionError(
+                        f"{record_field} uses spatial endpoint_refs "
+                        "without a coordinate_space_id"
+                    )
+            else:
+                placement = record.get("placement")
+                if placement is None:
+                    raise IngestionError(
+                        f"{record_field}.placement is required"
+                    )
+                resolutions.extend(
+                    _validate_entity_placement(
+                        placement,
+                        f"{record_field}.placement",
+                        context,
+                        coordinate_space_id,
+                    )
+                )
+                resolutions.extend(
+                    _validate_acoustic_center(
+                        record.get("acoustic_center"),
+                        f"{record_field}.acoustic_center",
+                        context,
+                        coordinate_space_id,
+                    )
+                )
 
             result.append(
                 {
@@ -590,6 +1880,12 @@ def _build_authority_records(
                     "coordinate_space_id": coordinate_space_id,
                     "source_evidence_id": source["source_evidence_id"],
                     "source_payload_sha256": source["payload_sha256"],
+                    "evidence_refs": list(evidence_refs),
+                    "endpoint_refs": list(endpoint_refs),
+                    "resolved_evidence": _dedupe_resolutions(resolutions),
+                    "resolved_endpoints": _dedupe_resolutions(
+                        endpoint_resolutions
+                    ),
                 }
             )
 
@@ -608,6 +1904,14 @@ def build_ingestion_plan(bundle_path: Path) -> dict:
         manifest = parse_json_bytes(reader.read("manifest.json"))
         bundle_digest = reader.report["bundle_digest"]
 
+        # The finalized-capture quality gate runs before any source
+        # evidence or downstream handoff is produced (#146).
+        _enforce_quality_gate(reader, manifest)
+
+        # Cross-payload identity pass: session and frame identities must be
+        # members of the manifest registry before promotion (#153).
+        frame_registry = _validate_identity_membership(reader, manifest)
+
         source_records, source_by_path = _build_source_registry(
             manifest,
             bundle_digest,
@@ -616,17 +1920,48 @@ def build_ingestion_plan(bundle_path: Path) -> dict:
             manifest,
             source_by_path,
         )
-        raw_mesh_handoffs = _build_raw_visual_mesh_handoffs(
+        roomplan_metadata = _load_roomplan_capture_metadata(
             reader,
+            manifest,
+            source_by_path,
+            roomplan_records,
+        )
+        metadata_paths = (
+            {
+                roomplan_metadata["raw_payload_path"],
+                roomplan_metadata.get("processed_payload_path"),
+            }
+            if roomplan_metadata is not None
+            else set()
+        )
+        for record in roomplan_records:
+            record["roomplan_capture_metadata"] = (
+                roomplan_metadata
+                if record["path"] in metadata_paths
+                else None
+            )
+        anchor_index = _load_mesh_anchor_index(
+            reader,
+            manifest,
+            source_by_path,
+        )
+        raw_mesh_handoffs = _build_raw_visual_mesh_handoffs(
             manifest,
             bundle_digest,
             source_by_path,
+            anchor_index,
         )
         authority_records = _build_authority_records(
             reader,
             manifest,
             bundle_digest,
             source_by_path,
+            anchor_index,
+            {
+                handoff["anchor_id"]: handoff["raw_visual_mesh_handoff_id"]
+                for handoff in raw_mesh_handoffs
+            },
+            frame_registry,
         )
 
         configuration_digest = hashlib.sha256(
@@ -672,6 +2007,7 @@ def build_ingestion_plan(bundle_path: Path) -> dict:
             },
             "source_evidence": source_records,
             "roomplan_records": roomplan_records,
+            "roomplan_capture_metadata": roomplan_metadata,
             "raw_visual_mesh_handoffs": raw_mesh_handoffs,
             "authority_records": authority_records,
             "lineage_digest": lineage_digest,

@@ -11,8 +11,117 @@ public enum CaptureSessionMetadataError:
     case emptyTimingMethod
     case invalidTimingUncertainty
     case invalidUTCTimestamp
+    case invalidCalendarDate
+    case emptySessionReference
     case invalidCorrelationOrder
     case encodedTimingMismatch
+}
+
+/// Shared timestamp authority policy for schema-owned time fields.
+/// `date-time` fields must be canonical UTC RFC3339 text ending in `Z`
+/// (`YYYY-MM-DDTHH:MM:SS[.fraction]Z`), matching the manifest timestamp
+/// profile; `date` fields must be valid `YYYY-MM-DD` Gregorian calendar
+/// dates. Validation is bytewise so results are deterministic across
+/// locales and platforms.
+enum SchemaTimestampText {
+    static func isUTCTimestamp(_ value: String) -> Bool {
+        let bytes = Array(value.utf8)
+        // Shortest form: "YYYY-MM-DDTHH:MM:SSZ" (20 bytes).
+        guard bytes.count >= 20,
+              bytes[bytes.count - 1] == 0x5A,          // 'Z'
+              bytes[4] == 0x2D, bytes[7] == 0x2D,      // '-'
+              bytes[10] == 0x54,                       // 'T'
+              bytes[13] == 0x3A, bytes[16] == 0x3A     // ':'
+        else {
+            return false
+        }
+        guard let year = decimalValue(bytes, in: 0..<4),
+              let month = decimalValue(bytes, in: 5..<7),
+              let day = decimalValue(bytes, in: 8..<10),
+              let hour = decimalValue(bytes, in: 11..<13),
+              let minute = decimalValue(bytes, in: 14..<16),
+              let second = decimalValue(bytes, in: 17..<19)
+        else {
+            return false
+        }
+        if bytes.count > 20 {
+            // Optional fractional seconds: '.' then one or more digits
+            // immediately before the trailing 'Z'.
+            guard bytes[19] == 0x2E else {             // '.'
+                return false
+            }
+            let fraction = bytes[20..<(bytes.count - 1)]
+            guard !fraction.isEmpty,
+                  fraction.allSatisfy(isDecimalDigit)
+            else {
+                return false
+            }
+        }
+        guard isValidDate(year: year, month: month, day: day),
+              hour <= 23,
+              minute <= 59,
+              second <= 59
+        else {
+            return false
+        }
+        return true
+    }
+
+    static func isCalendarDate(_ value: String) -> Bool {
+        let bytes = Array(value.utf8)
+        guard bytes.count == 10,
+              bytes[4] == 0x2D, bytes[7] == 0x2D,
+              let year = decimalValue(bytes, in: 0..<4),
+              let month = decimalValue(bytes, in: 5..<7),
+              let day = decimalValue(bytes, in: 8..<10)
+        else {
+            return false
+        }
+        return isValidDate(year: year, month: month, day: day)
+    }
+
+    private static func isDecimalDigit(_ byte: UInt8) -> Bool {
+        byte >= 0x30 && byte <= 0x39
+    }
+
+    private static func decimalValue(
+        _ bytes: [UInt8],
+        in range: Range<Int>
+    ) -> Int? {
+        var value = 0
+        for index in range {
+            guard isDecimalDigit(bytes[index]) else {
+                return nil
+            }
+            value = value * 10 + Int(bytes[index] - 0x30)
+        }
+        return value
+    }
+
+    private static func isValidDate(
+        year: Int,
+        month: Int,
+        day: Int
+    ) -> Bool {
+        guard year >= 1, day >= 1 else {
+            return false
+        }
+        let daysInMonth: Int
+        switch month {
+        case 1, 3, 5, 7, 8, 10, 12:
+            daysInMonth = 31
+        case 4, 6, 9, 11:
+            daysInMonth = 30
+        case 2:
+            let leap =
+                (year % 4 == 0 && year % 100 != 0)
+                || year % 400 == 0
+            daysInMonth = leap ? 29 : 28
+        default:
+            return false
+        }
+        return day <= daysInMonth
+    }
 }
 
 public struct CaptureDeviceDocument:
@@ -20,6 +129,9 @@ public struct CaptureDeviceDocument:
     Sendable,
     Equatable
 {
+    public static let expectedSchema = "htdt.capture.device"
+    public static let expectedSchemaVersion = "1.0.0"
+
     public let schema: String
     public let schemaVersion: String
     public let platform: String
@@ -36,20 +148,22 @@ public struct CaptureDeviceDocument:
         appVersion: String? = nil,
         appBuild: String? = nil
     ) throws {
-        guard !osVersion.isEmpty,
-              !hardwareModel.isEmpty
+        let normalizedOSVersion = SchemaOwnedText.nfc(osVersion)
+        let normalizedHardwareModel = SchemaOwnedText.nfc(hardwareModel)
+        guard !normalizedOSVersion.isEmpty,
+              !normalizedHardwareModel.isEmpty
         else {
             throw CaptureSessionMetadataError.emptyDeviceField
         }
 
-        self.schema = "htdt.capture.device"
-        self.schemaVersion = "1.0.0"
+        self.schema = Self.expectedSchema
+        self.schemaVersion = Self.expectedSchemaVersion
         self.platform = "iOS"
-        self.osVersion = osVersion
-        self.osBuild = osBuild
-        self.hardwareModel = hardwareModel
-        self.appVersion = appVersion
-        self.appBuild = appBuild
+        self.osVersion = normalizedOSVersion
+        self.osBuild = SchemaOwnedText.nfc(osBuild)
+        self.hardwareModel = normalizedHardwareModel
+        self.appVersion = SchemaOwnedText.nfc(appVersion)
+        self.appBuild = SchemaOwnedText.nfc(appBuild)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -61,6 +175,51 @@ public struct CaptureDeviceDocument:
         case hardwareModel = "hardware_model"
         case appVersion = "app_version"
         case appBuild = "app_build"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schema = try container.decode(String.self, forKey: .schema)
+        let schemaVersion = try container.decode(
+            String.self,
+            forKey: .schemaVersion
+        )
+        guard schema == Self.expectedSchema,
+              schemaVersion == Self.expectedSchemaVersion
+        else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schema,
+                in: container,
+                debugDescription: "Unsupported capture device schema"
+            )
+        }
+        let platform = try container.decode(String.self, forKey: .platform)
+        guard platform == "iOS" else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .platform,
+                in: container,
+                debugDescription: "Unsupported capture device platform"
+            )
+        }
+        try self.init(
+            osVersion: container.decode(String.self, forKey: .osVersion),
+            osBuild: container.decodeIfPresent(
+                String.self,
+                forKey: .osBuild
+            ),
+            hardwareModel: container.decode(
+                String.self,
+                forKey: .hardwareModel
+            ),
+            appVersion: container.decodeIfPresent(
+                String.self,
+                forKey: .appVersion
+            ),
+            appBuild: container.decodeIfPresent(
+                String.self,
+                forKey: .appBuild
+            )
+        )
     }
 }
 
@@ -86,10 +245,11 @@ public struct CaptureTimingCorrelation:
             throw CaptureSessionMetadataError
                 .invalidMonotonicTimestamp
         }
-        guard !method.isEmpty else {
+        let normalizedMethod = SchemaOwnedText.nfc(method)
+        guard !normalizedMethod.isEmpty else {
             throw CaptureSessionMetadataError.emptyTimingMethod
         }
-        guard ISO8601DateFormatter().date(from: utc) != nil else {
+        guard SchemaTimestampText.isUTCTimestamp(utc) else {
             throw CaptureSessionMetadataError.invalidUTCTimestamp
         }
         if let estimatedUncertaintySeconds {
@@ -103,7 +263,7 @@ public struct CaptureTimingCorrelation:
 
         self.monotonicSeconds = monotonicSeconds
         self.utc = utc
-        self.method = method
+        self.method = normalizedMethod
         self.estimatedUncertaintySeconds =
             estimatedUncertaintySeconds
     }
@@ -115,6 +275,22 @@ public struct CaptureTimingCorrelation:
         case estimatedUncertaintySeconds =
             "estimated_uncertainty_s"
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            monotonicSeconds: container.decode(
+                Double.self,
+                forKey: .monotonicSeconds
+            ),
+            utc: container.decode(String.self, forKey: .utc),
+            method: container.decode(String.self, forKey: .method),
+            estimatedUncertaintySeconds: container.decodeIfPresent(
+                Double.self,
+                forKey: .estimatedUncertaintySeconds
+            )
+        )
+    }
 }
 
 public struct CaptureTimingDocument:
@@ -122,6 +298,9 @@ public struct CaptureTimingDocument:
     Sendable,
     Equatable
 {
+    public static let expectedSchema = "htdt.capture.timing"
+    public static let expectedSchemaVersion = "1.0.0"
+
     public let schema: String
     public let schemaVersion: String
     public let clockDomain: String
@@ -131,7 +310,8 @@ public struct CaptureTimingDocument:
         clockDomain: String,
         correlations: [CaptureTimingCorrelation]
     ) throws {
-        guard !clockDomain.isEmpty else {
+        let normalizedDomain = SchemaOwnedText.nfc(clockDomain)
+        guard !normalizedDomain.isEmpty else {
             throw CaptureSessionMetadataError.emptyClockDomain
         }
         guard !correlations.isEmpty else {
@@ -148,9 +328,9 @@ public struct CaptureTimingDocument:
             previous = correlation.monotonicSeconds
         }
 
-        self.schema = "htdt.capture.timing"
-        self.schemaVersion = "1.0.0"
-        self.clockDomain = clockDomain
+        self.schema = Self.expectedSchema
+        self.schemaVersion = Self.expectedSchemaVersion
+        self.clockDomain = normalizedDomain
         self.correlations = correlations
     }
 
@@ -159,6 +339,34 @@ public struct CaptureTimingDocument:
         case schemaVersion = "schema_version"
         case clockDomain = "clock_domain"
         case correlations
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schema = try container.decode(String.self, forKey: .schema)
+        let schemaVersion = try container.decode(
+            String.self,
+            forKey: .schemaVersion
+        )
+        guard schema == Self.expectedSchema,
+              schemaVersion == Self.expectedSchemaVersion
+        else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schema,
+                in: container,
+                debugDescription: "Unsupported capture timing schema"
+            )
+        }
+        try self.init(
+            clockDomain: container.decode(
+                String.self,
+                forKey: .clockDomain
+            ),
+            correlations: container.decode(
+                [CaptureTimingCorrelation].self,
+                forKey: .correlations
+            )
+        )
     }
 }
 
@@ -207,7 +415,7 @@ public enum CaptureTimingPackageBuilder {
             correlations: [start, end]
         )
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(document)
 
         guard

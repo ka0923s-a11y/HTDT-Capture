@@ -49,7 +49,7 @@ public enum AnnotationEvidencePackageBuilder {
             entities: sorted
         )
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(collection)
 
         guard
@@ -82,7 +82,7 @@ public enum MeasurementEvidencePackageBuilder {
             measurements: sorted
         )
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(collection)
 
         guard

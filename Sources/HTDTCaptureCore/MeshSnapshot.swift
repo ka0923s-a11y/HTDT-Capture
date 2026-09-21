@@ -19,10 +19,31 @@ public struct Float3: Codable, Sendable, Equatable {
 public enum Matrix4x4FError: Error, Sendable, Equatable {
     case invalidElementCount(Int)
     case nonFinite
+    case nonHomogeneousTransform
+    case nonOrthonormalBasis
+    case invalidDeterminant
 }
 
+/// Column-major 4x4 transform authority. Every use of this type in the
+/// capture contract is a world-space pose (`T_world_from_*`), so the
+/// validating initializer requires a finite homogeneous rigid transform:
+/// bottom row `(0, 0, 0, 1)` and an orthonormal rotation basis with
+/// determinant `+1`. Scale, shear, perspective and singular matrices are
+/// rejected.
 public struct Matrix4x4F: Codable, Sendable, Equatable {
     public static let representation = "column_major_4x4_f32"
+
+    /// Absolute tolerance for the homogeneous row elements (`0` or `1`).
+    /// ARKit pose matrices carry exact `0`/`1` here; the tolerance only
+    /// absorbs Float32 representation noise.
+    public static let homogeneousTolerance: Float = 0.0001
+    /// Maximum allowed deviation of each rotation basis column from unit
+    /// length and of pairwise basis dot products from zero. Matches the
+    /// unit-axis tolerance used by `SpatialVector3F.unit`.
+    public static let orthonormalityTolerance: Float = 0.001
+    /// Maximum allowed deviation of the rotation-basis determinant from
+    /// `+1` (rejects mirrored or singular transforms).
+    public static let determinantTolerance: Float = 0.001
 
     public let values: [Float]
 
@@ -33,6 +54,54 @@ public struct Matrix4x4F: Codable, Sendable, Equatable {
         guard values.allSatisfy(\.isFinite) else {
             throw Matrix4x4FError.nonFinite
         }
+
+        // Column-major layout: the homogeneous (bottom) row is elements
+        // 3, 7, 11, 15 and must equal (0, 0, 0, 1).
+        guard abs(values[3]) <= Self.homogeneousTolerance,
+              abs(values[7]) <= Self.homogeneousTolerance,
+              abs(values[11]) <= Self.homogeneousTolerance,
+              abs(values[15] - 1) <= Self.homogeneousTolerance
+        else {
+            throw Matrix4x4FError.nonHomogeneousTransform
+        }
+
+        // Rotation basis columns: (0,1,2), (4,5,6), (8,9,10).
+        let basis: [(x: Float, y: Float, z: Float)] = [
+            (values[0], values[1], values[2]),
+            (values[4], values[5], values[6]),
+            (values[8], values[9], values[10]),
+        ]
+        func dot(
+            _ a: (x: Float, y: Float, z: Float),
+            _ b: (x: Float, y: Float, z: Float)
+        ) -> Float {
+            a.x * b.x + a.y * b.y + a.z * b.z
+        }
+        for column in basis {
+            let length = sqrt(dot(column, column))
+            guard abs(length - 1) <= Self.orthonormalityTolerance
+            else {
+                throw Matrix4x4FError.nonOrthonormalBasis
+            }
+        }
+        guard abs(dot(basis[0], basis[1]))
+                <= Self.orthonormalityTolerance,
+              abs(dot(basis[0], basis[2]))
+                <= Self.orthonormalityTolerance,
+              abs(dot(basis[1], basis[2]))
+                <= Self.orthonormalityTolerance
+        else {
+            throw Matrix4x4FError.nonOrthonormalBasis
+        }
+
+        let determinant =
+            basis[0].x * (basis[1].y * basis[2].z - basis[1].z * basis[2].y)
+            - basis[1].x * (basis[0].y * basis[2].z - basis[0].z * basis[2].y)
+            + basis[2].x * (basis[0].y * basis[1].z - basis[0].z * basis[1].y)
+        guard abs(determinant - 1) <= Self.determinantTolerance else {
+            throw Matrix4x4FError.invalidDeterminant
+        }
+
         self.values = values
     }
 
@@ -147,6 +216,32 @@ public struct MeshGeometryPayload: Codable, Sendable, Equatable {
 
     public var faceCount: Int {
         triangleIndices.count / 3
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case vertices
+        case normals
+        case triangleIndices
+        case faceClassifications
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            vertices: container.decode([Float3].self, forKey: .vertices),
+            normals: container.decodeIfPresent(
+                [Float3].self,
+                forKey: .normals
+            ),
+            triangleIndices: container.decode(
+                [UInt32].self,
+                forKey: .triangleIndices
+            ),
+            faceClassifications: container.decodeIfPresent(
+                [UInt8].self,
+                forKey: .faceClassifications
+            )
+        )
     }
 }
 

@@ -78,6 +78,7 @@ public struct DerivedShapeTemporalFusionTracker: Sendable {
     public let configuration: DerivedShapeTemporalFusionConfiguration
 
     private var coordinateSpaceID: CoordinateSpaceID?
+    private var targetCenterAnchor: DerivedPoint2D?
     private var frames: [Frame] = []
 
     public init(
@@ -89,6 +90,7 @@ public struct DerivedShapeTemporalFusionTracker: Sendable {
 
     public mutating func reset() {
         coordinateSpaceID = nil
+        targetCenterAnchor = nil
         frames.removeAll(keepingCapacity: false)
     }
 
@@ -114,26 +116,37 @@ public struct DerivedShapeTemporalFusionTracker: Sendable {
                 reset()
             }
 
+            let newCenter = observationCenter(observation)
+
             if let maximumShift =
                 configuration.maximumObservationCenterShiftMeters,
-               let previous = frames.last?.observation,
-               previous.coordinateSpaceID == observation.coordinateSpaceID,
-               let previousCenter = observationCenter(previous),
-               let newCenter = observationCenter(observation),
+               let anchor = targetCenterAnchor,
+               let newCenter,
                hypot(
-                    previousCenter.x - newCenter.x,
-                    previousCenter.y - newCenter.y
+                    anchor.x - newCenter.x,
+                    anchor.y - newCenter.y
                ) > maximumShift
             {
                 // Live object observations are intentionally single-target.
-                // Panning from one piece of furniture to another must not fuse
-                // both silhouettes into one bogus polygon. Reset only the
-                // derived preview accumulator; canonical capture evidence is
-                // unaffected.
+                // The acceptance reference is the window's anchor center,
+                // not the previous frame: a chain of sub-threshold steps
+                // (A -> B -> C -> D) must not walk the fused target onto
+                // adjacent furniture. Panning from one piece of furniture
+                // to another must not fuse both silhouettes into one
+                // bogus polygon. Reset only the derived preview
+                // accumulator; canonical capture evidence is unaffected.
                 reset()
             }
 
             coordinateSpaceID = observation.coordinateSpaceID
+            if targetCenterAnchor == nil {
+                // The first center-bearing observation of the window pins
+                // the target lock. The anchor does not move as later
+                // frames arrive, so acceptance is bounded by total
+                // distance from the target rather than by step-to-step
+                // distance from the previous frame.
+                targetCenterAnchor = newCenter
+            }
             frames.append(
                 Frame(
                     timestampSeconds: timestamp,
@@ -260,6 +273,7 @@ public struct DerivedShapeTemporalFusionTracker: Sendable {
 
         if frames.isEmpty {
             coordinateSpaceID = nil
+            targetCenterAnchor = nil
         }
     }
 

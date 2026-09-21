@@ -316,6 +316,7 @@ public enum StoredCaptureBundleArchiveValidator {
         try handle.seek(toOffset: 0)
 
         var locals: [StoredZIPLocalEntry] = []
+        var localByOffset: [UInt32: StoredZIPLocalEntry] = [:]
         var collisionMap: [String: String] = [:]
         var totalBytes: Int64 = 0
         var cursor: UInt64 = 0
@@ -407,15 +408,20 @@ public enum StoredCaptureBundleArchiveValidator {
                 throw CaptureBundleArchiveError
                     .archiveTooLargeForClassicZIP
             }
-            locals.append(
-                StoredZIPLocalEntry(
-                    path: path,
-                    crc32: crc,
-                    size: size,
-                    localOffset: UInt32(cursor),
-                    dataOffset: dataOffset
-                )
+            let localOffset = UInt32(cursor)
+            let local = StoredZIPLocalEntry(
+                path: path,
+                crc32: crc,
+                size: size,
+                localOffset: localOffset,
+                dataOffset: dataOffset
             )
+            locals.append(local)
+            if localByOffset.updateValue(local, forKey: localOffset)
+                != nil
+            {
+                throw CaptureBundleArchiveError.archiveMalformed
+            }
             cursor = dataOffset + UInt64(size)
         }
 
@@ -428,6 +434,11 @@ public enum StoredCaptureBundleArchiveValidator {
         else {
             throw CaptureBundleArchiveError.archiveMalformed
         }
+        let localByPath = Dictionary(
+            uniqueKeysWithValues: locals.map {
+                ($0.path, $0)
+            }
+        )
 
         var centralEntries: [StoredZIPLocalEntry] = []
         try handle.seek(toOffset: centralOffset)
@@ -475,9 +486,7 @@ public enum StoredCaptureBundleArchiveValidator {
                 throw CaptureBundleArchiveError.archiveMalformed
             }
 
-            guard let local = locals.first(where: {
-                $0.localOffset == localOffset
-            }),
+            guard let local = localByOffset[localOffset],
                   local.path == path,
                   local.crc32 == crc,
                   local.size == size
@@ -518,9 +527,8 @@ public enum StoredCaptureBundleArchiveValidator {
             throw CaptureBundleArchiveError.archiveMalformed
         }
 
-        guard let manifestEntry = locals.first(where: {
-            $0.path == "manifest.json"
-        }) else {
+        guard let manifestEntry = localByPath["manifest.json"]
+        else {
             throw BundleDirectoryValidationError.manifestMissing
         }
         let manifestData = try readSegment(
@@ -544,11 +552,6 @@ public enum StoredCaptureBundleArchiveValidator {
                 .manifestNotCanonical
         }
 
-        let localByPath = Dictionary(
-            uniqueKeysWithValues: locals.map {
-                ($0.path, $0)
-            }
-        )
         var declaredByPath: [String: BundleFileEntry] = [:]
         for entry in manifest.files {
             do {

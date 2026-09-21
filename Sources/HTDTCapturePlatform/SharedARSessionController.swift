@@ -1,7 +1,39 @@
+import Foundation
 import HTDTCaptureCore
+
+/// UTC wall-clock rendering for non-manifest timestamps that must keep
+/// sub-second precision.
+///
+/// Manifest canonicalization intentionally remains at whole-second
+/// resolution via `BundleTimestamp.utcString`; do not change that
+/// contract. Timing correlations and similar non-manifest UTC values use
+/// this fractional RFC 3339 / ISO-8601 form instead, so the emitted text
+/// can support the declared `estimated_uncertainty_s`.
+public enum PlatformTimestamp {
+    /// Upper bound of the serialization error introduced by rounding the
+    /// wall-clock midpoint to the millisecond precision emitted by
+    /// `fractionalUtcString(from:)`. Callers declaring a timing
+    /// uncertainty must never report less than this quantization error.
+    public static let fractionalUtcQuantizationSeconds = 0.000_5
+
+    /// Emit `date` as an RFC 3339 / ISO-8601 UTC string carrying
+    /// fractional (millisecond) precision, e.g. `2026-09-20T01:00:00.123Z`.
+    public static func fractionalUtcString(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [
+            .withInternetDateTime,
+            .withDashSeparatorInDate,
+            .withColonSeparatorInTime,
+            .withFractionalSeconds,
+        ]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
+    }
+}
 
 #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
 import ARKit
+import CoreMedia
 import CoreVideo
 import Foundation
 import RoomPlan
@@ -12,44 +44,105 @@ public enum PlatformCaptureError: Error {
     case currentFrameUnavailable
     case raycastMiss
     case orientationUnavailable
+    case configurationUnavailable
 }
 
 public struct CapturedSpeakerOrientation: Sendable {
     public let frontAxisWorld: SpatialVector3F
-    public let frameArtifacts: CapturedFrameArtifacts
+    public let frameArtifacts: CapturedFrameSnapshot
 
     public init(
         frontAxisWorld: SpatialVector3F,
-        frameArtifacts: CapturedFrameArtifacts
+        frameArtifacts: CapturedFrameSnapshot
     ) {
         self.frontAxisWorld = frontAxisWorld
         self.frameArtifacts = frameArtifacts
     }
 }
 
+/// Bounded provenance of a live raycast hit used for annotation
+/// placement. Two placements with materially different authority (hit on
+/// observed existing plane geometry vs. an estimated plane fallback)
+/// remain distinguishable after serialization.
+public struct RaycastPlacementProvenance: Sendable, Equatable {
+    /// The raycast target kind that produced the accepted hit.
+    public enum Target: String, Sendable, Equatable {
+        case existingPlaneGeometry = "existing_plane_geometry"
+        case existingPlaneInfinite = "existing_plane_infinite"
+        case estimatedPlane = "estimated_plane"
+        case featurePoint = "feature_point"
+        case unknown
+    }
+
+    /// The alignment requested by the accepted raycast query.
+    public enum Alignment: String, Sendable, Equatable {
+        case any
+        case horizontal
+        case vertical
+        case unknown
+    }
+
+    /// Which raycast target produced the hit.
+    public let target: Target
+    /// Alignment policy of the accepted query.
+    public let targetAlignment: Alignment
+    /// Distance from the ray origin (camera position) to the hit, meters.
+    public let hitDistanceMeters: Double
+    /// Full hit transform in the capture world coordinate space.
+    public let hitWorldTransform: Matrix4x4F
+    /// Identifier of the anchor backing the hit, when ARKit provided one;
+    /// explicitly nil otherwise, never fabricated.
+    public let hitAnchorIdentifier: UUID?
+    /// Type name of the backing anchor (e.g. "ARPlaneAnchor"), if any.
+    public let hitAnchorType: String?
+
+    public init(
+        target: Target,
+        targetAlignment: Alignment,
+        hitDistanceMeters: Double,
+        hitWorldTransform: Matrix4x4F,
+        hitAnchorIdentifier: UUID? = nil,
+        hitAnchorType: String? = nil
+    ) {
+        self.target = target
+        self.targetAlignment = targetAlignment
+        self.hitDistanceMeters = hitDistanceMeters
+        self.hitWorldTransform = hitWorldTransform
+        self.hitAnchorIdentifier = hitAnchorIdentifier
+        self.hitAnchorType = hitAnchorType
+    }
+}
+
 public struct CapturedRaycastPlacement: Sendable {
     public let positionWorld: Float3
-    public let frameArtifacts: CapturedFrameArtifacts
+    public let frameArtifacts: CapturedFrameSnapshot
+    /// Provenance of the raycast hit that produced `positionWorld`.
+    /// Always populated when produced by
+    /// `snapshotCenterRaycastPlacement`; optional only so existing
+    /// manual constructions remain source-compatible.
+    public let raycastProvenance: RaycastPlacementProvenance?
 
     public init(
         positionWorld: Float3,
-        frameArtifacts: CapturedFrameArtifacts
+        frameArtifacts: CapturedFrameSnapshot,
+        raycastProvenance: RaycastPlacementProvenance? = nil
     ) {
         self.positionWorld = positionWorld
         self.frameArtifacts = frameArtifacts
+        self.raycastProvenance = raycastProvenance
     }
 }
 
 public struct CaptureReviewEvidenceSnapshot: Sendable {
     public let meshAnchors: [MeshAnchorSnapshot]
     public let meshSnapshotSucceeded: Bool
-    public let frameArtifacts: CapturedFrameArtifacts
+    public let frameArtifacts: CapturedFrameSnapshot
     public let trackingQualityEvent: TrackingQualityEvent
 
     public init(
         meshAnchors: [MeshAnchorSnapshot],
         meshSnapshotSucceeded: Bool = true,
-        frameArtifacts: CapturedFrameArtifacts,
+        frameArtifacts: CapturedFrameSnapshot,
         trackingQualityEvent: TrackingQualityEvent
     ) {
         self.meshAnchors = meshAnchors
@@ -83,6 +176,141 @@ public struct DerivedShapeLiveObservationSet: Sendable {
         wallObservation: nil,
         floorReferenceY: nil
     )
+}
+
+/// Lifecycle events forwarded from the authoritative `ARSession`.
+///
+/// The host installs `sessionLifecycleHandler` and binds each event to
+/// the capture generation/session authority it belongs to; stale
+/// callbacks from prior generations are filtered by the host.
+public enum ARSessionLifecycleEvent: Sendable, Equatable {
+    /// ARKit began interrupting the session (phone call, app switch,
+    /// system pressure). The session may lose its current frame and
+    /// world tracking authority until `interruptionEnded`.
+    case wasInterrupted
+    /// A previously interrupted session resumed.
+    case interruptionEnded
+    /// The session failed terminally. `reason` is a stable
+    /// `domain#code` diagnostic token, not localized UI text.
+    case failed(reason: String)
+    /// Camera tracking state transitioned. Carries the same state/reason
+    /// mapping as `snapshotTrackingQualityEvent()` so relocalization and
+    /// other authority-affecting transitions follow the coordinate-space
+    /// discontinuity policy.
+    case cameraTrackingStateChanged(TrackingQualityEvent)
+    /// The session produced collaboration data for a peer session. This
+    /// app does not run collaborative sessions; the event is forwarded so
+    /// the host can register unexpected output.
+    case didOutputCollaborationData(priorityIsCritical: Bool)
+}
+
+@available(iOS 17.0, *)
+@MainActor
+private final class ARSessionLifecycleBridge:
+    NSObject,
+    @preconcurrency ARSessionDelegate
+{
+    /// Previously installed session delegate. ARKit exposes exactly one
+    /// `ARSession.delegate`; every callback is forwarded so installing
+    /// this bridge never starves a prior consumer such as
+    /// RoomCaptureView.
+    weak var passthrough: (any ARSessionDelegate)?
+
+    var eventHandler: (
+        @MainActor (ARSessionLifecycleEvent) -> Void
+    )?
+
+    func session(
+        _ session: ARSession,
+        didFailWithError error: any Error
+    ) {
+        let nsError = error as NSError
+        eventHandler?(
+            .failed(reason: "\(nsError.domain)#\(nsError.code)")
+        )
+        passthrough?.session?(session, didFailWithError: error)
+    }
+
+    func sessionWasInterrupted(_ session: ARSession) {
+        eventHandler?(.wasInterrupted)
+        passthrough?.sessionWasInterrupted?(session)
+    }
+
+    func sessionInterruptionEnded(_ session: ARSession) {
+        eventHandler?(.interruptionEnded)
+        passthrough?.sessionInterruptionEnded?(session)
+    }
+
+    func session(
+        _ session: ARSession,
+        cameraDidChangeTrackingState camera: ARCamera
+    ) {
+        eventHandler?(
+            .cameraTrackingStateChanged(
+                SharedARSessionController.trackingQualityEvent(
+                    camera: camera,
+                    sessionTimestampSeconds:
+                        session.currentFrame?.timestamp ?? 0
+                )
+            )
+        )
+        passthrough?.session?(
+            session,
+            cameraDidChangeTrackingState: camera
+        )
+    }
+
+    func session(
+        _ session: ARSession,
+        didOutputCollaborationData data: ARSession.CollaborationData
+    ) {
+        eventHandler?(
+            .didOutputCollaborationData(
+                priorityIsCritical: data.priority == .critical
+            )
+        )
+        passthrough?.session?(
+            session,
+            didOutputCollaborationData: data
+        )
+    }
+
+    // Passthrough-only callbacks: forwarded unchanged so the bridge is
+    // transparent to any delegate that was installed before it.
+
+    func session(_ session: ARSession, didUpdate frame: ARFrame) {
+        passthrough?.session?(session, didUpdate: frame)
+    }
+
+    func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
+        passthrough?.session?(session, didAdd: anchors)
+    }
+
+    func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
+        passthrough?.session?(session, didUpdate: anchors)
+    }
+
+    func session(_ session: ARSession, didRemove anchors: [ARAnchor]) {
+        passthrough?.session?(session, didRemove: anchors)
+    }
+
+    func session(
+        _ session: ARSession,
+        didOutputAudioSampleBuffer audioSampleBuffer: CMSampleBuffer
+    ) {
+        passthrough?.session?(
+            session,
+            didOutputAudioSampleBuffer: audioSampleBuffer
+        )
+    }
+
+    func sessionShouldAttemptRelocalization(
+        _ session: ARSession
+    ) -> Bool {
+        // Matches the ARKit default when no delegate implements it.
+        passthrough?.sessionShouldAttemptRelocalization?(session)
+            ?? true
+    }
 }
 
 @available(iOS 17.0, *)
@@ -131,7 +359,20 @@ public final class SharedARSessionController {
 
     private let roomPlanDelegateBridge =
         RoomPlanViewDelegateBridge()
+    private let sessionDelegateBridge = ARSessionLifecycleBridge()
     private var liveRoomCaptureViewMountObserved = false
+
+    /// Handler invoked on the main actor for ARSession lifecycle events:
+    /// interruption began/ended, terminal failure, camera tracking
+    /// transitions and collaboration-data output. The host binds each
+    /// event to the active capture generation and applies the
+    /// coordinate-discontinuity/recoverability policy.
+    public var sessionLifecycleHandler: (
+        @MainActor (ARSessionLifecycleEvent) -> Void
+    )? {
+        get { sessionDelegateBridge.eventHandler }
+        set { sessionDelegateBridge.eventHandler = newValue }
+    }
 
     public init(
         arSession: ARSession = ARSession(),
@@ -145,6 +386,24 @@ public final class SharedARSessionController {
         )
         self.roomCaptureView.isModelEnabled = true
         self.roomCaptureView.delegate = roomPlanDelegateBridge
+        installSessionLifecycleBridge()
+    }
+
+    /// Installs the lifecycle bridge as `arSession.delegate` while
+    /// preserving any previously installed delegate via passthrough
+    /// forwarding. Re-invoked after RoomPlan start because
+    /// RoomCaptureView may reclaim the session delegate when its capture
+    /// session runs.
+    public func installSessionLifecycleBridge() {
+        if let existing = arSession.delegate,
+           existing !== sessionDelegateBridge
+        {
+            sessionDelegateBridge.passthrough = existing
+        }
+        // The bridge is MainActor-isolated; pin delegate callbacks to
+        // the main queue so isolation is guaranteed at the ARKit edge.
+        arSession.delegateQueue = .main
+        arSession.delegate = sessionDelegateBridge
     }
 
     public func setRoomPlanModelRenderingEnabled(
@@ -222,6 +481,10 @@ public final class SharedARSessionController {
             throw PlatformCaptureError.roomPlanUnsupported
         }
         roomCaptureSession.run(configuration: configuration)
+        // RoomCaptureView may install itself as the ARSession delegate
+        // when its capture session runs; reclaim the delegate while
+        // forwarding every callback back to it.
+        installSessionLifecycleBridge()
     }
 
     public func stopRoomPlanPreservingARSession() {
@@ -230,6 +493,71 @@ public final class SharedARSessionController {
 
     public func stopAndPauseARSession() {
         roomCaptureSession?.stop(pauseARSession: true)
+    }
+
+    /// Resolve the capture mode honestly satisfied by the configuration
+    /// actually running on `arSession`. When `requestedMode` is provided
+    /// and not satisfied by the running configuration, the resolution
+    /// reports `unsatisfiedRequestedMode` so the host can fail closed or
+    /// explicitly downgrade instead of persisting a mismatched mode.
+    public func snapshotActiveConfigurationResolution(
+        requestedMode: CaptureMode? = nil
+    ) throws -> ActiveARConfigurationResolution {
+        guard let resolution =
+            PlatformCapabilityProbe.resolveActiveConfiguration(
+                session: arSession,
+                requestedMode: requestedMode,
+                capabilities: PlatformCapabilityProbe.current()
+            )
+        else {
+            throw PlatformCaptureError.configurationUnavailable
+        }
+        return resolution
+    }
+
+    /// Build the persisted configuration profile with the capture mode
+    /// resolved from the actual running configuration, never asserted
+    /// from device support alone. A no-mesh active configuration cannot
+    /// claim `.roomPlanMesh` through this path.
+    public func snapshotConfigurationProfile(
+        requestedMode: CaptureMode? = nil,
+        roomPlanOptions: [String: String] = [:]
+    ) throws -> CaptureConfigurationProfile {
+        let resolution = try snapshotActiveConfigurationResolution(
+            requestedMode: requestedMode
+        )
+        return try ARConfigurationSnapshotAdapter.snapshot(
+            session: arSession,
+            captureMode: resolution.resolvedCaptureMode,
+            roomPlanOptions: roomPlanOptions
+        )
+    }
+
+    /// Snapshot the combined-feature signals observable on the live
+    /// session. The host passes the RoomPlan phase it is in and applies
+    /// `PlatformCapabilityProbe.applyingCombinedFeatureVerification`
+    /// to persist verification results instead of leaving the capability
+    /// matrix fields permanently unknown.
+    public func currentCombinedFeatureObservation(
+        roomPlanPhase: CombinedFeatureObservation.RoomPlanPhase
+    ) -> CombinedFeatureObservation {
+        let configuration = arSession.configuration
+        let world =
+            configuration as? ARWorldTrackingConfiguration
+        let depthSemanticsEnabled =
+            configuration?.frameSemantics
+                .contains(.sceneDepth) ?? false
+        let depthProduced =
+            arSession.currentFrame.map {
+                $0.sceneDepth != nil || $0.smoothedSceneDepth != nil
+            } ?? false
+
+        return CombinedFeatureObservation(
+            roomPlanPhase: roomPlanPhase,
+            sceneReconstructionActive:
+                world.map { !$0.sceneReconstruction.isEmpty } ?? false,
+            sceneDepthActive: depthSemanticsEnabled && depthProduced
+        )
     }
 
     public func currentScanCoverageSample()
@@ -595,7 +923,7 @@ public final class SharedARSessionController {
         )
         return CapturedSpeakerOrientation(
             frontAxisWorld: front,
-            frameArtifacts: try ARFrameArtifactAdapter.capture(
+            frameArtifacts: try ARFrameArtifactAdapter.snapshot(
                 frame: frame,
                 captureSessionID: context.captureSessionID,
                 coordinateSpaceID: context.coordinateSpaceID,
@@ -628,6 +956,7 @@ public final class SharedARSessionController {
             .estimatedPlane,
         ]
         var hit: ARRaycastResult?
+        var hitTarget: ARRaycastQuery.Target?
         for target in targets {
             let query = ARRaycastQuery(
                 origin: origin,
@@ -637,28 +966,90 @@ public final class SharedARSessionController {
             )
             if let result = arSession.raycast(query).first {
                 hit = result
+                hitTarget = target
                 break
             }
         }
 
-        guard let hit else {
+        guard let hit, let hitTarget else {
             throw PlatformCaptureError.raycastMiss
         }
 
         let position = hit.worldTransform.columns.3
+        let hitPosition = SIMD3<Float>(
+            position.x,
+            position.y,
+            position.z
+        )
+        let provenance = try RaycastPlacementProvenance(
+            target: Self.raycastTargetToken(hitTarget),
+            targetAlignment: Self.raycastAlignmentToken(
+                hit.targetAlignment
+            ),
+            hitDistanceMeters: Double(
+                simd_distance(origin, hitPosition)
+            ),
+            hitWorldTransform: Self.matrix4x4F(hit.worldTransform),
+            hitAnchorIdentifier: hit.anchor?.identifier,
+            hitAnchorType: hit.anchor.map {
+                String(describing: type(of: $0))
+            }
+        )
         return CapturedRaycastPlacement(
             positionWorld: Float3(
                 position.x,
                 position.y,
                 position.z
             ),
-            frameArtifacts: try ARFrameArtifactAdapter.capture(
+            frameArtifacts: try ARFrameArtifactAdapter.snapshot(
                 frame: frame,
                 captureSessionID: context.captureSessionID,
                 coordinateSpaceID: context.coordinateSpaceID,
                 depthSelection: depthSelection
-            )
+            ),
+            raycastProvenance: provenance
         )
+    }
+
+    private static func raycastTargetToken(
+        _ target: ARRaycastQuery.Target
+    ) -> RaycastPlacementProvenance.Target {
+        switch target {
+        case .existingPlaneGeometry:
+            return .existingPlaneGeometry
+        case .existingPlaneInfinite:
+            return .existingPlaneInfinite
+        case .estimatedPlane:
+            return .estimatedPlane
+        default:
+            return .unknown
+        }
+    }
+
+    private static func raycastAlignmentToken(
+        _ alignment: ARRaycastQuery.TargetAlignment
+    ) -> RaycastPlacementProvenance.Alignment {
+        switch alignment {
+        case .any:
+            return .any
+        case .horizontal:
+            return .horizontal
+        case .vertical:
+            return .vertical
+        default:
+            return .unknown
+        }
+    }
+
+    private static func matrix4x4F(
+        _ value: simd_float4x4
+    ) throws -> Matrix4x4F {
+        try Matrix4x4F(values: [
+            value.columns.0.x, value.columns.0.y, value.columns.0.z, value.columns.0.w,
+            value.columns.1.x, value.columns.1.y, value.columns.1.z, value.columns.1.w,
+            value.columns.2.x, value.columns.2.y, value.columns.2.z, value.columns.2.w,
+            value.columns.3.x, value.columns.3.y, value.columns.3.z, value.columns.3.w,
+        ])
     }
 
     public func snapshotTimingCorrelation()
@@ -677,12 +1068,16 @@ public final class SharedARSessionController {
                     + after.timeIntervalSince1970
                 ) / 2
         )
+        // The declared uncertainty must cover both the current-frame
+        // access bracket and the quantization error introduced by the
+        // millisecond-precision UTC serialization below.
         let uncertainty =
             max(0, after.timeIntervalSince(before) / 2)
+            + PlatformTimestamp.fractionalUtcQuantizationSeconds
 
         return try CaptureTimingCorrelation(
             monotonicSeconds: frame.timestamp,
-            utc: BundleTimestamp.utcString(from: midpoint),
+            utc: PlatformTimestamp.fractionalUtcString(from: midpoint),
             method: "bracketed_arframe_current_frame",
             estimatedUncertaintySeconds: uncertainty
         )
@@ -712,6 +1107,37 @@ public final class SharedARSessionController {
         )
     }
 
+    /// SNAPSHOT step for deferred frame evidence: retains the current
+    /// frame's pixel/depth buffers and pose metadata only. The MainActor
+    /// critical section is limited to this capture/retain; pair with
+    /// `materializeFrameEvidence(_:)` on a bounded task to keep packing,
+    /// hashing and HEIC generation off the main actor.
+    public func snapshotFrameEvidenceCapture(
+        depthSelection: FrameDepthSelection = .discrete
+    ) throws -> CapturedFrameSnapshot {
+        guard let frame = arSession.currentFrame else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        return try ARFrameArtifactAdapter.snapshot(
+            frame: frame,
+            captureSessionID: context.captureSessionID,
+            coordinateSpaceID: context.coordinateSpaceID,
+            depthSelection: depthSelection
+        )
+    }
+
+    /// MATERIALIZE step: canonical binary packing, SHA-256 hashing and
+    /// HEIC preview generation for a previously captured frame snapshot.
+    /// Deliberately `nonisolated` so the host can call it from a detached
+    /// or bounded persistence task without occupying the main actor.
+    nonisolated
+    public func materializeFrameEvidence(
+        _ snapshot: CapturedFrameSnapshot
+    ) async throws -> CapturedFrameArtifacts {
+        try await ARFrameArtifactAdapter.materialize(snapshot)
+    }
+
     public func snapshotReviewEvidence(
         depthSelection: FrameDepthSelection = .discrete
     ) throws -> CaptureReviewEvidenceSnapshot {
@@ -732,7 +1158,7 @@ public final class SharedARSessionController {
         return CaptureReviewEvidenceSnapshot(
             meshAnchors: meshAnchors,
             meshSnapshotSucceeded: meshSnapshotSucceeded,
-            frameArtifacts: try ARFrameArtifactAdapter.capture(
+            frameArtifacts: try ARFrameArtifactAdapter.snapshot(
                 frame: frame,
                 captureSessionID: context.captureSessionID,
                 coordinateSpaceID: context.coordinateSpaceID,
@@ -1578,28 +2004,38 @@ public final class SharedARSessionController {
     private func trackingQualityEvent(
         from frame: ARFrame
     ) -> TrackingQualityEvent {
-        switch frame.camera.trackingState {
+        Self.trackingQualityEvent(
+            camera: frame.camera,
+            sessionTimestampSeconds: frame.timestamp
+        )
+    }
+
+    fileprivate static func trackingQualityEvent(
+        camera: ARCamera,
+        sessionTimestampSeconds: Double
+    ) -> TrackingQualityEvent {
+        switch camera.trackingState {
         case .normal:
             return TrackingQualityEvent(
-                sessionTimestampSeconds: frame.timestamp,
+                sessionTimestampSeconds: sessionTimestampSeconds,
                 state: .normal
             )
         case .notAvailable:
             return TrackingQualityEvent(
-                sessionTimestampSeconds: frame.timestamp,
+                sessionTimestampSeconds: sessionTimestampSeconds,
                 state: .unavailable,
                 reason: "arkit_not_available"
             )
         case let .limited(reason):
             return TrackingQualityEvent(
-                sessionTimestampSeconds: frame.timestamp,
+                sessionTimestampSeconds: sessionTimestampSeconds,
                 state: .limited,
                 reason: trackingReasonToken(reason)
             )
         }
     }
 
-    private func trackingReasonToken(
+    fileprivate static func trackingReasonToken(
         _ reason: ARCamera.TrackingState.Reason
     ) -> String {
         switch reason {

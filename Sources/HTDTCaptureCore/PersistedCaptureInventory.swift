@@ -9,6 +9,13 @@ public enum PersistedCaptureInventoryError:
     /// The artifact did not resolve to a direct child of one of the
     /// app-owned capture roots, so removing it was refused.
     case unsafeArtifactLocation
+    /// A directory or file inside the app-owned working root could not
+    /// be proven to be an abandoned `<uuid>` revision or a stale
+    /// `.tmp-*` writer file, so removing it was refused.
+    case unsafeWorkingOrphanLocation
+    /// A storage-protection attribute was applied without an error but
+    /// did not verify back on the item.
+    case storagePolicyVerificationFailed(String)
 }
 
 /// Classifies a filesystem item that lives under an app-owned capture
@@ -104,6 +111,50 @@ public struct PersistedCaptureRecord:
     }
 }
 
+/// Classifies a direct child of the app-owned `working/` root that a
+/// prior process left behind.
+public enum PersistedCaptureWorkingOrphanKind:
+    String,
+    Sendable,
+    Equatable
+{
+    /// A `working/<uuid>` revision directory whose process died before
+    /// the revision was finalized or discarded. It is never resumable:
+    /// the live AR coordinate authority it was bound to ended with the
+    /// process.
+    case abandonedRevision
+    /// A `.tmp-*` scratch file left at the working root by an
+    /// interrupted atomic writer.
+    case staleWriterTempFile
+}
+
+/// An abandoned item inside the app-owned `working/` root, surfaced for
+/// explicit bounded cleanup. Removal is proven against the resolved
+/// path, never against this value's declared kind.
+public struct PersistedCaptureWorkingOrphan:
+    Sendable,
+    Equatable,
+    Identifiable
+{
+    public let kind: PersistedCaptureWorkingOrphanKind
+    public let url: URL
+    /// Best-effort total of bytes still retained on disk, so cleanup
+    /// decisions and failure reports carry a concrete size.
+    public let retainedBytes: Int64
+
+    public init(
+        kind: PersistedCaptureWorkingOrphanKind,
+        url: URL,
+        retainedBytes: Int64
+    ) {
+        self.kind = kind
+        self.url = url
+        self.retainedBytes = retainedBytes
+    }
+
+    public var id: URL { url }
+}
+
 /// An artifact that could not be removed during a deletion transaction,
 /// together with the precise reason it stayed on disk.
 public struct PersistedCaptureRemainingArtifact:
@@ -155,22 +206,32 @@ public struct PersistedCaptureInventoryResult:
     public let captures: [PersistedCaptureRecord]
     public let quarantinedArtifacts:
         [PersistedCaptureQuarantinedArtifact]
+    /// Non-resumable children of `working/` left by a prior process:
+    /// abandoned `<uuid>` revision directories and stale `.tmp-*`
+    /// writer files. They carry no live coordinate authority and are
+    /// surfaced for bounded deletion.
+    public let orphanedWorkingArtifacts:
+        [PersistedCaptureWorkingOrphan]
     public let enumerationFailures: [String]
 
     public init(
         captures: [PersistedCaptureRecord] = [],
         quarantinedArtifacts:
             [PersistedCaptureQuarantinedArtifact] = [],
+        orphanedWorkingArtifacts:
+            [PersistedCaptureWorkingOrphan] = [],
         enumerationFailures: [String] = []
     ) {
         self.captures = captures
         self.quarantinedArtifacts = quarantinedArtifacts
+        self.orphanedWorkingArtifacts = orphanedWorkingArtifacts
         self.enumerationFailures = enumerationFailures
     }
 
     public var isEmpty: Bool {
         captures.isEmpty
             && quarantinedArtifacts.isEmpty
+            && orphanedWorkingArtifacts.isEmpty
             && enumerationFailures.isEmpty
     }
 }
@@ -191,6 +252,10 @@ public struct PersistedCaptureInventoryResult:
 public struct PersistedCaptureInventory: Sendable {
     public let finalizedRoot: URL
     public let exportsRoot: URL
+    /// The app-owned `working/` root. Optional so an inventory built on
+    /// explicit roots without a working root simply enumerates no
+    /// orphans; the canonical `captureRoot` initializer always sets it.
+    public let workingRoot: URL?
     public let limits: BundleFilesystemLimits
 
     public init(
@@ -206,6 +271,10 @@ public struct PersistedCaptureInventory: Sendable {
                 "exports",
                 isDirectory: true
             ),
+            workingRoot: captureRoot.appendingPathComponent(
+                "working",
+                isDirectory: true
+            ),
             limits: limits
         )
     }
@@ -213,10 +282,12 @@ public struct PersistedCaptureInventory: Sendable {
     public init(
         finalizedRoot: URL,
         exportsRoot: URL,
+        workingRoot: URL? = nil,
         limits: BundleFilesystemLimits = .init()
     ) {
         self.finalizedRoot = finalizedRoot
         self.exportsRoot = exportsRoot
+        self.workingRoot = workingRoot
         self.limits = limits
     }
 
@@ -226,11 +297,23 @@ public struct PersistedCaptureInventory: Sendable {
     /// bundle digest matches, or forms an export-only record when no
     /// finalized directory exists. Anything else is quarantined with a
     /// precise reason instead of being adopted.
-    public func scan() -> PersistedCaptureInventoryResult {
+    ///
+    /// The `working/` root is inventoried without any validation or
+    /// resume attempt: a `<uuid>`-named directory is an abandoned
+    /// working revision whose AR coordinate authority died with the
+    /// prior process, and a `.tmp-*` file is a stale writer artifact.
+    /// `activeRevisionID` positively excludes the live in-process
+    /// revision so it can never be surfaced as an orphan; anything else
+    /// unexpected is quarantined, not recursively deleted.
+    public func scan(
+        activeRevisionID: CaptureRevisionID? = nil
+    ) -> PersistedCaptureInventoryResult {
         var captures: [CaptureRevisionID: PersistedCaptureRecord] = [:]
         var order: [CaptureRevisionID] = []
         var quarantined:
             [PersistedCaptureQuarantinedArtifact] = []
+        var orphanedWorking:
+            [PersistedCaptureWorkingOrphan] = []
         var enumerationFailures: [String] = []
 
         for child in children(
@@ -455,6 +538,92 @@ public struct PersistedCaptureInventory: Sendable {
             }
         }
 
+        // Abandoned-working-revision policy: enumerate only direct
+        // children of the app-owned working root, skip the live
+        // revision explicitly named by the caller, and never treat a
+        // prior-process directory as resumable capture authority.
+        if let workingRoot {
+            for child in children(
+                of: workingRoot,
+                failures: &enumerationFailures
+            ) {
+                let name = child.lastPathComponent
+                if let activeRevisionID,
+                   name == activeRevisionID.description
+                {
+                    continue
+                }
+
+                switch childKind(child) {
+                case .directory:
+                    guard CaptureRevisionID(
+                        canonicalString: name
+                    ) != nil
+                    else {
+                        quarantined.append(
+                            PersistedCaptureQuarantinedArtifact(
+                                kind: .unexpectedItem,
+                                url: child,
+                                reason:
+                                    "unrecognized directory inside the working root; no ownership proof"
+                            )
+                        )
+                        continue
+                    }
+                    orphanedWorking.append(
+                        PersistedCaptureWorkingOrphan(
+                            kind: .abandonedRevision,
+                            url: child,
+                            retainedBytes: retainedBytes(
+                                of: child,
+                                failures: &enumerationFailures
+                            )
+                        )
+                    )
+                case .regularFile:
+                    guard name.hasPrefix(".tmp-") else {
+                        quarantined.append(
+                            PersistedCaptureQuarantinedArtifact(
+                                kind: .unexpectedItem,
+                                url: child,
+                                reason:
+                                    "unrecognized item inside the working root"
+                            )
+                        )
+                        continue
+                    }
+                    orphanedWorking.append(
+                        PersistedCaptureWorkingOrphan(
+                            kind: .staleWriterTempFile,
+                            url: child,
+                            retainedBytes: retainedBytes(
+                                of: child,
+                                failures: &enumerationFailures
+                            )
+                        )
+                    )
+                case .symbolicLink:
+                    quarantined.append(
+                        PersistedCaptureQuarantinedArtifact(
+                            kind: .unexpectedItem,
+                            url: child,
+                            reason:
+                                "symbolic-link entries are never adopted"
+                        )
+                    )
+                case .other, .unreadable:
+                    quarantined.append(
+                        PersistedCaptureQuarantinedArtifact(
+                            kind: .unexpectedItem,
+                            url: child,
+                            reason:
+                                "unreadable item inside the working root"
+                        )
+                    )
+                }
+            }
+        }
+
         let sorted = order
             .compactMap { captures[$0] }
             .sorted { lhs, rhs in
@@ -468,6 +637,9 @@ public struct PersistedCaptureInventory: Sendable {
         return PersistedCaptureInventoryResult(
             captures: sorted,
             quarantinedArtifacts: quarantined.sorted {
+                $0.url.path < $1.url.path
+            },
+            orphanedWorkingArtifacts: orphanedWorking.sorted {
                 $0.url.path < $1.url.path
             },
             enumerationFailures: enumerationFailures
@@ -622,6 +794,12 @@ public struct PersistedCaptureInventory: Sendable {
     /// unless the artifact resolves to a direct child of one of the
     /// app-owned capture roots, so deletion can never escape the
     /// capture roots through a fabricated or redirected path.
+    ///
+    /// Inside `working/` only leaf items (files, symbolic links, other
+    /// non-directories) may leave through this path. Working
+    /// directories require the abandoned-revision ownership proof in
+    /// `removeWorkingOrphan`; anything else named like a directory is
+    /// refused rather than recursively deleted.
     public func removeArtifact(
         _ artifact: PersistedCaptureQuarantinedArtifact
     ) throws {
@@ -629,6 +807,9 @@ public struct PersistedCaptureInventory: Sendable {
             .standardizedFileURL
             .resolvingSymlinksInPath()
         let parent = resolved.deletingLastPathComponent()
+        let resolvedWorking = workingRoot?
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
         let roots = [
             finalizedRoot
                 .standardizedFileURL
@@ -636,12 +817,64 @@ public struct PersistedCaptureInventory: Sendable {
             exportsRoot
                 .standardizedFileURL
                 .resolvingSymlinksInPath(),
-        ]
+            resolvedWorking,
+        ].compactMap { $0 }
         guard roots.contains(parent) else {
             throw PersistedCaptureInventoryError
                 .unsafeArtifactLocation
         }
+        if parent == resolvedWorking,
+           childKind(resolved) == .directory,
+           CaptureRevisionID(
+               canonicalString: resolved.lastPathComponent
+           ) == nil
+        {
+            throw PersistedCaptureInventoryError
+                .unsafeArtifactLocation
+        }
         try FileManager.default.removeItem(at: artifact.url)
+    }
+
+    /// Removes one abandoned item inside the app-owned `working/`
+    /// root. Deletion is bounded twice: the resolved URL must be a
+    /// direct child of the working root, and ownership proof is
+    /// re-derived from the resolved entry — either a directory whose
+    /// name is a canonical revision UUID (an abandoned working
+    /// revision) or a `.tmp-*` regular file (a stale writer artifact).
+    /// Anything else is refused so a malformed or unexpected item can
+    /// never be recursively deleted without ownership proof.
+    public func removeWorkingOrphan(
+        _ orphan: PersistedCaptureWorkingOrphan
+    ) throws {
+        guard let workingRoot else {
+            throw PersistedCaptureInventoryError
+                .unsafeWorkingOrphanLocation
+        }
+        let resolved = orphan.url
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let parent = resolved.deletingLastPathComponent()
+        guard parent == workingRoot
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+        else {
+            throw PersistedCaptureInventoryError
+                .unsafeWorkingOrphanLocation
+        }
+
+        let name = resolved.lastPathComponent
+        let isAbandonedRevision =
+            childKind(resolved) == .directory
+            && CaptureRevisionID(canonicalString: name) != nil
+        let isStaleWriterTemp =
+            childKind(resolved) == .regularFile
+            && name.hasPrefix(".tmp-")
+        guard isAbandonedRevision || isStaleWriterTemp else {
+            throw PersistedCaptureInventoryError
+                .unsafeWorkingOrphanLocation
+        }
+
+        try FileManager.default.removeItem(at: orphan.url)
     }
 
     /// The canonical finalized directory URL for a validated revision
@@ -742,6 +975,51 @@ public struct PersistedCaptureInventory: Sendable {
         }
     }
 
+    /// Best-effort byte total for a working-root child. Directory
+    /// totals are enumerated shallowly one level at a time by
+    /// FileManager; a failure is reported through `failures` and the
+    /// orphan still lists with the bytes that could be counted, so a
+    /// sizing problem never hides the orphan itself.
+    private func retainedBytes(
+        of url: URL,
+        failures: inout [String]
+    ) -> Int64 {
+        switch childKind(url) {
+        case .regularFile:
+            let values = try? url.resourceValues(
+                forKeys: [.fileSizeKey]
+            )
+            return Int64(values?.fileSize ?? 0)
+        case .directory:
+            guard let enumerator = FileManager.default.enumerator(
+                at: url,
+                includingPropertiesForKeys: [
+                    .fileSizeKey,
+                    .isRegularFileKey,
+                ],
+                options: []
+            ) else {
+                failures.append(
+                    url.lastPathComponent
+                        + " size could not be enumerated"
+                )
+                return 0
+            }
+            var total: Int64 = 0
+            for case let file as URL in enumerator {
+                let values = try? file.resourceValues(
+                    forKeys: [.fileSizeKey, .isRegularFileKey]
+                )
+                if values?.isRegularFile == true {
+                    total += Int64(values?.fileSize ?? 0)
+                }
+            }
+            return total
+        case .symbolicLink, .unreadable, .other:
+            return 0
+        }
+    }
+
     /// Rereads the canonical manifest and proves the directory still
     /// declares the selected revision identity. A nil return means the
     /// directory is proven to belong to `captureRevisionID`.
@@ -791,6 +1069,174 @@ public struct PersistedCaptureInventory: Sendable {
                 + "."
                 + text
         }
+        let nsError = error as NSError
+        return String(describing: type(of: error))
+            + ":"
+            + nsError.domain
+            + ":"
+            + String(nsError.code)
+    }
+}
+
+/// The explicit at-rest filesystem policy for app-owned capture data
+/// (`Application Support/HTDTCapture`). Two independent controls are
+/// applied at creation and verified on write:
+///
+/// - **Data Protection** (#166): every app-owned capture root and every
+///   working revision directory carries
+///   `.completeUntilFirstUserAuthentication`. iOS propagates a
+///   directory's default protection class to children created inside
+///   it, and a rename/move keeps the moved item's class, so a working
+///   revision promoted to `finalized/` retains the same class — the
+///   policy survives promotion without weakening. The class still
+///   permits reads/writes after the first unlock while the device is
+///   locked, which an active capture session requires; `.complete`
+///   would break an in-flight scan on device lock.
+/// - **Backup exclusion** (#136): only the transient `working/` root
+///   and each `working/<uuid>` revision are excluded. Finalized
+///   revisions and exported `.htdtcapture` archives are user-facing
+///   artifacts and remain eligible for the platform's user-managed
+///   backup; they are never silently covered by the transient-working
+///   policy.
+///
+/// Every application is idempotent and verified by reading the value
+/// back; failures surface as thrown errors or entries in the returned
+/// failure list rather than being silently ignored.
+public enum CaptureStoragePolicy {
+    /// The Data Protection class applied to app-owned capture data.
+    /// Kept as a value so a policy change is a one-line, reviewable
+    /// edit.
+    public static let fileProtection: FileProtectionType =
+        .completeUntilFirstUserAuthentication
+
+    /// Applies the full capture-root policy: the capture root plus its
+    /// `working/`, `finalized/`, and `exports/` children are created if
+    /// missing, the protection class is applied to each, and `working/`
+    /// alone is excluded from backup. Returns a deterministic list of
+    /// per-item failures; an empty list means every reachable item was
+    /// verified.
+    @discardableResult
+    public static func applyCaptureRootPolicy(
+        captureRoot: URL
+    ) -> [String] {
+        let fileManager = FileManager.default
+        var failures: [String] = []
+
+        let working = captureRoot.appendingPathComponent(
+            "working",
+            isDirectory: true
+        )
+        let finalized = captureRoot.appendingPathComponent(
+            "finalized",
+            isDirectory: true
+        )
+        let exports = captureRoot.appendingPathComponent(
+            "exports",
+            isDirectory: true
+        )
+
+        for directory in [captureRoot, working, finalized, exports] {
+            do {
+                try fileManager.createDirectory(
+                    at: directory,
+                    withIntermediateDirectories: true
+                )
+            } catch {
+                failures.append(
+                    directory.lastPathComponent
+                        + " could not be created: "
+                        + diagnosticDescription(error)
+                )
+            }
+        }
+
+        for directory in [captureRoot, working, finalized, exports] {
+            do {
+                try applyFileProtection(to: directory)
+            } catch {
+                failures.append(
+                    directory.lastPathComponent
+                        + " file protection was not applied: "
+                        + diagnosticDescription(error)
+                )
+            }
+        }
+
+        do {
+            try excludeFromBackup(working)
+        } catch {
+            failures.append(
+                "working backup exclusion was not applied: "
+                    + diagnosticDescription(error)
+            )
+        }
+
+        return failures
+    }
+
+    /// Applies the transient-working policy to one new
+    /// `working/<uuid>` revision directory: backup exclusion plus the
+    /// capture file-protection class. Callers should surface a thrown
+    /// error to the operator rather than proceeding silently.
+    public static func applyWorkingRevisionPolicy(
+        revisionRoot: URL
+    ) throws {
+        try applyFileProtection(to: revisionRoot)
+        try excludeFromBackup(revisionRoot)
+    }
+
+    /// Excludes `url` (a directory and everything inside it) from
+    /// platform backup, then verifies the resource value round-trips.
+    public static func excludeFromBackup(_ url: URL) throws {
+        var target = url
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try target.setResourceValues(values)
+
+        let verified = try target.resourceValues(
+            forKeys: [.isExcludedFromBackupKey]
+        )
+        guard verified.isExcludedFromBackup == true else {
+            throw PersistedCaptureInventoryError
+                .storagePolicyVerificationFailed(
+                    "isExcludedFromBackup did not persist on "
+                        + url.lastPathComponent
+                )
+        }
+    }
+
+    /// Applies the capture Data Protection class to `url` and verifies
+    /// the attribute where the platform reports it. Data Protection
+    /// classes are enforced by the iOS-family filesystems; elsewhere
+    /// this is an explicit no-op so the policy can be invoked
+    /// unconditionally.
+    public static func applyFileProtection(to url: URL) throws {
+        #if os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
+        let fileManager = FileManager.default
+        try fileManager.setAttributes(
+            [.protectionKey: fileProtection],
+            ofItemAtPath: url.path
+        )
+
+        let attributes = try fileManager.attributesOfItem(
+            atPath: url.path
+        )
+        guard let applied =
+                attributes[.protectionKey] as? FileProtectionType,
+              applied == fileProtection
+        else {
+            throw PersistedCaptureInventoryError
+                .storagePolicyVerificationFailed(
+                    "file protection class did not persist on "
+                        + url.lastPathComponent
+                )
+        }
+        #else
+        _ = url
+        #endif
+    }
+
+    private static func diagnosticDescription(_ error: Error) -> String {
         let nsError = error as NSError
         return String(describing: type(of: error))
             + ":"

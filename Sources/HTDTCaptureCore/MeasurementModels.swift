@@ -37,11 +37,15 @@ public enum MeasurementModelError: Error, Sendable, Equatable {
     case invalidScalar
     case invalidVector
     case emptyEndpointReference
+    case emptyEvidenceReference
     case duplicateEndpointReference
     case duplicateEvidenceReference
     case negativeUncertainty
     case missingSpatialCoordinateAuthority
     case userAttestationRequired
+    case derivedAcquisitionNotUserAttestable
+    case invalidObservedTimestamp
+    case invalidCalibrationDate
     case duplicateMeasurementID
 }
 
@@ -117,10 +121,10 @@ public struct MeasurementInstrument: Codable, Sendable, Equatable {
         calibrationStatus: String? = nil,
         calibrationDate: String? = nil
     ) {
-        self.instrumentClass = instrumentClass
-        self.makeModel = makeModel
-        self.calibrationStatus = calibrationStatus
-        self.calibrationDate = calibrationDate
+        self.instrumentClass = SchemaOwnedText.nfc(instrumentClass)
+        self.makeModel = SchemaOwnedText.nfc(makeModel)
+        self.calibrationStatus = SchemaOwnedText.nfc(calibrationStatus)
+        self.calibrationDate = SchemaOwnedText.nfc(calibrationDate)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -128,6 +132,28 @@ public struct MeasurementInstrument: Codable, Sendable, Equatable {
         case makeModel = "make_model"
         case calibrationStatus = "calibration_status"
         case calibrationDate = "calibration_date"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            instrumentClass: container.decodeIfPresent(
+                String.self,
+                forKey: .instrumentClass
+            ),
+            makeModel: container.decodeIfPresent(
+                String.self,
+                forKey: .makeModel
+            ),
+            calibrationStatus: container.decodeIfPresent(
+                String.self,
+                forKey: .calibrationStatus
+            ),
+            calibrationDate: container.decodeIfPresent(
+                String.self,
+                forKey: .calibrationDate
+            )
+        )
     }
 }
 
@@ -163,19 +189,27 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
         sourceValueText: String? = nil,
         evidenceRefs: [String] = []
     ) throws {
-        guard !quantityType.isEmpty else {
+        let normalizedQuantityType = SchemaOwnedText.nfc(quantityType)
+        guard !normalizedQuantityType.isEmpty else {
             throw MeasurementModelError.emptyQuantityType
         }
         guard value.allFinite else {
             throw MeasurementModelError.invalidScalar
         }
-        guard endpointRefs.allSatisfy({ !$0.isEmpty }) else {
+        let normalizedEndpoints = SchemaOwnedText.nfc(endpointRefs)
+        guard normalizedEndpoints.allSatisfy({ !$0.isEmpty }) else {
             throw MeasurementModelError.emptyEndpointReference
         }
-        guard Set(endpointRefs).count == endpointRefs.count else {
+        guard Set(normalizedEndpoints).count == normalizedEndpoints.count
+        else {
             throw MeasurementModelError.duplicateEndpointReference
         }
-        guard Set(evidenceRefs).count == evidenceRefs.count else {
+        let normalizedEvidence = SchemaOwnedText.nfc(evidenceRefs)
+        guard normalizedEvidence.allSatisfy({ !$0.isEmpty }) else {
+            throw MeasurementModelError.emptyEvidenceReference
+        }
+        guard Set(normalizedEvidence).count == normalizedEvidence.count
+        else {
             throw MeasurementModelError.duplicateEvidenceReference
         }
         if let statedUncertainty {
@@ -185,7 +219,23 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
                 throw MeasurementModelError.negativeUncertainty
             }
         }
-        if value.isSpatialVector || !endpointRefs.isEmpty {
+        // `observed_at` is `date-time` authority: canonical UTC RFC3339
+        // with a mandatory Z designator.
+        if let observedAtUTC {
+            guard SchemaTimestampText.isUTCTimestamp(observedAtUTC)
+            else {
+                throw MeasurementModelError.invalidObservedTimestamp
+            }
+        }
+        // `instrument.calibration_date` is `date` authority: a valid
+        // YYYY-MM-DD calendar date.
+        if let calibrationDate = instrument?.calibrationDate {
+            guard SchemaTimestampText.isCalendarDate(calibrationDate)
+            else {
+                throw MeasurementModelError.invalidCalibrationDate
+            }
+        }
+        if value.isSpatialVector || !normalizedEndpoints.isEmpty {
             guard coordinateSpaceID != nil else {
                 throw MeasurementModelError.missingSpatialCoordinateAuthority
             }
@@ -194,22 +244,32 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
             guard userAttestation == .attested else {
                 throw MeasurementModelError.userAttestationRequired
             }
+            // User-attested records must not claim a derived acquisition
+            // method; derived values carry their own provenance class.
+            switch acquisitionMethod {
+            case .lidarDerived, .roomPlanDerived:
+                throw MeasurementModelError
+                    .derivedAcquisitionNotUserAttestable
+            case .tapeMeasure, .laserDistanceMeter,
+                 .manufacturerSpecification, .other:
+                break
+            }
         }
 
         self.measurementID = measurementID
-        self.quantityType = quantityType
+        self.quantityType = normalizedQuantityType
         self.value = value
         self.unit = unit
         self.coordinateSpaceID = coordinateSpaceID
-        self.endpointRefs = endpointRefs
+        self.endpointRefs = normalizedEndpoints
         self.acquisitionMethod = acquisitionMethod
         self.instrument = instrument
         self.statedUncertainty = statedUncertainty
         self.observedAtUTC = observedAtUTC
         self.userAttestation = userAttestation
         self.provenanceClass = provenanceClass
-        self.sourceValueText = sourceValueText
-        self.evidenceRefs = evidenceRefs
+        self.sourceValueText = SchemaOwnedText.nfc(sourceValueText)
+        self.evidenceRefs = normalizedEvidence
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -228,9 +288,68 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
         case sourceValueText = "source_value_text"
         case evidenceRefs = "evidence_refs"
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            measurementID: container.decode(
+                MeasurementID.self,
+                forKey: .measurementID
+            ),
+            quantityType: container.decode(
+                String.self,
+                forKey: .quantityType
+            ),
+            value: container.decode(MeasurementValue.self, forKey: .value),
+            unit: container.decode(MeasurementUnit.self, forKey: .unit),
+            coordinateSpaceID: container.decodeIfPresent(
+                CoordinateSpaceID.self,
+                forKey: .coordinateSpaceID
+            ),
+            endpointRefs: container.decode(
+                [String].self,
+                forKey: .endpointRefs
+            ),
+            acquisitionMethod: container.decode(
+                MeasurementAcquisitionMethod.self,
+                forKey: .acquisitionMethod
+            ),
+            instrument: container.decodeIfPresent(
+                MeasurementInstrument.self,
+                forKey: .instrument
+            ),
+            statedUncertainty: container.decodeIfPresent(
+                Double.self,
+                forKey: .statedUncertainty
+            ),
+            observedAtUTC: container.decodeIfPresent(
+                String.self,
+                forKey: .observedAtUTC
+            ),
+            userAttestation: container.decode(
+                UserAttestationState.self,
+                forKey: .userAttestation
+            ),
+            provenanceClass: container.decode(
+                MeasurementProvenanceClass.self,
+                forKey: .provenanceClass
+            ),
+            sourceValueText: container.decodeIfPresent(
+                String.self,
+                forKey: .sourceValueText
+            ),
+            evidenceRefs: container.decode(
+                [String].self,
+                forKey: .evidenceRefs
+            )
+        )
+    }
 }
 
 public struct CaptureMeasurementCollection: Codable, Sendable, Equatable {
+    public static let expectedSchema = "htdt.capture.measurements"
+    public static let expectedSchemaVersion = "1.0.0"
+
     public let schema: String
     public let schemaVersion: String
     public let measurements: [CaptureMeasurement]
@@ -240,8 +359,8 @@ public struct CaptureMeasurementCollection: Codable, Sendable, Equatable {
         guard Set(ids).count == ids.count else {
             throw MeasurementModelError.duplicateMeasurementID
         }
-        self.schema = "htdt.capture.measurements"
-        self.schemaVersion = "1.0.0"
+        self.schema = Self.expectedSchema
+        self.schemaVersion = Self.expectedSchemaVersion
         self.measurements = measurements
     }
 
@@ -249,5 +368,29 @@ public struct CaptureMeasurementCollection: Codable, Sendable, Equatable {
         case schema
         case schemaVersion = "schema_version"
         case measurements
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schema = try container.decode(String.self, forKey: .schema)
+        let schemaVersion = try container.decode(
+            String.self,
+            forKey: .schemaVersion
+        )
+        guard schema == Self.expectedSchema,
+              schemaVersion == Self.expectedSchemaVersion
+        else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schema,
+                in: container,
+                debugDescription: "Unsupported measurement collection schema"
+            )
+        }
+        try self.init(
+            measurements: container.decode(
+                [CaptureMeasurement].self,
+                forKey: .measurements
+            )
+        )
     }
 }

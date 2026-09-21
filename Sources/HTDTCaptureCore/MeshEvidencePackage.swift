@@ -191,7 +191,7 @@ public enum MeshEvidencePackageBuilder {
 
         let index = MeshAnchorEvidenceIndex(anchors: records)
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let indexData = try encoder.encode(index)
 
         return MeshEvidencePackage(
