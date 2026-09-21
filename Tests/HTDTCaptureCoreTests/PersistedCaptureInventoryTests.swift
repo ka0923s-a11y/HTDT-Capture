@@ -185,8 +185,14 @@ func inventoryBindsIdentityToManifestNotDirectoryName()
             == .finalizedDirectory
     )
     #expect(
-        result.quarantinedArtifacts.first?.url.path
-            == misplaced.path
+        result.quarantinedArtifacts.first?.url
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
+            == misplaced
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+                .path
     )
 }
 
