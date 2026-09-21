@@ -6,28 +6,86 @@ import HTDTCaptureCore
 /// The canonical annotation/measurement authority already committed in
 /// the working revision, reloaded so a pre-finalization correction
 /// pass starts from the persisted values instead of blank state (#163).
+/// A seed produced from a recovered draft is marked so the workspace
+/// shows the records as unsaved (#266).
 public struct AnnotationWorkspaceSeed: Sendable, Equatable {
     public let annotations: [CaptureAnnotationEntity]
     public let measurements: [CaptureMeasurement]
+    /// Equipment-identity attestations committed for this revision
+    /// (#239) — persisted beside the canonical collections on save.
+    public let equipmentIdentityRecords: [EquipmentIdentityRecord]
+    /// The speaker-layout plan in progress, when a draft recorded one
+    /// (#266/#278).
+    public let speakerLayoutPlan: SpeakerLayoutPlan?
+    /// True when this seed was restored from an on-disk non-canonical
+    /// draft rather than committed authority.
+    public let isRestoredDraft: Bool
 
     public init(
         annotations: [CaptureAnnotationEntity] = [],
-        measurements: [CaptureMeasurement] = []
+        measurements: [CaptureMeasurement] = [],
+        equipmentIdentityRecords: [EquipmentIdentityRecord] = [],
+        speakerLayoutPlan: SpeakerLayoutPlan? = nil,
+        isRestoredDraft: Bool = false
     ) {
         self.annotations = annotations
         self.measurements = measurements
+        self.equipmentIdentityRecords = equipmentIdentityRecords
+        self.speakerLayoutPlan = speakerLayoutPlan
+        self.isRestoredDraft = isRestoredDraft
     }
 }
 
+/// The annotation/measurement authoring surface (#5 Phase 4). Stages
+/// records against the committed workspace, edits existing rows
+/// in-place (#245), links visual evidence (#255), binds exact catalog
+/// equipment via a searchable picker (#265), records optional
+/// physical-device identity attestations (#239), and offers the guided
+/// speaker-layout flow (#278). Placement/heading captures run through
+/// the shared live AR session with a visible reticle (#214) and can
+/// target mesh or RoomPlan objects, never only planes (#246).
+///
+/// Staged state is autosaved to an app-private draft bound to the
+/// exact working revision + coordinate space (#266); the canonical
+/// `annotations/`/`measurements/` payloads are written only by Save.
 public struct CaptureAnnotationWorkspaceView: View {
     public let coordinateSpaceID: CoordinateSpaceID
+    /// Every `path:` evidence ref currently persisted in the working
+    /// revision (kept for compatibility — superseded visually by
+    /// `evidenceFrames`).
     public let availableEvidenceRefs: [String]
+    /// Visual presentation data for each evidence frame (#255).
+    public let evidenceFrames: [EvidenceFramePresentation]
     public let statusMessage: String?
     public let replacesCommittedAuthority: Bool
-    public let captureRaycastPlacement:
-        () async throws -> AnnotationPlacementAuthority
+    /// Shared AR preview for the camera capture sheets (#214).
+    public let cameraPreview: AnyView?
+    /// Pollable reticle probe (#214/#246).
+    public let probePlacementTarget:
+        () async -> AnnotationPlacementProbe
+    /// Pollable camera heading in degrees (#214).
+    public let probeCameraHeading: () async -> Float?
+    /// Targeted placement capture (#246) — nil result means no hit.
+    public let captureTargetedPlacement: (
+        PlacementTargetPreference
+    ) async throws -> AnnotationPlacementAuthority?
     public let captureSpeakerOrientation:
         () async throws -> AnnotationOrientationAuthority
+    /// Captures a plain evidence frame for equipment-identity photos
+    /// (#239); returns the canonical `path:` ref.
+    public let captureIdentityPhoto: () async throws -> String
+    /// Recognized RoomPlan objects offered for direct binding (#246).
+    public let roomPlanObjects: [RoomPlanBindableObject]
+    /// Advisory plausibility context for live flags (#247).
+    public let plausibilityContext: SpatialPlausibilityContext
+    /// Session equipment picker recents (#265).
+    public let equipmentRecents: EquipmentRecents
+    /// Available speaker-layout plans (#278); empty hides the flow.
+    public let speakerLayoutPlans: [SpeakerLayoutPlan]
+    /// Draft persistence + binding for autosave (#266). A draft only
+    /// ever seeds the workspace when both IDs match exactly.
+    public let draftStore: AnnotationWorkspaceDraftStore?
+    public let draftRevisionID: CaptureRevisionID?
     /// Validates and adopts an imported catalog snapshot through the
     /// host (#211). The host keeps the catalog alive across this view's
     /// lifecycle (and relaunch, via an app-support cache); the default
@@ -36,14 +94,21 @@ public struct CaptureAnnotationWorkspaceView: View {
         (Data) throws -> HTDTEquipmentCatalogSnapshot
     public let onCommit: (
         [CaptureAnnotationEntity],
-        [CaptureMeasurement]
+        [CaptureMeasurement],
+        [EquipmentIdentityRecord]
     ) -> Void
     public let onCancel: () -> Void
 
     @State private var annotations: [CaptureAnnotationEntity]
     @State private var measurements: [CaptureMeasurement]
+    @State private var identityRecords: [EquipmentIdentityRecord]
+    @State private var speakerLayoutPlan: SpeakerLayoutPlan?
+    @State private var restoredFromDraft: Bool
     @State private var addingAnnotation = false
+    @State private var editingAnnotationID: AnnotationEntityID?
     @State private var addingMeasurement = false
+    @State private var editingMeasurementID: MeasurementID?
+    @State private var layoutFlowPlan: SpeakerLayoutPlan?
     /// The catalog snapshot currently adopted by the host, seeded when
     /// this workspace opens (#211). Selecting "Replace equipment
     /// catalog" always runs through `onImportEquipmentCatalog`, so an
@@ -52,22 +117,42 @@ public struct CaptureAnnotationWorkspaceView: View {
         HTDTEquipmentCatalogSnapshot?
     @State private var importingEquipmentCatalog = false
     @State private var equipmentCatalogError: String?
+    @State private var draftSaveTask: Task<Void, Never>?
 
     public init(
         coordinateSpaceID: CoordinateSpaceID,
         availableEvidenceRefs: [String] = [],
+        evidenceFrames: [EvidenceFramePresentation] = [],
         statusMessage: String? = nil,
         seed: AnnotationWorkspaceSeed? = nil,
         replacesCommittedAuthority: Bool = false,
         equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil,
-        captureRaycastPlacement: @escaping
-            () async throws -> AnnotationPlacementAuthority = {
-                throw ManualAuthorityBuilderError.invalidPosition
-            },
+        cameraPreview: AnyView? = nil,
+        probePlacementTarget: @escaping
+            () async -> AnnotationPlacementProbe =
+            { .unavailable },
+        probeCameraHeading: @escaping
+            () async -> Float? = { nil },
+        captureTargetedPlacement: @escaping (
+            PlacementTargetPreference
+        ) async throws -> AnnotationPlacementAuthority? = { _ in
+            nil
+        },
         captureSpeakerOrientation: @escaping
             () async throws -> AnnotationOrientationAuthority = {
                 throw ManualAuthorityBuilderError.invalidSpeakerYaw
             },
+        captureIdentityPhoto: @escaping
+            () async throws -> String = {
+                throw ManualAuthorityBuilderError.invalidPosition
+            },
+        roomPlanObjects: [RoomPlanBindableObject] = [],
+        plausibilityContext: SpatialPlausibilityContext =
+            SpatialPlausibilityContext(),
+        equipmentRecents: EquipmentRecents = EquipmentRecents(),
+        speakerLayoutPlans: [SpeakerLayoutPlan] = [],
+        draftStore: AnnotationWorkspaceDraftStore? = nil,
+        draftRevisionID: CaptureRevisionID? = nil,
         onImportEquipmentCatalog: @escaping
             (Data) throws -> HTDTEquipmentCatalogSnapshot = { data in
                 try JSONDecoder().decode(
@@ -77,18 +162,31 @@ public struct CaptureAnnotationWorkspaceView: View {
             },
         onCommit: @escaping (
             [CaptureAnnotationEntity],
-            [CaptureMeasurement]
+            [CaptureMeasurement],
+            [EquipmentIdentityRecord]
         ) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.coordinateSpaceID = coordinateSpaceID
-        self.availableEvidenceRefs = availableEvidenceRefs.sorted()
+        self.availableEvidenceRefs =
+            availableEvidenceRefs.sorted()
+        self.evidenceFrames = evidenceFrames
         self.statusMessage = statusMessage
         self.replacesCommittedAuthority =
             replacesCommittedAuthority
-        self.captureRaycastPlacement = captureRaycastPlacement
+        self.cameraPreview = cameraPreview
+        self.probePlacementTarget = probePlacementTarget
+        self.probeCameraHeading = probeCameraHeading
+        self.captureTargetedPlacement = captureTargetedPlacement
         self.captureSpeakerOrientation =
             captureSpeakerOrientation
+        self.captureIdentityPhoto = captureIdentityPhoto
+        self.roomPlanObjects = roomPlanObjects
+        self.plausibilityContext = plausibilityContext
+        self.equipmentRecents = equipmentRecents
+        self.speakerLayoutPlans = speakerLayoutPlans
+        self.draftStore = draftStore
+        self.draftRevisionID = draftRevisionID
         self.onImportEquipmentCatalog = onImportEquipmentCatalog
         self.onCommit = onCommit
         self.onCancel = onCancel
@@ -98,22 +196,54 @@ public struct CaptureAnnotationWorkspaceView: View {
         _measurements = State(
             initialValue: seed?.measurements ?? []
         )
+        _identityRecords = State(
+            initialValue: seed?.equipmentIdentityRecords ?? []
+        )
+        _speakerLayoutPlan = State(
+            initialValue: seed?.speakerLayoutPlan
+        )
+        _restoredFromDraft = State(
+            initialValue: seed?.isRestoredDraft ?? false
+        )
         _equipmentCatalog = State(initialValue: equipmentCatalog)
+    }
+
+    /// Frame presentations for refs the loader could decode; the rest
+    /// keep a text row.
+    private var frameRefs: Set<String> {
+        Set(evidenceFrames.map(\.reference))
+    }
+    private var otherEvidenceRefs: [String] {
+        availableEvidenceRefs.filter { !frameRefs.contains($0) }
     }
 
     public var body: some View {
         List {
             if let statusMessage {
-                Section("Status") {
+                Section(String(localized: "Status")) {
                     Text(statusMessage)
                         .font(.callout)
                 }
             }
 
-            Section("HTDT equipment catalog") {
+            if restoredFromDraft {
+                Section {
+                    Label(
+                        String(localized:
+                            "Unsaved draft restored — records below are not yet saved authority"),
+                        systemImage: "doc.badge.clock"
+                    )
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                }
+            }
+
+            Section(
+                String(localized: "HTDT equipment catalog")
+            ) {
                 if let equipmentCatalog {
                     LabeledContent(
-                        "Definitions",
+                        String(localized: "Definitions"),
                         value: String(
                             equipmentCatalog.definitions.count
                         )
@@ -144,51 +274,85 @@ public struct CaptureAnnotationWorkspaceView: View {
                 }
             }
 
-            Section("Spatial annotations") {
-                if annotations.isEmpty {
-                    Text("No spatial annotations staged.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(annotations, id: \.entityID) { entity in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(entity.label)
-                            Text(annotationDetail(entity))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+            if !speakerLayoutPlans.isEmpty {
+                Section(String(localized: "Speaker layout")) {
+                    ForEach(
+                        speakerLayoutPlans,
+                        id: \.planName
+                    ) { plan in
+                        Button {
+                            layoutFlowPlan = plan
+                        } label: {
+                            Label(
+                                String(localized:
+                                    "Capture layout: ")
+                                    + plan.planName,
+                                systemImage: "speaker.wave.3"
+                            )
                         }
                     }
+                    if speakerLayoutPlan != nil {
+                        Text(
+                            "A layout plan is in progress; reopen it to continue."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Section(String(localized: "Spatial annotations")) {
+                if annotations.isEmpty {
+                    Text(
+                        String(localized:
+                            "No spatial annotations staged.")
+                    )
+                    .foregroundStyle(.secondary)
+                } else {
+                    ForEach(annotations, id: \.entityID) { entity in
+                        Button {
+                            editingAnnotationID = entity.entityID
+                        } label: {
+                            annotationRow(entity)
+                        }
+                        .buttonStyle(.plain)
+                    }
                     .onDelete { offsets in
-                        annotations.remove(atOffsets: offsets)
+                        removeAnnotations(at: offsets)
                     }
                 }
 
-                Button("Add spatial annotation") {
+                Button(String(localized: "Add spatial annotation")) {
                     addingAnnotation = true
                 }
             }
 
-            Section("Measurements") {
+            Section(String(localized: "Measurements")) {
                 if measurements.isEmpty {
-                    Text("No measurements staged.")
-                        .foregroundStyle(.secondary)
+                    Text(
+                        String(localized: "No measurements staged.")
+                    )
+                    .foregroundStyle(.secondary)
                 } else {
                     ForEach(
                         measurements,
                         id: \.measurementID
                     ) { measurement in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(measurement.quantityType)
-                            Text(measurementDetail(measurement))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        Button {
+                            editingMeasurementID =
+                                measurement.measurementID
+                        } label: {
+                            measurementRow(measurement)
                         }
+                        .buttonStyle(.plain)
                     }
                     .onDelete { offsets in
                         measurements.remove(atOffsets: offsets)
+                        scheduleDraftSave()
                     }
                 }
 
-                Button("Add measurement") {
+                Button(String(localized: "Add measurement")) {
                     addingMeasurement = true
                 }
             }
@@ -204,10 +368,13 @@ public struct CaptureAnnotationWorkspaceView: View {
                         localized: "Save annotation authority"
                     )
                 ) {
-                    onCommit(annotations, measurements)
+                    commit()
                 }
-                Button("Cancel", role: .cancel) {
-                    onCancel()
+                Button(
+                    String(localized: "Cancel"),
+                    role: .cancel
+                ) {
+                    cancel()
                 }
             } footer: {
                 if replacesCommittedAuthority {
@@ -223,27 +390,134 @@ public struct CaptureAnnotationWorkspaceView: View {
         }
         .sheet(isPresented: $addingAnnotation) {
             NavigationStack {
-                ManualAnnotationForm(
+                AnnotationEntityForm(
                     coordinateSpaceID: coordinateSpaceID,
-                    availableEvidenceRefs: availableEvidenceRefs,
-                    captureRaycastPlacement:
-                        captureRaycastPlacement,
+                    evidenceFrames: evidenceFrames,
+                    otherEvidenceRefs: otherEvidenceRefs,
+                    equipmentCatalogEntries:
+                        equipmentCatalog?.definitions ?? [],
+                    equipmentRecents: equipmentRecents,
+                    roomPlanObjects: roomPlanObjects,
+                    cameraPreview: cameraPreview,
+                    probePlacementTarget: probePlacementTarget,
+                    probeCameraHeading: probeCameraHeading,
+                    captureTargetedPlacement:
+                        captureTargetedPlacement,
                     captureSpeakerOrientation:
                         captureSpeakerOrientation,
-                    equipmentCatalogEntries:
-                        equipmentCatalog?.definitions ?? []
-                ) { entity in
+                    captureIdentityPhoto: captureIdentityPhoto
+                ) { entity, record in
                     annotations.append(entity)
+                    if let record {
+                        upsertIdentityRecord(record)
+                    }
+                    scheduleDraftSave()
+                }
+            }
+        }
+        .sheet(item: $editingAnnotationID) { entityID in
+            NavigationStack {
+                if let entity = annotations.first(where: {
+                    $0.entityID == entityID
+                }) {
+                    AnnotationEntityForm(
+                        editingEntity: entity,
+                        editingIdentityRecord:
+                            identityRecords.first(where: {
+                                $0.entityID == entityID
+                            }),
+                        coordinateSpaceID: coordinateSpaceID,
+                        evidenceFrames: evidenceFrames,
+                        otherEvidenceRefs: otherEvidenceRefs,
+                        equipmentCatalogEntries:
+                            equipmentCatalog?.definitions ?? [],
+                        equipmentRecents: equipmentRecents,
+                        roomPlanObjects: roomPlanObjects,
+                        cameraPreview: cameraPreview,
+                        probePlacementTarget: probePlacementTarget,
+                        probeCameraHeading: probeCameraHeading,
+                        captureTargetedPlacement:
+                            captureTargetedPlacement,
+                        captureSpeakerOrientation:
+                            captureSpeakerOrientation,
+                        captureIdentityPhoto: captureIdentityPhoto
+                    ) { updated, record in
+                        annotations.replaceAll(
+                            where: {
+                                $0.entityID == updated.entityID
+                            },
+                            with: updated
+                        )
+                        upsertIdentityRecord(record)
+                        scheduleDraftSave()
+                    }
                 }
             }
         }
         .sheet(isPresented: $addingMeasurement) {
             NavigationStack {
-                ManualMeasurementForm(
-                    availableEvidenceRefs: availableEvidenceRefs
+                MeasurementFormView(
+                    evidenceFrames: evidenceFrames,
+                    otherEvidenceRefs: otherEvidenceRefs
                 ) { measurement in
                     measurements.append(measurement)
+                    scheduleDraftSave()
                 }
+            }
+        }
+        .sheet(item: $editingMeasurementID) { measurementID in
+            NavigationStack {
+                if let measurement = measurements.first(where: {
+                    $0.measurementID == measurementID
+                }) {
+                    MeasurementFormView(
+                        editingMeasurement: measurement,
+                        evidenceFrames: evidenceFrames,
+                        otherEvidenceRefs: otherEvidenceRefs
+                    ) { updated in
+                        measurements.replaceAll(
+                            where: {
+                                $0.measurementID
+                                    == updated.measurementID
+                            },
+                            with: updated
+                        )
+                        scheduleDraftSave()
+                    }
+                }
+            }
+        }
+        .sheet(item: $layoutFlowPlan) { plan in
+            NavigationStack {
+                SpeakerLayoutFlowView(
+                    plan: plan,
+                    existingAnnotations: annotations,
+                    coordinateSpaceID: coordinateSpaceID,
+                    evidenceFrames: evidenceFrames,
+                    equipmentCatalogEntries:
+                        equipmentCatalog?.definitions ?? [],
+                    equipmentRecents: equipmentRecents,
+                    roomPlanObjects: roomPlanObjects,
+                    cameraPreview: cameraPreview,
+                    probePlacementTarget: probePlacementTarget,
+                    probeCameraHeading: probeCameraHeading,
+                    captureTargetedPlacement:
+                        captureTargetedPlacement,
+                    captureSpeakerOrientation:
+                        captureSpeakerOrientation,
+                    captureIdentityPhoto: captureIdentityPhoto,
+                    onEntity: { entity, record in
+                        annotations.append(entity)
+                        if let record {
+                            upsertIdentityRecord(record)
+                        }
+                        scheduleDraftSave()
+                    },
+                    onPlan: { plan in
+                        speakerLayoutPlan = plan
+                        scheduleDraftSave()
+                    }
+                )
             }
         }
         .fileImporter(
@@ -253,6 +527,85 @@ public struct CaptureAnnotationWorkspaceView: View {
         ) { result in
             importEquipmentCatalog(result)
         }
+        // Autosave drafts on any staged change and when the workspace
+        // disappears (#266).
+        .onChange(of: annotations) { _, _ in scheduleDraftSave() }
+        .onChange(of: measurements) { _, _ in scheduleDraftSave() }
+        .onChange(of: identityRecords) { _, _ in scheduleDraftSave() }
+        .onDisappear {
+            // Final flush — an interrupting view teardown must still
+            // leave the draft durable.
+            writeDraft()
+        }
+    }
+
+    private func upsertIdentityRecord(
+        _ record: EquipmentIdentityRecord?
+    ) {
+        identityRecords.removeAll {
+            $0.entityID == record?.entityID
+        }
+        if let record {
+            identityRecords.append(record)
+        }
+    }
+
+    private func removeAnnotations(
+        at offsets: IndexSet
+    ) {
+        let removedIDs = offsets.map {
+            annotations[$0].entityID
+        }
+        annotations.remove(atOffsets: offsets)
+        // An attestation bound to a deleted entity can never outlive
+        // it (#239).
+        identityRecords.removeAll {
+            removedIDs.contains($0.entityID)
+        }
+        scheduleDraftSave()
+    }
+
+    // MARK: Draft autosave (#266)
+
+    private func scheduleDraftSave() {
+        draftSaveTask?.cancel()
+        draftSaveTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled else { return }
+            writeDraft()
+        }
+    }
+
+    private func writeDraft() {
+        guard let draftStore, let draftRevisionID else {
+            return
+        }
+        let draft = AnnotationWorkspaceDraft(
+            captureRevisionID: draftRevisionID,
+            coordinateSpaceID: coordinateSpaceID,
+            savedAtUTC: BundleTimestamp.utcString(from: Date()),
+            annotations: annotations,
+            measurements: measurements,
+            equipmentIdentityRecords: identityRecords,
+            speakerLayoutPlan: speakerLayoutPlan
+        )
+        try? draftStore.save(draft)
+    }
+
+    private func discardDraft() {
+        if let draftStore, let draftRevisionID {
+            draftStore.discard(revisionID: draftRevisionID)
+        }
+    }
+
+    private func commit() {
+        discardDraft()
+        onCommit(annotations, measurements, identityRecords)
+    }
+
+    private func cancel() {
+        discardDraft()
+        onCancel()
     }
 
     private func importEquipmentCatalog(
@@ -281,17 +634,72 @@ public struct CaptureAnnotationWorkspaceView: View {
         } catch {
             equipmentCatalogError =
                 String(localized: "Catalog import failed: ")
-                + String(describing: error)
+                + AnnotationPresentation.errorText(error)
         }
     }
 
-    private func annotationDetail(
+    @ViewBuilder
+    private func annotationRow(
         _ entity: CaptureAnnotationEntity
-    ) -> String {
-        if let role = entity.channelRole {
-            return entity.type.rawValue + " · " + role.rawValue
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(entity.label)
+                    .foregroundStyle(.primary)
+                Spacer()
+                Image(systemName: "pencil")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text(
+                [
+                    AnnotationPresentation
+                        .entityTypeName(entity.type),
+                    entity.channelRole?.rawValue,
+                    AnnotationPresentation
+                        .placementMethodName(
+                            entity.placement.method
+                        ),
+                ]
+                .compactMap { $0 }
+                .joined(separator: " · ")
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            if identityRecords.contains(where: {
+                $0.entityID == entity.entityID
+            }) {
+                Label(
+                    String(localized: "Identity attested"),
+                    systemImage: "checkmark.shield"
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
         }
-        return entity.type.rawValue
+    }
+
+    @ViewBuilder
+    private func measurementRow(
+        _ measurement: CaptureMeasurement
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(
+                    AnnotationPresentation.measurementTitle(
+                        forQuantityType: measurement.quantityType
+                    )
+                )
+                .foregroundStyle(.primary)
+                Spacer()
+                Image(systemName: "pencil")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text(measurementDetail(measurement))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func measurementDetail(
@@ -307,565 +715,27 @@ public struct CaptureAnnotationWorkspaceView: View {
     }
 }
 
-private struct ManualAnnotationForm: View {
-    let coordinateSpaceID: CoordinateSpaceID
-    let availableEvidenceRefs: [String]
-    let captureRaycastPlacement:
-        () async throws -> AnnotationPlacementAuthority
-    let captureSpeakerOrientation:
-        () async throws -> AnnotationOrientationAuthority
-    let equipmentCatalogEntries: [HTDTEquipmentCatalogEntry]
-    let onAdd: (CaptureAnnotationEntity) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var type: AnnotationEntityType = .listeningPosition
-    @State private var label = "MLP"
-    @State private var xText = "0"
-    @State private var yText = "0"
-    @State private var zText = "1.1"
-    @State private var channelRole = "L"
-    @State private var yawText = "0"
-
-    @State private var includeEquipmentReference = false
-    @State private var equipmentID = ""
-    @State private var equipmentVersion = ""
-    @State private var equipmentHash = ""
-    @State private var selectedEquipmentKey = ""
-    // Issue #207: evidence refs carry ownership — user-selected refs
-    // survive authority reverts; authority-owned refs disappear with
-    // the authority that introduced them.
-    @State private var evidenceSelection =
-        AnnotationEvidenceSelection()
-    @State private var placementAuthority:
-        AnnotationPlacementAuthority?
-    @State private var isCapturingRaycast = false
-    @State private var orientationAuthority:
-        AnnotationOrientationAuthority?
-    @State private var isCapturingOrientation = false
-
-    @State private var errorText: String?
-
-    var body: some View {
-        Form {
-            Section("Authority") {
-                Picker("Type", selection: $type) {
-                    ForEach(
-                        AnnotationEntityType.allCases,
-                        id: \.self
-                    ) { value in
-                        Text(value.rawValue).tag(value)
-                    }
-                }
-                TextField("Label", text: $label)
-            }
-
-            Section("Position in capture world (m)") {
-                TextField("X", text: $xText)
-                    .disabled(placementAuthority != nil)
-                TextField("Y", text: $yText)
-                    .disabled(placementAuthority != nil)
-                TextField("Z", text: $zText)
-                    .disabled(placementAuthority != nil)
-
-                if placementAuthority == nil {
-                    Button("Use live center raycast") {
-                        captureRaycast()
-                    }
-                    .disabled(isCapturingRaycast)
-                } else {
-                    LabeledContent(
-                        "Placement",
-                        value: "evidence-linked raycast"
-                    )
-                    Button("Use manual position instead") {
-                        placementAuthority = nil
-                        evidenceSelection
-                            .replacePlacementAuthority(nil)
-                    }
-                }
-            }
-
-            if type == .speaker {
-                Section("Speaker orientation") {
-                    TextField(
-                        "Channel role (L, C, R, ...)",
-                        text: $channelRole
-                    )
-
-                    if let orientationAuthority {
-                        let front =
-                            orientationAuthority
-                                .orientation.frontAxisLocal
-                        LabeledContent(
-                            "Captured front",
-                            value:
-                                "["
-                                + String(format: "%.3f", front.x)
-                                + ", 0, "
-                                + String(format: "%.3f", front.z)
-                                + "]"
-                        )
-                        Button("Use manual yaw instead") {
-                            self.orientationAuthority = nil
-                            evidenceSelection
-                                .replaceOrientationAuthority(nil)
-                        }
-                    } else {
-                        TextField(
-                            "Yaw degrees (0 = -Z, 90 = +X)",
-                            text: $yawText
-                        )
-                        Button(
-                            "Capture current camera heading"
-                        ) {
-                            captureOrientation()
-                        }
-                        .disabled(isCapturingOrientation)
-                        Text(
-                            "Point the phone in the speaker's forward direction, then capture. Only the horizontal heading is adopted."
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            if !availableEvidenceRefs.isEmpty {
-                EvidenceReferenceSelector(
-                    availableEvidenceRefs:
-                        availableEvidenceRefs,
-                    selectedEvidenceRefs:
-                        $evidenceSelection.userSelected
-                )
-            }
-
-            Section("Pinned HTDT equipment authority") {
-                Toggle(
-                    "Attach equipment reference",
-                    isOn: $includeEquipmentReference
-                )
-
-                if includeEquipmentReference {
-                    if !equipmentCatalogEntries.isEmpty {
-                        Picker(
-                            "Catalog definition",
-                            selection: $selectedEquipmentKey
-                        ) {
-                            Text("Manual exact reference")
-                                .tag("")
-                            ForEach(
-                                equipmentCatalogEntries,
-                                id: \.selectionKey
-                            ) { entry in
-                                Text(
-                                    entry.displayName
-                                    + " · "
-                                    + entry.version
-                                )
-                                .tag(entry.selectionKey)
-                            }
-                        }
-                        .onChange(
-                            of: selectedEquipmentKey
-                        ) { _, newValue in
-                            applyEquipmentSelection(
-                                newValue
-                            )
-                        }
-                    }
-
-                    TextField(
-                        "Equipment ID",
-                        text: $equipmentID
-                    )
-                    .disabled(!selectedEquipmentKey.isEmpty)
-                    TextField(
-                        "Equipment version",
-                        text: $equipmentVersion
-                    )
-                    .disabled(!selectedEquipmentKey.isEmpty)
-                    TextField(
-                        "Equipment SHA-256",
-                        text: $equipmentHash
-                    )
-                    .disabled(!selectedEquipmentKey.isEmpty)
-
-                    Text(
-                        selectedEquipmentKey.isEmpty
-                        ? String(localized: "All three values are required. The capture app does not guess an equipment revision.")
-                        : String(localized: "Selected from an HTDT catalog snapshot; the exact ID/version/SHA-256 tuple is stored.")
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-            }
-
-            if let errorText {
-                Section {
-                    Text(errorText)
-                        .foregroundStyle(.red)
-                }
-            }
-        }
-        .navigationTitle("Add annotation")
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    dismiss()
-                }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Add") {
-                    add()
-                }
-            }
-        }
-    }
-
-    private func applyEquipmentSelection(
-        _ selectionKey: String
+private extension Array {
+    mutating func replaceAll(
+        where predicate: (Element) -> Bool,
+        with element: Element
     ) {
-        guard !selectionKey.isEmpty,
-              let entry =
-                equipmentCatalogEntries.first(where: {
-                    $0.selectionKey == selectionKey
-                })
-        else {
-            return
-        }
-
-        equipmentID = entry.definitionID
-        equipmentVersion = entry.version
-        equipmentHash =
-            entry.semanticSHA256.description
-    }
-
-    private func captureOrientation() {
-        guard !isCapturingOrientation else {
-            return
-        }
-        isCapturingOrientation = true
-        errorText = nil
-
-        Task { @MainActor in
-            defer {
-                isCapturingOrientation = false
-            }
-            do {
-                let authority =
-                    try await captureSpeakerOrientation()
-                orientationAuthority = authority
-                evidenceSelection
-                    .replaceOrientationAuthority(authority)
-            } catch {
-                errorText = String(describing: error)
-            }
-        }
-    }
-
-    private func captureRaycast() {
-        guard !isCapturingRaycast else {
-            return
-        }
-        isCapturingRaycast = true
-        errorText = nil
-
-        Task { @MainActor in
-            defer {
-                isCapturingRaycast = false
-            }
-            do {
-                let authority =
-                    try await captureRaycastPlacement()
-                placementAuthority = authority
-                xText = String(
-                    Double(
-                        authority.worldFromAnnotation.values[12]
-                    )
-                )
-                yText = String(
-                    Double(
-                        authority.worldFromAnnotation.values[13]
-                    )
-                )
-                zText = String(
-                    Double(
-                        authority.worldFromAnnotation.values[14]
-                    )
-                )
-                evidenceSelection
-                    .replacePlacementAuthority(authority)
-            } catch {
-                errorText = String(describing: error)
-            }
-        }
-    }
-
-    private func add() {
-        do {
-            guard let x = Double(xText),
-                  let y = Double(yText),
-                  let z = Double(zText)
-            else {
-                throw ManualAuthorityBuilderError.invalidPosition
-            }
-
-            let equipment: HTDTEquipmentReference?
-            if includeEquipmentReference {
-                let digest = try EvidenceSHA256(
-                    equipmentHash
-                        .trimmingCharacters(
-                            in: .whitespacesAndNewlines
-                        )
-                        .lowercased()
-                )
-                equipment = try HTDTEquipmentReference(
-                    equipmentID: equipmentID,
-                    equipmentVersion: equipmentVersion,
-                    equipmentHash: digest
-                )
-            } else {
-                equipment = nil
-            }
-
-            let entity = try ManualAuthorityBuilder.annotation(
-                type: type,
-                label: label,
-                xMeters: x,
-                yMeters: y,
-                zMeters: z,
-                coordinateSpaceID: coordinateSpaceID,
-                speakerChannelRole:
-                    type == .speaker ? channelRole : nil,
-                speakerYawDegrees:
-                    type == .speaker ? Double(yawText) : nil,
-                equipmentReference: equipment,
-                evidenceRefs: evidenceSelection.effectiveRefs,
-                placementAuthority: placementAuthority,
-                orientationAuthority: orientationAuthority
-            )
-            onAdd(entity)
-            dismiss()
-        } catch {
-            errorText = String(describing: error)
+        if let index = firstIndex(where: predicate) {
+            self[index] = element
+        } else {
+            append(element)
         }
     }
 }
 
-private struct ManualMeasurementForm: View {
-    let availableEvidenceRefs: [String]
-    let onAdd: (CaptureMeasurement) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var quantityType = "room_width"
-    @State private var valueText = ""
-    @State private var unit: MeasurementUnit = .meter
-    @State private var method:
-        MeasurementAcquisitionMethod = .laserDistanceMeter
-    @State private var uncertaintyText = ""
-    @State private var sourceValueText = ""
-    @State private var instrumentClass = ""
-    @State private var instrumentModel = ""
-    @State private var selectedEvidenceRefs = Set<String>()
-    @State private var errorText: String?
-
-    private let units: [MeasurementUnit] = [
-        .meter,
-        .radian,
-        .dimensionless,
-    ]
-    // Derived acquisition methods are intentionally absent: every value
-    // this form submits is persisted as `user_attested` /
-    // `user_attested_measurement` by ManualAuthorityBuilder, so a manual
-    // entry must never claim LiDAR/RoomPlan-derived provenance. Real
-    // derived values arrive through their dedicated evidence adapters.
-    private let methods: [MeasurementAcquisitionMethod] = [
-        .tapeMeasure,
-        .laserDistanceMeter,
-        .manufacturerSpecification,
-        .other,
-    ]
-
-    var body: some View {
-        Form {
-            Section("Measurement") {
-                TextField(
-                    "Quantity type",
-                    text: $quantityType
-                )
-                TextField("Value", text: $valueText)
-
-                Picker("Unit", selection: $unit) {
-                    ForEach(units, id: \.rawValue) {
-                        Text($0.rawValue).tag($0)
-                    }
-                }
-                Picker("Acquisition", selection: $method) {
-                    ForEach(methods, id: \.rawValue) {
-                        Text($0.rawValue).tag($0)
-                    }
-                }
-            }
-
-            if !availableEvidenceRefs.isEmpty {
-                EvidenceReferenceSelector(
-                    availableEvidenceRefs:
-                        availableEvidenceRefs,
-                    selectedEvidenceRefs:
-                        $selectedEvidenceRefs
-                )
-            }
-
-            Section("Evidence details") {
-                TextField(
-                    "Stated uncertainty (optional)",
-                    text: $uncertaintyText
-                )
-                TextField(
-                    "Original value text (optional)",
-                    text: $sourceValueText
-                )
-                TextField(
-                    "Instrument class (optional)",
-                    text: $instrumentClass
-                )
-                TextField(
-                    "Make/model (optional)",
-                    text: $instrumentModel
-                )
-            }
-
-            Section {
-                Text(
-                    "Manual entries are persisted as user-attested measurements; derived LiDAR/RoomPlan values should use their dedicated evidence path instead."
-                )
-                .font(.caption)
-            }
-
-            if let errorText {
-                Section {
-                    Text(errorText)
-                        .foregroundStyle(.red)
-                }
-            }
-        }
-        .navigationTitle("Add measurement")
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    dismiss()
-                }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Add") {
-                    add()
-                }
-            }
-        }
-    }
-
-    private func add() {
-        do {
-            guard let value = Double(valueText) else {
-                throw MeasurementModelError.invalidScalar
-            }
-
-            let uncertainty: Double?
-            if uncertaintyText
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .isEmpty
-            {
-                uncertainty = nil
-            } else {
-                guard let parsed = Double(uncertaintyText) else {
-                    throw MeasurementModelError.negativeUncertainty
-                }
-                uncertainty = parsed
-            }
-
-            let instrument: MeasurementInstrument?
-            if instrumentClass.isEmpty && instrumentModel.isEmpty {
-                instrument = nil
-            } else {
-                instrument = MeasurementInstrument(
-                    instrumentClass:
-                        instrumentClass.isEmpty
-                        ? nil : instrumentClass,
-                    makeModel:
-                        instrumentModel.isEmpty
-                        ? nil : instrumentModel
-                )
-            }
-
-            let measurement =
-                try ManualAuthorityBuilder.scalarMeasurement(
-                    quantityType: quantityType,
-                    value: value,
-                    unit: unit,
-                    acquisitionMethod: method,
-                    instrument: instrument,
-                    statedUncertainty: uncertainty,
-                    sourceValueText:
-                        sourceValueText.isEmpty
-                        ? nil : sourceValueText,
-                    evidenceRefs:
-                        selectedEvidenceRefs.sorted()
-                )
-            onAdd(measurement)
-            dismiss()
-        } catch {
-            errorText = String(describing: error)
-        }
-    }
+extension AnnotationEntityID: Identifiable {
+    public var id: UUID { rawValue }
 }
 
+extension MeasurementID: Identifiable {
+    public var id: UUID { rawValue }
+}
 
-private struct EvidenceReferenceSelector: View {
-    let availableEvidenceRefs: [String]
-    @Binding var selectedEvidenceRefs: Set<String>
-
-    var body: some View {
-        Section("Linked evidence frames") {
-            ForEach(availableEvidenceRefs, id: \.self) { reference in
-                Toggle(
-                    isOn: Binding(
-                        get: {
-                            selectedEvidenceRefs.contains(reference)
-                        },
-                        set: { selected in
-                            if selected {
-                                selectedEvidenceRefs.insert(reference)
-                            } else {
-                                selectedEvidenceRefs.remove(reference)
-                            }
-                        }
-                    )
-                ) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(frameLabel(reference))
-                        Text(reference)
-                            .font(.caption2.monospaced())
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            Text(
-                "Links reference exact canonical frame descriptors already persisted in this working revision."
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-    }
-
-    private func frameLabel(_ reference: String) -> String {
-        let path = reference.hasPrefix("path:")
-            ? String(reference.dropFirst(5))
-            : reference
-        return URL(fileURLWithPath: path)
-            .deletingPathExtension()
-            .lastPathComponent
-    }
+extension SpeakerLayoutPlan: Identifiable {
+    public var id: String { planName }
 }

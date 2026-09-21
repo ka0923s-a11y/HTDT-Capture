@@ -1,0 +1,239 @@
+import Foundation
+
+/// One role in a guided speaker-layout capture plan (#278). Roles come
+/// from an explicit plan — a named preset the operator selected, or a
+/// task/profile supplied list — never an assumed fixed layout.
+public struct SpeakerLayoutRole: Codable, Sendable, Equatable, Identifiable {
+    /// Unique token inside the plan (e.g. `"L"`, `"LFE_2"`). Equals the
+    /// channel-role token when unambiguous.
+    public let roleID: String
+    /// Canonical channel-role token written into the speaker entity.
+    public let channelRole: ChannelRole
+    /// Whether this role is a subwoofer — the entity is created with
+    /// `type == .subwoofer` and no channel role requirement.
+    public let isSubwoofer: Bool
+    /// Display name for the checklist (e.g. "Front left").
+    public let displayName: String
+
+    public init(
+        roleID: String,
+        channelRole: ChannelRole,
+        isSubwoofer: Bool = false,
+        displayName: String? = nil
+    ) {
+        self.roleID = roleID
+        self.channelRole = channelRole
+        self.isSubwoofer = isSubwoofer
+        self.displayName = displayName ?? channelRole.description
+    }
+
+    public var id: String { roleID }
+
+    private enum CodingKeys: String, CodingKey {
+        case roleID = "role_id"
+        case channelRole = "channel_role"
+        case isSubwoofer = "is_subwoofer"
+        case displayName = "display_name"
+    }
+}
+
+/// An ordered role list for the guided batch speaker capture flow
+/// (#278). The plan is explicit operator/task authority: the flow steps
+/// through `roles` one at a time, tracks per-role completion against
+/// the staged annotations, and never invents extra roles.
+public struct SpeakerLayoutPlan: Codable, Sendable, Equatable {
+    public static let schema = "htdt.speaker-layout-plan"
+    public static let schemaVersion = "1.0.0"
+
+    public let schemaName: String
+    public let schemaVersionValue: String
+    /// Plan label, e.g. the preset name or a task-plan identifier.
+    public let planName: String
+    public var roles: [SpeakerLayoutRole]
+
+    public init(planName: String, roles: [SpeakerLayoutRole]) {
+        self.schemaName = Self.schema
+        self.schemaVersionValue = Self.schemaVersion
+        self.planName = planName
+        self.roles = roles
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaName = "schema"
+        case schemaVersionValue = "schema_version"
+        case planName = "plan_name"
+        case roles
+    }
+}
+
+/// Named presets the operator can pick when no external task plan
+/// (#240) is supplied. Selecting a preset is an explicit choice — the
+/// plan lists every role it will ask for, and the operator can still
+/// add/remove roles or skip them inside the flow.
+public enum SpeakerLayoutPresets {
+    public static var stereo: SpeakerLayoutPlan {
+        SpeakerLayoutPlan(
+            planName: "2.0 stereo",
+            roles: [
+                SpeakerLayoutRole(roleID: "L", channelRole: .left),
+                SpeakerLayoutRole(roleID: "R", channelRole: .right),
+            ]
+        )
+    }
+
+    public static var surround5_1: SpeakerLayoutPlan {
+        SpeakerLayoutPlan(
+            planName: "5.1",
+            roles: [
+                SpeakerLayoutRole(roleID: "L", channelRole: .left),
+                SpeakerLayoutRole(roleID: "C", channelRole: .center),
+                SpeakerLayoutRole(roleID: "R", channelRole: .right),
+                SpeakerLayoutRole(roleID: "SL", channelRole: .surroundLeft),
+                SpeakerLayoutRole(roleID: "SR", channelRole: .surroundRight),
+                SpeakerLayoutRole(
+                    roleID: "LFE",
+                    channelRole: .lfe,
+                    isSubwoofer: true
+                ),
+            ]
+        )
+    }
+
+    public static var surround7_1: SpeakerLayoutPlan {
+        SpeakerLayoutPlan(
+            planName: "7.1",
+            roles: [
+                SpeakerLayoutRole(roleID: "L", channelRole: .left),
+                SpeakerLayoutRole(roleID: "C", channelRole: .center),
+                SpeakerLayoutRole(roleID: "R", channelRole: .right),
+                SpeakerLayoutRole(roleID: "SL", channelRole: .surroundLeft),
+                SpeakerLayoutRole(roleID: "SR", channelRole: .surroundRight),
+                SpeakerLayoutRole(
+                    roleID: "SBL",
+                    channelRole: .surroundBackLeft
+                ),
+                SpeakerLayoutRole(
+                    roleID: "SBR",
+                    channelRole: .surroundBackRight
+                ),
+                SpeakerLayoutRole(
+                    roleID: "LFE",
+                    channelRole: .lfe,
+                    isSubwoofer: true
+                ),
+            ]
+        )
+    }
+
+    public static var surround7_1_4: SpeakerLayoutPlan {
+        SpeakerLayoutPlan(
+            planName: "7.1.4",
+            roles: [
+                SpeakerLayoutRole(roleID: "L", channelRole: .left),
+                SpeakerLayoutRole(roleID: "C", channelRole: .center),
+                SpeakerLayoutRole(roleID: "R", channelRole: .right),
+                SpeakerLayoutRole(roleID: "SL", channelRole: .surroundLeft),
+                SpeakerLayoutRole(roleID: "SR", channelRole: .surroundRight),
+                SpeakerLayoutRole(
+                    roleID: "SBL",
+                    channelRole: .surroundBackLeft
+                ),
+                SpeakerLayoutRole(
+                    roleID: "SBR",
+                    channelRole: .surroundBackRight
+                ),
+                SpeakerLayoutRole(
+                    roleID: "LFE",
+                    channelRole: .lfe,
+                    isSubwoofer: true
+                ),
+                SpeakerLayoutRole(roleID: "TFL", channelRole: .topFrontLeft),
+                SpeakerLayoutRole(roleID: "TFR", channelRole: .topFrontRight),
+                SpeakerLayoutRole(roleID: "TRL", channelRole: .topRearLeft),
+                SpeakerLayoutRole(roleID: "TRR", channelRole: .topRearRight),
+            ]
+        )
+    }
+
+    public static var all: [SpeakerLayoutPlan] {
+        [stereo, surround5_1, surround7_1, surround7_1_4]
+    }
+}
+
+/// Per-role capture state inside a running layout flow (#278).
+/// `skipped` and `notInstalled` are kept distinct from `pending` so a
+/// deliberately skipped role is never confused with a forgotten one.
+public enum SpeakerLayoutRoleState: String, Codable, Sendable, Equatable {
+    case pending
+    case completed
+    case skipped
+    case notInstalled = "not_installed"
+}
+
+/// Live progress of a layout flow against the staged annotations.
+public struct SpeakerLayoutProgress: Sendable, Equatable {
+    /// Entity produced for the role, when completed.
+    public private(set) var states: [String: SpeakerLayoutRoleState]
+    /// Entity ID per completed role, for review/jump-back.
+    public private(set) var entityByRole: [String: AnnotationEntityID]
+
+    public init(plan: SpeakerLayoutPlan) {
+        var states: [String: SpeakerLayoutRoleState] = [:]
+        for role in plan.roles {
+            states[role.roleID] = .pending
+        }
+        self.states = states
+        self.entityByRole = [:]
+    }
+
+    /// Rebuilds progress for `plan` against already-staged annotations:
+    /// an entity whose channel role matches a pending role completes it
+    /// (used when reopening a draft or continuing after edits).
+    public init(
+        plan: SpeakerLayoutPlan,
+        annotations: [CaptureAnnotationEntity]
+    ) {
+        self.init(plan: plan)
+        for role in plan.roles {
+            if let entity = annotations.first(where: {
+                $0.channelRole == role.channelRole
+            }) {
+                states[role.roleID] = .completed
+                entityByRole[role.roleID] = entity.entityID
+            }
+        }
+    }
+
+    public func state(for roleID: String) -> SpeakerLayoutRoleState {
+        states[roleID] ?? .pending
+    }
+
+    public mutating func markCompleted(
+        roleID: String,
+        entityID: AnnotationEntityID
+    ) {
+        states[roleID] = .completed
+        entityByRole[roleID] = entityID
+    }
+
+    public mutating func markSkipped(roleID: String) {
+        states[roleID] = .skipped
+    }
+
+    public mutating func markNotInstalled(roleID: String) {
+        states[roleID] = .notInstalled
+    }
+
+    public mutating func markPending(roleID: String) {
+        states[roleID] = .pending
+        entityByRole[roleID] = nil
+    }
+
+    /// First role still needing attention: pending roles first, then
+    /// none — skipped/not-installed stay out of the auto-advance queue.
+    public func nextPendingRole(
+        in plan: SpeakerLayoutPlan
+    ) -> SpeakerLayoutRole? {
+        plan.roles.first { states[$0.roleID] == .pending }
+    }
+}

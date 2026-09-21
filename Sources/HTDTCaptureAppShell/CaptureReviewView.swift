@@ -5,13 +5,20 @@ import HTDTCaptureCore
 public struct CaptureReviewView: View {
     public let quality: CaptureQualityReport
     public let validation: BundleValidationReport?
+    /// Advisory spatial-plausibility findings for the committed
+    /// annotations (#247). nil means the accepted room geometry was
+    /// unavailable — the section then reports "analysis unavailable"
+    /// rather than implying a pass.
+    public let spatialFindings: [SpatialPlausibilityFinding]?
 
     public init(
         quality: CaptureQualityReport,
-        validation: BundleValidationReport? = nil
+        validation: BundleValidationReport? = nil,
+        spatialFindings: [SpatialPlausibilityFinding]? = nil
     ) {
         self.quality = quality
         self.validation = validation
+        self.spatialFindings = spatialFindings
     }
 
     public var body: some View {
@@ -52,6 +59,54 @@ public struct CaptureReviewView: View {
                     "Measurements",
                     status: quality.measurementCompleteness
                 )
+            }
+
+            Section("Annotation plausibility") {
+                if let spatialFindings {
+                    if spatialFindings.isEmpty {
+                        Text(
+                            "No plausibility findings — annotations look consistent with the scanned geometry (advisory rules v"
+                        )
+                        + Text(
+                            SpatialPlausibilityThresholds.current
+                                .rulesVersion
+                        )
+                        + Text(")")
+                    } else {
+                        ForEach(spatialFindings) { finding in
+                            VStack(
+                                alignment: .leading,
+                                spacing: 4
+                            ) {
+                                Text(
+                                    localizedPlausibilityRule(
+                                        finding.rule
+                                    )
+                                )
+                                .font(.headline)
+                                Text(
+                                    finding.entityLabel
+                                )
+                                .font(.subheadline)
+                                Text(finding.detail)
+                                    .font(.caption)
+                                    .foregroundStyle(
+                                        .secondary
+                                    )
+                            }
+                        }
+                        Text(
+                            "Advisory only — annotations are never moved automatically. Edit an annotation to correct it, or keep it as recorded."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text(
+                        "Spatial analysis unavailable — no accepted room geometry was persisted for this revision."
+                    )
+                    .foregroundStyle(.secondary)
+                }
             }
 
             Section("Diagnostics") {
@@ -235,6 +290,33 @@ public struct CaptureReviewView: View {
             .dropFirst(maximumResourceWarningGroups)
             .reduce(0) { $0 + $1.count }
         return (visible, hiddenCount)
+    }
+
+    private func localizedPlausibilityRule(
+        _ rule: SpatialPlausibilityRule
+    ) -> String {
+        switch rule {
+        case .outsideRoomExtent:
+            return String(
+                localized: "Outside scanned room extent"
+            )
+        case .belowFloor:
+            return String(
+                localized: "Below the scanned floor"
+            )
+        case .aboveRoomExtent:
+            return String(
+                localized: "Above the scanned room height"
+            )
+        case .farFromSurfaces:
+            return String(
+                localized: "Far from all scanned geometry"
+            )
+        case .duplicatePosition:
+            return String(
+                localized: "Duplicate position"
+            )
+        }
     }
 
     private func localizedResourceEventKind(
