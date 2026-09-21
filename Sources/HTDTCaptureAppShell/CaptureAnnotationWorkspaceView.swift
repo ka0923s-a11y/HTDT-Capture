@@ -20,19 +20,24 @@ public struct AnnotationWorkspaceSeed: Sendable, Equatable {
     /// True when this seed was restored from an on-disk non-canonical
     /// draft rather than committed authority.
     public let isRestoredDraft: Bool
+    /// Committed theater-semantic authorities, when an
+    /// `annotations/authorities.json` file exists in the revision.
+    public let authorities: TheaterAuthorityCollection?
 
     public init(
         annotations: [CaptureAnnotationEntity] = [],
         measurements: [CaptureMeasurement] = [],
         equipmentIdentityRecords: [EquipmentIdentityRecord] = [],
         speakerLayoutPlan: SpeakerLayoutPlan? = nil,
-        isRestoredDraft: Bool = false
+        isRestoredDraft: Bool = false,
+        authorities: TheaterAuthorityCollection? = nil
     ) {
         self.annotations = annotations
         self.measurements = measurements
         self.equipmentIdentityRecords = equipmentIdentityRecords
         self.speakerLayoutPlan = speakerLayoutPlan
         self.isRestoredDraft = isRestoredDraft
+        self.authorities = authorities
     }
 }
 
@@ -50,12 +55,19 @@ public struct AnnotationWorkspaceSeed: Sendable, Equatable {
 /// `annotations/`/`measurements/` payloads are written only by Save.
 public struct CaptureAnnotationWorkspaceView: View {
     public let coordinateSpaceID: CoordinateSpaceID
+    /// Working revision identity — room-state snapshot records bind
+    /// it so a state set can never outlive the revision it describes.
+    public let captureRevisionID: CaptureRevisionID
     /// Every `path:` evidence ref currently persisted in the working
     /// revision (kept for compatibility — superseded visually by
     /// `evidenceFrames`).
     public let availableEvidenceRefs: [String]
     /// Visual presentation data for each evidence frame (#255).
     public let evidenceFrames: [EvidenceFramePresentation]
+    /// Captured RoomPlan elements/mesh anchors offered as binding
+    /// targets in the authority sheets (#218).
+    public let roomPlanSurfaces: [CapturedSurfaceOption]
+    public let meshAnchors: [CapturedSurfaceOption]
     public let statusMessage: String?
     public let replacesCommittedAuthority: Bool
     /// Shared AR preview for the camera capture sheets (#214).
@@ -104,7 +116,8 @@ public struct CaptureAnnotationWorkspaceView: View {
     public let onCommit: (
         [CaptureAnnotationEntity],
         [CaptureMeasurement],
-        [EquipmentIdentityRecord]
+        [EquipmentIdentityRecord],
+        TheaterAuthorityCollection
     ) -> Void
     public let onCancel: () -> Void
     /// Operator-initiated capture discard (#254): asks the host to
@@ -116,6 +129,7 @@ public struct CaptureAnnotationWorkspaceView: View {
     @State private var identityRecords: [EquipmentIdentityRecord]
     @State private var speakerLayoutPlan: SpeakerLayoutPlan?
     @State private var restoredFromDraft: Bool
+    @State private var authorities: TheaterAuthorityCollection
     @State private var addingAnnotation = false
     @State private var editingAnnotationID: AnnotationEntityID?
     @State private var addingMeasurement = false
@@ -133,8 +147,11 @@ public struct CaptureAnnotationWorkspaceView: View {
 
     public init(
         coordinateSpaceID: CoordinateSpaceID,
+        captureRevisionID: CaptureRevisionID,
         availableEvidenceRefs: [String] = [],
         evidenceFrames: [EvidenceFramePresentation] = [],
+        roomPlanSurfaces: [CapturedSurfaceOption] = [],
+        meshAnchors: [CapturedSurfaceOption] = [],
         statusMessage: String? = nil,
         seed: AnnotationWorkspaceSeed? = nil,
         replacesCommittedAuthority: Bool = false,
@@ -180,7 +197,8 @@ public struct CaptureAnnotationWorkspaceView: View {
         onCommit: @escaping (
             [CaptureAnnotationEntity],
             [CaptureMeasurement],
-            [EquipmentIdentityRecord]
+            [EquipmentIdentityRecord],
+            TheaterAuthorityCollection
         ) -> Void,
         taskProfile: CaptureTaskProfile? = nil,
         onSelectTaskProfile: @escaping
@@ -189,9 +207,12 @@ public struct CaptureAnnotationWorkspaceView: View {
         onDiscard: @escaping () -> Void = {}
     ) {
         self.coordinateSpaceID = coordinateSpaceID
+        self.captureRevisionID = captureRevisionID
         self.availableEvidenceRefs =
             availableEvidenceRefs.sorted()
         self.evidenceFrames = evidenceFrames
+        self.roomPlanSurfaces = roomPlanSurfaces
+        self.meshAnchors = meshAnchors
         self.statusMessage = statusMessage
         self.replacesCommittedAuthority =
             replacesCommittedAuthority
@@ -230,6 +251,9 @@ public struct CaptureAnnotationWorkspaceView: View {
         _restoredFromDraft = State(
             initialValue: seed?.isRestoredDraft ?? false
         )
+        _authorities = State(
+            initialValue: seed?.authorities ?? .empty
+        )
         _equipmentCatalog = State(initialValue: equipmentCatalog)
     }
 
@@ -251,6 +275,7 @@ public struct CaptureAnnotationWorkspaceView: View {
             speakerLayoutSection
             annotationsSection
             measurementsSection
+            theaterAuthoritySection
             commitSection
         }
         .sheet(isPresented: $addingAnnotation) {
@@ -366,7 +391,7 @@ public struct CaptureAnnotationWorkspaceView: View {
 
     private func commit() {
         discardDraft()
-        onCommit(annotations, measurements, identityRecords)
+        onCommit(annotations, measurements, identityRecords, authorities)
     }
 
     private func cancel() {
@@ -774,6 +799,21 @@ public struct CaptureAnnotationWorkspaceView: View {
         }
     }
 
+    @ViewBuilder
+    private var theaterAuthoritySection: some View {
+        Section(String(localized: "Theater authorities")) {
+            TheaterAuthoritySection(
+                coordinateSpaceID: coordinateSpaceID,
+                captureRevisionID: captureRevisionID,
+                availableEvidenceRefs: availableEvidenceRefs,
+                entities: annotations,
+                roomPlanSurfaces: roomPlanSurfaces,
+                meshAnchors: meshAnchors,
+                authorities: $authorities
+            )
+        }
+    }
+
     private func annotationEditForm(
         entityID: AnnotationEntityID
     ) -> some View {
@@ -840,8 +880,6 @@ public struct CaptureAnnotationWorkspaceView: View {
                     AnnotationPresentation
                         .entityTypeName(entity.type),
                     entity.channelRole?.rawValue,
-                    entity.listeningRole?.rawValue,
-                    entity.physicalEnvelope != nil ? "envelope" : nil,
                     AnnotationPresentation
                         .placementMethodName(
                             entity.placement.method

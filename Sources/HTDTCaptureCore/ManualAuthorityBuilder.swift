@@ -7,6 +7,7 @@ public enum ManualAuthorityBuilderError:
 {
     case invalidPosition
     case invalidSpeakerYaw
+    case invalidSpeakerElevation
     case invalidSpeakerChannelRole
     case invalidSubwooferChannelRole
     case invalidOrientationYaw
@@ -23,6 +24,10 @@ public enum ManualAuthorityBuilderError:
     /// never silently claim a semantic point like `ear_center`
     /// (#291).
     case referencePointConstructionRequired
+    /// A non-nil acoustic center is only defined for loudspeaker
+    /// entities (speaker/subwoofer) and only through an explicit
+    /// offset authority — never inferred (issue #234).
+    case acousticCenterRequiresLoudspeaker
     case derivedAcquisitionNotUserAttestable
     /// An evidence-captured authority is expressed in a different
     /// coordinate space than the annotation it would support (issue
@@ -117,6 +122,8 @@ public enum ManualAuthorityBuilder {
         coordinateSpaceID: CoordinateSpaceID,
         speakerChannelRole: String? = nil,
         speakerYawDegrees: Double? = nil,
+        speakerElevationDegrees: Double? = nil,
+        acousticCenter: AcousticCenterOffsetAuthority? = nil,
         subwooferChannelRole: String? = nil,
         orientationYawDegrees: Double? = nil,
         listeningRole: ListeningPositionRole? = nil,
@@ -279,6 +286,12 @@ public enum ManualAuthorityBuilder {
                     .orientationNotSupportedForType
             }
         }
+        if acousticCenter != nil,
+           type != .speaker, type != .subwoofer
+        {
+            throw ManualAuthorityBuilderError
+                .acousticCenterRequiresLoudspeaker
+        }
 
         var orientation: OrientationAxes?
         if let orientationAuthority {
@@ -291,13 +304,9 @@ public enum ManualAuthorityBuilder {
                 degrees: orientationYawDegrees
             )
         } else if type == .speaker {
-            guard let speakerYawDegrees,
-                  speakerYawDegrees.isFinite
-            else {
-                throw ManualAuthorityBuilderError.invalidSpeakerYaw
-            }
-            orientation = try Self.yawOrientation(
-                degrees: speakerYawDegrees
+            orientation = try Self.speakerOrientationAxes(
+                azimuthDegrees: speakerYawDegrees,
+                elevationDegrees: speakerElevationDegrees
             )
         }
 
@@ -319,6 +328,10 @@ public enum ManualAuthorityBuilder {
             // distinguishable without label parsing. The token set is
             // open (LFE1/LFE2/... or custom) — no AVR convention is
             // forced.
+            guard speakerElevationDegrees == nil else {
+                throw ManualAuthorityBuilderError
+                    .invalidSpeakerElevation
+            }
             let roleText = subwooferChannelRole?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .uppercased() ?? ""
@@ -330,7 +343,8 @@ public enum ManualAuthorityBuilder {
             channelRole = parsedRole
         default:
             guard speakerChannelRole == nil,
-                  subwooferChannelRole == nil
+                  subwooferChannelRole == nil,
+                  speakerElevationDegrees == nil
             else {
                 throw AnnotationModelError.invalidAuthorityComponent
             }
@@ -421,6 +435,7 @@ public enum ManualAuthorityBuilder {
             placement: placement,
             orientation: orientation,
             channelRole: channelRole,
+            acousticCenter: acousticCenter,
             equipmentRef: equipmentReference,
             evidenceRefs: mergedEvidenceRefs,
             physicalEnvelope: physicalEnvelope,
@@ -445,6 +460,39 @@ public enum ManualAuthorityBuilder {
         return try OrientationAxes(
             frontAxisLocal: front,
             upAxisLocal: .unit(0, 1, 0)
+        )
+    }
+
+    /// Speaker front/up axes from an azimuth + optional elevation (#228).
+    /// Azimuth follows the existing convention: 0° faces −Z, +90° faces
+    /// +X. Elevation pitches about the azimuth's right axis, positive up;
+    /// at 0° elevation the result is the historical yaw-only aim.
+    public static func speakerOrientationAxes(
+        azimuthDegrees: Double?,
+        elevationDegrees: Double? = nil
+    ) throws -> OrientationAxes {
+        guard let azimuthDegrees, azimuthDegrees.isFinite else {
+            throw ManualAuthorityBuilderError.invalidSpeakerYaw
+        }
+        let elevation = elevationDegrees ?? 0
+        guard elevation.isFinite else {
+            throw ManualAuthorityBuilderError.invalidSpeakerElevation
+        }
+        let yaw = azimuthDegrees * Double.pi / 180.0
+        let pitch = elevation * Double.pi / 180.0
+        let front = try SpatialVector3F.unit(
+            Float(sin(yaw) * cos(pitch)),
+            Float(sin(pitch)),
+            Float(-cos(yaw) * cos(pitch))
+        )
+        let up = try SpatialVector3F.unit(
+            Float(-sin(yaw) * sin(pitch)),
+            Float(cos(pitch)),
+            Float(cos(yaw) * sin(pitch))
+        )
+        return try OrientationAxes(
+            frontAxisLocal: front,
+            upAxisLocal: up
         )
     }
 

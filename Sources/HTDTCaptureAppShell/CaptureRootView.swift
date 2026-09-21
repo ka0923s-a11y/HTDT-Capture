@@ -38,6 +38,11 @@ public struct CaptureRootActions {
         () async throws -> AnnotationPlacementAuthority
     public let captureSpeakerOrientation:
         () async throws -> AnnotationOrientationAuthority
+    /// Full-3D orientation capture for measurement-point direction
+    /// authority (issue #271); distinct from the horizontal-heading
+    /// `captureSpeakerOrientation` convention.
+    public let capturePointOrientation:
+        () async throws -> AnnotationOrientationAuthority
     /// Pollable reticle probe for the camera capture sheet (#214): a
     /// live classification of what the center ray is hitting.
     public let probePlacementTarget:
@@ -53,15 +58,11 @@ public struct CaptureRootActions {
     /// Captures a plain evidence frame for equipment-identity photos
     /// (#239); returns its canonical `path:` ref.
     public let captureIdentityPhoto: () async throws -> String
-    /// Full-3D orientation capture for measurement-point direction
-    /// authority (issue #271); distinct from the horizontal-heading
-    /// `captureSpeakerOrientation` convention.
-    public let capturePointOrientation:
-        () async throws -> AnnotationOrientationAuthority
     public let commitAnnotationAuthority: (
         [CaptureAnnotationEntity],
         [CaptureMeasurement],
-        [EquipmentIdentityRecord]
+        [EquipmentIdentityRecord],
+        TheaterAuthorityCollection
     ) -> Void
     public let cancelAnnotation: () -> Void
     /// Operator capture-task profile selection (#217/#259): sets the
@@ -161,6 +162,11 @@ public struct CaptureRootActions {
             () async throws -> AnnotationOrientationAuthority = {
                 throw ManualAuthorityBuilderError.invalidSpeakerYaw
             },
+        capturePointOrientation: @escaping
+            () async throws -> AnnotationOrientationAuthority = {
+                throw ManualAuthorityBuilderError
+                    .pointDirectionUnavailable
+            },
         probePlacementTarget: @escaping
             () async -> AnnotationPlacementProbe = { .unavailable },
         probeCameraHeading: @escaping
@@ -174,16 +180,12 @@ public struct CaptureRootActions {
             () async throws -> String = {
                 throw ManualAuthorityBuilderError.invalidPosition
             },
-        capturePointOrientation: @escaping
-            () async throws -> AnnotationOrientationAuthority = {
-                throw ManualAuthorityBuilderError
-                    .pointDirectionUnavailable
-            },
         commitAnnotationAuthority: @escaping (
             [CaptureAnnotationEntity],
             [CaptureMeasurement],
-            [EquipmentIdentityRecord]
-        ) -> Void = { _, _, _ in },
+            [EquipmentIdentityRecord],
+            TheaterAuthorityCollection
+        ) -> Void = { _, _, _, _ in },
         cancelAnnotation: @escaping () -> Void = {},
         selectTaskProfile: @escaping
             (CaptureTaskProfile?, Set<String>) -> Void
@@ -262,12 +264,12 @@ public struct CaptureRootActions {
         self.captureRaycastPlacement = captureRaycastPlacement
         self.captureSpeakerOrientation =
             captureSpeakerOrientation
+        self.capturePointOrientation =
+            capturePointOrientation
         self.probePlacementTarget = probePlacementTarget
         self.probeCameraHeading = probeCameraHeading
         self.captureTargetedPlacement = captureTargetedPlacement
         self.captureIdentityPhoto = captureIdentityPhoto
-        self.capturePointOrientation =
-            capturePointOrientation
         self.commitAnnotationAuthority =
             commitAnnotationAuthority
         self.cancelAnnotation = cancelAnnotation
@@ -449,6 +451,10 @@ public struct CaptureRootView: View {
     public let exportURL: URL?
     public let annotationCoordinateSpaceID: CoordinateSpaceID?
     public let annotationEvidenceRefs: [String]
+    /// Captured RoomPlan elements/mesh anchors the authority sheets
+    /// offer as binding targets (#218).
+    public let annotationRoomPlanSurfaces: [CapturedSurfaceOption]
+    public let annotationMeshAnchors: [CapturedSurfaceOption]
     public let annotationAuthorityCommitted: Bool
     /// Reloaded canonical authority used to seed a pre-finalization
     /// correction pass through the annotation workspace (#163).
@@ -552,6 +558,8 @@ public struct CaptureRootView: View {
         exportURL: URL? = nil,
         annotationCoordinateSpaceID: CoordinateSpaceID? = nil,
         annotationEvidenceRefs: [String] = [],
+        annotationRoomPlanSurfaces: [CapturedSurfaceOption] = [],
+        annotationMeshAnchors: [CapturedSurfaceOption] = [],
         annotationAuthorityCommitted: Bool = false,
         annotationRevisionSeed: AnnotationWorkspaceSeed? = nil,
         equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil,
@@ -613,6 +621,9 @@ public struct CaptureRootView: View {
         self.annotationCoordinateSpaceID =
             annotationCoordinateSpaceID
         self.annotationEvidenceRefs = annotationEvidenceRefs
+        self.annotationRoomPlanSurfaces =
+            annotationRoomPlanSurfaces
+        self.annotationMeshAnchors = annotationMeshAnchors
         self.annotationAuthorityCommitted =
             annotationAuthorityCommitted
         self.annotationRevisionSeed = annotationRevisionSeed
@@ -715,13 +726,19 @@ public struct CaptureRootView: View {
                 )
             } else if state == .annotating,
                let coordinateSpaceID =
-                    annotationCoordinateSpaceID
+                    annotationCoordinateSpaceID,
+               let captureRevisionID =
+                    workingSetIdentity?.captureRevisionID
             {
                 CaptureAnnotationWorkspaceView(
                     coordinateSpaceID: coordinateSpaceID,
+                    captureRevisionID: captureRevisionID,
                     availableEvidenceRefs:
                         annotationEvidenceRefs,
                     evidenceFrames: annotationEvidenceFrames,
+                    roomPlanSurfaces:
+                        annotationRoomPlanSurfaces,
+                    meshAnchors: annotationMeshAnchors,
                     statusMessage: workingSetStatus,
                     seed: annotationRevisionSeed,
                     replacesCommittedAuthority:

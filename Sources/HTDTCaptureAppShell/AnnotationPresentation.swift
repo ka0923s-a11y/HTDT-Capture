@@ -321,6 +321,12 @@ enum AnnotationPresentation {
             case .invalidPosition:
                 return String(localized:
                     "Position must be three finite numbers in meters.")
+            case .invalidSpeakerElevation:
+                return String(localized:
+                    "Speaker elevation must be a finite number of degrees.")
+            case .acousticCenterRequiresLoudspeaker:
+                return String(localized:
+                    "An acoustic-center offset only applies to speakers and subwoofers.")
             case .invalidSpeakerYaw:
                 return String(localized:
                     "Set the speaker facing direction: capture the heading or enter a yaw angle.")

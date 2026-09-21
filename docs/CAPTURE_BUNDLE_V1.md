@@ -51,6 +51,7 @@ capture-<capture-revision-id>.htdtcapture/
 +-- annotations/
 |   +-- entities.json
 |   +-- measurements.json
+|   +-- authorities.json
 |
 +-- derived/
 |   +-- geometry-candidates.json

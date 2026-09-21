@@ -8,6 +8,11 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     case invalidMeshPackage
     case invalidAnnotationPackage
     case invalidMeasurementPackage
+    case invalidAuthorityPackage
+    /// A theater-authority record references an entity that is absent
+    /// from the committed/candidate annotation collection, or whose
+    /// entity type does not match the reference's contract.
+    case unresolvedAuthorityReference(String)
     case invalidSessionFoundationPackage
     case invalidTimingPackage
     case timingFoundationMissing
@@ -424,6 +429,7 @@ public actor CaptureWorkingSetStore {
     /// `persistSupplementalDocument` (issues #222/#226/#227/#240/
     /// #249/#293).
     private var supplementalDocuments: [String: Data] = [:]
+    private var authorityCollection: TheaterAuthorityCollection?
     private var annotationKeysPresent: Set<String> = []
     private var measurementQuantityTypesPresent: Set<String> = []
     /// User-confirmed room reference frame (issue #232), iff committed.
@@ -2236,19 +2242,221 @@ public actor CaptureWorkingSetStore {
         )
     }
 
+    /// Decodes the theater-authorities payload back, binds every entity
+    /// reference it carries to the committed/candidate entity set, and
+    /// checks each record's own coordinate space against committed
+    /// frame/mesh authority. The single-space policy matches
+    /// `validateAnnotationMeasurementPackages`.
+    private func validateTheaterAuthorityPackage(
+        _ authorityPackage: TheaterAuthorityPackage,
+        entities: [CaptureAnnotationEntity]
+    ) throws -> (
+        authorityDeclaration: BundlePayloadDeclaration,
+        coordinateSpaceID: CoordinateSpaceID?
+    ) {
+        guard
+            let decoded = try? JSONDecoder().decode(
+                TheaterAuthorityCollection.self,
+                from: authorityPackage.data
+            ),
+            decoded == authorityPackage.collection
+        else {
+            throw CaptureWorkingSetError.invalidAuthorityPackage
+        }
+        let collection = authorityPackage.collection
+
+        try validateAuthorityEntityReferences(
+            collection,
+            entities: entities
+        )
+        for snapshot in collection.roomStateSnapshots {
+            guard snapshot.captureRevisionID
+                    == identity.captureRevisionID
+            else {
+                throw CaptureWorkingSetError.authorityMismatch
+            }
+        }
+
+        var spaces = Set<CoordinateSpaceID>()
+        func requireBindingCongruence(
+            _ binding: SurfaceRegionBinding
+        ) throws {
+            spaces.insert(binding.coordinateSpaceID)
+            for ref in binding.evidenceRefs {
+                try requireSpatialEvidenceLinkCongruence(
+                    ref,
+                    coordinateSpaceID: binding.coordinateSpaceID
+                )
+            }
+            if let anchorID = binding.meshAnchorID {
+                try requireMeshAnchorLinkCongruence(
+                    anchorID,
+                    ref: "mesh_anchor:\(anchorID.uuidString.lowercased())",
+                    coordinateSpaceID: binding.coordinateSpaceID
+                )
+            }
+        }
+        for record in collection.surfaceSemantics {
+            try requireBindingCongruence(record.binding)
+        }
+        for record in collection.surfaceConstructions {
+            try requireBindingCongruence(record.binding)
+        }
+        for record in collection.problemSurfaces {
+            try requireBindingCongruence(record.binding)
+        }
+        for record in collection.constructionFeatures {
+            try requireBindingCongruence(record.binding)
+        }
+        for record in collection.furnitureSemantics {
+            if let binding = record.binding {
+                try requireBindingCongruence(binding)
+            }
+        }
+        for record in collection.speakerInstallations {
+            if let binding = record.hostSurface {
+                try requireBindingCongruence(binding)
+            }
+        }
+        for item in collection.inventoryItems {
+            if let space = item.coordinateSpaceID {
+                spaces.insert(space)
+                for ref in item.evidenceRefs {
+                    try requireSpatialEvidenceLinkCongruence(
+                        ref,
+                        coordinateSpaceID: space
+                    )
+                }
+            }
+        }
+        for observation in collection.roomStateObservations {
+            if let space = observation.coordinateSpaceID {
+                spaces.insert(space)
+                for ref in observation.evidenceRefs {
+                    try requireSpatialEvidenceLinkCongruence(
+                        ref,
+                        coordinateSpaceID: space
+                    )
+                }
+            }
+        }
+        guard spaces.count <= 1 else {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        let authoritySpace = spaces.first
+        if let authoritySpace {
+            try validateCoordinateAuthority(authoritySpace)
+        }
+        let declaration = BundlePayloadDeclaration(
+            path: TheaterAuthorityPackage.path,
+            mediaType: "application/json",
+            producer: "annotation",
+            provenanceClass: .userAnnotation,
+            role: .canonical
+        )
+        return (declaration, authoritySpace)
+    }
+
+    /// Entity-reference checks that bind authority records to committed
+    /// annotation entities: the target must exist and, where the record
+    /// contract names an entity kind, carry the matching entity type.
+    private func validateAuthorityEntityReferences(
+        _ collection: TheaterAuthorityCollection,
+        entities: [CaptureAnnotationEntity]
+    ) throws {
+        let entityTypes = Dictionary(
+            entities.map { ($0.entityID, $0.type) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        func requireEntity(
+            _ id: AnnotationEntityID?,
+            types: Set<AnnotationEntityType>,
+            field: String
+        ) throws {
+            guard let id else { return }
+            guard let type = entityTypes[id],
+                  types.isEmpty || types.contains(type)
+            else {
+                throw CaptureWorkingSetError
+                    .unresolvedAuthorityReference(field)
+            }
+        }
+        for observation in collection.roomStateObservations {
+            try requireEntity(
+                observation.targetEntityID,
+                types: [],
+                field: "target_entity_id"
+            )
+        }
+        for item in collection.inventoryItems {
+            try requireEntity(
+                item.hostRackEntityID,
+                types: [.equipmentRack],
+                field: "host_rack_entity_id"
+            )
+        }
+        for item in collection.furnitureSemantics {
+            try requireEntity(
+                item.targetEntityID,
+                types: [],
+                field: "target_entity_id"
+            )
+        }
+        for record in collection.speakerInstallations {
+            try requireEntity(
+                record.speakerEntityID,
+                types: [.speaker, .subwoofer],
+                field: "speaker_entity_id"
+            )
+        }
+        for record in collection.screenSemantics {
+            try requireEntity(
+                record.screenEntityID,
+                types: [.projectionScreen],
+                field: "screen_entity_id"
+            )
+            for id in record.behindScreenSpeakerEntityIDs {
+                try requireEntity(
+                    id,
+                    types: [.speaker, .subwoofer],
+                    field: "behind_screen_speaker_entity_ids"
+                )
+            }
+        }
+        for record in collection.seatLayouts {
+            try requireEntity(
+                record.seatEntityID,
+                types: [.seat],
+                field: "seat_entity_id"
+            )
+            try requireEntity(
+                record.earListeningEntityID,
+                types: [.listeningPosition],
+                field: "ear_listening_entity_id"
+            )
+            try requireEntity(
+                record.eyeReferenceEntityID,
+                types: [.referencePoint],
+                field: "eye_reference_entity_id"
+            )
+        }
+    }
+
     public func persistAnnotationAndMeasurementPackages(
         annotationPackage: AnnotationEvidencePackage,
-        measurementPackage: MeasurementEvidencePackage
+        measurementPackage: MeasurementEvidencePackage,
+        authorityPackage: TheaterAuthorityPackage? = nil
     ) async throws {
         try requireMutable()
         inFlightMutations += 1
         defer { mutationDidFinish() }
-        // One reservation for the two-file transaction — the canonical
-        // annotation and measurement files commit together and share
-        // one admission item (issue #147).
+        // One reservation for the transaction — the canonical
+        // annotation, measurement, and optional authority files commit
+        // together and share one admission item (issue #147).
         let admissionReservation = try reserveAdmission(
             bytes: annotationPackage.data.count
                 + measurementPackage.data.count
+                + (authorityPackage?.data.count ?? 0)
         )
         defer { releaseAdmission(admissionReservation) }
 
@@ -2260,6 +2468,22 @@ public actor CaptureWorkingSetStore {
             annotationPackage: annotationPackage,
             measurementPackage: measurementPackage
         )
+        var authorityDeclaration: BundlePayloadDeclaration?
+        var authoritySpace: CoordinateSpaceID?
+        if let authorityPackage {
+            let validated = try validateTheaterAuthorityPackage(
+                authorityPackage,
+                entities: annotationPackage.collection.entities
+            )
+            authorityDeclaration = validated.authorityDeclaration
+            authoritySpace = validated.coordinateSpaceID
+        }
+        if let packageSpace, let authoritySpace,
+           packageSpace != authoritySpace
+        {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        let effectiveSpace = packageSpace ?? authoritySpace
 
         if let existing = annotationCollection,
            existing != annotationPackage.collection
@@ -2277,10 +2501,22 @@ public actor CaptureWorkingSetStore {
                     MeasurementEvidencePackage.path
                 )
         }
-        let expectedDeclarations = [
+        if let authorityPackage,
+           let existing = authorityCollection,
+           existing != authorityPackage.collection
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    TheaterAuthorityPackage.path
+                )
+        }
+        var expectedDeclarations = [
             annotationDeclaration,
             measurementDeclaration,
         ]
+        if let authorityDeclaration {
+            expectedDeclarations.append(authorityDeclaration)
+        }
         for declaration in expectedDeclarations {
             if let existing = declarations[declaration.path],
                existing != declaration
@@ -2292,7 +2528,7 @@ public actor CaptureWorkingSetStore {
             }
         }
 
-        try await writer.writeBatchIfIdentical([
+        var requests = [
             try CaptureFileWriteRequest(
                 data: annotationPackage.data,
                 path: CaptureStorePath(
@@ -2305,7 +2541,18 @@ public actor CaptureWorkingSetStore {
                     MeasurementEvidencePackage.path
                 )
             ),
-        ])
+        ]
+        if let authorityPackage {
+            requests.append(
+                try CaptureFileWriteRequest(
+                    data: authorityPackage.data,
+                    path: CaptureStorePath(
+                        TheaterAuthorityPackage.path
+                    )
+                )
+            )
+        }
+        try await writer.writeBatchIfIdentical(requests)
 
         // Re-check after actor suspension. This also repairs a compatible
         // legacy partial commit without accepting conflicting authority.
@@ -2325,6 +2572,15 @@ public actor CaptureWorkingSetStore {
                     MeasurementEvidencePackage.path
                 )
         }
+        if let authorityPackage,
+           let existing = authorityCollection,
+           existing != authorityPackage.collection
+        {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    TheaterAuthorityPackage.path
+                )
+        }
         for declaration in expectedDeclarations {
             if let existing = declarations[declaration.path],
                existing != declaration
@@ -2339,13 +2595,12 @@ public actor CaptureWorkingSetStore {
         // No suspension points below: the coordinate-space binding,
         // declarations, and collection state publish as one commit
         // (issue #202).
-        if let packageSpace {
-            try publishCoordinateAuthority(packageSpace)
+        if let effectiveSpace {
+            try publishCoordinateAuthority(effectiveSpace)
         }
-        declarations[annotationDeclaration.path] =
-            annotationDeclaration
-        declarations[measurementDeclaration.path] =
-            measurementDeclaration
+        for declaration in expectedDeclarations {
+            declarations[declaration.path] = declaration
+        }
         annotationCollection = annotationPackage.collection
         annotationKeysPresent = Set(
             annotationPackage.collection.entities.map(
@@ -2359,6 +2614,9 @@ public actor CaptureWorkingSetStore {
                 \.quantityType
             )
         )
+        if let authorityPackage {
+            authorityCollection = authorityPackage.collection
+        }
     }
 
     /// Replaces the canonical annotation+measurement pair committed
@@ -2366,13 +2624,20 @@ public actor CaptureWorkingSetStore {
     /// `persistAnnotationAndMeasurementPackages`, which enforces
     /// write-once authority, this path is for the pre-finalization
     /// editor: the working revision is still mutable, so the operator
-    /// may correct the committed pair. Both files swap atomically as
-    /// one rollback-capable batch — a failed second write restores the
-    /// first file's exact bytes — and in-memory authority updates only
-    /// after both replacements are durable.
+    /// may correct the committed pair. Passing `authorityPackage`
+    /// swaps `annotations/authorities.json` in the same batch (or
+    /// creates it when first authored after the pair); leaving it nil
+    /// keeps any committed authorities, re-validating their entity
+    /// references against the replacement entities so a deleted entity
+    /// cannot leave a dangling authority reference. Committed
+    /// authorities are never removed — replace with an empty collection
+    /// to clear them. All files swap atomically as one rollback-capable
+    /// batch, and in-memory authority updates only after every
+    /// replacement is durable.
     public func replaceAnnotationAndMeasurementPackages(
         annotationPackage: AnnotationEvidencePackage,
-        measurementPackage: MeasurementEvidencePackage
+        measurementPackage: MeasurementEvidencePackage,
+        authorityPackage: TheaterAuthorityPackage? = nil
     ) async throws {
         try requireMutable()
         inFlightMutations += 1
@@ -2380,6 +2645,7 @@ public actor CaptureWorkingSetStore {
         let admissionReservation = try reserveAdmission(
             bytes: annotationPackage.data.count
                 + measurementPackage.data.count
+                + (authorityPackage?.data.count ?? 0)
         )
         defer { releaseAdmission(admissionReservation) }
 
@@ -2391,14 +2657,38 @@ public actor CaptureWorkingSetStore {
             annotationPackage: annotationPackage,
             measurementPackage: measurementPackage
         )
+        var authorityDeclaration: BundlePayloadDeclaration?
+        var authoritySpace: CoordinateSpaceID?
+        if let authorityPackage {
+            let validated = try validateTheaterAuthorityPackage(
+                authorityPackage,
+                entities: annotationPackage.collection.entities
+            )
+            authorityDeclaration = validated.authorityDeclaration
+            authoritySpace = validated.coordinateSpaceID
+        } else if let authorityCollection {
+            // An entity removed by this replace must not orphan a
+            // committed authority reference.
+            try validateAuthorityEntityReferences(
+                authorityCollection,
+                entities: annotationPackage.collection.entities
+            )
+        }
+        if let packageSpace, let authoritySpace,
+           packageSpace != authoritySpace
+        {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        let effectiveSpace = packageSpace ?? authoritySpace
 
         // Snapshot pre-write state so a mutation that interleaved across
         // the write suspension is detected instead of silently mixing
         // authorities.
         let priorAnnotations = annotationCollection
         let priorMeasurements = measurementCollection
+        let priorAuthorities = authorityCollection
 
-        try await writer.writeBatchReplacing([
+        var requests = [
             try CaptureFileWriteRequest(
                 data: annotationPackage.data,
                 path: CaptureStorePath(
@@ -2411,14 +2701,26 @@ public actor CaptureWorkingSetStore {
                     MeasurementEvidencePackage.path
                 )
             ),
-        ])
+        ]
+        if let authorityPackage {
+            requests.append(
+                try CaptureFileWriteRequest(
+                    data: authorityPackage.data,
+                    path: CaptureStorePath(
+                        TheaterAuthorityPackage.path
+                    )
+                )
+            )
+        }
+        try await writer.writeBatchReplacing(requests)
 
         // Re-check after actor suspension: if another mutation committed
         // different authority while the replace was in flight, fail
         // closed rather than publish mixed provenance. Finalization then
         // refuses the working set on a declaration/payload mismatch.
         guard annotationCollection == priorAnnotations,
-              measurementCollection == priorMeasurements
+              measurementCollection == priorMeasurements,
+              authorityCollection == priorAuthorities
         else {
             throw CaptureWorkingSetError
                 .duplicatePayloadDeclaration(
@@ -2429,13 +2731,16 @@ public actor CaptureWorkingSetStore {
         // The replacement stays in the validated space; publishing is a
         // fail-closed re-check in case a different authority committed
         // while the replace was suspended (issue #202).
-        if let packageSpace {
-            try publishCoordinateAuthority(packageSpace)
+        if let effectiveSpace {
+            try publishCoordinateAuthority(effectiveSpace)
         }
         declarations[annotationDeclaration.path] =
             annotationDeclaration
         declarations[measurementDeclaration.path] =
             measurementDeclaration
+        if let authorityDeclaration {
+            declarations[authorityDeclaration.path] = authorityDeclaration
+        }
         annotationCollection = annotationPackage.collection
         annotationKeysPresent = Set(
             annotationPackage.collection.entities.map(
@@ -2449,6 +2754,9 @@ public actor CaptureWorkingSetStore {
                 \.quantityType
             )
         )
+        if let authorityPackage {
+            authorityCollection = authorityPackage.collection
+        }
     }
 
     /// Persists the derived equipment-identity document (issue #239).
@@ -4392,6 +4700,20 @@ public actor CaptureWorkingSetStore {
                     from: data
                   ),
                   decoded == measurementCollection
+            else {
+                throw CaptureWorkingSetError.integrityVerificationFailed
+            }
+        }
+
+        if let authorityCollection {
+            guard let file =
+                    actualByPath[TheaterAuthorityPackage.path],
+                  let data = try? Data(contentsOf: file.url),
+                  let decoded = try? JSONDecoder().decode(
+                    TheaterAuthorityCollection.self,
+                    from: data
+                  ),
+                  decoded == authorityCollection
             else {
                 throw CaptureWorkingSetError.integrityVerificationFailed
             }

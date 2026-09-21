@@ -647,6 +647,12 @@ enum BundleReservedPaths {
             provenanceClass: .userAnnotation,
             role: .canonical
         ),
+        "annotations/authorities.json": Binding(
+            mediaType: "application/json",
+            producer: "annotation",
+            provenanceClass: .userAnnotation,
+            role: .canonical
+        ),
         "annotations/measurements.json": Binding(
             mediaType: "application/json",
             producer: "measurement",

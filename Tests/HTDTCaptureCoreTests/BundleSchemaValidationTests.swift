@@ -18,6 +18,7 @@ func registryMapsEverySchemaOwnedPath() throws {
         "mesh/anchors.json": "mesh-anchors",
         "annotations/entities.json": "entities",
         "annotations/measurements.json": "measurements",
+        "annotations/authorities.json": "authorities",
         "quality/capture-quality.json": "quality",
         "quality/capture-advisory.json": "capture-advisory",
         "evidence/frames/anything.json": "frame",

@@ -68,6 +68,18 @@ A user-attested measurement remains a separate authority from RoomPlan, ARKit me
 
 The backend may apply a versioned precedence/reconciliation policy, but disagreement remains queryable and auditable.
 
+## 6a. User authority mapping
+
+`annotations/authorities.json` (`htdt.capture.authorities`) carries
+user-authored semantic authorities: surface bindings/classifications,
+treatment placement, construction observations, problem surfaces,
+construction features, room-state snapshots, system inventory, furniture
+semantics, speaker installations, screen semantics, and seat layout.
+
+Each record is ingested as a separate `user_annotation` provenance
+authority. App-derived suggestions stored in these records retain their
+`confirmation_source` and never promote to `user_confirmed` on import.
+
 ## 7. Coordinate behavior
 
 HTDT never combines spatial records from two `coordinate_space_id` values without an explicit alignment authority.
