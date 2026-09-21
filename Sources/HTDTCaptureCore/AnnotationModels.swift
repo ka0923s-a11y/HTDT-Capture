@@ -147,6 +147,21 @@ public struct HTDTEquipmentReference: Codable, Sendable, Equatable {
         case equipmentVersion = "equipment_version"
         case equipmentHash = "equipment_hash"
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            equipmentID: container.decode(String.self, forKey: .equipmentID),
+            equipmentVersion: container.decode(
+                String.self,
+                forKey: .equipmentVersion
+            ),
+            equipmentHash: container.decode(
+                EvidenceSHA256.self,
+                forKey: .equipmentHash
+            )
+        )
+    }
 }
 
 public enum AnnotationModelError: Error, Sendable, Equatable {
@@ -249,6 +264,20 @@ public struct OrientationAxes: Codable, Sendable, Equatable {
         case frontAxisLocal = "front_axis_local"
         case upAxisLocal = "up_axis_local"
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            frontAxisLocal: container.decode(
+                SpatialVector3F.self,
+                forKey: .frontAxisLocal
+            ),
+            upAxisLocal: container.decode(
+                SpatialVector3F.self,
+                forKey: .upAxisLocal
+            )
+        )
+    }
 }
 
 public struct AcousticCenterOffsetAuthority: Codable, Sendable, Equatable {
@@ -270,6 +299,17 @@ public struct AcousticCenterOffsetAuthority: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case offsetLocalMeters = "offset_local_m"
         case authorityRef = "authority_ref"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            offsetLocalMeters: container.decode(
+                SpatialVector3F.self,
+                forKey: .offsetLocalMeters
+            ),
+            authorityRef: container.decode(String.self, forKey: .authorityRef)
+        )
     }
 }
 
@@ -413,6 +453,33 @@ public struct PlacementProvenance: Codable, Sendable, Equatable {
         case sourceRoomPlanObjectID = "source_roomplan_object_id"
         case sourceEvidenceRefs = "source_evidence_refs"
         case raycast
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            method: container.decode(PlacementMethod.self, forKey: .method),
+            sourceSemanticEntityID: container.decodeIfPresent(
+                String.self,
+                forKey: .sourceSemanticEntityID
+            ),
+            sourceMeshAnchorID: container.decodeIfPresent(
+                UUID.self,
+                forKey: .sourceMeshAnchorID
+            ),
+            sourceRoomPlanObjectID: container.decodeIfPresent(
+                String.self,
+                forKey: .sourceRoomPlanObjectID
+            ),
+            sourceEvidenceRefs: container.decode(
+                [String].self,
+                forKey: .sourceEvidenceRefs
+            ),
+            raycast: container.decodeIfPresent(
+                RaycastPlacementProvenance.self,
+                forKey: .raycast
+            )
+        )
     }
 }
 
@@ -564,9 +631,71 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         case equipmentRef = "equipment_ref"
         case evidenceRefs = "evidence_refs"
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            entityID: container.decode(
+                AnnotationEntityID.self,
+                forKey: .entityID
+            ),
+            type: container.decode(
+                AnnotationEntityType.self,
+                forKey: .type
+            ),
+            coordinateSpaceID: container.decode(
+                CoordinateSpaceID.self,
+                forKey: .coordinateSpaceID
+            ),
+            worldFromAnnotation: container.decode(
+                Matrix4x4F.self,
+                forKey: .worldFromAnnotation
+            ),
+            referencePointSemantics: container.decode(
+                ReferencePointSemantics.self,
+                forKey: .referencePointSemantics
+            ),
+            label: container.decode(String.self, forKey: .label),
+            provenanceClass: container.decode(
+                AnnotationProvenanceClass.self,
+                forKey: .provenanceClass
+            ),
+            verificationState: container.decode(
+                AnnotationVerificationState.self,
+                forKey: .verificationState
+            ),
+            placement: container.decode(
+                PlacementProvenance.self,
+                forKey: .placement
+            ),
+            orientation: container.decodeIfPresent(
+                OrientationAxes.self,
+                forKey: .orientation
+            ),
+            channelRole: container.decodeIfPresent(
+                ChannelRole.self,
+                forKey: .channelRole
+            ),
+            acousticCenter: container.decodeIfPresent(
+                AcousticCenterOffsetAuthority.self,
+                forKey: .acousticCenter
+            ),
+            equipmentRef: container.decodeIfPresent(
+                HTDTEquipmentReference.self,
+                forKey: .equipmentRef
+            ),
+            evidenceRefs: container.decode(
+                [String].self,
+                forKey: .evidenceRefs
+            )
+        )
+    }
 }
 
 public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
+    public static let expectedSchema = "htdt.capture.entities"
+    public static let expectedSchemaVersion = "1.0.0"
+
     public let schema: String
     public let schemaVersion: String
     public let entities: [CaptureAnnotationEntity]
@@ -576,8 +705,8 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
         guard Set(ids).count == ids.count else {
             throw AnnotationModelError.duplicateEntityID
         }
-        self.schema = "htdt.capture.entities"
-        self.schemaVersion = "1.0.0"
+        self.schema = Self.expectedSchema
+        self.schemaVersion = Self.expectedSchemaVersion
         self.entities = entities
     }
 
@@ -585,5 +714,29 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
         case schema
         case schemaVersion = "schema_version"
         case entities
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schema = try container.decode(String.self, forKey: .schema)
+        let schemaVersion = try container.decode(
+            String.self,
+            forKey: .schemaVersion
+        )
+        guard schema == Self.expectedSchema,
+              schemaVersion == Self.expectedSchemaVersion
+        else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schema,
+                in: container,
+                debugDescription: "Unsupported annotation collection schema"
+            )
+        }
+        try self.init(
+            entities: container.decode(
+                [CaptureAnnotationEntity].self,
+                forKey: .entities
+            )
+        )
     }
 }

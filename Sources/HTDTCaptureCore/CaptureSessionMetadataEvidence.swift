@@ -129,6 +129,9 @@ public struct CaptureDeviceDocument:
     Sendable,
     Equatable
 {
+    public static let expectedSchema = "htdt.capture.device"
+    public static let expectedSchemaVersion = "1.0.0"
+
     public let schema: String
     public let schemaVersion: String
     public let platform: String
@@ -153,8 +156,8 @@ public struct CaptureDeviceDocument:
             throw CaptureSessionMetadataError.emptyDeviceField
         }
 
-        self.schema = "htdt.capture.device"
-        self.schemaVersion = "1.0.0"
+        self.schema = Self.expectedSchema
+        self.schemaVersion = Self.expectedSchemaVersion
         self.platform = "iOS"
         self.osVersion = normalizedOSVersion
         self.osBuild = SchemaOwnedText.nfc(osBuild)
@@ -172,6 +175,51 @@ public struct CaptureDeviceDocument:
         case hardwareModel = "hardware_model"
         case appVersion = "app_version"
         case appBuild = "app_build"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schema = try container.decode(String.self, forKey: .schema)
+        let schemaVersion = try container.decode(
+            String.self,
+            forKey: .schemaVersion
+        )
+        guard schema == Self.expectedSchema,
+              schemaVersion == Self.expectedSchemaVersion
+        else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schema,
+                in: container,
+                debugDescription: "Unsupported capture device schema"
+            )
+        }
+        let platform = try container.decode(String.self, forKey: .platform)
+        guard platform == "iOS" else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .platform,
+                in: container,
+                debugDescription: "Unsupported capture device platform"
+            )
+        }
+        try self.init(
+            osVersion: container.decode(String.self, forKey: .osVersion),
+            osBuild: container.decodeIfPresent(
+                String.self,
+                forKey: .osBuild
+            ),
+            hardwareModel: container.decode(
+                String.self,
+                forKey: .hardwareModel
+            ),
+            appVersion: container.decodeIfPresent(
+                String.self,
+                forKey: .appVersion
+            ),
+            appBuild: container.decodeIfPresent(
+                String.self,
+                forKey: .appBuild
+            )
+        )
     }
 }
 
@@ -227,6 +275,22 @@ public struct CaptureTimingCorrelation:
         case estimatedUncertaintySeconds =
             "estimated_uncertainty_s"
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            monotonicSeconds: container.decode(
+                Double.self,
+                forKey: .monotonicSeconds
+            ),
+            utc: container.decode(String.self, forKey: .utc),
+            method: container.decode(String.self, forKey: .method),
+            estimatedUncertaintySeconds: container.decodeIfPresent(
+                Double.self,
+                forKey: .estimatedUncertaintySeconds
+            )
+        )
+    }
 }
 
 public struct CaptureTimingDocument:
@@ -234,6 +298,9 @@ public struct CaptureTimingDocument:
     Sendable,
     Equatable
 {
+    public static let expectedSchema = "htdt.capture.timing"
+    public static let expectedSchemaVersion = "1.0.0"
+
     public let schema: String
     public let schemaVersion: String
     public let clockDomain: String
@@ -261,8 +328,8 @@ public struct CaptureTimingDocument:
             previous = correlation.monotonicSeconds
         }
 
-        self.schema = "htdt.capture.timing"
-        self.schemaVersion = "1.0.0"
+        self.schema = Self.expectedSchema
+        self.schemaVersion = Self.expectedSchemaVersion
         self.clockDomain = normalizedDomain
         self.correlations = correlations
     }
@@ -272,6 +339,34 @@ public struct CaptureTimingDocument:
         case schemaVersion = "schema_version"
         case clockDomain = "clock_domain"
         case correlations
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schema = try container.decode(String.self, forKey: .schema)
+        let schemaVersion = try container.decode(
+            String.self,
+            forKey: .schemaVersion
+        )
+        guard schema == Self.expectedSchema,
+              schemaVersion == Self.expectedSchemaVersion
+        else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schema,
+                in: container,
+                debugDescription: "Unsupported capture timing schema"
+            )
+        }
+        try self.init(
+            clockDomain: container.decode(
+                String.self,
+                forKey: .clockDomain
+            ),
+            correlations: container.decode(
+                [CaptureTimingCorrelation].self,
+                forKey: .correlations
+            )
+        )
     }
 }
 

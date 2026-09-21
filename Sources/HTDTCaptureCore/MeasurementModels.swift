@@ -133,6 +133,28 @@ public struct MeasurementInstrument: Codable, Sendable, Equatable {
         case calibrationStatus = "calibration_status"
         case calibrationDate = "calibration_date"
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            instrumentClass: container.decodeIfPresent(
+                String.self,
+                forKey: .instrumentClass
+            ),
+            makeModel: container.decodeIfPresent(
+                String.self,
+                forKey: .makeModel
+            ),
+            calibrationStatus: container.decodeIfPresent(
+                String.self,
+                forKey: .calibrationStatus
+            ),
+            calibrationDate: container.decodeIfPresent(
+                String.self,
+                forKey: .calibrationDate
+            )
+        )
+    }
 }
 
 public struct CaptureMeasurement: Codable, Sendable, Equatable {
@@ -266,9 +288,68 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
         case sourceValueText = "source_value_text"
         case evidenceRefs = "evidence_refs"
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            measurementID: container.decode(
+                MeasurementID.self,
+                forKey: .measurementID
+            ),
+            quantityType: container.decode(
+                String.self,
+                forKey: .quantityType
+            ),
+            value: container.decode(MeasurementValue.self, forKey: .value),
+            unit: container.decode(MeasurementUnit.self, forKey: .unit),
+            coordinateSpaceID: container.decodeIfPresent(
+                CoordinateSpaceID.self,
+                forKey: .coordinateSpaceID
+            ),
+            endpointRefs: container.decode(
+                [String].self,
+                forKey: .endpointRefs
+            ),
+            acquisitionMethod: container.decode(
+                MeasurementAcquisitionMethod.self,
+                forKey: .acquisitionMethod
+            ),
+            instrument: container.decodeIfPresent(
+                MeasurementInstrument.self,
+                forKey: .instrument
+            ),
+            statedUncertainty: container.decodeIfPresent(
+                Double.self,
+                forKey: .statedUncertainty
+            ),
+            observedAtUTC: container.decodeIfPresent(
+                String.self,
+                forKey: .observedAtUTC
+            ),
+            userAttestation: container.decode(
+                UserAttestationState.self,
+                forKey: .userAttestation
+            ),
+            provenanceClass: container.decode(
+                MeasurementProvenanceClass.self,
+                forKey: .provenanceClass
+            ),
+            sourceValueText: container.decodeIfPresent(
+                String.self,
+                forKey: .sourceValueText
+            ),
+            evidenceRefs: container.decode(
+                [String].self,
+                forKey: .evidenceRefs
+            )
+        )
+    }
 }
 
 public struct CaptureMeasurementCollection: Codable, Sendable, Equatable {
+    public static let expectedSchema = "htdt.capture.measurements"
+    public static let expectedSchemaVersion = "1.0.0"
+
     public let schema: String
     public let schemaVersion: String
     public let measurements: [CaptureMeasurement]
@@ -278,8 +359,8 @@ public struct CaptureMeasurementCollection: Codable, Sendable, Equatable {
         guard Set(ids).count == ids.count else {
             throw MeasurementModelError.duplicateMeasurementID
         }
-        self.schema = "htdt.capture.measurements"
-        self.schemaVersion = "1.0.0"
+        self.schema = Self.expectedSchema
+        self.schemaVersion = Self.expectedSchemaVersion
         self.measurements = measurements
     }
 
@@ -287,5 +368,29 @@ public struct CaptureMeasurementCollection: Codable, Sendable, Equatable {
         case schema
         case schemaVersion = "schema_version"
         case measurements
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schema = try container.decode(String.self, forKey: .schema)
+        let schemaVersion = try container.decode(
+            String.self,
+            forKey: .schemaVersion
+        )
+        guard schema == Self.expectedSchema,
+              schemaVersion == Self.expectedSchemaVersion
+        else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schema,
+                in: container,
+                debugDescription: "Unsupported measurement collection schema"
+            )
+        }
+        try self.init(
+            measurements: container.decode(
+                [CaptureMeasurement].self,
+                forKey: .measurements
+            )
+        )
     }
 }

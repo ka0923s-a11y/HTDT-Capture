@@ -180,6 +180,37 @@ public struct DepthEvidenceReference: Codable, Sendable, Equatable {
         case confidenceByteCount = "confidence_byte_count"
         case confidenceSHA256 = "confidence_sha256"
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            kind: container.decode(DepthEvidenceKind.self, forKey: .kind),
+            depthRelativePath: container.decode(
+                String.self,
+                forKey: .depthRelativePath
+            ),
+            depthByteCount: container.decode(
+                Int.self,
+                forKey: .depthByteCount
+            ),
+            depthSHA256: container.decode(
+                EvidenceSHA256.self,
+                forKey: .depthSHA256
+            ),
+            confidenceRelativePath: container.decodeIfPresent(
+                String.self,
+                forKey: .confidenceRelativePath
+            ),
+            confidenceByteCount: container.decodeIfPresent(
+                Int.self,
+                forKey: .confidenceByteCount
+            ),
+            confidenceSHA256: container.decodeIfPresent(
+                EvidenceSHA256.self,
+                forKey: .confidenceSHA256
+            )
+        )
+    }
 }
 
 public enum FrameEvidenceDescriptorError: Error, Sendable, Equatable {
@@ -297,5 +328,65 @@ public struct FrameEvidenceDescriptor: Codable, Sendable, Equatable {
         case exifAllowlisted = "exif_allowlisted"
         case depthStatus = "depth_status"
         case depth
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            frameID: container.decode(
+                EvidenceFrameID.self,
+                forKey: .frameID
+            ),
+            captureSessionID: container.decode(
+                CaptureSessionID.self,
+                forKey: .captureSessionID
+            ),
+            coordinateSpaceID: container.decode(
+                CoordinateSpaceID.self,
+                forKey: .coordinateSpaceID
+            ),
+            sessionTimestampSeconds: container.decode(
+                Double.self,
+                forKey: .sessionTimestampSeconds
+            ),
+            worldFromCamera: container.decode(
+                Matrix4x4F.self,
+                forKey: .worldFromCamera
+            ),
+            intrinsics: container.decode(
+                CameraIntrinsics3x3.self,
+                forKey: .intrinsics
+            ),
+            imageWidth: container.decode(Int.self, forKey: .imageWidth),
+            imageHeight: container.decode(Int.self, forKey: .imageHeight),
+            pixelFormatFourCC: container.decode(
+                UInt32.self,
+                forKey: .pixelFormatFourCC
+            ),
+            pixelRelativePath: container.decode(
+                String.self,
+                forKey: .pixelRelativePath
+            ),
+            pixelByteCount: container.decode(
+                Int.self,
+                forKey: .pixelByteCount
+            ),
+            pixelSHA256: container.decode(
+                EvidenceSHA256.self,
+                forKey: .pixelSHA256
+            ),
+            exifAllowlisted: container.decode(
+                [String: String].self,
+                forKey: .exifAllowlisted
+            ),
+            depthStatus: container.decode(
+                FrameDepthStatus.self,
+                forKey: .depthStatus
+            ),
+            depth: container.decodeIfPresent(
+                DepthEvidenceReference.self,
+                forKey: .depth
+            )
+        )
     }
 }

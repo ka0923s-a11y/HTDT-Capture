@@ -60,6 +60,29 @@ public struct DepthMapPayload: Codable, Sendable, Equatable {
         self.valuesMeters = valuesMeters
         self.validityMask = validityMask
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case width
+        case height
+        case valuesMeters
+        case validityMask
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            width: container.decode(Int.self, forKey: .width),
+            height: container.decode(Int.self, forKey: .height),
+            valuesMeters: container.decode(
+                [Float].self,
+                forKey: .valuesMeters
+            ),
+            validityMask: container.decodeIfPresent(
+                [UInt8].self,
+                forKey: .validityMask
+            )
+        )
+    }
 }
 
 public struct ConfidenceMapPayload: Codable, Sendable, Equatable {
@@ -89,5 +112,20 @@ public struct ConfidenceMapPayload: Codable, Sendable, Equatable {
         self.width = width
         self.height = height
         self.values = values
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case width
+        case height
+        case values
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            width: container.decode(Int.self, forKey: .width),
+            height: container.decode(Int.self, forKey: .height),
+            values: container.decode([UInt8].self, forKey: .values)
+        )
     }
 }

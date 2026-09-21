@@ -217,6 +217,32 @@ public struct MeshGeometryPayload: Codable, Sendable, Equatable {
     public var faceCount: Int {
         triangleIndices.count / 3
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case vertices
+        case normals
+        case triangleIndices
+        case faceClassifications
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            vertices: container.decode([Float3].self, forKey: .vertices),
+            normals: container.decodeIfPresent(
+                [Float3].self,
+                forKey: .normals
+            ),
+            triangleIndices: container.decode(
+                [UInt32].self,
+                forKey: .triangleIndices
+            ),
+            faceClassifications: container.decodeIfPresent(
+                [UInt8].self,
+                forKey: .faceClassifications
+            )
+        )
+    }
 }
 
 public struct MeshAnchorSnapshot: Codable, Sendable, Equatable {
