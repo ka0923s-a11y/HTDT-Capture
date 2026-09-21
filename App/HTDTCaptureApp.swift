@@ -58,6 +58,8 @@ private struct HTDTCaptureHostView: View {
                 coordinator.scanEvidenceFrameCount,
             endScanGuidance:
                 coordinator.endScanGuidance,
+            persistedInventory:
+                coordinator.persistedInventory,
             actions: CaptureRootActions(
                 beginCapture: coordinator.beginCapture,
                 beginReview: coordinator.beginReview,
@@ -76,7 +78,13 @@ private struct HTDTCaptureHostView: View {
                 cancelAnnotation: coordinator.cancelAnnotation,
                 finalizeCapture: coordinator.finalizeCapture,
                 prepareExport: coordinator.prepareExport,
-                resetCapture: coordinator.resetCapture
+                resetCapture: coordinator.resetCapture,
+                openPersistedCapture:
+                    coordinator.openPersistedCapture,
+                deletePersistedCapture:
+                    coordinator.deletePersistedCapture,
+                removeQuarantinedArtifact:
+                    coordinator.removeQuarantinedArtifact
             )
         )
     }
@@ -127,6 +135,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var scanDepthEvidenceCount = 0
     @Published private(set)
     var endScanGuidance: String?
+    @Published private(set)
+    var persistedInventory = PersistedCaptureInventoryResult()
 
     private var stateMachine = CaptureStateMachine()
     private var sessionController = SharedARSessionController()
@@ -148,6 +158,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var reviewOperationInFlight = false
     private var exportOperationInFlight = false
     private var spatialAuthoritySealedForFinalization = false
+    private var persistedStore: PersistedCaptureInventory?
+    private var persistedInventoryRequest = 0
+    private var persistedAdoptionInFlight = false
+    private var persistedDeletionInFlight = false
     private var scanCoverageTracker =
         AdvisoryScanCoverageTracker()
     private var observationStabilityTracker =
@@ -195,6 +209,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     init() {
         capabilities = PlatformCapabilityProbe.current()
         cameraPermission = CameraPermissionController.currentStatus()
+        persistedStore = Self.makePersistedStore()
+        loadPersistedCaptures()
 
         #if canImport(UIKit)
         memoryWarningCancellable =
@@ -1102,6 +1118,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func prepareExport() {
         guard state == .finalized,
               !exportOperationInFlight,
+              !persistedDeletionInFlight,
               let finalizedRevision,
               let validationReport,
               validationReport.bundleDigest
@@ -1192,6 +1209,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             "Existing validated archive recovered and is ready to share",
                             "既存の検証済みアーカイブを復旧し、共有できる状態にしました"
                         )
+                        self.loadPersistedCaptures()
                         return
                     }
 
@@ -1247,6 +1265,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     "Validated share-ready archive created",
                     "検証済みの共有用アーカイブを作成しました"
                 )
+                self.loadPersistedCaptures()
             } catch {
                 guard self.captureGeneration == generation,
                       self.state == .finalized
@@ -1388,6 +1407,321 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Enumerates and validates the app-owned persisted capture roots
+    /// (`finalized/` and `exports/`) off the main actor, then publishes
+    /// the result. The newest request always wins; stale scans are
+    /// discarded so a slower pre-delete scan cannot overwrite a
+    /// post-delete inventory.
+    func loadPersistedCaptures() {
+        persistedInventoryRequest += 1
+        let request = persistedInventoryRequest
+
+        guard let store = persistedStore else {
+            persistedInventory =
+                PersistedCaptureInventoryResult()
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            let inventory = await Task.detached(
+                priority: .utility
+            ) {
+                store.scan()
+            }.value
+            guard self.persistedInventoryRequest == request
+            else {
+                return
+            }
+            self.persistedInventory = inventory
+        }
+    }
+
+    /// Adopts a persisted capture after relaunch. The record is
+    /// revalidated against the manifest on disk before adoption; the
+    /// working set and its AR coordinate authority are never
+    /// reconstructed — the host lands directly in `.finalized` (or
+    /// `.exported` when a matching validated archive already exists).
+    func openPersistedCapture(
+        _ captureRevisionID: CaptureRevisionID
+    ) {
+        guard state == .idle,
+              !persistedAdoptionInFlight,
+              !persistedDeletionInFlight,
+              let store = persistedStore
+        else {
+            return
+        }
+
+        persistedAdoptionInFlight = true
+        workingSetStatus = HostLocalization.text(
+            "Revalidating the persisted capture",
+            "保存済みキャプチャを再検証しています"
+        )
+
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            let record = await Task.detached(
+                priority: .userInitiated
+            ) {
+                store.validatedRecord(
+                    captureRevisionID: captureRevisionID
+                )
+            }.value
+
+            self.persistedAdoptionInFlight = false
+            guard self.state == .idle else {
+                return
+            }
+            guard let record,
+                  let directory = record.finalizedDirectory,
+                  let validation = record.finalizedValidation
+            else {
+                self.loadPersistedCaptures()
+                self.workingSetStatus = HostLocalization.text(
+                    "The persisted capture could not be revalidated; the on-disk inventory was refreshed",
+                    "保存済みキャプチャを再検証できませんでした。ディスク上の一覧を更新しました"
+                )
+                return
+            }
+
+            self.finalizedRevision = FinalizedCaptureRevision(
+                directory: directory,
+                captureRevisionID: record.captureRevisionID,
+                bundleDigest: validation.bundleDigest,
+                payloadCount: validation.payloadCount
+            )
+            self.validationReport = validation
+            self.qualityReport = Self.persistedQualityReport(
+                in: directory,
+                manifest: validation.manifest
+            )
+            self.exportURL = record.exportArchive
+
+            do {
+                try self.transition(.adoptFinalized)
+                if record.exportArchive != nil {
+                    try self.transition(.export)
+                }
+            } catch {
+                // A failed adoption must not leave a dangling finalized
+                // state without its revision handle; reset returns the
+                // host to a clean idle. If the first transition already
+                // failed the host is still idle, so only the adopted
+                // fields need clearing.
+                if self.state == .finalized
+                    || self.state == .exported
+                {
+                    self.resetCapture()
+                }
+                self.finalizedRevision = nil
+                self.validationReport = nil
+                self.qualityReport = nil
+                self.exportURL = nil
+                self.workingSetStatus = HostLocalization.text(
+                    "The persisted capture could not be opened",
+                    "保存済みキャプチャを開けませんでした"
+                )
+                return
+            }
+
+            self.workingSetStatus = record.exportArchive != nil
+                ? HostLocalization.text(
+                    "Opened the persisted capture; its validated archive is ready to share",
+                    "保存済みキャプチャを開きました。検証済みアーカイブを共有できます"
+                )
+                : HostLocalization.text(
+                    "Opened the persisted finalized capture; export can be prepared",
+                    "保存済みの確定キャプチャを開きました。書き出しを作成できます"
+                )
+        }
+    }
+
+    /// Deletes the local copy of a persisted revision: its finalized
+    /// directory and matching export archive, resolved strictly inside
+    /// the app-owned capture roots. A partial deletion never reports
+    /// success; whatever remains is republished through the inventory.
+    func deletePersistedCapture(
+        _ captureRevisionID: CaptureRevisionID
+    ) {
+        guard !persistedDeletionInFlight,
+              !persistedAdoptionInFlight,
+              !exportOperationInFlight,
+              let store = persistedStore
+        else {
+            return
+        }
+
+        let isAdopted =
+            finalizedRevision?.captureRevisionID
+                == captureRevisionID
+        if isAdopted {
+            guard state == .finalized || state == .exported
+            else {
+                return
+            }
+        } else {
+            guard state == .idle else {
+                return
+            }
+        }
+
+        persistedDeletionInFlight = true
+        workingSetStatus = HostLocalization.text(
+            "Deleting local capture data",
+            "ローカルのキャプチャデータを削除しています"
+        )
+
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            let result = await Task.detached(
+                priority: .userInitiated
+            ) {
+                store.deleteCapture(
+                    captureRevisionID: captureRevisionID
+                )
+            }.value
+
+            self.persistedDeletionInFlight = false
+
+            if isAdopted,
+               self.state == .finalized
+                   || self.state == .exported
+            {
+                // Deleting the adopted capture releases its in-memory
+                // handle and returns the host to idle. Other records
+                // are untouched; whatever could not be removed stays
+                // listed by the refreshed inventory.
+                self.resetCapture()
+            }
+
+            self.loadPersistedCaptures()
+
+            if result.succeeded {
+                self.workingSetStatus = HostLocalization.text(
+                    "Local capture data was deleted",
+                    "ローカルのキャプチャデータを削除しました"
+                )
+            } else {
+                let detail = result.remaining
+                    .map {
+                        $0.url.lastPathComponent
+                            + " ("
+                            + $0.reason
+                            + ")"
+                    }
+                    .joined(separator: "; ")
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "Some local capture data could not be deleted; the remaining artifacts stay listed for retry",
+                        "一部のキャプチャデータを削除できませんでした。残ったデータは一覧に保持され、再試行できます"
+                    )
+                    + " ["
+                    + detail
+                    + "]"
+            }
+        }
+    }
+
+    /// Removes a quarantined artifact. Removal authority is limited to
+    /// direct children of the app-owned capture roots; the store itself
+    /// refuses anything else.
+    func removeQuarantinedArtifact(
+        _ artifact: PersistedCaptureQuarantinedArtifact
+    ) {
+        guard state == .idle,
+              !persistedDeletionInFlight,
+              !persistedAdoptionInFlight,
+              let store = persistedStore
+        else {
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            do {
+                try await Task.detached(
+                    priority: .userInitiated
+                ) {
+                    try store.removeArtifact(artifact)
+                }.value
+                self.workingSetStatus = HostLocalization.text(
+                    "Unreadable artifact removed",
+                    "読み取れないデータを削除しました"
+                )
+            } catch {
+                guard self.state == .idle else {
+                    return
+                }
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "The artifact could not be removed",
+                        "そのデータを削除できませんでした"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+            }
+            self.loadPersistedCaptures()
+        }
+    }
+
+    /// The persisted quality report lives inside the validated bundle
+    /// at `quality/capture-quality.json`; because the manifest pins its
+    /// hash, decoded bytes are authentic. Decoding is best-effort so an
+    /// older or future schema degrades to a validation-only view
+    /// instead of blocking adoption.
+    nonisolated private static func persistedQualityReport(
+        in directory: URL,
+        manifest: BundleManifest
+    ) -> CaptureQualityReport? {
+        let path = "quality/capture-quality.json"
+        guard manifest.files.contains(where: {
+            $0.path == path
+        }) else {
+            return nil
+        }
+        var url = directory
+        for component in path.split(separator: "/") {
+            url.appendPathComponent(String(component))
+        }
+        guard let data = try? Data(contentsOf: url) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(
+            CaptureQualityReport.self,
+            from: data
+        )
+    }
+
+    private static func makePersistedStore()
+        -> PersistedCaptureInventory?
+    {
+        guard let applicationSupport =
+            FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first
+        else {
+            return nil
+        }
+        return PersistedCaptureInventory(
+            captureRoot: applicationSupport
+                .appendingPathComponent(
+                    "HTDTCapture",
+                    isDirectory: true
+                )
+        )
     }
 
     private func continueBeginCapture() async {
@@ -2902,6 +3236,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     + validation.bundleDigest.description
                 : "Finalized revision; bundle digest "
                     + validation.bundleDigest.description
+            self.loadPersistedCaptures()
         } catch {
             guard captureGeneration == generation else {
                 return

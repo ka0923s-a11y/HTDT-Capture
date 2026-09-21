@@ -42,6 +42,22 @@
 "Start new capture" = "新しいキャプチャを開始";
 "Capture authority" = "キャプチャ情報";
 
+/* Persisted capture lifecycle (relaunch inventory, open, delete) */
+"Persisted captures" = "保存済みキャプチャ";
+"Payloads" = "収録データ";
+"Export archive only" = "書き出しアーカイブのみ";
+"Open" = "開く";
+"Share" = "共有";
+"Delete" = "削除";
+"Unreadable artifact" = "読み取れないデータ";
+"Remove artifact" = "このデータを削除";
+"Delete local capture" = "ローカルキャプチャを削除";
+"Delete local capture and export" = "ローカルキャプチャと書き出しを削除";
+"Delete local capture?" = "ローカルキャプチャを削除しますか？";
+"Delete capture" = "キャプチャを削除";
+"Delete capture and export" = "キャプチャと書き出しを削除";
+"This permanently deletes the finalized capture and any export archive stored for it from this device." = "確定済みキャプチャと、それに保存されている書き出しアーカイブをこの端末から完全に削除します。";
+
 "Idle" = "待機中";
 "Checking capabilities" = "対応機能を確認中";
 "Requesting permissions" = "権限を確認中";
