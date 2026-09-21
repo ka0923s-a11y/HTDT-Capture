@@ -1020,10 +1020,15 @@ public enum DerivedShapeProxyFitter {
     public static func boundaryObservation(
         from observation: DerivedShapeObservation,
         angularBinCount: Int = 48,
-        minimumBoundaryPointCount: Int = 8
+        minimumBoundaryPointCount: Int = 8,
+        maximumRadialIntersectionsPerBin: Int = 2,
+        minimumRadialGapMeters: Double = 0.25
     ) -> DerivedShapeObservation {
         guard angularBinCount >= 8,
-              minimumBoundaryPointCount >= 4
+              minimumBoundaryPointCount >= 4,
+              maximumRadialIntersectionsPerBin >= 1,
+              minimumRadialGapMeters.isFinite,
+              minimumRadialGapMeters > 0
         else {
             return observation
         }
@@ -1042,7 +1047,9 @@ public enum DerivedShapeProxyFitter {
             points.reduce(0.0) { $0 + $1.position.y }
             / Double(points.count)
 
-        var bins: [Int: (point: DerivedObservationPoint, radius2: Double)] = [:]
+        var bins: [
+            Int: [(point: DerivedObservationPoint, radius: Double)]
+        ] = [:]
         bins.reserveCapacity(angularBinCount)
 
         for point in points {
@@ -1077,17 +1084,51 @@ public enum DerivedShapeProxyFitter {
                 max(0, rawIndex)
             )
 
-            if let existing = bins[index],
-               existing.radius2 >= radius2
-            {
-                continue
-            }
-            bins[index] = (point, radius2)
+            bins[index, default: []].append(
+                (point, sqrt(radius2))
+            )
         }
 
-        let boundaryPoints = bins
-            .sorted { $0.key < $1.key }
-            .map { $0.value.point }
+        // A single angular sector of a non-star-shaped footprint can
+        // contain samples from several boundary intersections (for
+        // example the inner and outer edges of a U- or L-shaped outline).
+        // Points that fill the interior radially are continuous with the
+        // outer boundary, so split each sector only where a clear radial
+        // gap separates distinct observed intersections, keep the
+        // farthest point of each such group, and bound the retained
+        // intersections per sector. Reducing every sector to its single
+        // farthest sample would erase an observed concave boundary
+        // before the fitter could consider it.
+        var boundaryPoints: [DerivedObservationPoint] = []
+        for (_, entries) in bins.sorted(by: { $0.key < $1.key }) {
+            let radiallySorted = entries.sorted { lhs, rhs in
+                if lhs.radius != rhs.radius {
+                    return lhs.radius > rhs.radius
+                }
+                return observationPointLess(lhs.point, rhs.point)
+            }
+
+            var retainedIntersections = 0
+            var previousRadius: Double?
+            for entry in radiallySorted {
+                let startsNewIntersection =
+                    previousRadius.map {
+                        $0 - entry.radius
+                            > minimumRadialGapMeters
+                    } ?? true
+                if startsNewIntersection {
+                    guard
+                        retainedIntersections
+                            < maximumRadialIntersectionsPerBin
+                    else {
+                        break
+                    }
+                    retainedIntersections += 1
+                    boundaryPoints.append(entry.point)
+                }
+                previousRadius = entry.radius
+            }
+        }
 
         guard boundaryPoints.count >= minimumBoundaryPointCount else {
             return observation
