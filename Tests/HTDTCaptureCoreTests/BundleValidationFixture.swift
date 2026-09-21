@@ -102,6 +102,7 @@ enum BundleValidationFixture {
             ("capture_session_id", .string(sessionUUID)),
             ("coordinate_space_id", .string(spaceUUID)),
             ("capture_mode", .string("roomplan_mesh")),
+            ("started_at", .string("2026-09-20T00:00:00Z")),
             ("configuration_ref", .string("session/capture-configuration.json")),
             ("timing_ref", .string("session/timing.json")),
         ])
