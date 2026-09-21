@@ -161,6 +161,7 @@ public enum AnnotationModelError: Error, Sendable, Equatable {
     case duplicateEntityID
     case duplicateEvidenceReference
     case invalidPlacementReference
+    case missingEvidenceLink
 }
 
 public struct SpatialVector3F: Codable, Sendable, Equatable {
@@ -322,6 +323,15 @@ public struct PlacementProvenance: Codable, Sendable, Equatable {
         self.sourceEvidenceRefs = normalizedEvidence
     }
 
+    /// Whether the placement carries at least one source/evidence
+    /// reference of an allowed kind.
+    public var hasSourceReference: Bool {
+        sourceSemanticEntityID != nil
+            || sourceMeshAnchorID != nil
+            || sourceRoomPlanObjectID != nil
+            || !sourceEvidenceRefs.isEmpty
+    }
+
     private enum CodingKeys: String, CodingKey {
         case method
         case sourceSemanticEntityID = "source_semantic_entity_id"
@@ -434,6 +444,16 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
             }
             guard channelRole != nil else {
                 throw AnnotationModelError.speakerChannelRoleRequired
+            }
+        }
+
+        // `evidence_linked` is a provenance claim: it requires at least
+        // one evidence or placement source reference.
+        if verificationState == .evidenceLinked {
+            guard !normalizedEvidence.isEmpty
+                    || placement.hasSourceReference
+            else {
+                throw AnnotationModelError.missingEvidenceLink
             }
         }
 

@@ -32,6 +32,13 @@ public struct AnnotationPlacementAuthority:
         else {
             throw AnnotationModelError.duplicateEvidenceReference
         }
+        // An evidence-backed placement authority must carry the evidence
+        // it claims; the plain manual path uses a nil authority instead.
+        guard !normalizedEvidence.isEmpty
+                || placement.hasSourceReference
+        else {
+            throw AnnotationModelError.missingEvidenceLink
+        }
         self.worldFromAnnotation = worldFromAnnotation
         self.placement = placement
         self.evidenceRefs = normalizedEvidence.sorted()
@@ -56,6 +63,11 @@ public struct AnnotationOrientationAuthority:
         guard Set(normalizedEvidence).count == normalizedEvidence.count
         else {
             throw AnnotationModelError.duplicateEvidenceReference
+        }
+        // An evidence-backed orientation authority must carry the
+        // evidence it claims; the plain manual path uses nil instead.
+        guard !normalizedEvidence.isEmpty else {
+            throw AnnotationModelError.missingEvidenceLink
         }
         self.orientation = orientation
         self.evidenceRefs = normalizedEvidence.sorted()
