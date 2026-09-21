@@ -34,46 +34,146 @@ public struct CapturedFrameArtifacts: Sendable {
     }
 }
 
+/// Retained inputs for deferred frame-evidence materialization.
+///
+/// Produced by the synchronous SNAPSHOT step on the AR/MainActor
+/// boundary: it retains the frame's pixel and depth buffers and copies
+/// pose/intrinsics/EXIF metadata only. All expensive work — pixel row
+/// copies, canonical binary packing, SHA-256 hashing and HEIC preview
+/// generation — happens later in `ARFrameArtifactAdapter.materialize`,
+/// which is safe to run off the main actor.
+///
+/// `capturedImage` and the retained `ARDepthData` keep their
+/// CVPixelBuffers alive for the materialization window. The type is
+/// `@unchecked Sendable` because those CoreFoundation/ARKit inputs are
+/// treated as immutable and are only ever read under read-only locks.
+/// Callers must bound the number of outstanding snapshots so retained
+/// frame buffers cannot become unbounded queued memory.
+public struct CapturedFrameSnapshot: @unchecked Sendable {
+    public let frameID: EvidenceFrameID
+    public let captureSessionID: CaptureSessionID
+    public let coordinateSpaceID: CoordinateSpaceID
+    public let sessionTimestampSeconds: Double
+    public let worldFromCamera: Matrix4x4F
+    public let intrinsics: CameraIntrinsics3x3
+    public let exifAllowlisted: [String: String]
+    public let capturedImage: CVPixelBuffer
+    public let discreteDepthData: ARDepthData?
+    public let smoothedDepthData: ARDepthData?
+    public let depthSelection: FrameDepthSelection
+
+    public init(
+        frameID: EvidenceFrameID,
+        captureSessionID: CaptureSessionID,
+        coordinateSpaceID: CoordinateSpaceID,
+        sessionTimestampSeconds: Double,
+        worldFromCamera: Matrix4x4F,
+        intrinsics: CameraIntrinsics3x3,
+        exifAllowlisted: [String: String],
+        capturedImage: CVPixelBuffer,
+        discreteDepthData: ARDepthData?,
+        smoothedDepthData: ARDepthData?,
+        depthSelection: FrameDepthSelection
+    ) {
+        self.frameID = frameID
+        self.captureSessionID = captureSessionID
+        self.coordinateSpaceID = coordinateSpaceID
+        self.sessionTimestampSeconds = sessionTimestampSeconds
+        self.worldFromCamera = worldFromCamera
+        self.intrinsics = intrinsics
+        self.exifAllowlisted = exifAllowlisted
+        self.capturedImage = capturedImage
+        self.discreteDepthData = discreteDepthData
+        self.smoothedDepthData = smoothedDepthData
+        self.depthSelection = depthSelection
+    }
+}
+
 @available(iOS 17.0, *)
 public enum ARFrameArtifactAdapter {
+    /// Lightweight synchronous SNAPSHOT step, safe on the MainActor/AR
+    /// boundary: retains pixel/depth buffers and copies pose metadata
+    /// only. No packing, hashing or image encoding is performed here.
+    public static func snapshot(
+        frame: ARFrame,
+        captureSessionID: CaptureSessionID,
+        coordinateSpaceID: CoordinateSpaceID,
+        depthSelection: FrameDepthSelection = .discrete
+    ) throws -> CapturedFrameSnapshot {
+        try CapturedFrameSnapshot(
+            frameID: EvidenceFrameID(),
+            captureSessionID: captureSessionID,
+            coordinateSpaceID: coordinateSpaceID,
+            sessionTimestampSeconds: frame.timestamp,
+            worldFromCamera: matrix4x4(frame.camera.transform),
+            intrinsics: matrix3x3(frame.camera.intrinsics),
+            exifAllowlisted: EXIFEvidenceAllowlist.filter(
+                frame.exifData
+            ),
+            capturedImage: frame.capturedImage,
+            discreteDepthData: frame.sceneDepth,
+            smoothedDepthData: frame.smoothedSceneDepth,
+            depthSelection: depthSelection
+        )
+    }
+
+    /// Asynchronous MATERIALIZE boundary: performs pixel/depth row
+    /// copies, canonical binary packing, SHA-256 hashing and HEIC preview
+    /// generation off the calling actor. Safe to invoke from a detached
+    /// or bounded persistence task. Canonical bytes and hashes are
+    /// identical to the synchronous `capture` output for the same source
+    /// buffers; preview generation failure remains non-blocking.
+    public static func materialize(
+        _ snapshot: CapturedFrameSnapshot
+    ) async throws -> CapturedFrameArtifacts {
+        try materializeArtifacts(snapshot)
+    }
+
     public static func capture(
         frame: ARFrame,
         captureSessionID: CaptureSessionID,
         coordinateSpaceID: CoordinateSpaceID,
         depthSelection: FrameDepthSelection = .discrete
     ) throws -> CapturedFrameArtifacts {
-        let frameID = EvidenceFrameID()
+        try materializeArtifacts(
+            snapshot(
+                frame: frame,
+                captureSessionID: captureSessionID,
+                coordinateSpaceID: coordinateSpaceID,
+                depthSelection: depthSelection
+            )
+        )
+    }
+
+    private static func materializeArtifacts(
+        _ snapshot: CapturedFrameSnapshot
+    ) throws -> CapturedFrameArtifacts {
+        let frameID = snapshot.frameID
 
         let pixelBuffer = try PixelBufferSnapshotAdapter.snapshot(
-            frame.capturedImage
+            snapshot.capturedImage
         )
         let pixelPayload = try PixelBufferBinaryCodec.encode(pixelBuffer)
         let pixelSHA256 = EvidenceIntegrity.sha256(of: pixelPayload)
 
         let pixelPath = "evidence/frames/\(frameID).pixelbin"
 
-        let depthResult = try captureDepth(
-            frame: frame,
-            frameID: frameID,
-            selection: depthSelection
-        )
+        let depthResult = try materializeDepth(snapshot)
 
         let descriptor = try FrameEvidenceDescriptor(
             frameID: frameID,
-            captureSessionID: captureSessionID,
-            coordinateSpaceID: coordinateSpaceID,
-            sessionTimestampSeconds: frame.timestamp,
-            worldFromCamera: try matrix4x4(frame.camera.transform),
-            intrinsics: try matrix3x3(frame.camera.intrinsics),
+            captureSessionID: snapshot.captureSessionID,
+            coordinateSpaceID: snapshot.coordinateSpaceID,
+            sessionTimestampSeconds: snapshot.sessionTimestampSeconds,
+            worldFromCamera: snapshot.worldFromCamera,
+            intrinsics: snapshot.intrinsics,
             imageWidth: pixelBuffer.width,
             imageHeight: pixelBuffer.height,
             pixelFormatFourCC: pixelBuffer.pixelFormatFourCC,
             pixelRelativePath: pixelPath,
             pixelByteCount: pixelPayload.count,
             pixelSHA256: pixelSHA256,
-            exifAllowlisted: EXIFEvidenceAllowlist.filter(
-                frame.exifData
-            ),
+            exifAllowlisted: snapshot.exifAllowlisted,
             depthStatus: depthResult.status,
             depth: depthResult.reference
         )
@@ -84,7 +184,7 @@ public enum ARFrameArtifactAdapter {
             depthPayload: depthResult.depthPayload,
             confidencePayload: depthResult.confidencePayload,
             previewPayload: captureHEICPreview(
-                frame.capturedImage
+                snapshot.capturedImage
             )
         )
     }
@@ -107,29 +207,28 @@ public enum ARFrameArtifactAdapter {
         )
     }
 
-    private static func captureDepth(
-        frame: ARFrame,
-        frameID: EvidenceFrameID,
-        selection: FrameDepthSelection
+    private static func materializeDepth(
+        _ snapshot: CapturedFrameSnapshot
     ) throws -> (
         status: FrameDepthStatus,
         reference: DepthEvidenceReference?,
         depthPayload: Data?,
         confidencePayload: Data?
     ) {
+        let frameID = snapshot.frameID
         let selected: (ARDepthData?, DepthEvidenceKind, FrameDepthStatus)?
-        switch selection {
+        switch snapshot.depthSelection {
         case .none:
             return (.notRequested, nil, nil, nil)
         case .discrete:
             selected = (
-                frame.sceneDepth,
+                snapshot.discreteDepthData,
                 .discreteSceneDepth,
                 .capturedDiscrete
             )
         case .smoothed:
             selected = (
-                frame.smoothedSceneDepth,
+                snapshot.smoothedDepthData,
                 .smoothedSceneDepth,
                 .capturedSmoothed
             )
@@ -141,17 +240,19 @@ public enum ARFrameArtifactAdapter {
             return (.unavailable, nil, nil, nil)
         }
 
-        let snapshot = try DepthDataSnapshotAdapter.snapshot(
+        let depthSnapshot = try DepthDataSnapshotAdapter.snapshot(
             depthData
         )
-        let depthPayload = try DepthBinaryCodec.encode(snapshot.depth)
+        let depthPayload = try DepthBinaryCodec.encode(
+            depthSnapshot.depth
+        )
         let depthHash = EvidenceIntegrity.sha256(of: depthPayload)
         let depthPath = "evidence/depth/\(frameID).depthbin"
 
         var confidencePayload: Data?
         var confidencePath: String?
         var confidenceHash: EvidenceSHA256?
-        if let confidence = snapshot.confidence {
+        if let confidence = depthSnapshot.confidence {
             let encoded = try ConfidenceBinaryCodec.encode(confidence)
             confidencePayload = encoded
             confidencePath = "evidence/depth/\(frameID).confidencebin"

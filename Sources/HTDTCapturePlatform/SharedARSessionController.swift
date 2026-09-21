@@ -1109,6 +1109,37 @@ public final class SharedARSessionController {
         )
     }
 
+    /// SNAPSHOT step for deferred frame evidence: retains the current
+    /// frame's pixel/depth buffers and pose metadata only. The MainActor
+    /// critical section is limited to this capture/retain; pair with
+    /// `materializeFrameEvidence(_:)` on a bounded task to keep packing,
+    /// hashing and HEIC generation off the main actor.
+    public func snapshotFrameEvidenceCapture(
+        depthSelection: FrameDepthSelection = .discrete
+    ) throws -> CapturedFrameSnapshot {
+        guard let frame = arSession.currentFrame else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        return try ARFrameArtifactAdapter.snapshot(
+            frame: frame,
+            captureSessionID: context.captureSessionID,
+            coordinateSpaceID: context.coordinateSpaceID,
+            depthSelection: depthSelection
+        )
+    }
+
+    /// MATERIALIZE step: canonical binary packing, SHA-256 hashing and
+    /// HEIC preview generation for a previously captured frame snapshot.
+    /// Deliberately `nonisolated` so the host can call it from a detached
+    /// or bounded persistence task without occupying the main actor.
+    nonisolated
+    public func materializeFrameEvidence(
+        _ snapshot: CapturedFrameSnapshot
+    ) async throws -> CapturedFrameArtifacts {
+        try await ARFrameArtifactAdapter.materialize(snapshot)
+    }
+
     public func snapshotReviewEvidence(
         depthSelection: FrameDepthSelection = .discrete
     ) throws -> CaptureReviewEvidenceSnapshot {
