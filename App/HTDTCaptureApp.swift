@@ -926,9 +926,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     func beginAnnotation() {
+        // Annotation editing is spatial continuation authority: once a
+        // post-End resource/lifecycle condition sealed it (#112), the
+        // accepted Review remains finalizable but the annotation
+        // workspace must not reopen — its coordinate space is already
+        // torn down, so an entry here could strand .annotating with no
+        // rendered workspace or Cancel affordance.
         guard state == .reviewing,
               !isEndingScan,
               !reviewOperationInFlight,
+              !spatialAuthoritySealedForFinalization,
               let store = workingSetStore
         else {
             return
