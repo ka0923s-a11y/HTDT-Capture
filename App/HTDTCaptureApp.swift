@@ -38,6 +38,10 @@ private struct HTDTCaptureHostView: View {
                 coordinator.annotationCoordinateSpaceID,
             annotationEvidenceRefs:
                 coordinator.annotationEvidenceRefs,
+            annotationRoomPlanSurfaces:
+                coordinator.annotationRoomPlanSurfaces,
+            annotationMeshAnchors:
+                coordinator.annotationMeshAnchors,
             annotationAuthorityCommitted:
                 coordinator.annotationAuthorityCommitted,
             annotationRevisionSeed:
@@ -220,6 +224,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var annotationAuthorityCommitted = false
     @Published private(set)
     var annotationEvidenceRefs: [String] = []
+    var annotationRoomPlanSurfaces: [CapturedSurfaceOption] = []
+    var annotationMeshAnchors: [CapturedSurfaceOption] = []
     @Published private(set)
     var scanCoverage: ScanCoverageSummary = .empty
     @Published private(set)
@@ -666,6 +672,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         finalizedRevision = nil
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
+        annotationRoomPlanSurfaces = []
+        annotationMeshAnchors = []
         captureStartTimingCorrelation = nil
         acceptedRoomPlanRawSHA256 = nil
         acceptedEndMeshWasPersisted = false
@@ -2156,10 +2164,84 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             CaptureMeasurementCollection.self,
             at: MeasurementEvidencePackage.path
         )?.measurements ?? []
+        let authorities = try loadCollection(
+            TheaterAuthorityCollection.self,
+            at: TheaterAuthorityPackage.path
+        )
         return AnnotationWorkspaceSeed(
             annotations: annotations,
-            measurements: measurements
+            measurements: measurements,
+            authorities: authorities
         )
+    }
+
+    /// Lists captured RoomPlan elements and mesh anchors so authority
+    /// sheets offer user-assisted selection instead of typed IDs
+    /// (#218). Pure reads of app-owned canonical files; decode failures
+    /// simply yield an empty picker.
+    nonisolated private static func capturedSurfaceOptions(
+        rootDirectory: URL
+    ) -> (roomPlan: [CapturedSurfaceOption], mesh: [CapturedSurfaceOption])
+    {
+        func option(
+            _ identifier: UUID,
+            _ kind: CapturedSurfaceOption.Kind,
+            _ prefix: String
+        ) -> CapturedSurfaceOption {
+            CapturedSurfaceOption(
+                identifier: identifier.uuidString.lowercased(),
+                kind: kind,
+                label: prefix + " " + identifier.uuidString.prefix(8)
+            )
+        }
+
+        var roomPlan: [CapturedSurfaceOption] = []
+        let roomURL = rootDirectory.appendingPathComponent(
+            RoomPlanEvidenceArtifactBuilder.processedPath,
+            isDirectory: false
+        )
+        if let data = try? Data(contentsOf: roomURL),
+           let room = try? JSONDecoder().decode(
+               CapturedRoom.self,
+               from: data
+           )
+        {
+            let surfaces: [(UUID, String)] =
+                room.walls.map { ($0.identifier, "wall") }
+                + room.floors.map { ($0.identifier, "floor") }
+                + room.doors.map { ($0.identifier, "door") }
+                + room.windows.map { ($0.identifier, "window") }
+                + room.openings.map { ($0.identifier, "opening") }
+            roomPlan = surfaces.map {
+                option($0.0, .roomPlanSurface, $0.1)
+            }
+            roomPlan += room.objects.map {
+                option(
+                    $0.identifier,
+                    .roomPlanObject,
+                    "object " + String(describing: $0.category)
+                )
+            }
+        }
+
+        var mesh: [CapturedSurfaceOption] = []
+        let meshURL = rootDirectory.appendingPathComponent(
+            MeshEvidencePackage.indexPath,
+            isDirectory: false
+        )
+        if let data = try? Data(contentsOf: meshURL),
+           let index = try? JSONDecoder().decode(
+               MeshAnchorEvidenceIndex.self,
+               from: data
+           )
+        {
+            mesh = index.anchors.compactMap { record in
+                UUID(uuidString: record.anchorID).map {
+                    option($0, .meshAnchor, "mesh anchor")
+                }
+            }
+        }
+        return (roomPlan, mesh)
     }
 
     func captureSpeakerOrientation()
@@ -2174,7 +2256,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         let generation = captureGeneration
         let snapshot =
-            try sessionController.snapshotHorizontalCameraHeading(
+            try sessionController.snapshotCameraOrientation(
                 depthSelection: .discrete
             )
         // #177: materialize performs packing/hashing/HEIC off
@@ -2204,7 +2286,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let evidenceRef = "path:" + package.descriptorPath
         let orientation = try OrientationAxes(
             frontAxisLocal: snapshot.frontAxisWorld,
-            upAxisLocal: .unit(0, 1, 0)
+            upAxisLocal: snapshot.upAxisWorld
         )
         let authority = try AnnotationOrientationAuthority(
             orientation: orientation,
@@ -2417,7 +2499,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     func commitAnnotationAuthority(
         annotations: [CaptureAnnotationEntity],
-        measurements: [CaptureMeasurement]
+        measurements: [CaptureMeasurement],
+        authorities: TheaterAuthorityCollection
     ) {
         guard state == .annotating,
               !annotationCommitInFlight,
@@ -2435,6 +2518,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         annotationCommitInFlight = true
         let annotationPackage: AnnotationEvidencePackage
         let measurementPackage: MeasurementEvidencePackage
+        let authorityPackage: TheaterAuthorityPackage?
         do {
             annotationPackage =
                 try AnnotationEvidencePackageBuilder.build(
@@ -2447,6 +2531,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 try MeasurementEvidencePackageBuilder.build(
                     measurements: measurements
                 )
+            // authorities.json is written only once it carries records,
+            // or when a previously committed authority set is being
+            // replaced (an empty collection clears it).
+            if authorities.isEmpty,
+               annotationRevisionSeed?.authorities == nil
+            {
+                authorityPackage = nil
+            } else {
+                authorityPackage =
+                    try TheaterAuthorityPackageBuilder.build(
+                        collection: authorities
+                    )
+            }
         } catch {
             annotationCommitInFlight = false
             workingSetStatus =
@@ -2479,13 +2576,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     try await store
                         .replaceAnnotationAndMeasurementPackages(
                             annotationPackage: annotationPackage,
-                            measurementPackage: measurementPackage
+                            measurementPackage: measurementPackage,
+                            authorityPackage: authorityPackage
                         )
                 } else {
                     try await store
                         .persistAnnotationAndMeasurementPackages(
                             annotationPackage: annotationPackage,
-                            measurementPackage: measurementPackage
+                            measurementPackage: measurementPackage,
+                            authorityPackage: authorityPackage
                         )
                 }
                 guard self.captureGeneration == generation,
@@ -2960,6 +3059,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         exportURL = nil
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
+        annotationRoomPlanSurfaces = []
+        annotationMeshAnchors = []
         activeRevisionLineage = nil
         workingSetIdentity = nil
         annotationRevisionSeed = nil
@@ -6299,6 +6400,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         qualityReport = report
         advisoryReport = advisory
         annotationEvidenceRefs = snapshot.evidenceFrameRefs
+        (
+            annotationRoomPlanSurfaces,
+            annotationMeshAnchors
+        ) = Self.capturedSurfaceOptions(
+            rootDirectory: snapshot.rootDirectory
+        )
 
         // A resource/lifecycle event may have sealed spatial
         // continuation while this refresh was suspended on the store

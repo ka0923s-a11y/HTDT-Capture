@@ -91,6 +91,7 @@ SCHEMA_OWNED_PATHS = {
     "annotations/entities.json": "entities.schema.json",
     "annotations/measurements.json": "measurements.schema.json",
     "annotations/opening-review.json": "opening-review.schema.json",
+    "annotations/authorities.json": "authorities.schema.json",
     "quality/capture-quality.json": "quality.schema.json",
     "session/room-reference-frame.json": "room-reference-frame.schema.json",
     "quality/capture-advisory.json": "capture-advisory.schema.json",

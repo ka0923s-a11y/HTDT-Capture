@@ -9,19 +9,31 @@ import HTDTCaptureCore
 public struct AnnotationWorkspaceSeed: Sendable, Equatable {
     public let annotations: [CaptureAnnotationEntity]
     public let measurements: [CaptureMeasurement]
+    /// Committed theater-semantic authorities, when an
+    /// `annotations/authorities.json` file exists in the revision.
+    public let authorities: TheaterAuthorityCollection?
 
     public init(
         annotations: [CaptureAnnotationEntity] = [],
-        measurements: [CaptureMeasurement] = []
+        measurements: [CaptureMeasurement] = [],
+        authorities: TheaterAuthorityCollection? = nil
     ) {
         self.annotations = annotations
         self.measurements = measurements
+        self.authorities = authorities
     }
 }
 
 public struct CaptureAnnotationWorkspaceView: View {
     public let coordinateSpaceID: CoordinateSpaceID
+    /// Working revision identity — room-state snapshot records bind it
+    /// so a state set can never outlive the revision it describes.
+    public let captureRevisionID: CaptureRevisionID
     public let availableEvidenceRefs: [String]
+    /// Captured RoomPlan elements/mesh anchors offered as binding
+    /// targets in the authority sheets (#218).
+    public let roomPlanSurfaces: [CapturedSurfaceOption]
+    public let meshAnchors: [CapturedSurfaceOption]
     public let statusMessage: String?
     public let replacesCommittedAuthority: Bool
     public let captureRaycastPlacement:
@@ -45,7 +57,8 @@ public struct CaptureAnnotationWorkspaceView: View {
         (CaptureTaskProfile?, Set<String>) -> Void
     public let onCommit: (
         [CaptureAnnotationEntity],
-        [CaptureMeasurement]
+        [CaptureMeasurement],
+        TheaterAuthorityCollection
     ) -> Void
     public let onCancel: () -> Void
     /// Operator-initiated capture discard (#254): asks the host to
@@ -54,6 +67,7 @@ public struct CaptureAnnotationWorkspaceView: View {
 
     @State private var annotations: [CaptureAnnotationEntity]
     @State private var measurements: [CaptureMeasurement]
+    @State private var authorities: TheaterAuthorityCollection
     @State private var addingAnnotation = false
     @State private var addingMeasurement = false
     /// The catalog snapshot currently adopted by the host, seeded when
@@ -67,7 +81,10 @@ public struct CaptureAnnotationWorkspaceView: View {
 
     public init(
         coordinateSpaceID: CoordinateSpaceID,
+        captureRevisionID: CaptureRevisionID,
         availableEvidenceRefs: [String] = [],
+        roomPlanSurfaces: [CapturedSurfaceOption] = [],
+        meshAnchors: [CapturedSurfaceOption] = [],
         statusMessage: String? = nil,
         seed: AnnotationWorkspaceSeed? = nil,
         replacesCommittedAuthority: Bool = false,
@@ -98,13 +115,17 @@ public struct CaptureAnnotationWorkspaceView: View {
                 = { _, _ in },
         onCommit: @escaping (
             [CaptureAnnotationEntity],
-            [CaptureMeasurement]
+            [CaptureMeasurement],
+            TheaterAuthorityCollection
         ) -> Void,
         onCancel: @escaping () -> Void,
         onDiscard: @escaping () -> Void = {}
     ) {
         self.coordinateSpaceID = coordinateSpaceID
+        self.captureRevisionID = captureRevisionID
         self.availableEvidenceRefs = availableEvidenceRefs.sorted()
+        self.roomPlanSurfaces = roomPlanSurfaces
+        self.meshAnchors = meshAnchors
         self.statusMessage = statusMessage
         self.replacesCommittedAuthority =
             replacesCommittedAuthority
@@ -124,6 +145,9 @@ public struct CaptureAnnotationWorkspaceView: View {
         )
         _measurements = State(
             initialValue: seed?.measurements ?? []
+        )
+        _authorities = State(
+            initialValue: seed?.authorities ?? .empty
         )
         _equipmentCatalog = State(initialValue: equipmentCatalog)
     }
@@ -249,6 +273,18 @@ public struct CaptureAnnotationWorkspaceView: View {
                 }
             }
 
+            Section("Theater authorities") {
+                TheaterAuthoritySection(
+                    coordinateSpaceID: coordinateSpaceID,
+                    captureRevisionID: captureRevisionID,
+                    availableEvidenceRefs: availableEvidenceRefs,
+                    entities: annotations,
+                    roomPlanSurfaces: roomPlanSurfaces,
+                    meshAnchors: meshAnchors,
+                    authorities: $authorities
+                )
+            }
+
             Section {
                 Button(
                     replacesCommittedAuthority
@@ -260,7 +296,7 @@ public struct CaptureAnnotationWorkspaceView: View {
                         localized: "Save annotation authority"
                     )
                 ) {
-                    onCommit(annotations, measurements)
+                    onCommit(annotations, measurements, authorities)
                 }
                 Button("Cancel", role: .cancel) {
                     onCancel()
@@ -515,6 +551,12 @@ private struct ManualAnnotationForm: View {
     @State private var zText = "1.1"
     @State private var channelRole = "L"
     @State private var yawText = "0"
+    @State private var elevationText = "0"
+    @State private var includeAcousticCenter = false
+    @State private var acousticCenterX = ""
+    @State private var acousticCenterY = ""
+    @State private var acousticCenterZ = ""
+    @State private var acousticCenterRef = ""
 
     @State private var includeEquipmentReference = false
     @State private var equipmentID = ""
@@ -703,33 +745,87 @@ private struct ManualAnnotationForm: View {
                         let front =
                             orientationAuthority
                                 .orientation.frontAxisLocal
+                        let up =
+                            orientationAuthority
+                                .orientation.upAxisLocal
                         LabeledContent(
                             "Captured front",
                             value:
                                 "["
                                 + String(format: "%.3f", front.x)
-                                + ", 0, "
+                                + ", "
+                                + String(format: "%.3f", front.y)
+                                + ", "
                                 + String(format: "%.3f", front.z)
                                 + "]"
                         )
-                        Button("Use manual yaw instead") {
+                        LabeledContent(
+                            "Captured up",
+                            value:
+                                "["
+                                + String(format: "%.3f", up.x)
+                                + ", "
+                                + String(format: "%.3f", up.y)
+                                + ", "
+                                + String(format: "%.3f", up.z)
+                                + "]"
+                        )
+                        Button("Use manual aim instead") {
                             self.orientationAuthority = nil
                             evidenceSelection
                                 .replaceOrientationAuthority(nil)
                         }
                     } else {
                         TextField(
-                            "Yaw degrees (0 = -Z, 90 = +X)",
+                            "Azimuth degrees (0 = -Z, 90 = +X)",
                             text: $yawText
                         )
+                        if type == .speaker {
+                            TextField(
+                                "Elevation degrees (positive up)",
+                                text: $elevationText
+                            )
+                        }
                         Button(
-                            "Capture current camera heading"
+                            "Capture current camera aim"
                         ) {
                             captureOrientation()
                         }
                         .disabled(isCapturingOrientation)
                         Text(
-                            "Point the phone in the entity's forward direction, then capture. Only the horizontal heading is adopted; leave yaw blank when no facing authority exists."
+                            "Point the phone in the entity's forward direction, then capture. The full 3D aim — including elevation — is adopted; leave yaw blank when no facing authority exists."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if type == .speaker || type == .subwoofer {
+                Section("Acoustic center") {
+                    Toggle(
+                        "Attach acoustic-center offset",
+                        isOn: $includeAcousticCenter
+                    )
+                    if includeAcousticCenter {
+                        TextField(
+                            "Offset X (m, local)",
+                            text: $acousticCenterX
+                        )
+                        TextField(
+                            "Offset Y (m, local)",
+                            text: $acousticCenterY
+                        )
+                        TextField(
+                            "Offset Z (m, local)",
+                            text: $acousticCenterZ
+                        )
+                        TextField(
+                            "Authority ref (e.g. spec:...)",
+                            text: $acousticCenterRef
+                        )
+                        Text(
+                            "Acoustic center is only ever set by an explicit offset authority; the app never derives it."
                         )
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -1062,6 +1158,27 @@ private struct ManualAnnotationForm: View {
                 referencePointOffset = nil
             }
 
+            let acousticCenter: AcousticCenterOffsetAuthority?
+            if includeAcousticCenter {
+                guard let ox = Double(acousticCenterX),
+                      let oy = Double(acousticCenterY),
+                      let oz = Double(acousticCenterZ)
+                else {
+                    throw AnnotationModelError
+                        .invalidAuthorityComponent
+                }
+                acousticCenter =
+                    try AcousticCenterOffsetAuthority(
+                        offsetLocalMeters:
+                            try SpatialVector3F(
+                                Float(ox), Float(oy), Float(oz)
+                            ),
+                        authorityRef: acousticCenterRef
+                    )
+            } else {
+                acousticCenter = nil
+            }
+
             let enteredYaw =
                 yawText.trimmingCharacters(in: .whitespaces)
             let orientationYawDegrees: Double?
@@ -1086,6 +1203,9 @@ private struct ManualAnnotationForm: View {
                     type == .speaker ? channelRole : nil,
                 speakerYawDegrees:
                     type == .speaker ? Double(yawText) : nil,
+                speakerElevationDegrees:
+                    type == .speaker ? Double(elevationText) : nil,
+                acousticCenter: acousticCenter,
                 subwooferChannelRole:
                     type == .subwoofer ? channelRole : nil,
                 orientationYawDegrees: orientationYawDegrees,
@@ -1705,7 +1825,7 @@ private struct EndpointPicker: View {
 }
 
 
-private struct EvidenceReferenceSelector: View {
+struct EvidenceReferenceSelector: View {
     let availableEvidenceRefs: [String]
     @Binding var selectedEvidenceRefs: Set<String>
 

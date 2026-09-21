@@ -45,7 +45,8 @@ public struct CaptureRootActions {
         () async throws -> AnnotationOrientationAuthority
     public let commitAnnotationAuthority: (
         [CaptureAnnotationEntity],
-        [CaptureMeasurement]
+        [CaptureMeasurement],
+        TheaterAuthorityCollection
     ) -> Void
     public let cancelAnnotation: () -> Void
     /// Operator capture-task profile selection (#217/#259): sets the
@@ -152,8 +153,9 @@ public struct CaptureRootActions {
             },
         commitAnnotationAuthority: @escaping (
             [CaptureAnnotationEntity],
-            [CaptureMeasurement]
-        ) -> Void = { _, _ in },
+            [CaptureMeasurement],
+            TheaterAuthorityCollection
+        ) -> Void = { _, _, _ in },
         cancelAnnotation: @escaping () -> Void = {},
         selectTaskProfile: @escaping
             (CaptureTaskProfile?, Set<String>) -> Void
@@ -415,6 +417,10 @@ public struct CaptureRootView: View {
     public let exportURL: URL?
     public let annotationCoordinateSpaceID: CoordinateSpaceID?
     public let annotationEvidenceRefs: [String]
+    /// Captured RoomPlan elements/mesh anchors the authority sheets
+    /// offer as binding targets (#218).
+    public let annotationRoomPlanSurfaces: [CapturedSurfaceOption]
+    public let annotationMeshAnchors: [CapturedSurfaceOption]
     public let annotationAuthorityCommitted: Bool
     /// Reloaded canonical authority used to seed a pre-finalization
     /// correction pass through the annotation workspace (#163).
@@ -499,6 +505,8 @@ public struct CaptureRootView: View {
         exportURL: URL? = nil,
         annotationCoordinateSpaceID: CoordinateSpaceID? = nil,
         annotationEvidenceRefs: [String] = [],
+        annotationRoomPlanSurfaces: [CapturedSurfaceOption] = [],
+        annotationMeshAnchors: [CapturedSurfaceOption] = [],
         annotationAuthorityCommitted: Bool = false,
         annotationRevisionSeed: AnnotationWorkspaceSeed? = nil,
         equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil,
@@ -550,6 +558,9 @@ public struct CaptureRootView: View {
         self.annotationCoordinateSpaceID =
             annotationCoordinateSpaceID
         self.annotationEvidenceRefs = annotationEvidenceRefs
+        self.annotationRoomPlanSurfaces =
+            annotationRoomPlanSurfaces
+        self.annotationMeshAnchors = annotationMeshAnchors
         self.annotationAuthorityCommitted =
             annotationAuthorityCommitted
         self.annotationRevisionSeed = annotationRevisionSeed
@@ -642,12 +653,18 @@ public struct CaptureRootView: View {
                 )
             } else if state == .annotating,
                let coordinateSpaceID =
-                    annotationCoordinateSpaceID
+                    annotationCoordinateSpaceID,
+               let captureRevisionID =
+                    workingSetIdentity?.captureRevisionID
             {
                 CaptureAnnotationWorkspaceView(
                     coordinateSpaceID: coordinateSpaceID,
+                    captureRevisionID: captureRevisionID,
                     availableEvidenceRefs:
                         annotationEvidenceRefs,
+                    roomPlanSurfaces:
+                        annotationRoomPlanSurfaces,
+                    meshAnchors: annotationMeshAnchors,
                     statusMessage: workingSetStatus,
                     seed: annotationRevisionSeed,
                     replacesCommittedAuthority:
