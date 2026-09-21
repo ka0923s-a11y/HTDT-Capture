@@ -101,15 +101,61 @@ public struct CaptureResourceEvent: Codable, Sendable, Equatable {
     public let kind: CaptureResourceEventKind
     public let severity: QualityDiagnosticSeverity
     public let detail: String
+    /// RFC 3339 UTC timestamp identifying when the event occurred. A nil
+    /// value means the producing clock authority could not supply an
+    /// occurrence time; precision is never fabricated.
+    public let occurredAtUtc: String?
+    /// Monotonic per-session sequence number assigned by the recording
+    /// authority. A nil value marks an event recorded before sequencing
+    /// existed (or by a producer without a clock domain); see
+    /// `CaptureQualityEvaluator` for the deterministic ordering policy.
+    public let sequence: UInt64?
 
     public init(
         kind: CaptureResourceEventKind,
         severity: QualityDiagnosticSeverity,
-        detail: String
+        detail: String,
+        occurredAtUtc: String? = nil,
+        sequence: UInt64? = nil
     ) {
         self.kind = kind
         self.severity = severity
         self.detail = detail
+        self.occurredAtUtc = occurredAtUtc
+        self.sequence = sequence
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case severity
+        case detail
+        case occurredAtUtc = "occurred_at_utc"
+        case sequence
+    }
+
+    // `occurred_at_utc` and `sequence` are additive optional fields:
+    // events persisted by earlier versions decode with nil values.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            kind: try container.decode(
+                CaptureResourceEventKind.self,
+                forKey: .kind
+            ),
+            severity: try container.decode(
+                QualityDiagnosticSeverity.self,
+                forKey: .severity
+            ),
+            detail: try container.decode(String.self, forKey: .detail),
+            occurredAtUtc: try container.decodeIfPresent(
+                String.self,
+                forKey: .occurredAtUtc
+            ),
+            sequence: try container.decodeIfPresent(
+                UInt64.self,
+                forKey: .sequence
+            )
+        )
     }
 }
 
@@ -253,6 +299,28 @@ public enum CaptureQualityEvaluator {
             present: observation.measurementQuantityTypesPresent
         )
 
+        // Deterministic resource chronology: events carrying an
+        // explicit sequence number order first, ascending; events
+        // without a sequence then order by occurred_at_utc (absent
+        // sorts first); the final tie-breaker is original insertion
+        // order so equal-time events serialize deterministically.
+        let orderedResourceEvents = observation.resourceEvents
+            .enumerated()
+            .sorted { lhs, rhs in
+                let lhsSequence = lhs.element.sequence ?? UInt64.max
+                let rhsSequence = rhs.element.sequence ?? UInt64.max
+                if lhsSequence != rhsSequence {
+                    return lhsSequence < rhsSequence
+                }
+                let lhsTime = lhs.element.occurredAtUtc ?? ""
+                let rhsTime = rhs.element.occurredAtUtc ?? ""
+                if lhsTime != rhsTime {
+                    return lhsTime < rhsTime
+                }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
+
         var diagnostics: [QualityDiagnostic] = []
 
         if requirements.requireCompletedRoomPlan,
@@ -365,7 +433,7 @@ public enum CaptureQualityEvaluator {
             )
         }
 
-        for event in observation.resourceEvents where event.severity == .error {
+        for event in orderedResourceEvents where event.severity == .error {
             diagnostics.append(
                 QualityDiagnostic(
                     code: "resource_error",
@@ -423,7 +491,7 @@ public enum CaptureQualityEvaluator {
             depthEvidenceCount: observation.depthEvidenceCount,
             annotationCompleteness: annotationStatus,
             measurementCompleteness: measurementStatus,
-            resourceEvents: observation.resourceEvents,
+            resourceEvents: orderedResourceEvents,
             integrityStatus: observation.integrityStatus,
             benchmarkRefs: observation.benchmarkRefs.sorted(),
             diagnostics: diagnostics
