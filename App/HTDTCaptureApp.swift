@@ -40,6 +40,8 @@ private struct HTDTCaptureHostView: View {
                 coordinator.annotationAuthorityCommitted,
             annotationRevisionSeed:
                 coordinator.annotationRevisionSeed,
+            equipmentCatalog:
+                coordinator.equipmentCatalog,
             workingSetIdentity:
                 coordinator.workingSetIdentity,
             scanningPreview: AnyView(
@@ -80,6 +82,8 @@ private struct HTDTCaptureHostView: View {
                 commitAnnotationAuthority:
                     coordinator.commitAnnotationAuthority,
                 cancelAnnotation: coordinator.cancelAnnotation,
+                importEquipmentCatalog:
+                    coordinator.importEquipmentCatalog,
                 finalizeCapture: coordinator.finalizeCapture,
                 prepareExport: coordinator.prepareExport,
                 resetCapture: coordinator.resetCapture,
@@ -162,6 +166,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// revision, reloaded for correction (#163).
     @Published private(set)
     var annotationRevisionSeed: AnnotationWorkspaceSeed?
+    /// Operator reference context for exact equipment selection (#211).
+    /// The imported HTDT catalog snapshot is host-owned and mirrored to
+    /// an app-support cache so it survives annotation cancel → Review →
+    /// re-enter and app relaunch. It is never persisted into the capture
+    /// bundle: annotations store only the exact selected equipment
+    /// tuple as immutable authority.
+    @Published private(set)
+    var equipmentCatalog: HTDTEquipmentCatalogSnapshot?
+    private let equipmentCatalogCache =
+        HTDTCaptureHostCoordinator.makeEquipmentCatalogCache()
 
     private var stateMachine = CaptureStateMachine()
     private var sessionController = SharedARSessionController()
@@ -277,6 +291,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         loadPersistedCaptures()
+
+        // #211: restore the last validated equipment-catalog snapshot so
+        // the operator's reference context survives relaunch. A missing
+        // or no-longer-valid cache simply means the annotation workspace
+        // asks for an explicit re-import; annotation authority already
+        // committed in any capture is unaffected.
+        equipmentCatalog = equipmentCatalogCache?.load()
 
         #if canImport(UIKit)
         memoryWarningCancellable =
@@ -1377,6 +1398,32 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
+    /// Validates and adopts an imported HTDT equipment-catalog snapshot
+    /// (#211). The snapshot is operator reference context only: it is
+    /// held on the host and mirrored to an app-support cache so it
+    /// survives annotation cancel → Review → re-enter and app relaunch.
+    /// No catalog bytes enter the capture bundle; annotations keep
+    /// storing only the exact selected ID/version/SHA-256 tuple.
+    ///
+    /// A throw means the candidate failed schema/authority validation
+    /// and the previously imported snapshot — if any — stays adopted.
+    /// A failed cache write only means the next launch requires an
+    /// explicit re-import; the in-session context remains usable.
+    func importEquipmentCatalog(
+        from data: Data
+    ) throws -> HTDTEquipmentCatalogSnapshot {
+        let snapshot = try JSONDecoder().decode(
+            HTDTEquipmentCatalogSnapshot.self,
+            from: data
+        )
+        equipmentCatalog = snapshot
+        // Best-effort durable mirror of the exact imported bytes. A
+        // failure only means the next launch requires an explicit
+        // re-import; the in-session context remains usable.
+        _ = try? equipmentCatalogCache?.store(data)
+        return snapshot
+    }
+
     func finalizeCapture() {
         guard state == .reviewing,
               !isEndingScan,
@@ -2360,6 +2407,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return PersistedCaptureInventory(
             captureRoot: captureRoot
         )
+    }
+
+    /// App-owned cache for the last validated HTDT equipment-catalog
+    /// snapshot (#211). It lives directly under the capture app-support
+    /// root — outside `finalized/`, `exports/` and `working/` — so the
+    /// persisted-capture inventory never classifies it as a capture
+    /// artifact and no catalog bytes ever enter a bundle.
+    private static func makeEquipmentCatalogCache()
+        -> HTDTEquipmentCatalogCache?
+    {
+        captureRootDirectory().map {
+            HTDTEquipmentCatalogCache(
+                fileURL: $0.appendingPathComponent(
+                    "imported-equipment-catalog.json",
+                    isDirectory: false
+                )
+            )
+        }
     }
 
     private func continueBeginCapture() async {
