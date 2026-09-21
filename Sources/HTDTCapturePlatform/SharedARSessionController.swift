@@ -1052,9 +1052,16 @@ public final class SharedARSessionController {
         ])
     }
 
-    public func snapshotTimingCorrelation()
-        throws -> CaptureTimingCorrelation
-    {
+    /// Bracketed monotonic↔UTC correlation sample for the given capture
+    /// boundary (#200). The `boundary` chooses the persisted `method`
+    /// label: `.sessionStart` is taken from the first AR frame the
+    /// shared session delivers after the start request — before any
+    /// unrelated configuration wait or persistence work — while
+    /// `.sessionEnd` is the current-frame sample at the accepted End
+    /// boundary.
+    public func snapshotTimingCorrelation(
+        boundary: CaptureTimingBoundary = .sessionEnd
+    ) throws -> CaptureTimingCorrelation {
         let before = Date()
         guard let frame = arSession.currentFrame else {
             throw PlatformCaptureError.currentFrameUnavailable
@@ -1078,7 +1085,7 @@ public final class SharedARSessionController {
         return try CaptureTimingCorrelation(
             monotonicSeconds: frame.timestamp,
             utc: PlatformTimestamp.fractionalUtcString(from: midpoint),
-            method: "bracketed_arframe_current_frame",
+            method: boundary.timingMethod,
             estimatedUncertaintySeconds: uncertainty
         )
     }

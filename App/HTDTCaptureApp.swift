@@ -2547,6 +2547,33 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        // #200: RoomPlan's run() necessarily starts the shared ARSession,
+        // so the first usable monotonic↔UTC correlation is captured
+        // immediately here — before the active-configuration retry window
+        // and before session-foundation persistence, which must not delay
+        // the start-boundary sample. The correlation's method label
+        // ("bracketed_first_arframe_at_session_start") records that this
+        // is the first frame delivered after the start request; any
+        // framework-internal observation between run() and that frame
+        // precedes the stored correlation interval.
+        do {
+            captureStartTimingCorrelation =
+                try await waitForInitialTimingCorrelation()
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "AR tracking did not produce an initial frame in time",
+                "AR トラッキングの初期フレームを時間内に取得できませんでした"
+            )
+            fail(.trackingUnavailable)
+            return
+        }
+
+        guard state == .scanning,
+              captureGeneration == generation
+        else {
+            return
+        }
+
         let activeConfiguration: CaptureConfigurationProfile
         do {
             activeConfiguration =
@@ -2585,24 +2612,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 "キャプチャのセッション情報を保存できませんでした"
             )
             fail(.persistenceFailure)
-            return
-        }
-
-        guard state == .scanning,
-              captureGeneration == generation
-        else {
-            return
-        }
-
-        do {
-            captureStartTimingCorrelation =
-                try await waitForInitialTimingCorrelation()
-        } catch {
-            workingSetStatus = HostLocalization.text(
-                "AR tracking did not produce an initial frame in time",
-                "AR トラッキングの初期フレームを時間内に取得できませんでした"
-            )
-            fail(.trackingUnavailable)
             return
         }
 
@@ -2782,7 +2791,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         let endTiming: CaptureTimingCorrelation
         do {
-            endTiming = try sessionController.snapshotTimingCorrelation()
+            endTiming =
+                try sessionController.snapshotTimingCorrelation(
+                    boundary: .sessionEnd
+                )
         } catch {
             endScanGuidance = HostLocalization.text(
                 "Cannot end yet: the current AR frame cannot be correlated to capture time. Keep the phone steady until tracking recovers, then try End again.",
@@ -3022,7 +3034,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     .invalidCorrelationOrder
             }
             let endTiming =
-                try sessionController.snapshotTimingCorrelation()
+                try sessionController.snapshotTimingCorrelation(
+                    boundary: .sessionEnd
+                )
             timingPackage =
                 try CaptureTimingPackageBuilder.build(
                     start: startTiming,
@@ -3850,12 +3864,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         throw ARConfigurationSnapshotError.configurationUnavailable
     }
 
+    /// Start-boundary correlation (#200): returns the first bracketed
+    /// ARSession frame↔UTC sample available after the start request,
+    /// labelled `.sessionStart` so the timing document identifies it as
+    /// the earliest observed session time. Invoked immediately after
+    /// `startRoomPlan()`, before any unrelated awaits.
     private func waitForInitialTimingCorrelation()
         async throws -> CaptureTimingCorrelation
     {
         for _ in 0..<40 {
             if let correlation =
-                try? sessionController.snapshotTimingCorrelation()
+                try? sessionController.snapshotTimingCorrelation(
+                    boundary: .sessionStart
+                )
             {
                 return correlation
             }

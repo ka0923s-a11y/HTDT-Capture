@@ -135,3 +135,54 @@ func wholeSecondUTCRendersUnchangedForManifestPath() {
     )
     #expect(whole == "2027-01-15T08:00:00Z")
 }
+
+// MARK: - Start-boundary correlation identity (#200)
+//
+// The v1 timing document orders correlations [start, end] and carries
+// no explicit role field, so the boundary semantics ride on `method`.
+// The start sample is taken from the first AR frame the shared session
+// delivers after the start request — before unrelated configuration or
+// persistence work — and the label marks that any framework-internal
+// observation between the run request and that first frame precedes
+// the stored correlation interval.
+
+@Test
+func startBoundaryCorrelationCarriesDistinctMethod() throws {
+    let start = try CaptureTimingCorrelation(
+        monotonicSeconds: 1.25,
+        utc: "2026-09-20T01:00:01.250Z",
+        method: CaptureTimingBoundary.sessionStart.timingMethod,
+        estimatedUncertaintySeconds: 0.001
+    )
+    let end = try CaptureTimingCorrelation(
+        monotonicSeconds: 42.5,
+        utc: "2026-09-20T01:00:42.500Z",
+        method: CaptureTimingBoundary.sessionEnd.timingMethod,
+        estimatedUncertaintySeconds: 0.001
+    )
+
+    let package = try CaptureTimingPackageBuilder.build(
+        start: start,
+        end: end
+    )
+    let decoded = try JSONDecoder().decode(
+        CaptureTimingDocument.self,
+        from: package.data
+    )
+
+    // The start boundary is identifiable without relying on position:
+    // it declares the first-AR-frame-after-start sampling, while the
+    // end boundary keeps the existing current-frame method label.
+    #expect(
+        decoded.correlations[0].method
+            == "bracketed_first_arframe_at_session_start"
+    )
+    #expect(
+        decoded.correlations[1].method
+            == "bracketed_arframe_current_frame"
+    )
+    #expect(
+        decoded.correlations[0].method
+            != decoded.correlations[1].method
+    )
+}
