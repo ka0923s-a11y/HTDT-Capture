@@ -43,9 +43,25 @@ public struct CaptureRootActions {
     /// `captureSpeakerOrientation` convention.
     public let capturePointOrientation:
         () async throws -> AnnotationOrientationAuthority
+    /// Pollable reticle probe for the camera capture sheet (#214): a
+    /// live classification of what the center ray is hitting.
+    public let probePlacementTarget:
+        () async -> AnnotationPlacementProbe
+    /// Pollable camera yaw in degrees for the live heading arrow
+    /// (#214).
+    public let probeCameraHeading: () async -> Float?
+    /// Targeted placement capture (#246): mesh / RoomPlan object /
+    /// plane, never silently downgraded; nil means no hit.
+    public let captureTargetedPlacement: (
+        PlacementTargetPreference
+    ) async throws -> AnnotationPlacementAuthority?
+    /// Captures a plain evidence frame for equipment-identity photos
+    /// (#239); returns its canonical `path:` ref.
+    public let captureIdentityPhoto: () async throws -> String
     public let commitAnnotationAuthority: (
         [CaptureAnnotationEntity],
         [CaptureMeasurement],
+        [EquipmentIdentityRecord],
         TheaterAuthorityCollection
     ) -> Void
     public let cancelAnnotation: () -> Void
@@ -151,11 +167,25 @@ public struct CaptureRootActions {
                 throw ManualAuthorityBuilderError
                     .pointDirectionUnavailable
             },
+        probePlacementTarget: @escaping
+            () async -> AnnotationPlacementProbe = { .unavailable },
+        probeCameraHeading: @escaping
+            () async -> Float? = { nil },
+        captureTargetedPlacement: @escaping (
+            PlacementTargetPreference
+        ) async throws -> AnnotationPlacementAuthority? = { _ in
+            nil
+        },
+        captureIdentityPhoto: @escaping
+            () async throws -> String = {
+                throw ManualAuthorityBuilderError.invalidPosition
+            },
         commitAnnotationAuthority: @escaping (
             [CaptureAnnotationEntity],
             [CaptureMeasurement],
+            [EquipmentIdentityRecord],
             TheaterAuthorityCollection
-        ) -> Void = { _, _, _ in },
+        ) -> Void = { _, _, _, _ in },
         cancelAnnotation: @escaping () -> Void = {},
         selectTaskProfile: @escaping
             (CaptureTaskProfile?, Set<String>) -> Void
@@ -236,6 +266,10 @@ public struct CaptureRootActions {
             captureSpeakerOrientation
         self.capturePointOrientation =
             capturePointOrientation
+        self.probePlacementTarget = probePlacementTarget
+        self.probeCameraHeading = probeCameraHeading
+        self.captureTargetedPlacement = captureTargetedPlacement
+        self.captureIdentityPhoto = captureIdentityPhoto
         self.commitAnnotationAuthority =
             commitAnnotationAuthority
         self.cancelAnnotation = cancelAnnotation
@@ -432,6 +466,25 @@ public struct CaptureRootView: View {
     /// Identity of the live working revision; carries the
     /// series/parent linkage for a revise-existing capture (#155).
     public let workingSetIdentity: CaptureWorkingSetIdentity?
+    /// Visual presentation rows for the evidence refs (#255).
+    public let annotationEvidenceFrames: [EvidenceFramePresentation]
+    /// RoomPlan objects offered for direct placement binding (#246).
+    public let annotationRoomPlanObjects: [RoomPlanBindableObject]
+    /// Advisory plausibility findings for Review (#247); nil while the
+    /// accepted-geometry context is unavailable.
+    public let spatialPlausibilityFindings:
+        [SpatialPlausibilityFinding]?
+    /// The geometry context those findings / the workspace's live
+    /// hints were evaluated against (#247).
+    public let annotationPlausibilityContext:
+        SpatialPlausibilityContext
+    /// Speaker-layout plans offered for guided batch capture (#278).
+    public let speakerLayoutPlans: [SpeakerLayoutPlan]
+    /// Session equipment-picker recents (#265).
+    public let equipmentRecents: EquipmentRecents
+    /// Draft store + binding for workspace autosave (#266).
+    public let annotationDraftStore: AnnotationWorkspaceDraftStore?
+    public let annotationDraftRevisionID: CaptureRevisionID?
     public let scanningPreview: AnyView?
     public let scanCoverage: ScanCoverageSummary
     public let observationStability: ObservationStabilitySummary
@@ -511,6 +564,16 @@ public struct CaptureRootView: View {
         annotationRevisionSeed: AnnotationWorkspaceSeed? = nil,
         equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil,
         workingSetIdentity: CaptureWorkingSetIdentity? = nil,
+        annotationEvidenceFrames: [EvidenceFramePresentation] = [],
+        annotationRoomPlanObjects: [RoomPlanBindableObject] = [],
+        spatialPlausibilityFindings:
+            [SpatialPlausibilityFinding]? = nil,
+        annotationPlausibilityContext: SpatialPlausibilityContext =
+            SpatialPlausibilityContext(),
+        speakerLayoutPlans: [SpeakerLayoutPlan] = [],
+        equipmentRecents: EquipmentRecents = EquipmentRecents(),
+        annotationDraftStore: AnnotationWorkspaceDraftStore? = nil,
+        annotationDraftRevisionID: CaptureRevisionID? = nil,
         scanningPreview: AnyView? = nil,
         scanCoverage: ScanCoverageSummary = .empty,
         observationStability: ObservationStabilitySummary = .empty,
@@ -566,6 +629,16 @@ public struct CaptureRootView: View {
         self.annotationRevisionSeed = annotationRevisionSeed
         self.equipmentCatalog = equipmentCatalog
         self.workingSetIdentity = workingSetIdentity
+        self.annotationEvidenceFrames = annotationEvidenceFrames
+        self.annotationRoomPlanObjects = annotationRoomPlanObjects
+        self.spatialPlausibilityFindings =
+            spatialPlausibilityFindings
+        self.annotationPlausibilityContext =
+            annotationPlausibilityContext
+        self.speakerLayoutPlans = speakerLayoutPlans
+        self.equipmentRecents = equipmentRecents
+        self.annotationDraftStore = annotationDraftStore
+        self.annotationDraftRevisionID = annotationDraftRevisionID
         self.scanningPreview = scanningPreview
         self.scanCoverage = scanCoverage
         self.observationStability = observationStability
@@ -662,6 +735,7 @@ public struct CaptureRootView: View {
                     captureRevisionID: captureRevisionID,
                     availableEvidenceRefs:
                         annotationEvidenceRefs,
+                    evidenceFrames: annotationEvidenceFrames,
                     roomPlanSurfaces:
                         annotationRoomPlanSurfaces,
                     meshAnchors: annotationMeshAnchors,
@@ -670,19 +744,36 @@ public struct CaptureRootView: View {
                     replacesCommittedAuthority:
                         annotationAuthorityCommitted,
                     equipmentCatalog: equipmentCatalog,
-                    captureRaycastPlacement:
-                        actions.captureRaycastPlacement,
+                    // The same shared AR surface renders inside the
+                    // camera capture sheets — no second session
+                    // (#214).
+                    cameraPreview: scanningPreview,
+                    probePlacementTarget:
+                        actions.probePlacementTarget,
+                    probeCameraHeading:
+                        actions.probeCameraHeading,
+                    captureTargetedPlacement:
+                        actions.captureTargetedPlacement,
                     captureSpeakerOrientation:
                         actions.captureSpeakerOrientation,
                     capturePointOrientation:
                         actions.capturePointOrientation,
+                    captureIdentityPhoto:
+                        actions.captureIdentityPhoto,
+                    roomPlanObjects: annotationRoomPlanObjects,
+                    plausibilityContext:
+                        annotationPlausibilityContext,
+                    equipmentRecents: equipmentRecents,
+                    speakerLayoutPlans: speakerLayoutPlans,
+                    draftStore: annotationDraftStore,
+                    draftRevisionID: annotationDraftRevisionID,
                     onImportEquipmentCatalog:
                         actions.importEquipmentCatalog,
+                    onCommit:
+                        actions.commitAnnotationAuthority,
                     taskProfile: taskProfile,
                     onSelectTaskProfile:
                         actions.selectTaskProfile,
-                    onCommit:
-                        actions.commitAnnotationAuthority,
                     onCancel: actions.cancelAnnotation,
                     onDiscard: {
                         confirmingDiscard = true
@@ -815,7 +906,9 @@ public struct CaptureRootView: View {
                         NavigationLink("Review diagnostics") {
                             CaptureReviewView(
                                 quality: qualityReport,
-                                advisory: advisoryReport
+                                advisory: advisoryReport,
+                                spatialFindings:
+                                    spatialPlausibilityFindings
                             )
                         }
                     }
@@ -855,7 +948,9 @@ public struct CaptureRootView: View {
                                 CaptureReviewView(
                                     quality: qualityReport,
                                     advisory: advisoryReport,
-                                    validation: validationReport
+                                    validation: validationReport,
+                                    spatialFindings:
+                                        spatialPlausibilityFindings
                                 )
                             }
                         }

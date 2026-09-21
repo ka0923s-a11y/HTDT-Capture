@@ -1719,3 +1719,54 @@ private struct AuthorityRecordForm: View {
         }
     }
 }
+
+/// Toggle list binding free-form `path:`/`entity:` evidence refs —
+/// shared by authority sheets that take plain evidence references
+/// rather than decoded frame presentations.
+struct EvidenceReferenceSelector: View {
+    let availableEvidenceRefs: [String]
+    @Binding var selectedEvidenceRefs: Set<String>
+
+    var body: some View {
+        Section(String(localized: "Linked evidence frames")) {
+            ForEach(availableEvidenceRefs, id: \.self) { reference in
+                Toggle(
+                    isOn: Binding(
+                        get: {
+                            selectedEvidenceRefs.contains(reference)
+                        },
+                        set: { selected in
+                            if selected {
+                                selectedEvidenceRefs.insert(reference)
+                            } else {
+                                selectedEvidenceRefs.remove(reference)
+                            }
+                        }
+                    )
+                ) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(Self.frameLabel(reference))
+                        Text(reference)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Text(
+                "Links reference exact canonical frame descriptors already persisted in this working revision."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private static func frameLabel(_ reference: String) -> String {
+        let path = reference.hasPrefix("path:")
+            ? String(reference.dropFirst(5))
+            : reference
+        return URL(fileURLWithPath: path)
+            .deletingPathExtension()
+            .lastPathComponent
+    }
+}

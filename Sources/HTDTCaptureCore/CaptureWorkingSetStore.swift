@@ -2759,6 +2759,105 @@ public actor CaptureWorkingSetStore {
         }
     }
 
+    /// Persists the derived equipment-identity document (issue #239).
+    /// `derived/equipment-identity.json` is a derived-role payload: the
+    /// operator may re-record identity evidence before finalization, so
+    /// a fresh record set atomically replaces the document and its
+    /// declaration. Every record must still bind to the currently
+    /// committed annotation collection — a stale attestation can never
+    /// outlive the entity it refers to.
+    public func persistOrReplaceEquipmentIdentityEvidence(
+        _ package: EquipmentIdentityEvidencePackage
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        let admissionReservation = try reserveAdmission(
+            bytes: package.data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
+
+        guard
+            let decoded = try? JSONDecoder().decode(
+                EquipmentIdentityDocument.self,
+                from: package.data
+            ),
+            decoded == package.document
+        else {
+            throw CaptureWorkingSetError.invalidAnnotationPackage
+        }
+        guard let committedEntities = annotationCollection?.entities
+        else {
+            throw CaptureWorkingSetError.invalidAnnotationPackage
+        }
+        // Rebuild-validate against the committed entities: binding and
+        // duplicate rules are enforced by the document initializer.
+        _ = try EquipmentIdentityDocument(
+            captureRevisionID: package.document.captureRevisionID,
+            coordinateSpaceID: package.document.coordinateSpaceID,
+            records: package.document.records,
+            entities: committedEntities,
+            recordedAtUTC: package.document.recordedAtUTC
+        )
+
+        let declaration = BundlePayloadDeclaration(
+            path: EquipmentIdentityEvidencePackage.path,
+            mediaType: "application/json",
+            producer: "capture_app",
+            provenanceClass: .captureAppDerived,
+            role: .derived,
+            sourceRefs: package.sourceRefs
+        )
+
+        try await writer.writeBatchReplacing([
+            try CaptureFileWriteRequest(
+                data: package.data,
+                path: CaptureStorePath(
+                    EquipmentIdentityEvidencePackage.path
+                )
+            ),
+        ])
+
+        // Re-check the binding after the writer suspension: a replaced
+        // annotation pair committed mid-write must fail closed rather
+        // than leave the document bound to removed entities.
+        guard let currentEntities = annotationCollection?.entities,
+              (try? EquipmentIdentityDocument(
+                  captureRevisionID: package.document.captureRevisionID,
+                  coordinateSpaceID: package.document.coordinateSpaceID,
+                  records: package.document.records,
+                  entities: currentEntities,
+                  recordedAtUTC: package.document.recordedAtUTC
+              )) != nil
+        else {
+            throw CaptureWorkingSetError.invalidAnnotationPackage
+        }
+
+        declarations[declaration.path] = declaration
+    }
+
+    /// Removes the derived equipment-identity document when the
+    /// committed annotations no longer carry identity records. `data`
+    /// must be the exact bytes this revision wrote — the removal is
+    /// identity-checked so a different payload is never deleted.
+    /// No-op when the document was never persisted.
+    public func discardEquipmentIdentityEvidence(
+        data: Data
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        guard let declaration =
+                declarations[EquipmentIdentityEvidencePackage.path]
+        else {
+            return
+        }
+        _ = try await writer.removeIfIdentical(
+            data,
+            at: CaptureStorePath(EquipmentIdentityEvidencePackage.path)
+        )
+        declarations[declaration.path] = nil
+    }
     /// Commits or replaces the operator-confirmed room reference frame
     /// (issue #232). The frame is one canonical JSON payload bound to
     /// the revision's session and coordinate space; replacement before
@@ -3218,7 +3317,6 @@ public actor CaptureWorkingSetStore {
         }
         return issues
     }
-
     public func persistAnnotationPackage(
         _ package: AnnotationEvidencePackage
     ) async throws {

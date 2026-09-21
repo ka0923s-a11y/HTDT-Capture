@@ -50,6 +50,21 @@ private struct HTDTCaptureHostView: View {
                 coordinator.equipmentCatalog,
             workingSetIdentity:
                 coordinator.workingSetIdentity,
+            annotationEvidenceFrames:
+                coordinator.annotationEvidenceFrames,
+            annotationRoomPlanObjects:
+                coordinator.annotationRoomPlanObjects,
+            spatialPlausibilityFindings:
+                coordinator.spatialPlausibilityFindings,
+            annotationPlausibilityContext:
+                coordinator.spatialPlausibilityContext,
+            speakerLayoutPlans:
+                coordinator.speakerLayoutPlans,
+            equipmentRecents: coordinator.equipmentRecents,
+            annotationDraftStore:
+                coordinator.annotationDraftStore,
+            annotationDraftRevisionID:
+                coordinator.annotationDraftRevisionID,
             scanningPreview: AnyView(
                 RoomPlanLiveCaptureView(
                     controller: coordinator.scanSessionController
@@ -132,6 +147,14 @@ private struct HTDTCaptureHostView: View {
                     coordinator.captureSpeakerOrientation,
                 capturePointOrientation:
                     coordinator.capturePointOrientation,
+                probePlacementTarget:
+                    coordinator.probePlacementTarget,
+                probeCameraHeading:
+                    coordinator.probeCameraHeading,
+                captureTargetedPlacement:
+                    coordinator.captureTargetedPlacement,
+                captureIdentityPhoto:
+                    coordinator.captureIdentityPhoto,
                 commitAnnotationAuthority:
                     coordinator.commitAnnotationAuthority,
                 cancelAnnotation: coordinator.cancelAnnotation,
@@ -336,6 +359,57 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var equipmentCatalog: HTDTEquipmentCatalogSnapshot?
     private let equipmentCatalogCache =
         HTDTCaptureHostCoordinator.makeEquipmentCatalogCache()
+
+    /// Visual presentation for each retained evidence frame (#255),
+    /// refreshed whenever the workspace's linkable ref set changes.
+    @Published private(set)
+    var annotationEvidenceFrames: [EvidenceFramePresentation] = []
+    /// Persisted RoomPlan objects offered for direct placement binding
+    /// (#246), decoded once per annotation session from the accepted
+    /// `roomplan/captured-room.json`.
+    @Published private(set)
+    var annotationRoomPlanObjects: [RoomPlanBindableObject] = []
+    /// Accepted-geometry context for advisory plausibility checks
+    /// (#247); empty means geometry is unavailable ("analysis
+    /// unavailable", never a silent pass).
+    @Published private(set)
+    var spatialPlausibilityContext = SpatialPlausibilityContext()
+    /// Findings for the committed annotation set; nil = unavailable.
+    @Published private(set)
+    var spatialPlausibilityFindings: [SpatialPlausibilityFinding]?
+    /// Session-level equipment-picker recents (#265).
+    let equipmentRecents = EquipmentRecents()
+    /// Explicit operator-selected layout plans for guided batch
+    /// capture (#278): presets act as the task profile until #217/#240
+    /// plans land.
+    let speakerLayoutPlans = SpeakerLayoutPresets.all
+    /// Draft autosave store (#266), rooted under the app-private
+    /// capture root — outside the persisted-inventory scan directories
+    /// so drafts never register as capture authority.
+    private lazy var annotationDraftStoreValue:
+        AnnotationWorkspaceDraftStore? =
+        Self.captureRootDirectory().map {
+            AnnotationWorkspaceDraftStore(
+                directoryURL: $0.appendingPathComponent(
+                    "annotation-drafts",
+                    isDirectory: true
+                )
+            )
+        }
+    var annotationDraftStore: AnnotationWorkspaceDraftStore? {
+        annotationDraftStoreValue
+    }
+    var annotationDraftRevisionID: CaptureRevisionID? {
+        workingSetIdentity?.captureRevisionID
+    }
+    /// Why each retained evidence frame exists (#255 picker labels).
+    private var annotationRetentionKinds:
+        [String: EvidenceFrameRetentionKind] = [:]
+    /// Committed `derived/equipment-identity.json` bytes, so an empty
+    /// record set on the next revision commit discards byte-identical
+    /// rather than leaving a stale attestation (#239).
+    private var committedIdentityDocData: Data?
+    private var annotationRoomPlanObjectsLoaded = false
 
     private var stateMachine = CaptureStateMachine()
     private var sessionController = SharedARSessionController()
@@ -1224,6 +1298,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             }
 
+            self.markEvidenceRetention(
+                "path:" + package.descriptorPath,
+                .manualScan
+            )
+
             let snapshot = await store.snapshot()
             guard self.captureGeneration == generation,
                   self.state == .scanning,
@@ -2080,7 +2159,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 let rootDirectory = await store.rootDirectory
                 let loaded = await Task.detached(
                     priority: .userInitiated
-                ) { () -> AnnotationWorkspaceSeed? in
+                ) { () -> (AnnotationWorkspaceSeed, Data?)? in
                     try? Self.committedAnnotationSeed(
                         rootDirectory: rootDirectory
                     )
@@ -2101,7 +2180,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
 
-                self.annotationRevisionSeed = loaded
+                self.committedIdentityDocData = loaded.1
+                self.annotationRevisionSeed = loaded.0
                 self.annotationEditIsRevision = true
                 do {
                     try self.transition(.beginAnnotation)
@@ -2116,27 +2196,59 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        annotationRevisionSeed = nil
+        committedIdentityDocData = nil
+
+        // Non-canonical draft restore (#266): a draft bound to this
+        // exact working revision + coordinate space survived an
+        // interruption; seed the workspace with it (marked unsaved) so
+        // long authoring sessions are not lost. Mismatched or stale
+        // drafts are refused by the store's binding check.
+        var draftSeed: AnnotationWorkspaceSeed?
+        if let revisionID = annotationDraftRevisionID,
+           let spaceID = annotationCoordinateSpaceID
+        {
+            let draft = annotationDraftStore?.load(
+                revisionID: revisionID,
+                coordinateSpaceID: spaceID
+            )
+            if let draft {
+                draftSeed = AnnotationWorkspaceSeed(
+                    annotations: draft.annotations,
+                    measurements: draft.measurements,
+                    equipmentIdentityRecords:
+                        draft.equipmentIdentityRecords,
+                    speakerLayoutPlan: draft.speakerLayoutPlan,
+                    isRestoredDraft: true
+                )
+            }
+        }
+        annotationRevisionSeed = draftSeed
         annotationEditIsRevision = false
         do {
             try transition(.beginAnnotation)
             workingSetStatus = HostLocalization.text(
-                "Editing annotations and measurements",
-                "注釈と計測値を編集中"
+                draftSeed == nil
+                    ? "Editing annotations and measurements"
+                    : "Editing annotations and measurements — unsaved draft restored",
+                draftSeed == nil
+                    ? "注釈と計測値を編集中"
+                    : "注釈と計測値を編集中 — 未保存の下書きを復元"
             )
         } catch {
             fail(.unknown)
         }
     }
 
-    /// Reads the canonical annotation/measurement collections already
-    /// committed inside the working revision so a pre-finalization edit
-    /// starts from the persisted authority instead of blank state.
-    /// These are pure reads of app-owned canonical files; all writes
-    /// still pass through the working-set store's authority checks.
+    /// Reads the canonical annotation/measurement collections — plus
+    /// the committed equipment-identity attestations (#239) — already
+    /// inside the working revision so a pre-finalization edit starts
+    /// from the persisted authority instead of blank state. Returns
+    /// the raw identity-document bytes alongside so a later commit with
+    /// no records can discard byte-identical. Pure reads of app-owned
+    /// canonical files; all writes still pass through the store.
     nonisolated private static func committedAnnotationSeed(
         rootDirectory: URL
-    ) throws -> AnnotationWorkspaceSeed {
+    ) throws -> (AnnotationWorkspaceSeed, Data?) {
         func loadCollection<C: Decodable>(
             _ type: C.Type,
             at path: String
@@ -2164,6 +2276,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             CaptureMeasurementCollection.self,
             at: MeasurementEvidencePackage.path
         )?.measurements ?? []
+        let identityData = try? Data(
+            contentsOf: rootDirectory.appendingPathComponent(
+                EquipmentIdentityEvidencePackage.path,
+                isDirectory: false
+            )
+        )
+        let identityRecords = try? identityData.flatMap {
+            try? JSONDecoder().decode(
+                EquipmentIdentityDocument.self,
+                from: $0
+            ).records
+        }
+        return (
+            AnnotationWorkspaceSeed(
+                annotations: annotations,
+                measurements: measurements,
+                equipmentIdentityRecords: identityRecords ?? []
+            ),
+            identityData
         let authorities = try loadCollection(
             TheaterAuthorityCollection.self,
             at: TheaterAuthorityPackage.path
@@ -2256,7 +2387,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         let generation = captureGeneration
         let snapshot =
-            try sessionController.snapshotCameraOrientation(
+            try sessionController.snapshotCameraAim(
                 depthSelection: .discrete
             )
         // #177: materialize performs packing/hashing/HEIC off
@@ -2284,6 +2415,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         let evidenceRef = "path:" + package.descriptorPath
+        annotationRetentionKinds[evidenceRef] = .speakerHeading
         let orientation = try OrientationAxes(
             frontAxisLocal: snapshot.frontAxisWorld,
             upAxisLocal: snapshot.upAxisWorld
@@ -2303,6 +2435,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         annotationEvidenceRefs =
             workingSnapshot.evidenceFrameRefs
+        refreshAnnotationEvidenceFrames(
+            rootDirectory: await store.rootDirectory
+        )
         workingSetStatus = HostLocalization.text(
             "Evidence-linked speaker heading captured",
             "証拠フレームに紐付いたスピーカー向きを取得しました"
@@ -2419,6 +2554,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         let evidenceRef = "path:" + package.descriptorPath
+        annotationRetentionKinds[evidenceRef] = .annotationPlacement
         let position = snapshot.positionWorld
         let transform = try Matrix4x4F(values: [
             1, 0, 0, 0,
@@ -2465,12 +2601,399 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         annotationEvidenceRefs =
             workingSnapshot.evidenceFrameRefs
+        refreshAnnotationEvidenceFrames(
+            rootDirectory: await store.rootDirectory
+        )
         workingSetStatus = HostLocalization.text(
             "Evidence-linked raycast placement captured",
             "証拠フレームに紐付いたレイキャスト位置を取得しました"
         )
 
         return authority
+    }
+
+    /// Live reticle probe for the camera capture sheet (#214):
+    /// classifies what the shared session's center ray hits right now
+    /// — mesh, RoomPlan object, or plane — with no side effects.
+    func probePlacementTarget() async -> AnnotationPlacementProbe {
+        guard state == .annotating else {
+            return .unavailable
+        }
+        return sessionController.probeCenterPlacementTarget(
+            roomPlanObjects: annotationRoomPlanObjects
+        )
+    }
+
+    /// Live camera yaw for the heading arrow (#214).
+    func probeCameraHeading() async -> Float? {
+        guard state == .annotating else {
+            return nil
+        }
+        return sessionController.currentCameraHeadingDegrees()
+    }
+
+    /// Targeted placement capture (#246): the resolved target class is
+    /// preserved verbatim in `PlacementProvenance` — a mesh request
+    /// produces `mesh_hit_test`, a RoomPlan request `roomplan_binding`,
+    /// and an automatic capture never silently downgrades to a plane.
+    /// Returns nil for a reticle miss so the form can show "aim at a
+    /// surface" instead of destroying state.
+    func captureTargetedPlacement(
+        preference: PlacementTargetPreference
+    ) async throws -> AnnotationPlacementAuthority? {
+        guard state == .annotating,
+              let store = workingSetStore
+        else {
+            throw PlatformCaptureError.raycastMiss
+        }
+
+        let generation = captureGeneration
+        let capture:
+            SharedARSessionController.TargetedPlacementCapture
+        do {
+            capture = try sessionController
+                .snapshotTargetedPlacement(
+                    preferring: preference,
+                    roomPlanObjects: annotationRoomPlanObjects,
+                    depthSelection: .discrete
+                )
+        } catch PlatformCaptureError.raycastMiss {
+            return nil
+        }
+
+        // #177: materialize performs packing/hashing/HEIC off
+        // MainActor; the retained snapshot preserves the same-frame
+        // pose/pixel/depth association.
+        let frameArtifacts =
+            try await ARFrameArtifactAdapter.materialize(
+                capture.frameArtifacts
+            )
+        let package = try FrameEvidencePackageBuilder.build(
+            descriptor: frameArtifacts.descriptor,
+            pixelPayload: frameArtifacts.pixelPayload,
+            depthPayload: frameArtifacts.depthPayload,
+            confidencePayload:
+                frameArtifacts.confidencePayload,
+            previewPayload:
+                frameArtifacts.previewPayload
+        )
+        try await store.persistFramePackage(package)
+
+        guard captureGeneration == generation,
+              state == .annotating
+        else {
+            throw PlatformCaptureError.raycastMiss
+        }
+
+        let evidenceRef = "path:" + package.descriptorPath
+        annotationRetentionKinds[evidenceRef] = .annotationPlacement
+        let position = capture.positionWorld
+        let transform = try Matrix4x4F(values: [
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            position.x,
+            position.y,
+            position.z,
+            1,
+        ])
+        let raycast = try capture.raycastProvenance.map {
+            try HTDTCaptureCore.RaycastPlacementProvenance(
+                targetType: $0.target.rawValue,
+                hitDistanceMeters: $0.hitDistanceMeters,
+                hitAnchorIdentifier: $0.hitAnchorIdentifier,
+                hitTransform: $0.hitWorldTransform
+            )
+        }
+        let placement = try PlacementProvenance(
+            method: Self.placementMethod(for: capture.target),
+            sourceMeshAnchorID: capture.meshAnchorID,
+            sourceRoomPlanObjectID: capture.roomPlanObjectID,
+            sourceEvidenceRefs: [evidenceRef],
+            raycast: raycast
+        )
+        let authority = try AnnotationPlacementAuthority(
+            worldFromAnnotation: transform,
+            placement: placement,
+            coordinateSpaceID:
+                package.descriptor.coordinateSpaceID,
+            evidenceRefs: [evidenceRef]
+        )
+
+        let workingSnapshot = await store.snapshot()
+        guard captureGeneration == generation,
+              state == .annotating
+        else {
+            throw PlatformCaptureError.raycastMiss
+        }
+        annotationEvidenceRefs = workingSnapshot.evidenceFrameRefs
+        refreshAnnotationEvidenceFrames(
+            rootDirectory: await store.rootDirectory
+        )
+        workingSetStatus = HostLocalization.text(
+            "Evidence-linked placement captured",
+            "証拠フレームに紐付いた配置を取得しました"
+        )
+        return authority
+    }
+
+    /// Equipment-identity photo (#239): captures one plain evidence
+    /// frame during annotation editing and returns its canonical
+    /// `path:` ref so the form can bind it as identity evidence —
+    /// distinct from spatial placement authority.
+    func captureIdentityPhoto() async throws -> String {
+        guard state == .annotating,
+              let store = workingSetStore
+        else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        let generation = captureGeneration
+        let snapshot =
+            try sessionController.snapshotFrameEvidenceCapture(
+                depthSelection: .discrete
+            )
+        let artifacts =
+            try await ARFrameArtifactAdapter.materialize(snapshot)
+        let package = try FrameEvidencePackageBuilder.build(
+            descriptor: artifacts.descriptor,
+            pixelPayload: artifacts.pixelPayload,
+            depthPayload: artifacts.depthPayload,
+            confidencePayload: artifacts.confidencePayload,
+            previewPayload: artifacts.previewPayload
+        )
+        try await store.persistFramePackage(package)
+
+        guard captureGeneration == generation,
+              state == .annotating
+        else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        let evidenceRef = "path:" + package.descriptorPath
+        annotationRetentionKinds[evidenceRef] = .equipmentIdentity
+        let workingSnapshot = await store.snapshot()
+        annotationEvidenceRefs = workingSnapshot.evidenceFrameRefs
+        refreshAnnotationEvidenceFrames(
+            rootDirectory: await store.rootDirectory
+        )
+        workingSetStatus = HostLocalization.text(
+            "Identity evidence photo captured",
+            "機器識別の証拠写真を保存しました"
+        )
+        return evidenceRef
+    }
+
+    private static func placementMethod(
+        for target: PlacementProbeTarget
+    ) -> PlacementMethod {
+        switch target {
+        case .mesh:
+            return .meshHitTest
+        case .roomPlanObject:
+            return .roomPlanBinding
+        case .existingPlaneGeometry, .estimatedPlane:
+            return .raycast
+        }
+    }
+
+    /// Rebuild the visual evidence rows (#255) from the canonical refs.
+    private func refreshAnnotationEvidenceFrames(
+        rootDirectory: URL
+    ) {
+        annotationEvidenceFrames =
+            EvidenceFramePresentationLoader.load(
+                references: annotationEvidenceRefs,
+                workingSetRoot: rootDirectory,
+                retentionKinds: annotationRetentionKinds
+            )
+    }
+
+    /// Loads the accepted geometry context for plausibility checks
+    /// (#247): persisted mesh bounds + floor level + RoomPlan room
+    /// dimensions, plus the bindable object list for `roomplan_binding`
+    /// targets (#246). Everything here is a pure read of canonical
+    /// files; results are advisory only.
+    private func refreshSpatialContext(
+        store: CaptureWorkingSetStore,
+        generation: UUID
+    ) async {
+        let rootDirectory = await store.rootDirectory
+        let loaded = await Task.detached(
+            priority: .userInitiated
+        ) {
+            (
+                Self.loadPlausibilityContext(
+                    rootDirectory: rootDirectory
+                ),
+                Self.loadRoomPlanObjects(
+                    rootDirectory: rootDirectory
+                )
+            )
+        }.value
+
+        guard captureGeneration == generation,
+              state == .reviewing || state == .annotating
+        else {
+            return
+        }
+        spatialPlausibilityContext = loaded.0
+        annotationRoomPlanObjects = loaded.1
+        annotationRoomPlanObjectsLoaded = true
+        await evaluateSpatialPlausibility(
+            store: store,
+            generation: generation
+        )
+    }
+
+    /// Re-evaluates advisory plausibility findings (#247) for the
+    /// committed annotation set. Produces nil — rendered as
+    /// "analysis unavailable" — when no geometry authority exists.
+    private func evaluateSpatialPlausibility(
+        store: CaptureWorkingSetStore,
+        generation: UUID
+    ) async {
+        let rootDirectory = await store.rootDirectory
+        let context = spatialPlausibilityContext
+        let findings = await Task.detached(
+            priority: .userInitiated
+        ) { () -> [SpatialPlausibilityFinding]? in
+            let annotations =
+                (try? Self.committedAnnotationEntities(
+                    rootDirectory: rootDirectory
+                )) ?? []
+            return SpatialPlausibilityEvaluator.evaluate(
+                annotations: annotations,
+                context: context
+            )
+        }.value
+        guard captureGeneration == generation,
+              state == .reviewing || state == .annotating
+        else {
+            return
+        }
+        spatialPlausibilityFindings = findings
+    }
+
+    nonisolated private static func committedAnnotationEntities(
+        rootDirectory: URL
+    ) throws -> [CaptureAnnotationEntity] {
+        let url = rootDirectory.appendingPathComponent(
+            AnnotationEvidencePackage.path,
+            isDirectory: false
+        )
+        guard FileManager.default.fileExists(atPath: url.path)
+        else {
+            return []
+        }
+        return try JSONDecoder().decode(
+            CaptureAnnotationCollection.self,
+            from: Data(contentsOf: url)
+        ).entities
+    }
+
+    /// Decodes persisted mesh evidence (`mesh/anchors.json` +
+    /// `mesh/geometry/*.meshbin`) and the RoomPlan metadata summary
+    /// into the plausibility context (#247). All-bounds or nothing:
+    /// partial geometry produces a partial-but-real context, never a
+    /// fabricated room.
+    nonisolated private static func loadPlausibilityContext(
+        rootDirectory: URL
+    ) -> SpatialPlausibilityContext {
+        var context = SpatialPlausibilityContext()
+        let decoder = JSONDecoder()
+
+        let indexURL = rootDirectory.appendingPathComponent(
+            MeshEvidencePackage.indexPath,
+            isDirectory: false
+        )
+        if let indexData = try? Data(contentsOf: indexURL),
+           let index = try? decoder.decode(
+               MeshAnchorEvidenceIndex.self,
+               from: indexData
+           )
+        {
+            var floorY: Float?
+            var bounds: [SpatialAxisBounds] = []
+            for record in index.anchors {
+                let geometryURL = rootDirectory
+                    .appendingPathComponent(
+                        record.geometryPath,
+                        isDirectory: false
+                    )
+                guard let data = try? Data(contentsOf: geometryURL),
+                      let geometry = try? MeshBinaryCodec.decode(
+                          data
+                      )
+                else {
+                    continue
+                }
+                let bound = SpatialAxisBounds(
+                    vertices: geometry.vertices,
+                    worldFromAnchor: record.worldFromAnchor
+                )
+                bounds.append(bound)
+                for vertex in geometry.vertices {
+                    let world = record.worldFromAnchor
+                        .applying(to: vertex)
+                    if let y = floorY {
+                        floorY = min(y, world.y)
+                    } else {
+                        floorY = world.y
+                    }
+                }
+            }
+            context.meshBounds = bounds
+            context.floorYMeters = floorY
+        }
+
+        let metadataURL = rootDirectory.appendingPathComponent(
+            CapturedRoomMetadataPackage.path,
+            isDirectory: false
+        )
+        if let data = try? Data(contentsOf: metadataURL),
+           let document = try? decoder.decode(
+               CapturedRoomMetadataDocument.self,
+               from: data
+           )
+        {
+            context.roomDimensionsMeters =
+                document.summary?.dimensionsMeters
+        }
+        return context
+    }
+
+    /// Decodes the persisted processed `CapturedRoom` into bindable
+    /// objects (#246). iOS-gated inside the platform.
+    nonisolated private static func loadRoomPlanObjects(
+        rootDirectory: URL
+    ) -> [RoomPlanBindableObject] {
+        let url = rootDirectory.appendingPathComponent(
+            "roomplan/captured-room.json",
+            isDirectory: false
+        )
+        guard let data = try? Data(contentsOf: url) else {
+            return []
+        }
+        return SharedARSessionController
+            .roomPlanBindableObjects(fromProcessedData: data)
+    }
+
+    /// Marks a frame's retention reason for the visual picker (#255).
+    private func markEvidenceRetention(
+        _ ref: String,
+        _ kind: EvidenceFrameRetentionKind
+    ) {
+        annotationRetentionKinds[ref] = kind
+    }
+
+    /// Discards the draft bound to the live working revision (#266).
+    /// Called on every terminal path for the workspace: commit, cancel,
+    /// finalize, reset — canonical files are never involved.
+    private func discardAnnotationDraft() {
+        if let revisionID = annotationDraftRevisionID {
+            annotationDraftStore?.discard(revisionID: revisionID)
+        }
     }
 
     func cancelAnnotation() {
@@ -2484,6 +3007,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             return
         }
+        // Cancel is an explicit draft-discard signal (#266): the
+        // operator chose to abandon staged work, so the non-canonical
+        // draft is removed rather than restored next time.
+        discardAnnotationDraft()
         do {
             try transition(.beginReview)
             annotationRevisionSeed = nil
@@ -2500,11 +3027,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func commitAnnotationAuthority(
         annotations: [CaptureAnnotationEntity],
         measurements: [CaptureMeasurement],
+        identityRecords: [EquipmentIdentityRecord]
+        measurements: [CaptureMeasurement],
         authorities: TheaterAuthorityCollection
     ) {
         guard state == .annotating,
               !annotationCommitInFlight,
-              let store = workingSetStore
+              let store = workingSetStore,
+              let workingRevisionID =
+                workingSetIdentity?.captureRevisionID
         else {
             return
         }
@@ -2518,6 +3049,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         annotationCommitInFlight = true
         let annotationPackage: AnnotationEvidencePackage
         let measurementPackage: MeasurementEvidencePackage
+        // Identity attestations (#239) are validated against the staged
+        // entity set before anything is written, so a bad binding
+        // fails the commit atomically with no partial authority.
+        let identityPackage: EquipmentIdentityEvidencePackage?
         let authorityPackage: TheaterAuthorityPackage?
         do {
             annotationPackage =
@@ -2530,6 +3065,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             measurementPackage =
                 try MeasurementEvidencePackageBuilder.build(
                     measurements: measurements
+                )
+            identityPackage = try identityRecords.isEmpty
+                ? nil
+                : EquipmentIdentityEvidencePackage(
+                    document: try EquipmentIdentityDocument(
+                        captureRevisionID: workingRevisionID,
+                        coordinateSpaceID:
+                            annotationCoordinateSpaceID,
+                        records: identityRecords,
+                        entities: annotations
+                    )
                 )
             // authorities.json is written only once it carries records,
             // or when a previously committed authority set is being
@@ -2593,6 +3139,33 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
 
+                if let identityPackage {
+                    try await store
+                        .persistOrReplaceEquipmentIdentityEvidence(
+                            identityPackage
+                        )
+                    self.committedIdentityDocData =
+                        identityPackage.data
+                } else if let priorDoc =
+                    self.committedIdentityDocData
+                {
+                    // All attestations removed in this revision commit
+                    // → the derived document is removed byte-identical.
+                    try await store
+                        .discardEquipmentIdentityEvidence(
+                            data: priorDoc
+                        )
+                    self.committedIdentityDocData = nil
+                }
+
+                guard self.captureGeneration == generation,
+                      self.state == .annotating
+                else {
+                    return
+                }
+
+                // Commit consumed the draft (#266).
+                self.discardAnnotationDraft()
                 self.annotationAuthorityCommitted = true
                 self.annotationCommitInFlight = false
                 self.annotationEditIsRevision = false
@@ -3059,6 +3632,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         exportURL = nil
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
+        annotationEvidenceFrames = []
+        annotationRoomPlanObjects = []
+        annotationRoomPlanObjectsLoaded = false
+        spatialPlausibilityContext = SpatialPlausibilityContext()
+        spatialPlausibilityFindings = nil
+        annotationRetentionKinds = [:]
+        committedIdentityDocData = nil
+        // A failed/finalized revision's drafts are bound to it
+        // forever; purge them (#266).
+        annotationDraftStore?.discardAll()
         annotationRoomPlanSurfaces = []
         annotationMeshAnchors = []
         activeRevisionLineage = nil
@@ -3129,11 +3712,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         scanDepthEvidenceCount = 0
         endScanGuidance = nil
         endScanPreflightBlocked = false
-        reviewWorkspace = nil
-        persistedWorkspace = nil
-        roomFrameOriginPending = nil
-        danglingSpatialIssues = []
-        failedInspection = nil
         scanGuidanceCuePolicy.reset()
         automaticKeyframeTracker = AutomaticKeyframeTracker()
         automaticKeyframePersistedBytes = 0
@@ -3151,6 +3729,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         captureSetup = nil
         deviceReadiness = nil
         stopDeviceReadinessObserving()
+        reviewWorkspace = nil
+        persistedWorkspace = nil
+        roomFrameOriginPending = nil
+        danglingSpatialIssues = []
+        failedInspection = nil
         resourceMonitor?.stop()
         resourceMonitor = nil
         workingSetStatus =
@@ -6400,6 +6983,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         qualityReport = report
         advisoryReport = advisory
         annotationEvidenceRefs = snapshot.evidenceFrameRefs
+        refreshAnnotationEvidenceFrames(
+            rootDirectory: await store.rootDirectory
+        )
+        // Accepted-geometry context for Review plausibility (#247)
+        // and RoomPlan binding targets (#246); pure reads of canonical
+        // files, advisory only.
+        await refreshSpatialContext(
+            store: store,
+            generation: generation
+        )
         (
             annotationRoomPlanSurfaces,
             annotationMeshAnchors
@@ -6732,6 +7325,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         } else {
             protectionNote = ""
         }
+
+        // Finalization consumed the working revision: discard the
+        // non-canonical annotation draft so a later session can never
+        // restore pre-commit staging (#266).
+        discardAnnotationDraft()
 
         sessionController.stopAndPauseARSession()
         resourceMonitor?.stop()
