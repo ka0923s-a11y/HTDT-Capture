@@ -540,3 +540,165 @@ func manifestDecodingRejectsMalformedSourceRef() {
         )
     }
 }
+
+@Test
+func sourceRefVectorsMatchSharedContract() throws {
+    let document = try identityVectorDocument(
+        "source-ref-vectors.json",
+        as: SourceRefVectorDocument.self
+    )
+    #expect(!document.vectors.isEmpty)
+
+    for vector in document.vectors {
+        let files = try vector.files.map { file in
+            try identityEntry(
+                file.path,
+                sha256: file.sha256,
+                mediaType: file.mediaType,
+                producer: file.producer,
+                provenanceClass: file.provenanceClass,
+                role: file.role,
+                sourceRefs: file.sourceRefs
+            )
+        }
+        let sessions = vector.captureSessionIDs.compactMap {
+            CaptureSessionID(canonicalString: $0)
+        }
+        #expect(
+            sessions.count == vector.captureSessionIDs.count,
+            "\(vector.name)"
+        )
+        if vector.valid {
+            _ = try identityManifest(
+                sessionIDs: sessions,
+                files: files
+            )
+        } else {
+            #expect(throws: BundleManifestError.self) {
+                _ = try identityManifest(
+                    sessionIDs: sessions,
+                    files: files
+                )
+            }
+        }
+    }
+}
+
+@Test
+func manifestRejectsReservedPathMetadataMismatch() throws {
+    let entry = try identityEntry(
+        "quality/capture-quality.json",
+        mediaType: "text/plain",
+        producer: "capture_quality"
+    )
+    #expect(
+        throws: BundleManifestError.reservedPathMetadataMismatch(
+            "quality/capture-quality.json"
+        )
+    ) {
+        _ = try identityManifest(files: [entry])
+    }
+}
+
+@Test
+func manifestRejectsReservedProvenanceOnFreePath() throws {
+    let entry = try identityEntry(
+        "payloads/a.bin",
+        provenanceClass: .appleRoomPlanRawScan
+    )
+    #expect(
+        throws: BundleManifestError.unboundProvenanceClass(
+            "payloads/a.bin"
+        )
+    ) {
+        _ = try identityManifest(files: [entry])
+    }
+}
+
+@Test
+func manifestRejectsSwappedRoomPlanMetadata() throws {
+    let entry = try identityEntry(
+        "roomplan/captured-room-data.json",
+        mediaType: "application/json",
+        producer: "roomplan_builder",
+        provenanceClass: .appleRoomPlanInference
+    )
+    #expect(
+        throws: BundleManifestError.reservedPathMetadataMismatch(
+            "roomplan/captured-room-data.json"
+        )
+    ) {
+        _ = try identityManifest(files: [entry])
+    }
+}
+
+@Test
+func manifestRejectsReservedPathRoleMismatch() throws {
+    let geometry = try identityEntry(
+        "mesh/geometry/10000000-0000-4000-8000-000000000005.meshbin",
+        sha256:
+            "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+        mediaType: "application/vnd.htdt.meshbin",
+        producer: "mesh_capture",
+        provenanceClass: .arkitMeshReconstruction
+    )
+    let anchors = try identityEntry(
+        "mesh/anchors.json",
+        mediaType: "application/json",
+        producer: "mesh_capture",
+        provenanceClass: .arkitMeshReconstruction,
+        role: .derived,
+        sourceRefs: [
+            "path:mesh/geometry/10000000-0000-4000-8000-000000000005.meshbin"
+        ]
+    )
+    #expect(
+        throws: BundleManifestError.reservedPathMetadataMismatch(
+            "mesh/anchors.json"
+        )
+    ) {
+        _ = try identityManifest(files: [anchors, geometry])
+    }
+}
+
+@Test
+func manifestRejectsNonCanonicalReservedPatternStem() throws {
+    let entry = try identityEntry(
+        "evidence/frames/2bb9cc24-b56a-11f1-8b22-e86538ed3a2e.json",
+        mediaType: "application/json",
+        producer: "frame_capture",
+        provenanceClass: .arkitFrameObservation
+    )
+    #expect(
+        throws: BundleManifestError.unboundProvenanceClass(
+            "evidence/frames/2bb9cc24-b56a-11f1-8b22-e86538ed3a2e.json"
+        )
+    ) {
+        _ = try identityManifest(files: [entry])
+    }
+}
+
+@Test
+func manifestRejectsRoomPlanProcessedWithoutRawLineage() throws {
+    let raw = try identityEntry(
+        "roomplan/captured-room-data.json",
+        mediaType: "application/json",
+        producer: "roomplan_capture",
+        provenanceClass: .appleRoomPlanRawScan
+    )
+    let processed = try identityEntry(
+        "roomplan/captured-room.json",
+        sha256:
+            "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d",
+        mediaType: "application/json",
+        producer: "roomplan_builder",
+        provenanceClass: .appleRoomPlanInference
+    )
+    #expect(
+        throws: BundleManifestError.reservedPathSourceRefMismatch(
+            "roomplan/captured-room.json"
+        )
+    ) {
+        _ = try identityManifest(files: [raw, processed])
+    }
+}

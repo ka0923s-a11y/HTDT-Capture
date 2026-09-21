@@ -133,6 +133,8 @@ public enum BundleManifestError: Error, Sendable, Equatable {
     case invalidTimestamp(String)
     case finalizedBeforeCreated(String, String)
     case selfParentRevision
+    case reservedPathMetadataMismatch(String)
+    case unboundProvenanceClass(String)
     case malformedSourceRef(String, String)
     case duplicateSourceRef(String, String)
     case unresolvedSourceRefPath(String, String)
@@ -141,6 +143,7 @@ public enum BundleManifestError: Error, Sendable, Equatable {
     case selfReferencingSourceRef(String, String)
     case cyclicSourceRefPath(String, String)
     case derivedEntryMissingSourceRefs(String)
+    case reservedPathSourceRefMismatch(String)
 }
 
 public struct BundleManifest: Codable, Sendable, Equatable {
@@ -257,6 +260,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
             }
             collisionMap[collisionKey] = file.path
             declaredByPath[file.path] = file
+            try Self.validateReservedPathBinding(file)
         }
 
         var declaredDigests = Set<String>()
@@ -426,6 +430,29 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         uuid.isCanonicalUUIDv4
     }
 
+    private static func validateReservedPathBinding(
+        _ file: BundleFileEntry
+    ) throws {
+        if let binding = BundleReservedPaths.binding(for: file.path) {
+            guard file.mediaType == binding.mediaType,
+                  file.producer == binding.producer,
+                  file.provenanceClass == binding.provenanceClass,
+                  file.role == binding.role
+            else {
+                throw BundleManifestError
+                    .reservedPathMetadataMismatch(file.path)
+            }
+        } else {
+            guard BundleReservedPaths.unrestrictedProvenanceClasses
+                .contains(file.provenanceClass)
+            else {
+                throw BundleManifestError.unboundProvenanceClass(
+                    file.path
+                )
+            }
+        }
+    }
+
     private static func validateSourceRefs(
         of file: BundleFileEntry,
         declaredByPath: [String: BundleFileEntry],
@@ -520,6 +547,16 @@ public struct BundleManifest: Codable, Sendable, Equatable {
                 )
             }
         }
+        if file.path == "roomplan/captured-room.json" {
+            guard let rawDigest =
+                    declaredByPath["roomplan/captured-room-data.json"]?
+                    .sha256.value,
+                  refs.contains("sha256:\(rawDigest)")
+            else {
+                throw BundleManifestError
+                    .reservedPathSourceRefMismatch(file.path)
+            }
+        }
     }
 
     private static func validateSourceRefPathGraph(
@@ -555,6 +592,182 @@ public struct BundleManifest: Codable, Sendable, Equatable {
                 }
             }
         }
+    }
+}
+
+private enum BundleReservedPaths {
+    struct Binding: Sendable, Equatable {
+        let mediaType: String
+        let producer: String
+        let provenanceClass: BundleProvenanceClass
+        let role: BundleFileRole
+    }
+
+    static let exact: [String: Binding] = [
+        "annotations/entities.json": Binding(
+            mediaType: "application/json",
+            producer: "annotation",
+            provenanceClass: .userAnnotation,
+            role: .canonical
+        ),
+        "annotations/measurements.json": Binding(
+            mediaType: "application/json",
+            producer: "measurement",
+            provenanceClass: .userAttestedMeasurement,
+            role: .canonical
+        ),
+        "mesh/anchors.json": Binding(
+            mediaType: "application/json",
+            producer: "mesh_capture",
+            provenanceClass: .arkitMeshReconstruction,
+            role: .canonical
+        ),
+        "quality/capture-quality.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_quality",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
+        "roomplan/captured-room-data.json": Binding(
+            mediaType: "application/json",
+            producer: "roomplan_capture",
+            provenanceClass: .appleRoomPlanRawScan,
+            role: .canonical
+        ),
+        "roomplan/captured-room.json": Binding(
+            mediaType: "application/json",
+            producer: "roomplan_builder",
+            provenanceClass: .appleRoomPlanInference,
+            role: .canonical
+        ),
+        "session/capabilities.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_session",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
+        "session/capture-configuration.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_session",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
+        "session/capture-session.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_session",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
+        "session/device.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_session",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
+        "session/timing.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_session",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
+    ]
+
+    static let patterned:
+        [(directory: String, suffix: String, binding: Binding)] = [
+            (
+                "evidence/depth",
+                ".confidencebin",
+                Binding(
+                    mediaType: "application/vnd.htdt.confidencebin",
+                    producer: "depth_capture",
+                    provenanceClass: .arkitSceneDepthObservation,
+                    role: .canonical
+                )
+            ),
+            (
+                "evidence/depth",
+                ".depthbin",
+                Binding(
+                    mediaType: "application/vnd.htdt.depthbin",
+                    producer: "depth_capture",
+                    provenanceClass: .arkitSceneDepthObservation,
+                    role: .canonical
+                )
+            ),
+            (
+                "evidence/frames",
+                ".json",
+                Binding(
+                    mediaType: "application/json",
+                    producer: "frame_capture",
+                    provenanceClass: .arkitFrameObservation,
+                    role: .canonical
+                )
+            ),
+            (
+                "evidence/frames",
+                ".pixelbin",
+                Binding(
+                    mediaType: "application/vnd.htdt.pixelbin",
+                    producer: "frame_capture",
+                    provenanceClass: .arkitFrameObservation,
+                    role: .canonical
+                )
+            ),
+            (
+                "evidence/frames",
+                ".preview.heic",
+                Binding(
+                    mediaType: "image/heic",
+                    producer: "frame_preview",
+                    provenanceClass: .captureAppDerived,
+                    role: .derived
+                )
+            ),
+            (
+                "mesh/geometry",
+                ".meshbin",
+                Binding(
+                    mediaType: "application/vnd.htdt.meshbin",
+                    producer: "mesh_capture",
+                    provenanceClass: .arkitMeshReconstruction,
+                    role: .canonical
+                )
+            ),
+        ]
+
+    static let unrestrictedProvenanceClasses:
+        Set<BundleProvenanceClass> = [
+            .captureAppDerived,
+            .importedReference,
+            .backendDerived,
+        ]
+
+    static func binding(for path: String) -> Binding? {
+        if let binding = exact[path] {
+            return binding
+        }
+        for pattern in patterned {
+            guard path.hasPrefix(pattern.directory + "/") else {
+                continue
+            }
+            let name = String(
+                path.dropFirst(pattern.directory.count + 1)
+            )
+            guard name.hasSuffix(pattern.suffix),
+                  name.count > pattern.suffix.count,
+                  !name.contains("/")
+            else {
+                continue
+            }
+            let stem = name.dropLast(pattern.suffix.count)
+            guard UUID(canonicalUUIDv4Text: String(stem)) != nil
+            else {
+                continue
+            }
+            return pattern.binding
+        }
+        return nil
     }
 }
 
