@@ -50,8 +50,12 @@ These sets now feed the existing `CaptureQualityRequirements`
 annotation/measurement completeness gates.
 
 The manifest-level provenance class identifies the authority file category.
-Per-record provenance remains authoritative when a collection contains
-non-user/imported/derived records.
+Annotation collections must stay homogeneous (a mixed collection fails
+closed). Measurement collections may mix per-record provenance so derived
+and user-attested records coexist for conflict review (issue #286): a
+homogeneous measurement collection declares its exact class while a mixed
+one declares `capture_app_derived` container authority — the manifest never
+overclaims. Per-record provenance remains authoritative in every case.
 
 ## Integrity
 

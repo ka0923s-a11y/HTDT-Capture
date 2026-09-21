@@ -107,10 +107,12 @@ Each record can carry:
 
 - quantity token;
 - scalar or 3-vector value;
-- canonical SI unit;
+- canonical SI unit (`m`, `rad`, `1`, `s`, `degC`, `%` — versioned
+  vocabulary extended for environmental quantities, issues #269/#253);
 - coordinate-space authority when spatial;
 - endpoint references;
-- acquisition method;
+- acquisition method (including `external_instrument` for metered
+  room-condition readings, issue #253);
 - instrument class/model;
 - calibration metadata;
 - uncertainty in the measurement unit;
@@ -118,11 +120,46 @@ Each record can carry:
 - user-attestation state;
 - provenance class;
 - exact user/source text;
+- optional structured source authority for `manufacturer_specification`
+  values (document ref/revision, property key, pinned equipment
+  reference, source SHA-256 — issue #275);
+- optional derivation lineage (`algorithm` / `algorithm_version` /
+  `source_refs`) for computed values (issue #286);
 - evidence references.
 
 A `user_attested_measurement` is invalid unless the record is actually marked attested.
 
+A versioned quantity registry (`MeasurementQuantityRegistry`) binds each
+standardized `quantity_type` token to a physical dimension, a canonical
+unit, a value shape, and endpoint semantics (issue #287). Production
+producers — the manual builder and the derived builder — validate against
+it, so a registered length quantity cannot persist `rad` or `%`. Custom
+quantity tokens remain legal: an unregistered token skips registry
+validation and its chosen unit declares its dimension.
+
 RoomPlan/LiDAR-derived values can coexist beside user-attested measurements with the same quantity type.
+Because a collection may now mix per-record provenance classes, the
+manifest declaration for `annotations/measurements.json` is derived as
+follows: a homogeneous collection declares its exact class, a heterogeneous
+collection declares `capture_app_derived` container authority (the same
+class an empty collection uses), and per-record `provenance_class` remains
+authoritative (issue #286). The manifest can never overclaim a mixed
+collection as user-attested.
+
+Derived measurements are produced by `DerivedMeasurementBuilder`, which
+computes endpoint distance / displacement from accepted spatial
+authorities:
+
+- both endpoints RoomPlan-bound → `roomplan_derived` +
+  `apple_roomplan_inference`;
+- both endpoints mesh/raycast-bound → `lidar_derived` +
+  `arkit_mesh_reconstruction`;
+- manual or mixed endpoint authorities → `other` +
+  `capture_app_derived` with mandatory derivation lineage.
+
+Derived records are always `not_attested`; the operator's own laser/tape
+value remains a separate `user_attested_measurement` record for conflict
+review.
 
 ## Tested behavior
 
@@ -198,17 +235,49 @@ surface offset) before the record can be authored (#291).
 
 ### Measurement inputs
 
-The editor supports user-attested scalar measurements with:
+The editor supports user-attested scalar and vector measurements with:
 
-- quantity type;
-- value and unit;
-- acquisition method;
-- optional stated uncertainty;
-- optional source value text;
-- optional instrument class and make/model.
+- quantity type picked from the versioned quantity registry (with an
+  explicit custom-quantity escape);
+- value entered in practical input units — m, cm, mm, ft, in, or
+  combined ft+in for lengths; deg for angles; °C/°F for temperature;
+  % or a 0–1 fraction for humidity — parsed deterministically
+  (`.`/`,` decimal separators both accepted) and normalized to the
+  canonical unit before authority creation, with the original text kept
+  in `source_value_text` (issue #235);
+- optional endpoint A/B bound to staged annotation authorities
+  (`entity:` refs) plus the capture `coordinate_space_id` (issue #215);
+- acquisition method — tape, laser, external instrument, manufacturer
+  specification, other; derived methods are never offered to the manual
+  path;
+- automatic UTC observation timestamp for live readings —
+  manufacturer-specification values never receive one, so a datasheet
+  number is not mislabeled as a live observation (issue #238);
+- optional stated uncertainty, source value text, instrument
+  class/make/model, calibration status and calibration date;
+- for `manufacturer_specification`, a required-at-least-one structured
+  source authority: document ref/revision, property key, source
+  SHA-256, or a pinned equipment reference (issue #275);
+- when both endpoints are bound, a derive action computes distance or
+  displacement through `DerivedMeasurementBuilder` and appends a
+  provenance-correct derived record alongside the manual one
+  (issue #286);
+- vector3 values authored either as raw components or via derived
+  displacement — always with coordinate-space binding (issue #270).
+
+Room-condition quantities (`air_temperature`, `relative_humidity`) are
+registry entries with `expectedEndpoints == 0`, so environmental
+readings never fabricate spatial endpoints (issue #253).
 
 These records remain distinct from LiDAR/RoomPlan-derived measurement
 authorities.
+
+The annotation entity vocabulary additionally includes
+`measurement_point` — a typed microphone-capsule/receiver point whose
+optional orientation authority captures the full 3D camera orientation
+(forward + up), not the flattened speaker-heading convention
+(issue #271). It never claims an FR/IR was acquired; it only records
+where and in which direction a measurement microphone sat.
 
 ### Remaining hardware gates
 

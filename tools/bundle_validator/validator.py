@@ -90,7 +90,10 @@ SCHEMA_OWNED_PATHS = {
     "mesh/anchors.json": "mesh-anchors.schema.json",
     "annotations/entities.json": "entities.schema.json",
     "annotations/measurements.json": "measurements.schema.json",
+    "annotations/opening-review.json": "opening-review.schema.json",
     "quality/capture-quality.json": "quality.schema.json",
+    "session/room-reference-frame.json": "room-reference-frame.schema.json",
+    "quality/capture-advisory.json": "capture-advisory.schema.json",
 }
 FRAME_DESCRIPTOR_RE = re.compile(r"^evidence/frames/[^/]+\.json$")
 

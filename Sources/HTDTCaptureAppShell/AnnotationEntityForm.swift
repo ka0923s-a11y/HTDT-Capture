@@ -33,6 +33,11 @@ public struct AnnotationEntityForm: View {
     ) async throws -> AnnotationPlacementAuthority?
     public let captureSpeakerOrientation:
         () async throws -> AnnotationOrientationAuthority
+    /// Full-3D orientation capture for measurement-point direction
+    /// authority (issue #271); distinct from the horizontal-heading
+    /// `captureSpeakerOrientation` convention.
+    public let capturePointOrientation:
+        () async throws -> AnnotationOrientationAuthority
     /// Captures a plain evidence frame for equipment identity photos
     /// (#239); returns its canonical `path:` ref.
     public let captureIdentityPhoto: () async throws -> String
@@ -101,6 +106,7 @@ public struct AnnotationEntityForm: View {
     @State private var showingCatalogPicker = false
     @State private var showingAdvanced = false
     @State private var errorText: String?
+    @State private var capturingPointDirection = false
 
     public init(
         editingEntity: CaptureAnnotationEntity? = nil,
@@ -124,6 +130,11 @@ public struct AnnotationEntityForm: View {
             () async throws -> AnnotationOrientationAuthority = {
                 throw ManualAuthorityBuilderError.invalidSpeakerYaw
             },
+        capturePointOrientation: @escaping
+            () async throws -> AnnotationOrientationAuthority = {
+                throw ManualAuthorityBuilderError
+                    .pointDirectionUnavailable
+            },
         captureIdentityPhoto: @escaping
             () async throws -> String = {
                 throw ManualAuthorityBuilderError.invalidPosition
@@ -146,6 +157,7 @@ public struct AnnotationEntityForm: View {
         self.probeCameraHeading = probeCameraHeading
         self.captureTargetedPlacement = captureTargetedPlacement
         self.captureSpeakerOrientation = captureSpeakerOrientation
+        self.capturePointOrientation = capturePointOrientation
         self.captureIdentityPhoto = captureIdentityPhoto
         self.onSave = onSave
 
@@ -414,6 +426,10 @@ public struct AnnotationEntityForm: View {
 
             if type.supportsOrientationAuthority {
                 orientationSection
+            }
+
+            if type == .measurementPoint {
+                pointDirectionSection
             }
 
             if type != .listeningPosition
@@ -917,7 +933,73 @@ public struct AnnotationEntityForm: View {
         }
     }
 
+    private var pointDirectionSection: some View {
+        Section(String(localized: "Point direction")) {
+            if let orientationAuthority {
+                let front =
+                    orientationAuthority.orientation.frontAxisLocal
+                let up =
+                    orientationAuthority.orientation.upAxisLocal
+                LabeledContent(
+                    String(localized: "Captured forward"),
+                    value: Self.axisText(front)
+                )
+                LabeledContent(
+                    String(localized: "Captured up"),
+                    value: Self.axisText(up)
+                )
+                Button(
+                    String(localized: "Remove captured direction")
+                ) {
+                    self.orientationAuthority = nil
+                    evidenceSelection
+                        .replaceOrientationAuthority(nil)
+                }
+            } else {
+                Button(
+                    String(localized:
+                        "Capture current camera direction")
+                ) {
+                    capturePointDirection()
+                }
+                .disabled(capturingPointDirection)
+                Text(
+                    "Aim the phone along the microphone's acoustic axis, then capture. The full 3D direction — including pitch — is adopted; nothing is flattened to a horizontal heading."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private static func axisText(
+        _ axis: SpatialVector3F
+    ) -> String {
+        "[\(String(format: "%.3f", axis.x)), "
+            + "\(String(format: "%.3f", axis.y)), "
+            + "\(String(format: "%.3f", axis.z))]"
+    }
+
     // MARK: Actions
+
+    private func capturePointDirection() {
+        guard !capturingPointDirection else { return }
+        capturingPointDirection = true
+        errorText = nil
+        Task { @MainActor in
+            defer { capturingPointDirection = false }
+            do {
+                let authority =
+                    try await capturePointOrientation()
+                orientationAuthority = authority
+                evidenceSelection
+                    .replaceOrientationAuthority(authority)
+            } catch {
+                errorText =
+                    AnnotationPresentation.errorText(error)
+            }
+        }
+    }
 
     private func captureIdentity() {
         guard !capturingIdentityPhoto else { return }

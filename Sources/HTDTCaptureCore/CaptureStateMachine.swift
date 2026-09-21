@@ -56,6 +56,12 @@ public enum CaptureEvent: Sendable, Equatable {
     case adoptFinalized
     case export
     case fail(CaptureFailureCode)
+    /// Operator-owned abort of a live (uncommitted) capture revision
+    /// (issue #254): stops spatial capture, fences further writes, and
+    /// returns to idle so the working set can be discarded. Distinct
+    /// from `fail`, which preserves retained evidence for recovery, and
+    /// from `reset`, which only resolves terminal/post-capture states.
+    case abortCapture
     case reset
 }
 
@@ -123,6 +129,15 @@ public struct CaptureStateMachine: Sendable, Equatable {
             state = .finalized
         case (.finalized, .export):
             state = .exported
+        // #254: aborting is legal at every pre-commit capture boundary.
+        // `.validating` is deliberately excluded — the finalization
+        // commit transaction owns the fence there, and an abort mid-
+        // commit would race promotion; the abort must wait for the
+        // validating attempt to resolve back to Review or Failed.
+        case (.scanning, .abortCapture), (.paused, .abortCapture),
+             (.reviewing, .abortCapture), (.annotating, .abortCapture):
+            state = .idle
+            lastFailure = nil
         case (.setup, .reset), (.failed, .reset),
              (.finalized, .reset), (.exported, .reset):
             state = .idle

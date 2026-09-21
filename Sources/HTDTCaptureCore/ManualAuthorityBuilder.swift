@@ -28,6 +28,9 @@ public enum ManualAuthorityBuilderError:
     /// coordinate space than the annotation it would support (issue
     /// #199).
     case authorityCoordinateSpaceMismatch
+    /// No point-direction capture is available in this environment
+    /// (e.g. no live ARSession); used by default closures only.
+    case pointDirectionUnavailable
 }
 
 public struct AnnotationPlacementAuthority:
@@ -445,14 +448,25 @@ public enum ManualAuthorityBuilder {
         )
     }
 
-    public static func scalarMeasurement(
+    /// The full user-attested measurement authority (issues #215,
+    /// #238, #253, #275): scalar or vector values, endpoint refs bound
+    /// to resolvable spatial authorities, observation time, instrument
+    /// calibration metadata, and manufacturer-specification source
+    /// identity. Every record this builder emits is
+    /// `user_attested_measurement`; derived values go through
+    /// `DerivedMeasurementBuilder` instead.
+    public static func measurement(
         quantityType: String,
-        value: Double,
+        value: MeasurementValue,
         unit: MeasurementUnit,
         acquisitionMethod: MeasurementAcquisitionMethod,
+        coordinateSpaceID: CoordinateSpaceID? = nil,
+        endpointRefs: [String] = [],
         instrument: MeasurementInstrument? = nil,
         statedUncertainty: Double? = nil,
+        observedAtUTC: String? = nil,
         sourceValueText: String? = nil,
+        sourceAuthority: MeasurementSourceAuthority? = nil,
         evidenceRefs: [String] = []
     ) throws -> CaptureMeasurement {
         // The manual builder always writes a user-attested record, so a
@@ -463,19 +477,59 @@ public enum ManualAuthorityBuilder {
             throw ManualAuthorityBuilderError
                 .derivedAcquisitionNotUserAttestable
         case .tapeMeasure, .laserDistanceMeter,
-             .manufacturerSpecification, .other:
+             .manufacturerSpecification, .externalInstrument, .other:
             break
         }
+        try MeasurementQuantityRegistry.validate(
+            quantityType: quantityType,
+            value: value,
+            unit: unit,
+            endpointCount: endpointRefs.count
+        )
         return try CaptureMeasurement(
+            quantityType: quantityType,
+            value: value,
+            unit: unit,
+            coordinateSpaceID: coordinateSpaceID,
+            endpointRefs: endpointRefs,
+            acquisitionMethod: acquisitionMethod,
+            instrument: instrument,
+            statedUncertainty: statedUncertainty,
+            observedAtUTC: observedAtUTC,
+            userAttestation: .attested,
+            provenanceClass: .userAttestedMeasurement,
+            sourceValueText: sourceValueText,
+            sourceAuthority: sourceAuthority,
+            evidenceRefs: evidenceRefs
+        )
+    }
+
+    public static func scalarMeasurement(
+        quantityType: String,
+        value: Double,
+        unit: MeasurementUnit,
+        acquisitionMethod: MeasurementAcquisitionMethod,
+        coordinateSpaceID: CoordinateSpaceID? = nil,
+        endpointRefs: [String] = [],
+        instrument: MeasurementInstrument? = nil,
+        statedUncertainty: Double? = nil,
+        observedAtUTC: String? = nil,
+        sourceValueText: String? = nil,
+        sourceAuthority: MeasurementSourceAuthority? = nil,
+        evidenceRefs: [String] = []
+    ) throws -> CaptureMeasurement {
+        try measurement(
             quantityType: quantityType,
             value: .scalar(value),
             unit: unit,
             acquisitionMethod: acquisitionMethod,
+            coordinateSpaceID: coordinateSpaceID,
+            endpointRefs: endpointRefs,
             instrument: instrument,
             statedUncertainty: statedUncertainty,
-            userAttestation: .attested,
-            provenanceClass: .userAttestedMeasurement,
+            observedAtUTC: observedAtUTC,
             sourceValueText: sourceValueText,
+            sourceAuthority: sourceAuthority,
             evidenceRefs: evidenceRefs
         )
     }

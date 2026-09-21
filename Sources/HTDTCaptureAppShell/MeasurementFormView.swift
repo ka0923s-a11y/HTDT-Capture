@@ -11,6 +11,11 @@ import HTDTCaptureCore
 public struct MeasurementFormView: View {
     private let editingMeasurement: CaptureMeasurement?
 
+    /// Capture coordinate space the endpoint entity refs resolve in
+    /// (issue #215).
+    public let coordinateSpaceID: CoordinateSpaceID
+    /// Staged entities usable as measurement endpoints (issue #215).
+    public let endpointCandidates: [CaptureAnnotationEntity]
     public let evidenceFrames: [EvidenceFramePresentation]
     public let otherEvidenceRefs: [String]
     public let onSave: (CaptureMeasurement) -> Void
@@ -27,6 +32,8 @@ public struct MeasurementFormView: View {
     @State private var instrumentClass: String
     @State private var instrumentModel: String
     @State private var selectedEvidenceRefs: Set<String>
+    @State private var endpointA = ""
+    @State private var endpointB = ""
     @State private var showingAdvanced = false
     @State private var errorText: String?
 
@@ -43,11 +50,15 @@ public struct MeasurementFormView: View {
 
     public init(
         editingMeasurement: CaptureMeasurement? = nil,
+        coordinateSpaceID: CoordinateSpaceID,
+        endpointCandidates: [CaptureAnnotationEntity] = [],
         evidenceFrames: [EvidenceFramePresentation] = [],
         otherEvidenceRefs: [String] = [],
         onSave: @escaping (CaptureMeasurement) -> Void
     ) {
         self.editingMeasurement = editingMeasurement
+        self.coordinateSpaceID = coordinateSpaceID
+        self.endpointCandidates = endpointCandidates
         self.evidenceFrames = evidenceFrames
         self.otherEvidenceRefs = otherEvidenceRefs
         self.onSave = onSave
@@ -160,6 +171,45 @@ public struct MeasurementFormView: View {
                 }
             }
 
+            if endpointsVisible {
+                Section(
+                    String(localized:
+                        "Spatial endpoints (optional)")
+                ) {
+                    EndpointPicker(
+                        title: String(localized: "Endpoint A"),
+                        selection: $endpointA,
+                        candidates: endpointCandidates
+                    )
+                    EndpointPicker(
+                        title: String(localized: "Endpoint B"),
+                        selection: $endpointB,
+                        candidates: endpointCandidates
+                    )
+                    Text(
+                        "Endpoints bind this measurement to exact staged spatial authorities in the capture coordinate space. A typed-in value stays user-attested — endpoints never imply the value was derived from them."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+
+                if !endpointA.isEmpty && !endpointB.isEmpty {
+                    Section(String(localized: "Derived from endpoints")) {
+                        Button(
+                            String(localized:
+                                "Compute distance from endpoints")
+                        ) {
+                            deriveDistance()
+                        }
+                        Text(
+                            "Computes the value from accepted endpoint geometry and stores it as a separate derived record — RoomPlan/LiDAR provenance when both endpoints share it, otherwise capture_app_derived."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
             Section {
                 DisclosureGroup(
                     String(localized: "Advanced"),
@@ -238,6 +288,75 @@ public struct MeasurementFormView: View {
         }
     }
 
+    /// Endpoint pickers apply to new measurements only — the edit
+    /// path never exposes endpoint-backed or derived measurements.
+    /// Endpoint count semantics come from the quantity registry
+    /// (issue #287): `0` hides the pickers, `2` requires both or
+    /// neither, an unregistered quantity leaves endpoints optional.
+    private var endpointsVisible: Bool {
+        editingMeasurement == nil && !endpointCandidates.isEmpty
+            && MeasurementQuantityRegistry
+                .definition(for: quantityType)?
+                .expectedEndpoints != 0
+    }
+
+    private func endpointEntity(_ entityID: String)
+        -> CaptureAnnotationEntity?
+    {
+        endpointCandidates.first {
+            $0.entityID.description == entityID
+        }
+    }
+
+    private func endpointRefs() throws -> [String] {
+        if !endpointsVisible {
+            return []
+        }
+        switch (endpointA.isEmpty, endpointB.isEmpty) {
+        case (true, true):
+            return []
+        case (false, false):
+            guard endpointA != endpointB else {
+                throw MeasurementModelError
+                    .duplicateEndpointReference
+            }
+            return ["entity:" + endpointA, "entity:" + endpointB]
+        default:
+            throw MeasurementModelError
+                .invalidEndpointCountForQuantity
+        }
+    }
+
+    private func deriveDistance() {
+        do {
+            guard let entityA = endpointEntity(endpointA),
+                  let entityB = endpointEntity(endpointB)
+            else {
+                throw MeasurementModelError.emptyEndpointReference
+            }
+            let authorityA = try MeasurementEndpointAuthority(
+                entity: entityA
+            )
+            let authorityB = try MeasurementEndpointAuthority(
+                entity: entityB
+            )
+            let measurement =
+                try DerivedMeasurementBuilder.distance(
+                    quantityType: quantityType,
+                    endpointA: authorityA,
+                    endpointB: authorityB,
+                    coordinateSpaceID: coordinateSpaceID,
+                    observedAtUTC:
+                        BundleTimestamp.utcString(from: Date()),
+                    evidenceRefs: selectedEvidenceRefs.sorted()
+                )
+            onSave(measurement)
+            dismiss()
+        } catch {
+            errorText = AnnotationPresentation.errorText(error)
+        }
+    }
+
     private func save() {
         do {
             guard let value = Double(valueText), value.isFinite
@@ -273,6 +392,7 @@ public struct MeasurementFormView: View {
                     )
                 }
 
+            let endpoints = try endpointRefs()
             let measurement: CaptureMeasurement
             if let editingMeasurement {
                 measurement =
@@ -300,6 +420,9 @@ public struct MeasurementFormView: View {
                         value: value,
                         unit: unit,
                         acquisitionMethod: method,
+                        coordinateSpaceID:
+                            endpoints.isEmpty ? nil : coordinateSpaceID,
+                        endpointRefs: endpoints,
                         instrument: instrument,
                         statedUncertainty: uncertainty,
                         sourceValueText:
@@ -314,6 +437,25 @@ public struct MeasurementFormView: View {
         } catch {
             errorText =
                 AnnotationPresentation.errorText(error)
+        }
+    }
+}
+
+
+/// Picker binding a measurement endpoint to a staged entity by exact
+/// `entityID` (issue #215).
+private struct EndpointPicker: View {
+    let title: String
+    @Binding var selection: String
+    let candidates: [CaptureAnnotationEntity]
+
+    var body: some View {
+        Picker(title, selection: $selection) {
+            Text(String(localized: "None")).tag("")
+            ForEach(candidates, id: \.entityID) { entity in
+                Text(entity.label + " · " + entity.type.rawValue)
+                    .tag(entity.entityID.description)
+            }
         }
     }
 }

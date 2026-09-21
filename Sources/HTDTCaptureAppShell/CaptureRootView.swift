@@ -3,6 +3,9 @@ import SwiftUI
 import UniformTypeIdentifiers
 import HTDTCaptureCore
 import HTDTCapturePlatform
+#if os(iOS)
+import UIKit
+#endif
 
 public struct CaptureRootActions {
     public let beginCapture: () -> Void
@@ -50,12 +53,21 @@ public struct CaptureRootActions {
     /// Captures a plain evidence frame for equipment-identity photos
     /// (#239); returns its canonical `path:` ref.
     public let captureIdentityPhoto: () async throws -> String
+    /// Full-3D orientation capture for measurement-point direction
+    /// authority (issue #271); distinct from the horizontal-heading
+    /// `captureSpeakerOrientation` convention.
+    public let capturePointOrientation:
+        () async throws -> AnnotationOrientationAuthority
     public let commitAnnotationAuthority: (
         [CaptureAnnotationEntity],
         [CaptureMeasurement],
         [EquipmentIdentityRecord]
     ) -> Void
     public let cancelAnnotation: () -> Void
+    /// Operator capture-task profile selection (#217/#259): sets the
+    /// capture intent plus optional skipped-requirement outcome.
+    public let selectTaskProfile:
+        (CaptureTaskProfile?, Set<String>) -> Void
     /// Validates and adopts an imported HTDT equipment-catalog snapshot
     /// (#211). The host owns the catalog context for the app session and
     /// mirrors it to a durable app-support cache; the default simply
@@ -77,6 +89,47 @@ public struct CaptureRootActions {
         (PersistedCaptureRecord) -> Void
     public let reviseAdoptedCapture: () -> Void
     public let importCaptureArchive: (URL) -> Void
+    /// Explicit operator Cancel/Discard of the in-progress capture
+    /// (#254): confirms in UI, tears down the live working set, and
+    /// never touches finalized copies.
+    public let discardActiveCapture: () -> Void
+    /// Rebuilds the review-workspace model (#213) before the
+    /// workspace is pushed.
+    public let refreshReviewWorkspace: () -> Void
+    /// Two-point room-reference-frame capture (#232).
+    public let captureRoomFrameOrigin: () -> Void
+    public let confirmRoomReferenceFrame: () -> Void
+    /// Enumerates opening candidates for the review step (#231).
+    public let openingReviewCandidates:
+        () async -> [RoomOpeningCandidate]?
+    public let commitOpeningReview:
+        ([RoomOpeningCandidate]) async -> Bool
+    /// Privacy review: permanently removes an unreferenced evidence
+    /// frame from the working capture (#241).
+    public let removeEvidenceFrameForPrivacy:
+        (EvidenceFrameID) async -> Void
+    /// Loads a persisted capture into the read-only viewer (#294).
+    public let loadPersistedWorkspace:
+        (PersistedCaptureRecord) -> Void
+    /// Field-level parent/child comparison for a revised capture
+    /// (#221).
+    public let compareAdoptedRevisionWithParent:
+        () async -> CaptureRevisionComparison?
+    /// Failed-capture inspection + diagnostic package (#224).
+    public let inspectFailedCapture: () -> Void
+    public let exportFailedCaptureDiagnostics:
+        () async -> URL?
+    /// Explicit Send-to-HTDT handoff (#225).
+    public let sendCaptureToHTDT:
+        (HTDTHandoffDestination) async -> Void
+    /// Independent export-archive deletion (#251).
+    public let deleteExportArchive:
+        (PersistedCaptureRecord) -> Void
+    /// App-local library metadata (names, notes, series grouping)
+    /// (#219).
+    public let updateLibraryEntry:
+        (CaptureRevisionID?, CaptureSeriesID?,
+         CaptureLibraryEntryMetadata) -> Void
 
     public init(
         beginCapture: @escaping () -> Void = {},
@@ -121,12 +174,20 @@ public struct CaptureRootActions {
             () async throws -> String = {
                 throw ManualAuthorityBuilderError.invalidPosition
             },
+        capturePointOrientation: @escaping
+            () async throws -> AnnotationOrientationAuthority = {
+                throw ManualAuthorityBuilderError
+                    .pointDirectionUnavailable
+            },
         commitAnnotationAuthority: @escaping (
             [CaptureAnnotationEntity],
             [CaptureMeasurement],
             [EquipmentIdentityRecord]
         ) -> Void = { _, _, _ in },
         cancelAnnotation: @escaping () -> Void = {},
+        selectTaskProfile: @escaping
+            (CaptureTaskProfile?, Set<String>) -> Void
+                = { _, _ in },
         importEquipmentCatalog: @escaping
             (Data) throws -> HTDTEquipmentCatalogSnapshot = { data in
                 try JSONDecoder().decode(
@@ -150,7 +211,35 @@ public struct CaptureRootActions {
         revisePersistedCapture: @escaping
             (PersistedCaptureRecord) -> Void = { _ in },
         reviseAdoptedCapture: @escaping () -> Void = {},
-        importCaptureArchive: @escaping (URL) -> Void = { _ in }
+        importCaptureArchive: @escaping (URL) -> Void = { _ in },
+        discardActiveCapture: @escaping () -> Void = {},
+        refreshReviewWorkspace: @escaping () -> Void = {},
+        captureRoomFrameOrigin: @escaping () -> Void = {},
+        confirmRoomReferenceFrame: @escaping () -> Void = {},
+        openingReviewCandidates: @escaping
+            () async -> [RoomOpeningCandidate]? = { nil },
+        commitOpeningReview: @escaping
+            ([RoomOpeningCandidate]) async -> Bool = {
+                _ in false
+            },
+        removeEvidenceFrameForPrivacy: @escaping
+            (EvidenceFrameID) async -> Void = { _ in },
+        loadPersistedWorkspace: @escaping
+            (PersistedCaptureRecord) -> Void = { _ in },
+        compareAdoptedRevisionWithParent: @escaping
+            () async -> CaptureRevisionComparison? = { nil },
+        inspectFailedCapture: @escaping () -> Void = {},
+        exportFailedCaptureDiagnostics: @escaping
+            () async -> URL? = { nil },
+        sendCaptureToHTDT: @escaping
+            (HTDTHandoffDestination) async -> Void = { _ in },
+        deleteExportArchive: @escaping
+            (PersistedCaptureRecord) -> Void = { _ in },
+        updateLibraryEntry: @escaping (
+            CaptureRevisionID?,
+            CaptureSeriesID?,
+            CaptureLibraryEntryMetadata
+        ) -> Void = { _, _, _ in }
     ) {
         self.beginCapture = beginCapture
         self.beginScanning = beginScanning
@@ -177,9 +266,12 @@ public struct CaptureRootActions {
         self.probeCameraHeading = probeCameraHeading
         self.captureTargetedPlacement = captureTargetedPlacement
         self.captureIdentityPhoto = captureIdentityPhoto
+        self.capturePointOrientation =
+            capturePointOrientation
         self.commitAnnotationAuthority =
             commitAnnotationAuthority
         self.cancelAnnotation = cancelAnnotation
+        self.selectTaskProfile = selectTaskProfile
         self.importEquipmentCatalog = importEquipmentCatalog
         self.finalizeCapture = finalizeCapture
         self.prepareExport = prepareExport
@@ -192,6 +284,24 @@ public struct CaptureRootActions {
         self.revisePersistedCapture = revisePersistedCapture
         self.reviseAdoptedCapture = reviseAdoptedCapture
         self.importCaptureArchive = importCaptureArchive
+        self.discardActiveCapture = discardActiveCapture
+        self.refreshReviewWorkspace = refreshReviewWorkspace
+        self.captureRoomFrameOrigin = captureRoomFrameOrigin
+        self.confirmRoomReferenceFrame =
+            confirmRoomReferenceFrame
+        self.openingReviewCandidates = openingReviewCandidates
+        self.commitOpeningReview = commitOpeningReview
+        self.removeEvidenceFrameForPrivacy =
+            removeEvidenceFrameForPrivacy
+        self.loadPersistedWorkspace = loadPersistedWorkspace
+        self.compareAdoptedRevisionWithParent =
+            compareAdoptedRevisionWithParent
+        self.inspectFailedCapture = inspectFailedCapture
+        self.exportFailedCaptureDiagnostics =
+            exportFailedCaptureDiagnostics
+        self.sendCaptureToHTDT = sendCaptureToHTDT
+        self.deleteExportArchive = deleteExportArchive
+        self.updateLibraryEntry = updateLibraryEntry
     }
 }
 
@@ -202,6 +312,128 @@ private struct PendingCaptureDeletion {
     let includesExport: Bool
 }
 
+/// Identifiable target for the library-metadata editor sheet (#219):
+/// exactly one of `revisionID`/`seriesID` is set.
+private struct LibraryMetadataEditorTarget: Identifiable {
+    let revisionID: CaptureRevisionID?
+    let seriesID: CaptureSeriesID?
+    var id: String {
+        revisionID?.description
+            ?? seriesID?.description
+            ?? "editor"
+    }
+}
+
+/// Edits an operator-facing name + note for a capture revision or a
+/// whole series (#219). App-local metadata only — the capture bundle
+/// on disk is never touched.
+private struct LibraryMetadataEditor: View {
+    let revisionID: CaptureRevisionID?
+    let seriesID: CaptureSeriesID?
+    let document: CaptureLibraryMetadataDocument
+    let onSave:
+        (CaptureRevisionID?, CaptureSeriesID?,
+         CaptureLibraryEntryMetadata) -> Void
+
+    @State private var displayName: String
+    @State private var note: String
+    @Environment(\.dismiss) private var dismiss
+
+    init(
+        revisionID: CaptureRevisionID?,
+        seriesID: CaptureSeriesID?,
+        document: CaptureLibraryMetadataDocument,
+        onSave: @escaping (
+            CaptureRevisionID?,
+            CaptureSeriesID?,
+            CaptureLibraryEntryMetadata
+        ) -> Void
+    ) {
+        self.revisionID = revisionID
+        self.seriesID = seriesID
+        self.document = document
+        self.onSave = onSave
+        let existing = revisionID.flatMap {
+            document.revisions[$0.description]
+        } ?? seriesID.flatMap {
+            document.series[$0.description]
+        }
+        _displayName = State(
+            initialValue: existing?.displayName ?? ""
+        )
+        _note = State(
+            initialValue: existing?.note ?? ""
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Room or project name", text: $displayName)
+                TextField(
+                    "Notes",
+                    text: $note,
+                    axis: .vertical
+                )
+            }
+            .navigationTitle("Capture details")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave(
+                            revisionID,
+                            seriesID,
+                            CaptureLibraryEntryMetadata(
+                                displayName: displayName.isEmpty
+                                    ? nil
+                                    : displayName,
+                                note: note.isEmpty ? nil : note
+                            )
+                        )
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+#if os(iOS)
+/// The system share sheet used for the share-destination HTDT
+/// handoff (#225): presenting it and completing the share is the
+/// operator's explicit transfer action.
+private struct HandoffShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(
+        context: Context
+    ) -> UIActivityViewController {
+        UIActivityViewController(
+            activityItems: items,
+            applicationActivities: nil
+        )
+    }
+
+    func updateUIViewController(
+        _ uiViewController: UIActivityViewController,
+        context: Context
+    ) {}
+}
+#else
+/// Non-iOS fallback: the share destination renders as an inert view;
+/// endpoint destinations still send through the network path.
+private struct HandoffShareSheet: View {
+    let items: [Any]
+
+    var body: some View {
+        Text("Sharing is available on iOS only")
+    }
+}
+#endif
+
 public struct CaptureRootView: View {
     public let state: CaptureState
     public let capabilities: CaptureCapabilityMatrix
@@ -209,6 +441,10 @@ public struct CaptureRootView: View {
     public let lastFailure: CaptureFailureCode?
     public let workingSetStatus: String?
     public let qualityReport: CaptureQualityReport?
+    public let advisoryReport: CaptureAdvisoryReport?
+    /// Operator capture-task profile selected for this capture
+    /// (#217/#259). Nil = geometry-only / no profile.
+    public let taskProfile: CaptureTaskProfile?
     public let validationReport: BundleValidationReport?
     public let exportURL: URL?
     public let annotationCoordinateSpaceID: CoordinateSpaceID?
@@ -266,11 +502,42 @@ public struct CaptureRootView: View {
     public let guidanceCuesEnabled: Bool
     public let persistedInventory:
         PersistedCaptureInventoryResult
+    /// Live review-workspace model (#213); rebuilt by the host on
+    /// request.
+    public let reviewWorkspace: CaptureReviewWorkspaceModel?
+    /// Read-only persisted workspace (#294).
+    public let persistedWorkspace: CaptureReviewWorkspaceModel?
+    /// First captured room-frame point pending the front point
+    /// (#232).
+    public let roomFrameOriginPending: WorldPoint3D?
+    /// Committed evidence references dangling after a re-End (#236).
+    public let danglingSpatialIssues: [SpatialEvidenceIssue]
+    /// Operator-visible Send-to-HTDT destinations + receipts (#225).
+    public let handoffDestinations: [HTDTHandoffDestination]
+    public let handoffReceipts: [HTDTHandoffReceipt]
+    /// App-local capture names/notes/series metadata (#219).
+    public let libraryMetadata: CaptureLibraryMetadataDocument
+    /// Retained-evidence inspection for a failed capture (#224).
+    public let failedInspection: FailedCaptureInspection?
+    /// Spatial authority sealed for finalization (#276).
+    public let spatialCaptureSealed: Bool
     public let actions: CaptureRootActions
 
     @State private var pendingDeletion:
         PendingCaptureDeletion?
     @State private var importingCaptureArchive = false
+    @State private var confirmingDiscard = false
+    @State private var reviewWorkspaceShown = false
+    @State private var persistedViewerShown = false
+    @State private var handoffDestinationsShown = false
+    @State private var shareArchiveForHandoff = false
+    @State private var revisionComparison:
+        CaptureRevisionComparison?
+    @State private var comparisonLoading = false
+    @State private var metadataEditorTarget:
+        LibraryMetadataEditorTarget?
+    @State private var libraryQuery = ""
+    @State private var diagnosticShareURL: URL?
 
     public init(
         state: CaptureState,
@@ -279,6 +546,8 @@ public struct CaptureRootView: View {
         lastFailure: CaptureFailureCode? = nil,
         workingSetStatus: String? = nil,
         qualityReport: CaptureQualityReport? = nil,
+        advisoryReport: CaptureAdvisoryReport? = nil,
+        taskProfile: CaptureTaskProfile? = nil,
         validationReport: BundleValidationReport? = nil,
         exportURL: URL? = nil,
         annotationCoordinateSpaceID: CoordinateSpaceID? = nil,
@@ -319,6 +588,16 @@ public struct CaptureRootView: View {
         persistedInventory:
             PersistedCaptureInventoryResult
                 = PersistedCaptureInventoryResult(),
+        reviewWorkspace: CaptureReviewWorkspaceModel? = nil,
+        persistedWorkspace: CaptureReviewWorkspaceModel? = nil,
+        roomFrameOriginPending: WorldPoint3D? = nil,
+        danglingSpatialIssues: [SpatialEvidenceIssue] = [],
+        handoffDestinations: [HTDTHandoffDestination] = [],
+        handoffReceipts: [HTDTHandoffReceipt] = [],
+        libraryMetadata: CaptureLibraryMetadataDocument
+            = CaptureLibraryMetadataDocument(),
+        failedInspection: FailedCaptureInspection? = nil,
+        spatialCaptureSealed: Bool = false,
         actions: CaptureRootActions = CaptureRootActions()
     ) {
         self.state = state
@@ -327,6 +606,8 @@ public struct CaptureRootView: View {
         self.lastFailure = lastFailure
         self.workingSetStatus = workingSetStatus
         self.qualityReport = qualityReport
+        self.advisoryReport = advisoryReport
+        self.taskProfile = taskProfile
         self.validationReport = validationReport
         self.exportURL = exportURL
         self.annotationCoordinateSpaceID =
@@ -367,6 +648,15 @@ public struct CaptureRootView: View {
         self.loopClosureAssessment = loopClosureAssessment
         self.guidanceCuesEnabled = guidanceCuesEnabled
         self.persistedInventory = persistedInventory
+        self.reviewWorkspace = reviewWorkspace
+        self.persistedWorkspace = persistedWorkspace
+        self.roomFrameOriginPending = roomFrameOriginPending
+        self.danglingSpatialIssues = danglingSpatialIssues
+        self.handoffDestinations = handoffDestinations
+        self.handoffReceipts = handoffReceipts
+        self.libraryMetadata = libraryMetadata
+        self.failedInspection = failedInspection
+        self.spatialCaptureSealed = spatialCaptureSealed
         self.actions = actions
     }
 
@@ -449,6 +739,8 @@ public struct CaptureRootView: View {
                         actions.captureTargetedPlacement,
                     captureSpeakerOrientation:
                         actions.captureSpeakerOrientation,
+                    capturePointOrientation:
+                        actions.capturePointOrientation,
                     captureIdentityPhoto:
                         actions.captureIdentityPhoto,
                     roomPlanObjects: annotationRoomPlanObjects,
@@ -462,7 +754,13 @@ public struct CaptureRootView: View {
                         actions.importEquipmentCatalog,
                     onCommit:
                         actions.commitAnnotationAuthority,
-                    onCancel: actions.cancelAnnotation
+                    taskProfile: taskProfile,
+                    onSelectTaskProfile:
+                        actions.selectTaskProfile,
+                    onCancel: actions.cancelAnnotation,
+                    onDiscard: {
+                        confirmingDiscard = true
+                    }
                 )
                 .navigationTitle("Capture authority")
             } else {
@@ -545,6 +843,31 @@ public struct CaptureRootView: View {
                         )
                         .foregroundStyle(.secondary)
                     }
+
+                    if let failedInspection {
+                        failedInspectionSection(
+                            failedInspection
+                        )
+                    }
+                }
+
+                if state == .reviewing
+                    || state == .annotating,
+                    !danglingSpatialIssues.isEmpty
+                {
+                    Section("Evidence issues") {
+                        ForEach(
+                            danglingSpatialIssues,
+                            id: \.ref
+                        ) { issue in
+                            danglingIssueRow(issue)
+                        }
+                        Text(
+                            "Committed annotations or measurements reference evidence that is no longer in the working set. Reopen the annotation authority to repair or remove them."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
                 }
 
                 if state == .reviewing,
@@ -566,6 +889,7 @@ public struct CaptureRootView: View {
                         NavigationLink("Review diagnostics") {
                             CaptureReviewView(
                                 quality: qualityReport,
+                                advisory: advisoryReport,
                                 spatialFindings:
                                     spatialPlausibilityFindings
                             )
@@ -606,6 +930,7 @@ public struct CaptureRootView: View {
                             ) {
                                 CaptureReviewView(
                                     quality: qualityReport,
+                                    advisory: advisoryReport,
                                     validation: validationReport,
                                     spatialFindings:
                                         spatialPlausibilityFindings
@@ -630,27 +955,7 @@ public struct CaptureRootView: View {
                        || !persistedInventory
                            .enumerationFailures.isEmpty
                 {
-                    Section("Persisted captures") {
-                        ForEach(persistedInventory.captures) {
-                            record in
-                            persistedCaptureRow(record)
-                        }
-                        ForEach(
-                            persistedInventory
-                                .quarantinedArtifacts
-                        ) { artifact in
-                            quarantinedArtifactRow(artifact)
-                        }
-                        ForEach(
-                            persistedInventory
-                                .enumerationFailures,
-                            id: \.self
-                        ) { failure in
-                            Text(failure)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    captureLibrarySection
                 }
 
                 if state == .idle,
@@ -673,6 +978,192 @@ public struct CaptureRootView: View {
                 }
             }
                 .navigationTitle("HTDT Capture")
+                .navigationDestination(
+                    isPresented: $reviewWorkspaceShown
+                ) {
+                    if let reviewWorkspace {
+                        CaptureReviewWorkspaceView(
+                            model: reviewWorkspace,
+                            roomFrameOriginPending:
+                                roomFrameOriginPending,
+                            removeEvidenceFrame: actions
+                                .removeEvidenceFrameForPrivacy,
+                            openingReviewCandidates: actions
+                                .openingReviewCandidates,
+                            commitOpeningReview: actions
+                                .commitOpeningReview,
+                            captureRoomFrameOrigin: actions
+                                .captureRoomFrameOrigin,
+                            confirmRoomReferenceFrame: actions
+                                .confirmRoomReferenceFrame
+                        )
+                    } else {
+                        ProgressView("Loading workspace…")
+                    }
+                }
+                .navigationDestination(
+                    isPresented: $persistedViewerShown
+                ) {
+                    if let persistedWorkspace {
+                        CaptureReviewWorkspaceView(
+                            model: persistedWorkspace
+                        )
+                    } else {
+                        ProgressView("Loading capture…")
+                    }
+                }
+                .confirmationDialog(
+                    "Discard capture?",
+                    isPresented: $confirmingDiscard,
+                    titleVisibility: .visible
+                ) {
+                    Button(
+                        "Discard capture",
+                        role: .destructive
+                    ) {
+                        actions.discardActiveCapture()
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text(
+                        "Stops scanning and permanently removes the working revision. Finalized captures are never touched."
+                    )
+                }
+                .sheet(
+                    isPresented: $handoffDestinationsShown
+                ) {
+                    NavigationStack {
+                        List {
+                            Section(
+                                "Choose a destination. The archive bytes and bundle digest are verified before transfer, and every send records a receipt."
+                            ) {
+                                ForEach(
+                                    handoffDestinations
+                                ) { destination in
+                                    Button(destination.name) {
+                                        selectHandoffDestination(
+                                            destination
+                                        )
+                                    }
+                                }
+                            }
+                            if !handoffReceipts.isEmpty {
+                                Section("HTDT receipts") {
+                                    ForEach(handoffReceipts) {
+                                        receipt in
+                                        VStack(
+                                            alignment: .leading,
+                                            spacing: 2
+                                        ) {
+                                                            LabeledContent(
+                                                receipt.outcome,
+                                                value: receipt
+                                                    .initiatedAtUTC
+                                            )
+                                            if let detail =
+                                                receipt.detail
+                                            {
+                                                Text(detail)
+                                                    .font(
+                                                        .caption2
+                                                    )
+                                                    .foregroundStyle(
+                                                        .secondary
+                                                    )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .navigationTitle("Send to HTDT")
+                    }
+                    .presentationDetents([.medium, .large])
+                }
+                .sheet(
+                    isPresented: $shareArchiveForHandoff,
+                    onDismiss: recordShareSheetHandoff
+                ) {
+                    if let exportURL {
+                        HandoffShareSheet(items: [exportURL])
+                            .ignoresSafeArea()
+                    }
+                }
+                .sheet(
+                    isPresented: comparisonShown
+                ) {
+                    NavigationStack {
+                        List {
+                            if let revisionComparison {
+                                Section(
+                                    "Parent → child"
+                                ) {
+                                    LabeledContent(
+                                        "Parent",
+                                        value:
+                                            revisionComparison
+                                                .parentRevisionID
+                                                .description
+                                    )
+                                    .font(.caption.monospaced())
+                                    LabeledContent(
+                                        "Child",
+                                        value:
+                                            revisionComparison
+                                                .childRevisionID
+                                                .description
+                                    )
+                                    .font(.caption.monospaced())
+                                }
+                                ForEach(
+                                    revisionComparison.fields,
+                                    id: \.field
+                                ) { field in
+                                    VStack(
+                                        alignment: .leading,
+                                        spacing: 2
+                                    ) {
+                                        Text(field.field)
+                                            .font(
+                                                .caption.bold()
+                                            )
+                                        LabeledContent(
+                                            "Was",
+                                            value: field
+                                                .parent
+                                        )
+                                        LabeledContent(
+                                            "Now",
+                                            value: field
+                                                .child
+                                        )
+                                        if field.changed {
+                                            Text("Changed")
+                                                .font(.caption2)
+                                                .foregroundStyle(
+                                                    .orange
+                                                )
+                                        }
+                                    }
+                                    .font(.caption)
+                                }
+                            } else {
+                                ProgressView("Comparing…")
+                            }
+                        }
+                        .navigationTitle(
+                            "Revision comparison"
+                        )
+                    }
+                }
+                .sheet(item: $metadataEditorTarget) { target in
+                    LibraryMetadataEditor(
+                        revisionID: target.revisionID,
+                        seriesID: target.seriesID,
+                        document: libraryMetadata,
+                        onSave: actions.updateLibraryEntry
+                    )
+                }
                 .confirmationDialog(
                     "Delete local capture?",
                     isPresented: Binding(
@@ -748,19 +1239,30 @@ public struct CaptureRootView: View {
                 action: actions.captureEvidenceFrame
             )
             Button("End scan and review", action: actions.beginReview)
+            discardButton
 
         case .paused:
             Text(
                 "The host app does not enter a pseudo-paused RoomPlan state. Ending RoomPlan creates a scan boundary."
             )
+            discardButton
 
         case .reviewing:
+            Button("Open review workspace") {
+                actions.refreshReviewWorkspace()
+                reviewWorkspaceShown = true
+            }
+
             if annotationCoordinateSpaceID != nil {
+                // Saved annotations/measurements survive a reopen
+                // while the same coordinate authority is still valid
+                // (#236), so Continue stays available after a saved
+                // annotation pass.
+                Button(
+                    "Continue scanning",
+                    action: actions.continueScanning
+                )
                 if !annotationAuthorityCommitted {
-                    Button(
-                        "Continue scanning",
-                        action: actions.continueScanning
-                    )
                     Button(
                         "Add annotations & measurements",
                         action: actions.beginAnnotation
@@ -768,13 +1270,20 @@ public struct CaptureRootView: View {
                 } else {
                     Text("Annotation authority saved.")
                     Button(
-                        "Edit saved annotations & measurements",
+                        spatialCaptureSealed
+                            ? "Edit labels, roles, equipment, and values"
+                            : "Edit saved annotations & measurements",
                         action: actions.beginAnnotation
                     )
                 }
             } else if annotationAuthorityCommitted {
                 Text("Annotation authority saved.")
+                Button(
+                    "Edit labels, roles, equipment, and values",
+                    action: actions.beginAnnotation
+                )
             }
+            discardButton
 
             if let qualityReport {
                 Button(
@@ -790,6 +1299,28 @@ public struct CaptureRootView: View {
             }
 
         case .failed:
+            Button(
+                "Inspect retained evidence",
+                action: actions.inspectFailedCapture
+            )
+            Button("Export diagnostic package") {
+                Task {
+                    diagnosticShareURL =
+                        await actions
+                            .exportFailedCaptureDiagnostics()
+                }
+            }
+            if let diagnosticShareURL {
+                ShareLink(item: diagnosticShareURL) {
+                    Label(
+                        "Share diagnostic package",
+                        systemImage: "square.and.arrow.up"
+                    )
+                }
+            }
+            Button("Start new capture") {
+                confirmingDiscard = true
+            }
             Button(
                 "Discard failed capture",
                 role: .destructive,
@@ -807,14 +1338,7 @@ public struct CaptureRootView: View {
                 "Prepare .htdtcapture",
                 action: actions.prepareExport
             )
-            Button(
-                "Start new capture",
-                action: actions.resetCapture
-            )
-            Button(
-                "Revise this capture",
-                action: actions.reviseAdoptedCapture
-            )
+            revisionControls
             if let revisionID =
                 validationReport?.manifest.captureRevisionID
             {
@@ -832,41 +1356,179 @@ public struct CaptureRootView: View {
         case .exported:
             VStack(alignment: .leading, spacing: 8) {
                 Text(
-                    "Validated .htdtcapture archive is ready to share."
+                    "Validated .htdtcapture archive is ready to send to HTDT. Nothing uploads automatically."
                 )
+                Button("Send to HTDT…") {
+                    handoffDestinationsShown = true
+                }
+                Button("Share .htdtcapture") {
+                    shareArchiveForHandoff = true
+                }
+            }
+            revisionControls
+            if let revisionID =
+                validationReport?.manifest.captureRevisionID
+            {
                 Button(
-                    "Start new capture",
-                    action: actions.resetCapture
-                )
-                Button(
-                    "Revise this capture",
-                    action: actions.reviseAdoptedCapture
-                )
-                if let revisionID =
-                    validationReport?.manifest.captureRevisionID
-                {
-                    Button(
-                        "Delete local capture and export",
-                        role: .destructive
-                    ) {
-                        pendingDeletion = PendingCaptureDeletion(
-                            revisionID: revisionID,
-                            includesExport: exportURL != nil
-                        )
-                    }
+                    "Delete local capture and export",
+                    role: .destructive
+                ) {
+                    pendingDeletion = PendingCaptureDeletion(
+                        revisionID: revisionID,
+                        includesExport: exportURL != nil
+                    )
                 }
             }
         }
+    }
+
+    /// Shared post-capture controls (#221): rescan-as-revision with the
+    /// fresh-authority explainer, and the parent/child comparison.
+    @ViewBuilder
+    private var revisionControls: some View {
+        Button(
+            "Start new capture",
+            action: actions.resetCapture
+        )
+        if validationReport?.manifest.parentRevisionID != nil {
+            Button("Compare with revised capture") {
+                comparisonLoading = true
+                Task {
+                    revisionComparison =
+                        await actions
+                            .compareAdoptedRevisionWithParent()
+                    comparisonLoading = false
+                }
+            }
+            .disabled(comparisonLoading)
+        }
+        Button(
+            "Rescan as new revision",
+            action: actions.reviseAdoptedCapture
+        )
+        Text(
+            "Rescan starts a fresh scan with its own coordinate space. The revised capture stays finalized and unchanged."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    private var discardButton: some View {
+        Button("Discard capture", role: .destructive) {
+            confirmingDiscard = true
+        }
+    }
+
+    /// The capture library (#219/#251): series grouping, names/notes,
+    /// search, and per-revision storage breakdown. Extracted so the
+    /// type-checker stays inside its budget.
+    @ViewBuilder
+    private var captureLibrarySection: some View {
+        Section("Capture library") {
+            LabeledContent(
+                "Total storage",
+                value: String(
+                    persistedInventory.totalRetainedBytes
+                )
+            )
+            TextField(
+                "Search captures",
+                text: $libraryQuery
+            )
+            #if os(iOS)
+            .textInputAutocapitalization(.never)
+            #endif
+        }
+
+        ForEach(
+            libraryGroups.filter {
+                CaptureSeriesGrouper.matches(
+                    group: $0,
+                    revisionNotes: revisionNotesByID,
+                    query: libraryQuery
+                )
+            }
+        ) { group in
+            Section(seriesTitle(group)) {
+                Button("Edit series name") {
+                    metadataEditorTarget =
+                        LibraryMetadataEditorTarget(
+                            revisionID: nil,
+                            seriesID: group.captureSeriesID
+                        )
+                }
+                .font(.caption)
+                ForEach(group.revisions) { record in
+                    persistedCaptureRow(record)
+                }
+            }
+        }
+
+        if !persistedInventory.quarantinedArtifacts.isEmpty
+            || !persistedInventory.enumerationFailures.isEmpty
+        {
+            Section("Inventory issues") {
+                ForEach(
+                    persistedInventory.quarantinedArtifacts
+                ) { artifact in
+                    quarantinedArtifactRow(artifact)
+                }
+                ForEach(
+                    persistedInventory.enumerationFailures,
+                    id: \.self
+                ) { failure in
+                    Text(failure)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// Series-grouped view of the persisted inventory (#219).
+    private var libraryGroups: [CaptureSeriesGroup] {
+        CaptureSeriesGrouper.group(
+            records: persistedInventory.captures,
+            metadata: libraryMetadata
+        )
+    }
+
+    private var revisionNotesByID:
+        [String: CaptureLibraryEntryMetadata]
+    {
+        libraryMetadata.revisions
+    }
+
+    private func seriesTitle(
+        _ group: CaptureSeriesGroup
+    ) -> String {
+        if let name = group.displayName, !name.isEmpty {
+            return name
+        }
+        return String(
+            localized: "Series "
+        ) + group.captureSeriesID.description
     }
 
     @ViewBuilder
     private func persistedCaptureRow(
         _ record: PersistedCaptureRecord
     ) -> some View {
+        let entry = libraryMetadata.revisions[
+            record.captureRevisionID.description
+        ]
         VStack(alignment: .leading, spacing: 6) {
+            if let name = entry?.displayName, !name.isEmpty {
+                Text(name).font(.headline)
+            }
             Text(record.captureRevisionID.description)
                 .font(.caption.monospaced())
                 .textSelection(.enabled)
+            if let note = entry?.note, !note.isEmpty {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             if let validation = record.finalizedValidation {
                 LabeledContent(
@@ -877,34 +1539,61 @@ public struct CaptureRootView: View {
                     "Payloads",
                     value: String(validation.payloadCount)
                 )
+                LabeledContent(
+                    "Finalized bytes",
+                    value: String(
+                        record.finalizedByteCount ?? 0
+                    )
+                )
             } else {
                 Text("Export archive only")
                     .foregroundStyle(.secondary)
             }
+            if record.exportArchive != nil {
+                LabeledContent(
+                    "Archive bytes",
+                    value: String(
+                        record.exportArchiveByteCount ?? 0
+                    )
+                )
+                if record.exportArchiveIsDerivedCopy {
+                    Text(
+                        "Archive is a derived copy of the finalized bundle"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            LabeledContent(
+                "Retained bytes",
+                value: String(record.retainedByteCount)
+            )
 
             HStack(spacing: 16) {
                 if record.canOpen {
-                    Button("Open") {
+                    Button("View") {
+                        actions.loadPersistedWorkspace(record)
+                        persistedViewerShown = true
+                    }
+                    Button("Adopt") {
                         actions.openPersistedCapture(
                             record.captureRevisionID
                         )
                     }
                 }
                 if record.canOpen || record.exportArchive != nil {
-                    Button("Revise") {
+                    Button("Rescan") {
                         actions.revisePersistedCapture(
                             record
                         )
                     }
                 }
-                if let archive = record.exportArchive {
-                    ShareLink(item: archive) {
-                        Label(
-                            "Share",
-                            systemImage:
-                                "square.and.arrow.up"
+                Button("Edit name") {
+                    metadataEditorTarget =
+                        LibraryMetadataEditorTarget(
+                            revisionID: record.captureRevisionID,
+                            seriesID: nil
                         )
-                    }
                 }
                 Spacer()
                 Button("Delete", role: .destructive) {
@@ -914,6 +1603,17 @@ public struct CaptureRootView: View {
                             record.exportArchive != nil
                     )
                 }
+            }
+            if record.exportArchive != nil,
+               record.finalizedDirectory != nil
+            {
+                // The archive is a derived copy: it can be deleted
+                // without touching the canonical finalized capture
+                // (#251).
+                Button("Delete archive only") {
+                    actions.deleteExportArchive(record)
+                }
+                .font(.caption)
             }
         }
     }
@@ -960,6 +1660,96 @@ public struct CaptureRootView: View {
             ProgressView()
             Text(text)
         }
+    }
+
+    /// Failed-capture retained-evidence detail (#224), extracted from
+    /// the List body so the type-checker stays inside its budget.
+    @ViewBuilder
+    private func failedInspectionSection(
+        _ inspection: FailedCaptureInspection
+    ) -> some View {
+        Section("Retained evidence") {
+            LabeledContent(
+                "Working set files",
+                value: String(inspection.entries.count)
+            )
+            LabeledContent(
+                "Retained bytes",
+                value: String(inspection.totalByteCount)
+            )
+            ForEach(
+                inspection.entries,
+                id: \.relativePath
+            ) { file in
+                LabeledContent(
+                    file.relativePath,
+                    value: String(file.byteCount)
+                )
+                .font(.caption2.monospaced())
+            }
+            Text(
+                "The diagnostic package is a non-canonical report only — it never mutates the retained working set."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Row extracted from the List body so the type-checker stays
+    /// inside its budget.
+    private func danglingIssueRow(
+        _ issue: SpatialEvidenceIssue
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(issue.owner).font(.caption.bold())
+            Text(issue.ref).font(.caption2.monospaced())
+            Text(issue.reason)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Routes a chosen Send-to-HTDT destination: share-sheet
+    /// destinations present the system sheet (receipt recorded on
+    /// dismissal); endpoint destinations POST through the client
+    /// (#225).
+    private func selectHandoffDestination(
+        _ destination: HTDTHandoffDestination
+    ) {
+        handoffDestinationsShown = false
+        if destination.kind == .shareSheet {
+            shareArchiveForHandoff = true
+        } else {
+            Task {
+                await actions.sendCaptureToHTDT(destination)
+            }
+        }
+    }
+
+    /// The system share completion IS the share-sheet handoff; the
+    /// receipt records it durably (#225).
+    private func recordShareSheetHandoff() {
+        guard let destination = handoffDestinations.first(
+            where: { $0.kind == .shareSheet }
+        ) else {
+            return
+        }
+        Task {
+            await actions.sendCaptureToHTDT(destination)
+        }
+    }
+
+    /// Sheet-binding plumbing for the comparison overlay: a bool is
+    /// enough because `revisionComparison` holds the payload.
+    private var comparisonShown: Binding<Bool> {
+        Binding(
+            get: {
+                revisionComparison != nil || comparisonLoading
+            },
+            set: { shown in
+                if !shown { revisionComparison = nil }
+            }
+        )
     }
 
     private func localizedState(_ state: CaptureState) -> String {

@@ -32,6 +32,8 @@ enum AnnotationPresentation {
             return String(localized: "Equipment rack")
         case .referencePoint:
             return String(localized: "Reference point")
+        case .measurementPoint:
+            return String(localized: "Measurement point")
         case .custom:
             return String(localized: "Custom")
         }
@@ -52,6 +54,7 @@ enum AnnotationPresentation {
             .equipmentRack,
             .acousticTreatment,
             .referencePoint,
+            .measurementPoint,
             .custom,
         ]
     }
@@ -70,6 +73,7 @@ enum AnnotationPresentation {
         case .equipmentRack: return "Rack"
         case .acousticTreatment: return "Treatment"
         case .referencePoint: return "Reference"
+        case .measurementPoint: return "Mic point"
         case .custom: return "Item"
         }
     }
@@ -218,6 +222,12 @@ enum AnnotationPresentation {
             return String(localized: "radians (rad)")
         case .dimensionless:
             return String(localized: "unitless")
+        case .degreeCelsius:
+            return String(localized: "degrees Celsius (°C)")
+        case .percent:
+            return String(localized: "percent (%)")
+        case .second:
+            return String(localized: "seconds (s)")
         }
     }
 
@@ -235,6 +245,8 @@ enum AnnotationPresentation {
             return String(localized: "LiDAR derived")
         case .roomPlanDerived:
             return String(localized: "RoomPlan derived")
+        case .externalInstrument:
+            return String(localized: "External instrument")
         case .other:
             return String(localized: "Other")
         }
@@ -330,6 +342,9 @@ enum AnnotationPresentation {
             case .referencePointConstructionRequired:
                 return String(localized:
                     "Confirm how the captured point was constructed — pick a reference-point construction.")
+            case .pointDirectionUnavailable:
+                return String(localized:
+                    "Point-direction capture is unavailable without a live camera session.")
             case .derivedAcquisitionNotUserAttestable:
                 return String(localized:
                     "Derived acquisition methods are not allowed for manual entries.")
