@@ -387,12 +387,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
     }
 
     private static func isUUIDv4(_ uuid: UUID) -> Bool {
-        var value = uuid.uuid
-        let bytes = withUnsafeBytes(of: &value) {
-            Array($0)
-        }
-        return (bytes[6] & 0xf0) == 0x40
-            && (bytes[8] & 0xc0) == 0x80
+        uuid.isCanonicalUUIDv4
     }
 }
 
