@@ -33,6 +33,7 @@ public enum PlatformTimestamp {
 
 #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
 import ARKit
+import CoreMedia
 import CoreVideo
 import Foundation
 import RoomPlan
@@ -116,6 +117,141 @@ public struct DerivedShapeLiveObservationSet: Sendable {
     )
 }
 
+/// Lifecycle events forwarded from the authoritative `ARSession`.
+///
+/// The host installs `sessionLifecycleHandler` and binds each event to
+/// the capture generation/session authority it belongs to; stale
+/// callbacks from prior generations are filtered by the host.
+public enum ARSessionLifecycleEvent: Sendable, Equatable {
+    /// ARKit began interrupting the session (phone call, app switch,
+    /// system pressure). The session may lose its current frame and
+    /// world tracking authority until `interruptionEnded`.
+    case wasInterrupted
+    /// A previously interrupted session resumed.
+    case interruptionEnded
+    /// The session failed terminally. `reason` is a stable
+    /// `domain#code` diagnostic token, not localized UI text.
+    case failed(reason: String)
+    /// Camera tracking state transitioned. Carries the same state/reason
+    /// mapping as `snapshotTrackingQualityEvent()` so relocalization and
+    /// other authority-affecting transitions follow the coordinate-space
+    /// discontinuity policy.
+    case cameraTrackingStateChanged(TrackingQualityEvent)
+    /// The session produced collaboration data for a peer session. This
+    /// app does not run collaborative sessions; the event is forwarded so
+    /// the host can register unexpected output.
+    case didOutputCollaborationData(priorityIsCritical: Bool)
+}
+
+@available(iOS 17.0, *)
+@MainActor
+private final class ARSessionLifecycleBridge:
+    NSObject,
+    @preconcurrency ARSessionDelegate
+{
+    /// Previously installed session delegate. ARKit exposes exactly one
+    /// `ARSession.delegate`; every callback is forwarded so installing
+    /// this bridge never starves a prior consumer such as
+    /// RoomCaptureView.
+    weak var passthrough: (any ARSessionDelegate)?
+
+    var eventHandler: (
+        @MainActor (ARSessionLifecycleEvent) -> Void
+    )?
+
+    func session(
+        _ session: ARSession,
+        didFailWithError error: any Error
+    ) {
+        let nsError = error as NSError
+        eventHandler?(
+            .failed(reason: "\(nsError.domain)#\(nsError.code)")
+        )
+        passthrough?.session?(session, didFailWithError: error)
+    }
+
+    func sessionWasInterrupted(_ session: ARSession) {
+        eventHandler?(.wasInterrupted)
+        passthrough?.sessionWasInterrupted?(session)
+    }
+
+    func sessionInterruptionEnded(_ session: ARSession) {
+        eventHandler?(.interruptionEnded)
+        passthrough?.sessionInterruptionEnded?(session)
+    }
+
+    func session(
+        _ session: ARSession,
+        cameraDidChangeTrackingState camera: ARCamera
+    ) {
+        eventHandler?(
+            .cameraTrackingStateChanged(
+                SharedARSessionController.trackingQualityEvent(
+                    camera: camera,
+                    sessionTimestampSeconds:
+                        session.currentFrame?.timestamp ?? 0
+                )
+            )
+        )
+        passthrough?.session?(
+            session,
+            cameraDidChangeTrackingState: camera
+        )
+    }
+
+    func session(
+        _ session: ARSession,
+        didOutputCollaborationData data: ARSession.CollaborationData
+    ) {
+        eventHandler?(
+            .didOutputCollaborationData(
+                priorityIsCritical: data.priority == .critical
+            )
+        )
+        passthrough?.session?(
+            session,
+            didOutputCollaborationData: data
+        )
+    }
+
+    // Passthrough-only callbacks: forwarded unchanged so the bridge is
+    // transparent to any delegate that was installed before it.
+
+    func session(_ session: ARSession, didUpdate frame: ARFrame) {
+        passthrough?.session?(session, didUpdate: frame)
+    }
+
+    func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
+        passthrough?.session?(session, didAdd: anchors)
+    }
+
+    func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
+        passthrough?.session?(session, didUpdate: anchors)
+    }
+
+    func session(_ session: ARSession, didRemove anchors: [ARAnchor]) {
+        passthrough?.session?(session, didRemove: anchors)
+    }
+
+    func session(
+        _ session: ARSession,
+        didOutputAudioSampleBuffer audioSampleBuffer: CMSampleBuffer
+    ) {
+        passthrough?.session?(
+            session,
+            didOutputAudioSampleBuffer: audioSampleBuffer
+        )
+    }
+
+    func sessionShouldAttemptRelocalization(
+        _ session: ARSession
+    ) -> Bool {
+        // Matches the ARKit default when no delegate implements it.
+        passthrough?.sessionShouldAttemptRelocalization?(session)
+            ?? true
+    }
+}
+
 @available(iOS 17.0, *)
 @MainActor
 @objc(HTDTRoomPlanViewDelegateBridge)
@@ -162,7 +298,20 @@ public final class SharedARSessionController {
 
     private let roomPlanDelegateBridge =
         RoomPlanViewDelegateBridge()
+    private let sessionDelegateBridge = ARSessionLifecycleBridge()
     private var liveRoomCaptureViewMountObserved = false
+
+    /// Handler invoked on the main actor for ARSession lifecycle events:
+    /// interruption began/ended, terminal failure, camera tracking
+    /// transitions and collaboration-data output. The host binds each
+    /// event to the active capture generation and applies the
+    /// coordinate-discontinuity/recoverability policy.
+    public var sessionLifecycleHandler: (
+        @MainActor (ARSessionLifecycleEvent) -> Void
+    )? {
+        get { sessionDelegateBridge.eventHandler }
+        set { sessionDelegateBridge.eventHandler = newValue }
+    }
 
     public init(
         arSession: ARSession = ARSession(),
@@ -176,6 +325,24 @@ public final class SharedARSessionController {
         )
         self.roomCaptureView.isModelEnabled = true
         self.roomCaptureView.delegate = roomPlanDelegateBridge
+        installSessionLifecycleBridge()
+    }
+
+    /// Installs the lifecycle bridge as `arSession.delegate` while
+    /// preserving any previously installed delegate via passthrough
+    /// forwarding. Re-invoked after RoomPlan start because
+    /// RoomCaptureView may reclaim the session delegate when its capture
+    /// session runs.
+    public func installSessionLifecycleBridge() {
+        if let existing = arSession.delegate,
+           existing !== sessionDelegateBridge
+        {
+            sessionDelegateBridge.passthrough = existing
+        }
+        // The bridge is MainActor-isolated; pin delegate callbacks to
+        // the main queue so isolation is guaranteed at the ARKit edge.
+        arSession.delegateQueue = .main
+        arSession.delegate = sessionDelegateBridge
     }
 
     public func setRoomPlanModelRenderingEnabled(
@@ -253,6 +420,10 @@ public final class SharedARSessionController {
             throw PlatformCaptureError.roomPlanUnsupported
         }
         roomCaptureSession.run(configuration: configuration)
+        // RoomCaptureView may install itself as the ARSession delegate
+        // when its capture session runs; reclaim the delegate while
+        // forwarding every callback back to it.
+        installSessionLifecycleBridge()
     }
 
     public func stopRoomPlanPreservingARSession() {
@@ -1613,28 +1784,38 @@ public final class SharedARSessionController {
     private func trackingQualityEvent(
         from frame: ARFrame
     ) -> TrackingQualityEvent {
-        switch frame.camera.trackingState {
+        Self.trackingQualityEvent(
+            camera: frame.camera,
+            sessionTimestampSeconds: frame.timestamp
+        )
+    }
+
+    fileprivate static func trackingQualityEvent(
+        camera: ARCamera,
+        sessionTimestampSeconds: Double
+    ) -> TrackingQualityEvent {
+        switch camera.trackingState {
         case .normal:
             return TrackingQualityEvent(
-                sessionTimestampSeconds: frame.timestamp,
+                sessionTimestampSeconds: sessionTimestampSeconds,
                 state: .normal
             )
         case .notAvailable:
             return TrackingQualityEvent(
-                sessionTimestampSeconds: frame.timestamp,
+                sessionTimestampSeconds: sessionTimestampSeconds,
                 state: .unavailable,
                 reason: "arkit_not_available"
             )
         case let .limited(reason):
             return TrackingQualityEvent(
-                sessionTimestampSeconds: frame.timestamp,
+                sessionTimestampSeconds: sessionTimestampSeconds,
                 state: .limited,
                 reason: trackingReasonToken(reason)
             )
         }
     }
 
-    private func trackingReasonToken(
+    fileprivate static func trackingReasonToken(
         _ reason: ARCamera.TrackingState.Reason
     ) -> String {
         switch reason {
