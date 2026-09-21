@@ -2086,13 +2086,18 @@ public actor CaptureWorkingSetStore {
             roomPlanStatus = .notStarted
         }
 
+        // Quality-facing counts are usable-geometry counts (issue
+        // #169): a committed mesh anchor with zero faces and a depth
+        // map whose samples are all invalid must not satisfy the mesh
+        // requirement or the depth fallback. Raw container counts stay
+        // on the snapshot for diagnostics.
         return CaptureQualityEvaluator.evaluate(
             CaptureQualityObservation(
                 trackingEvents: trackingEvents,
                 roomPlanStatus: roomPlanStatus,
-                activeMeshAnchorCount: meshAnchorCount ?? 0,
+                activeMeshAnchorCount: usableMeshAnchorCount ?? 0,
                 evidenceFrameCount: evidenceFrameCount,
-                depthEvidenceCount: depthEvidenceCount,
+                depthEvidenceCount: usableDepthEvidenceCount,
                 annotationKeysPresent: annotationKeysPresent,
                 measurementQuantityTypesPresent:
                     measurementQuantityTypesPresent,
