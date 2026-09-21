@@ -19,6 +19,7 @@ from tools.bundle_validator.validator import (
     validate_bundle,
 )
 import tools.htdt_ingestion.reference_ingestor as reference_ingestor
+from tools.htdt_ingestion import plan_schema
 from tools.htdt_ingestion.reference_ingestor import (
     IngestionError,
     build_ingestion_plan,
@@ -1025,6 +1026,91 @@ class ReferenceIngestorTests(unittest.TestCase):
             validate_bundle(copy_root)
             with self.assertRaises(IngestionError):
                 build_ingestion_plan(copy_root)
+
+    def test_generated_plan_conforms_to_published_schema(self):
+        plan = build_ingestion_plan(FIXTURE)
+        self.assertEqual(
+            plan_schema.validate_plan_document(plan),
+            [],
+        )
+
+    def test_plan_with_roomplan_metadata_conforms_to_schema(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+            self._stage_roomplan_metadata(copy_root)
+            plan = build_ingestion_plan(copy_root)
+            self.assertEqual(
+                plan_schema.validate_plan_document(plan),
+                [],
+            )
+
+    def test_schema_rejects_malformed_plan_variants(self):
+        plan = build_ingestion_plan(FIXTURE)
+
+        def extra_source_field(variant):
+            variant["source_evidence"][0]["unexpected"] = True
+
+        def wrong_roomplan_provenance(variant):
+            record = next(
+                item
+                for item in variant["roomplan_records"]
+                if item["kind"] == "raw_scan"
+            )
+            record["provenance_class"] = "apple_roomplan_inference"
+
+        def bad_uuid(variant):
+            variant["bundle"]["capture_series_id"] = "not-a-uuid"
+
+        def short_transform(variant):
+            variant["raw_visual_mesh_handoffs"][0][
+                "T_world_from_mesh_anchor"
+            ]["values"] = [0.0] * 15
+
+        def missing_required(variant):
+            del variant["roomplan_capture_metadata"]
+
+        def bad_provenance_enum(variant):
+            variant["source_evidence"][0]["provenance_class"] = "unknown"
+
+        def bad_resolution_kind(variant):
+            variant["authority_records"][0]["resolved_evidence"] = [
+                {"ref": "user:x", "kind": "bogus", "target": None}
+            ]
+
+        def locator_kind_mismatch(variant):
+            variant["authority_records"][0]["record_locator"] = (
+                "annotations/measurements.json#measurement:"
+                "10000000-0000-4000-8000-000000000006"
+            )
+
+        def bad_source_ref(variant):
+            variant["source_evidence"][0]["source_refs"] = ["opaque:x"]
+
+        def bad_evidence_ref(variant):
+            variant["authority_records"][0]["evidence_refs"] = [
+                "unsupported:thing"
+            ]
+
+        for mutate in (
+            extra_source_field,
+            wrong_roomplan_provenance,
+            bad_uuid,
+            short_transform,
+            missing_required,
+            bad_provenance_enum,
+            bad_resolution_kind,
+            locator_kind_mismatch,
+            bad_source_ref,
+            bad_evidence_ref,
+        ):
+            with self.subTest(mutate=mutate.__name__):
+                variant = copy.deepcopy(plan)
+                mutate(variant)
+                self.assertNotEqual(
+                    plan_schema.validate_plan_document(variant),
+                    [],
+                )
 
     def test_reference_ingestor_rejects_unknown_source_ref_prefix(self):
         with tempfile.TemporaryDirectory() as td:
