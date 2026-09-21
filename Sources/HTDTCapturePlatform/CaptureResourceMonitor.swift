@@ -4,6 +4,22 @@ import HTDTCaptureCore
 import Foundation
 import UIKit
 
+/// Stable, machine-safe tokens used in `CaptureResourceEvent.detail` values
+/// produced by `CaptureResourceMonitor`. Event details are persisted in
+/// canonical `quality/capture-quality.json`, so they must never embed
+/// localized or platform-versioned text (#183).
+public enum CaptureResourceMonitorDetailToken {
+    /// `volumeAvailableCapacityForImportantUsage` could not be determined:
+    /// the query succeeded but the platform reported no value. Distinct from
+    /// "enough storage" — see #181.
+    public static let storageCapacityUnavailable =
+        "storage_capacity_unavailable"
+    /// The capacity query threw. The detail appends the stable `NSError`
+    /// domain and integer code as ` domain=<domain> code=<code>` so the same
+    /// failure produces identical canonical bytes regardless of locale.
+    public static let storageSampleFailed = "storage_sample_failed"
+}
+
 public struct CaptureResourceMonitorPolicy: Sendable, Equatable {
     public let storageWarningBytes: Int64
     public let storageCriticalBytes: Int64
@@ -135,13 +151,21 @@ public final class CaptureResourceMonitor: NSObject {
             }
             return nil
         } catch {
+            // NSError domain + integer code are stable machine identifiers,
+            // unlike `localizedDescription` (#183). The domain is bounded so
+            // canonical detail bytes stay bounded.
+            let nsError = error as NSError
             return CaptureResourceAssessment(
                 event: CaptureResourceEvent(
                     kind: .storagePressure,
                     severity: .warning,
                     detail:
-                        "available storage could not be sampled: "
-                        + error.localizedDescription
+                        CaptureResourceMonitorDetailToken
+                            .storageSampleFailed
+                        + " domain="
+                        + String(nsError.domain.prefix(128))
+                        + " code="
+                        + String(nsError.code)
                 ),
                 failure: nil
             )
