@@ -605,6 +605,7 @@ final class DerivedShapeProxyTests: XCTestCase {
                 )
         )
 
+        XCTAssertTrue(wall.isClosed)
         XCTAssertGreaterThanOrEqual(wall.vertices.count, 4)
         XCTAssertTrue(
             wall.vertices.allSatisfy {
@@ -614,6 +615,132 @@ final class DerivedShapeProxyTests: XCTestCase {
         XCTAssertTrue(
             snapshot.disagreements.contains(.wallHeading)
         )
+    }
+
+    func testClosedRoomWallObservationStaysClosed() {
+        let room = [
+            DerivedPoint2D(x: -2, y: -2),
+            DerivedPoint2D(x: 2, y: -2),
+            DerivedPoint2D(x: 2, y: 2),
+            DerivedPoint2D(x: -2, y: 2),
+        ]
+        let observation = observation(
+            samplePolygon(room, samplesPerEdge: 10)
+        )
+
+        guard let wall =
+            DerivedShapeProxyFitter.wallChain(
+                observation: observation
+            )
+        else {
+            return XCTFail("Expected wall chain")
+        }
+
+        XCTAssertTrue(wall.isClosed)
+        XCTAssertGreaterThanOrEqual(wall.vertices.count, 4)
+    }
+
+    func testPartialWallObservationEmitsOpenChainWithoutSyntheticEdge() {
+        // Three walls of a square room: the fourth side was never
+        // observed, so the chain must stay open and must not emit a
+        // closing segment across the unobserved side.
+        let room = [
+            DerivedPoint2D(x: -2, y: -2),
+            DerivedPoint2D(x: 2, y: -2),
+            DerivedPoint2D(x: 2, y: 2),
+            DerivedPoint2D(x: -2, y: 2),
+        ]
+        var points: [DerivedPoint2D] = []
+        for edge in [0, 1, 3] {
+            let a = room[edge]
+            let b = room[(edge + 1) % room.count]
+            for sample in 0..<10 {
+                let t = Double(sample) / 10
+                points.append(
+                    DerivedPoint2D(
+                        x: a.x + (b.x - a.x) * t,
+                        y: a.y + (b.y - a.y) * t
+                    )
+                )
+            }
+        }
+
+        guard let wall =
+            DerivedShapeProxyFitter.wallChain(
+                observation: observation(points)
+            )
+        else {
+            return XCTFail("Expected wall chain")
+        }
+
+        XCTAssertFalse(wall.isClosed)
+        XCTAssertGreaterThanOrEqual(wall.vertices.count, 3)
+
+        // No emitted segment may bridge the unobserved top side
+        // (y == 2 between the two top corners).
+        for index in wall.vertices.indices {
+            let a = wall.vertices[index].position
+            let b =
+                wall.vertices[
+                    (index + 1) % wall.vertices.count
+                ].position
+            let spansUnobservedSide =
+                abs(a.y - 2) < 0.01
+                && abs(b.y - 2) < 0.01
+                && abs(a.x - b.x) > 1
+            XCTAssertFalse(spansUnobservedSide)
+        }
+
+        // The open endpoints are the two wall ends on the unobserved
+        // side (either traversal direction).
+        let endpoints = [
+            wall.vertices.first?.position,
+            wall.vertices.last?.position,
+        ]
+        XCTAssertTrue(
+            endpoints.contains {
+                ($0?.x ?? 0) > 1.9 && abs(($0?.y ?? 0) - 2) < 0.01
+            }
+        )
+        XCTAssertTrue(
+            endpoints.contains {
+                ($0?.x ?? 0) < -1.9 && abs(($0?.y ?? 0) - 2) < 0.01
+            }
+        )
+    }
+
+    func testDisconnectedWallRunsAreNotBridged() {
+        // Two opposite walls with nothing observed between them must not
+        // be joined into a closed perimeter.
+        var points: [DerivedPoint2D] = []
+        for x in [-2.0, 2.0] {
+            for sample in 0..<10 {
+                let t = Double(sample) / 10
+                points.append(
+                    DerivedPoint2D(x: x, y: -2 + 4 * t)
+                )
+            }
+        }
+
+        guard let wall =
+            DerivedShapeProxyFitter.wallChain(
+                observation: observation(points)
+            )
+        else {
+            return XCTFail("Expected wall chain")
+        }
+
+        XCTAssertFalse(wall.isClosed)
+        // The emitted run is a single observed wall line, never a
+        // bridging segment across the empty middle of the room.
+        let first = wall.vertices.first?.position
+        let last = wall.vertices.last?.position
+        XCTAssertNotNil(first)
+        XCTAssertNotNil(last)
+        if let first, let last {
+            XCTAssertLessThan(abs(first.x - last.x), 0.05)
+            XCTAssertGreaterThan(abs(first.y - last.y), 3.0)
+        }
     }
 
     func testAdversarialPointSetNeverEmitsSelfIntersectingPolygon() {

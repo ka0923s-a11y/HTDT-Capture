@@ -1399,9 +1399,110 @@ public enum DerivedShapeProxyFitter {
             return nil
         }
 
+        // Live wall observations are legitimately partial: bounded mesh
+        // coverage can hold only some sides of the room. Treating the
+        // fitted ring as unconditionally closed would invent an
+        // unobserved edge between the last and first vertices (a wall
+        // across an open side, or a bridge between disconnected runs).
+        // Measure each ring edge against the observed wall points and
+        // keep only directly supported segments.
+        let ring = geometry.vertices
+        let count = ring.count
+        let supportRadius = max(0.15, scale * 0.06)
+        let probeSpacing = max(0.20, scale * 0.05)
+
+        var edgeSupported = [Bool](repeating: false, count: count)
+        for index in 0..<count {
+            let a = ring[index].position
+            let b = ring[(index + 1) % count].position
+            let length = hypot(b.x - a.x, b.y - a.y)
+            let probeCount = max(
+                2,
+                min(24, Int((length / probeSpacing).rounded(.up)))
+            )
+            var supportedProbes = 0
+            for probe in 1...probeCount {
+                let t = Double(probe) / Double(probeCount + 1)
+                let probeX = a.x + (b.x - a.x) * t
+                let probeY = a.y + (b.y - a.y) * t
+                let probeIsObserved = points.contains {
+                    hypot(
+                        $0.position.x - probeX,
+                        $0.position.y - probeY
+                    ) <= supportRadius
+                }
+                if probeIsObserved {
+                    supportedProbes += 1
+                }
+            }
+            edgeSupported[index] =
+                Double(supportedProbes) / Double(probeCount) >= 0.5
+        }
+
+        if edgeSupported.allSatisfy({ $0 }) {
+            // Every ring edge is backed by observed wall evidence, so the
+            // observed topology is genuinely a closed loop.
+            return DerivedWallChainProxy(
+                vertices: ring,
+                isClosed: true,
+                provenance: provenance(
+                    observation: observation,
+                    metrics: polygon.metrics
+                )
+            )
+        }
+
+        // Split the ring at unsupported edges into observed runs and
+        // emit the longest run as an open chain. Disconnected wall runs
+        // are never joined by an invented segment, and no synthetic
+        // first-to-last edge is emitted.
+        guard let firstBroken = edgeSupported.firstIndex(of: false)
+        else {
+            return nil
+        }
+        var runs: [[SupportedPolygonVertex]] = []
+        var currentRun: [SupportedPolygonVertex] = []
+        for offset in 0..<count {
+            let index = (firstBroken + 1 + offset) % count
+            currentRun.append(ring[index])
+            if !edgeSupported[index] {
+                runs.append(currentRun)
+                currentRun = []
+            }
+        }
+        if !currentRun.isEmpty {
+            runs.append(currentRun)
+        }
+
+        let longestRun = runs.sorted { lhs, rhs in
+            if lhs.count != rhs.count {
+                return lhs.count > rhs.count
+            }
+            if let lhsFirst = lhs.first,
+               let rhsFirst = rhs.first
+            {
+                if pointLess(lhsFirst.position, rhsFirst.position) {
+                    return true
+                }
+                if pointLess(rhsFirst.position, lhsFirst.position) {
+                    return false
+                }
+            }
+            if let lhsLast = lhs.last,
+               let rhsLast = rhs.last
+            {
+                return pointLess(lhsLast.position, rhsLast.position)
+            }
+            return false
+        }.first
+
+        guard let longestRun, longestRun.count >= 2 else {
+            return nil
+        }
+
         return DerivedWallChainProxy(
-            vertices: geometry.vertices,
-            isClosed: true,
+            vertices: longestRun,
+            isClosed: false,
             provenance: provenance(
                 observation: observation,
                 metrics: polygon.metrics
@@ -2936,7 +3037,15 @@ public enum DerivedShapeDisagreementEvaluator {
             return false
         }
 
-        for index in points.indices {
+        // An open chain has no corner at its endpoints: the first and
+        // last vertices each touch only one observed edge, so treating
+        // them as ring corners would measure against an unobserved edge.
+        let indices: [Int] =
+            wallChain.isClosed
+            ? Array(points.indices)
+            : Array(1..<(points.count - 1))
+
+        for index in indices {
             let previous =
                 points[
                     (index - 1 + points.count)
