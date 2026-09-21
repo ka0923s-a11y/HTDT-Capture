@@ -40,8 +40,12 @@ public enum CaptureEvent: Sendable, Equatable {
     case beginValidation
     case validationFailed
     case finalize
-    /// Adopt an already-persisted, revalidated finalized revision after
-    /// relaunch. This never fabricates Review or scanning state: the
+    /// Adopt an already-persisted finalized revision whose bytes are
+    /// durable truth: after relaunch (from `.idle`), after the
+    /// irreversible commit point when post-promotion validation cannot
+    /// prove the revision (from `.validating`), or when a racing failure
+    /// resolved while a committed promotion was already durable (from
+    /// `.failed`). This never fabricates Review or scanning state: the
     /// working set and its AR coordinate authority are gone.
     case adoptFinalized
     case export
@@ -105,7 +109,8 @@ public struct CaptureStateMachine: Sendable, Equatable {
             state = .reviewing
         case (.validating, .finalize):
             state = .finalized
-        case (.idle, .adoptFinalized):
+        case (.idle, .adoptFinalized), (.validating, .adoptFinalized),
+             (.failed, .adoptFinalized):
             state = .finalized
         case (.finalized, .export):
             state = .exported
@@ -116,5 +121,181 @@ public struct CaptureStateMachine: Sendable, Equatable {
         default:
             throw CaptureStateMachineError(state: state, event: event)
         }
+    }
+}
+
+extension CaptureFailureCode {
+    /// Terminal resource/lifecycle conditions that the finalization
+    /// commit policy can fence while a promotion is in flight (#185).
+    /// Non-lifecycle failures (persistence, tracking, RoomPlan, ...)
+    /// keep their ordinary immediate handling and still invalidate the
+    /// capture generation.
+    public var isLifecycleFailure: Bool {
+        switch self {
+        case .interrupted, .thermalPressure, .storagePressure:
+            return true
+        case .permissionDenied, .unsupportedDevice,
+             .trackingUnavailable, .roomPlanFailure,
+             .persistenceFailure, .unknown:
+            return false
+        }
+    }
+}
+
+/// The phase of a host finalization commit transaction (#160/#185).
+public enum FinalizationCommitPhase: String, Sendable, Equatable {
+    /// No commit transaction is claimed.
+    case inactive
+    /// The transaction is claimed and the working-set seal is held,
+    /// but the irreversible promotion has not committed. A fenced
+    /// lifecycle failure may still cancel the transaction.
+    case commitClaimed
+    /// The atomic promotion already moved the working directory into
+    /// `finalized/`. The revision is durable truth and must be adopted;
+    /// rollback semantics no longer apply and commit wins over any
+    /// fenced lifecycle failure.
+    case promoted
+}
+
+/// Commit-point policy for host finalization (#160/#185).
+///
+/// The coordinator claims the commit transaction when finalization
+/// begins (`claimCommit`), marks the irreversible filesystem promotion
+/// (`markPromoted`), and resolves the transaction (`reset`) once the
+/// outcome is applied. While the transaction is claimed, terminal
+/// lifecycle/resource failures (`interrupted`, `thermalPressure`,
+/// `storagePressure`) are fenced instead of invalidating the capture
+/// generation underneath an in-flight promotion:
+///
+/// - before promotion, `preCommitFailure` lets the host cancel the
+///   transaction with no finalized destination produced, then apply
+///   the deferred failure through the ordinary Review/failed policy;
+/// - after promotion, `postCommitFailure` is surfaced as post-capture
+///   status while the promoted revision is adopted (commit wins).
+///
+/// Non-lifecycle failures are never fenced, and ordinary stale-callback
+/// generation fencing is unchanged outside the transaction.
+public struct FinalizationCommitPolicy: Sendable, Equatable {
+    public private(set) var phase: FinalizationCommitPhase
+    /// The first lifecycle failure fenced while the commit transaction
+    /// was claimed, if any. Only the first is retained so the host
+    /// applies a single deterministic lifecycle resolution.
+    public private(set) var fencedFailure: CaptureFailureCode?
+
+    public init(
+        phase: FinalizationCommitPhase = .inactive,
+        fencedFailure: CaptureFailureCode? = nil
+    ) {
+        self.phase = phase
+        self.fencedFailure = fencedFailure
+    }
+
+    /// Whether the commit transaction is claimed and unresolved.
+    public var isClaimed: Bool {
+        phase != .inactive
+    }
+
+    /// Whether the irreversible promotion already committed.
+    public var isPromoted: Bool {
+        phase == .promoted
+    }
+
+    /// Claim the commit transaction. Claiming is idempotent so a
+    /// retried finalization attempt cannot double-claim.
+    public mutating func claimCommit() {
+        if phase == .inactive {
+            phase = .commitClaimed
+        }
+    }
+
+    /// Record the irreversible promotion. Once marked, pre-commit
+    /// cancellation is no longer available.
+    public mutating func markPromoted() {
+        if phase == .commitClaimed {
+            phase = .promoted
+        }
+    }
+
+    /// Fence a failure observed while the transaction is claimed.
+    /// Returns true when `failure` is a lifecycle/resource failure
+    /// absorbed by the policy; false when ordinary failure handling
+    /// applies.
+    public mutating func fenceLifecycleFailure(
+        _ failure: CaptureFailureCode
+    ) -> Bool {
+        guard phase != .inactive,
+              failure.isLifecycleFailure
+        else {
+            return false
+        }
+        if fencedFailure == nil {
+            fencedFailure = failure
+        }
+        return true
+    }
+
+    /// The fenced failure that must cancel the transaction before
+    /// promotion begins, if any. Once promoted this returns nil —
+    /// pre-commit cancellation is no longer possible.
+    public func preCommitFailure() -> CaptureFailureCode? {
+        phase == .commitClaimed ? fencedFailure : nil
+    }
+
+    /// The fenced failure to surface as post-capture status after a
+    /// committed promotion, if any.
+    public func postCommitFailure() -> CaptureFailureCode? {
+        phase == .promoted ? fencedFailure : nil
+    }
+
+    /// Resolve the transaction. A resolved commit no longer fences new
+    /// failures.
+    public mutating func reset() {
+        phase = .inactive
+        fencedFailure = nil
+    }
+}
+
+/// Transition-compaction gate for canonical tracking history (#148).
+///
+/// The live scan loop samples AR tracking roughly four times per
+/// second, but the working-set quality authority must record a bounded
+/// history, not every sample. The gate emits the first observed
+/// (state, reason) pair as the baseline and then emits only genuine
+/// state/reason transitions; identical consecutive samples are
+/// compacted away. The working-set store additionally bounds retained
+/// history.
+///
+/// The gate is deliberately payload-agnostic about severity: a
+/// transition into `.unavailable` is recorded faithfully and the
+/// quality evaluator applies the configured policy to it.
+public struct ScanTrackingTransitionGate: Sendable, Equatable {
+    private var lastState: TrackingQualityState?
+    private var lastReason: String?
+
+    public init() {
+        lastState = nil
+        lastReason = nil
+    }
+
+    /// Whether `event` opens a new state/reason interval that should be
+    /// persisted into the canonical tracking history.
+    public mutating func shouldRecord(
+        _ event: TrackingQualityEvent
+    ) -> Bool {
+        if lastState == event.state,
+           lastReason == event.reason
+        {
+            return false
+        }
+        lastState = event.state
+        lastReason = event.reason
+        return true
+    }
+
+    /// Forget the current interval baseline. A fresh capture must start
+    /// with an empty gate so its first sample is recorded.
+    public mutating func reset() {
+        lastState = nil
+        lastReason = nil
     }
 }

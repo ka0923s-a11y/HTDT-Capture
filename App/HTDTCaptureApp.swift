@@ -147,6 +147,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var captureGeneration = UUID()
     private var isEndingScan = false
     private var isCapturingEvidenceFrame = false
+    /// Handle on the in-flight manual evidence-save persistence task.
+    /// End drains it before sampling the working set so a committed
+    /// save lands wholly before the End boundary (#179).
+    private var evidenceFrameSaveTask: Task<Void, Never>?
     private var endScanPreflightBlocked = false
     private var captureStartTimingCorrelation:
         CaptureTimingCorrelation?
@@ -158,6 +162,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var reviewOperationInFlight = false
     private var exportOperationInFlight = false
     private var spatialAuthoritySealedForFinalization = false
+    /// Explicit commit-point policy for the finalization transaction
+    /// (#185). While claimed, terminal lifecycle/resource failures are
+    /// fenced instead of invalidating the capture generation; a fenced
+    /// failure either cancels the transaction pre-promotion (no
+    /// finalized destination produced) or is surfaced as post-capture
+    /// status after the promoted revision is adopted (commit wins).
+    private var finalizationCommit = FinalizationCommitPolicy()
     private var persistedStore: PersistedCaptureInventory?
     private var persistedInventoryRequest = 0
     private var persistedAdoptionInFlight = false
@@ -198,6 +209,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         )
     private var scanCoverageTask: Task<Void, Never>?
+    private var scanTrackingTransitionGate =
+        ScanTrackingTransitionGate()
     private var memoryWarningCancellable: AnyCancellable?
     private var derivedPreviewSuspendedForMemoryPressure = false
     private var roomPlanModelRenderingEnabled = true
@@ -277,6 +290,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewOperationInFlight = false
         exportOperationInFlight = false
         spatialAuthoritySealedForFinalization = false
+        finalizationCommit.reset()
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
         scanCoverageTracker = AdvisoryScanCoverageTracker()
@@ -327,6 +341,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         scanDepthEvidenceCount = 0
         endScanGuidance = nil
         endScanPreflightBlocked = false
+        scanTrackingTransitionGate.reset()
         resourceMonitor?.stop()
         resourceMonitor = nil
         resourceEventTask = nil
@@ -369,10 +384,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         isCapturingEvidenceFrame = true
         let generation = captureGeneration
-        let artifacts: CapturedFrameArtifacts
+        // Synchronous MainActor boundary (#177): the platform split API
+        // retains only the frame buffers plus pose/intrinsics metadata
+        // here; binary packing, SHA-256 and HEIC preview generation are
+        // deferred to the async materialize boundary inside the
+        // persistence task so they run off MainActor. CONTRACT:
+        // CapturedFrameSnapshot is the sibling platform agent's
+        // retained-snapshot type name; if it lands under a different
+        // name this annotation is the single host-side rename site.
+        let frameSnapshot: CapturedFrameSnapshot
 
         do {
-            artifacts =
+            frameSnapshot =
                 try sessionController.snapshotFrameEvidence(
                     depthSelection: .discrete
                 )
@@ -400,13 +423,52 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        Task { @MainActor [weak self] in
+        // Keep a handle on the persistence task so End can claim its
+        // boundary atomically and drain this save before it samples the
+        // working set (#179). While End holds isEndingScan the save's
+        // commit still lands (its bytes are canonically before the End
+        // snapshot) but its UI continuation is suppressed so a stale
+        // continuation cannot overwrite End/Review status.
+        evidenceFrameSaveTask = Task { @MainActor [weak self] in
             guard let self else {
                 return
             }
             defer {
                 self.isCapturingEvidenceFrame = false
+                self.evidenceFrameSaveTask = nil
             }
+            guard self.captureGeneration == generation,
+                  self.state == .scanning
+            else {
+                return
+            }
+
+            // Async boundary (#177): binary packing, SHA-256 and the
+            // derived HEIC preview run off MainActor inside the
+            // platform adapter's materialize step. The retained
+            // snapshot keeps the same-frame pixel/depth/pose
+            // association; a preview failure is non-blocking by
+            // contract. CONTRACT: sibling platform agent exposes
+            // ARFrameArtifactAdapter.materialize(_:) -> CapturedFrameArtifacts.
+            let artifacts: CapturedFrameArtifacts
+            do {
+                artifacts = try await ARFrameArtifactAdapter
+                    .materialize(frameSnapshot)
+            } catch {
+                guard !self.isEndingScan else {
+                    return
+                }
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "Evidence frame could not be prepared; this scan is still active",
+                        "証拠フレームを準備できませんでしたが、現在のスキャンは継続中です"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+                return
+            }
+
             guard self.captureGeneration == generation,
                   self.state == .scanning
             else {
@@ -423,6 +485,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     previewPayload: artifacts.previewPayload
                 )
             } catch {
+                guard !self.isEndingScan else {
+                    return
+                }
                 self.workingSetStatus =
                     HostLocalization.text(
                         "Evidence frame package could not be built; this scan is still active",
@@ -447,6 +512,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     Self.persistenceDiagnostic(error)
 
                 if error is CaptureWorkingSetError {
+                    // A capture-authority conflict is terminal even when
+                    // End is draining this save: End cannot proceed on a
+                    // corrupted working set either.
                     self.workingSetStatus =
                         HostLocalization.text(
                             "Evidence-frame persistence hit a capture-authority conflict and cannot continue safely",
@@ -459,6 +527,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
 
+                // The partial write must be fully resolved before End
+                // may continue; never leave undeclared bytes behind.
                 do {
                     try await store.discardUncommittedFramePackage(
                         package
@@ -492,7 +562,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     )
                 )
                 guard self.captureGeneration == generation,
-                      self.state == .scanning
+                      self.state == .scanning,
+                      !self.isEndingScan
                 else {
                     return
                 }
@@ -513,7 +584,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
             let snapshot = await store.snapshot()
             guard self.captureGeneration == generation,
-                  self.state == .scanning
+                  self.state == .scanning,
+                  !self.isEndingScan
             else {
                 return
             }
@@ -546,6 +618,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                   self.captureGeneration == generation
             else {
                 return
+            }
+
+            // The End boundary must own a stable evidence set (#179):
+            // drain an in-flight manual evidence save so its commit or
+            // rollback is fully resolved before End snapshots the
+            // working set. isEndingScan already blocks a new save from
+            // starting and suppresses the drained save's UI
+            // continuation, so the drained commit is deterministically
+            // inside the End boundary.
+            if let pendingSave = self.evidenceFrameSaveTask {
+                await pendingSave.value
             }
 
             guard let prepared =
@@ -701,14 +784,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             try sessionController.snapshotHorizontalCameraHeading(
                 depthSelection: .discrete
             )
+        // #177: materialize performs packing/hashing/HEIC off
+        // MainActor; the retained snapshot preserves the same-frame
+        // pose/pixel/depth association.
+        let frameArtifacts =
+            try await ARFrameArtifactAdapter.materialize(
+                snapshot.frameArtifacts
+            )
         let package = try FrameEvidencePackageBuilder.build(
-            descriptor: snapshot.frameArtifacts.descriptor,
-            pixelPayload: snapshot.frameArtifacts.pixelPayload,
-            depthPayload: snapshot.frameArtifacts.depthPayload,
+            descriptor: frameArtifacts.descriptor,
+            pixelPayload: frameArtifacts.pixelPayload,
+            depthPayload: frameArtifacts.depthPayload,
             confidencePayload:
-                snapshot.frameArtifacts.confidencePayload,
+                frameArtifacts.confidencePayload,
             previewPayload:
-                snapshot.frameArtifacts.previewPayload
+                frameArtifacts.previewPayload
         )
         try await store.persistFramePackage(package)
 
@@ -758,14 +848,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             try sessionController.snapshotCenterRaycastPlacement(
                 depthSelection: .discrete
             )
+        // #177: materialize performs packing/hashing/HEIC off
+        // MainActor; the retained snapshot preserves the same-frame
+        // pose/pixel/depth association.
+        let frameArtifacts =
+            try await ARFrameArtifactAdapter.materialize(
+                snapshot.frameArtifacts
+            )
         let package = try FrameEvidencePackageBuilder.build(
-            descriptor: snapshot.frameArtifacts.descriptor,
-            pixelPayload: snapshot.frameArtifacts.pixelPayload,
-            depthPayload: snapshot.frameArtifacts.depthPayload,
+            descriptor: frameArtifacts.descriptor,
+            pixelPayload: frameArtifacts.pixelPayload,
+            depthPayload: frameArtifacts.depthPayload,
             confidencePayload:
-                snapshot.frameArtifacts.confidencePayload,
+                frameArtifacts.confidencePayload,
             previewPayload:
-                snapshot.frameArtifacts.previewPayload
+                frameArtifacts.previewPayload
         )
         try await store.persistFramePackage(package)
 
@@ -1322,6 +1419,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewOperationInFlight = false
         exportOperationInFlight = false
         spatialAuthoritySealedForFinalization = false
+        finalizationCommit.reset()
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
         scanCoverageTracker = AdvisoryScanCoverageTracker()
@@ -1385,6 +1483,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         isEndingScan = false
         isCapturingEvidenceFrame = false
+        evidenceFrameSaveTask = nil
+        scanTrackingTransitionGate.reset()
         capabilities = PlatformCapabilityProbe.current()
         cameraPermission = CameraPermissionController.currentStatus()
 
@@ -1803,6 +1903,26 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         }
 
+        // CONTRACT (#168): the sibling platform agent exposes an
+        // ARSession lifecycle surface `sessionLifecycleHandler` on
+        // SharedARSessionController delivering interruption-began,
+        // interruption-ended, and terminal-failure events on MainActor.
+        // Bind it to this capture generation so stale callbacks from a
+        // prior session authority cannot reach the current working set.
+        sessionController.sessionLifecycleHandler = {
+            [weak self] event in
+            guard let self,
+                  self.captureGeneration == generation
+            else {
+                return
+            }
+            self.handleSessionLifecycleEvent(
+                event,
+                store: store,
+                generation: generation
+            )
+        }
+
         do {
             try transition(.prepared)
         } catch {
@@ -2109,16 +2229,39 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return nil
         }
 
+        // #177: binary packing, hashing and the HEIC preview for the
+        // retained End frame run off MainActor inside the materialize
+        // boundary; the synchronous snapshot above already rejected an
+        // unavailable-tracking frame before this expensive step.
+        let endFrameArtifacts: CapturedFrameArtifacts
+        do {
+            endFrameArtifacts = try await ARFrameArtifactAdapter
+                .materialize(evidence.frameArtifacts)
+        } catch {
+            endScanGuidance = HostLocalization.text(
+                "Cannot end yet: the selected camera/depth frame could not be prepared. Hold the phone steady on the target for 1–2 seconds, then try End again.",
+                "まだ終了できません：終了用のカメラ／深度フレームを準備できません。対象へ向けたまま 1〜2 秒静止してから、もう一度「終了」を押してください。"
+            )
+            return nil
+        }
+
+        guard captureGeneration == generation,
+              state == .scanning,
+              isEndingScan
+        else {
+            return nil
+        }
+
         let framePackage: FrameEvidencePackage
         do {
             framePackage = try FrameEvidencePackageBuilder.build(
-                descriptor: evidence.frameArtifacts.descriptor,
-                pixelPayload: evidence.frameArtifacts.pixelPayload,
-                depthPayload: evidence.frameArtifacts.depthPayload,
+                descriptor: endFrameArtifacts.descriptor,
+                pixelPayload: endFrameArtifacts.pixelPayload,
+                depthPayload: endFrameArtifacts.depthPayload,
                 confidencePayload:
-                    evidence.frameArtifacts.confidencePayload,
+                    endFrameArtifacts.confidencePayload,
                 previewPayload:
-                    evidence.frameArtifacts.previewPayload
+                    endFrameArtifacts.previewPayload
             )
             _ = try CaptureTimingPackageBuilder.build(
                 start: startTiming,
@@ -2134,7 +2277,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         let hasDepth =
             snapshot.depthEvidenceCount > 0
-            || evidence.frameArtifacts.depthPayload != nil
+            || endFrameArtifacts.depthPayload != nil
         let hasMesh =
             evidence.meshSnapshotSucceeded
             && !evidence.meshAnchors.isEmpty
@@ -2799,6 +2942,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             motionGuidanceTracker = ScanMotionGuidanceTracker()
             motionGuidance = nil
             scanGuidanceProgress = .empty
+            scanTrackingTransitionGate.reset()
             derivedObjectFusionTracker =
                 DerivedShapeTemporalFusionTracker(
                     configuration: DerivedShapeTemporalFusionConfiguration(
@@ -2868,6 +3012,35 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             coverage: self.scanCoverage,
                             spatialCoverage: self.spatialCoverage
                         )
+
+                    // Persist transition-compacted tracking history into
+                    // the canonical quality authority (#148). The gate
+                    // emits the baseline observation and then only
+                    // (state, reason) transitions; identical samples are
+                    // compacted and the store bounds retained history.
+                    // A transition into .unavailable is recorded
+                    // faithfully and surfaces through the existing
+                    // tracking_unavailable_observed quality policy. The
+                    // End path still records the selected final frame's
+                    // tracking event separately; while End holds the
+                    // boundary this loop must not append more history.
+                    if !self.isEndingScan,
+                       let store = self.workingSetStore
+                    {
+                        let trackingEvent = TrackingQualityEvent(
+                            sessionTimestampSeconds:
+                                sample.sessionTimestampSeconds,
+                            state: sample.trackingState,
+                            reason: sample.trackingReason
+                        )
+                        if self.scanTrackingTransitionGate
+                            .shouldRecord(trackingEvent)
+                        {
+                            await store.recordTrackingEvent(
+                                trackingEvent
+                            )
+                        }
+                    }
                 }
 
                 if sampleIndex.isMultiple(of: 2),
@@ -3179,13 +3352,33 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         quality: CaptureQualityReport,
         generation: UUID
     ) async {
+        // Claim the commit transaction before the first suspension so a
+        // lifecycle/resource failure can no longer invalidate this
+        // generation underneath an in-flight promotion (#185). Ordinary
+        // stale callbacks still hit the generation guards below.
+        finalizationCommit.claimCommit()
+
         var promotedRevision: FinalizedCaptureRevision?
 
         do {
             try await store.persistQualityReport(quality)
+
+            // CONTRACT (#180): the sibling store agent adds
+            // sealForFinalization()/unseal() on CaptureWorkingSetStore.
+            // The seal drains in-flight writes, then rejects further
+            // working-set mutations for the rest of the commit
+            // transaction so the snapshot and the finalizer's staging
+            // scan describe one frozen authority.
+            try await store.sealForFinalization()
+
             let snapshot = await store.snapshot()
 
             guard captureGeneration == generation else {
+                // A non-lifecycle failure already invalidated this
+                // generation; release the seal and resolve the
+                // transaction so the dead store is not left claimed.
+                try? await store.unseal()
+                finalizationCommit.reset()
                 return
             }
 
@@ -3202,6 +3395,31 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             let destination = finalizedDirectory(
                 for: snapshot
             )
+
+            // Pre-commit cancellation point (#185): a lifecycle failure
+            // fenced before the promotion begins aborts the
+            // transaction. No finalized destination is produced; the
+            // working set returns to Review and the deferred lifecycle
+            // policy is applied there.
+            if let fencedFailure =
+                finalizationCommit.preCommitFailure()
+            {
+                await abortUnpromotedFinalization(
+                    diagnostic: nil,
+                    fencedFailure: fencedFailure,
+                    store: store,
+                    quality: quality,
+                    generation: generation
+                )
+                return
+            }
+
+            // The atomic move inside finalize(...) is the irreversible
+            // filesystem commit point (#160): the working directory was
+            // renamed into finalized/, so the returned revision is
+            // durable finalized authority. Beyond this line the host
+            // must adopt the revision, never roll it back, and never
+            // classify post-promotion errors as a failed working set.
             let finalized =
                 try await BundleRevisionFinalizer().finalize(
                     stagingDirectory: snapshot.rootDirectory,
@@ -3209,72 +3427,72 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     request: request
                 )
             promotedRevision = finalized
-
-            let validation =
-                try BundleDirectoryValidator.validate(
-                    root: finalized.directory
-                )
-            guard validation.bundleDigest == finalized.bundleDigest else {
-                throw BundleFinalizationError.promotionFailed
-            }
-
-            guard captureGeneration == generation else {
-                return
-            }
-
-            sessionController.stopAndPauseARSession()
-            resourceMonitor?.stop()
-            resourceMonitor = nil
-            workingSetStore = nil
-            finalizedRevision = finalized
-            validationReport = validation
-            exportURL = nil
-            try transition(.finalize)
-            workingSetStatus =
-                HostLocalization.isJapanese
-                ? "リビジョンを確定しました。バンドルダイジェスト: "
-                    + validation.bundleDigest.description
-                : "Finalized revision; bundle digest "
-                    + validation.bundleDigest.description
-            self.loadPersistedCaptures()
+            finalizationCommit.markPromoted()
         } catch {
+            // Errors here are strictly pre-commit: promotion never
+            // began, no finalized destination was produced, and the
+            // working set still owns the revision, so the staged
+            // quality payload may be rolled back for a Review retry.
             guard captureGeneration == generation else {
+                try? await store.unseal()
+                finalizationCommit.reset()
                 return
             }
+            await abortUnpromotedFinalization(
+                diagnostic: Self.persistenceDiagnostic(error),
+                fencedFailure: finalizationCommit.preCommitFailure(),
+                store: store,
+                quality: quality,
+                generation: generation
+            )
+            return
+        }
 
-            let diagnostic =
-                Self.persistenceDiagnostic(error)
+        guard let promotedRevision else {
+            return
+        }
+        await adoptPromotedRevision(promotedRevision)
+    }
 
-            if promotedRevision != nil {
-                workingSetStatus =
-                    HostLocalization.text(
-                        "The revision was promoted but failed post-promotion validation; capture cannot safely resume",
-                        "リビジョン昇格後の検証に失敗したため、安全にキャプチャへ戻れません"
-                    )
-                    + " ["
-                    + diagnostic
-                    + "]"
-                fail(.persistenceFailure)
-                return
-            }
+    /// Shared pre-commit abort for the finalization transaction:
+    /// release the working-set seal, remove the staged quality payload,
+    /// record the recoverable event, and transition
+    /// validating -> reviewing so the attempt can be retried — or, when
+    /// a lifecycle failure was fenced before promotion, apply it through
+    /// the ordinary resource/lifecycle policy once the mutable Review
+    /// boundary is restored. The promoted path never reaches here:
+    /// nothing in this method may run after the commit point.
+    private func abortUnpromotedFinalization(
+        diagnostic: String?,
+        fencedFailure: CaptureFailureCode?,
+        store: CaptureWorkingSetStore,
+        quality: CaptureQualityReport,
+        generation: UUID
+    ) async {
+        // Release the seal before any rollback mutation; unseal is
+        // best-effort across the boundary (the seal may not have been
+        // held if the failure preceded it).
+        try? await store.unseal()
+        finalizationCommit.reset()
 
-            do {
-                try await store.discardUncommittedQualityReport(
-                    quality
+        do {
+            try await store.discardUncommittedQualityReport(
+                quality
+            )
+        } catch {
+            workingSetStatus =
+                HostLocalization.text(
+                    "Finalization failed and the staged quality record could not be rolled back safely",
+                    "確定処理に失敗し、途中保存された品質情報を安全に取り消せませんでした"
                 )
-            } catch {
-                workingSetStatus =
-                    HostLocalization.text(
-                        "Finalization failed and the staged quality record could not be rolled back safely",
-                        "確定処理に失敗し、途中保存された品質情報を安全に取り消せませんでした"
-                    )
-                    + " ["
-                    + diagnostic
-                    + "]"
-                fail(.persistenceFailure)
-                return
-            }
+                + " ["
+                + (diagnostic ?? Self.persistenceDiagnostic(error))
+                + "]"
+            fail(.persistenceFailure)
+            return
+        }
 
+        if let diagnostic {
             await store.recordResourceEvent(
                 CaptureResourceEvent(
                     kind: .persistenceFailure,
@@ -3284,31 +3502,59 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         + diagnostic
                 )
             )
+        }
 
-            guard captureGeneration == generation,
-                  state == .validating
-            else {
-                return
+        guard captureGeneration == generation,
+              state == .validating
+        else {
+            return
+        }
+
+        do {
+            try transition(.validationFailed)
+        } catch {
+            fail(.unknown)
+            return
+        }
+
+        await refreshQuality(
+            store: store,
+            generation: generation
+        )
+
+        guard captureGeneration == generation,
+              state == .reviewing
+        else {
+            return
+        }
+
+        if let fencedFailure {
+            // The lifecycle failure was fenced only while the commit
+            // transaction held the generation. Now that the attempt
+            // aborted back to a mutable Review boundary, the ordinary
+            // resource/lifecycle policy applies it (preserved-Review
+            // seal or terminal failure). It is applied after the outer
+            // operation unwinds so reviewOperationInFlight no longer
+            // suppresses the preserved-Review path.
+            let deferredEvent =
+                Self.lifecycleResourceEvent(for: fencedFailure)
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.captureGeneration == generation
+                else {
+                    return
+                }
+                self.applyResourceLifecycleEvent(
+                    deferredEvent,
+                    failure: fencedFailure,
+                    store: store,
+                    generation: generation
+                )
             }
+            return
+        }
 
-            do {
-                try transition(.validationFailed)
-            } catch {
-                fail(.unknown)
-                return
-            }
-
-            await refreshQuality(
-                store: store,
-                generation: generation
-            )
-
-            guard captureGeneration == generation,
-                  state == .reviewing
-            else {
-                return
-            }
-
+        if let diagnostic {
             workingSetStatus =
                 HostLocalization.text(
                     "Finalization was not committed. The capture remains in Review and can be retried.",
@@ -3318,6 +3564,153 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 + diagnostic
                 + "]"
         }
+    }
+
+    /// Post-commit adoption (#160): the working directory was already
+    /// moved into `finalized/` atomically, so the promoted revision is
+    /// durable truth. The independent post-promotion validation runs in
+    /// a bounded detached task so the full re-hash never executes on
+    /// MainActor (#192); only the compact report crosses back.
+    ///
+    /// Commit wins: a generation change alone must not abandon a
+    /// successfully promoted revision, so adoption is unconditional.
+    /// A validation failure never reverts to working-set rollback —
+    /// the host adopts the committed revision as finalized-but-
+    /// unverified and reports that explicitly; the persisted inventory
+    /// re-examines it (and quarantines it if still unreadable) on the
+    /// next scan, keeping exactly one terminal owner.
+    private func adoptPromotedRevision(
+        _ finalized: FinalizedCaptureRevision
+    ) async {
+        let (validation, validationDiagnostic) =
+            await Self.validatePromotedRevision(
+                directory: finalized.directory
+            )
+
+        // Commit wins (#185): a lifecycle failure fenced while the
+        // finalizer or revalidation was suspended becomes post-capture
+        // status, never a reason to abandon the promoted revision.
+        let fencedFailure = finalizationCommit.postCommitFailure()
+        finalizationCommit.reset()
+
+        let fencedNote: String
+        if let fencedFailure {
+            fencedNote = HostLocalization.text(
+                "; a "
+                    + fencedFailure.rawValue
+                    + " lifecycle event arrived during the commit window and was surfaced after adoption",
+                "；コミット中に "
+                    + fencedFailure.rawValue
+                    + " ライフサイクルイベントを検出したため、確定後の状態として記録しました"
+            )
+        } else {
+            fencedNote = ""
+        }
+
+        sessionController.stopAndPauseARSession()
+        resourceMonitor?.stop()
+        resourceMonitor = nil
+        workingSetStore = nil
+        finalizedRevision = finalized
+        exportURL = nil
+
+        if let validation,
+           validation.bundleDigest == finalized.bundleDigest
+        {
+            validationReport = validation
+            do {
+                try transition(.finalize)
+            } catch {
+                // Even when the host transition itself fails, the
+                // committed revision stays adopted; the committed
+                // bytes remain recoverable through the persisted
+                // inventory instead of being misclassified as a
+                // failed working set.
+                workingSetStatus = HostLocalization.text(
+                    "The revision was committed but the host could not reflect finalized state; it stays discoverable in the persisted-capture inventory",
+                    "リビジョンはコミットされましたが、確定状態を反映できませんでした。保存済みキャプチャ一覧から確認できます"
+                )
+                self.loadPersistedCaptures()
+                return
+            }
+            workingSetStatus =
+                (
+                    HostLocalization.isJapanese
+                    ? "リビジョンを確定しました。バンドルダイジェスト: "
+                        + validation.bundleDigest.description
+                    : "Finalized revision; bundle digest "
+                        + validation.bundleDigest.description
+                ) + fencedNote
+            self.loadPersistedCaptures()
+            return
+        }
+
+        // Committed-but-unverified: durable bytes exist under
+        // finalized/, but independent revalidation could not prove
+        // them (or the digest disagreed with the finalizer's manifest
+        // record). Adopt the revision so there is exactly one terminal
+        // owner and surface the unverified state explicitly instead of
+        // Failed + rollback.
+        validationReport = nil
+        let unverifiedDiagnostic =
+            validation == nil
+            ? (validationDiagnostic
+                ?? "post_promotion_validation_unverified")
+            : "bundle_digest_mismatch"
+        do {
+            try transition(.adoptFinalized)
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The revision was committed but the host could not reflect finalized state; it stays discoverable in the persisted-capture inventory",
+                "リビジョンはコミットされましたが、確定状態を反映できませんでした。保存済みキャプチャ一覧から確認できます"
+            )
+            self.loadPersistedCaptures()
+            return
+        }
+        workingSetStatus =
+            HostLocalization.text(
+                "The revision was committed to finalized storage, but post-promotion validation could not prove it; the committed bytes are preserved and stay discoverable through the persisted-capture inventory",
+                "リビジョンは確定済み領域にコミットされましたが、昇格後の検証で証明できませんでした。コミット済みデータは保持され、保存済みキャプチャ一覧から確認できます"
+            )
+            + " ["
+            + unverifiedDiagnostic
+            + "]"
+            + fencedNote
+        self.loadPersistedCaptures()
+    }
+
+    /// Independent post-promotion revalidation (#192): the full
+    /// directory scan + digest run on a bounded detached worker and
+    /// only the compact report (or a diagnostic token) returns to the
+    /// MainActor. One retry distinguishes a transient read failure
+    /// from a genuinely unverifiable committed bundle.
+    nonisolated private static func validatePromotedRevision(
+        directory: URL
+    ) async -> (report: BundleValidationReport?, diagnostic: String?) {
+        var lastError: Error?
+        for attempt in 0..<2 {
+            do {
+                let report = try await Task.detached(
+                    priority: .userInitiated
+                ) {
+                    try BundleDirectoryValidator.validate(
+                        root: directory
+                    )
+                }.value
+                return (report, nil)
+            } catch {
+                lastError = error
+                if attempt == 0 {
+                    try? await Task.sleep(
+                        for: .milliseconds(150)
+                    )
+                }
+            }
+        }
+        let diagnostic =
+            lastError.map { Self.persistenceDiagnostic($0) }
+            ?? "post_promotion_validation_unverified"
+        return (nil, diagnostic)
     }
 
     private func configureResourceMonitor(
@@ -3332,136 +3725,226 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let monitor = CaptureResourceMonitor(
             rootDirectory: rootDirectory
         ) { [weak self] event, failure in
+            self?.applyResourceLifecycleEvent(
+                event,
+                failure: failure,
+                store: store,
+                generation: generation
+            )
+        }
+
+        resourceMonitor = monitor
+        monitor.start()
+    }
+
+    /// Shared ordered entry point for every resource/lifecycle event:
+    /// CaptureResourceMonitor notifications and ARSession lifecycle
+    /// callbacks (#168) converge here so generation fencing, the
+    /// preserved-Review seal, the ordered event-record chain, and the
+    /// finalization commit fence (#185) stay identical across sources.
+    private func applyResourceLifecycleEvent(
+        _ event: CaptureResourceEvent,
+        failure: CaptureFailureCode?,
+        store: CaptureWorkingSetStore,
+        generation: UUID
+    ) {
+        guard captureGeneration == generation else {
+            return
+        }
+
+        var eventToRecord = event
+        var failureToApply = failure
+        var sealedReviewResourceCondition = false
+        var discardedUnsavedAnnotationEdits = false
+
+        let canPreserveAcceptedReview =
+            (
+                state == .reviewing
+                && !reviewOperationInFlight
+            )
+            || (
+                state == .annotating
+                && !annotationCommitInFlight
+            )
+
+        if let failure,
+           (
+               failure == .interrupted
+               || failure == .thermalPressure
+               || failure == .storagePressure
+           ),
+           canPreserveAcceptedReview,
+           acceptedRoomPlanRawSHA256 != nil,
+           !spatialAuthoritySealedForFinalization
+        {
+            if state == .annotating {
+                do {
+                    try transition(.beginReview)
+                    discardedUnsavedAnnotationEdits = true
+                } catch {
+                    self.fail(.unknown)
+                    return
+                }
+            }
+
+            // Accepted End artifacts are already durable. A transient
+            // resource/lifecycle condition invalidates only future live
+            // spatial continuation; it must not retroactively discard
+            // the evidence accepted before that condition.
+            let detail: String
+            switch failure {
+            case .interrupted:
+                detail =
+                    "application entered background after accepted End; spatial continuation was sealed but persisted Review evidence remains finalizable"
+            case .thermalPressure:
+                detail =
+                    "critical thermal pressure occurred after accepted End; spatial continuation was sealed and finalization is deferred until the device cools"
+            case .storagePressure:
+                detail =
+                    "critical storage pressure occurred after accepted End; spatial continuation was sealed and finalization is deferred until storage recovers"
+            default:
+                detail = event.detail
+            }
+
+            eventToRecord = CaptureResourceEvent(
+                kind: event.kind,
+                severity: .warning,
+                detail:
+                    discardedUnsavedAnnotationEdits
+                    ? detail
+                        + "; unsaved annotation edits were discarded"
+                    : detail
+            )
+            failureToApply = nil
+            sealedReviewResourceCondition = true
+            spatialAuthoritySealedForFinalization = true
+            scanCoverageTask?.cancel()
+            scanCoverageTask = nil
+            sessionController.stopAndPauseARSession()
+            resourceMonitor?.stop()
+            endScanGuidance = nil
+        }
+
+        // Keep resource provenance ordered. Finalization can await this
+        // chain before it freezes quality authority, and reset can drain
+        // it before deleting an incomplete working set.
+        let predecessor = resourceEventTask
+        let task = Task { @MainActor [weak self] in
+            await predecessor?.value
+            await store.recordResourceEvent(eventToRecord)
+
             guard let self,
                   self.captureGeneration == generation
             else {
                 return
             }
 
-            var eventToRecord = event
-            var failureToApply = failure
-            var sealedReviewResourceCondition = false
-            var discardedUnsavedAnnotationEdits = false
-
-            let canPreserveAcceptedReview =
-                (
-                    self.state == .reviewing
-                    && !self.reviewOperationInFlight
+            if self.state == .reviewing {
+                await self.refreshQuality(
+                    store: store,
+                    generation: generation
                 )
-                || (
-                    self.state == .annotating
-                    && !self.annotationCommitInFlight
-                )
-
-            if let failure,
-               (
-                   failure == .interrupted
-                   || failure == .thermalPressure
-                   || failure == .storagePressure
-               ),
-               canPreserveAcceptedReview,
-               self.acceptedRoomPlanRawSHA256 != nil,
-               !self.spatialAuthoritySealedForFinalization
-            {
-                if self.state == .annotating {
-                    do {
-                        try self.transition(.beginReview)
-                        discardedUnsavedAnnotationEdits = true
-                    } catch {
-                        self.fail(.unknown)
-                        return
+                if sealedReviewResourceCondition,
+                   self.state == .reviewing
+                {
+                    if discardedUnsavedAnnotationEdits {
+                        self.workingSetStatus =
+                            HostLocalization.text(
+                                "Review retained after the resource/lifecycle interruption. Unsaved annotation edits were discarded; accepted capture evidence can still be finalized or retried.",
+                                "リソース／ライフサイクル中断後も確認データを保持しました。未保存の注釈編集は破棄されましたが、受理済みキャプチャ証拠は確定または再試行できます。"
+                            )
+                    } else {
+                        self.workingSetStatus =
+                            HostLocalization.text(
+                                "Review retained; additional scanning/annotation is sealed by the current resource/lifecycle condition, while accepted evidence remains available for finalization or retry",
+                                "確認データを保持しました。現在のリソース／ライフサイクル状態により追加スキャン／注釈は封印されていますが、受理済み証拠は確定または再試行に利用できます"
+                            )
                     }
                 }
-
-                // Accepted End artifacts are already durable. A transient
-                // resource/lifecycle condition invalidates only future live
-                // spatial continuation; it must not retroactively discard
-                // the evidence accepted before that condition.
-                let detail: String
-                switch failure {
-                case .interrupted:
-                    detail =
-                        "application entered background after accepted End; spatial continuation was sealed but persisted Review evidence remains finalizable"
-                case .thermalPressure:
-                    detail =
-                        "critical thermal pressure occurred after accepted End; spatial continuation was sealed and finalization is deferred until the device cools"
-                case .storagePressure:
-                    detail =
-                        "critical storage pressure occurred after accepted End; spatial continuation was sealed and finalization is deferred until storage recovers"
-                default:
-                    detail = event.detail
-                }
-
-                eventToRecord = CaptureResourceEvent(
-                    kind: event.kind,
-                    severity: .warning,
-                    detail:
-                        discardedUnsavedAnnotationEdits
-                        ? detail
-                            + "; unsaved annotation edits were discarded"
-                        : detail
-                )
-                failureToApply = nil
-                sealedReviewResourceCondition = true
-                self.spatialAuthoritySealedForFinalization = true
-                self.scanCoverageTask?.cancel()
-                self.scanCoverageTask = nil
-                self.sessionController.stopAndPauseARSession()
-                self.resourceMonitor?.stop()
-                self.endScanGuidance = nil
-            }
-
-            // Keep resource provenance ordered. Finalization can await this
-            // chain before it freezes quality authority, and reset can drain
-            // it before deleting an incomplete working set.
-            let predecessor = self.resourceEventTask
-            let task = Task { @MainActor [weak self] in
-                await predecessor?.value
-                await store.recordResourceEvent(eventToRecord)
-
-                guard let self,
-                      self.captureGeneration == generation
-                else {
-                    return
-                }
-
-                if self.state == .reviewing {
-                    await self.refreshQuality(
-                        store: store,
-                        generation: generation
-                    )
-                    if sealedReviewResourceCondition,
-                       self.state == .reviewing
-                    {
-                        if discardedUnsavedAnnotationEdits {
-                            self.workingSetStatus =
-                                HostLocalization.text(
-                                    "Review retained after the resource/lifecycle interruption. Unsaved annotation edits were discarded; accepted capture evidence can still be finalized or retried.",
-                                    "リソース／ライフサイクル中断後も確認データを保持しました。未保存の注釈編集は破棄されましたが、受理済みキャプチャ証拠は確定または再試行できます。"
-                                )
-                        } else {
-                            self.workingSetStatus =
-                                HostLocalization.text(
-                                    "Review retained; additional scanning/annotation is sealed by the current resource/lifecycle condition, while accepted evidence remains available for finalization or retry",
-                                    "確認データを保持しました。現在のリソース／ライフサイクル状態により追加スキャン／注釈は封印されていますが、受理済み証拠は確定または再試行に利用できます"
-                                )
-                        }
-                    }
-                }
-            }
-            self.resourceEventTask = task
-
-            if let failureToApply,
-               self.state != .failed,
-               self.state != .finalized,
-               self.state != .exported
-            {
-                self.fail(failureToApply)
             }
         }
+        resourceEventTask = task
 
-        resourceMonitor = monitor
-        monitor.start()
+        if let failureToApply,
+           state != .failed,
+           state != .finalized,
+           state != .exported
+        {
+            fail(failureToApply)
+        }
+    }
+
+    /// CONTRACT (#168): the sibling platform agent exposes an ARSession
+    /// lifecycle surface `sessionLifecycleHandler` on
+    /// SharedARSessionController delivering interruption-began,
+    /// interruption-ended, and terminal-failure events on MainActor.
+    /// The event enum name below is the agreed contract; if it lands
+    /// under a different name this method is the single host-side
+    /// adaptation site.
+    private func handleSessionLifecycleEvent(
+        _ event: ARSessionLifecycleEvent,
+        store: CaptureWorkingSetStore,
+        generation: UUID
+    ) {
+        guard captureGeneration == generation else {
+            return
+        }
+
+        switch event {
+        case .interruptionBegan:
+            // Interruption alone is not terminal: the session may
+            // resume. Record warning provenance only; #148's tracking
+            // transition recording captures the observable degradation,
+            // and a genuine coordinate-space reset is registered by the
+            // platform layer when continuity is demonstrably lost.
+            applyResourceLifecycleEvent(
+                CaptureResourceEvent(
+                    kind: .interruption,
+                    severity: .warning,
+                    detail:
+                        "ARSession interruption began during active capture"
+                ),
+                failure: nil,
+                store: store,
+                generation: generation
+            )
+        case .interruptionEnded:
+            applyResourceLifecycleEvent(
+                CaptureResourceEvent(
+                    kind: .interruption,
+                    severity: .warning,
+                    detail:
+                        "ARSession interruption ended; tracking-state transitions continue through canonical tracking history"
+                ),
+                failure: nil,
+                store: store,
+                generation: generation
+            )
+        case .failure(let error):
+            applyResourceLifecycleEvent(
+                CaptureResourceEvent(
+                    kind: .interruption,
+                    severity: .error,
+                    detail:
+                        "ARSession failed: " + String(describing: error)
+                ),
+                failure: .interrupted,
+                store: store,
+                generation: generation
+            )
+        default:
+            applyResourceLifecycleEvent(
+                CaptureResourceEvent(
+                    kind: .interruption,
+                    severity: .warning,
+                    detail:
+                        "ARSession lifecycle event observed during active capture"
+                ),
+                failure: nil,
+                store: store,
+                generation: generation
+            )
+        }
     }
 
     private func makeWorkingSet() throws -> (
@@ -3610,6 +4093,33 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             + String(nsError.code)
     }
 
+    /// Map a fenced lifecycle failure to the ordered
+    /// resource/lifecycle event that a live monitor callback would
+    /// have carried, so a deferred application keeps identical
+    /// provenance shape (#185). Warning severity preserves the
+    /// Review-retained quality policy if the deferred application
+    /// lands on a preservable boundary.
+    nonisolated private static func lifecycleResourceEvent(
+        for failure: CaptureFailureCode
+    ) -> CaptureResourceEvent {
+        let kind: CaptureResourceEventKind
+        switch failure {
+        case .thermalPressure:
+            kind = .thermalPressure
+        case .storagePressure:
+            kind = .storagePressure
+        default:
+            kind = .interruption
+        }
+        return CaptureResourceEvent(
+            kind: kind,
+            severity: .warning,
+            detail:
+                "lifecycle failure observed during the finalization commit transaction: "
+                + failure.rawValue
+        )
+    }
+
     private func transition(_ event: CaptureEvent) throws {
         try stateMachine.apply(event)
         state = stateMachine.state
@@ -3617,6 +4127,22 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private func fail(_ code: CaptureFailureCode) {
+        // (#185) While the finalization commit transaction is claimed,
+        // a lifecycle/resource failure is fenced instead of
+        // invalidating the capture generation underneath an in-flight
+        // promotion. The commit path observes the fenced failure at its
+        // pre-commit cancellation point (abort with no finalized
+        // destination produced) or after promotion (commit wins: the
+        // revision is adopted and the failure becomes post-capture
+        // status). A fenced failure is fully absorbed with no side
+        // effects; non-lifecycle failures and ordinary stale callbacks
+        // keep their immediate generation-invalidation handling.
+        if state == .validating,
+           finalizationCommit.fenceLifecycleFailure(code)
+        {
+            return
+        }
+
         annotationCommitInFlight = false
         reviewOperationInFlight = false
         guard state != .finalized,
