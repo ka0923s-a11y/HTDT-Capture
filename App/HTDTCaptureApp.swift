@@ -3886,6 +3886,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         qualityReport = report
         annotationEvidenceRefs = snapshot.evidenceFrameRefs
 
+        // A resource/lifecycle event may have sealed spatial
+        // continuation while this refresh was suspended on the store
+        // actor. Under the seal the ordered resource-event chain owns
+        // the user-facing recovery status (#115); publishing the
+        // generic Review quality text here could overwrite that
+        // explanation depending on which continuation resumes last.
+        // The refreshed report/refs above still publish so a deferred
+        // finalization retry observes current quality authority.
+        guard !spatialAuthoritySealedForFinalization else {
+            return
+        }
+
         if report.readyForHTDTIngestion {
             workingSetStatus =
                 HostLocalization.isJapanese
