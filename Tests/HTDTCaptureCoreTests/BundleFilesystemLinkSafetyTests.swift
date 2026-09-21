@@ -127,35 +127,19 @@ func validatorRejectsHardLinkedManifest() throws {
     let root = try makeTemporaryDirectory()
     defer { try? fileManager.removeItem(at: root) }
 
-    let payload = root.appendingPathComponent("payload.bin")
-    try Data([1, 2, 3]).write(to: payload)
-    let digest = try BundleFileHasher.sha256(url: payload)
-    let manifest = try BundleManifest(
-        captureSeriesID: CaptureSeriesID(),
-        captureRevisionID: CaptureRevisionID(),
-        parentRevisionID: nil,
-        captureSessionIDs: [CaptureSessionID()],
-        coordinateSpaceIDs: [CoordinateSpaceID()],
-        createdAtUTC: "2026-09-20T00:00:00Z",
-        finalizedAtUTC: "2026-09-20T00:00:00Z",
-        app: BundleAppIdentity(
-            version: "test",
-            build: "test"
-        ),
-        files: [
-            BundleFileEntry(
+    // Stage a complete foundation set (#194) plus the test payload so
+    // the manifest is a valid finalized v1 bundle.
+    try BundleValidationFixture.stage(
+        root,
+        payloads: [
+            (
                 path: "payload.bin",
-                bytes: 3,
-                mediaType: "application/octet-stream",
-                sha256: digest,
-                producer: "test",
-                provenanceClass: .captureAppDerived,
-                role: .canonical
-            )
+                data: Data([1, 2, 3]),
+                mediaType: "application/octet-stream"
+            ),
         ]
     )
     let manifestURL = root.appendingPathComponent("manifest.json")
-    try manifest.canonicalBytes().write(to: manifestURL)
 
     // Complete single-link directory validates first.
     _ = try BundleDirectoryValidator.validate(root: root)

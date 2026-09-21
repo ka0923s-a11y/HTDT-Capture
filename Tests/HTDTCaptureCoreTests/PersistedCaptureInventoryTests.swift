@@ -64,19 +64,32 @@ private func finalizeFixture(
             "capture-quality.json"
         )
     )
+    // #194: finalized bundles carry the foundation payload set.
+    let foundationDeclarations =
+        try BundleValidationFixture.stageFoundationPayloads(
+            in: staging
+        )
 
     let request = BundleFinalizationRequest(
         captureSeriesID: CaptureSeriesID(),
         captureRevisionID: revisionID,
-        captureSessionIDs: [CaptureSessionID()],
-        coordinateSpaceIDs: [CoordinateSpaceID()],
+        captureSessionIDs: [
+            CaptureSessionID(
+                canonicalString: BundleValidationFixture.sessionUUID
+            )!
+        ],
+        coordinateSpaceIDs: [
+            CoordinateSpaceID(
+                canonicalString: BundleValidationFixture.spaceUUID
+            )!
+        ],
         createdAtUTC: "2026-09-21T00:00:00Z",
         finalizedAtUTC: finalizedAtUTC,
         app: BundleAppIdentity(
             version: "0.1.0",
             build: "inventory-test"
         ),
-        payloads: [
+        payloads: foundationDeclarations + [
             BundlePayloadDeclaration(
                 path: "payload.bin",
                 mediaType: "application/octet-stream",

@@ -313,19 +313,32 @@ private func makeTwoPayloadFinalizedFixture(
         to: staging.appendingPathComponent("bravo.bin")
     )
     let qualityDeclaration = try stageQualityPayload(in: staging)
+    // #194: finalized bundles carry the foundation payload set.
+    let foundationDeclarations =
+        try BundleValidationFixture.stageFoundationPayloads(
+            in: staging
+        )
 
     let request = BundleFinalizationRequest(
         captureSeriesID: CaptureSeriesID(),
         captureRevisionID: CaptureRevisionID(),
-        captureSessionIDs: [CaptureSessionID()],
-        coordinateSpaceIDs: [CoordinateSpaceID()],
+        captureSessionIDs: [
+            CaptureSessionID(
+                canonicalString: BundleValidationFixture.sessionUUID
+            )!
+        ],
+        coordinateSpaceIDs: [
+            CoordinateSpaceID(
+                canonicalString: BundleValidationFixture.spaceUUID
+            )!
+        ],
         createdAtUTC: "2026-09-20T00:00:00Z",
         finalizedAtUTC: "2026-09-20T00:01:00Z",
         app: BundleAppIdentity(
             version: "0.1.0",
             build: "archive-import-test"
         ),
-        payloads: [
+        payloads: foundationDeclarations + [
             BundlePayloadDeclaration(
                 path: "alpha.bin",
                 mediaType: "application/octet-stream",

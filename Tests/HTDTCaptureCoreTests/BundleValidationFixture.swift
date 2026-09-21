@@ -204,6 +204,28 @@ enum BundleValidationFixture {
         ])
     }
 
+    /// The manifest declarations matching the foundation payloads
+    /// written by ``stageFoundationPayloads`` — useful when a request
+    /// builder needs the declarations separately from the write.
+    static func foundationPayloadDeclarations()
+        -> [BundlePayloadDeclaration]
+    {
+        [
+            "session/capture-session.json",
+            "session/capture-configuration.json",
+            "session/timing.json",
+        ].map { path in
+            let binding = BundleReservedPaths.binding(for: path)!
+            return BundlePayloadDeclaration(
+                path: path,
+                mediaType: "application/json",
+                producer: binding.producer,
+                provenanceClass: binding.provenanceClass,
+                role: binding.role
+            )
+        }
+    }
+
     /// Writes the minimum foundation payload set (#194) into a staging
     /// directory and returns the matching payload declarations. The
     /// caller must pass ``sessionUUID``/``spaceUUID`` as the manifest
@@ -220,28 +242,11 @@ enum BundleValidationFixture {
             ),
             ("session/timing.json", timingValue()),
         ]
-        var declarations: [BundlePayloadDeclaration] = []
         for payload in payloads {
             let data = try canonical(payload.value)
             try write(data, to: payload.path, in: staging)
-            guard
-                let binding = BundleReservedPaths.binding(
-                    for: payload.path
-                )
-            else {
-                continue
-            }
-            declarations.append(
-                BundlePayloadDeclaration(
-                    path: payload.path,
-                    mediaType: "application/json",
-                    producer: binding.producer,
-                    provenanceClass: binding.provenanceClass,
-                    role: binding.role
-                )
-            )
         }
-        return declarations
+        return foundationPayloadDeclarations()
     }
 
     static func entitiesValue() -> StrictJSONValue {

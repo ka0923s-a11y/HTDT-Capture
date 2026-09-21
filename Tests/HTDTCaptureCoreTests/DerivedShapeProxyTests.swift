@@ -691,20 +691,24 @@ final class DerivedShapeProxyTests: XCTestCase {
             XCTAssertFalse(spansUnobservedSide)
         }
 
-        // The open endpoints are the two wall ends on the unobserved
-        // side (either traversal direction).
+        // The open endpoints are the wall ends terminating toward the
+        // unobserved side (either traversal direction). Samples never
+        // include the exact corner (t < 1), so the endpoint is the last
+        // observed point on each vertical wall — x at the wall face,
+        // y advanced toward the unobserved top edge rather than
+        // stopping at the bottom.
         let endpoints = [
             wall.vertices.first?.position,
             wall.vertices.last?.position,
         ]
         XCTAssertTrue(
             endpoints.contains {
-                ($0?.x ?? 0) > 1.9 && abs(($0?.y ?? 0) - 2) < 0.01
+                ($0?.x ?? 0) > 1.9 && ($0?.y ?? 0) > 1.0
             }
         )
         XCTAssertTrue(
             endpoints.contains {
-                ($0?.x ?? 0) < -1.9 && abs(($0?.y ?? 0) - 2) < 0.01
+                ($0?.x ?? 0) < -1.9 && ($0?.y ?? 0) > 1.0
             }
         )
     }
