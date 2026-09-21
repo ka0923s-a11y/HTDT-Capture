@@ -316,3 +316,191 @@ func finalizerRejectsDeclaredButAbsentQualityPayload() async throws {
     )
     #expect(fileManager.fileExists(atPath: area.staging.path))
 }
+
+@Test
+func finalizerAllowsProvenSameVolumeIdentity() async throws {
+    let fileManager = FileManager.default
+    let area = try makeContractStagingArea(
+        fileManager: fileManager
+    )
+    defer { try? fileManager.removeItem(at: area.root) }
+
+    let quality = contractQualityReport()
+    try stageQualityPayload(
+        encodeQualityPayload(quality),
+        in: area.staging
+    )
+
+    let finalizer = BundleRevisionFinalizer(
+        volumeIdentity: { _ in "vol-1" }
+    )
+    let finalized = try await finalizer.finalize(
+        stagingDirectory: area.staging,
+        destinationDirectory: area.destination,
+        request: makeContractRequest(quality: quality)
+    )
+    #expect(finalized.directory == area.destination)
+    #expect(
+        fileManager.fileExists(
+            atPath: area.destination
+                .appendingPathComponent("manifest.json")
+                .path
+        )
+    )
+}
+
+@Test
+func finalizerRejectsMismatchedVolumeIdentity() async throws {
+    let fileManager = FileManager.default
+    let area = try makeContractStagingArea(
+        fileManager: fileManager
+    )
+    defer { try? fileManager.removeItem(at: area.root) }
+
+    let quality = contractQualityReport()
+    try stageQualityPayload(
+        encodeQualityPayload(quality),
+        in: area.staging
+    )
+
+    let finalizer = BundleRevisionFinalizer(
+        volumeIdentity: { url in
+            url.lastPathComponent == "staging" ? "vol-a" : "vol-b"
+        }
+    )
+    await #expect(
+        throws: BundleFinalizationError.crossVolumePromotionForbidden
+    ) {
+        try await finalizer.finalize(
+            stagingDirectory: area.staging,
+            destinationDirectory: area.destination,
+            request: makeContractRequest(quality: quality)
+        )
+    }
+    #expect(
+        !fileManager.fileExists(
+            atPath: manifestURL(in: area.staging).path
+        )
+    )
+    #expect(fileManager.fileExists(atPath: area.staging.path))
+    #expect(
+        !fileManager.fileExists(atPath: area.destination.path)
+    )
+}
+
+@Test
+func finalizerRejectsUnknownVolumeIdentity() async throws {
+    let fileManager = FileManager.default
+    let area = try makeContractStagingArea(
+        fileManager: fileManager
+    )
+    defer { try? fileManager.removeItem(at: area.root) }
+
+    let quality = contractQualityReport()
+    try stageQualityPayload(
+        encodeQualityPayload(quality),
+        in: area.staging
+    )
+
+    let finalizer = BundleRevisionFinalizer(
+        volumeIdentity: { _ in nil }
+    )
+    await #expect(
+        throws: BundleFinalizationError.crossVolumePromotionForbidden
+    ) {
+        try await finalizer.finalize(
+            stagingDirectory: area.staging,
+            destinationDirectory: area.destination,
+            request: makeContractRequest(quality: quality)
+        )
+    }
+    #expect(
+        !fileManager.fileExists(
+            atPath: manifestURL(in: area.staging).path
+        )
+    )
+    #expect(fileManager.fileExists(atPath: area.staging.path))
+    #expect(
+        !fileManager.fileExists(atPath: area.destination.path)
+    )
+}
+
+@Test
+func finalizerRejectsPartiallyUnknownVolumeIdentity() async throws {
+    let fileManager = FileManager.default
+    let area = try makeContractStagingArea(
+        fileManager: fileManager
+    )
+    defer { try? fileManager.removeItem(at: area.root) }
+
+    let quality = contractQualityReport()
+    try stageQualityPayload(
+        encodeQualityPayload(quality),
+        in: area.staging
+    )
+
+    // Only the staging side resolves; the destination parent identity
+    // stays unknown, which must not prove a same-volume rename.
+    let finalizer = BundleRevisionFinalizer(
+        volumeIdentity: { url in
+            url.lastPathComponent == "staging" ? "vol-1" : nil
+        }
+    )
+    await #expect(
+        throws: BundleFinalizationError.crossVolumePromotionForbidden
+    ) {
+        try await finalizer.finalize(
+            stagingDirectory: area.staging,
+            destinationDirectory: area.destination,
+            request: makeContractRequest(quality: quality)
+        )
+    }
+    #expect(
+        !fileManager.fileExists(
+            atPath: manifestURL(in: area.staging).path
+        )
+    )
+    #expect(fileManager.fileExists(atPath: area.staging.path))
+    #expect(
+        !fileManager.fileExists(atPath: area.destination.path)
+    )
+}
+
+@Test
+func finalizerRejectsUnreadableVolumeIdentity() async throws {
+    let fileManager = FileManager.default
+    let area = try makeContractStagingArea(
+        fileManager: fileManager
+    )
+    defer { try? fileManager.removeItem(at: area.root) }
+
+    let quality = contractQualityReport()
+    try stageQualityPayload(
+        encodeQualityPayload(quality),
+        in: area.staging
+    )
+
+    let finalizer = BundleRevisionFinalizer(
+        volumeIdentity: { _ in
+            throw BundleFilesystemError.invalidRoot
+        }
+    )
+    await #expect(
+        throws: BundleFinalizationError.crossVolumePromotionForbidden
+    ) {
+        try await finalizer.finalize(
+            stagingDirectory: area.staging,
+            destinationDirectory: area.destination,
+            request: makeContractRequest(quality: quality)
+        )
+    }
+    #expect(
+        !fileManager.fileExists(
+            atPath: manifestURL(in: area.staging).path
+        )
+    )
+    #expect(fileManager.fileExists(atPath: area.staging.path))
+    #expect(
+        !fileManager.fileExists(atPath: area.destination.path)
+    )
+}

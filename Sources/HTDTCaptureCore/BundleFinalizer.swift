@@ -77,6 +77,8 @@ public struct FinalizedCaptureRevision: Sendable, Equatable {
 public actor BundleRevisionFinalizer {
     private let fileManager: FileManager
     private let limits: BundleFilesystemLimits
+    private let volumeIdentity:
+        @Sendable (URL) throws -> String?
 
     public init(
         fileManager: FileManager = .default,
@@ -84,6 +86,28 @@ public actor BundleRevisionFinalizer {
     ) {
         self.fileManager = fileManager
         self.limits = limits
+        self.volumeIdentity = { url in
+            let values = try url.resourceValues(
+                forKeys: [.volumeIdentifierKey]
+            )
+            return values.volumeIdentifier.map {
+                String(describing: $0)
+            }
+        }
+    }
+
+    // Testing seam: the platform volume-identifier API cannot reliably
+    // produce an "identity unknown" state in a normal temp directory,
+    // so tests inject the probe directly.
+    init(
+        fileManager: FileManager = .default,
+        limits: BundleFilesystemLimits = .init(),
+        volumeIdentity:
+            @escaping @Sendable (URL) throws -> String?
+    ) {
+        self.fileManager = fileManager
+        self.limits = limits
+        self.volumeIdentity = volumeIdentity
     }
 
     public func finalize(
@@ -244,7 +268,7 @@ public actor BundleRevisionFinalizer {
                 withIntermediateDirectories: true
             )
 
-            guard try sameVolume(
+            guard sameVolume(
                 lhs: stagingDirectory,
                 rhs: parent
             ) else {
@@ -278,18 +302,16 @@ public actor BundleRevisionFinalizer {
     private func sameVolume(
         lhs: URL,
         rhs: URL
-    ) throws -> Bool {
-        let left = try lhs.resourceValues(
-            forKeys: [.volumeIdentifierKey]
-        ).volumeIdentifier
-        let right = try rhs.resourceValues(
-            forKeys: [.volumeIdentifierKey]
-        ).volumeIdentifier
-
-        if let left, let right {
-            return String(describing: left)
-                == String(describing: right)
+    ) -> Bool {
+        // Fail closed: atomic rename eligibility requires positively
+        // proving both paths resolve to the same volume identity. An
+        // unavailable or unreadable identity is not evidence of a
+        // same-volume relationship.
+        guard let left = try? volumeIdentity(lhs),
+              let right = try? volumeIdentity(rhs)
+        else {
+            return false
         }
-        return true
+        return left == right
     }
 }
