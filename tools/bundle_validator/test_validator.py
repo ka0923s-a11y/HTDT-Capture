@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -176,6 +177,45 @@ class ValidatorTests(unittest.TestCase):
                 "finalized_at must not precede created_at",
             ):
                 validate_bundle(dest)
+
+    def test_hard_linked_payload_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, dest)
+            # Alias lives outside the bundle root: writing through it
+            # would mutate the finalized inode from off-bundle.
+            os.link(
+                dest / "annotations" / "entities.json",
+                Path(td) / "external-alias.bin",
+            )
+            with self.assertRaisesRegex(ValidationError, "hard-linked"):
+                validate_bundle(dest)
+
+    def test_hard_linked_manifest_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, dest)
+            os.link(
+                dest / "manifest.json",
+                Path(td) / "manifest-alias.json",
+            )
+            with self.assertRaisesRegex(ValidationError, "hard-linked"):
+                validate_bundle(dest)
+
+    def test_link_count_rejection_not_content_based(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, dest)
+            target = dest / "annotations" / "entities.json"
+            alias = Path(td) / "external-alias.bin"
+            os.link(target, alias)
+            with self.assertRaisesRegex(ValidationError, "hard-linked"):
+                validate_bundle(dest)
+            # Removing the extra directory entry restores st_nlink == 1;
+            # unchanged bytes validate again, proving the check is the
+            # inode link count rather than file content.
+            alias.unlink()
+            self.assertTrue(validate_bundle(dest)["valid"])
 
     def test_zip_path_traversal_fails(self):
         with tempfile.TemporaryDirectory() as td:

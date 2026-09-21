@@ -5,6 +5,7 @@ public enum BundleFilesystemError: Error, Sendable, Equatable {
     case invalidRoot
     case invalidPath(String)
     case symlinkForbidden(String)
+    case hardLinkForbidden(String)
     case duplicatePath(String)
     case caseCollision(String, String)
     case fileCountLimitExceeded
@@ -104,6 +105,7 @@ public enum BundleDirectoryScanner {
                 .isRegularFileKey,
                 .isSymbolicLinkKey,
                 .fileSizeKey,
+                .linkCountKey,
             ],
             options: []
         ) else {
@@ -121,6 +123,7 @@ public enum BundleDirectoryScanner {
                     .isRegularFileKey,
                     .isSymbolicLinkKey,
                     .fileSizeKey,
+                    .linkCountKey,
                 ]
             )
 
@@ -146,6 +149,18 @@ public enum BundleDirectoryScanner {
             }
             guard values.isRegularFile == true else {
                 throw BundleFilesystemError.invalidPath(normalized)
+            }
+
+            guard let linkCount = values.linkCount else {
+                // Link count is an integrity boundary. A regular file
+                // reachable through a second directory entry can be
+                // mutated through that external alias after the bundle
+                // has been finalized and hashed. Fail closed when the
+                // filesystem cannot report the count.
+                throw BundleFilesystemError.invalidPath(normalized)
+            }
+            guard linkCount <= 1 else {
+                throw BundleFilesystemError.hardLinkForbidden(normalized)
             }
 
             guard let fileSize = values.fileSize else {

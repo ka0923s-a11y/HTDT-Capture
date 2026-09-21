@@ -296,7 +296,15 @@ class DirectorySource:
                     raise ValidationError(f"symlink file forbidden: {candidate}")
                 rel = candidate.relative_to(self.root).as_posix()
                 validate_relative_path(rel)
-                size = candidate.stat().st_size
+                info = candidate.stat()
+                # A regular file with more than one hard link shares an
+                # inode with an outside alias; writing through that alias
+                # would mutate a finalized payload after hashing. Only
+                # st_nlink > 1 indicates hard-link aliasing, so ordinary
+                # clone/copy-on-write files (st_nlink == 1) still pass.
+                if info.st_nlink > 1:
+                    raise ValidationError(f"hard-linked file forbidden: {rel}")
+                size = info.st_size
                 if size > MAX_FILE_BYTES:
                     raise ValidationError(f"file exceeds limit: {rel}")
                 total += size
