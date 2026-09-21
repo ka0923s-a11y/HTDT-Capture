@@ -3270,9 +3270,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
+            // #208: raw/processed RoomPlan JSON materialization, hashing
+            // and descriptor construction are nonisolated CPU work on
+            // the Sendable CapturedRoomData/CapturedRoom values; each
+            // `await` suspends this MainActor task so the encoding runs
+            // on the cooperative executor instead of blocking the
+            // UI/capture actor during the End critical section. The
+            // strict ordering — raw payload, processed lineage, then the
+            // persistence transaction — is unchanged.
             let raw: RoomPlanRawArtifactPayload
             do {
-                raw = try RoomPlanArtifactProcessor.encodeRaw(
+                raw = try await RoomPlanArtifactProcessor.encodeRaw(
                     data,
                     captureSessionID: captureSessionID,
                     coordinateSpaceID: coordinateSpaceID,
