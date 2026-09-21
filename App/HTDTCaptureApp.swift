@@ -2209,10 +2209,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             let sample =
                 try sessionController.currentScanCoverageSample()
+            guard let position = sample.cameraPosition else {
+                throw PlatformCaptureError.currentFrameUnavailable
+            }
             roomFrameOriginPending = WorldPoint3D(
-                x: sample.cameraPosition.x,
-                y: sample.cameraPosition.y,
-                z: sample.cameraPosition.z
+                x: position.x,
+                y: position.y,
+                z: position.z
             )
             workingSetStatus = HostLocalization.text(
                 "Room origin captured; now point along the room front and confirm the second point",
@@ -2244,10 +2247,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 let sample =
                     try self.sessionController
                         .currentScanCoverageSample()
+                guard let second = sample.cameraPosition else {
+                    throw PlatformCaptureError.currentFrameUnavailable
+                }
                 let front = WorldPoint3D(
-                    x: sample.cameraPosition.x,
-                    y: sample.cameraPosition.y,
-                    z: sample.cameraPosition.z
+                    x: second.x,
+                    y: second.y,
+                    z: second.z
                 )
                 let snapshot = await store.snapshot()
                 guard let sessionID = snapshot.captureSessionIDs
@@ -2486,6 +2492,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         Task { @MainActor [weak self] in
             guard let self else { return }
+            let failureCode = self.lastFailure
             let inspection = await Task.detached(
                 priority: .userInitiated
             ) { () async -> FailedCaptureInspection in
@@ -2501,7 +2508,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     workingSetRoot: root,
                     captureRevisionID:
                         identity.captureRevisionID,
-                    failureCode: self.lastFailure,
+                    failureCode: failureCode,
                     resourceEvents: events
                 )
             }.value
@@ -2523,6 +2530,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             guard let store = workingSetStore else {
                 return nil
             }
+            let failureCode = self.lastFailure
             inspection = await Task.detached(
                 priority: .userInitiated
             ) { () async -> FailedCaptureInspection in
@@ -2538,7 +2546,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     workingSetRoot: root,
                     captureRevisionID:
                         identity.captureRevisionID,
-                    failureCode: self.lastFailure,
+                    failureCode: failureCode,
                     resourceEvents: events
                 )
             }.value
@@ -2741,7 +2749,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             guard let self else { return }
             defer { self.persistedDeletionInFlight = false }
             do {
-                let removed = await Task.detached(
+                let removed = try await Task.detached(
                     priority: .userInitiated
                 ) {
                     try store.deleteExportArchive(

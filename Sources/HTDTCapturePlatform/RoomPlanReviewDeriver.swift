@@ -11,6 +11,21 @@ import RoomPlan
 /// platform-independent top-down plan model for the visual review
 /// workspace (#213). Everything here is a pure derivation over already
 /// committed bytes — nothing mutates capture authority.
+/// RoomPlan exposes openings/surfaces and objects as unrelated structs;
+/// the deriver only needs their spatial identity, so both conform to
+/// this local shape.
+private protocol RoomPlanPlanItem {
+    var transform: simd_float4x4 { get }
+    var dimensions: simd_float3 { get }
+    var identifier: UUID { get }
+}
+
+@available(iOS 17.0, *)
+extension CapturedRoom.Surface: RoomPlanPlanItem {}
+
+@available(iOS 17.0, *)
+extension CapturedRoom.Object: RoomPlanPlanItem {}
+
 @available(iOS 17.0, *)
 public enum RoomPlanReviewDeriver {
     public enum DeriverError: Error, Sendable, Equatable {
@@ -38,8 +53,8 @@ public enum RoomPlanReviewDeriver {
     ) throws -> [RoomOpeningCandidate] {
         let room = try decodeRoom(processedPayload)
 
-        func candidates(
-            _ objects: [CapturedRoom.Object],
+        func candidates<O: RoomPlanPlanItem>(
+            _ objects: [O],
             kind: RoomOpeningKind,
             sourceToken: String
         ) -> [RoomOpeningCandidate] {
@@ -143,10 +158,10 @@ public enum RoomPlanReviewDeriver {
             )
         }
 
-        func addObjectMarkers(
-            _ objects: [CapturedRoom.Object],
+        func addMarkers<O: RoomPlanPlanItem>(
+            _ objects: [O],
             kind: RoomPlanPreviewModel.PlanMarker.Kind,
-            label: String? = nil
+            label: (O) -> String?
         ) {
             for object in objects {
                 let c = object.transform.columns
@@ -160,26 +175,18 @@ public enum RoomPlanReviewDeriver {
                         z: z,
                         dirX: Double(c.0.x),
                         dirZ: Double(c.0.z),
-                        label: label ?? String(
-                            describing: object.category
-                        )
+                        label: label(object)
                     )
                 )
             }
         }
 
-        addObjectMarkers(room.doors, kind: .door, label: "door")
-        addObjectMarkers(
-            room.windows,
-            kind: .window,
-            label: "window"
-        )
-        addObjectMarkers(
-            room.openings,
-            kind: .opening,
-            label: "opening"
-        )
-        addObjectMarkers(room.objects, kind: .object)
+        addMarkers(room.doors, kind: .door) { _ in "door" }
+        addMarkers(room.windows, kind: .window) { _ in "window" }
+        addMarkers(room.openings, kind: .opening) { _ in "opening" }
+        addMarkers(room.objects, kind: .object) {
+            String(describing: $0.category)
+        }
 
         guard minX.isFinite else {
             return RoomPlanPreviewModel(
