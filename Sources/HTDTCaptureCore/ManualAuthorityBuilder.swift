@@ -24,12 +24,17 @@ public struct AnnotationPlacementAuthority:
         placement: PlacementProvenance,
         evidenceRefs: [String]
     ) throws {
-        guard Set(evidenceRefs).count == evidenceRefs.count else {
+        let normalizedEvidence = SchemaOwnedText.nfc(evidenceRefs)
+        guard normalizedEvidence.allSatisfy({ !$0.isEmpty }) else {
+            throw AnnotationModelError.emptyAuthorityReference
+        }
+        guard Set(normalizedEvidence).count == normalizedEvidence.count
+        else {
             throw AnnotationModelError.duplicateEvidenceReference
         }
         self.worldFromAnnotation = worldFromAnnotation
         self.placement = placement
-        self.evidenceRefs = evidenceRefs.sorted()
+        self.evidenceRefs = normalizedEvidence.sorted()
     }
 }
 
@@ -44,11 +49,16 @@ public struct AnnotationOrientationAuthority:
         orientation: OrientationAxes,
         evidenceRefs: [String]
     ) throws {
-        guard Set(evidenceRefs).count == evidenceRefs.count else {
+        let normalizedEvidence = SchemaOwnedText.nfc(evidenceRefs)
+        guard normalizedEvidence.allSatisfy({ !$0.isEmpty }) else {
+            throw AnnotationModelError.emptyAuthorityReference
+        }
+        guard Set(normalizedEvidence).count == normalizedEvidence.count
+        else {
             throw AnnotationModelError.duplicateEvidenceReference
         }
         self.orientation = orientation
-        self.evidenceRefs = evidenceRefs.sorted()
+        self.evidenceRefs = normalizedEvidence.sorted()
     }
 }
 

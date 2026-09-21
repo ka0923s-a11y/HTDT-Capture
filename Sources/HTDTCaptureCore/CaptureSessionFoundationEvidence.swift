@@ -16,13 +16,18 @@ public struct CaptureConfigurationDocument: Codable, Sendable, Equatable {
         self.schema = "htdt.capture.configuration"
         self.schemaVersion = "1.0.0"
         self.captureMode = profile.captureMode
-        self.worldAlignment = profile.worldAlignment
-        self.planeDetection = profile.planeDetection.sorted()
-        self.sceneReconstruction = profile.sceneReconstruction
-        self.frameSemantics = profile.frameSemantics.sorted()
+        self.worldAlignment =
+            SchemaOwnedText.nfc(profile.worldAlignment)
+        self.planeDetection =
+            SchemaOwnedText.nfc(profile.planeDetection).sorted()
+        self.sceneReconstruction =
+            SchemaOwnedText.nfc(profile.sceneReconstruction)
+        self.frameSemantics =
+            SchemaOwnedText.nfc(profile.frameSemantics).sorted()
         self.videoFormat = profile.videoFormat
         self.autofocusEnabled = profile.autofocusEnabled
-        self.roomPlanOptions = profile.roomPlanOptions
+        self.roomPlanOptions =
+            SchemaOwnedText.nfc(profile.roomPlanOptions)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -131,8 +136,8 @@ public struct CaptureSessionDocument: Codable, Sendable, Equatable {
         self.coordinateSpaceID = coordinateSpaceID
         self.captureMode = captureMode
         self.startedAtUTC = startedAtUTC
-        self.configurationRef = configurationRef
-        self.timingRef = timingRef
+        self.configurationRef = SchemaOwnedText.nfc(configurationRef)
+        self.timingRef = SchemaOwnedText.nfc(timingRef)
     }
 
     private enum CodingKeys: String, CodingKey {

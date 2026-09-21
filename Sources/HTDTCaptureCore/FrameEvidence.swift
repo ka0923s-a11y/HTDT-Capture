@@ -95,15 +95,18 @@ public struct DepthEvidenceReference: Codable, Sendable, Equatable {
         confidenceByteCount: Int? = nil,
         confidenceSHA256: EvidenceSHA256? = nil
     ) throws {
-        guard !depthRelativePath.isEmpty else {
+        let normalizedDepthPath = SchemaOwnedText.nfc(depthRelativePath)
+        guard !normalizedDepthPath.isEmpty else {
             throw DepthEvidenceReferenceError.emptyDepthPath
         }
         guard depthByteCount > 0 else {
             throw DepthEvidenceReferenceError.invalidDepthByteCount
         }
 
+        let normalizedConfidencePath =
+            SchemaOwnedText.nfc(confidenceRelativePath)
         let confidenceValues = (
-            confidenceRelativePath,
+            normalizedConfidencePath,
             confidenceByteCount,
             confidenceSHA256
         )
@@ -119,10 +122,10 @@ public struct DepthEvidenceReference: Codable, Sendable, Equatable {
         }
 
         self.kind = kind
-        self.depthRelativePath = depthRelativePath
+        self.depthRelativePath = normalizedDepthPath
         self.depthByteCount = depthByteCount
         self.depthSHA256 = depthSHA256
-        self.confidenceRelativePath = confidenceRelativePath
+        self.confidenceRelativePath = normalizedConfidencePath
         self.confidenceByteCount = confidenceByteCount
         self.confidenceSHA256 = confidenceSHA256
     }
@@ -191,7 +194,8 @@ public struct FrameEvidenceDescriptor: Codable, Sendable, Equatable {
         guard pixelByteCount > 0 else {
             throw FrameEvidenceDescriptorError.invalidPixelByteCount
         }
-        guard !pixelRelativePath.isEmpty else {
+        let normalizedPixelPath = SchemaOwnedText.nfc(pixelRelativePath)
+        guard !normalizedPixelPath.isEmpty else {
             throw FrameEvidenceDescriptorError.emptyPixelPath
         }
 
@@ -219,10 +223,11 @@ public struct FrameEvidenceDescriptor: Codable, Sendable, Equatable {
         self.imageWidth = imageWidth
         self.imageHeight = imageHeight
         self.pixelFormatFourCC = pixelFormatFourCC
-        self.pixelRelativePath = pixelRelativePath
+        self.pixelRelativePath = normalizedPixelPath
         self.pixelByteCount = pixelByteCount
         self.pixelSHA256 = pixelSHA256
-        self.exifAllowlisted = exifAllowlisted
+        self.exifAllowlisted =
+            SchemaOwnedText.nfc(exifAllowlisted)
         self.depthStatus = depthStatus
         self.depth = depth
     }

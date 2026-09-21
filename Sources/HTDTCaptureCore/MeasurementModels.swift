@@ -37,6 +37,7 @@ public enum MeasurementModelError: Error, Sendable, Equatable {
     case invalidScalar
     case invalidVector
     case emptyEndpointReference
+    case emptyEvidenceReference
     case duplicateEndpointReference
     case duplicateEvidenceReference
     case negativeUncertainty
@@ -117,10 +118,10 @@ public struct MeasurementInstrument: Codable, Sendable, Equatable {
         calibrationStatus: String? = nil,
         calibrationDate: String? = nil
     ) {
-        self.instrumentClass = instrumentClass
-        self.makeModel = makeModel
-        self.calibrationStatus = calibrationStatus
-        self.calibrationDate = calibrationDate
+        self.instrumentClass = SchemaOwnedText.nfc(instrumentClass)
+        self.makeModel = SchemaOwnedText.nfc(makeModel)
+        self.calibrationStatus = SchemaOwnedText.nfc(calibrationStatus)
+        self.calibrationDate = SchemaOwnedText.nfc(calibrationDate)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -163,19 +164,27 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
         sourceValueText: String? = nil,
         evidenceRefs: [String] = []
     ) throws {
-        guard !quantityType.isEmpty else {
+        let normalizedQuantityType = SchemaOwnedText.nfc(quantityType)
+        guard !normalizedQuantityType.isEmpty else {
             throw MeasurementModelError.emptyQuantityType
         }
         guard value.allFinite else {
             throw MeasurementModelError.invalidScalar
         }
-        guard endpointRefs.allSatisfy({ !$0.isEmpty }) else {
+        let normalizedEndpoints = SchemaOwnedText.nfc(endpointRefs)
+        guard normalizedEndpoints.allSatisfy({ !$0.isEmpty }) else {
             throw MeasurementModelError.emptyEndpointReference
         }
-        guard Set(endpointRefs).count == endpointRefs.count else {
+        guard Set(normalizedEndpoints).count == normalizedEndpoints.count
+        else {
             throw MeasurementModelError.duplicateEndpointReference
         }
-        guard Set(evidenceRefs).count == evidenceRefs.count else {
+        let normalizedEvidence = SchemaOwnedText.nfc(evidenceRefs)
+        guard normalizedEvidence.allSatisfy({ !$0.isEmpty }) else {
+            throw MeasurementModelError.emptyEvidenceReference
+        }
+        guard Set(normalizedEvidence).count == normalizedEvidence.count
+        else {
             throw MeasurementModelError.duplicateEvidenceReference
         }
         if let statedUncertainty {
@@ -185,7 +194,7 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
                 throw MeasurementModelError.negativeUncertainty
             }
         }
-        if value.isSpatialVector || !endpointRefs.isEmpty {
+        if value.isSpatialVector || !normalizedEndpoints.isEmpty {
             guard coordinateSpaceID != nil else {
                 throw MeasurementModelError.missingSpatialCoordinateAuthority
             }
@@ -197,19 +206,19 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
         }
 
         self.measurementID = measurementID
-        self.quantityType = quantityType
+        self.quantityType = normalizedQuantityType
         self.value = value
         self.unit = unit
         self.coordinateSpaceID = coordinateSpaceID
-        self.endpointRefs = endpointRefs
+        self.endpointRefs = normalizedEndpoints
         self.acquisitionMethod = acquisitionMethod
         self.instrument = instrument
         self.statedUncertainty = statedUncertainty
         self.observedAtUTC = observedAtUTC
         self.userAttestation = userAttestation
         self.provenanceClass = provenanceClass
-        self.sourceValueText = sourceValueText
-        self.evidenceRefs = evidenceRefs
+        self.sourceValueText = SchemaOwnedText.nfc(sourceValueText)
+        self.evidenceRefs = normalizedEvidence
     }
 
     private enum CodingKeys: String, CodingKey {

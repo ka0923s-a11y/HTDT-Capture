@@ -36,8 +36,10 @@ public struct CaptureDeviceDocument:
         appVersion: String? = nil,
         appBuild: String? = nil
     ) throws {
-        guard !osVersion.isEmpty,
-              !hardwareModel.isEmpty
+        let normalizedOSVersion = SchemaOwnedText.nfc(osVersion)
+        let normalizedHardwareModel = SchemaOwnedText.nfc(hardwareModel)
+        guard !normalizedOSVersion.isEmpty,
+              !normalizedHardwareModel.isEmpty
         else {
             throw CaptureSessionMetadataError.emptyDeviceField
         }
@@ -45,11 +47,11 @@ public struct CaptureDeviceDocument:
         self.schema = "htdt.capture.device"
         self.schemaVersion = "1.0.0"
         self.platform = "iOS"
-        self.osVersion = osVersion
-        self.osBuild = osBuild
-        self.hardwareModel = hardwareModel
-        self.appVersion = appVersion
-        self.appBuild = appBuild
+        self.osVersion = normalizedOSVersion
+        self.osBuild = SchemaOwnedText.nfc(osBuild)
+        self.hardwareModel = normalizedHardwareModel
+        self.appVersion = SchemaOwnedText.nfc(appVersion)
+        self.appBuild = SchemaOwnedText.nfc(appBuild)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -86,7 +88,8 @@ public struct CaptureTimingCorrelation:
             throw CaptureSessionMetadataError
                 .invalidMonotonicTimestamp
         }
-        guard !method.isEmpty else {
+        let normalizedMethod = SchemaOwnedText.nfc(method)
+        guard !normalizedMethod.isEmpty else {
             throw CaptureSessionMetadataError.emptyTimingMethod
         }
         guard ISO8601DateFormatter().date(from: utc) != nil else {
@@ -103,7 +106,7 @@ public struct CaptureTimingCorrelation:
 
         self.monotonicSeconds = monotonicSeconds
         self.utc = utc
-        self.method = method
+        self.method = normalizedMethod
         self.estimatedUncertaintySeconds =
             estimatedUncertaintySeconds
     }
@@ -131,7 +134,8 @@ public struct CaptureTimingDocument:
         clockDomain: String,
         correlations: [CaptureTimingCorrelation]
     ) throws {
-        guard !clockDomain.isEmpty else {
+        let normalizedDomain = SchemaOwnedText.nfc(clockDomain)
+        guard !normalizedDomain.isEmpty else {
             throw CaptureSessionMetadataError.emptyClockDomain
         }
         guard !correlations.isEmpty else {
@@ -150,7 +154,7 @@ public struct CaptureTimingDocument:
 
         self.schema = "htdt.capture.timing"
         self.schemaVersion = "1.0.0"
-        self.clockDomain = clockDomain
+        self.clockDomain = normalizedDomain
         self.correlations = correlations
     }
 

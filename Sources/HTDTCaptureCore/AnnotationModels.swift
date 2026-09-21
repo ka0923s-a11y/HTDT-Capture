@@ -1,5 +1,35 @@
 import Foundation
 
+/// Canonicalization for schema-owned text. The capture-bundle JSON
+/// contract requires every emitted string to be NFC-normalized so that
+/// canonically equivalent user input produces identical authority bytes.
+/// Token/identifier types with stricter ASCII rules keep their own
+/// validation and never pass through here.
+enum SchemaOwnedText {
+    static func nfc(_ value: String) -> String {
+        value.precomposedStringWithCanonicalMapping
+    }
+
+    static func nfc(_ value: String?) -> String? {
+        value.map(nfc)
+    }
+
+    static func nfc(_ values: [String]) -> [String] {
+        values.map(nfc)
+    }
+
+    static func nfc(_ values: [String: String]) -> [String: String] {
+        var result: [String: String] = [:]
+        result.reserveCapacity(values.count)
+        // Sort by the original key so that keys colliding after
+        // normalization resolve deterministically.
+        for (key, value) in values.sorted(by: { $0.key < $1.key }) {
+            result[nfc(key)] = nfc(value)
+        }
+        return result
+    }
+}
+
 public struct AnnotationEntityID: CaptureIdentifier {
     public let rawValue: UUID
     public init(rawValue: UUID) { self.rawValue = rawValue }
@@ -102,11 +132,13 @@ public struct HTDTEquipmentReference: Codable, Sendable, Equatable {
         equipmentVersion: String,
         equipmentHash: EvidenceSHA256
     ) throws {
-        guard !equipmentID.isEmpty, !equipmentVersion.isEmpty else {
+        let normalizedID = SchemaOwnedText.nfc(equipmentID)
+        let normalizedVersion = SchemaOwnedText.nfc(equipmentVersion)
+        guard !normalizedID.isEmpty, !normalizedVersion.isEmpty else {
             throw AnnotationModelError.emptyAuthorityReference
         }
-        self.equipmentID = equipmentID
-        self.equipmentVersion = equipmentVersion
+        self.equipmentID = normalizedID
+        self.equipmentVersion = normalizedVersion
         self.equipmentHash = equipmentHash
     }
 
@@ -226,11 +258,12 @@ public struct AcousticCenterOffsetAuthority: Codable, Sendable, Equatable {
         offsetLocalMeters: SpatialVector3F,
         authorityRef: String
     ) throws {
-        guard !authorityRef.isEmpty else {
+        let normalizedRef = SchemaOwnedText.nfc(authorityRef)
+        guard !normalizedRef.isEmpty else {
             throw AnnotationModelError.emptyAuthorityReference
         }
         self.offsetLocalMeters = offsetLocalMeters
-        self.authorityRef = authorityRef
+        self.authorityRef = normalizedRef
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -253,8 +286,12 @@ public struct PlacementProvenance: Codable, Sendable, Equatable {
         sourceRoomPlanObjectID: String? = nil,
         sourceEvidenceRefs: [String] = []
     ) throws {
-        let normalizedEvidence = Array(Set(sourceEvidenceRefs)).sorted()
-        guard normalizedEvidence.count == sourceEvidenceRefs.count else {
+        let normalizedEvidence = SchemaOwnedText.nfc(sourceEvidenceRefs)
+        guard normalizedEvidence.allSatisfy({ !$0.isEmpty }) else {
+            throw AnnotationModelError.emptyAuthorityReference
+        }
+        guard Set(normalizedEvidence).count == normalizedEvidence.count
+        else {
             throw AnnotationModelError.duplicateEvidenceReference
         }
 
@@ -262,7 +299,7 @@ public struct PlacementProvenance: Codable, Sendable, Equatable {
         case .raycast, .meshHitTest:
             guard sourceMeshAnchorID != nil
                     || sourceSemanticEntityID != nil
-                    || !sourceEvidenceRefs.isEmpty
+                    || !normalizedEvidence.isEmpty
             else {
                 throw AnnotationModelError.invalidPlacementReference
             }
@@ -277,10 +314,12 @@ public struct PlacementProvenance: Codable, Sendable, Equatable {
         }
 
         self.method = method
-        self.sourceSemanticEntityID = sourceSemanticEntityID
+        self.sourceSemanticEntityID =
+            SchemaOwnedText.nfc(sourceSemanticEntityID)
         self.sourceMeshAnchorID = sourceMeshAnchorID
-        self.sourceRoomPlanObjectID = sourceRoomPlanObjectID
-        self.sourceEvidenceRefs = sourceEvidenceRefs
+        self.sourceRoomPlanObjectID =
+            SchemaOwnedText.nfc(sourceRoomPlanObjectID)
+        self.sourceEvidenceRefs = normalizedEvidence
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -376,11 +415,16 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         equipmentRef: HTDTEquipmentReference? = nil,
         evidenceRefs: [String] = []
     ) throws {
-        guard !label.isEmpty else {
+        let normalizedLabel = SchemaOwnedText.nfc(label)
+        guard !normalizedLabel.isEmpty else {
             throw AnnotationModelError.emptyLabel
         }
-        let uniqueEvidence = Set(evidenceRefs)
-        guard uniqueEvidence.count == evidenceRefs.count else {
+        let normalizedEvidence = SchemaOwnedText.nfc(evidenceRefs)
+        guard normalizedEvidence.allSatisfy({ !$0.isEmpty }) else {
+            throw AnnotationModelError.emptyAuthorityReference
+        }
+        guard Set(normalizedEvidence).count == normalizedEvidence.count
+        else {
             throw AnnotationModelError.duplicateEvidenceReference
         }
 
@@ -398,7 +442,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         self.coordinateSpaceID = coordinateSpaceID
         self.worldFromAnnotation = worldFromAnnotation
         self.referencePointSemantics = referencePointSemantics
-        self.label = label
+        self.label = normalizedLabel
         self.provenanceClass = provenanceClass
         self.verificationState = verificationState
         self.placement = placement
@@ -406,7 +450,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         self.channelRole = channelRole
         self.acousticCenter = acousticCenter
         self.equipmentRef = equipmentRef
-        self.evidenceRefs = evidenceRefs
+        self.evidenceRefs = normalizedEvidence
     }
 
     private enum CodingKeys: String, CodingKey {
