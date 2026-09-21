@@ -87,6 +87,8 @@ roomplan_mesh
 
 If the required reconfiguration resets tracking/world origin, the app must issue a new `coordinate_space_id`. It must never silently pretend continuity.
 
+Startup policy (Option B): production capture requires `roomPlanMeshEligible` — a session only begins in `roomplan_mesh`. `evidence_depth` and `degraded_no_depth` are runtime-resolution modes reached when mesh reconstruction is lost after a mesh-eligible start; the capability contract keeps them so quality fallback stays honest about startup-vs-runtime mesh loss.
+
 ## 6. Session lifecycle
 
 A capture session has an explicit domain state machine:
