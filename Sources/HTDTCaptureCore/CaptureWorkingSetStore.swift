@@ -494,16 +494,66 @@ public actor CaptureWorkingSetStore {
             coordinateSpaceID: package.session.coordinateSpaceID
         )
 
+        // The foundation is write-once authority and its four canonical
+        // files are one recoverable transaction (issue #203): an
+        // identical replay is idempotent, and any other package on a
+        // committed foundation is a conflicting canonical payload.
+        // Detecting a committed foundation before writing means a
+        // reentrant attempt never treats a partial-write artifact as a
+        // new commit.
+        if let existing = sessionFoundation {
+            if existing == package {
+                return
+            }
+            throw CaptureWorkingSetError.duplicatePayloadDeclaration(
+                CaptureSessionFoundationPackage.sessionPath
+            )
+        }
+        if let conflicting = package.payloadDeclarations.first(where: {
+            declarations[$0.path] != nil
+                && declarations[$0.path] != $0
+        }) {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(conflicting.path)
+        }
+
+        // All four files commit as one writer-actor batch: files this
+        // attempt creates roll back on a mid-write failure,
+        // byte-identical leftovers from an interrupted attempt are
+        // adopted, and conflicting pre-existing bytes fail closed.
         try await package.persist(using: writer)
 
-        // No suspension point before this binding, so publication joins
-        // the same logical commit as the durable foundation bytes.
+        // The store actor may have re-entered while the writer ran: an
+        // identical reentrant commit is harmless, anything else fails
+        // closed rather than mixing foundation authority.
+        if let existing = sessionFoundation {
+            if existing == package {
+                return
+            }
+            throw CaptureWorkingSetError.duplicatePayloadDeclaration(
+                CaptureSessionFoundationPackage.sessionPath
+            )
+        }
+        guard package.payloadDeclarations.allSatisfy({
+            declarations[$0.path] == nil
+                || declarations[$0.path] == $0
+        }) else {
+            throw CaptureWorkingSetError
+                .duplicatePayloadDeclaration(
+                    CaptureSessionFoundationPackage.sessionPath
+                )
+        }
+
+        // No suspension points below: identity binding, all four
+        // declarations, and the foundation record publish as one
+        // logical commit — never a subset of the foundation files
+        // (issues #202/#203).
         try publishAuthority(
             captureSessionID: package.session.captureSessionID,
             coordinateSpaceID: package.session.coordinateSpaceID
         )
         for declaration in package.payloadDeclarations {
-            try register(declaration)
+            declarations[declaration.path] = declaration
         }
         sessionFoundation = package
     }
