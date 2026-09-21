@@ -9,6 +9,7 @@ public enum ManualAuthorityBuilderError:
     case invalidSpeakerYaw
     case invalidSpeakerChannelRole
     case orientationOnlyForSpeaker
+    case derivedAcquisitionNotUserAttestable
 }
 
 public struct AnnotationPlacementAuthority:
@@ -210,7 +211,18 @@ public enum ManualAuthorityBuilder {
         sourceValueText: String? = nil,
         evidenceRefs: [String] = []
     ) throws -> CaptureMeasurement {
-        try CaptureMeasurement(
+        // The manual builder always writes a user-attested record, so a
+        // derived acquisition method would be a contradictory provenance
+        // claim. Derived values must use their own evidence path.
+        switch acquisitionMethod {
+        case .lidarDerived, .roomPlanDerived:
+            throw ManualAuthorityBuilderError
+                .derivedAcquisitionNotUserAttestable
+        case .tapeMeasure, .laserDistanceMeter,
+             .manufacturerSpecification, .other:
+            break
+        }
+        return try CaptureMeasurement(
             quantityType: quantityType,
             value: .scalar(value),
             unit: unit,

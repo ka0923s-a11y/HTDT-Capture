@@ -222,6 +222,16 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
             guard userAttestation == .attested else {
                 throw MeasurementModelError.userAttestationRequired
             }
+            // User-attested records must not claim a derived acquisition
+            // method; derived values carry their own provenance class.
+            switch acquisitionMethod {
+            case .lidarDerived, .roomPlanDerived:
+                throw MeasurementModelError
+                    .derivedAcquisitionNotUserAttestable
+            case .tapeMeasure, .laserDistanceMeter,
+                 .manufacturerSpecification, .other:
+                break
+            }
         }
 
         self.measurementID = measurementID
