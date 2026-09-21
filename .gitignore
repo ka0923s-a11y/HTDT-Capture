@@ -1,3 +1,5 @@
 App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
 __pycache__/
 *.pyc
+
+.build/

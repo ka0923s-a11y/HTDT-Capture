@@ -52,6 +52,7 @@ capture-<capture-revision-id>.htdtcapture/
 |
 +-- quality/
     +-- capture-quality.json
+    +-- capture-advisory.json
     +-- benchmark-observations.json
 ```
 
@@ -79,6 +80,9 @@ Examples:
 | HEIC preview | derived |
 | USD/USDZ/GLB preview/export | derived |
 | merged mesh preview | derived |
+| `quality/capture-advisory.json` advisory diagnostics | derived (`capture_app_derived`) |
+
+`quality/capture-advisory.json` is the bounded advisory-diagnostics payload persisted at seal: End-boundary coverage/guidance summary, operator task completeness, RoomPlan guidance transitions, mesh lifecycle statistics, depth sufficiency summary, conflict reconciliation, and RoomPlan↔mesh consistency. It is never a geometry/truth authority, never a finalization gate, and unknown coverage cells are never proof of missing geometry.
 
 "Canonical" does not mean "physically exact"; it means the bundle preserves that exact source/authority artifact.
 

@@ -91,6 +91,7 @@ SCHEMA_OWNED_PATHS = {
     "annotations/entities.json": "entities.schema.json",
     "annotations/measurements.json": "measurements.schema.json",
     "quality/capture-quality.json": "quality.schema.json",
+    "quality/capture-advisory.json": "capture-advisory.schema.json",
 }
 FRAME_DESCRIPTOR_RE = re.compile(r"^evidence/frames/[^/]+\.json$")
 
