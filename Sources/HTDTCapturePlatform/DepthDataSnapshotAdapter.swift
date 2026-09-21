@@ -13,6 +13,9 @@ public enum DepthDataSnapshotAdapterError: Error {
     case unavailableBaseAddress
     case sourceStrideTooSmall
     case confidenceDimensionsMismatch
+    case invalidDepthDimensions(width: Int, height: Int)
+    case invalidConfidenceDimensions(width: Int, height: Int)
+    case unsupportedConfidenceValue(index: Int, value: UInt8)
 }
 
 public struct DepthArtifactSnapshot: Sendable {
@@ -77,6 +80,18 @@ public enum DepthDataSnapshotAdapter {
 
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
+        // Malformed dimensions must fail before any allocation or
+        // evidence construction; the count multiplication below would
+        // otherwise overflow/trap on hostile inputs.
+        guard width > 0,
+              height > 0,
+              !width.multipliedReportingOverflow(by: height).overflow
+        else {
+            throw DepthDataSnapshotAdapterError.invalidDepthDimensions(
+                width: width,
+                height: height
+            )
+        }
         let sourceBytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
         let activeBytesPerRow = width * MemoryLayout<Float>.stride
         guard sourceBytesPerRow >= activeBytesPerRow else {
@@ -95,7 +110,13 @@ public enum DepthDataSnapshotAdapter {
                 .assumingMemoryBound(to: Float.self)
             for column in 0..<width {
                 let value = rowBase[column]
-                if value.isFinite {
+                // v1 canonical semantics: `valuesMeters` is the estimated
+                // positive distance from the device to the environment.
+                // Finite-but-non-positive and non-finite samples are not
+                // valid scene-depth observations; they are normalized to
+                // zero and marked invalid in the validity mask, which is
+                // emitted whenever at least one invalid sample exists.
+                if value.isFinite, value > 0 {
                     values.append(value)
                     validity.append(1)
                 } else {
@@ -145,6 +166,16 @@ public enum DepthDataSnapshotAdapter {
 
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
+        guard width > 0,
+              height > 0,
+              !width.multipliedReportingOverflow(by: height).overflow
+        else {
+            throw DepthDataSnapshotAdapterError
+                .invalidConfidenceDimensions(
+                    width: width,
+                    height: height
+                )
+        }
         let sourceBytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
         guard sourceBytesPerRow >= width else {
             throw DepthDataSnapshotAdapterError.sourceStrideTooSmall
@@ -157,7 +188,21 @@ public enum DepthDataSnapshotAdapter {
                 .advanced(by: row * sourceBytesPerRow)
                 .assumingMemoryBound(to: UInt8.self)
             for column in 0..<width {
-                values.append(rowBase[column])
+                let raw = rowBase[column]
+                // Each confidence byte must carry a supported
+                // ARConfidenceLevel raw value. The policy is fail-closed:
+                // bytes outside the current ARKit domain (including any
+                // future SDK values) reject the map rather than silently
+                // qualifying as canonical confidence.
+                guard ARConfidenceLevel(rawValue: Int(raw)) != nil
+                else {
+                    throw DepthDataSnapshotAdapterError
+                        .unsupportedConfidenceValue(
+                            index: row * width + column,
+                            value: raw
+                        )
+                }
+                values.append(raw)
             }
         }
 
