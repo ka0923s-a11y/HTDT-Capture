@@ -223,6 +223,44 @@ public struct CaptureDeviceDocument:
     }
 }
 
+/// Which capture-session boundary a timing correlation sample closes.
+/// The v1 `session/timing.json` document orders its two correlations
+/// `[start, end]` and has no explicit role field, so the boundary
+/// semantics are carried in the correlation `method` label (#200).
+public enum CaptureTimingBoundary: Sendable {
+    /// The first AR frame the shared session delivers after the start
+    /// request. The host samples it before any unrelated configuration
+    /// wait or foundation persistence so the stored two-clock authority
+    /// begins at the true session-start boundary. RoomPlan's `run()`
+    /// necessarily starts the underlying ARSession, so
+    /// framework-internal observations between the run request and this
+    /// first delivered frame precede the stored correlation interval;
+    /// the method label marks that explicitly.
+    case sessionStart
+    /// The current-frame sample captured at the accepted End boundary
+    /// before the session is asked to stop.
+    case sessionEnd
+
+    /// The `method` label persisted on the correlation sample.
+    public var timingMethod: String {
+        switch self {
+        case .sessionStart:
+            return "bracketed_first_arframe_at_session_start"
+        case .sessionEnd:
+            return "bracketed_arframe_current_frame"
+        }
+    }
+
+    /// The `method` label when the sample is produced by the
+    /// frame-age-projected estimator (#206): the projected capture
+    /// instant and the frame-age-inflated uncertainty are identified
+    /// by the suffix so downstream consumers can distinguish the
+    /// semantics from a plain read-time bracket.
+    public var ageProjectedTimingMethod: String {
+        timingMethod + "_age_projected"
+    }
+}
+
 public struct CaptureTimingCorrelation:
     Codable,
     Sendable,

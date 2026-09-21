@@ -4,15 +4,31 @@ import HTDTCaptureCore
 #if os(iOS) && canImport(RoomPlan)
 import RoomPlan
 
+/// RoomPlan completion post-processing for the End transaction (#208).
+///
+/// `CapturedRoomData` and `CapturedRoom` are Sendable value types, so
+/// the JSON materialization, SHA-256 hashing and descriptor/lineage
+/// construction below are pure CPU work on owned bytes. These methods
+/// are deliberately `nonisolated` + `async`: the host's MainActor End
+/// task suspends while the encode/hash sections run on the cooperative
+/// executor instead of blocking the UI/capture actor at the exact point
+/// where lifecycle and resource callbacks still matter.
+///
+/// No RoomPlan view/session object crosses the boundary — only the
+/// Sendable result data — and the completion path is serialized by the
+/// host's `roomPlanCompletionInFlight` guard, so off-actor work cannot
+/// queue unboundedly (#147 backpressure contract). Canonical bytes and
+/// lineage are identical to the previous synchronous MainActor output.
 @available(iOS 17.0, *)
-@MainActor
 public enum RoomPlanArtifactProcessor {
+    /// Encodes the raw `CapturedRoomData` payload and builds its
+    /// evidence descriptor (byte count + SHA-256) off the calling actor.
     public static func encodeRaw(
         _ data: CapturedRoomData,
         captureSessionID: CaptureSessionID,
         coordinateSpaceID: CoordinateSpaceID,
         runtime: CaptureRuntimeProvenance
-    ) throws -> RoomPlanRawArtifactPayload {
+    ) async throws -> RoomPlanRawArtifactPayload {
         let encoded = try RoomPlanArtifactEncoder.encodeRaw(data)
         return RoomPlanEvidenceArtifactBuilder.buildRaw(
             data: encoded,
@@ -22,6 +38,11 @@ public enum RoomPlanArtifactProcessor {
         )
     }
 
+    /// Runs `RoomBuilder` post-processing, encodes the processed
+    /// `CapturedRoom`, and builds the processed descriptor + lineage
+    /// off the calling actor. The `RoomBuilder` instance is created and
+    /// consumed inside this nonisolated task and is never sent across
+    /// actors.
     public static func deriveProcessed(
         from data: CapturedRoomData,
         rawArtifact: RoomPlanRawArtifactPayload,

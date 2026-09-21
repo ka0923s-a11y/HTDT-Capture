@@ -1053,8 +1053,14 @@ public final class SharedARSessionController {
         ])
     }
 
-    /// Capture a monotonic↔UTC correlation pair for the current frame
-    /// (#206).
+    /// Bracketed monotonic↔UTC correlation sample for the given capture
+    /// boundary (#200), corrected for ARFrame age (#206).
+    ///
+    /// The `boundary` chooses the persisted `method` label:
+    /// `.sessionStart` is taken from the first AR frame the shared
+    /// session delivers after the start request — before any unrelated
+    /// configuration wait or persistence work — while `.sessionEnd` is
+    /// the current-frame sample at the accepted End boundary.
     ///
     /// `ARFrame.timestamp` is the frame's capture instant in the host
     /// monotonic domain (the `mach_absolute_time`-derived seconds
@@ -1066,9 +1072,9 @@ public final class SharedARSessionController {
     /// frame's capture instant and fold the observed frame age into the
     /// declared uncertainty instead of reporting only the
     /// property-access bracket.
-    public func snapshotTimingCorrelation()
-        throws -> CaptureTimingCorrelation
-    {
+    public func snapshotTimingCorrelation(
+        boundary: CaptureTimingBoundary = .sessionEnd
+    ) throws -> CaptureTimingCorrelation {
         let monotonicBefore = CACurrentMediaTime()
         let before = Date()
         guard let frame = arSession.currentFrame else {
@@ -1092,7 +1098,7 @@ public final class SharedARSessionController {
             utc: PlatformTimestamp.fractionalUtcString(
                 from: estimate.captureInstantUTC
             ),
-            method: "bracketed_arframe_current_frame_age_projected",
+            method: boundary.ageProjectedTimingMethod,
             estimatedUncertaintySeconds:
                 estimate.uncertaintySeconds
         )

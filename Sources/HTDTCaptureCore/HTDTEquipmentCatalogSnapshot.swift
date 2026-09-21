@@ -275,3 +275,60 @@ public struct HTDTEquipmentCatalogSnapshot:
         case definitions
     }
 }
+
+/// Durable app-local mirror of the last validated HTDT
+/// equipment-catalog snapshot (#211).
+///
+/// The catalog is operator reference context for exact equipment
+/// selection — it is never capture-bundle authority — so it is stored
+/// as a single app-owned JSON file outside the bundle roots. Every
+/// reload runs through the validating snapshot decoder: an unsupported
+/// schema or authority version is dropped rather than silently
+/// substituted, and annotation authority already committed inside a
+/// capture stays valid because it stores only exact equipment tuples.
+public struct HTDTEquipmentCatalogCache: Sendable {
+    /// The app-owned file holding the imported catalog bytes.
+    public let fileURL: URL
+
+    public init(fileURL: URL) {
+        self.fileURL = fileURL
+    }
+
+    /// Validates `data` through the snapshot decoder and, only on
+    /// success, writes those exact bytes atomically. Returns the
+    /// validated snapshot. An invalid candidate throws before any
+    /// write, so a rejected import never replaces the stored snapshot.
+    @discardableResult
+    public func store(
+        _ data: Data
+    ) throws -> HTDTEquipmentCatalogSnapshot {
+        let snapshot = try JSONDecoder().decode(
+            HTDTEquipmentCatalogSnapshot.self,
+            from: data
+        )
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: fileURL, options: .atomic)
+        return snapshot
+    }
+
+    /// Returns the cached snapshot only while it still validates.
+    /// A missing file is a clean miss; a corrupt or now-unsupported
+    /// file is removed so a stale snapshot is never silently reused —
+    /// the caller then requires an explicit re-import.
+    public func load() -> HTDTEquipmentCatalogSnapshot? {
+        guard let data = try? Data(contentsOf: fileURL) else {
+            return nil
+        }
+        guard let snapshot = try? JSONDecoder().decode(
+            HTDTEquipmentCatalogSnapshot.self,
+            from: data
+        ) else {
+            try? FileManager.default.removeItem(at: fileURL)
+            return nil
+        }
+        return snapshot
+    }
+}

@@ -301,3 +301,57 @@ func timingPackageBuildsWithDelayedCurrentFrameFixture() throws {
     )
     #expect(package.document.correlations == [start, end])
 }
+
+// MARK: - Start-boundary correlation identity (#200)
+//
+// The v1 timing document orders correlations [start, end] and carries
+// no explicit role field, so the boundary semantics ride on `method`.
+// The start sample is taken from the first AR frame the shared session
+// delivers after the start request — before unrelated configuration or
+// persistence work — and the label marks that any framework-internal
+// observation between the run request and that first frame precedes
+// the stored correlation interval. Production samples also carry the
+// `_age_projected` suffix from the frame-age estimator (#206).
+
+@Test
+func startBoundaryCorrelationCarriesDistinctMethod() throws {
+    let start = try CaptureTimingCorrelation(
+        monotonicSeconds: 1.25,
+        utc: "2026-09-20T01:00:01.250Z",
+        method: CaptureTimingBoundary.sessionStart
+            .ageProjectedTimingMethod,
+        estimatedUncertaintySeconds: 0.001
+    )
+    let end = try CaptureTimingCorrelation(
+        monotonicSeconds: 42.5,
+        utc: "2026-09-20T01:00:42.500Z",
+        method: CaptureTimingBoundary.sessionEnd
+            .ageProjectedTimingMethod,
+        estimatedUncertaintySeconds: 0.001
+    )
+
+    let package = try CaptureTimingPackageBuilder.build(
+        start: start,
+        end: end
+    )
+    let decoded = try JSONDecoder().decode(
+        CaptureTimingDocument.self,
+        from: package.data
+    )
+
+    // The start boundary is identifiable without relying on position:
+    // it declares the first-AR-frame-after-start sampling, while the
+    // end boundary keeps the current-frame method label.
+    #expect(
+        decoded.correlations[0].method
+            == "bracketed_first_arframe_at_session_start_age_projected"
+    )
+    #expect(
+        decoded.correlations[1].method
+            == "bracketed_arframe_current_frame_age_projected"
+    )
+    #expect(
+        decoded.correlations[0].method
+            != decoded.correlations[1].method
+    )
+}
