@@ -11,8 +11,10 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import re
 import sys
 import unicodedata
+from uuid import UUID
 import zipfile
 
 if __package__ in (None, ""):
@@ -321,6 +323,20 @@ def _require_unique_text_list(value, field: str) -> list[str]:
 def _require_member(value, members: set, field: str) -> None:
     if value not in members:
         raise IngestionError(f"{field} is not a manifest member: {value!r}")
+
+
+_UTC_TIMESTAMP_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$"
+)
+
+
+def _validate_utc_timestamp(value, field: str) -> None:
+    if not isinstance(value, str) or not _UTC_TIMESTAMP_RE.fullmatch(
+        value
+    ):
+        raise IngestionError(
+            f"{field} must be canonical UTC RFC3339 text"
+        )
 
 
 def _validate_matrix(
@@ -1618,6 +1634,7 @@ def _validate_entity_placement(
             "source_semantic_entity_id",
             "source_mesh_anchor_id",
             "source_roomplan_object_id",
+            "raycast",
         },
         field=field,
     )
@@ -1678,6 +1695,408 @@ def _validate_entity_placement(
         raise IngestionError(
             f"{field}.method 'roomplan_binding' requires a RoomPlan or "
             "semantic source identity"
+        )
+
+    raycast = placement.get("raycast")
+    if raycast is not None:
+        if not isinstance(raycast, dict):
+            raise IngestionError(f"{field}.raycast must be an object")
+        _require_document_keys(
+            raycast,
+            required={"target_type"},
+            optional={
+                "hit_distance_m",
+                "hit_anchor_id",
+                "T_world_from_hit",
+            },
+            field=f"{field}.raycast",
+        )
+        target_type = raycast["target_type"]
+        if not isinstance(target_type, str) or not target_type:
+            raise IngestionError(
+                f"{field}.raycast.target_type must be a non-empty string"
+            )
+        hit_distance = raycast.get("hit_distance_m")
+        if hit_distance is not None and (
+            not isinstance(hit_distance, (int, float))
+            or isinstance(hit_distance, bool)
+            or not math.isfinite(hit_distance)
+            or hit_distance < 0
+        ):
+            raise IngestionError(
+                f"{field}.raycast.hit_distance_m must be a number >= 0"
+            )
+        hit_anchor_id = raycast.get("hit_anchor_id")
+        if hit_anchor_id is not None:
+            # The producer serializes UUIDs with Foundation's Codable,
+            # which preserves case — accept either and normalize to the
+            # canonical lowercase form the mesh index uses.
+            if not isinstance(hit_anchor_id, str) or not hit_anchor_id:
+                raise IngestionError(
+                    f"{field}.raycast.hit_anchor_id must be a "
+                    "non-empty string or null"
+                )
+            try:
+                UUID(hit_anchor_id)
+            except (ValueError, AttributeError) as exc:
+                raise IngestionError(
+                    f"{field}.raycast.hit_anchor_id is not a UUID: "
+                    f"{hit_anchor_id!r}"
+                ) from exc
+            resolutions.append(
+                context.resolve(
+                    f"mesh_anchor:{str(UUID(hit_anchor_id))}",
+                    f"{field}.raycast.hit_anchor_id",
+                    coordinate_space_id,
+                )
+            )
+        hit_transform = raycast.get("T_world_from_hit")
+        if hit_transform is not None:
+            _validate_transform(
+                hit_transform,
+                f"{field}.raycast.T_world_from_hit",
+            )
+    return resolutions
+
+
+def _validate_entity_extensions(
+    record: dict,
+    field: str,
+    context: _EvidenceRefContext,
+    coordinate_space_id,
+) -> list[dict]:
+    """Validate v1.1 annotation contract fields added for the
+    physical-entity / authority-granularity cluster: optional
+    ``physical_envelope``, ``uncertainty``, ``authority``,
+    ``lifecycle``, ``reference_point``, ``listening_role`` and
+    ``equipment_ref.authority_version``. Each carries its own
+    evidence claims that must resolve against committed authority.
+    """
+    resolutions: list[dict] = []
+    entity_type = record.get("type")
+
+    listening_role = record.get("listening_role")
+    if listening_role is not None:
+        if listening_role not in {
+            "primary",
+            "secondary",
+            "measurement_reference",
+        }:
+            raise IngestionError(f"{field}.listening_role is invalid")
+        if entity_type != "listening_position":
+            raise IngestionError(
+                f"{field}.listening_role requires "
+                "type 'listening_position'"
+            )
+
+    equipment_ref = record.get("equipment_ref")
+    if equipment_ref is not None:
+        if not isinstance(equipment_ref, dict):
+            raise IngestionError(
+                f"{field}.equipment_ref must be an object"
+            )
+        authority_version = equipment_ref.get("authority_version")
+        if authority_version is not None and (
+            not isinstance(authority_version, str)
+            or not authority_version
+        ):
+            raise IngestionError(
+                f"{field}.equipment_ref.authority_version must be a "
+                "non-empty string or null"
+            )
+
+    envelope = record.get("physical_envelope")
+    if envelope is not None:
+        if not isinstance(envelope, dict):
+            raise IngestionError(
+                f"{field}.physical_envelope must be an object"
+            )
+        _require_document_keys(
+            envelope,
+            required={"provenance", "source_evidence_refs"},
+            optional={"width_m", "height_m", "depth_m"},
+            field=f"{field}.physical_envelope",
+        )
+        dimensions = [
+            envelope.get(key)
+            for key in ("width_m", "height_m", "depth_m")
+        ]
+        if all(value is None for value in dimensions):
+            raise IngestionError(
+                f"{field}.physical_envelope requires at least one "
+                "dimension"
+            )
+        for index, value in enumerate(dimensions):
+            if value is not None and (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(value)
+                or value <= 0
+            ):
+                raise IngestionError(
+                    f"{field}.physical_envelope dimension must be a "
+                    "number > 0"
+                )
+        if envelope["provenance"] not in {
+            "user_measured",
+            "equipment_catalog_derived",
+            "roomplan_derived",
+            "imported_reference",
+            "other",
+        }:
+            raise IngestionError(
+                f"{field}.physical_envelope.provenance is invalid"
+            )
+        resolutions.extend(
+            _resolve_ref_list(
+                envelope["source_evidence_refs"],
+                f"{field}.physical_envelope.source_evidence_refs",
+                context,
+                coordinate_space_id,
+            )
+        )
+
+    uncertainty = record.get("uncertainty")
+    if uncertainty is not None:
+        if not isinstance(uncertainty, dict):
+            raise IngestionError(
+                f"{field}.uncertainty must be an object"
+            )
+        _require_document_keys(
+            uncertainty,
+            required={"basis"},
+            optional={
+                "isotropic_m",
+                "per_axis_m",
+                "angular_rad",
+                "source_evidence_refs",
+            },
+            field=f"{field}.uncertainty",
+        )
+        if uncertainty["basis"] not in {
+            "user_stated",
+            "instrument_stated",
+            "app_estimated",
+            "other",
+        }:
+            raise IngestionError(
+                f"{field}.uncertainty.basis is invalid"
+            )
+        isotropic = uncertainty.get("isotropic_m")
+        per_axis = uncertainty.get("per_axis_m")
+        angular = uncertainty.get("angular_rad")
+        if isotropic is None and per_axis is None and angular is None:
+            raise IngestionError(
+                f"{field}.uncertainty requires at least one numeric "
+                "component"
+            )
+        for component_field, value in (
+            ("isotropic_m", isotropic),
+            ("angular_rad", angular),
+        ):
+            if value is not None and (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(value)
+                or value < 0
+            ):
+                raise IngestionError(
+                    f"{field}.uncertainty.{component_field} must be a "
+                    "number >= 0"
+                )
+        if per_axis is not None:
+            if not isinstance(per_axis, list) or len(per_axis) != 3:
+                raise IngestionError(
+                    f"{field}.uncertainty.per_axis_m must contain "
+                    "3 numbers"
+                )
+            for component in per_axis:
+                if (
+                    not isinstance(component, (int, float))
+                    or isinstance(component, bool)
+                    or not math.isfinite(component)
+                    or component < 0
+                ):
+                    raise IngestionError(
+                        f"{field}.uncertainty.per_axis_m components "
+                        "must be numbers >= 0"
+                    )
+        resolutions.extend(
+            _resolve_ref_list(
+                uncertainty.get("source_evidence_refs") or [],
+                f"{field}.uncertainty.source_evidence_refs",
+                context,
+                coordinate_space_id,
+            )
+        )
+
+    authority = record.get("authority")
+    if authority is not None:
+        if not isinstance(authority, dict):
+            raise IngestionError(
+                f"{field}.authority must be an object"
+            )
+        _require_document_keys(
+            authority,
+            required={"placement"},
+            optional={
+                "orientation",
+                "equipment",
+                "reference_point",
+                "semantic_role",
+            },
+            field=f"{field}.authority",
+        )
+        for component_name in (
+            "placement",
+            "orientation",
+            "equipment",
+            "reference_point",
+            "semantic_role",
+        ):
+            component = authority.get(component_name)
+            if component is None:
+                continue
+            if not isinstance(component, dict):
+                raise IngestionError(
+                    f"{field}.authority.{component_name} must be an "
+                    "object"
+                )
+            _require_document_keys(
+                component,
+                required={"state", "evidence_refs"},
+                optional={"source_ref"},
+                field=f"{field}.authority.{component_name}",
+            )
+            if component["state"] not in {
+                "unverified",
+                "user_attested",
+                "evidence_linked",
+            }:
+                raise IngestionError(
+                    f"{field}.authority.{component_name}.state is "
+                    "invalid"
+                )
+            if component["state"] == "evidence_linked" and not (
+                component["evidence_refs"] or component.get("source_ref")
+            ):
+                raise IngestionError(
+                    f"{field}.authority.{component_name} claims "
+                    "evidence_linked without a reference"
+                )
+            resolutions.extend(
+                _resolve_ref_list(
+                    component["evidence_refs"],
+                    f"{field}.authority.{component_name}.evidence_refs",
+                    context,
+                    coordinate_space_id,
+                )
+            )
+
+    lifecycle = record.get("lifecycle")
+    if lifecycle is not None:
+        if not isinstance(lifecycle, dict):
+            raise IngestionError(
+                f"{field}.lifecycle must be an object"
+            )
+        _require_document_keys(
+            lifecycle,
+            required={"created_at_utc"},
+            optional={
+                "updated_at_utc",
+                "observed_at_utc",
+                "source_created_at_utc",
+                "supersedes_entity_id",
+            },
+            field=f"{field}.lifecycle",
+        )
+        for key in (
+            "created_at_utc",
+            "updated_at_utc",
+            "observed_at_utc",
+            "source_created_at_utc",
+        ):
+            value = lifecycle.get(key)
+            if value is not None:
+                _validate_utc_timestamp(
+                    value, f"{field}.lifecycle.{key}"
+                )
+        supersedes = lifecycle.get("supersedes_entity_id")
+        if supersedes is not None:
+            validate_uuid4(
+                supersedes,
+                f"{field}.lifecycle.supersedes_entity_id",
+            )
+
+    reference_point = record.get("reference_point")
+    if reference_point is not None:
+        if not isinstance(reference_point, dict):
+            raise IngestionError(
+                f"{field}.reference_point must be an object"
+            )
+        _require_document_keys(
+            reference_point,
+            required={"construction", "source_evidence_refs"},
+            optional={"offset_m"},
+            field=f"{field}.reference_point",
+        )
+        construction = reference_point["construction"]
+        if construction not in {
+            "direct_placement",
+            "surface_hit_confirmed",
+            "offset_from_surface",
+            "imported_reference",
+        }:
+            raise IngestionError(
+                f"{field}.reference_point.construction is invalid"
+            )
+        offset = reference_point.get("offset_m")
+        if construction == "offset_from_surface":
+            if (
+                not isinstance(offset, list)
+                or len(offset) != 3
+                or not all(
+                    isinstance(component, (int, float))
+                    and not isinstance(component, bool)
+                    and math.isfinite(component)
+                    for component in offset
+                )
+            ):
+                raise IngestionError(
+                    f"{field}.reference_point.offset_m must contain "
+                    "3 numbers"
+                )
+        elif offset is not None:
+            raise IngestionError(
+                f"{field}.reference_point.offset_m requires "
+                "construction 'offset_from_surface'"
+            )
+        # Construction must agree with the placement method that
+        # produced the position.
+        method = record["placement"]["method"]
+        surface_derived = method in {"raycast", "mesh_hit_test"}
+        if construction in {
+            "surface_hit_confirmed",
+            "offset_from_surface",
+        } and not surface_derived:
+            raise IngestionError(
+                f"{field}.reference_point.construction "
+                f"{construction!r} requires a surface-derived "
+                "placement method"
+            )
+        if construction == "direct_placement" and surface_derived:
+            raise IngestionError(
+                f"{field}.reference_point.construction "
+                "'direct_placement' cannot claim a surface-derived "
+                "placement"
+            )
+        resolutions.extend(
+            _resolve_ref_list(
+                reference_point["source_evidence_refs"],
+                f"{field}.reference_point.source_evidence_refs",
+                context,
+                coordinate_space_id,
+            )
         )
     return resolutions
 
@@ -1893,6 +2312,14 @@ def _build_authority_records(
                     _validate_acoustic_center(
                         record.get("acoustic_center"),
                         f"{record_field}.acoustic_center",
+                        context,
+                        coordinate_space_id,
+                    )
+                )
+                resolutions.extend(
+                    _validate_entity_extensions(
+                        record,
+                        record_field,
                         context,
                         coordinate_space_id,
                     )

@@ -145,6 +145,7 @@ func builderNeverUpgradesEmptyAuthorityToEvidenceLinked() throws {
         yMeters: 0,
         zMeters: 0,
         coordinateSpaceID: space,
+        referencePointConstruction: .surfaceHitConfirmed,
         placementAuthority: authority
     )
     #expect(linked.verificationState == .evidenceLinked)

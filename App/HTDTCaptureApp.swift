@@ -2253,7 +2253,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             annotationPackage =
                 try AnnotationEvidencePackageBuilder.build(
-                    entities: annotations
+                    entities: annotations,
+                    priorEntities: isRevisionCommit
+                        ? annotationRevisionSeed?.annotations
+                        : nil
                 )
             measurementPackage =
                 try MeasurementEvidencePackageBuilder.build(

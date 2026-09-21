@@ -32,9 +32,15 @@ func equipmentCatalogSnapshotDecodesExactBackendReference()
         from: data
     )
     let entry = try #require(snapshot.definitions.first)
-    let reference = try entry.equipmentReference()
+    let reference = try entry.equipmentReference(
+        authorityVersion: snapshot.authorityVersion
+    )
 
     #expect(entry.displayName == "Example Audio Monitor X")
+    #expect(
+        reference.authorityVersion
+            == HTDTEquipmentCatalogSnapshot.expectedAuthorityVersion
+    )
     #expect(reference.equipmentID == "example-monitor")
     #expect(reference.equipmentVersion == "2026-09")
     #expect(

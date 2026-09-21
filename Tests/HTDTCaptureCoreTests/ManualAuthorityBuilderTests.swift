@@ -44,7 +44,8 @@ func manualNonSpeakerDoesNotInventSpeakerSemantics() throws {
         xMeters: 0,
         yMeters: 0,
         zMeters: 1.1,
-        coordinateSpaceID: CoordinateSpaceID()
+        coordinateSpaceID: CoordinateSpaceID(),
+        listeningRole: .primary
     )
 
     #expect(entity.referencePointSemantics == .earCenter)
@@ -130,6 +131,7 @@ func evidenceLinkedRaycastPlacementOverridesManualPosition() throws {
         yMeters: 99,
         zMeters: 99,
         coordinateSpaceID: space,
+        referencePointConstruction: .surfaceHitConfirmed,
         placementAuthority: authority
     )
 
@@ -186,7 +188,9 @@ func capturedOrientationCannotBeAppliedToNonSpeaker() throws {
         evidenceRefs: ["path:evidence/frames/example.json"]
     )
 
-    #expect(throws: ManualAuthorityBuilderError.orientationOnlyForSpeaker) {
+    #expect(
+        throws: ManualAuthorityBuilderError.orientationNotSupportedForType
+    ) {
         try ManualAuthorityBuilder.annotation(
             type: .referencePoint,
             label: "Not a speaker",

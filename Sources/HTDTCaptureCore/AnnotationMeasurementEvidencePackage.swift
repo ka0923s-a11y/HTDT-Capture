@@ -39,9 +39,32 @@ public struct MeasurementEvidencePackage: Sendable, Equatable {
 }
 
 public enum AnnotationEvidencePackageBuilder {
+    /// `priorEntities` is the collection committed earlier in this
+    /// revision. When provided, any surviving entity whose record
+    /// differs from its prior version is stamped with `updated_at_utc`
+    /// so a pre-finalization correction revises lifecycle metadata
+    /// explicitly rather than silently replacing it (#267).
     public static func build(
-        entities: [CaptureAnnotationEntity]
+        entities: [CaptureAnnotationEntity],
+        priorEntities: [CaptureAnnotationEntity]? = nil,
+        revisedAt now: Date = Date()
     ) throws -> AnnotationEvidencePackage {
+        var entities = entities
+        if let priorEntities {
+            let priorByID = Dictionary(
+                priorEntities.map { ($0.entityID, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            let stamp = BundleTimestamp.utcString(from: now)
+            entities = try entities.map { entity in
+                guard let prior = priorByID[entity.entityID],
+                      prior != entity
+                else {
+                    return entity
+                }
+                return try entity.revised(at: stamp)
+            }
+        }
         let sorted = entities.sorted {
             $0.entityID.description < $1.entityID.description
         }

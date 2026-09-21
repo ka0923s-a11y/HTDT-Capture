@@ -3530,10 +3530,18 @@ public actor CaptureWorkingSetStore {
     private func annotationQualityKey(
         _ entity: CaptureAnnotationEntity
     ) -> String {
-        if entity.type == .speaker,
+        if entity.type == .speaker
+            || entity.type == .subwoofer,
            let role = entity.channelRole
         {
-            return "speaker:\(role.rawValue)"
+            return entity.type.rawValue + ":" + role.rawValue
+        }
+        // Listening-position completeness keys on the typed role,
+        // not the free-text label (#243).
+        if entity.type == .listeningPosition,
+           let role = entity.listeningRole
+        {
+            return entity.type.rawValue + ":" + role.rawValue
         }
         return entity.type.rawValue + ":" + entity.label
     }
@@ -3751,6 +3759,7 @@ public actor CaptureWorkingSetStore {
     ) throws {
         for ref in entity.evidenceRefs
             + entity.placement.sourceEvidenceRefs
+            + entity.contractEvidenceRefs
         {
             try requireSpatialEvidenceLinkCongruence(
                 ref,
