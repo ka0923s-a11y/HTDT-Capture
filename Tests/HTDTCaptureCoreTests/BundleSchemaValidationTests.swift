@@ -147,9 +147,11 @@ func schemaPatternViolationRejected() throws {
     for (index, member) in members.enumerated()
     where member.key == "capture_session_id"
     {
+        // The schema pattern requires lowercase hex; the shared fixture
+        // UUID is digit-only, so an explicit uppercase variant is needed.
         members[index] = (
             "capture_session_id",
-            .string(BundleValidationFixture.sessionUUID.uppercased())
+            .string("A0000000-0000-4000-8000-00000000000A")
         )
     }
     let invalid = try BundleValidationFixture.canonical(

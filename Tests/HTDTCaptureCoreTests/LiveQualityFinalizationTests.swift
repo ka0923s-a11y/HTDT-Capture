@@ -270,7 +270,13 @@ final class LiveQualityFinalizationTests: XCTestCase {
         )
         try await store.persistMeshPackage(mesh)
 
-        let pixel = Data([1, 2, 3, 4])
+        // The pixel payload must be a structurally valid
+        // PackedPixelBuffer encoding — integrity validation decodes the
+        // binary format, not just its hash.
+        let pixel = try BundleValidationFixture.pixelPayload(
+            width: 1,
+            height: 1
+        )
         let frameID = EvidenceFrameID()
         let descriptor = try FrameEvidenceDescriptor(
             frameID: frameID,
@@ -287,7 +293,7 @@ final class LiveQualityFinalizationTests: XCTestCase {
             ),
             imageWidth: 1,
             imageHeight: 1,
-            pixelFormatFourCC: 0,
+            pixelFormatFourCC: 0x34323066,
             pixelRelativePath:
                 "evidence/frames/\(frameID).pixelbin",
             pixelByteCount: pixel.count,
