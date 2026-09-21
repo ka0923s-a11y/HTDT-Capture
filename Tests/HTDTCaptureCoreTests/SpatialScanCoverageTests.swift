@@ -273,6 +273,129 @@ final class SpatialScanCoverageTests: XCTestCase {
         XCTAssertEqual(summary.regions.first?.depthObservationCount, 2)
     }
 
+    func testMeshToDepthSourceTransitionCountsValidObservations() {
+        var tracker = SpatialScanCoverageTracker(
+            minimumNormalObservations: 3,
+            minimumViewAngleBuckets: 2
+        )
+        let surface = point(1.0, -1.0)
+
+        // Two normal-tracking mesh observations from different view
+        // angles, then mesh anchors drop out and scene depth supplies
+        // the third valid geometric observation of the same region.
+        _ = tracker.record(
+            sample(
+                timestamp: 1,
+                cameraX: 0,
+                cameraZ: 0,
+                source: .mesh,
+                points: [surface]
+            )
+        )
+        _ = tracker.record(
+            sample(
+                timestamp: 2,
+                cameraX: 2,
+                cameraZ: 0,
+                source: .mesh,
+                points: [surface]
+            )
+        )
+        let summary = tracker.record(
+            sample(
+                timestamp: 3,
+                cameraX: 0,
+                cameraZ: 0,
+                source: .sceneDepth,
+                meshAnchors: 0,
+                points: [surface]
+            )
+        )
+
+        let region = summary.regions.first
+        XCTAssertEqual(region?.meshSupportCount, 2)
+        XCTAssertEqual(region?.depthObservationCount, 1)
+        XCTAssertEqual(region?.classification, .observed)
+        XCTAssertEqual(summary.observedRegionCount, 1)
+    }
+
+    func testDepthToMeshSourceTransitionCountsValidObservations() {
+        var tracker = SpatialScanCoverageTracker(
+            minimumNormalObservations: 3,
+            minimumViewAngleBuckets: 2
+        )
+        let surface = point(1.0, -1.0)
+
+        _ = tracker.record(
+            sample(
+                timestamp: 1,
+                cameraX: 0,
+                cameraZ: 0,
+                source: .sceneDepth,
+                meshAnchors: 0,
+                points: [surface]
+            )
+        )
+        _ = tracker.record(
+            sample(
+                timestamp: 2,
+                cameraX: 2,
+                cameraZ: 0,
+                source: .mesh,
+                points: [surface]
+            )
+        )
+        let summary = tracker.record(
+            sample(
+                timestamp: 3,
+                cameraX: 0,
+                cameraZ: 0,
+                source: .mesh,
+                points: [surface]
+            )
+        )
+
+        let region = summary.regions.first
+        XCTAssertEqual(region?.meshSupportCount, 2)
+        XCTAssertEqual(region?.depthObservationCount, 1)
+        XCTAssertEqual(region?.classification, .observed)
+    }
+
+    func testMixedSourcesStillRequireEnoughValidObservations() {
+        var tracker = SpatialScanCoverageTracker(
+            minimumNormalObservations: 3,
+            minimumViewAngleBuckets: 2
+        )
+        let surface = point(1.0, -1.0)
+
+        _ = tracker.record(
+            sample(
+                timestamp: 1,
+                cameraX: 0,
+                cameraZ: 0,
+                source: .mesh,
+                points: [surface]
+            )
+        )
+        let summary = tracker.record(
+            sample(
+                timestamp: 2,
+                cameraX: 2,
+                cameraZ: 0,
+                source: .sceneDepth,
+                meshAnchors: 0,
+                points: [surface]
+            )
+        )
+
+        // 1 mesh + 1 depth = 2 valid occasions < 3: still weak, and the
+        // modality counters keep identifying which sensor saw it.
+        let region = summary.regions.first
+        XCTAssertEqual(region?.meshSupportCount, 1)
+        XCTAssertEqual(region?.depthObservationCount, 1)
+        XCTAssertEqual(region?.classification, .weak)
+    }
+
     func testUnknownMeansNoObservationAuthority() {
         var tracker = SpatialScanCoverageTracker()
         let summary = tracker.record(
@@ -306,6 +429,8 @@ final class SpatialScanCoverageTests: XCTestCase {
         cameraX: Double,
         cameraZ: Double,
         tracking: TrackingQualityState = .normal,
+        source: SpatialCoverageEvidenceSource = .mesh,
+        meshAnchors: Int? = nil,
         points: [SpatialCoveragePoint3D]
     ) -> SpatialCoverageSample {
         SpatialCoverageSample(
@@ -321,8 +446,10 @@ final class SpatialScanCoverageTests: XCTestCase {
             meshAvailability: MeshAvailabilityDiagnostic(
                 sceneReconstructionSupported: true,
                 sceneReconstructionEnabled: true,
-                activeMeshAnchorCount: points.isEmpty ? 0 : 1
+                activeMeshAnchorCount:
+                    meshAnchors ?? (points.isEmpty ? 0 : 1)
             ),
+            surfaceEvidenceSource: source,
             surfacePointsWorld: points
         )
     }
