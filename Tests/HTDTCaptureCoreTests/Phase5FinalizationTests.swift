@@ -504,7 +504,23 @@ func validatorDetectsTamperAfterFinalization() async throws {
     let payloadURL = staging.appendingPathComponent("payload.bin")
     try Data([1, 2, 3]).write(to: payloadURL)
 
+    let qualityDirectory = staging.appendingPathComponent(
+        "quality",
+        isDirectory: true
+    )
+    try fileManager.createDirectory(
+        at: qualityDirectory,
+        withIntermediateDirectories: true
+    )
     let quality = readyQualityReport()
+    let qualityEncoder = JSONEncoder()
+    qualityEncoder.outputFormatting = [.sortedKeys]
+    try qualityEncoder.encode(quality).write(
+        to: qualityDirectory.appendingPathComponent(
+            "capture-quality.json"
+        )
+    )
+
     let request = BundleFinalizationRequest(
         captureSeriesID: CaptureSeriesID(),
         captureRevisionID: CaptureRevisionID(),
@@ -521,6 +537,13 @@ func validatorDetectsTamperAfterFinalization() async throws {
                 path: "payload.bin",
                 mediaType: "application/octet-stream",
                 producer: "test",
+                provenanceClass: .captureAppDerived,
+                role: .canonical
+            ),
+            BundlePayloadDeclaration(
+                path: "quality/capture-quality.json",
+                mediaType: "application/json",
+                producer: "capture_quality",
                 provenanceClass: .captureAppDerived,
                 role: .canonical
             ),

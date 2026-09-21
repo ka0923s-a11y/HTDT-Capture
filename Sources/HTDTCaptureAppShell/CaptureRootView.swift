@@ -23,6 +23,12 @@ public struct CaptureRootActions {
     public let finalizeCapture: () -> Void
     public let prepareExport: () -> Void
     public let resetCapture: () -> Void
+    public let openPersistedCapture:
+        (CaptureRevisionID) -> Void
+    public let deletePersistedCapture:
+        (CaptureRevisionID) -> Void
+    public let removeQuarantinedArtifact:
+        (PersistedCaptureQuarantinedArtifact) -> Void
 
     public init(
         beginCapture: @escaping () -> Void = {},
@@ -47,7 +53,14 @@ public struct CaptureRootActions {
         cancelAnnotation: @escaping () -> Void = {},
         finalizeCapture: @escaping () -> Void = {},
         prepareExport: @escaping () -> Void = {},
-        resetCapture: @escaping () -> Void = {}
+        resetCapture: @escaping () -> Void = {},
+        openPersistedCapture: @escaping
+            (CaptureRevisionID) -> Void = { _ in },
+        deletePersistedCapture: @escaping
+            (CaptureRevisionID) -> Void = { _ in },
+        removeQuarantinedArtifact: @escaping
+            (PersistedCaptureQuarantinedArtifact) -> Void
+                = { _ in }
     ) {
         self.beginCapture = beginCapture
         self.beginReview = beginReview
@@ -65,7 +78,18 @@ public struct CaptureRootActions {
         self.finalizeCapture = finalizeCapture
         self.prepareExport = prepareExport
         self.resetCapture = resetCapture
+        self.openPersistedCapture = openPersistedCapture
+        self.deletePersistedCapture = deletePersistedCapture
+        self.removeQuarantinedArtifact =
+            removeQuarantinedArtifact
     }
+}
+
+/// The pending delete-local-capture confirmation: which validated
+/// revision is selected and whether its canonical export slot exists.
+private struct PendingCaptureDeletion {
+    let revisionID: CaptureRevisionID
+    let includesExport: Bool
 }
 
 public struct CaptureRootView: View {
@@ -89,7 +113,12 @@ public struct CaptureRootView: View {
     public let derivedShapePreview: DerivedShapePreviewSnapshot
     public let scanEvidenceFrameCount: Int
     public let endScanGuidance: String?
+    public let persistedInventory:
+        PersistedCaptureInventoryResult
     public let actions: CaptureRootActions
+
+    @State private var pendingDeletion:
+        PendingCaptureDeletion?
 
     public init(
         state: CaptureState,
@@ -112,6 +141,9 @@ public struct CaptureRootView: View {
         derivedShapePreview: DerivedShapePreviewSnapshot = .empty,
         scanEvidenceFrameCount: Int = 0,
         endScanGuidance: String? = nil,
+        persistedInventory:
+            PersistedCaptureInventoryResult
+                = PersistedCaptureInventoryResult(),
         actions: CaptureRootActions = CaptureRootActions()
     ) {
         self.state = state
@@ -136,6 +168,7 @@ public struct CaptureRootView: View {
         self.derivedShapePreview = derivedShapePreview
         self.scanEvidenceFrameCount = scanEvidenceFrameCount
         self.endScanGuidance = endScanGuidance
+        self.persistedInventory = persistedInventory
         self.actions = actions
     }
 
@@ -275,7 +308,6 @@ public struct CaptureRootView: View {
                 }
 
                 if (state == .finalized || state == .exported),
-                   let qualityReport,
                    let validationReport
                 {
                     Section("Finalized bundle") {
@@ -288,11 +320,15 @@ public struct CaptureRootView: View {
                         Text(validationReport.bundleDigest.description)
                             .font(.caption.monospaced())
                             .textSelection(.enabled)
-                        NavigationLink("Review finalized capture") {
-                            CaptureReviewView(
-                                quality: qualityReport,
-                                validation: validationReport
-                            )
+                        if let qualityReport {
+                            NavigationLink(
+                                "Review finalized capture"
+                            ) {
+                                CaptureReviewView(
+                                    quality: qualityReport,
+                                    validation: validationReport
+                                )
+                            }
                         }
                         if let exportURL {
                             ShareLink(item: exportURL) {
@@ -304,8 +340,63 @@ public struct CaptureRootView: View {
                         }
                     }
                 }
+
+                if state == .idle,
+                   !persistedInventory.isEmpty
+                {
+                    Section("Persisted captures") {
+                        ForEach(persistedInventory.captures) {
+                            record in
+                            persistedCaptureRow(record)
+                        }
+                        ForEach(
+                            persistedInventory
+                                .quarantinedArtifacts
+                        ) { artifact in
+                            quarantinedArtifactRow(artifact)
+                        }
+                        ForEach(
+                            persistedInventory
+                                .enumerationFailures,
+                            id: \.self
+                        ) { failure in
+                            Text(failure)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
                 .navigationTitle("HTDT Capture")
+                .confirmationDialog(
+                    "Delete local capture?",
+                    isPresented: Binding(
+                        get: { pendingDeletion != nil },
+                        set: { presented in
+                            if !presented {
+                                pendingDeletion = nil
+                            }
+                        }
+                    ),
+                    titleVisibility: .visible,
+                    presenting: pendingDeletion
+                ) { pending in
+                    Button(
+                        pending.includesExport
+                            ? "Delete capture and export"
+                            : "Delete capture",
+                        role: .destructive
+                    ) {
+                        actions.deletePersistedCapture(
+                            pending.revisionID
+                        )
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: { _ in
+                    Text(
+                        "This permanently deletes the finalized capture and any export archive stored for it from this device."
+                    )
+                }
             }
                 }
             }
@@ -391,6 +482,19 @@ public struct CaptureRootView: View {
                 "Start new capture",
                 action: actions.resetCapture
             )
+            if let revisionID =
+                validationReport?.manifest.captureRevisionID
+            {
+                Button(
+                    "Delete local capture",
+                    role: .destructive
+                ) {
+                    pendingDeletion = PendingCaptureDeletion(
+                        revisionID: revisionID,
+                        includesExport: exportURL != nil
+                    )
+                }
+            }
 
         case .exported:
             VStack(alignment: .leading, spacing: 8) {
@@ -401,6 +505,88 @@ public struct CaptureRootView: View {
                     "Start new capture",
                     action: actions.resetCapture
                 )
+                if let revisionID =
+                    validationReport?.manifest.captureRevisionID
+                {
+                    Button(
+                        "Delete local capture and export",
+                        role: .destructive
+                    ) {
+                        pendingDeletion = PendingCaptureDeletion(
+                            revisionID: revisionID,
+                            includesExport: exportURL != nil
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func persistedCaptureRow(
+        _ record: PersistedCaptureRecord
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(record.captureRevisionID.description)
+                .font(.caption.monospaced())
+                .textSelection(.enabled)
+
+            if let validation = record.finalizedValidation {
+                LabeledContent(
+                    "Finalized",
+                    value: record.finalizedAtUTC
+                )
+                LabeledContent(
+                    "Payloads",
+                    value: String(validation.payloadCount)
+                )
+            } else {
+                Text("Export archive only")
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 16) {
+                if record.canOpen {
+                    Button("Open") {
+                        actions.openPersistedCapture(
+                            record.captureRevisionID
+                        )
+                    }
+                }
+                if let archive = record.exportArchive {
+                    ShareLink(item: archive) {
+                        Label(
+                            "Share",
+                            systemImage:
+                                "square.and.arrow.up"
+                        )
+                    }
+                }
+                Spacer()
+                Button("Delete", role: .destructive) {
+                    pendingDeletion = PendingCaptureDeletion(
+                        revisionID: record.captureRevisionID,
+                        includesExport:
+                            record.exportArchive != nil
+                    )
+                }
+            }
+        }
+    }
+
+    private func quarantinedArtifactRow(
+        _ artifact: PersistedCaptureQuarantinedArtifact
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LabeledContent(
+                "Unreadable artifact",
+                value: artifact.url.lastPathComponent
+            )
+            Text(artifact.reason)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Remove artifact", role: .destructive) {
+                actions.removeQuarantinedArtifact(artifact)
             }
         }
     }

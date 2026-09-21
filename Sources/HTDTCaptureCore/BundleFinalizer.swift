@@ -11,6 +11,9 @@ public enum BundleFinalizationError: Error, Sendable, Equatable {
         missing: [String],
         undeclared: [String]
     )
+    case qualityPayloadMissing
+    case qualityPayloadUnreadable
+    case qualityPayloadMismatch
     case crossVolumePromotionForbidden
     case promotionFailed
 }
@@ -74,6 +77,8 @@ public struct FinalizedCaptureRevision: Sendable, Equatable {
 public actor BundleRevisionFinalizer {
     private let fileManager: FileManager
     private let limits: BundleFilesystemLimits
+    private let volumeIdentity:
+        @Sendable (URL) throws -> String?
 
     public init(
         fileManager: FileManager = .default,
@@ -81,6 +86,28 @@ public actor BundleRevisionFinalizer {
     ) {
         self.fileManager = fileManager
         self.limits = limits
+        self.volumeIdentity = { url in
+            let values = try url.resourceValues(
+                forKeys: [.volumeIdentifierKey]
+            )
+            return values.volumeIdentifier.map {
+                String(describing: $0)
+            }
+        }
+    }
+
+    // Testing seam: the platform volume-identifier API cannot reliably
+    // produce an "identity unknown" state in a normal temp directory,
+    // so tests inject the probe directly.
+    init(
+        fileManager: FileManager = .default,
+        limits: BundleFilesystemLimits = .init(),
+        volumeIdentity:
+            @escaping @Sendable (URL) throws -> String?
+    ) {
+        self.fileManager = fileManager
+        self.limits = limits
+        self.volumeIdentity = volumeIdentity
     }
 
     public func finalize(
@@ -160,6 +187,32 @@ public actor BundleRevisionFinalizer {
             )
         }
 
+        // The quality report authorizes finalization, so the payload
+        // sealed into the bundle must be that exact report: require the
+        // canonical declaration, then prove the staged bytes decode to
+        // a CaptureQualityReport equal to request.qualityReport.
+        let qualityPath = "quality/capture-quality.json"
+        guard declarations[qualityPath] != nil,
+              let stagedQuality = stagedByPath[qualityPath]
+        else {
+            throw BundleFinalizationError.qualityPayloadMissing
+        }
+        let stagedQualityReport: CaptureQualityReport
+        do {
+            let stagedQualityData = try Data(
+                contentsOf: stagedQuality.url
+            )
+            stagedQualityReport = try JSONDecoder().decode(
+                CaptureQualityReport.self,
+                from: stagedQualityData
+            )
+        } catch {
+            throw BundleFinalizationError.qualityPayloadUnreadable
+        }
+        guard stagedQualityReport == request.qualityReport else {
+            throw BundleFinalizationError.qualityPayloadMismatch
+        }
+
         var entries: [BundleFileEntry] = []
         entries.reserveCapacity(stagedFiles.count)
         for file in stagedFiles {
@@ -215,7 +268,7 @@ public actor BundleRevisionFinalizer {
                 withIntermediateDirectories: true
             )
 
-            guard try sameVolume(
+            guard sameVolume(
                 lhs: stagingDirectory,
                 rhs: parent
             ) else {
@@ -249,18 +302,16 @@ public actor BundleRevisionFinalizer {
     private func sameVolume(
         lhs: URL,
         rhs: URL
-    ) throws -> Bool {
-        let left = try lhs.resourceValues(
-            forKeys: [.volumeIdentifierKey]
-        ).volumeIdentifier
-        let right = try rhs.resourceValues(
-            forKeys: [.volumeIdentifierKey]
-        ).volumeIdentifier
-
-        if let left, let right {
-            return String(describing: left)
-                == String(describing: right)
+    ) -> Bool {
+        // Fail closed: atomic rename eligibility requires positively
+        // proving both paths resolve to the same volume identity. An
+        // unavailable or unreadable identity is not evidence of a
+        // same-volume relationship.
+        guard let left = try? volumeIdentity(lhs),
+              let right = try? volumeIdentity(rhs)
+        else {
+            return false
         }
-        return true
+        return left == right
     }
 }

@@ -40,6 +40,10 @@ public enum CaptureEvent: Sendable, Equatable {
     case beginValidation
     case validationFailed
     case finalize
+    /// Adopt an already-persisted, revalidated finalized revision after
+    /// relaunch. This never fabricates Review or scanning state: the
+    /// working set and its AR coordinate authority are gone.
+    case adoptFinalized
     case export
     case fail(CaptureFailureCode)
     case reset
@@ -100,6 +104,8 @@ public struct CaptureStateMachine: Sendable, Equatable {
         case (.validating, .validationFailed):
             state = .reviewing
         case (.validating, .finalize):
+            state = .finalized
+        case (.idle, .adoptFinalized):
             state = .finalized
         case (.finalized, .export):
             state = .exported

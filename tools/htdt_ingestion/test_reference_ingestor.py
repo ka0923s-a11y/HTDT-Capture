@@ -3,12 +3,14 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from tools.bundle_validator.archive_bundle import create_archive
 from tools.bundle_validator.validator import (
@@ -16,6 +18,7 @@ from tools.bundle_validator.validator import (
     canonical_json_bytes,
     validate_bundle,
 )
+import tools.htdt_ingestion.reference_ingestor as reference_ingestor
 from tools.htdt_ingestion.reference_ingestor import (
     IngestionError,
     build_ingestion_plan,
@@ -25,6 +28,7 @@ from tools.htdt_ingestion.reference_ingestor import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = REPO_ROOT / "samples" / "phase6-integration"
+MINIMAL_FIXTURE = REPO_ROOT / "samples" / "minimal-capture"
 
 EXPECTED_BUNDLE_DIGEST = (
     "925108a1b3c1b432182efe1b7e18ccb0f1d98f4f17c939ca66a6095b0cc28550"
@@ -301,6 +305,178 @@ class ReferenceIngestorTests(unittest.TestCase):
 
             with self.assertRaises(ValidationError):
                 build_ingestion_plan(copy_root)
+
+    def test_directory_payload_mutation_after_validation_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            real_validate = reference_ingestor.validate_bundle
+
+            def mutate_after_validate(path):
+                report = real_validate(path)
+                # Same length, different bytes: only the SHA-256 binding
+                # can catch this mutation.
+                (copy_root / MESH_PATH).write_bytes(b"\x00" * 80)
+                return report
+
+            with mock.patch.object(
+                reference_ingestor, "validate_bundle", mutate_after_validate
+            ):
+                with self.assertRaises(IngestionError) as ctx:
+                    build_ingestion_plan(copy_root)
+            self.assertIn("changed after validation", str(ctx.exception))
+
+    def test_directory_payload_deleted_after_validation_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            real_validate = reference_ingestor.validate_bundle
+
+            def delete_after_validate(path):
+                report = real_validate(path)
+                (copy_root / MESH_PATH).unlink()
+                return report
+
+            with mock.patch.object(
+                reference_ingestor, "validate_bundle", delete_after_validate
+            ):
+                with self.assertRaises(IngestionError) as ctx:
+                    build_ingestion_plan(copy_root)
+            self.assertIn("file set changed", str(ctx.exception))
+
+    def test_undeclared_file_added_after_validation_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            real_validate = reference_ingestor.validate_bundle
+
+            def inject_after_validate(path):
+                report = real_validate(path)
+                (copy_root / "injected.json").write_bytes(b"{}")
+                return report
+
+            with mock.patch.object(
+                reference_ingestor, "validate_bundle", inject_after_validate
+            ):
+                with self.assertRaises(IngestionError) as ctx:
+                    build_ingestion_plan(copy_root)
+            self.assertIn("file set changed", str(ctx.exception))
+
+    def test_manifest_replaced_after_validation_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+            foreign_manifest = (MINIMAL_FIXTURE / "manifest.json").read_bytes()
+
+            real_validate = reference_ingestor.validate_bundle
+
+            def swap_manifest_after_validate(path):
+                report = real_validate(path)
+                (copy_root / "manifest.json").write_bytes(foreign_manifest)
+                return report
+
+            with mock.patch.object(
+                reference_ingestor,
+                "validate_bundle",
+                swap_manifest_after_validate,
+            ):
+                with self.assertRaises(IngestionError) as ctx:
+                    build_ingestion_plan(copy_root)
+            self.assertIn("manifest changed", str(ctx.exception))
+
+    def test_archive_replaced_after_validation_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            archive = Path(td) / "phase6.htdtcapture"
+            create_archive(FIXTURE, archive)
+            replacement = Path(td) / "replacement.htdtcapture"
+            create_archive(MINIMAL_FIXTURE, replacement)
+
+            real_validate = reference_ingestor.validate_bundle
+
+            def replace_after_validate(path):
+                report = real_validate(path)
+                os.replace(replacement, archive)
+                return report
+
+            with mock.patch.object(
+                reference_ingestor, "validate_bundle", replace_after_validate
+            ):
+                with self.assertRaises(IngestionError) as ctx:
+                    build_ingestion_plan(archive)
+            self.assertIn("manifest changed", str(ctx.exception))
+
+    def test_archive_replaced_with_corrupt_file_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            archive = Path(td) / "phase6.htdtcapture"
+            create_archive(FIXTURE, archive)
+
+            real_validate = reference_ingestor.validate_bundle
+
+            def corrupt_after_validate(path):
+                report = real_validate(path)
+                archive.write_bytes(b"not a zip archive")
+                return report
+
+            with mock.patch.object(
+                reference_ingestor, "validate_bundle", corrupt_after_validate
+            ):
+                with self.assertRaises(ValidationError):
+                    build_ingestion_plan(archive)
+
+    def test_reads_serve_bytes_frozen_at_validation_boundary(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            reader = reference_ingestor.ValidatedBundleReader(copy_root)
+            try:
+                # Mutations after the reader froze the validated bytes must
+                # not leak into what ingestion parses.
+                (copy_root / MESH_PATH).write_bytes(b"\xff" * 80)
+                self.assertEqual(
+                    hashlib.sha256(reader.read(MESH_PATH)).hexdigest(),
+                    MESH_SHA256,
+                )
+                self.assertEqual(
+                    hashlib.sha256(
+                        reader.read("manifest.json")
+                    ).hexdigest(),
+                    EXPECTED_BUNDLE_DIGEST,
+                )
+                with self.assertRaises(IngestionError):
+                    reader.read("does/not/exist.json")
+            finally:
+                reader.close()
+            with self.assertRaises(IngestionError):
+                reader.read("manifest.json")
+
+    def test_mutation_during_ingestion_keeps_plan_byte_identical(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+            expected = canonical_plan_bytes(build_ingestion_plan(FIXTURE))
+
+            real_parse = reference_ingestor.parse_json_bytes
+
+            def mutate_then_parse(data):
+                # Fires after the reader froze payloads but before the
+                # ingestion builders consume them.
+                (copy_root / MESH_PATH).write_bytes(b"\x01" * 80)
+                (copy_root / "manifest.json").write_bytes(b"{}")
+                return real_parse(data)
+
+            with mock.patch.object(
+                reference_ingestor, "parse_json_bytes", mutate_then_parse
+            ):
+                plan = build_ingestion_plan(copy_root)
+
+            self.assertEqual(canonical_plan_bytes(plan), expected)
+            self.assertEqual(
+                plan["lineage_digest"], EXPECTED_LINEAGE_DIGEST
+            )
 
 
 if __name__ == "__main__":
