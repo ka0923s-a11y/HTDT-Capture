@@ -1,5 +1,12 @@
 import CryptoKit
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
 
 public enum BundleFilesystemError: Error, Sendable, Equatable {
     case invalidRoot
@@ -18,15 +25,18 @@ public struct BundleFilesystemLimits: Sendable, Equatable {
     public let maxEntries: Int
     public let maxFileBytes: Int64
     public let maxTotalBytes: Int64
+    public let maxManifestBytes: Int64
 
     public init(
         maxEntries: Int = 10_000,
         maxFileBytes: Int64 = 512 * 1024 * 1024,
-        maxTotalBytes: Int64 = 4 * 1024 * 1024 * 1024
+        maxTotalBytes: Int64 = 4 * 1024 * 1024 * 1024,
+        maxManifestBytes: Int64 = BundlePayloadLimits.maxManifestBytes
     ) {
         self.maxEntries = maxEntries
         self.maxFileBytes = maxFileBytes
         self.maxTotalBytes = maxTotalBytes
+        self.maxManifestBytes = maxManifestBytes
     }
 }
 
@@ -207,25 +217,246 @@ public enum BundleDirectoryScanner {
     }
 }
 
+public struct BundleOpenedFile: Sendable, Equatable {
+    public let data: Data
+    public let sha256: EvidenceSHA256
+    public let byteCount: Int64
+}
+
+enum BundleFileDescriptor {
+    /// Opens `url` with O_NOFOLLOW and verifies, on the opened descriptor,
+    /// that it is a single-linked regular file of at most `maxBytes` that
+    /// still resolves to `url`. The caller owns the returned handle and
+    /// must close it.
+    static func open(
+        url: URL,
+        maxBytes: Int64
+    ) throws -> (handle: FileHandle, byteCount: Int64) {
+        #if canImport(Darwin) || canImport(Glibc) || canImport(Musl)
+        let expected = resolvedPath(of: url)
+        let flags = O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC
+        #if canImport(Darwin)
+        let descriptor = url.path.withCString { pointer in
+            Darwin.open(pointer, flags)
+        }
+        #elseif canImport(Glibc)
+        let descriptor = url.path.withCString { pointer in
+            Glibc.open(pointer, flags)
+        }
+        #else
+        let descriptor = url.path.withCString { pointer in
+            Musl.open(pointer, flags)
+        }
+        #endif
+        guard descriptor >= 0 else {
+            throw BundleFilesystemError.fileOpenFailed(url.path)
+        }
+        let handle = FileHandle(
+            fileDescriptor: descriptor,
+            closeOnDealloc: true
+        )
+        do {
+            var info = stat()
+            guard fstat(descriptor, &info) == 0 else {
+                throw BundleFilesystemError.fileOpenFailed(url.path)
+            }
+            let fileType = UInt32(info.st_mode) & 0o170000
+            guard fileType == 0o100000 else {
+                throw BundleFilesystemError.invalidPath(url.path)
+            }
+            guard info.st_nlink <= 1 else {
+                throw BundleFilesystemError.hardLinkForbidden(url.path)
+            }
+            let size = Int64(info.st_size)
+            guard size >= 0, size <= maxBytes else {
+                throw BundleFilesystemError.fileSizeLimitExceeded(url.path)
+            }
+            let actual = try descriptorPath(of: descriptor)
+            guard actual == expected else {
+                throw BundleFilesystemError.invalidPath(url.path)
+            }
+            return (handle, size)
+        } catch {
+            try? handle.close()
+            throw error
+        }
+        #else
+        guard let handle = try? FileHandle(forReadingFrom: url) else {
+            throw BundleFilesystemError.fileOpenFailed(url.path)
+        }
+        do {
+            let end = try handle.seekToEnd()
+            guard let size = Int64(exactly: end), size <= maxBytes else {
+                throw BundleFilesystemError.fileSizeLimitExceeded(url.path)
+            }
+            try handle.seek(toOffset: 0)
+            return (handle, size)
+        } catch {
+            try? handle.close()
+            throw error
+        }
+        #endif
+    }
+
+    static func readFully(
+        handle: FileHandle,
+        byteCount: Int64,
+        maxBytes: Int64,
+        path: String
+    ) throws -> Data {
+        var data = Data()
+        if byteCount > 0, byteCount <= maxBytes {
+            data.reserveCapacity(Int(byteCount))
+        }
+        while true {
+            let chunk = try handle.read(upToCount: 1024 * 1024) ?? Data()
+            if chunk.isEmpty {
+                break
+            }
+            data.append(chunk)
+            if Int64(data.count) > maxBytes {
+                throw BundleFilesystemError.fileSizeLimitExceeded(path)
+            }
+        }
+        guard Int64(data.count) == byteCount else {
+            throw BundleFilesystemError.invalidPath(path)
+        }
+        return data
+    }
+
+    private static func resolvedPath(of url: URL) -> String {
+        let directory = url.deletingLastPathComponent()
+            .resolvingSymlinksInPath().path
+        let name = url.lastPathComponent
+        if directory.hasSuffix("/") {
+            return directory + name
+        }
+        return directory + "/" + name
+    }
+
+    #if canImport(Darwin)
+    private static func descriptorPath(of descriptor: Int32) throws -> String {
+        var buffer = [CChar](repeating: 0, count: 8192)
+        let status = buffer.withUnsafeMutableBufferPointer { pointer in
+            fcntl(descriptor, F_GETPATH, pointer.baseAddress!)
+        }
+        guard status == 0 else {
+            throw BundleFilesystemError.fileOpenFailed("<descriptor>")
+        }
+        return buffer.withUnsafeBufferPointer {
+            String(cString: $0.baseAddress!)
+        }
+    }
+    #elseif canImport(Glibc) || canImport(Musl)
+    private static func descriptorPath(of descriptor: Int32) throws -> String {
+        var buffer = [CChar](repeating: 0, count: 8192)
+        let count = buffer.withUnsafeMutableBufferPointer { pointer in
+            readlink(
+                "/proc/self/fd/\(descriptor)",
+                pointer.baseAddress!,
+                pointer.count - 1
+            )
+        }
+        guard count >= 0 else {
+            throw BundleFilesystemError.fileOpenFailed("<descriptor>")
+        }
+        buffer[count] = 0
+        return buffer.withUnsafeBufferPointer {
+            String(cString: $0.baseAddress!)
+        }
+    }
+    #endif
+}
+
+public enum BundleFileReader {
+    /// Reads a bundle payload through a single verified descriptor so that
+    /// the type, size, bytes, and digest are bound to the same opened file.
+    public static func read(
+        _ url: URL,
+        maxBytes: Int64
+    ) throws -> BundleOpenedFile {
+        let verified = try BundleFileDescriptor.open(
+            url: url,
+            maxBytes: maxBytes
+        )
+        defer {
+            try? verified.handle.close()
+        }
+        let data = try BundleFileDescriptor.readFully(
+            handle: verified.handle,
+            byteCount: verified.byteCount,
+            maxBytes: maxBytes,
+            path: url.path
+        )
+        return BundleOpenedFile(
+            data: data,
+            sha256: EvidenceIntegrity.sha256(of: data),
+            byteCount: verified.byteCount
+        )
+    }
+
+    /// Streams a bundle payload's digest through a single verified
+    /// descriptor without materializing the file.
+    public static func sha256(
+        _ url: URL,
+        maxBytes: Int64
+    ) throws -> (digest: EvidenceSHA256, byteCount: Int64) {
+        let verified = try BundleFileDescriptor.open(
+            url: url,
+            maxBytes: maxBytes
+        )
+        defer {
+            try? verified.handle.close()
+        }
+        var hasher = SHA256()
+        var consumed: Int64 = 0
+        while true {
+            let chunk = try verified.handle.read(upToCount: 1024 * 1024)
+                ?? Data()
+            if chunk.isEmpty {
+                break
+            }
+            hasher.update(data: chunk)
+            consumed += Int64(chunk.count)
+        }
+        guard consumed == verified.byteCount else {
+            throw BundleFilesystemError.invalidPath(url.path)
+        }
+        let digest = hasher.finalize()
+        let hex = digest.map {
+            String(format: "%02x", $0)
+        }.joined()
+        return (try EvidenceSHA256(hex), verified.byteCount)
+    }
+}
+
 public enum BundleFileHasher {
     public static func sha256(
         url: URL,
         chunkBytes: Int = 1024 * 1024
     ) throws -> EvidenceSHA256 {
-        guard let handle = try? FileHandle(forReadingFrom: url) else {
-            throw BundleFilesystemError.fileOpenFailed(url.path)
-        }
+        let chunkBytes = max(chunkBytes, 1)
+        let verified = try BundleFileDescriptor.open(
+            url: url,
+            maxBytes: Int64.max
+        )
         defer {
-            try? handle.close()
+            try? verified.handle.close()
         }
 
         var hasher = SHA256()
+        var consumed: Int64 = 0
         while true {
-            let data = try handle.read(upToCount: chunkBytes) ?? Data()
+            let data = try verified.handle.read(upToCount: chunkBytes)
+                ?? Data()
             if data.isEmpty {
                 break
             }
             hasher.update(data: data)
+            consumed += Int64(data.count)
+        }
+        guard consumed == verified.byteCount else {
+            throw BundleFilesystemError.invalidPath(url.path)
         }
 
         let digest = hasher.finalize()

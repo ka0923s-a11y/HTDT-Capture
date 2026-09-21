@@ -70,7 +70,7 @@ public enum CanonicalJSON {
         }
     }
 
-    private static func validateNFC(_ value: String) throws {
+    static func validateNFC(_ value: String) throws {
         guard value.precomposedStringWithCanonicalMapping == value else {
             throw CanonicalJSONError.nonNFCString(value)
         }
@@ -80,7 +80,7 @@ public enum CanonicalJSON {
         Array(lhs.utf8).lexicographicallyPrecedes(Array(rhs.utf8))
     }
 
-    private static func appendEscapedString(
+    static func appendEscapedString(
         _ value: String,
         to output: inout String
     ) throws {
