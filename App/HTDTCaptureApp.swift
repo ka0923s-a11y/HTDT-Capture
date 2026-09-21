@@ -38,6 +38,10 @@ private struct HTDTCaptureHostView: View {
                 coordinator.annotationEvidenceRefs,
             annotationAuthorityCommitted:
                 coordinator.annotationAuthorityCommitted,
+            annotationRevisionSeed:
+                coordinator.annotationRevisionSeed,
+            workingSetIdentity:
+                coordinator.workingSetIdentity,
             scanningPreview: AnyView(
                 RoomPlanLiveCaptureView(
                     controller: coordinator.scanSessionController
@@ -84,9 +88,20 @@ private struct HTDTCaptureHostView: View {
                 deletePersistedCapture:
                     coordinator.deletePersistedCapture,
                 removeQuarantinedArtifact:
-                    coordinator.removeQuarantinedArtifact
+                    coordinator.removeQuarantinedArtifact,
+                removeWorkingOrphan:
+                    coordinator.removeWorkingOrphan,
+                revisePersistedCapture:
+                    coordinator.revisePersistedCapture,
+                reviseAdoptedCapture:
+                    coordinator.reviseAdoptedCapture,
+                importCaptureArchive:
+                    coordinator.importCaptureArchive
             )
         )
+        .onOpenURL { url in
+            coordinator.importCaptureArchive(from: url)
+        }
     }
 }
 
@@ -137,6 +152,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var endScanGuidance: String?
     @Published private(set)
     var persistedInventory = PersistedCaptureInventoryResult()
+    /// Identity of the live working revision; carries the
+    /// series/parent lineage so Review can show when a capture revises
+    /// a stored finalized revision.
+    @Published private(set)
+    var workingSetIdentity: CaptureWorkingSetIdentity?
+    /// Seed collections for a pre-finalization annotation edit: the
+    /// canonical authority previously committed inside the same working
+    /// revision, reloaded for correction (#163).
+    @Published private(set)
+    var annotationRevisionSeed: AnnotationWorkspaceSeed?
 
     private var stateMachine = CaptureStateMachine()
     private var sessionController = SharedARSessionController()
@@ -173,6 +198,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var persistedInventoryRequest = 0
     private var persistedAdoptionInFlight = false
     private var persistedDeletionInFlight = false
+    private var importOperationInFlight = false
+    /// Lineage for the working revision being prepared: nil for a fresh
+    /// series root, or the validated parent identity for a
+    /// revise-existing capture.
+    private var activeRevisionLineage: RevisionLineage?
+    private var annotationEditIsRevision = false
     private var scanCoverageTracker =
         AdvisoryScanCoverageTracker()
     private var observationStabilityTracker =
@@ -223,6 +254,28 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         capabilities = PlatformCapabilityProbe.current()
         cameraPermission = CameraPermissionController.currentStatus()
         persistedStore = Self.makePersistedStore()
+
+        // At-rest policy is applied before the first inventory scan so
+        // the app-owned roots carry their backup/protection attributes
+        // even when no capture has ever run (#136, #166). Failures are
+        // surfaced in the status line rather than silently ignored.
+        if let captureRoot = Self.captureRootDirectory() {
+            let policyFailures =
+                CaptureStoragePolicy.applyCaptureRootPolicy(
+                    captureRoot: captureRoot
+                )
+            if !policyFailures.isEmpty {
+                workingSetStatus =
+                    HostLocalization.text(
+                        "Storage protection policy was not fully applied to the capture roots",
+                        "キャプチャの保存先への保護属性を完全に適用できませんでした"
+                    )
+                    + " ["
+                    + policyFailures.joined(separator: "; ")
+                    + "]"
+            }
+        }
+
         loadPersistedCaptures()
 
         #if canImport(UIKit)
@@ -244,6 +297,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     }
                 }
         #endif
+    }
+
+    /// Validated parent identity for a revise-existing capture: the
+    /// child's `capture_series_id` equals the parent's and its
+    /// `parent_revision_id` names the exact prior revision.
+    private struct RevisionLineage: Sendable, Equatable {
+        let captureSeriesID: CaptureSeriesID
+        let parentRevisionID: CaptureRevisionID
     }
 
     var scanSessionController: SharedARSessionController {
@@ -271,10 +332,123 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     func beginCapture() {
+        beginCapture(revisionLineage: nil)
+    }
+
+    /// Starts a correction capture for a stored finalized revision: the
+    /// record is revalidated on disk before its manifest identity is
+    /// used as lineage authority, then an ordinary new scan begins.
+    /// The new revision shares the parent's `capture_series_id` and
+    /// records the parent as `parent_revision_id`; the finalized parent
+    /// is never opened for mutation and no spatial evidence is carried
+    /// into the new coordinate space (#155).
+    func revisePersistedCapture(_ record: PersistedCaptureRecord) {
+        guard state == .idle,
+              !persistedAdoptionInFlight,
+              !persistedDeletionInFlight,
+              !importOperationInFlight,
+              let store = persistedStore
+        else {
+            return
+        }
+        // An unfinalized or unvalidated artifact can never seed a child
+        // revision; lineage authority only comes from a validated
+        // manifest.
+        guard record.canOpen || record.exportArchive != nil else {
+            return
+        }
+
+        persistedAdoptionInFlight = true
+        workingSetStatus = HostLocalization.text(
+            "Revalidating the parent revision",
+            "親リビジョンを再検証しています"
+        )
+
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            let archiveURL = record.exportArchive
+            let lineage = await Task.detached(
+                priority: .userInitiated
+            ) { () -> RevisionLineage? in
+                // Prefer the canonical finalized directory; fall back to
+                // the validated export archive when only it survives.
+                if let fresh = store.validatedRecord(
+                    captureRevisionID: record.captureRevisionID
+                ), let validation = fresh.finalizedValidation {
+                    return RevisionLineage(
+                        captureSeriesID:
+                            validation.manifest.captureSeriesID,
+                        parentRevisionID:
+                            validation.manifest.captureRevisionID
+                    )
+                }
+                if let archiveURL,
+                   let report =
+                    try? StoredCaptureBundleArchiveValidator
+                        .validate(archive: archiveURL),
+                   report.manifest.captureRevisionID
+                    == record.captureRevisionID
+                {
+                    return RevisionLineage(
+                        captureSeriesID:
+                            report.manifest.captureSeriesID,
+                        parentRevisionID:
+                            report.manifest.captureRevisionID
+                    )
+                }
+                return nil
+            }.value
+
+            self.persistedAdoptionInFlight = false
+            guard self.state == .idle else {
+                return
+            }
+            guard let lineage else {
+                self.loadPersistedCaptures()
+                self.workingSetStatus = HostLocalization.text(
+                    "The parent capture could not be revalidated; the on-disk inventory was refreshed",
+                    "親キャプチャを再検証できませんでした。ディスク上の一覧を更新しました"
+                )
+                return
+            }
+            self.beginCapture(revisionLineage: lineage)
+        }
+    }
+
+    /// Starts a correction capture for the currently adopted finalized
+    /// revision. The manifest was already validated at adoption, so its
+    /// identity is the lineage authority; the host returns to idle and
+    /// begins a fresh scan in a new revision of the same series (#155).
+    func reviseAdoptedCapture() {
+        guard state == .finalized || state == .exported,
+              let manifest = validationReport?.manifest
+        else {
+            return
+        }
+        let lineage = RevisionLineage(
+            captureSeriesID: manifest.captureSeriesID,
+            parentRevisionID: manifest.captureRevisionID
+        )
+        resetCapture()
+        guard state == .idle else {
+            return
+        }
+        beginCapture(revisionLineage: lineage)
+    }
+
+    private func beginCapture(
+        revisionLineage: RevisionLineage?
+    ) {
         guard state == .idle else {
             return
         }
 
+        activeRevisionLineage = revisionLineage
+        workingSetIdentity = nil
+        annotationRevisionSeed = nil
+        annotationEditIsRevision = false
         qualityReport = nil
         validationReport = nil
         exportURL = nil
@@ -755,10 +929,64 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard state == .reviewing,
               !isEndingScan,
               !reviewOperationInFlight,
-              !annotationAuthorityCommitted
+              let store = workingSetStore
         else {
             return
         }
+
+        if annotationAuthorityCommitted {
+            // Pre-finalization correction (#163): reload the canonical
+            // annotation/measurement collections already committed
+            // inside this working revision and reopen the editor seeded
+            // with them. The immutable-revision contract only begins at
+            // finalization; the Review working set is still correctable.
+            reviewOperationInFlight = true
+            let generation = captureGeneration
+            let rootDirectory = store.rootDirectory
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    return
+                }
+                let loaded = await Task.detached(
+                    priority: .userInitiated
+                ) { () -> AnnotationWorkspaceSeed? in
+                    try? Self.committedAnnotationSeed(
+                        rootDirectory: rootDirectory
+                    )
+                }.value
+
+                guard self.captureGeneration == generation,
+                      self.state == .reviewing
+                else {
+                    return
+                }
+                self.reviewOperationInFlight = false
+
+                guard let loaded else {
+                    self.workingSetStatus = HostLocalization.text(
+                        "The saved annotation authority could not be reloaded for editing; the committed files are unchanged",
+                        "保存済みの注釈データを編集用に読み込めませんでした。確定済みのファイルは変更されていません"
+                    )
+                    return
+                }
+
+                self.annotationRevisionSeed = loaded
+                self.annotationEditIsRevision = true
+                do {
+                    try self.transition(.beginAnnotation)
+                    self.workingSetStatus = HostLocalization.text(
+                        "Correcting the saved annotations and measurements",
+                        "保存済みの注釈と計測値を修正中"
+                    )
+                } catch {
+                    self.fail(.unknown)
+                }
+            }
+            return
+        }
+
+        annotationRevisionSeed = nil
+        annotationEditIsRevision = false
         do {
             try transition(.beginAnnotation)
             workingSetStatus = HostLocalization.text(
@@ -768,6 +996,47 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         } catch {
             fail(.unknown)
         }
+    }
+
+    /// Reads the canonical annotation/measurement collections already
+    /// committed inside the working revision so a pre-finalization edit
+    /// starts from the persisted authority instead of blank state.
+    /// These are pure reads of app-owned canonical files; all writes
+    /// still pass through the working-set store's authority checks.
+    nonisolated private static func committedAnnotationSeed(
+        rootDirectory: URL
+    ) throws -> AnnotationWorkspaceSeed {
+        func loadCollection<C: Decodable>(
+            _ type: C.Type,
+            at path: String
+        ) throws -> C? {
+            let url = rootDirectory.appendingPathComponent(
+                path,
+                isDirectory: false
+            )
+            guard FileManager.default.fileExists(
+                atPath: url.path
+            ) else {
+                return nil
+            }
+            return try JSONDecoder().decode(
+                C.self,
+                from: Data(contentsOf: url)
+            )
+        }
+
+        let annotations = try loadCollection(
+            CaptureAnnotationCollection.self,
+            at: AnnotationEvidencePackage.path
+        )?.entities ?? []
+        let measurements = try loadCollection(
+            CaptureMeasurementCollection.self,
+            at: MeasurementEvidencePackage.path
+        )?.measurements ?? []
+        return AnnotationWorkspaceSeed(
+            annotations: annotations,
+            measurements: measurements
+        )
     }
 
     func captureSpeakerOrientation()
@@ -883,9 +1152,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             position.z,
             1,
         ])
+        // #173: the platform snapshot returns bounded hit provenance
+        // (target type, alignment, hit transform, anchor identity,
+        // distance); it is mapped into the annotation model's
+        // `RaycastPlacementProvenance` so an estimated-plane fallback
+        // stays distinguishable from observed-plane geometry after
+        // serialization. The same type name exists in both modules, so
+        // the model target is module-qualified.
+        let raycast = try snapshot.raycastProvenance.map {
+            try HTDTCaptureCore.RaycastPlacementProvenance(
+                targetType: $0.target.rawValue,
+                hitDistanceMeters: $0.hitDistanceMeters,
+                hitAnchorIdentifier: $0.hitAnchorIdentifier,
+                hitTransform: $0.hitWorldTransform
+            )
+        }
         let placement = try PlacementProvenance(
             method: .raycast,
-            sourceEvidenceRefs: [evidenceRef]
+            sourceEvidenceRefs: [evidenceRef],
+            raycast: raycast
         )
         let authority = try AnnotationPlacementAuthority(
             worldFromAnnotation: transform,
@@ -922,6 +1207,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         do {
             try transition(.beginReview)
+            annotationRevisionSeed = nil
+            annotationEditIsRevision = false
             workingSetStatus = HostLocalization.text(
                 "Annotation editing cancelled; staged records not written",
                 "注釈編集をキャンセルしました。未保存の項目は書き込まれていません"
@@ -937,11 +1224,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     ) {
         guard state == .annotating,
               !annotationCommitInFlight,
-              !annotationAuthorityCommitted,
               let store = workingSetStore
         else {
             return
         }
+
+        // A re-opened editor (#163) saves a replacement for the
+        // authority committed earlier in the same revision; a first
+        // entry commits fresh authority.
+        let isRevisionCommit =
+            annotationEditIsRevision && annotationAuthorityCommitted
 
         annotationCommitInFlight = true
         let annotationPackage: AnnotationEvidencePackage
@@ -996,6 +1288,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
                 self.annotationAuthorityCommitted = true
                 self.annotationCommitInFlight = false
+                self.annotationEditIsRevision = false
+                self.annotationRevisionSeed = nil
                 try self.transition(.beginReview)
                 await self.refreshQuality(
                     store: store,
@@ -1014,10 +1308,30 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 // Typed authority conflicts or a writer-level conflict/
                 // rollback failure are not safe to retry in-place. Ordinary
                 // filesystem/resource failures are safe because the paired
-                // annotation+measurement write is one rollback-capable batch.
+                // annotation+measurement write is one rollback-capable
+                // batch.
                 if error is CaptureWorkingSetError
                     || error is CaptureFileWriterError
                 {
+                    if isRevisionCommit {
+                        // Store API gap (#163): the working-set store
+                        // currently rejects a changed canonical
+                        // collection (write-once authority), so a
+                        // replace commit cannot land yet. This is
+                        // non-terminal: the editor stays open and the
+                        // previously committed pair is byte-for-byte
+                        // intact; cancelling keeps it.
+                        self.annotationCommitInFlight = false
+                        self.workingSetStatus =
+                            HostLocalization.text(
+                                "This build cannot replace the committed annotation authority yet; the previously saved collections are unchanged. Cancel keeps the prior save.",
+                                "このビルドでは確定済みの注釈 authority をまだ置き換えられません。以前に保存した内容は変更されていません。キャンセルすると以前の保存が保持されます。"
+                            )
+                            + " ["
+                            + diagnostic
+                            + "]"
+                        return
+                    }
                     self.workingSetStatus =
                         HostLocalization.text(
                             "Annotation authority could not be committed safely",
@@ -1412,6 +1726,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         exportURL = nil
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
+        activeRevisionLineage = nil
+        workingSetIdentity = nil
+        annotationRevisionSeed = nil
+        annotationEditIsRevision = false
         captureStartTimingCorrelation = nil
         acceptedRoomPlanRawSHA256 = nil
         acceptedEndMeshWasPersisted = false
@@ -1528,10 +1846,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             guard let self else {
                 return
             }
+            let activeRevisionID =
+                self.workingSetStore?.identity.captureRevisionID
             let inventory = await Task.detached(
                 priority: .utility
             ) {
-                store.scan()
+                store.scan(activeRevisionID: activeRevisionID)
             }.value
             guard self.persistedInventoryRequest == request
             else {
@@ -1653,6 +1973,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard !persistedDeletionInFlight,
               !persistedAdoptionInFlight,
               !exportOperationInFlight,
+              !importOperationInFlight,
               let store = persistedStore
         else {
             return
@@ -1776,6 +2097,217 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
+    /// Removes one abandoned working-root item surfaced by the
+    /// inventory. The store re-derives ownership proof from the
+    /// resolved path (a canonical `<uuid>` revision directory or a
+    /// `.tmp-*` writer file directly under `working/`), so a forged or
+    /// misclassified item cannot be deleted through this action. A
+    /// failure keeps the orphan listed with its retained byte count.
+    func removeWorkingOrphan(
+        _ orphan: PersistedCaptureWorkingOrphan
+    ) {
+        guard state == .idle,
+              !persistedDeletionInFlight,
+              !persistedAdoptionInFlight,
+              !importOperationInFlight,
+              let store = persistedStore
+        else {
+            return
+        }
+
+        persistedDeletionInFlight = true
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            defer {
+                self.persistedDeletionInFlight = false
+                self.loadPersistedCaptures()
+            }
+            do {
+                try await Task.detached(
+                    priority: .userInitiated
+                ) {
+                    try store.removeWorkingOrphan(orphan)
+                }.value
+                guard self.state == .idle else {
+                    return
+                }
+                self.workingSetStatus = HostLocalization.text(
+                    "Abandoned working data was deleted",
+                    "中断された作業データを削除しました"
+                )
+            } catch {
+                guard self.state == .idle else {
+                    return
+                }
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "The abandoned working data could not be deleted; it stays listed for retry",
+                        "中断された作業データを削除できませんでした。一覧に保持されているため再試行できます"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+            }
+        }
+    }
+
+    /// Host-level validated import for an external `.htdtcapture`
+    /// document (#165). The incoming archive is treated as untrusted:
+    /// its bytes are validated before the manifest identity is read,
+    /// and the staged importer only publishes the extracted directory
+    /// into `finalized/` after the extracted bundle revalidates to the
+    /// archive's declared digest. Only ever runs from idle, so an
+    /// active capture's coordinate authority can never be overwritten
+    /// by a document open. On success the imported revision is opened
+    /// into the read-only finalized workflow, where any
+    /// revise-existing action stays explicit (#155).
+    func importCaptureArchive(from url: URL) {
+        guard state == .idle else {
+            workingSetStatus = HostLocalization.text(
+                "An external capture archive can only be imported while no capture is active",
+                "キャプチャ実行中は外部アーカイブを読み込めません"
+            )
+            return
+        }
+        guard !importOperationInFlight,
+              !persistedAdoptionInFlight,
+              !persistedDeletionInFlight,
+              let store = persistedStore
+        else {
+            return
+        }
+        guard url.pathExtension
+                == HTDTCaptureFileType.filenameExtension
+        else {
+            workingSetStatus = HostLocalization.text(
+                "The selected file is not an .htdtcapture archive",
+                "選択されたファイルは .htdtcapture アーカイブではありません"
+            )
+            return
+        }
+
+        // Security-scoped access must begin while the open/pick grant
+        // is still live, so it starts here synchronously and is held
+        // until the detached import work finishes.
+        let accessing =
+            url.startAccessingSecurityScopedResource()
+
+        importOperationInFlight = true
+        workingSetStatus = HostLocalization.text(
+            "Validating the incoming .htdtcapture archive",
+            "受信した .htdtcapture アーカイブを検証しています"
+        )
+
+        Task { @MainActor [weak self] in
+            guard let self else {
+                if accessing {
+                    url.stopAccessingSecurityScopedResource()
+                }
+                return
+            }
+            defer {
+                if accessing {
+                    url.stopAccessingSecurityScopedResource()
+                }
+                self.importOperationInFlight = false
+            }
+
+            do {
+                let imported = try await Task.detached(
+                    priority: .userInitiated
+                ) { () throws -> (
+                    revisionID: CaptureRevisionID,
+                    promoted: Bool,
+                    archiveStored: Bool
+                ) in
+                    // Validation runs before the manifest identity is
+                    // used; the importer validates again internally
+                    // before promotion.
+                    let report =
+                        try StoredCaptureBundleArchiveValidator
+                            .validate(archive: url)
+                    let revisionID =
+                        report.manifest.captureRevisionID
+                    let destination = store.finalizedDirectory(
+                        for: revisionID
+                    )
+
+                    guard !FileManager.default.fileExists(
+                        atPath: destination.path
+                    ) else {
+                        return (revisionID, false, false)
+                    }
+
+                    _ = try StoredCaptureBundleArchiveImporter
+                        .importArchive(
+                            archive: url,
+                            destination: destination
+                        )
+
+                    // Preserve the exact validated archive bytes in the
+                    // canonical exports slot so the imported revision
+                    // can be re-shared without re-export. Best-effort:
+                    // the finalized copy is already the import's
+                    // authority.
+                    var archiveStored = false
+                    let archiveDestination =
+                        store.exportArchiveURL(for: revisionID)
+                    if !FileManager.default.fileExists(
+                        atPath: archiveDestination.path
+                    ) {
+                        archiveStored =
+                            (try? FileManager.default.copyItem(
+                                at: url,
+                                to: archiveDestination
+                            )) != nil
+                    } else {
+                        archiveStored = true
+                    }
+                    return (revisionID, true, archiveStored)
+                }.value
+
+                guard self.state == .idle else {
+                    return
+                }
+                self.loadPersistedCaptures()
+                self.workingSetStatus = imported.promoted
+                    ? HostLocalization.text(
+                        "Validated capture archive imported",
+                        "検証済みキャプチャアーカイブを読み込みました"
+                    )
+                    : HostLocalization.text(
+                        "This capture revision is already stored locally",
+                        "このキャプチャリビジョンはすでにローカルに保存されています"
+                    )
+                if imported.promoted && !imported.archiveStored {
+                    self.workingSetStatus +=
+                        HostLocalization.text(
+                            " (archive copy was not retained in exports)",
+                            "（書き出しスロットへアーカイブを保持できませんでした）"
+                        )
+                }
+                self.openPersistedCapture(
+                    imported.revisionID
+                )
+            } catch {
+                guard self.state == .idle else {
+                    return
+                }
+                self.loadPersistedCaptures()
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "The .htdtcapture archive failed validation and was not imported; nothing was promoted",
+                        ".htdtcapture アーカイブの検証に失敗したため読み込まれませんでした。データは昇格されていません"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+            }
+        }
+    }
+
     /// The persisted quality report lives inside the validated bundle
     /// at `quality/capture-quality.json`; because the manifest pins its
     /// hash, decoded bytes are authentic. Decoding is best-effort so an
@@ -1804,23 +2336,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
+    private static func captureRootDirectory() -> URL? {
+        FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first?.appendingPathComponent(
+            "HTDTCapture",
+            isDirectory: true
+        )
+    }
+
     private static func makePersistedStore()
         -> PersistedCaptureInventory?
     {
-        guard let applicationSupport =
-            FileManager.default.urls(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask
-            ).first
-        else {
+        guard let captureRoot = captureRootDirectory() else {
             return nil
         }
         return PersistedCaptureInventory(
-            captureRoot: applicationSupport
-                .appendingPathComponent(
-                    "HTDTCapture",
-                    isDirectory: true
-                )
+            captureRoot: captureRoot
         )
     }
 
@@ -1861,7 +2394,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             store: CaptureWorkingSetStore,
             identity: CaptureWorkingSetIdentity,
             generation: UUID,
-            rootDirectory: URL
+            rootDirectory: URL,
+            storagePolicyWarnings: [String]
         )
         do {
             prepared = try makeWorkingSet()
@@ -1871,6 +2405,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         workingSetStore = prepared.store
+        workingSetIdentity = prepared.identity
         captureGeneration = prepared.generation
         workingSetStatus =
             HostLocalization.isJapanese
@@ -1878,6 +2413,28 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 + prepared.identity.captureRevisionID.description
             : "Prepared revision "
                 + prepared.identity.captureRevisionID.description
+
+        // Backup-exclusion / Data Protection failures never silently
+        // pass: they enter the revision's own resource-event record and
+        // remain visible in the working-set status (#136, #166).
+        if !prepared.storagePolicyWarnings.isEmpty {
+            for warning in prepared.storagePolicyWarnings {
+                await prepared.store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "working-revision storage policy was not fully applied: "
+                            + warning
+                    )
+                )
+            }
+            workingSetStatus +=
+                HostLocalization.text(
+                    " (storage protection policy incomplete)",
+                    "（保存先の保護属性が未適用です）"
+                )
+        }
 
         let context = sessionController.context
         let runtime = PlatformRuntimeProvenance.current()
@@ -3359,6 +3916,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         finalizationCommit.claimCommit()
 
         var promotedRevision: FinalizedCaptureRevision?
+        var protectionWarning: String?
 
         do {
             try await store.persistQualityReport(quality)
@@ -3428,6 +3986,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             promotedRevision = finalized
             finalizationCommit.markPromoted()
+
+            // #166: promotion is a same-volume move, which preserves the
+            // Data Protection class applied at working-revision
+            // creation; reapply it explicitly so the finalized
+            // directory can never silently sit under a weaker class. A
+            // failure is surfaced to the operator, never fatal to the
+            // already-promoted bundle.
+            do {
+                try CaptureStoragePolicy.applyFileProtection(
+                    to: finalized.directory
+                )
+            } catch {
+                protectionWarning =
+                    Self.persistenceDiagnostic(error)
+            }
         } catch {
             // Errors here are strictly pre-commit: promotion never
             // began, no finalized destination was produced, and the
@@ -3451,7 +4024,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard let promotedRevision else {
             return
         }
-        await adoptPromotedRevision(promotedRevision)
+        await adoptPromotedRevision(
+            promotedRevision,
+            protectionWarning: protectionWarning
+        )
     }
 
     /// Shared pre-commit abort for the finalization transaction:
@@ -3580,7 +4156,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// re-examines it (and quarantines it if still unreadable) on the
     /// next scan, keeping exactly one terminal owner.
     private func adoptPromotedRevision(
-        _ finalized: FinalizedCaptureRevision
+        _ finalized: FinalizedCaptureRevision,
+        protectionWarning: String? = nil
     ) async {
         let (validation, validationDiagnostic) =
             await Self.validatePromotedRevision(
@@ -3605,6 +4182,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         } else {
             fencedNote = ""
+        }
+
+        let protectionNote: String
+        if let protectionWarning {
+            protectionNote = HostLocalization.text(
+                " (file protection reapply failed)",
+                "（保護属性の再適用に失敗）"
+            ) + " [" + protectionWarning + "]"
+        } else {
+            protectionNote = ""
         }
 
         sessionController.stopAndPauseARSession()
@@ -3640,7 +4227,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         + validation.bundleDigest.description
                     : "Finalized revision; bundle digest "
                         + validation.bundleDigest.description
-                ) + fencedNote
+                ) + fencedNote + protectionNote
             self.loadPersistedCaptures()
             return
         }
@@ -3951,7 +4538,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         store: CaptureWorkingSetStore,
         identity: CaptureWorkingSetIdentity,
         generation: UUID,
-        rootDirectory: URL
+        rootDirectory: URL,
+        storagePolicyWarnings: [String]
     ) {
         guard let applicationSupport =
             FileManager.default.urls(
@@ -3962,7 +4550,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             throw CocoaError(.fileNoSuchFile)
         }
 
-        let identity = CaptureWorkingSetIdentity()
+        // A revise-existing capture keeps the parent's series identity
+        // and records the exact prior revision as its parent; a fresh
+        // capture starts a new series root (#155).
+        let identity = CaptureWorkingSetIdentity(
+            captureSeriesID:
+                activeRevisionLineage?.captureSeriesID
+                    ?? CaptureSeriesID(),
+            parentRevisionID:
+                activeRevisionLineage?.parentRevisionID
+        )
         let root = applicationSupport
             .appendingPathComponent(
                 "HTDTCapture",
@@ -3977,14 +4574,32 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 isDirectory: true
             )
 
+        let store = try CaptureWorkingSetStore(
+            identity: identity,
+            rootDirectory: root
+        )
+
+        // The revision directory exists now: apply the transient-working
+        // at-rest policy (backup exclusion + Data Protection class)
+        // before any evidence lands (#136, #166). Failures are reported
+        // to the caller instead of being silently ignored.
+        var storagePolicyWarnings: [String] = []
+        do {
+            try CaptureStoragePolicy.applyWorkingRevisionPolicy(
+                revisionRoot: root
+            )
+        } catch {
+            storagePolicyWarnings.append(
+                Self.persistenceDiagnostic(error)
+            )
+        }
+
         return (
-            store: try CaptureWorkingSetStore(
-                identity: identity,
-                rootDirectory: root
-            ),
+            store: store,
             identity: identity,
             generation: UUID(),
-            rootDirectory: root
+            rootDirectory: root,
+            storagePolicyWarnings: storagePolicyWarnings
         )
     }
 

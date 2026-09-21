@@ -374,3 +374,18 @@
 "If the room layout prevents you from walking around a target, choose I cannot move around this area. HTDT will stop requiring translation/orbit guidance for this scan; weak and unknown spatial cells remain advisory." = "家具や壁などで対象の周囲を歩けない場合は「この周辺を移動できない」を選択してください。このスキャンでは移動・回り込みを必須にせず、弱い領域や unknown 領域は参考情報として残します。";
 "Optional extra observation" = "追加観測（任意）";
 "Base scan complete. Optional extra observation: %@" = "基本スキャンは完了しました。追加観測（任意）：%@";
+
+/* Revision lineage, abandoned working data, import, and annotation correction */
+"Series" = "シリーズ";
+"Revises" = "修正対象";
+"Revise" = "修正キャプチャ";
+"Revise this capture" = "このキャプチャの修正版を作成";
+"Edit saved annotations & measurements" = "保存済みの注釈・計測値を編集";
+"Replace saved annotation authority" = "保存済みの注釈データを置き換え";
+"Save replaces the canonical annotation and measurement collections committed earlier in this revision. Cancelling leaves the previous save unchanged." = "保存すると、このリビジョンで先に確定した注釈と計測値の正規データを置き換えます。キャンセルすると以前の保存内容が保持されます。";
+"Import .htdtcapture" = ".htdtcapture を読み込む";
+"Abandoned working data" = "中断された作業データ";
+"Abandoned revision" = "未完了リビジョン";
+"Writer temp file" = "一時ファイル";
+"Retained bytes" = "残存バイト数";
+"Left by an interrupted capture. It is never resumed as an active scan and can be safely deleted." = "中断されたキャプチャが残したデータです。実行中のスキャンとして再開されることはなく、安全に削除できます。";
