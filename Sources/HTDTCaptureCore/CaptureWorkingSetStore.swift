@@ -17,6 +17,9 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     case integrityVerificationFailed
     case duplicatePayloadDeclaration(String)
     case mixedProvenanceCollection(String)
+    case coordinateDiscontinuityRequiresBoundSpace
+    case invalidCoordinateTransition
+    case coordinateTransitionLimitExceeded
     case unsafeDiscardPath
 }
 
@@ -48,6 +51,7 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
     public let rawRoomPlanDescriptor: RoomPlanRawEvidenceDescriptor?
     public let processedRoomPlanDescriptor: RoomPlanProcessedEvidenceDescriptor?
     public let capturedRoomMetadata: CapturedRoomMetadataDocument?
+    public let coordinateSpacePolicy: CoordinateSpacePolicyDocument?
     public let meshAnchorCount: Int?
     public let evidenceFrameCount: Int
     public let depthEvidenceCount: Int
@@ -62,6 +66,7 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         rawRoomPlanDescriptor: RoomPlanRawEvidenceDescriptor?,
         processedRoomPlanDescriptor: RoomPlanProcessedEvidenceDescriptor?,
         capturedRoomMetadata: CapturedRoomMetadataDocument?,
+        coordinateSpacePolicy: CoordinateSpacePolicyDocument?,
         meshAnchorCount: Int?,
         evidenceFrameCount: Int,
         depthEvidenceCount: Int,
@@ -75,10 +80,218 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         self.rawRoomPlanDescriptor = rawRoomPlanDescriptor
         self.processedRoomPlanDescriptor = processedRoomPlanDescriptor
         self.capturedRoomMetadata = capturedRoomMetadata
+        self.coordinateSpacePolicy = coordinateSpacePolicy
         self.meshAnchorCount = meshAnchorCount
         self.evidenceFrameCount = evidenceFrameCount
         self.depthEvidenceCount = depthEvidenceCount
         self.evidenceFrameRefs = evidenceFrameRefs
+    }
+}
+
+/// v1 coordinate-authority policy for a capture revision (issue #157):
+/// exactly one coordinate space is bound per revision. A spatial
+/// discontinuity never rebinds the revision in place; the persisted
+/// policy requires a new revision so coordinates are never silently
+/// reinterpreted across a discontinuity.
+public enum CoordinateSpacePolicy: String, Codable, Sendable, Equatable {
+    case singleSpacePerRevision = "single_space_per_revision"
+}
+
+public enum CoordinateDiscontinuityRequirement:
+    String,
+    Codable,
+    Sendable,
+    Equatable
+{
+    case newRevisionRequired = "new_revision_required"
+}
+
+public enum WorldOriginContinuity: String, Codable, Sendable, Equatable {
+    case preserved
+    case broken
+}
+
+/// Canonical wire record for one declared spatial discontinuity. Kept
+/// distinct from the domain `CoordinateSpaceTransition` so the persisted
+/// schema controls its own snake_case key contract.
+public struct CoordinateTransitionRecord:
+    Codable,
+    Sendable,
+    Equatable
+{
+    public let previousCoordinateSpaceID: CoordinateSpaceID
+    public let nextCoordinateSpaceID: CoordinateSpaceID
+    public let reason: CoordinateDiscontinuityReason
+    public let sessionTimestampSeconds: Double?
+
+    public init(
+        previousCoordinateSpaceID: CoordinateSpaceID,
+        nextCoordinateSpaceID: CoordinateSpaceID,
+        reason: CoordinateDiscontinuityReason,
+        sessionTimestampSeconds: Double?
+    ) {
+        self.previousCoordinateSpaceID = previousCoordinateSpaceID
+        self.nextCoordinateSpaceID = nextCoordinateSpaceID
+        self.reason = reason
+        self.sessionTimestampSeconds = sessionTimestampSeconds
+    }
+
+    public init(_ transition: CoordinateSpaceTransition) {
+        self.init(
+            previousCoordinateSpaceID: transition.previous,
+            nextCoordinateSpaceID: transition.next,
+            reason: transition.reason,
+            sessionTimestampSeconds:
+                transition.sessionTimestampSeconds
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case previousCoordinateSpaceID =
+            "previous_coordinate_space_id"
+        case nextCoordinateSpaceID = "next_coordinate_space_id"
+        case reason
+        case sessionTimestampSeconds = "session_timestamp_seconds"
+    }
+}
+
+public enum CoordinateSpacePolicyError: Error, Sendable, Equatable {
+    case transitionAuthorityMismatch
+    case invalidTransitionTimestamp
+    case encodedDocumentMismatch
+}
+
+/// Persisted at `session/coordinate-space-policy.json` by the End
+/// RoomPlan commit. The document makes the single-space v1 contract
+/// explicit and records every discontinuity the working set observed so
+/// the finalized bundle states whether world-origin continuity was
+/// preserved.
+public struct CoordinateSpacePolicyDocument:
+    Codable,
+    Sendable,
+    Equatable
+{
+    public let schema: String
+    public let schemaVersion: String
+    public let captureRevisionID: CaptureRevisionID
+    public let captureSessionID: CaptureSessionID
+    public let coordinateSpaceID: CoordinateSpaceID
+    public let policy: CoordinateSpacePolicy
+    public let discontinuityRequirement:
+        CoordinateDiscontinuityRequirement
+    public let worldOriginContinuity: WorldOriginContinuity
+    public let coordinateTransitions: [CoordinateTransitionRecord]
+
+    public init(
+        captureRevisionID: CaptureRevisionID,
+        captureSessionID: CaptureSessionID,
+        coordinateSpaceID: CoordinateSpaceID,
+        transitions: [CoordinateSpaceTransition]
+    ) throws {
+        var records: [CoordinateTransitionRecord] = []
+        records.reserveCapacity(transitions.count)
+        for transition in transitions {
+            // The store never advances the bound space, so every
+            // recorded discontinuity must originate from it and target a
+            // different space.
+            guard transition.previous == coordinateSpaceID,
+                  transition.next != coordinateSpaceID
+            else {
+                throw CoordinateSpacePolicyError
+                    .transitionAuthorityMismatch
+            }
+            if let seconds = transition.sessionTimestampSeconds {
+                guard seconds.isFinite, seconds >= 0 else {
+                    throw CoordinateSpacePolicyError
+                        .invalidTransitionTimestamp
+                }
+            }
+            records.append(CoordinateTransitionRecord(transition))
+        }
+
+        self.schema = "htdt.coordinate-space-policy"
+        self.schemaVersion = "1.0.0"
+        self.captureRevisionID = captureRevisionID
+        self.captureSessionID = captureSessionID
+        self.coordinateSpaceID = coordinateSpaceID
+        self.policy = .singleSpacePerRevision
+        self.discontinuityRequirement = .newRevisionRequired
+        self.worldOriginContinuity =
+            records.isEmpty ? .preserved : .broken
+        self.coordinateTransitions = records
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schema
+        case schemaVersion = "schema_version"
+        case captureRevisionID = "capture_revision_id"
+        case captureSessionID = "capture_session_id"
+        case coordinateSpaceID = "coordinate_space_id"
+        case policy
+        case discontinuityRequirement = "discontinuity_requirement"
+        case worldOriginContinuity = "world_origin_continuity"
+        case coordinateTransitions = "coordinate_transitions"
+    }
+}
+
+public struct CoordinateSpacePolicyPackage: Sendable, Equatable {
+    public static let path =
+        "session/coordinate-space-policy.json"
+
+    public let document: CoordinateSpacePolicyDocument
+    public let data: Data
+
+    public init(
+        document: CoordinateSpacePolicyDocument,
+        data: Data
+    ) {
+        self.document = document
+        self.data = data
+    }
+
+    public var payloadDeclaration: BundlePayloadDeclaration {
+        BundlePayloadDeclaration(
+            path: Self.path,
+            mediaType: "application/json",
+            producer: "capture_session",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        )
+    }
+}
+
+public enum CoordinateSpacePolicyPackageBuilder {
+    public static func build(
+        captureRevisionID: CaptureRevisionID,
+        captureSessionID: CaptureSessionID,
+        coordinateSpaceID: CoordinateSpaceID,
+        transitions: [CoordinateSpaceTransition]
+    ) throws -> CoordinateSpacePolicyPackage {
+        let document = try CoordinateSpacePolicyDocument(
+            captureRevisionID: captureRevisionID,
+            captureSessionID: captureSessionID,
+            coordinateSpaceID: coordinateSpaceID,
+            transitions: transitions
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(document)
+
+        guard
+            let decoded = try? JSONDecoder().decode(
+                CoordinateSpacePolicyDocument.self,
+                from: data
+            ),
+            decoded == document
+        else {
+            throw CoordinateSpacePolicyError
+                .encodedDocumentMismatch
+        }
+
+        return CoordinateSpacePolicyPackage(
+            document: document,
+            data: data
+        )
     }
 }
 
@@ -88,12 +301,20 @@ public actor CaptureWorkingSetStore {
     /// tracking history stays bounded on arbitrarily long scans.
     public static let maxTrackingIntervals = 128
 
+    /// Deterministic bound on recorded spatial discontinuities. Under the
+    /// v1 single-space policy a discontinuity already requires a new
+    /// revision, so a large recorded count indicates abuse rather than a
+    /// legitimate scan.
+    public static let maxCoordinateTransitions = 64
+
     public let identity: CaptureWorkingSetIdentity
     public let rootDirectory: URL
 
     private let writer: AtomicCaptureFileWriter
     private var captureSessionID: CaptureSessionID?
     private var coordinateSpaceID: CoordinateSpaceID?
+    private var coordinateTransitions: [CoordinateSpaceTransition] = []
+    private var coordinateSpacePolicy: CoordinateSpacePolicyDocument?
     private var declarations: [String: BundlePayloadDeclaration] = [:]
     private var rawRoomPlanDescriptor: RoomPlanRawEvidenceDescriptor?
     private var processedRoomPlanDescriptor: RoomPlanProcessedEvidenceDescriptor?
@@ -269,15 +490,28 @@ public actor CaptureWorkingSetStore {
             summary: processed.metadataSummary
         )
 
+        // The v1 coordinate-space policy is persisted with the End
+        // RoomPlan commit (issue #157). It records the bound authority and
+        // every declared discontinuity so the finalized bundle states
+        // explicitly whether world-origin continuity was preserved.
+        let policy = try CoordinateSpacePolicyPackageBuilder.build(
+            captureRevisionID: identity.captureRevisionID,
+            captureSessionID: raw.descriptor.captureSessionID,
+            coordinateSpaceID: raw.descriptor.coordinateSpaceID,
+            transitions: coordinateTransitions
+        )
+
         if let timingDocument,
            let rawRoomPlanDescriptor,
            let processedRoomPlanDescriptor,
-           let capturedRoomMetadata
+           let capturedRoomMetadata,
+           let coordinateSpacePolicy
         {
             if timingDocument == timingPackage.document,
                rawRoomPlanDescriptor == raw.descriptor,
                processedRoomPlanDescriptor == processed.descriptor,
-               capturedRoomMetadata == metadata.document
+               capturedRoomMetadata == metadata.document,
+               coordinateSpacePolicy == policy.document
             {
                 return
             }
@@ -290,7 +524,8 @@ public actor CaptureWorkingSetStore {
         guard timingDocument == nil,
               rawRoomPlanDescriptor == nil,
               processedRoomPlanDescriptor == nil,
-              capturedRoomMetadata == nil
+              capturedRoomMetadata == nil,
+              coordinateSpacePolicy == nil
         else {
             throw CaptureWorkingSetError
                 .integrityVerificationFailed
@@ -322,6 +557,7 @@ public actor CaptureWorkingSetStore {
             rawDeclaration,
             processedDeclaration,
             metadataDeclaration,
+            policy.payloadDeclaration,
         ]
 
         for declaration in transactionDeclarations {
@@ -358,6 +594,12 @@ public actor CaptureWorkingSetStore {
                     RoomPlanEvidenceArtifactBuilder.metadataPath
                 )
             ),
+            CaptureFileWriteRequest(
+                data: policy.data,
+                path: CaptureStorePath(
+                    CoordinateSpacePolicyPackage.path
+                )
+            ),
         ]
 
         try await writer.writeBatchIfIdentical(writes)
@@ -368,12 +610,14 @@ public actor CaptureWorkingSetStore {
         if let existingTiming = timingDocument,
            let existingRaw = rawRoomPlanDescriptor,
            let existingProcessed = processedRoomPlanDescriptor,
-           let existingMetadata = capturedRoomMetadata
+           let existingMetadata = capturedRoomMetadata,
+           let existingPolicy = coordinateSpacePolicy
         {
             if existingTiming == timingPackage.document,
                existingRaw == raw.descriptor,
                existingProcessed == processed.descriptor,
-               existingMetadata == metadata.document
+               existingMetadata == metadata.document,
+               existingPolicy == policy.document
             {
                 return
             }
@@ -387,6 +631,7 @@ public actor CaptureWorkingSetStore {
               rawRoomPlanDescriptor == nil,
               processedRoomPlanDescriptor == nil,
               capturedRoomMetadata == nil,
+              coordinateSpacePolicy == nil,
               transactionDeclarations.allSatisfy({
                   declarations[$0.path] == nil
               })
@@ -404,6 +649,7 @@ public actor CaptureWorkingSetStore {
         rawRoomPlanDescriptor = raw.descriptor
         processedRoomPlanDescriptor = processed.descriptor
         capturedRoomMetadata = metadata.document
+        coordinateSpacePolicy = policy.document
     }
 
     public func rollbackAcceptedEndTransaction(
@@ -414,6 +660,7 @@ public actor CaptureWorkingSetStore {
               let expectedRaw = rawRoomPlanDescriptor,
               let expectedProcessed = processedRoomPlanDescriptor,
               let expectedMetadata = capturedRoomMetadata,
+              let expectedPolicy = coordinateSpacePolicy,
               expectedProcessed.sourceRawSHA256
                 == expectedRaw.sha256,
               expectedProcessed.captureSessionID
@@ -499,6 +746,23 @@ public actor CaptureWorkingSetStore {
                 .integrityVerificationFailed
         }
 
+        let policyData = try Data(
+            contentsOf: payloadURL(
+                CoordinateSpacePolicyPackage.path
+            )
+        )
+        guard
+            let decodedPolicy =
+                try? JSONDecoder().decode(
+                    CoordinateSpacePolicyDocument.self,
+                    from: policyData
+                ),
+            decodedPolicy == expectedPolicy
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+
         let timingDeclaration =
             BundlePayloadDeclaration(
                 path: CaptureTimingPackage.path,
@@ -533,12 +797,21 @@ public actor CaptureWorkingSetStore {
                 raw: expectedRaw,
                 processed: expectedProcessed
             )
+        let policyDeclaration =
+            BundlePayloadDeclaration(
+                path: CoordinateSpacePolicyPackage.path,
+                mediaType: "application/json",
+                producer: "capture_session",
+                provenanceClass: .captureAppDerived,
+                role: .canonical
+            )
 
         var declarationsToRemove = [
             timingDeclaration,
             rawDeclaration,
             processedDeclaration,
             metadataDeclaration,
+            policyDeclaration,
         ]
         var removals: [CaptureFileWriteRequest] = try [
             CaptureFileWriteRequest(
@@ -564,6 +837,12 @@ public actor CaptureWorkingSetStore {
                 path: CaptureStorePath(
                     RoomPlanEvidenceArtifactBuilder
                         .metadataPath
+                )
+            ),
+            CaptureFileWriteRequest(
+                data: policyData,
+                path: CaptureStorePath(
+                    CoordinateSpacePolicyPackage.path
                 )
             ),
         ]
@@ -675,6 +954,7 @@ public actor CaptureWorkingSetStore {
               processedRoomPlanDescriptor
                 == expectedProcessed,
               capturedRoomMetadata == expectedMetadata,
+              coordinateSpacePolicy == expectedPolicy,
               (
                 !removeOwnedMesh
                 || meshIndex == expectedMesh
@@ -696,6 +976,7 @@ public actor CaptureWorkingSetStore {
         rawRoomPlanDescriptor = nil
         processedRoomPlanDescriptor = nil
         capturedRoomMetadata = nil
+        coordinateSpacePolicy = nil
 
         if removeOwnedMesh {
             meshIndex = nil
@@ -1678,6 +1959,49 @@ public actor CaptureWorkingSetStore {
         evictTrackingIntervalsIfNeeded()
     }
 
+    /// Records a declared spatial discontinuity as retained provenance.
+    /// v1 binds exactly one coordinate space per revision, so the event
+    /// never advances the bound authority: every subsequent record that
+    /// carries a different coordinate space still fails closed with
+    /// `authorityMismatch`. The caller owns the next space identity
+    /// through `CaptureSessionContext.registerDiscontinuity`.
+    public func recordCoordinateDiscontinuity(
+        to nextCoordinateSpaceID: CoordinateSpaceID,
+        reason: CoordinateDiscontinuityReason,
+        sessionTimestampSeconds: Double? = nil
+    ) throws {
+        guard let bound = coordinateSpaceID else {
+            throw CaptureWorkingSetError
+                .coordinateDiscontinuityRequiresBoundSpace
+        }
+        guard nextCoordinateSpaceID != bound else {
+            throw CaptureWorkingSetError.invalidCoordinateTransition
+        }
+        if let sessionTimestampSeconds {
+            guard sessionTimestampSeconds.isFinite,
+                  sessionTimestampSeconds >= 0
+            else {
+                throw CaptureWorkingSetError
+                    .invalidCoordinateTransition
+            }
+        }
+        guard
+            coordinateTransitions.count
+                < Self.maxCoordinateTransitions
+        else {
+            throw CaptureWorkingSetError
+                .coordinateTransitionLimitExceeded
+        }
+        coordinateTransitions.append(
+            CoordinateSpaceTransition(
+                previous: bound,
+                next: nextCoordinateSpaceID,
+                reason: reason,
+                sessionTimestampSeconds: sessionTimestampSeconds
+            )
+        )
+    }
+
     public func recordResourceEvent(
         _ event: CaptureResourceEvent
     ) {
@@ -1829,6 +2153,7 @@ public actor CaptureWorkingSetStore {
             rawRoomPlanDescriptor: rawRoomPlanDescriptor,
             processedRoomPlanDescriptor: processedRoomPlanDescriptor,
             capturedRoomMetadata: capturedRoomMetadata,
+            coordinateSpacePolicy: coordinateSpacePolicy,
             meshAnchorCount: meshAnchorCount,
             evidenceFrameCount: evidenceFrameCount,
             depthEvidenceCount: depthEvidenceCount,
@@ -1957,6 +2282,27 @@ public actor CaptureWorkingSetStore {
             try verifyTypedJSON(
                 path: RoomPlanEvidenceArtifactBuilder.metadataPath,
                 expected: capturedRoomMetadata,
+                actualByPath: actualByPath
+            )
+        }
+
+        // The coordinate-space policy is committed only by the End
+        // RoomPlan transaction, so its presence implies the full end
+        // commit and its authority fields must equal the bound authority.
+        if let coordinateSpacePolicy {
+            guard timingDocument != nil,
+                  coordinateSpacePolicy.captureRevisionID
+                    == identity.captureRevisionID,
+                  coordinateSpacePolicy.captureSessionID
+                    == captureSessionID,
+                  coordinateSpacePolicy.coordinateSpaceID
+                    == coordinateSpaceID
+            else {
+                throw CaptureWorkingSetError.integrityVerificationFailed
+            }
+            try verifyTypedJSON(
+                path: CoordinateSpacePolicyPackage.path,
+                expected: coordinateSpacePolicy,
                 actualByPath: actualByPath
             )
         }
