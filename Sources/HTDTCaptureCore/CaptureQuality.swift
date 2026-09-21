@@ -240,6 +240,69 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
     public let requiredMeasurementQuantityTypes: Set<String>
     public let requireIntegrityPass: Bool
 
+    /// Canonical requirement definitions bound to published ruleset
+    /// versions. A published version identifier always denotes exactly
+    /// this requirement set: constructing requirements with a published
+    /// version pins every gate parameter to the registry entry, so an
+    /// arbitrary threshold set can never claim a published identity.
+    /// Ruleset changes require a new version entry here; existing
+    /// bundles keep decoding only `ruleset_version` and remain
+    /// interpretable through `forRuleset(version:)`.
+    /// Versions absent from this registry are unpublished/experimental
+    /// identities and may carry arbitrary parameters.
+    private static let publishedRequirements:
+        [String: CaptureQualityRequirements] = [
+            "1.1.0": CaptureQualityRequirements(
+                pinnedRulesetVersion: "1.1.0",
+                requireCompletedRoomPlan: true,
+                minimumActiveMeshAnchors: 1,
+                allowDepthEvidenceAsMeshFallback: true,
+                minimumEvidenceFrames: 1,
+                requireDepthEvidence: false,
+                requiredAnnotationKeys: [],
+                requiredMeasurementQuantityTypes: [],
+                requireIntegrityPass: true
+            )
+        ]
+
+    /// Returns the canonical requirements bound to a published ruleset
+    /// version, or nil when the version is not published.
+    public static func forRuleset(
+        version: String
+    ) -> CaptureQualityRequirements? {
+        publishedRequirements[version]
+    }
+
+    /// Published ruleset version identities, sorted for deterministic
+    /// presentation.
+    public static var publishedRulesetVersions: [String] {
+        publishedRequirements.keys.sorted()
+    }
+
+    private init(
+        pinnedRulesetVersion: String,
+        requireCompletedRoomPlan: Bool,
+        minimumActiveMeshAnchors: Int,
+        allowDepthEvidenceAsMeshFallback: Bool,
+        minimumEvidenceFrames: Int,
+        requireDepthEvidence: Bool,
+        requiredAnnotationKeys: Set<String>,
+        requiredMeasurementQuantityTypes: Set<String>,
+        requireIntegrityPass: Bool
+    ) {
+        self.rulesetVersion = pinnedRulesetVersion
+        self.requireCompletedRoomPlan = requireCompletedRoomPlan
+        self.minimumActiveMeshAnchors = minimumActiveMeshAnchors
+        self.allowDepthEvidenceAsMeshFallback =
+            allowDepthEvidenceAsMeshFallback
+        self.minimumEvidenceFrames = minimumEvidenceFrames
+        self.requireDepthEvidence = requireDepthEvidence
+        self.requiredAnnotationKeys = requiredAnnotationKeys
+        self.requiredMeasurementQuantityTypes =
+            requiredMeasurementQuantityTypes
+        self.requireIntegrityPass = requireIntegrityPass
+    }
+
     public init(
         rulesetVersion: String = "1.0.0",
         requireCompletedRoomPlan: Bool = true,
@@ -251,6 +314,14 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
         requiredMeasurementQuantityTypes: Set<String> = [],
         requireIntegrityPass: Bool = true
     ) {
+        precondition(
+            !rulesetVersion.isEmpty,
+            "quality ruleset version must be a non-empty identity"
+        )
+        if let published = Self.publishedRequirements[rulesetVersion] {
+            self = published
+            return
+        }
         self.rulesetVersion = rulesetVersion
         self.requireCompletedRoomPlan = requireCompletedRoomPlan
         self.minimumActiveMeshAnchors = minimumActiveMeshAnchors
