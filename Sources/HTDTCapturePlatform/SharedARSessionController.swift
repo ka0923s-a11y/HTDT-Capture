@@ -60,16 +60,76 @@ public struct CapturedSpeakerOrientation: Sendable {
     }
 }
 
+/// Bounded provenance of a live raycast hit used for annotation
+/// placement. Two placements with materially different authority (hit on
+/// observed existing plane geometry vs. an estimated plane fallback)
+/// remain distinguishable after serialization.
+public struct RaycastPlacementProvenance: Sendable, Equatable {
+    /// The raycast target kind that produced the accepted hit.
+    public enum Target: String, Sendable, Equatable {
+        case existingPlaneGeometry = "existing_plane_geometry"
+        case existingPlaneInfinite = "existing_plane_infinite"
+        case estimatedPlane = "estimated_plane"
+        case featurePoint = "feature_point"
+        case unknown
+    }
+
+    /// The alignment requested by the accepted raycast query.
+    public enum Alignment: String, Sendable, Equatable {
+        case any
+        case horizontal
+        case vertical
+        case unknown
+    }
+
+    /// Which raycast target produced the hit.
+    public let target: Target
+    /// Alignment policy of the accepted query.
+    public let targetAlignment: Alignment
+    /// Distance from the ray origin (camera position) to the hit, meters.
+    public let hitDistanceMeters: Double
+    /// Full hit transform in the capture world coordinate space.
+    public let hitWorldTransform: Matrix4x4F
+    /// Identifier of the anchor backing the hit, when ARKit provided one;
+    /// explicitly nil otherwise, never fabricated.
+    public let hitAnchorIdentifier: UUID?
+    /// Type name of the backing anchor (e.g. "ARPlaneAnchor"), if any.
+    public let hitAnchorType: String?
+
+    public init(
+        target: Target,
+        targetAlignment: Alignment,
+        hitDistanceMeters: Double,
+        hitWorldTransform: Matrix4x4F,
+        hitAnchorIdentifier: UUID? = nil,
+        hitAnchorType: String? = nil
+    ) {
+        self.target = target
+        self.targetAlignment = targetAlignment
+        self.hitDistanceMeters = hitDistanceMeters
+        self.hitWorldTransform = hitWorldTransform
+        self.hitAnchorIdentifier = hitAnchorIdentifier
+        self.hitAnchorType = hitAnchorType
+    }
+}
+
 public struct CapturedRaycastPlacement: Sendable {
     public let positionWorld: Float3
     public let frameArtifacts: CapturedFrameArtifacts
+    /// Provenance of the raycast hit that produced `positionWorld`.
+    /// Always populated when produced by
+    /// `snapshotCenterRaycastPlacement`; optional only so existing
+    /// manual constructions remain source-compatible.
+    public let raycastProvenance: RaycastPlacementProvenance?
 
     public init(
         positionWorld: Float3,
-        frameArtifacts: CapturedFrameArtifacts
+        frameArtifacts: CapturedFrameArtifacts,
+        raycastProvenance: RaycastPlacementProvenance? = nil
     ) {
         self.positionWorld = positionWorld
         self.frameArtifacts = frameArtifacts
+        self.raycastProvenance = raycastProvenance
     }
 }
 
@@ -896,6 +956,7 @@ public final class SharedARSessionController {
             .estimatedPlane,
         ]
         var hit: ARRaycastResult?
+        var hitTarget: ARRaycastQuery.Target?
         for target in targets {
             let query = ARRaycastQuery(
                 origin: origin,
@@ -905,15 +966,35 @@ public final class SharedARSessionController {
             )
             if let result = arSession.raycast(query).first {
                 hit = result
+                hitTarget = target
                 break
             }
         }
 
-        guard let hit else {
+        guard let hit, let hitTarget else {
             throw PlatformCaptureError.raycastMiss
         }
 
         let position = hit.worldTransform.columns.3
+        let hitPosition = SIMD3<Float>(
+            position.x,
+            position.y,
+            position.z
+        )
+        let provenance = try RaycastPlacementProvenance(
+            target: Self.raycastTargetToken(hitTarget),
+            targetAlignment: Self.raycastAlignmentToken(
+                hit.targetAlignment
+            ),
+            hitDistanceMeters: Double(
+                simd_distance(origin, hitPosition)
+            ),
+            hitWorldTransform: Self.matrix4x4F(hit.worldTransform),
+            hitAnchorIdentifier: hit.anchor?.identifier,
+            hitAnchorType: hit.anchor.map {
+                String(describing: type(of: $0))
+            }
+        )
         return CapturedRaycastPlacement(
             positionWorld: Float3(
                 position.x,
@@ -925,8 +1006,52 @@ public final class SharedARSessionController {
                 captureSessionID: context.captureSessionID,
                 coordinateSpaceID: context.coordinateSpaceID,
                 depthSelection: depthSelection
-            )
+            ),
+            raycastProvenance: provenance
         )
+    }
+
+    private static func raycastTargetToken(
+        _ target: ARRaycastQuery.Target
+    ) -> RaycastPlacementProvenance.Target {
+        switch target {
+        case .existingPlaneGeometry:
+            return .existingPlaneGeometry
+        case .existingPlaneInfinite:
+            return .existingPlaneInfinite
+        case .estimatedPlane:
+            return .estimatedPlane
+        case .featurePoint:
+            return .featurePoint
+        default:
+            return .unknown
+        }
+    }
+
+    private static func raycastAlignmentToken(
+        _ alignment: ARRaycastQuery.TargetAlignment
+    ) -> RaycastPlacementProvenance.Alignment {
+        switch alignment {
+        case .any:
+            return .any
+        case .horizontal:
+            return .horizontal
+        case .vertical:
+            return .vertical
+        default:
+            return .unknown
+        }
+    }
+
+    private static func matrix4x4F(
+        _ value: simd_float4x4
+    ) throws -> Matrix4x4F {
+        try Matrix4x4F(values: [
+            value.columns.0.x, value.columns.0.y, value.columns.0.z, value.columns.0.w,
+            value.columns.1.x, value.columns.1.y, value.columns.1.z, value.columns.1.w,
+            value.columns.2.x, value.columns.2.y, value.columns.2.z, value.columns.2.w,
+            value.columns.3.x, value.columns.3.y, value.columns.3.z, value.columns.3.w,
+        ])
     }
 
     public func snapshotTimingCorrelation()
