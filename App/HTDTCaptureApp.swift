@@ -87,9 +87,6 @@ private struct HTDTCaptureHostView: View {
             endScanGuidance:
                 coordinator.endScanGuidance,
             captureSetup: coordinator.captureSetup,
-            activeOperations: coordinator.activeOperations,
-            operationTargetRevisionID:
-                coordinator.operationTargetRevisionID,
             isEndingScan: coordinator.isEndingScan,
             isCapturingEvidence:
                 coordinator.isCapturingEvidenceFrame,
@@ -121,6 +118,9 @@ private struct HTDTCaptureHostView: View {
             spatialCaptureSealed:
                 coordinator.annotationCoordinateSpaceID == nil
                     && coordinator.annotationAuthorityCommitted,
+            activeOperations: coordinator.activeOperations,
+            operationTargetRevisionID:
+                coordinator.operationTargetRevisionID,
             actions: CaptureRootActions(
                 beginCapture: coordinator.beginCapture,
                 beginScanning: coordinator.beginScanning,
