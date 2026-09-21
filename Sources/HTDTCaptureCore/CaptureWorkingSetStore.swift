@@ -53,8 +53,18 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
     public let capturedRoomMetadata: CapturedRoomMetadataDocument?
     public let coordinateSpacePolicy: CoordinateSpacePolicyDocument?
     public let meshAnchorCount: Int?
+    /// Mesh anchors whose decoded geometry carries at least one vertex
+    /// and at least one face. `nil` until a mesh index is committed
+    /// (issue #169).
+    public let usableMeshAnchorCount: Int?
     public let evidenceFrameCount: Int
     public let depthEvidenceCount: Int
+    /// Total finite, positive, validity-masked depth samples across all
+    /// committed frame depth maps (issue #169).
+    public let usableDepthSampleCount: Int
+    /// Committed frames whose depth map contains at least one usable
+    /// sample — the fallback-satisfying depth evidence count.
+    public let usableDepthEvidenceCount: Int
     public let evidenceFrameRefs: [String]
 
     public init(
@@ -68,8 +78,11 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         capturedRoomMetadata: CapturedRoomMetadataDocument?,
         coordinateSpacePolicy: CoordinateSpacePolicyDocument?,
         meshAnchorCount: Int?,
+        usableMeshAnchorCount: Int?,
         evidenceFrameCount: Int,
         depthEvidenceCount: Int,
+        usableDepthSampleCount: Int,
+        usableDepthEvidenceCount: Int,
         evidenceFrameRefs: [String]
     ) {
         self.identity = identity
@@ -82,8 +95,11 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         self.capturedRoomMetadata = capturedRoomMetadata
         self.coordinateSpacePolicy = coordinateSpacePolicy
         self.meshAnchorCount = meshAnchorCount
+        self.usableMeshAnchorCount = usableMeshAnchorCount
         self.evidenceFrameCount = evidenceFrameCount
         self.depthEvidenceCount = depthEvidenceCount
+        self.usableDepthSampleCount = usableDepthSampleCount
+        self.usableDepthEvidenceCount = usableDepthEvidenceCount
         self.evidenceFrameRefs = evidenceFrameRefs
     }
 }
@@ -332,6 +348,9 @@ public actor CaptureWorkingSetStore {
     private var timingDocument: CaptureTimingDocument?
     private var evidenceFrameCount = 0
     private var depthEvidenceCount = 0
+    private var usableDepthSampleCount = 0
+    private var usableDepthEvidenceCount = 0
+    private var usableMeshAnchorCount: Int?
     private var trackingIntervals: [TrackingInterval] = []
     private var resourceEvents: [CaptureResourceEvent] = []
 
@@ -981,6 +1000,7 @@ public actor CaptureWorkingSetStore {
         if removeOwnedMesh {
             meshIndex = nil
             meshAnchorCount = nil
+            usableMeshAnchorCount = nil
         }
     }
 
@@ -1277,6 +1297,28 @@ public actor CaptureWorkingSetStore {
             }
         }
 
+        // Decode each committed geometry blob once at persistence time
+        // (issue #169): the record's counts must match the actual blob,
+        // and only anchors carrying real geometric primitives count as
+        // usable. An anchor object with zero faces or zero vertices must
+        // never satisfy a mesh requirement.
+        var usableAnchors = 0
+        for record in package.index.anchors {
+            guard
+                let file = filesByPath[record.geometryPath],
+                let geometry = try? MeshBinaryCodec.decode(
+                    file.data
+                ),
+                geometry.vertices.count == record.vertexCount,
+                geometry.faceCount == record.faceCount
+            else {
+                throw CaptureWorkingSetError.invalidMeshPackage
+            }
+            if !geometry.vertices.isEmpty, geometry.faceCount > 0 {
+                usableAnchors += 1
+            }
+        }
+
         if let first = package.index.anchors.first {
             for record in package.index.anchors {
                 guard
@@ -1361,6 +1403,7 @@ public actor CaptureWorkingSetStore {
             )
         )
         meshAnchorCount = package.index.anchors.count
+        usableMeshAnchorCount = usableAnchors
         meshIndex = package.index
     }
 
@@ -1493,6 +1536,7 @@ public actor CaptureWorkingSetStore {
         }
         meshIndex = nil
         meshAnchorCount = nil
+        usableMeshAnchorCount = nil
     }
 
     public func persistFramePackage(
@@ -1535,6 +1579,17 @@ public actor CaptureWorkingSetStore {
         frameDescriptors.append(package.descriptor)
         evidenceFrameCount += 1
         depthEvidenceCount += package.capturedDepthCount
+
+        // Usable-geometry accounting (issue #169): only finite, positive,
+        // validity-masked depth samples count. The decode happens once at
+        // commit time so quality evaluation never re-parses payloads.
+        let usableSamples = Self.usableDepthSamples(
+            in: package.depthPayload
+        )
+        usableDepthSampleCount += usableSamples
+        if usableSamples > 0 {
+            usableDepthEvidenceCount += 1
+        }
 
         if let preview = package.preview {
             do {
@@ -2155,8 +2210,11 @@ public actor CaptureWorkingSetStore {
             capturedRoomMetadata: capturedRoomMetadata,
             coordinateSpacePolicy: coordinateSpacePolicy,
             meshAnchorCount: meshAnchorCount,
+            usableMeshAnchorCount: usableMeshAnchorCount,
             evidenceFrameCount: evidenceFrameCount,
             depthEvidenceCount: depthEvidenceCount,
+            usableDepthSampleCount: usableDepthSampleCount,
+            usableDepthEvidenceCount: usableDepthEvidenceCount,
             evidenceFrameRefs: frameDescriptors
                 .map {
                     "path:evidence/frames/"
@@ -2608,6 +2666,34 @@ public actor CaptureWorkingSetStore {
         }
         self.captureSessionID = captureSessionID
         self.coordinateSpaceID = coordinateSpaceID
+    }
+
+    /// Counts depth samples that carry real geometric information: a
+    /// finite, positive depth whose validity-mask entry is set (or whose
+    /// payload carries no mask). An undecodable payload contributes zero
+    /// usable samples rather than failing persistence — the canonical
+    /// bytes remain byte-exact evidence even when no sample is usable
+    /// (issue #169).
+    private static func usableDepthSamples(
+        in payload: Data?
+    ) -> Int {
+        guard let payload,
+              let map = try? DepthBinaryCodec.decode(payload)
+        else {
+            return 0
+        }
+        var count = 0
+        for index in map.valuesMeters.indices {
+            let value = map.valuesMeters[index]
+            guard value.isFinite, value > 0 else {
+                continue
+            }
+            if let mask = map.validityMask, mask[index] == 0 {
+                continue
+            }
+            count += 1
+        }
+        return count
     }
 
     /// The lineage document declaration must be byte-identical between the
