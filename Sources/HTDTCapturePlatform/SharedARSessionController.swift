@@ -1236,7 +1236,7 @@ public final class SharedARSessionController {
         }
     }
 
-    private static func matrix4x4F(
+    private nonisolated static func matrix4x4F(
         _ value: simd_float4x4
     ) throws -> Matrix4x4F {
         try Matrix4x4F(values: [
@@ -2339,4 +2339,502 @@ private struct LiveDerivedVoxelKey: Hashable {
 }
 
 }
+
+/// Target-aware annotation placement (#214/#246). The probe classifies
+/// what the camera's center ray is hitting — existing/estimated plane,
+/// live ARMesh triangle, or a persisted RoomPlan object — so the
+/// reticle can name the target class before capture; the capture
+/// then resolves the same candidates and returns bounded provenance.
+@available(iOS 17.0, *)
+extension SharedARSessionController {
+    /// Bounded capture result for a targeted placement. `target` names
+    /// the resolved target class; the method-specific fields are
+    /// populated only when that class won.
+    public struct TargetedPlacementCapture: Sendable {
+        public let target: PlacementProbeTarget
+        public let positionWorld: Float3
+        public let hitDistanceMeters: Double?
+        /// Mesh hit authority (#246): exact anchor ID + hit position.
+        public let meshAnchorID: UUID?
+        /// RoomPlan binding authority (#246): exact persisted object ID.
+        public let roomPlanObjectID: String?
+        public let roomPlanObjectCategory: String?
+        /// Plane-raycast hit provenance (method `.raycast`).
+        public let raycastProvenance: RaycastPlacementProvenance?
+        /// Same-frame pixel/depth/pose artifacts to persist as the
+        /// placement evidence frame.
+        public let frameArtifacts: CapturedFrameSnapshot
+
+        public init(
+            target: PlacementProbeTarget,
+            positionWorld: Float3,
+            hitDistanceMeters: Double? = nil,
+            meshAnchorID: UUID? = nil,
+            roomPlanObjectID: String? = nil,
+            roomPlanObjectCategory: String? = nil,
+            raycastProvenance: RaycastPlacementProvenance? = nil,
+            frameArtifacts: CapturedFrameSnapshot
+        ) {
+            self.target = target
+            self.positionWorld = positionWorld
+            self.hitDistanceMeters = hitDistanceMeters
+            self.meshAnchorID = meshAnchorID
+            self.roomPlanObjectID = roomPlanObjectID
+            self.roomPlanObjectCategory = roomPlanObjectCategory
+            self.raycastProvenance = raycastProvenance
+            self.frameArtifacts = frameArtifacts
+        }
+    }
+
+    /// The live camera center ray in capture world coordinates; nil
+    /// while no AR frame is available.
+    public func centerCameraRay()
+        -> (origin: SIMD3<Float>, direction: SIMD3<Float>)?
+    {
+        guard let frame = arSession.currentFrame else {
+            return nil
+        }
+        let camera = frame.camera.transform
+        return (
+            SIMD3<Float>(
+                camera.columns.3.x,
+                camera.columns.3.y,
+                camera.columns.3.z
+            ),
+            SIMD3<Float>(
+                -camera.columns.2.x,
+                -camera.columns.2.y,
+                -camera.columns.2.z
+            )
+        )
+    }
+
+    /// Camera yaw in degrees for the live heading arrow (#214): 0 = -Z
+    /// world forward, +90 = +X — the same convention as
+    /// `snapshotHorizontalCameraHeading`. nil while no frame exists.
+    public func currentCameraHeadingDegrees() -> Float? {
+        guard let frame = arSession.currentFrame else {
+            return nil
+        }
+        let x = -frame.camera.transform.columns.2.x
+        let z = -frame.camera.transform.columns.2.z
+        guard (x * x + z * z) > 1e-6 else {
+            return nil
+        }
+        return atan2(x, -z) * 180 / .pi
+    }
+
+    /// Live center-target probe (#214): classifies the strongest hit
+    /// for the current frame's center ray across planes, live mesh and
+    /// supplied RoomPlan objects. Cheap and side-effect-free; intended
+    /// for repeated polling while the reticle is visible.
+    public func probeCenterPlacementTarget(
+        roomPlanObjects: [RoomPlanBindableObject],
+        maxDistanceMeters: Float = 15
+    ) -> AnnotationPlacementProbe {
+        guard let ray = centerCameraRay() else {
+            return .unavailable
+        }
+
+        guard let spatialRay = try? SpatialRay(
+            origin: Float3(
+                ray.origin.x, ray.origin.y, ray.origin.z
+            ),
+            direction: Float3(
+                ray.direction.x, ray.direction.y, ray.direction.z
+            )
+        ) else {
+            return .unavailable
+        }
+
+        var candidates = PlacementProbeCandidates()
+        candidates.meshHit = liveMeshRaycastHit(
+            origin: ray.origin,
+            direction: ray.direction,
+            maxDistanceMeters: maxDistanceMeters
+        )
+        candidates.roomPlanHit = RoomPlanObjectRaycast.nearestHit(
+            ray: spatialRay,
+            objects: roomPlanObjects,
+            maxDistanceMeters: maxDistanceMeters
+        )
+        candidates.planeHit = planeRaycastHit(
+            origin: ray.origin,
+            direction: ray.direction,
+            maxDistanceMeters: maxDistanceMeters
+        )?.probe
+        return PlacementProbeResolver.resolve(
+            candidates: candidates,
+            preference: .automatic
+        )
+    }
+
+    /// A plane hit bundled with its full provenance; `probe` is what
+    /// the reticle consumes, `provenance` what the capture persists.
+    private struct PlaneRaycastHit: Sendable {
+        let probe: PlaneProbeHit
+        let provenance: RaycastPlacementProvenance?
+
+        var target: PlacementProbeTarget { probe.target }
+        var distanceMeters: Float { probe.distanceMeters }
+        var positionWorld: Float3 { probe.positionWorld }
+    }
+
+    /// Captures a targeted placement for the given preference. An
+    /// explicit mesh/object/plane request never falls through to a
+    /// different target class (#246): it returns a `TargetedPlacement
+    /// Capture` for exactly that class or throws `raycastMiss`.
+    /// `.automatic` resolves the nearest of all candidates with the
+    /// deterministic specificity order for ties.
+    public func snapshotTargetedPlacement(
+        preferring preference: PlacementTargetPreference,
+        roomPlanObjects: [RoomPlanBindableObject],
+        depthSelection: FrameDepthSelection = .discrete,
+        maxDistanceMeters: Float = 15
+    ) throws -> TargetedPlacementCapture {
+        guard let frame = arSession.currentFrame else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+        guard let ray = centerCameraRay() else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        guard let spatialRay = try? SpatialRay(
+            origin: Float3(
+                ray.origin.x, ray.origin.y, ray.origin.z
+            ),
+            direction: Float3(
+                ray.direction.x, ray.direction.y, ray.direction.z
+            )
+        ) else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        var candidates = PlacementProbeCandidates()
+        candidates.meshHit = liveMeshRaycastHit(
+            origin: ray.origin,
+            direction: ray.direction,
+            maxDistanceMeters: maxDistanceMeters
+        )
+        candidates.roomPlanHit = RoomPlanObjectRaycast.nearestHit(
+            ray: spatialRay,
+            objects: roomPlanObjects,
+            maxDistanceMeters: maxDistanceMeters
+        )
+        candidates.planeHit = planeRaycastHit(
+            origin: ray.origin,
+            direction: ray.direction,
+            maxDistanceMeters: maxDistanceMeters
+        )?.probe
+
+        // The resolver decides which class wins; the full plane
+        // provenance survives separately for the capture record.
+        let planeProvenance = planeRaycastHit(
+            origin: ray.origin,
+            direction: ray.direction,
+            maxDistanceMeters: maxDistanceMeters
+        )?.provenance
+
+        let probe = PlacementProbeResolver.resolve(
+            candidates: candidates,
+            preference: preference
+        )
+        guard probe.status == .hit,
+              let position = probe.positionWorld,
+              let target = probe.target
+        else {
+            throw PlatformCaptureError.raycastMiss
+        }
+
+        let artifacts = try ARFrameArtifactAdapter.snapshot(
+            frame: frame,
+            captureSessionID: context.captureSessionID,
+            coordinateSpaceID: context.coordinateSpaceID,
+            depthSelection: depthSelection
+        )
+
+        switch target {
+        case .mesh:
+            guard let hit = candidates.meshHit else {
+                throw PlatformCaptureError.raycastMiss
+            }
+            return TargetedPlacementCapture(
+                target: .mesh,
+                positionWorld: position,
+                hitDistanceMeters: Double(hit.distanceMeters),
+                meshAnchorID: hit.meshAnchorID,
+                frameArtifacts: artifacts
+            )
+        case .roomPlanObject:
+            guard let hit = candidates.roomPlanHit else {
+                throw PlatformCaptureError.raycastMiss
+            }
+            return TargetedPlacementCapture(
+                target: .roomPlanObject,
+                positionWorld: position,
+                hitDistanceMeters: Double(hit.distanceMeters),
+                roomPlanObjectID: hit.object.identifier,
+                roomPlanObjectCategory: hit.object.category,
+                frameArtifacts: artifacts
+            )
+        case .existingPlaneGeometry, .estimatedPlane:
+            guard let planeHit = candidates.planeHit else {
+                throw PlatformCaptureError.raycastMiss
+            }
+            return TargetedPlacementCapture(
+                target: planeHit.target,
+                positionWorld: position,
+                hitDistanceMeters: Double(planeHit.distanceMeters),
+                raycastProvenance: planeProvenance,
+                frameArtifacts: artifacts
+            )
+        }
+    }
+
+    /// Decodes the persisted processed `CapturedRoom` payload into
+    /// bindable objects/surfaces for `roomplan_binding` placement
+    /// (#246). iOS-only because `CapturedRoom` decoding is a RoomPlan
+    /// API. `nonisolated`: pure data decoding — callers run it off
+    /// the main actor while loading Review context.
+    public nonisolated static func roomPlanBindableObjects(
+        fromProcessedData data: Data
+    ) -> [RoomPlanBindableObject] {
+        let decoder = JSONDecoder()
+        decoder.nonConformingFloatDecodingStrategy =
+            .convertFromString(
+                positiveInfinity: "Infinity",
+                negativeInfinity: "-Infinity",
+                nan: "NaN"
+            )
+        guard let room = try? decoder.decode(
+            CapturedRoom.self,
+            from: data
+        ) else {
+            return []
+        }
+        var results: [RoomPlanBindableObject] = []
+        for object in room.objects {
+            guard let transform = try? matrix4x4F(
+                object.transform
+            ) else {
+                continue
+            }
+            results.append(
+                RoomPlanBindableObject(
+                    identifier: object.identifier
+                        .uuidString.lowercased(),
+                    category: String(describing: object.category),
+                    isSurface: false,
+                    worldFromObject: transform,
+                    dimensionsMeters: Float3(
+                        object.dimensions.x,
+                        object.dimensions.y,
+                        object.dimensions.z
+                    )
+                )
+            )
+        }
+        for surface in room.walls + room.windows
+            + room.doors + room.openings
+        {
+            guard let transform = try? matrix4x4F(
+                surface.transform
+            ) else {
+                continue
+            }
+            results.append(
+                RoomPlanBindableObject(
+                    identifier: surface.identifier
+                        .uuidString.lowercased(),
+                    category: String(describing: surface.category),
+                    isSurface: true,
+                    worldFromObject: transform,
+                    dimensionsMeters: Float3(
+                        surface.dimensions.x,
+                        surface.dimensions.y,
+                        surface.dimensions.z
+                    )
+                )
+            )
+        }
+        return results
+    }
+
+    /// Ray-vs-live-ARMesh hit over the session's current mesh anchors
+    /// (#246). Uses the same vertex/index readers as the derived-shape
+    /// pipeline; the hit returns the exact anchor ID for
+    /// `mesh_hit_test` provenance.
+    private func liveMeshRaycastHit(
+        origin: SIMD3<Float>,
+        direction: SIMD3<Float>,
+        maxDistanceMeters: Float
+    ) -> MeshRaycastHit? {
+        guard let frame = arSession.currentFrame else {
+            return nil
+        }
+
+        var best: MeshRaycastHit?
+        for anchor in frame.anchors.compactMap({
+            $0 as? ARMeshAnchor
+        }) {
+            let geometry = anchor.geometry
+            guard geometry.faces.indexCountPerPrimitive == 3,
+                  geometry.faces.bytesPerIndex == 2
+                      || geometry.faces.bytesPerIndex == 4,
+                  liveMeshElementIsReadable(geometry.faces),
+                  liveFloat3SourceIsReadable(geometry.vertices)
+            else {
+                continue
+            }
+
+            for faceIndex in 0..<geometry.faces.count {
+                guard let indices = liveMeshFaceIndices(
+                    geometry: geometry,
+                    faceIndex: faceIndex
+                ) else {
+                    continue
+                }
+                var triangle: [SIMD3<Float>] = []
+                triangle.reserveCapacity(3)
+                for vertexIndex in indices {
+                    guard let vertex = liveMeshWorldVertex(
+                        geometry: geometry,
+                        vertexIndex: Int(vertexIndex),
+                        transform: anchor.transform
+                    ) else {
+                        break
+                    }
+                    triangle.append(vertex)
+                }
+                guard triangle.count == 3 else {
+                    continue
+                }
+
+                guard let hitDistance = simdRayTriangleIntersection(
+                    origin: origin,
+                    direction: direction,
+                    a: triangle[0],
+                    b: triangle[1],
+                    c: triangle[2],
+                    maxDistance: maxDistanceMeters
+                ) else {
+                    continue
+                }
+
+                if let best,
+                   hitDistance >= best.distanceMeters
+                {
+                    continue
+                }
+                best = MeshRaycastHit(
+                    meshAnchorID: anchor.identifier,
+                    distanceMeters: hitDistance,
+                    positionWorld: Float3(
+                        origin.x + direction.x * hitDistance,
+                        origin.y + direction.y * hitDistance,
+                        origin.z + direction.z * hitDistance
+                    ),
+                    triangleIndex: faceIndex
+                )
+            }
+        }
+        return best
+    }
+
+    /// One plane-raycast probe: existing-plane geometry first, then the
+    /// estimated-plane fallback — each carries its own target token so
+    /// the lower-specificity fallback is explicit, never silent.
+    private func planeRaycastHit(
+        origin: SIMD3<Float>,
+        direction: SIMD3<Float>,
+        maxDistanceMeters: Float
+    ) -> PlaneRaycastHit? {
+        for (target, probeTarget) in [
+            (ARRaycastQuery.Target.existingPlaneGeometry,
+             PlacementProbeTarget.existingPlaneGeometry),
+            (.estimatedPlane, .estimatedPlane),
+        ] {
+            let query = ARRaycastQuery(
+                origin: origin,
+                direction: direction,
+                allowing: target,
+                alignment: .any
+            )
+            guard let hit = arSession.raycast(query).first
+            else {
+                continue
+            }
+            let position = hit.worldTransform.columns.3
+            let distance = simd_distance(
+                origin,
+                SIMD3<Float>(position.x, position.y, position.z)
+            )
+            guard distance <= maxDistanceMeters else {
+                continue
+            }
+            let provenance = try? RaycastPlacementProvenance(
+                target: Self.raycastTargetToken(target),
+                targetAlignment: Self.raycastAlignmentToken(
+                    hit.targetAlignment
+                ),
+                hitDistanceMeters: Double(distance),
+                hitWorldTransform: Self.matrix4x4F(
+                    hit.worldTransform
+                ),
+                hitAnchorIdentifier: hit.anchor?.identifier,
+                hitAnchorType: hit.anchor.map {
+                    String(describing: type(of: $0))
+                }
+            )
+            return PlaneRaycastHit(
+                probe: PlaneProbeHit(
+                    target: probeTarget,
+                    distanceMeters: distance,
+                    positionWorld: Float3(
+                        position.x, position.y, position.z
+                    )
+                ),
+                provenance: provenance
+            )
+        }
+        return nil
+    }
+}
+
+/// Non-culling Möller–Trumbore on simd vectors; returns the distance
+/// along `direction` or nil. Kept local to this file so the platform
+/// raycast never allocates Core structs per triangle.
+private func simdRayTriangleIntersection(
+    origin: SIMD3<Float>,
+    direction: SIMD3<Float>,
+    a: SIMD3<Float>,
+    b: SIMD3<Float>,
+    c: SIMD3<Float>,
+    maxDistance: Float
+) -> Float? {
+    let edgeAB = b - a
+    let edgeAC = c - a
+    let p = simd_cross(direction, edgeAC)
+    let determinant = simd_dot(edgeAB, p)
+    guard abs(determinant) > 1e-8 else {
+        return nil
+    }
+    let inverse = 1 / determinant
+    let s = origin - a
+    let u = simd_dot(s, p) * inverse
+    guard u >= 0, u <= 1 else {
+        return nil
+    }
+    let q = simd_cross(s, edgeAB)
+    let v = simd_dot(direction, q) * inverse
+    guard v >= 0, u + v <= 1 else {
+        return nil
+    }
+    let t = simd_dot(edgeAC, q) * inverse
+    guard t.isFinite, t >= 0, t <= maxDistance else {
+        return nil
+    }
+    return t
+}
+
 #endif

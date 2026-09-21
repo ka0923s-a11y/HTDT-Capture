@@ -792,18 +792,6 @@ public struct AsBuiltVerificationSession: Sendable, Equatable {
 }
 
 public extension Matrix4x4F {
-    /// Applies the rigid transform to a point (column-major layout).
-    func applying(to point: Float3) -> Float3 {
-        Float3(
-            values[0] * point.x + values[4] * point.y
-                + values[8] * point.z + values[12],
-            values[1] * point.x + values[5] * point.y
-                + values[9] * point.z + values[13],
-            values[2] * point.x + values[6] * point.y
-                + values[10] * point.z + values[14]
-        )
-    }
-
     /// Applies only the rotation basis to a direction vector.
     func applyingDirection(to vector: Float3) -> Float3 {
         Float3(
