@@ -19,6 +19,7 @@ func registryMapsEverySchemaOwnedPath() throws {
         "annotations/entities.json": "entities",
         "annotations/measurements.json": "measurements",
         "quality/capture-quality.json": "quality",
+        "quality/capture-advisory.json": "capture-advisory",
         "evidence/frames/anything.json": "frame",
     ]
     for (path, name) in expected {

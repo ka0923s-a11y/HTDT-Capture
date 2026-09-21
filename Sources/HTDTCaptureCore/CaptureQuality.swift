@@ -234,6 +234,15 @@ public struct CaptureQualityObservation: Sendable, Equatable {
     /// `depthEvidenceCount` so pre-metric observations keep their
     /// legacy semantics.
     public var usableDepthSampleCount: Int?
+    /// Number of coordinate-space discontinuities declared for this
+    /// capture. A declared discontinuity breaks spatial-authority
+    /// continuity and is never recoverable under any ruleset (#242).
+    public var coordinateDiscontinuityCount: Int
+    /// Bounded Scene Depth sufficiency summary accumulated at frame
+    /// commit time (#284); nil when depth payloads were never analyzed
+    /// (the depth-fallback gate then fails closed under policies that
+    /// require it).
+    public var depthSufficiency: DepthEvidenceSufficiency?
     public var annotationKeysPresent: Set<String>
     public var measurementQuantityTypesPresent: Set<String>
     public var resourceEvents: [CaptureResourceEvent]
@@ -248,6 +257,8 @@ public struct CaptureQualityObservation: Sendable, Equatable {
         depthEvidenceCount: Int = 0,
         usableMeshAnchorCount: Int? = nil,
         usableDepthSampleCount: Int? = nil,
+        coordinateDiscontinuityCount: Int = 0,
+        depthSufficiency: DepthEvidenceSufficiency? = nil,
         annotationKeysPresent: Set<String> = [],
         measurementQuantityTypesPresent: Set<String> = [],
         resourceEvents: [CaptureResourceEvent] = [],
@@ -264,12 +275,40 @@ public struct CaptureQualityObservation: Sendable, Equatable {
             .map { max(0, $0) }
         self.usableDepthSampleCount = usableDepthSampleCount
             .map { max(0, $0) }
+        self.coordinateDiscontinuityCount = max(
+            0, coordinateDiscontinuityCount
+        )
+        self.depthSufficiency = depthSufficiency
         self.annotationKeysPresent = annotationKeysPresent
         self.measurementQuantityTypesPresent =
             measurementQuantityTypesPresent
         self.resourceEvents = resourceEvents
         self.integrityStatus = integrityStatus
         self.benchmarkRefs = benchmarkRefs
+    }
+}
+
+/// Versioned recovery policy for historical tracking-unavailable
+/// intervals (#242). Nil preserves the legacy binary semantics where
+/// any retained unavailable event is a blocking error. A declared
+/// coordinate discontinuity is never recoverable under any policy.
+public struct TrackingRecoveryPolicy: Sendable, Equatable {
+    /// An unavailable interval longer than this stays blocking even if
+    /// tracking recovered afterwards.
+    public let maximumRecoverableUnavailableSeconds: Double
+    /// Tracking must return to `normal` and stay normal for at least
+    /// this long by End for the interval to downgrade to a warning.
+    /// More scanning therefore accumulates recovery evidence.
+    public let minimumStableNormalSecondsAfterRecovery: Double
+
+    public init(
+        maximumRecoverableUnavailableSeconds: Double = 20,
+        minimumStableNormalSecondsAfterRecovery: Double = 10
+    ) {
+        self.maximumRecoverableUnavailableSeconds =
+            maximumRecoverableUnavailableSeconds
+        self.minimumStableNormalSecondsAfterRecovery =
+            minimumStableNormalSecondsAfterRecovery
     }
 }
 
@@ -283,6 +322,14 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
     public let requiredAnnotationKeys: Set<String>
     public let requiredMeasurementQuantityTypes: Set<String>
     public let requireIntegrityPass: Bool
+    /// Versioned tracking-recovery policy; nil keeps the 1.1.0 binary
+    /// "ever unavailable" semantics (#242).
+    public let trackingRecoveryPolicy: TrackingRecoveryPolicy?
+    /// Versioned Scene Depth sufficiency gate evaluated when the mesh
+    /// fallback fires; nil keeps the 1.1.0 "any usable sample"
+    /// semantics (#284).
+    public let depthFallbackSufficiencyPolicy:
+        DepthFallbackSufficiencyPolicy?
 
     /// Canonical requirement definitions bound to published ruleset
     /// versions. A published version identifier always denotes exactly
@@ -305,8 +352,31 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
                 requireDepthEvidence: false,
                 requiredAnnotationKeys: [],
                 requiredMeasurementQuantityTypes: [],
-                requireIntegrityPass: true
-            )
+                requireIntegrityPass: true,
+                trackingRecoveryPolicy: nil,
+                depthFallbackSufficiencyPolicy: nil
+            ),
+            // 1.2.0 supersedes 1.1.0 in the same gates but adds the
+            // versioned tracking-recovery policy (#242) and the
+            // bounded Scene Depth sufficiency gate for the mesh
+            // fallback (#284). Every other parameter is unchanged.
+            "1.2.0": CaptureQualityRequirements(
+                pinnedRulesetVersion: "1.2.0",
+                requireCompletedRoomPlan: true,
+                minimumActiveMeshAnchors: 1,
+                allowDepthEvidenceAsMeshFallback: true,
+                minimumEvidenceFrames: 1,
+                requireDepthEvidence: false,
+                requiredAnnotationKeys: [],
+                requiredMeasurementQuantityTypes: [],
+                requireIntegrityPass: true,
+                trackingRecoveryPolicy: TrackingRecoveryPolicy(
+                    maximumRecoverableUnavailableSeconds: 20,
+                    minimumStableNormalSecondsAfterRecovery: 10
+                ),
+                depthFallbackSufficiencyPolicy:
+                    DepthFallbackSufficiencyPolicy()
+            ),
         ]
 
     /// Returns the canonical requirements bound to a published ruleset
@@ -332,7 +402,10 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
         requireDepthEvidence: Bool,
         requiredAnnotationKeys: Set<String>,
         requiredMeasurementQuantityTypes: Set<String>,
-        requireIntegrityPass: Bool
+        requireIntegrityPass: Bool,
+        trackingRecoveryPolicy: TrackingRecoveryPolicy?,
+        depthFallbackSufficiencyPolicy:
+            DepthFallbackSufficiencyPolicy?
     ) {
         self.rulesetVersion = pinnedRulesetVersion
         self.requireCompletedRoomPlan = requireCompletedRoomPlan
@@ -345,6 +418,9 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
         self.requiredMeasurementQuantityTypes =
             requiredMeasurementQuantityTypes
         self.requireIntegrityPass = requireIntegrityPass
+        self.trackingRecoveryPolicy = trackingRecoveryPolicy
+        self.depthFallbackSufficiencyPolicy =
+            depthFallbackSufficiencyPolicy
     }
 
     public init(
@@ -356,7 +432,10 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
         requireDepthEvidence: Bool = false,
         requiredAnnotationKeys: Set<String> = [],
         requiredMeasurementQuantityTypes: Set<String> = [],
-        requireIntegrityPass: Bool = true
+        requireIntegrityPass: Bool = true,
+        trackingRecoveryPolicy: TrackingRecoveryPolicy? = nil,
+        depthFallbackSufficiencyPolicy:
+            DepthFallbackSufficiencyPolicy? = nil
     ) {
         precondition(
             !rulesetVersion.isEmpty,
@@ -377,6 +456,9 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
         self.requiredMeasurementQuantityTypes =
             requiredMeasurementQuantityTypes
         self.requireIntegrityPass = requireIntegrityPass
+        self.trackingRecoveryPolicy = trackingRecoveryPolicy
+        self.depthFallbackSufficiencyPolicy =
+            depthFallbackSufficiencyPolicy
     }
 }
 
@@ -489,14 +571,47 @@ public enum CaptureQualityEvaluator {
             if requirements.allowDepthEvidenceAsMeshFallback,
                usableDepthSamples > 0
             {
-                diagnostics.append(
-                    QualityDiagnostic(
-                        code: "mesh_depth_fallback",
-                        severity: .warning,
-                        message:
-                            "Active mesh evidence is unavailable; retained scene-depth evidence is being used as the bounded geometric fallback."
+                if let sufficiencyPolicy =
+                    requirements.depthFallbackSufficiencyPolicy
+                {
+                    // Versioned sufficiency gate (#284): a single
+                    // low-confidence sample can no longer satisfy the
+                    // fallback. A missing summary means depth evidence
+                    // predates accumulation — fail closed.
+                    let failures = sufficiencyPolicy.failures(
+                        for: observation.depthSufficiency
                     )
-                )
+                    if failures.isEmpty {
+                        diagnostics.append(
+                            QualityDiagnostic(
+                                code: "mesh_depth_fallback",
+                                severity: .warning,
+                                message:
+                                    "Active mesh evidence is unavailable; retained scene-depth evidence satisfies the bounded sufficiency gate and is being used as the geometric fallback."
+                            )
+                        )
+                    } else {
+                        diagnostics.append(
+                            QualityDiagnostic(
+                                code: "depth_fallback_insufficient",
+                                severity: .error,
+                                message:
+                                    "Scene Depth fallback failed the sufficiency gate: "
+                                        + failures.map(\.rawValue)
+                                        .joined(separator: ",")
+                            )
+                        )
+                    }
+                } else {
+                    diagnostics.append(
+                        QualityDiagnostic(
+                            code: "mesh_depth_fallback",
+                            severity: .warning,
+                            message:
+                                "Active mesh evidence is unavailable; retained scene-depth evidence is being used as the bounded geometric fallback."
+                        )
+                    )
+                }
             } else {
                 diagnostics.append(
                     QualityDiagnostic(
@@ -556,7 +671,16 @@ public enum CaptureQualityEvaluator {
             )
         }
 
-        if observation.trackingEvents.contains(where: {
+        if let recoveryPolicy = requirements.trackingRecoveryPolicy {
+            diagnostics.append(
+                contentsOf: trackingRecoveryDiagnostics(
+                    events: observation.trackingEvents,
+                    coordinateDiscontinuityCount:
+                        observation.coordinateDiscontinuityCount,
+                    policy: recoveryPolicy
+                )
+            )
+        } else if observation.trackingEvents.contains(where: {
             $0.state == .unavailable
         }) {
             diagnostics.append(
@@ -662,10 +786,156 @@ public enum CaptureQualityEvaluator {
         )
     }
 
+    /// Versioned tracking-recovery evaluation (#242). Unavailable
+    /// events arrive as first/last samples of each compacted interval,
+    /// so consecutive unavailable events merge into spans. A span is a
+    /// blocking error when tracking never returned to normal, when its
+    /// duration exceeds the policy bound, or when insufficient stable
+    /// normal tracking has accumulated since recovery; a fully
+    /// recovered span within bounds downgrades to a warning so
+    /// continued scanning can satisfy the gate.
+    private static func trackingRecoveryDiagnostics(
+        events: [TrackingQualityEvent],
+        coordinateDiscontinuityCount: Int,
+        policy: TrackingRecoveryPolicy
+    ) -> [QualityDiagnostic] {
+        var diagnostics: [QualityDiagnostic] = []
+
+        if coordinateDiscontinuityCount > 0 {
+            diagnostics.append(
+                QualityDiagnostic(
+                    code: "tracking_coordinate_discontinuity",
+                    severity: .error,
+                    message:
+                        "A coordinate-space discontinuity was declared during the capture; spatial authority continuity cannot be proven."
+                )
+            )
+        }
+
+        let ordered = events.sorted {
+            $0.sessionTimestampSeconds < $1.sessionTimestampSeconds
+        }
+        let lastObservedTimestamp =
+            ordered.map(\.sessionTimestampSeconds).max()
+
+        // Unavailable events arrive as the first/last samples of each
+        // compacted interval, so a run of consecutive unavailable
+        // events is one span [first start, last end]; a non-unavailable
+        // event closes the span.
+        var merged: [(start: Double, end: Double, reason: String?)] = []
+        for index in ordered.indices {
+            let event = ordered[index]
+            guard event.state == .unavailable else { continue }
+            let previousIsUnavailable =
+                index > ordered.startIndex
+                && ordered[index - 1].state == .unavailable
+            if previousIsUnavailable, let last = merged.last {
+                merged[merged.count - 1].end = max(
+                    last.end, event.sessionTimestampSeconds
+                )
+                if merged[merged.count - 1].reason == nil {
+                    merged[merged.count - 1].reason = event.reason
+                }
+            } else {
+                merged.append(
+                    (
+                        event.sessionTimestampSeconds,
+                        event.sessionTimestampSeconds, event.reason
+                    )
+                )
+            }
+        }
+
+        let recovered = merged.filter { span in
+            ordered.contains {
+                $0.state == .normal
+                    && $0.sessionTimestampSeconds > span.end
+            }
+        }
+        let unrecovered = merged.filter { span in
+            !ordered.contains {
+                $0.state == .normal
+                    && $0.sessionTimestampSeconds > span.end
+            }
+        }
+
+        for span in unrecovered {
+            diagnostics.append(
+                QualityDiagnostic(
+                    code: "tracking_unavailable_unrecovered",
+                    severity: .error,
+                    message:
+                        "AR tracking became unavailable and never returned to normal before capture end."
+                )
+            )
+        }
+
+        for span in recovered {
+            let duration = span.end - span.start
+            let recoveryTimestamp = ordered
+                .filter {
+                    $0.state == .normal
+                        && $0.sessionTimestampSeconds > span.end
+                }
+                .map(\.sessionTimestampSeconds)
+                .min()!
+            let stableSeconds =
+                (lastObservedTimestamp ?? recoveryTimestamp)
+                - recoveryTimestamp
+
+            if duration
+                > policy.maximumRecoverableUnavailableSeconds
+            {
+                diagnostics.append(
+                    QualityDiagnostic(
+                        code: "tracking_unavailable_extended",
+                        severity: .error,
+                        message:
+                            "AR tracking was unavailable for \(duration)s, exceeding the recoverable bound."
+                    )
+                )
+            } else if stableSeconds
+                < policy.minimumStableNormalSecondsAfterRecovery
+            {
+                diagnostics.append(
+                    QualityDiagnostic(
+                        code: "tracking_unavailable_recovering",
+                        severity: .error,
+                        message:
+                            "AR tracking recovered but stable normal tracking after recovery is below the required minimum; continue scanning to satisfy the recovery policy."
+                    )
+                )
+            } else {
+                diagnostics.append(
+                    QualityDiagnostic(
+                        code: "tracking_unavailable_recovered",
+                        severity: .warning,
+                        message:
+                            "AR tracking was unavailable for \(duration)s and recovered; the interval is retained as a warning."
+                    )
+                )
+            }
+        }
+
+        if merged.isEmpty,
+           ordered.contains(where: { $0.state == .limited })
+        {
+            diagnostics.append(
+                QualityDiagnostic(
+                    code: "tracking_limited_observed",
+                    severity: .warning,
+                    message:
+                        "AR tracking was limited during part of the capture."
+                )
+            )
+        }
+        return diagnostics
+    }
+
     /// Canonical benchmark-ref policy: empty refs are dropped and the
     /// remainder is deduplicated then sorted ascending, matching the
     /// unique, non-empty wire invariant deterministically.
-    private static func canonicalBenchmarkRefs(
+    static func canonicalBenchmarkRefs(
         _ refs: [String]
     ) -> [String] {
         var seen = Set<String>()

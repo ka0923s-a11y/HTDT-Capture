@@ -65,7 +65,7 @@ FRAME_DESCRIPTOR_SUFFIX = ".json"
 
 # Quality ruleset versions this ingestor can evaluate the readiness gate
 # against. A finalized bundle produced under any other ruleset fails closed.
-SUPPORTED_QUALITY_RULESETS = {"1.0.0"}
+SUPPORTED_QUALITY_RULESETS = {"1.0.0", "1.1.0", "1.2.0"}
 
 
 class IngestionError(ValueError):

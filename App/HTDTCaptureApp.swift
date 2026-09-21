@@ -30,6 +30,8 @@ private struct HTDTCaptureHostView: View {
             lastFailure: coordinator.lastFailure,
             workingSetStatus: coordinator.workingSetStatus,
             qualityReport: coordinator.qualityReport,
+            advisoryReport: coordinator.advisoryReport,
+            taskProfile: coordinator.taskProfile,
             validationReport: coordinator.validationReport,
             exportURL: coordinator.exportURL,
             annotationCoordinateSpaceID:
@@ -82,6 +84,7 @@ private struct HTDTCaptureHostView: View {
                 commitAnnotationAuthority:
                     coordinator.commitAnnotationAuthority,
                 cancelAnnotation: coordinator.cancelAnnotation,
+                selectTaskProfile: coordinator.selectTaskProfile,
                 importEquipmentCatalog:
                     coordinator.importEquipmentCatalog,
                 finalizeCapture: coordinator.finalizeCapture,
@@ -130,6 +133,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set) var workingSetStatus =
         HostLocalization.text("Not prepared", "未準備")
     @Published private(set) var qualityReport: CaptureQualityReport?
+    @Published private(set) var advisoryReport: CaptureAdvisoryReport?
+    /// Operator-selected capture-task profile (#217/#259). Nil means the
+    /// geometry-only default: task completeness evaluates to an
+    /// explicit "no profile" state, never a misleading "Complete".
+    @Published private(set) var taskProfile: CaptureTaskProfile?
+    @Published private(set) var skippedTaskRequirementIDs: Set<String> = []
     @Published private(set) var validationReport: BundleValidationReport?
     @Published private(set) var exportURL: URL?
     @Published private(set)
@@ -259,8 +268,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var memoryWarningCancellable: AnyCancellable?
     private var derivedPreviewSuspendedForMemoryPressure = false
     private var roomPlanModelRenderingEnabled = true
+    // 1.2.0 adds the versioned tracking-recovery and depth-fallback
+    // sufficiency policies (#242, #284). Published 1.1.0 semantics stay
+    // pinned in the registry for reopened/older captures.
     private let qualityRequirements = CaptureQualityRequirements(
-        rulesetVersion: "1.1.0",
+        rulesetVersion: "1.2.0",
         allowDepthEvidenceAsMeshFallback: true
     )
     /// Bounded wait for a RoomPlan completion callback that never
@@ -1791,6 +1803,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         workingSetStore = nil
         finalizedRevision = nil
         qualityReport = nil
+        advisoryReport = nil
+        taskProfile = nil
+        skippedTaskRequirementIDs = []
         validationReport = nil
         exportURL = nil
         annotationAuthorityCommitted = false
@@ -1991,6 +2006,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 in: directory,
                 manifest: validation.manifest
             )
+            self.advisoryReport = Self.persistedAdvisoryReport(
+                in: directory,
+                manifest: validation.manifest
+            )
             self.exportURL = record.exportArchive
 
             do {
@@ -2012,6 +2031,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.finalizedRevision = nil
                 self.validationReport = nil
                 self.qualityReport = nil
+                self.advisoryReport = nil
                 self.exportURL = nil
                 self.workingSetStatus = HostLocalization.text(
                     "The persisted capture could not be opened",
@@ -2405,6 +2425,56 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
+    /// Advisory payload decode for a reopened capture (#223): same
+    /// manifest-authenticated pattern as the quality report, degrading
+    /// to nil for captures finalized before the advisory contract.
+    nonisolated private static func persistedAdvisoryReport(
+        in directory: URL,
+        manifest: BundleManifest
+    ) -> CaptureAdvisoryReport? {
+        let path = CaptureAdvisoryReport.payloadPath
+        guard manifest.files.contains(where: {
+            $0.path == path
+        }) else {
+            return nil
+        }
+        var url = directory
+        for component in path.split(separator: "/") {
+            url.appendPathComponent(String(component))
+        }
+        guard let data = try? Data(contentsOf: url) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(
+            CaptureAdvisoryReport.self,
+            from: data
+        )
+    }
+
+    /// Operator task-profile selection (#217/#259). Advisory only —
+    /// recorded to the working set so seal persists the completeness
+    /// evaluation inside the advisory payload.
+    func selectTaskProfile(
+        _ profile: CaptureTaskProfile?,
+        skippedRequirementIDs: Set<String> = []
+    ) {
+        taskProfile = profile
+        self.skippedTaskRequirementIDs = skippedRequirementIDs
+        guard let store = workingSetStore else { return }
+        let generation = captureGeneration
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.captureGeneration == generation
+            else {
+                return
+            }
+            try? await store.recordTaskProfile(
+                profile,
+                skippedRequirementIDs: skippedRequirementIDs
+            )
+        }
+    }
+
     private static func captureRootDirectory() -> URL? {
         FileManager.default.urls(
             for: .applicationSupportDirectory,
@@ -2567,6 +2637,75 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         }
 
+        // Bounded mesh lifecycle + RoomPlan instruction diagnostics
+        // (#268/#260). Both are advisory provenance sinks on the store,
+        // never quality gates.
+        sessionController.meshAnchorLifecycleHandler = {
+            [weak self] kind, anchorIDs, timestampSeconds in
+            guard let self,
+                  self.captureGeneration == generation
+            else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                guard self != nil else { return }
+                for anchorID in anchorIDs {
+                    await store.recordMeshAnchorLifecycle(
+                        kind,
+                        anchorID: anchorID,
+                        sessionTimestampSeconds: timestampSeconds
+                    )
+                }
+            }
+        }
+        sessionController.roomPlanInstructionHandler = {
+            [weak self] observation in
+            guard let self,
+                  self.captureGeneration == generation
+            else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                guard self != nil else { return }
+                await store.recordRoomPlanGuidanceInstruction(
+                    observation
+                )
+            }
+        }
+
+        // Benchmark binding (#285): resolve refs whose compatibility
+        // predicates deterministically match this capture's app/device/
+        // OS/configuration context. An empty authority publishes an
+        // explicit empty list.
+        let deviceDocument =
+            try? PlatformRuntimeProvenance.currentDeviceDocument()
+        let benchmarkRefs =
+            BenchmarkReferenceAuthority.compatibleReferences(
+                context: BenchmarkBindingContext(
+                    appVersion: runtime.appVersion,
+                    deviceClass:
+                        deviceDocument?.hardwareModel ?? "unknown",
+                    osMajorVersion: ProcessInfo.processInfo
+                        .operatingSystemVersion.majorVersion,
+                    captureMode: CaptureMode.roomPlanMesh.rawValue,
+                    rulesetVersion: qualityRequirements.rulesetVersion,
+                    bundleSchemaVersion: "1.0.0"
+                )
+            )
+        do {
+            try await store.recordBenchmarkReferences(benchmarkRefs)
+        } catch {
+            await store.recordResourceEvent(
+                CaptureResourceEvent(
+                    kind: .persistenceFailure,
+                    severity: .warning,
+                    detail:
+                        "benchmark reference binding was rejected: "
+                        + "\(error)"
+                )
+            )
+        }
+
         do {
             try transition(.prepared)
         } catch {
@@ -2621,6 +2760,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             try sessionController.startRoomPlan()
         } catch {
+            await store.recordRoomPlanGuidanceUnavailable()
             workingSetStatus = HostLocalization.text(
                 "RoomPlan could not start after the live camera view was presented",
                 "ライブカメラ表示後に RoomPlan を開始できませんでした"
@@ -3238,6 +3378,79 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         workingSetStatus = HostLocalization.text(
             "Waiting for final RoomPlan result",
             "RoomPlan の最終結果を待機中"
+        )
+
+        // Persist the bounded End-boundary advisory coverage/task
+        // context while the tracker state is still live (#223, #217).
+        // The report is written later at seal so a rejected End attempt
+        // never leaves a stale advisory payload.
+        let coverage = scanCoverage
+        let spatial = spatialCoverage
+        let progress = scanGuidanceProgress
+        let stability = observationStability
+        await store.recordAdvisoryEndContext(
+            CaptureEndCoverageSummary(
+                algorithm: "advisory-scan-coverage",
+                algorithmVersion: "1.0.0",
+                endSessionTimestampSeconds:
+                    prepared.trackingQualityEvent
+                    .sessionTimestampSeconds,
+                sectorCount: coverage.sectorCount,
+                minimumSamplesPerCell: coverage.minimumSamplesPerCell,
+                cellSampleCounts: coverage.cellSampleCounts,
+                coverageFraction: coverage.coverageFraction,
+                pitchBandFractions: Dictionary(
+                    uniqueKeysWithValues:
+                        ScanCoveragePitchBand.allCases.map {
+                            (
+                                String($0.rawValue),
+                                coverage.pitchBandCoverageFraction($0)
+                            )
+                        }
+                ),
+                weakCells: (0..<coverage.sectorCount).flatMap { sector in
+                    ScanCoveragePitchBand.allCases.compactMap { band in
+                        coverage.isObserved(
+                            sectorIndex: sector,
+                            pitchBand: band
+                        )
+                            ? nil
+                            : "\(sector)/\(band.rawValue)"
+                    }
+                },
+                latestTrackingState: coverage.latestTrackingState,
+                latestTrackingReason: coverage.latestTrackingReason,
+                latestMeshAnchorCount: coverage.latestMeshAnchorCount,
+                latestHasSceneDepth: coverage.latestHasSceneDepth,
+                spatialCellSizeMeters: spatial.cellSizeMeters,
+                observedRegionCount: spatial.observedRegionCount,
+                weakRegionCount: spatial.weakRegionCount,
+                displayUnknownRegionCount:
+                    spatial.displayUnknownRegionCount,
+                usesDepthFallback: spatial.usesDepthFallback,
+                meshAvailabilityState:
+                    spatial.meshAvailability.state.rawValue,
+                weakRegionKeys: spatial.regions.filter {
+                    $0.classification == .weak
+                }.map { "\($0.key.x),\($0.key.z)" },
+                geometryEvidenceMode:
+                    stability.geometryEvidenceMode.rawValue,
+                movementCapability:
+                    progress.movementCapability.rawValue,
+                guidanceCompletedAttempts:
+                    progress.completedSpatialGuidanceAttemptCount,
+                guidanceMaximumAttempts:
+                    progress.maximumSpatialGuidanceAttempts,
+                actionableWeakRegionCount:
+                    progress.actionableWeakRegionCount,
+                saturatedWeakRegionCount:
+                    progress.saturatedWeakRegionCount,
+                guidanceComplete: progress.isComplete
+            )
+        )
+        try? await store.recordTaskProfile(
+            taskProfile,
+            skippedRequirementIDs: skippedTaskRequirementIDs
         )
 
         // Advisory live coverage / derived-shape sampling is not End
@@ -3990,6 +4203,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // Publish Review UI only after every store-actor suspension has
         // completed. A failure/reset/reopen may invalidate this generation
         // while either call is suspended.
+        let advisory = await store.evaluateAdvisoryDiagnostics()
+
         guard captureGeneration == generation,
               state == .reviewing
         else {
@@ -3997,6 +4212,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         qualityReport = report
+        advisoryReport = advisory
         annotationEvidenceRefs = snapshot.evidenceFrameRefs
 
         // A resource/lifecycle event may have sealed spatial

@@ -34,6 +34,11 @@ public struct CaptureAnnotationWorkspaceView: View {
     /// only decodes through the validating initializer.
     public let onImportEquipmentCatalog:
         (Data) throws -> HTDTEquipmentCatalogSnapshot
+    /// Operator capture-task profile selection (#217/#259). Nil =
+    /// geometry-only; advisory only, never a quality gate.
+    public let taskProfile: CaptureTaskProfile?
+    public let onSelectTaskProfile:
+        (CaptureTaskProfile?, Set<String>) -> Void
     public let onCommit: (
         [CaptureAnnotationEntity],
         [CaptureMeasurement]
@@ -75,6 +80,10 @@ public struct CaptureAnnotationWorkspaceView: View {
                     from: data
                 )
             },
+        taskProfile: CaptureTaskProfile? = nil,
+        onSelectTaskProfile: @escaping
+            (CaptureTaskProfile?, Set<String>) -> Void
+                = { _, _ in },
         onCommit: @escaping (
             [CaptureAnnotationEntity],
             [CaptureMeasurement]
@@ -90,6 +99,8 @@ public struct CaptureAnnotationWorkspaceView: View {
         self.captureSpeakerOrientation =
             captureSpeakerOrientation
         self.onImportEquipmentCatalog = onImportEquipmentCatalog
+        self.taskProfile = taskProfile
+        self.onSelectTaskProfile = onSelectTaskProfile
         self.onCommit = onCommit
         self.onCancel = onCancel
         _annotations = State(
@@ -142,6 +153,15 @@ public struct CaptureAnnotationWorkspaceView: View {
                     Text(equipmentCatalogError)
                         .foregroundStyle(.red)
                 }
+            }
+
+            Section("Capture task profile") {
+                taskProfilePicker
+                Text(
+                    "Select the information this capture intends to collect. This is advisory and never gates HTDT ingestion readiness."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section("Spatial annotations") {
@@ -282,6 +302,95 @@ public struct CaptureAnnotationWorkspaceView: View {
             equipmentCatalogError =
                 String(localized: "Catalog import failed: ")
                 + String(describing: error)
+        }
+    }
+
+    /// Preset capture-task profiles (#217): geometry-only stays valid,
+    /// theater presets pick a speaker-role set the operator expects; a
+    /// host may substitute any custom `CaptureTaskProfile` since the
+    /// completeness model is driven by requirements, not presets.
+    @ViewBuilder
+    private var taskProfilePicker: some View {
+        Picker(
+            String(localized: "Capture task profile"),
+            selection: Binding<String>(
+                get: {
+                    taskProfile?.identifier ?? "geometry_only"
+                },
+                set: { identifier in
+                    onSelectTaskProfile(
+                        Self.profile(forIdentifier: identifier),
+                        []
+                    )
+                }
+            )
+        ) {
+            Text(
+                String(
+                    localized: "Geometry only (no task requirements)"
+                )
+            )
+            .tag("geometry_only")
+            Text(
+                String(
+                    localized: "Room + listening position"
+                )
+            )
+            .tag("room_and_listening_position")
+            Text(String(localized: "Theater layout"))
+                .tag("theater_layout")
+        }
+        if let taskProfile, !taskProfile.requirements.isEmpty {
+            ForEach(
+                taskProfile.requirements,
+                id: \.identifier
+            ) { requirement in
+                HStack {
+                    Text(requirement.identifier)
+                        .font(.caption.monospaced())
+                    Spacer()
+                    Text(
+                        requirement.minimumCount
+                            == requirement.maximumCount
+                            && requirement.maximumCount != nil
+                            ? String(
+                                format: String(
+                                    localized: "exactly %d"
+                                ),
+                                requirement.minimumCount
+                            )
+                            : String(
+                                format: String(
+                                    localized: "min %d"
+                                ),
+                                requirement.minimumCount
+                            )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    static func profile(
+        forIdentifier identifier: String
+    ) -> CaptureTaskProfile? {
+        switch identifier {
+        case "geometry_only":
+            return nil
+        case "room_and_listening_position":
+            return .roomAndListeningPosition
+        case "theater_layout":
+            return .theaterLayout(
+                speakerRoles: [
+                    "L", "C", "R", "SL", "SR", "SBL", "SBR",
+                    "TFL", "TFR", "TML", "TMR",
+                ],
+                subwooferCount: 1
+            )
+        default:
+            return nil
         }
     }
 
