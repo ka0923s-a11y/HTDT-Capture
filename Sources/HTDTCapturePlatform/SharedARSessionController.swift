@@ -44,6 +44,7 @@ public enum PlatformCaptureError: Error {
     case currentFrameUnavailable
     case raycastMiss
     case orientationUnavailable
+    case configurationUnavailable
 }
 
 public struct CapturedSpeakerOrientation: Sendable {
@@ -432,6 +433,71 @@ public final class SharedARSessionController {
 
     public func stopAndPauseARSession() {
         roomCaptureSession?.stop(pauseARSession: true)
+    }
+
+    /// Resolve the capture mode honestly satisfied by the configuration
+    /// actually running on `arSession`. When `requestedMode` is provided
+    /// and not satisfied by the running configuration, the resolution
+    /// reports `unsatisfiedRequestedMode` so the host can fail closed or
+    /// explicitly downgrade instead of persisting a mismatched mode.
+    public func snapshotActiveConfigurationResolution(
+        requestedMode: CaptureMode? = nil
+    ) throws -> ActiveARConfigurationResolution {
+        guard let resolution =
+            PlatformCapabilityProbe.resolveActiveConfiguration(
+                session: arSession,
+                requestedMode: requestedMode,
+                capabilities: PlatformCapabilityProbe.current()
+            )
+        else {
+            throw PlatformCaptureError.configurationUnavailable
+        }
+        return resolution
+    }
+
+    /// Build the persisted configuration profile with the capture mode
+    /// resolved from the actual running configuration, never asserted
+    /// from device support alone. A no-mesh active configuration cannot
+    /// claim `.roomPlanMesh` through this path.
+    public func snapshotConfigurationProfile(
+        requestedMode: CaptureMode? = nil,
+        roomPlanOptions: [String: String] = [:]
+    ) throws -> CaptureConfigurationProfile {
+        let resolution = try snapshotActiveConfigurationResolution(
+            requestedMode: requestedMode
+        )
+        return try ARConfigurationSnapshotAdapter.snapshot(
+            session: arSession,
+            captureMode: resolution.resolvedCaptureMode,
+            roomPlanOptions: roomPlanOptions
+        )
+    }
+
+    /// Snapshot the combined-feature signals observable on the live
+    /// session. The host passes the RoomPlan phase it is in and applies
+    /// `PlatformCapabilityProbe.applyingCombinedFeatureVerification`
+    /// to persist verification results instead of leaving the capability
+    /// matrix fields permanently unknown.
+    public func currentCombinedFeatureObservation(
+        roomPlanPhase: CombinedFeatureObservation.RoomPlanPhase
+    ) -> CombinedFeatureObservation {
+        let configuration = arSession.configuration
+        let world =
+            configuration as? ARWorldTrackingConfiguration
+        let depthSemanticsEnabled =
+            configuration?.frameSemantics
+                .contains(.sceneDepth) ?? false
+        let depthProduced =
+            arSession.currentFrame.map {
+                $0.sceneDepth != nil || $0.smoothedSceneDepth != nil
+            } ?? false
+
+        return CombinedFeatureObservation(
+            roomPlanPhase: roomPlanPhase,
+            sceneReconstructionActive:
+                world.map { !$0.sceneReconstruction.isEmpty } ?? false,
+            sceneDepthActive: depthSemanticsEnabled && depthProduced
+        )
     }
 
     public func currentScanCoverageSample()
