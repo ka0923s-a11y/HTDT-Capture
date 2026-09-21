@@ -2942,6 +2942,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             motionGuidanceTracker = ScanMotionGuidanceTracker()
             motionGuidance = nil
             scanGuidanceProgress = .empty
+            scanTrackingTransitionGate.reset()
             derivedObjectFusionTracker =
                 DerivedShapeTemporalFusionTracker(
                     configuration: DerivedShapeTemporalFusionConfiguration(
@@ -3373,6 +3374,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             let snapshot = await store.snapshot()
 
             guard captureGeneration == generation else {
+                // A non-lifecycle failure already invalidated this
+                // generation; release the seal and resolve the
+                // transaction so the dead store is not left claimed.
+                try? await store.unseal()
+                finalizationCommit.reset()
                 return
             }
 
@@ -3428,6 +3434,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // working set still owns the revision, so the staged
             // quality payload may be rolled back for a Review retry.
             guard captureGeneration == generation else {
+                try? await store.unseal()
+                finalizationCommit.reset()
                 return
             }
             await abortUnpromotedFinalization(
