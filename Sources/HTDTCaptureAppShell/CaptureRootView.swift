@@ -35,6 +35,11 @@ public struct CaptureRootActions {
         () async throws -> AnnotationPlacementAuthority
     public let captureSpeakerOrientation:
         () async throws -> AnnotationOrientationAuthority
+    /// Full-3D orientation capture for measurement-point direction
+    /// authority (issue #271); distinct from the horizontal-heading
+    /// `captureSpeakerOrientation` convention.
+    public let capturePointOrientation:
+        () async throws -> AnnotationOrientationAuthority
     public let commitAnnotationAuthority: (
         [CaptureAnnotationEntity],
         [CaptureMeasurement]
@@ -96,6 +101,11 @@ public struct CaptureRootActions {
             () async throws -> AnnotationOrientationAuthority = {
                 throw ManualAuthorityBuilderError.invalidSpeakerYaw
             },
+        capturePointOrientation: @escaping
+            () async throws -> AnnotationOrientationAuthority = {
+                throw ManualAuthorityBuilderError
+                    .pointDirectionUnavailable
+            },
         commitAnnotationAuthority: @escaping (
             [CaptureAnnotationEntity],
             [CaptureMeasurement]
@@ -150,6 +160,8 @@ public struct CaptureRootActions {
         self.captureRaycastPlacement = captureRaycastPlacement
         self.captureSpeakerOrientation =
             captureSpeakerOrientation
+        self.capturePointOrientation =
+            capturePointOrientation
         self.commitAnnotationAuthority =
             commitAnnotationAuthority
         self.cancelAnnotation = cancelAnnotation
@@ -383,6 +395,8 @@ public struct CaptureRootView: View {
                         actions.captureRaycastPlacement,
                     captureSpeakerOrientation:
                         actions.captureSpeakerOrientation,
+                    capturePointOrientation:
+                        actions.capturePointOrientation,
                     onImportEquipmentCatalog:
                         actions.importEquipmentCatalog,
                     taskProfile: taskProfile,

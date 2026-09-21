@@ -97,7 +97,10 @@
           "enum": [
             "m",
             "rad",
-            "1"
+            "1",
+            "s",
+            "degC",
+            "%"
           ]
         },
         "coordinate_space_id": {
@@ -122,7 +125,8 @@
             "manufacturer_specification",
             "lidar_derived",
             "roomplan_derived",
-            "other"
+            "other",
+            "external_instrument"
           ]
         },
         "instrument": {
@@ -161,7 +165,8 @@
             "user_attested_measurement",
             "apple_roomplan_inference",
             "arkit_mesh_reconstruction",
-            "imported_reference"
+            "imported_reference",
+            "capture_app_derived"
           ]
         },
         "source_value_text": {
@@ -170,9 +175,120 @@
             "null"
           ]
         },
+        "source_authority": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/sourceAuthority"
+            }
+          ]
+        },
+        "derivation": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/derivation"
+            }
+          ]
+        },
         "evidence_refs": {
           "type": "array",
           "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "sourceAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "equipment_ref": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "equipment_id",
+                "equipment_version",
+                "equipment_hash"
+              ],
+              "properties": {
+                "equipment_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "equipment_version": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "equipment_hash": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            }
+          ]
+        },
+        "document_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "document_revision": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "property_key": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "source_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "derivation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "algorithm_version",
+        "source_refs"
+      ],
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "minLength": 1
+        },
+        "algorithm_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_refs": {
+          "type": "array",
+          "minItems": 1,
           "items": {
             "type": "string",
             "minLength": 1

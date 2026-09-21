@@ -46,6 +46,10 @@ public enum AnnotationEntityType: String, Codable, Sendable, CaseIterable {
     case acousticTreatment = "acoustic_treatment"
     case equipmentRack = "equipment_rack"
     case referencePoint = "reference_point"
+    /// An acoustic measurement microphone/capsule reference point used
+    /// for a measurement campaign; distinct from `listening_position`
+    /// even when they spatially coincide (issue #271).
+    case measurementPoint = "measurement_point"
     case custom
 
     /// The reference-point semantics the manual builder assigns when
@@ -64,6 +68,8 @@ public enum AnnotationEntityType: String, Codable, Sendable, CaseIterable {
             return .earCenter
         case .seat:
             return .seatReferencePoint
+        case .measurementPoint:
+            return .microphoneCapsule
         case .acousticTreatment, .equipmentRack,
              .referencePoint, .custom:
             return .userReferencePoint
@@ -97,6 +103,8 @@ public enum AnnotationEntityType: String, Codable, Sendable, CaseIterable {
             return [.seatReferencePoint, .userReferencePoint]
         case .equipmentRack:
             return [.cabinetReferencePoint, .userReferencePoint]
+        case .measurementPoint:
+            return [.microphoneCapsule, .userReferencePoint]
         case .acousticTreatment, .referencePoint:
             return [.userReferencePoint]
         case .custom:
@@ -114,7 +122,7 @@ public enum AnnotationEntityType: String, Codable, Sendable, CaseIterable {
             return false
         case .speaker, .subwoofer, .display, .projectionScreen,
              .projector, .seat, .acousticTreatment, .equipmentRack,
-             .custom:
+             .measurementPoint, .custom:
             return true
         }
     }
@@ -200,6 +208,8 @@ public struct ReferencePointSemantics: RawRepresentable, Codable, Hashable,
         Self(rawValue: "projector_body_reference")!
     public static let projectorLensCenter =
         Self(rawValue: "projector_lens_center")!
+    public static let microphoneCapsule =
+        Self(rawValue: "microphone_capsule")!
 }
 
 public struct HTDTEquipmentReference: Codable, Sendable, Equatable {

@@ -762,6 +762,56 @@ class ReferenceIngestorTests(unittest.TestCase):
                 build_ingestion_plan(copy_root)
             self.assertIn("unknown frame", str(ctx.exception))
 
+    def test_raycast_placement_provenance_ingests(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            def mutate(document):
+                placement = document["entities"][0]["placement"]
+                placement["method"] = "raycast"
+                placement["raycast"] = {
+                    "target_type": "wall_surface",
+                    "hit_distance_m": 2.4,
+                    "hit_anchor_id": ANCHOR_ID,
+                    "T_world_from_hit": {
+                        "representation": "column_major_4x4_f32",
+                        "values": [
+                            1, 0, 0, 0,
+                            0, 1, 0, 0,
+                            0, 0, 1, 0,
+                            1.0, 0.0, 2.0, 1,
+                        ],
+                    },
+                }
+
+            _rewrite_payload(
+                copy_root, "annotations/entities.json", mutate
+            )
+            validate_bundle(copy_root)
+            build_ingestion_plan(copy_root)
+
+    def test_raycast_placement_rejects_empty_hit_anchor_id(self):
+        with tempfile.TemporaryDirectory() as td:
+            copy_root = Path(td) / "bundle"
+            shutil.copytree(FIXTURE, copy_root)
+
+            def mutate(document):
+                placement = document["entities"][0]["placement"]
+                placement["method"] = "raycast"
+                placement["raycast"] = {
+                    "target_type": "wall_surface",
+                    "hit_anchor_id": "",
+                }
+
+            _rewrite_payload(
+                copy_root, "annotations/entities.json", mutate
+            )
+            validate_bundle(copy_root)
+            with self.assertRaises(IngestionError) as ctx:
+                build_ingestion_plan(copy_root)
+            self.assertIn("hit_anchor_id", str(ctx.exception))
+
     def test_unsupported_evidence_ref_grammar_fails_ingestion(self):
         for ref in ("opaque-token", "sha256:" + "0" * 64, "bogus:x"):
             with self.subTest(ref=ref):

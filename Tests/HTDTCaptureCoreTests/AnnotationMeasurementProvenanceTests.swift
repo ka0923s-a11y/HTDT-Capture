@@ -3,7 +3,11 @@ import XCTest
 @testable import HTDTCaptureCore
 
 /// Issue #186: manifest payload provenance is derived from the records in
-/// each collection; mixed-provenance collections fail closed.
+/// each collection. Annotation collections fail closed on mixed provenance;
+/// issue #286 lets measurement collections mix user-attested and derived
+/// records for conflict review — a heterogeneous collection declares
+/// `capture_app_derived` container authority so the manifest never
+/// overclaims, and per-record provenance stays authoritative.
 final class AnnotationMeasurementProvenanceTests: XCTestCase {
     func testImportedReferenceAnnotationDeclaresImportedProvenance()
         async throws
@@ -185,7 +189,11 @@ final class AnnotationMeasurementProvenanceTests: XCTestCase {
         )
     }
 
-    func testMixedProvenanceMeasurementCollectionIsRejectedBeforeWrite()
+    /// Issue #286: a user-attested value and a derived value for the
+    /// same quantity must coexist in one collection for conflict
+    /// review. The manifest then declares `capture_app_derived`
+    /// container authority instead of claiming either record class.
+    func testMixedProvenanceMeasurementCollectionDeclaresContainerAuthority()
         async throws
     {
         let root = FileManager.default.temporaryDirectory
@@ -216,19 +224,9 @@ final class AnnotationMeasurementProvenanceTests: XCTestCase {
             ]
         )
 
-        do {
-            try await store.persistMeasurementPackage(package)
-            XCTFail("expected mixed-provenance rejection")
-        } catch let error as CaptureWorkingSetError {
-            XCTAssertEqual(
-                error,
-                .mixedProvenanceCollection(
-                    MeasurementEvidencePackage.path
-                )
-            )
-        }
+        try await store.persistMeasurementPackage(package)
 
-        XCTAssertFalse(
+        XCTAssertTrue(
             FileManager.default.fileExists(
                 atPath: root
                     .appendingPathComponent(
@@ -236,6 +234,16 @@ final class AnnotationMeasurementProvenanceTests: XCTestCase {
                     )
                     .path
             )
+        )
+        let snapshot = await store.snapshot()
+        let declaration = try XCTUnwrap(
+            snapshot.payloadDeclarations.first {
+                $0.path == MeasurementEvidencePackage.path
+            }
+        )
+        XCTAssertEqual(
+            declaration.provenanceClass,
+            .captureAppDerived
         )
     }
 
