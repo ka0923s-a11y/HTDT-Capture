@@ -1870,10 +1870,9 @@ public struct CaptureRootView: View {
                                     ) { job in
                                         LabeledContent(
                                             job.destination.name,
-                                            value: job.state.rawValue
-                                                .replacingOccurrences(
-                                                    of: "_",
-                                                    with: " "
+                                            value: MissionPresentation
+                                                .deliveryJobStateName(
+                                                    job.state
                                                 )
                                         )
                                         .font(.caption)

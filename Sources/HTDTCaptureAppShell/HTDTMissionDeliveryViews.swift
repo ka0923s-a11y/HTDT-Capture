@@ -249,11 +249,9 @@ struct HTDTMissionInboxView: View {
                     .foregroundStyle(.secondary)
                 HStack(spacing: 12) {
                     Label(
-                        record.missionKind.rawValue
-                            .replacingOccurrences(
-                                of: "_",
-                                with: " "
-                            ),
+                        MissionPresentation.missionKindName(
+                            record.missionKind
+                        ),
                         systemImage: "tag"
                     )
                     if !record.associatedCaptureRevisionIDs
@@ -296,7 +294,9 @@ struct HTDTMissionInboxView: View {
                 LabeledContent("Mission ID", value: record.missionID)
                 LabeledContent(
                     "Kind",
-                    value: record.missionKind.rawValue
+                    value: MissionPresentation.missionKindName(
+                        record.missionKind
+                    )
                 )
                 LabeledContent("Plan", value: record.planID)
                 LabeledContent(
@@ -418,22 +418,38 @@ struct HTDTMissionInboxView: View {
                             report.missingRequired,
                             id: \.self
                         ) { ref in
-                            Label(
-                                "Required: \(ref)",
-                                systemImage: "xmark.octagon"
-                            )
-                            .foregroundStyle(.red)
+                            VStack(
+                                alignment: .leading,
+                                spacing: 2
+                            ) {
+                                Label(
+                                    "Missing required dependency",
+                                    systemImage: "xmark.octagon"
+                                )
+                                .foregroundStyle(.red)
+                                Text(ref)
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         ForEach(
                             report.missingOptional,
                             id: \.self
                         ) { ref in
-                            Label(
-                                "Optional: \(ref)",
-                                systemImage:
-                                    "exclamationmark.triangle"
-                            )
-                            .foregroundStyle(.orange)
+                            VStack(
+                                alignment: .leading,
+                                spacing: 2
+                            ) {
+                                Label(
+                                    "Missing optional dependency",
+                                    systemImage:
+                                        "exclamationmark.triangle"
+                                )
+                                .foregroundStyle(.orange)
+                                Text(ref)
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         ForEach(
                             report.receiverGaps,
@@ -454,8 +470,12 @@ struct HTDTMissionInboxView: View {
                 }
             } else if let dependencyError {
                 Section("Dependencies") {
+                    Text(
+                        MissionPresentation
+                            .dependencyCheckFailedText
+                    )
                     Text(dependencyError)
-                        .font(.caption)
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -520,7 +540,7 @@ struct HTDTMissionInboxView: View {
     private func lifecycleBadge(
         _ lifecycle: HTDTMissionLifecycle
     ) -> some View {
-        Text(lifecycle.rawValue.replacingOccurrences(of: "_", with: " "))
+        Text(MissionPresentation.missionLifecycleName(lifecycle))
             .font(.caption2.weight(.medium))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -675,7 +695,8 @@ struct PairedHTDTDestinationsView: View {
                             pairingError = nil
                         } catch {
                             pairingError =
-                                String(describing: error)
+                                MissionPresentation
+                                    .pairingErrorText(error)
                         }
                     }
                     .disabled(pastePayloadText.isEmpty)
@@ -882,7 +903,7 @@ struct HTDTDeliveryQueueView: View {
     private func stateBadge(
         _ state: HTDTDeliveryJobState
     ) -> some View {
-        Text(state.rawValue.replacingOccurrences(of: "_", with: " "))
+        Text(MissionPresentation.deliveryJobStateName(state))
             .font(.caption2.weight(.medium))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
