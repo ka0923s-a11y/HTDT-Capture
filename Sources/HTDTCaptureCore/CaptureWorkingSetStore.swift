@@ -3002,6 +3002,312 @@ public actor CaptureWorkingSetStore {
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
+
+    /// Commits the field-authority bundle (issues #300/#301/#310/
+    /// #314/#324/#331): operator profiles, typed field-evidence
+    /// records, instrument profiles, installed-settings observations,
+    /// and as-built wiring routes — plus any binary assets the field
+    /// evidence owns — in one atomic write. Documents not staged in
+    /// the bundle keep their committed bytes; every binding ref is
+    /// validated against the *effective* committed state (staged or
+    /// previously persisted), and the whole publish happens only
+    /// after the write suspension's re-checks pass.
+    public func persistFieldAuthorityBundle(
+        _ bundle: FieldAuthorityBundle
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        let stagedBytes = [
+            bundle.operators?.data,
+            bundle.fieldEvidence?.data,
+            bundle.instruments?.data,
+            bundle.settings?.data,
+            bundle.wiring?.data,
+        ].compactMap(\.self).reduce(0) { $0 + $1.count }
+            + bundle.assetWrites.reduce(0) { $0 + $1.data.count }
+        let admissionReservation = try reserveAdmission(
+            bytes: stagedBytes
+        )
+        defer { releaseAdmission(admissionReservation) }
+
+        func decodeVerify<D: Codable & Equatable>(
+            _ type: D.Type,
+            _ data: Data,
+            _ error: CaptureWorkingSetError
+        ) throws -> D {
+            guard let decoded = try? JSONDecoder().decode(
+                type,
+                from: data
+            ) else {
+                throw error
+            }
+            return decoded
+        }
+
+        // Decode-verify every staged document: the committed bytes
+        // must round-trip to exactly the document that was built.
+        let stagedOperators = try bundle.operators.map {
+            try decodeVerify(
+                OperatorProfileDocument.self,
+                $0.data,
+                .invalidAnnotationPackage
+            )
+        }
+        let stagedFieldEvidence = try bundle.fieldEvidence.map {
+            try decodeVerify(
+                FieldEvidenceDocument.self,
+                $0.data,
+                .invalidAnnotationPackage
+            )
+        }
+        let stagedInstruments = try bundle.instruments.map {
+            try decodeVerify(
+                InstrumentProfileDocument.self,
+                $0.data,
+                .invalidAnnotationPackage
+            )
+        }
+        let stagedSettings = try bundle.settings.map {
+            try decodeVerify(
+                InstalledSettingsDocument.self,
+                $0.data,
+                .invalidAnnotationPackage
+            )
+        }
+        let stagedWiring = try bundle.wiring.map {
+            try decodeVerify(
+                AsBuiltWiringDocument.self,
+                $0.data,
+                .invalidAnnotationPackage
+            )
+        }
+        let documentsMatch =
+            (stagedOperators == nil
+                || stagedOperators == bundle.operators?.document)
+            && (stagedFieldEvidence == nil
+                || stagedFieldEvidence
+                    == bundle.fieldEvidence?.document)
+            && (stagedInstruments == nil
+                || stagedInstruments
+                    == bundle.instruments?.document)
+            && (stagedSettings == nil
+                || stagedSettings == bundle.settings?.document)
+            && (stagedWiring == nil
+                || stagedWiring == bundle.wiring?.document)
+        guard documentsMatch else {
+            throw CaptureWorkingSetError.invalidAnnotationPackage
+        }
+
+        guard let captureSessionID else {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        let boundCoordinate = coordinateSpaceID
+        let entitiesBefore = annotationCollection?.entities ?? []
+        let measurementsBefore = measurementCollection?.measurements
+            ?? []
+        let inventoryBefore = authorityCollection?.inventoryItems ?? []
+
+        // Every staged document must be bound to this revision.
+        for revision in [
+            stagedOperators?.captureRevisionID,
+            stagedFieldEvidence?.captureRevisionID,
+            stagedInstruments?.captureRevisionID,
+            stagedSettings?.captureRevisionID,
+            stagedWiring?.captureRevisionID,
+        ].compactMap(\.self) {
+            guard revision == identity.captureRevisionID else {
+                throw CaptureWorkingSetError.authorityMismatch
+            }
+        }
+
+        func committed<D: Codable>(
+            _ type: D.Type,
+            _ path: String
+        ) throws -> D? {
+            guard let data = supplementalDocuments[path] else {
+                return nil
+            }
+            return try? JSONDecoder().decode(type, from: data)
+        }
+
+        func effectiveDocs() throws
+            -> EffectiveFieldAuthorityDocuments
+        {
+            try EffectiveFieldAuthorityDocuments(
+                operators: bundle.operators?.document
+                    ?? committed(
+                        OperatorProfileDocument.self,
+                        OperatorProfilePackage.path
+                    ),
+                fieldEvidence: bundle.fieldEvidence?.document
+                    ?? committed(
+                        FieldEvidenceDocument.self,
+                        FieldEvidencePackage.path
+                    ),
+                instruments: bundle.instruments?.document
+                    ?? committed(
+                        InstrumentProfileDocument.self,
+                        InstrumentProfilePackage.path
+                    ),
+                settings: bundle.settings?.document
+                    ?? committed(
+                        InstalledSettingsDocument.self,
+                        InstalledSettingsPackage.path
+                    ),
+                wiring: bundle.wiring?.document
+                    ?? committed(
+                        AsBuiltWiringDocument.self,
+                        AsBuiltWiringPackage.path
+                    )
+            )
+        }
+
+        // Committed measurements keep their instrument-authority binds
+        // even when the caller is only adding a new field-evidence
+        // record — validate both directions.
+        for measurement in measurementsBefore {
+            if let reference = measurement.instrumentAuthority {
+                let effective = try effectiveDocs()
+                guard let profile = effective.instruments?.profile(
+                    matching: reference
+                ) else {
+                    throw FieldAuthorityModelError
+                        .unknownInstrumentVersion
+                }
+                guard profile.profileSHA256
+                    == reference.profileSHA256
+                else {
+                    throw FieldAuthorityModelError
+                        .unknownInstrumentVersion
+                }
+            }
+        }
+        // Committed entities' author bindings must resolve against
+        // the effective operator document.
+        let operatorIDs = Set(
+            (try effectiveDocs().operators)?.operators
+                .map(\.operatorID) ?? []
+        )
+        for entity in entitiesBefore {
+            if let authorID = entity.authorOperatorID {
+                guard operatorIDs.contains(authorID) else {
+                    throw FieldAuthorityModelError
+                        .unboundReference(authorID.description)
+                }
+            }
+        }
+
+        try FieldAuthorityBindingValidator.validate(
+            bundle: bundle,
+            effective: try effectiveDocs(),
+            entityIDs: Set(entitiesBefore.map(\.entityID)),
+            measurementIDs: Set(measurementsBefore.map(\.measurementID)),
+            inventoryItemIDs: Set(inventoryBefore.map(\.itemID)),
+            captureRevisionID: identity.captureRevisionID,
+            captureSessionID: captureSessionID,
+            declaredPaths: Set(declarations.keys),
+            coordinateSpaceIDs: boundCoordinate.map { [$0] } ?? []
+        )
+
+        // Write-once binary assets first, then the document batch;
+        // an identity mismatch anywhere fails before any doc lands.
+        try await writer.writeBatchIfIdentical(
+            bundle.assetWrites.map {
+                try CaptureFileWriteRequest(
+                    data: $0.data,
+                    path: CaptureStorePath($0.path)
+                )
+            }
+        )
+
+        var docRequests: [CaptureFileWriteRequest] = []
+        for package in [
+            bundle.operators.map { (
+                OperatorProfilePackage.path, $0.data, $0.sourceRefs
+            ) },
+            bundle.fieldEvidence.map { (
+                FieldEvidencePackage.path, $0.data, $0.sourceRefs
+            ) },
+            bundle.instruments.map { (
+                InstrumentProfilePackage.path, $0.data, $0.sourceRefs
+            ) },
+            bundle.settings.map { (
+                InstalledSettingsPackage.path, $0.data, $0.sourceRefs
+            ) },
+            bundle.wiring.map { (
+                AsBuiltWiringPackage.path, $0.data, $0.sourceRefs
+            ) },
+        ].compactMap(\.self) {
+            docRequests.append(
+                try CaptureFileWriteRequest(
+                    data: package.1,
+                    path: CaptureStorePath(package.0)
+                )
+            )
+        }
+        try await writer.writeBatchReplacing(docRequests)
+
+        var removedPaths = Set<String>()
+        for removal in bundle.assetRemovals {
+            if try await writer.removeIfIdentical(
+                removal.data,
+                at: CaptureStorePath(removal.path)
+            ) {
+                removedPaths.insert(removal.path)
+            }
+        }
+
+        // Post-suspension re-check: an interleaved commit must fail
+        // closed rather than leave the documents bound to authority
+        // state that no longer matches.
+        guard self.captureSessionID == captureSessionID,
+              self.coordinateSpaceID == boundCoordinate,
+              annotationCollection?.entities ?? [] == entitiesBefore,
+              measurementCollection?.measurements ?? []
+                == measurementsBefore,
+              authorityCollection?.inventoryItems ?? []
+                == inventoryBefore
+        else {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+
+        for payload in bundle.assetWrites {
+            declarations[payload.path] = payload.declaration
+        }
+        for path in removedPaths {
+            declarations[path] = nil
+        }
+        for package in [
+            bundle.operators.map { (
+                OperatorProfilePackage.path, $0.data, $0.sourceRefs
+            ) },
+            bundle.fieldEvidence.map { (
+                FieldEvidencePackage.path, $0.data, $0.sourceRefs
+            ) },
+            bundle.instruments.map { (
+                InstrumentProfilePackage.path, $0.data, $0.sourceRefs
+            ) },
+            bundle.settings.map { (
+                InstalledSettingsPackage.path, $0.data, $0.sourceRefs
+            ) },
+            bundle.wiring.map { (
+                AsBuiltWiringPackage.path, $0.data, $0.sourceRefs
+            ) },
+        ].compactMap(\.self) {
+            let declaration = BundlePayloadDeclaration(
+                path: package.0,
+                mediaType: "application/json",
+                producer: "capture_app",
+                provenanceClass: .captureAppDerived,
+                role: .derived,
+                sourceRefs: package.2
+            )
+            declarations[declaration.path] = declaration
+            supplementalDocuments[package.0] = package.1
+        }
+    }
+
     /// Commits or replaces the operator-confirmed room reference frame
     /// (issue #232). The frame is one canonical JSON payload bound to
     /// the revision's session and coordinate space; replacement before
