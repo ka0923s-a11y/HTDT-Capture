@@ -62,6 +62,16 @@ public enum CaptureEvent: Sendable, Equatable {
     /// from `fail`, which preserves retained evidence for recovery, and
     /// from `reset`, which only resolves terminal/post-capture states.
     case abortCapture
+    /// Reopen a persisted end-accepted working revision as a recovered
+    /// draft (issue #297): `.idle` → `.reviewing` with spatial
+    /// authority sealed. `.resumeScanning` is therefore unreachable on
+    /// the recovered draft — the store fails live mutations closed
+    /// before a UI affordance can offer them.
+    case reopenDraft
+    /// Leave Review back to `.idle` without discarding the working
+    /// revision (issue #297): the durable end-accepted draft stays on
+    /// disk and the session can reopen it later.
+    case suspendReview
     case reset
 }
 
@@ -114,6 +124,13 @@ public struct CaptureStateMachine: Sendable, Equatable {
             state = .reviewing
         case (.reviewing, .resumeScanning):
             state = .scanning
+        // #297: relaunch draft recovery — Review without live capture.
+        case (.idle, .reopenDraft):
+            state = .reviewing
+            lastFailure = nil
+        case (.reviewing, .suspendReview):
+            state = .idle
+            lastFailure = nil
         case (.reviewing, .beginAnnotation):
             state = .annotating
         case (.annotating, .beginReview):

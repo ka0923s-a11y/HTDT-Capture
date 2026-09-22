@@ -37,6 +37,10 @@ public struct BundlePayloadCrossCheck: Sendable {
     var pixelGeometry: [String: BinaryPayloadSummary] = [:]
     var depthGeometry: [String: BinaryPayloadSummary] = [:]
     var confidenceGeometry: [String: BinaryPayloadSummary] = [:]
+    /// Schema family -> declared schema_version observed during this
+    /// validation pass (#332). Exposed on the validation report so the
+    /// library can show each payload's source version + compatibility.
+    public private(set) var payloadVersions: [String: String] = [:]
 
     /// Minimum v1 foundation payload set (#194): the manifest's
     /// session and coordinate identities must be grounded in declared
@@ -60,6 +64,15 @@ public struct BundlePayloadCrossCheck: Sendable {
         }
         if CaptureBundleSchemaRegistry.schemaName(forPath: path) == "frame" {
             frameDescriptors.append((path: path, document: value))
+        }
+        if let family = CaptureBundleSchemaRegistry.schemaName(
+            forPath: path
+        ), let contract = CaptureBundleSchemaRegistry
+            .supportMatrix.families[family],
+           !contract.unversioned, !contract.external,
+           let version = value.member("schema_version")?.stringValue
+        {
+            payloadVersions[family] = version
         }
     }
 
@@ -416,9 +429,9 @@ public enum CanonicalPayloadValidator {
         path: String,
         data: Data
     ) throws -> StrictJSONValue? {
-        guard let schemaName = CaptureBundleSchemaRegistry.schemaName(
-            forPath: path
-        ) else {
+        guard CaptureBundleSchemaRegistry.schemaName(forPath: path)
+            != nil
+        else {
             return nil
         }
         let value: StrictJSONValue
@@ -445,10 +458,28 @@ public enum CanonicalPayloadValidator {
                 detail: "bytes are not canonical JSON"
             )
         }
+        // Version dispatch (#332): the payload's declared
+        // schema_version selects exactly one immutable registry
+        // document via the support matrix; unlisted versions fail with
+        // an explicit unsupported-version diagnostic.
+        let documentName: String
+        do {
+            guard let name = try CaptureBundleSchemaRegistry
+                .schemaDocumentName(forPath: path, payload: value)
+            else {
+                return value
+            }
+            documentName = name
+        } catch let error as JSONSchemaError {
+            throw BundleDirectoryValidationError.schemaValidationFailed(
+                path: path,
+                detail: "\(error)"
+            )
+        }
         let schema: CompiledJSONSchema
         do {
             schema = try CaptureBundleSchemaRegistry.compiledSchema(
-                named: schemaName
+                named: documentName
             )
         } catch {
             throw BundleDirectoryValidationError.schemaValidationFailed(

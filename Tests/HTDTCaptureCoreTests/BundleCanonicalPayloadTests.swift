@@ -312,7 +312,10 @@ func payloadWithTrailingBytesRejected() throws {
 }
 
 @Test
-func nonSchemaOwnedJSONStaysOpaque() throws {
+func unownedJSONPayloadRejected() throws {
+    // #332: a manifest-declared .json payload must be owned by a
+    // published schema or be a declared external authority payload —
+    // generic supplemental persistence cannot bypass validation.
     let root = try makeTemporaryDirectory()
     defer { BundleValidationFixture.remove(root) }
 
@@ -327,6 +330,12 @@ func nonSchemaOwnedJSONStaysOpaque() throws {
         ]
     )
 
-    let report = try BundleDirectoryValidator.validate(root: root)
-    #expect(report.valid)
+    guard let error = try validationFailure(in: root) else {
+        Issue.record("expected schemaValidationFailed, got success")
+        return
+    }
+    guard case .schemaValidationFailed = error else {
+        Issue.record("expected schemaValidationFailed, got \(error)")
+        return
+    }
 }

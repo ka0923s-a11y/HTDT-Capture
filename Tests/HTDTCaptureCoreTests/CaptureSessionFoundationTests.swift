@@ -111,6 +111,7 @@ final class CaptureSessionFoundationTests: XCTestCase {
                 "session/capture-configuration.json",
                 "session/capture-session.json",
                 "session/device.json",
+                "session/revision-state.json",
                 "session/timing.json",
             ]
         )

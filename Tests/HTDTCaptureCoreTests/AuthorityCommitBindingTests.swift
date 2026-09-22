@@ -121,7 +121,7 @@ final class AuthorityCommitBindingTests: XCTestCase {
         try MeasurementEvidencePackageBuilder.build(
             measurements: [
                 try CaptureMeasurement(
-                    quantityType: "wall_length",
+                    quantityType: "x_wall_length",
                     value: .scalar(4.2),
                     unit: .meter,
                     acquisitionMethod: .laserDistanceMeter,
@@ -138,7 +138,7 @@ final class AuthorityCommitBindingTests: XCTestCase {
         try MeasurementEvidencePackageBuilder.build(
             measurements: [
                 try CaptureMeasurement(
-                    quantityType: "anchor_point",
+                    quantityType: "x_anchor_point",
                     value: .vector3(1, 2, 3),
                     unit: .meter,
                     coordinateSpaceID: space,
@@ -509,7 +509,7 @@ final class AuthorityCommitBindingTests: XCTestCase {
             snapshot.payloadDeclarations
                 .filter { $0.path.hasPrefix("session/") }
                 .count,
-            4
+            5
         )
     }
 
@@ -572,7 +572,7 @@ final class AuthorityCommitBindingTests: XCTestCase {
             snapshot.payloadDeclarations
                 .filter { $0.path.hasPrefix("session/") }
                 .count,
-            4
+            5
         )
 
         // The committed authority is durable and internally consistent:

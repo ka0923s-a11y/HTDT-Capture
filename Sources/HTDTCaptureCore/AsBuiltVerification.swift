@@ -29,6 +29,13 @@ public enum AsBuiltItemState: String, Codable, Sendable, Equatable {
     /// Actual position captured; no tolerance policy applies, so the
     /// deviation is reported without a pass/fail verdict.
     case captured
+    /// Deviation evaluated under the tolerance policy, but the
+    /// observation's uncertainty band overlaps the tolerance
+    /// boundary — or the uncertainty required by the policy was
+    /// never declared — so no pass/fail verdict is defensible
+    /// (#356). Explicitly distinct from `captured`: the data is
+    /// there, the verdict is unknowable.
+    case indeterminate
     /// Operator marked the item unavailable (e.g. location blocked).
     case unavailable
 }
@@ -46,6 +53,9 @@ public enum AsBuiltVerificationError: Error, Sendable, Equatable {
     case alignmentRequired
     case invalidResidualValue
     case encodedDocumentMismatch
+    /// The document claims a schema_version this contract does not
+    /// support (#332).
+    case unsupportedSchema
 }
 
 /// One planned speaker/screen/projector position imported from HTDT.
@@ -152,13 +162,20 @@ public struct PlanAlignmentAuthority: Codable, Sendable, Equatable {
     public let authorityRef: String
     public let evidenceRefs: [String]
     public let establishedAtUTC: String
+    /// Fit residual of the alignment solution in meters, when the
+    /// establishing mechanism computed one (#356). The alignment
+    /// residual is a bound on how far the frame itself may be off —
+    /// it feeds the verdict's uncertainty band; it is never
+    /// conflated with per-item observation uncertainty.
+    public let residualMeters: Double?
 
     public init(
         mechanism: PlanAlignmentMechanism,
         sceneFromCapture: Matrix4x4F,
         authorityRef: String,
         evidenceRefs: [String] = [],
-        establishedAtUTC: String
+        establishedAtUTC: String,
+        residualMeters: Double? = nil
     ) throws {
         let normalizedRef = SchemaOwnedText.nfc(authorityRef)
         guard !normalizedRef.isEmpty else {
@@ -176,11 +193,18 @@ public struct PlanAlignmentAuthority: Codable, Sendable, Equatable {
         else {
             throw AsBuiltVerificationError.invalidTransform
         }
+        if let residualMeters {
+            guard residualMeters.isFinite, residualMeters >= 0
+            else {
+                throw AsBuiltVerificationError.invalidResidualValue
+            }
+        }
         self.mechanism = mechanism
         self.sceneFromCapture = sceneFromCapture
         self.authorityRef = normalizedRef
         self.evidenceRefs = normalizedEvidence
         self.establishedAtUTC = establishedAtUTC
+        self.residualMeters = residualMeters
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -189,6 +213,7 @@ public struct PlanAlignmentAuthority: Codable, Sendable, Equatable {
         case authorityRef = "authority_ref"
         case evidenceRefs = "evidence_refs"
         case establishedAtUTC = "established_at"
+        case residualMeters = "residual_m"
     }
 
     public init(from decoder: Decoder) throws {
@@ -213,6 +238,10 @@ public struct PlanAlignmentAuthority: Codable, Sendable, Equatable {
             establishedAtUTC: container.decode(
                 String.self,
                 forKey: .establishedAtUTC
+            ),
+            residualMeters: container.decodeIfPresent(
+                Double.self,
+                forKey: .residualMeters
             )
         )
     }
@@ -229,6 +258,10 @@ public struct AsBuiltObservation: Codable, Sendable, Equatable {
     public let placement: PlacementProvenance?
     public let observedAtUTC: String?
     public let evidenceRefs: [String]
+    /// Positional uncertainty authority for this observation (#356).
+    /// The verdict treats a missing record as *unknown* uncertainty —
+    /// never as zero.
+    public let uncertainty: SpatialUncertaintyAuthority?
 
     public init(
         plannedEntityID: String,
@@ -237,7 +270,8 @@ public struct AsBuiltObservation: Codable, Sendable, Equatable {
         coordinateSpaceID: CoordinateSpaceID,
         placement: PlacementProvenance? = nil,
         observedAtUTC: String? = nil,
-        evidenceRefs: [String] = []
+        evidenceRefs: [String] = [],
+        uncertainty: SpatialUncertaintyAuthority? = nil
     ) throws {
         let normalizedID = SchemaOwnedText.nfc(plannedEntityID)
         guard !normalizedID.isEmpty else {
@@ -264,6 +298,7 @@ public struct AsBuiltObservation: Codable, Sendable, Equatable {
         self.placement = placement
         self.observedAtUTC = observedAtUTC
         self.evidenceRefs = normalizedEvidence
+        self.uncertainty = uncertainty
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -274,6 +309,7 @@ public struct AsBuiltObservation: Codable, Sendable, Equatable {
         case placement
         case observedAtUTC = "observed_at"
         case evidenceRefs = "evidence_refs"
+        case uncertainty
     }
 
     public init(from decoder: Decoder) throws {
@@ -306,8 +342,29 @@ public struct AsBuiltObservation: Codable, Sendable, Equatable {
             evidenceRefs: container.decode(
                 [String].self,
                 forKey: .evidenceRefs
+            ),
+            uncertainty: container.decodeIfPresent(
+                SpatialUncertaintyAuthority.self,
+                forKey: .uncertainty
             )
         )
+    }
+
+    /// Conservative positional uncertainty bound in meters (#356):
+    /// the isotropic bound when stated, else the worst per-axis
+    /// component. An angular-only authority contributes nothing —
+    /// the result is nil (unknown), never zero.
+    public var positionalUncertaintyMeters: Double? {
+        guard let uncertainty else { return nil }
+        if let isotropic = uncertainty.isotropicMeters {
+            return isotropic
+        }
+        if let perAxis = uncertainty.perAxisMeters {
+            return Double(
+                max(perAxis.x, perAxis.y, perAxis.z)
+            )
+        }
+        return nil
     }
 }
 
@@ -384,6 +441,13 @@ public struct AsBuiltVerificationItem: Codable, Sendable, Equatable {
                 throw AsBuiltVerificationError.invalidResidualValue
             }
         }
+        // `indeterminate` is an evaluated state — it only exists
+        // when an observation and its deviation are present (#356).
+        if state == .indeterminate {
+            guard observation != nil, deviation != nil else {
+                throw AsBuiltVerificationError.invalidResidualValue
+            }
+        }
         self.spec = spec
         self.state = state
         self.observation = observation
@@ -429,7 +493,17 @@ public struct AsBuiltVerificationDocument: Codable, Sendable,
     Equatable
 {
     public static let schema = "htdt.capture.as-built-verification"
-    public static let schemaVersion = "1.0.0"
+    /// The payload version this build emits (#332): v1.1.0 stores the
+    /// deviation vector as the observed-minus-planned delta, adds the
+    /// `indeterminate` state, and carries observation/alignment
+    /// uncertainty into the verdict (#356).
+    public static let schemaVersion = "1.1.0"
+    /// Every payload version this build can decode (#332). v1.0.0
+    /// documents stay readable; their deviation vectors and verdicts
+    /// are interpreted as authored under the legacy contract.
+    public static let supportedSchemaVersions: [String] = [
+        "1.0.0", "1.1.0",
+    ]
     public static let path = "verification/as-built.json"
 
     public let schema: String
@@ -500,9 +574,9 @@ public struct AsBuiltVerificationDocument: Codable, Sendable,
             forKey: .schemaVersion
         )
         guard schema == Self.schema,
-              schemaVersion == Self.schemaVersion
+              Self.supportedSchemaVersions.contains(schemaVersion)
         else {
-            throw AsBuiltVerificationError.encodedDocumentMismatch
+            throw AsBuiltVerificationError.unsupportedSchema
         }
         try self.init(
             captureRevisionID: container.decode(
@@ -677,22 +751,62 @@ public struct AsBuiltVerificationSession: Sendable, Equatable {
             observation: observation,
             sceneFromCapture: alignment.sceneFromCapture
         )
-        let state: AsBuiltItemState
-        if tolerancePolicyRef != nil,
-           let tolerance = spec.toleranceMeters
-        {
-            state = deviation.distanceMeters <= tolerance
-                ? .verified
-                : .deviated
-        } else {
-            state = .captured
-        }
+        let state = Self.verdict(
+            deviationMeters: deviation.distanceMeters,
+            toleranceMeters: tolerancePolicyRef == nil
+                ? nil
+                : spec.toleranceMeters,
+            observationUncertaintyMeters:
+                observation.positionalUncertaintyMeters,
+            alignmentResidualMeters: alignment.residualMeters
+        )
         return try AsBuiltVerificationItem(
             spec: spec,
             state: state,
             observation: observation,
             deviation: deviation
         )
+    }
+
+    /// The versioned verdict policy for `schema_version` 1.1.0
+    /// documents (#356). Under a declared tolerance policy the
+    /// verdict must account for both the observation's positional
+    /// uncertainty and the alignment authority's residual — the two
+    /// stay conceptually distinct on the record and combine as a
+    /// conservative additive bound (`uncertainty + residual`):
+    ///
+    ///   * `.verified`  — deviation + band <= tolerance
+    ///   * `.deviated`  — deviation - band > tolerance
+    ///   * `.indeterminate` — the band overlaps the tolerance
+    ///     boundary, or the policy requires a verdict but the
+    ///     uncertainty inputs were never declared. Missing
+    ///     uncertainty is never silently treated as zero.
+    ///
+    /// Without a tolerance policy or per-item tolerance the item is
+    /// `.captured` — data present, no verdict claimed.
+    public static func verdict(
+        deviationMeters: Double,
+        toleranceMeters: Double?,
+        observationUncertaintyMeters: Double?,
+        alignmentResidualMeters: Double?
+    ) -> AsBuiltItemState {
+        guard let toleranceMeters else { return .captured }
+        guard let observationUncertaintyMeters,
+              let alignmentResidualMeters
+        else {
+            // The policy demands a verdict but the uncertainty
+            // inputs are unknown — indeterminate, never zero.
+            return .indeterminate
+        }
+        let band = observationUncertaintyMeters
+            + alignmentResidualMeters
+        if deviationMeters + band <= toleranceMeters {
+            return .verified
+        }
+        if deviationMeters - band > toleranceMeters {
+            return .deviated
+        }
+        return .indeterminate
     }
 
     /// The deviation of an observed world position through the
@@ -736,11 +850,13 @@ public struct AsBuiltVerificationSession: Sendable, Equatable {
                 min(1, max(-1, dotProduct))
             )
         }
+        // `translation_scene` is the signed delta
+        // observed(scene) - planned(scene) (#356) — never the
+        // absolute observed position — so `distance_m` is always
+        // exactly its norm.
         return try AsBuiltDeviation(
             translationScene: try SpatialVector3F(
-                observedScene.x,
-                observedScene.y,
-                observedScene.z
+                dx, dy, dz
             ),
             distanceMeters: Double(distance),
             headingDeltaRadians: headingDelta
