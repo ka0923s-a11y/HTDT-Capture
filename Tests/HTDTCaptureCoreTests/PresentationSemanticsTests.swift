@@ -196,24 +196,32 @@ final class PresentationSemanticsTests: XCTestCase {
 
     private func record(
         canOpen: Bool = true,
-        finalizedAt: String = "2026-09-22T00:00:00Z"
+        finalizedAt: String = "2026-09-22T00:00:00Z",
+        previewPaths: [String] = []
     ) throws -> PersistedCaptureRecord {
         var validation: BundleValidationReport?
-        if canOpen {
+        if canOpen || !previewPaths.isEmpty {
             let revisionID = CaptureRevisionID()
+            let entries = try previewPaths.map {
+                try BundleValidationFixture.entry(
+                    path: $0,
+                    data: Data(),
+                    mediaType: "image/heic"
+                )
+            }
             let manifest = try BundleManifest(
                 captureSeriesID: CaptureSeriesID(),
                 captureRevisionID: revisionID,
                 parentRevisionID: nil,
                 captureSessionIDs: [CaptureSessionID()],
                 coordinateSpaceIDs: [CoordinateSpaceID()],
-                createdAtUTC: "2026-09-20T00:00:00Z",
+                createdAtUTC: finalizedAt,
                 finalizedAtUTC: finalizedAt,
                 app: BundleAppIdentity(
                     version: "test",
                     build: "test"
                 ),
-                files: []
+                files: entries
             )
             validation = try BundleValidationReport(
                 manifest: manifest,
@@ -231,11 +239,11 @@ final class PresentationSemanticsTests: XCTestCase {
             finalizedAtUTC: finalizedAt,
             finalizedDirectory: canOpen
                 ? URL(fileURLWithPath: "/tmp/finalized") : nil,
-            finalizedValidation: validation,
+            finalizedValidation: canOpen ? validation : nil,
             exportArchive: canOpen
                 ? nil
                 : URL(fileURLWithPath: "/tmp/archive.htdtcapture"),
-            exportValidation: nil,
+            exportValidation: canOpen ? nil : validation,
             finalizedByteCount: canOpen ? 100 : nil,
             exportArchiveByteCount: canOpen ? nil : 50
         )
@@ -310,6 +318,58 @@ final class PresentationSemanticsTests: XCTestCase {
             revisionMetadata: nil
         )
         XCTAssertEqual(three.revisionSummary, "3 revisions")
+    }
+
+    // MARK: - Series representative previews (#411)
+
+    /// The deterministic policy: latest revision first, then the most
+    /// recent revision in the series that still declares a preview;
+    /// revisions without manifest-declared previews are skipped; an
+    /// empty result is what drives the semantic placeholder.
+    func testRepresentativePreviewCandidatesOrderAndFilter() throws {
+        let previewPath = "evidence/frames/f1.preview.heic"
+        let oldest = try record(
+            finalizedAt: "2026-09-18T00:00:00Z",
+            previewPaths: [previewPath]
+        )
+        let noPreview = try record(finalizedAt: "2026-09-19T00:00:00Z")
+        let newest = try record(
+            finalizedAt: "2026-09-20T00:00:00Z",
+            previewPaths: [previewPath]
+        )
+        let candidates = group(
+            revisions: [oldest, noPreview, newest]
+        ).representativePreviewCandidates
+        XCTAssertEqual(
+            candidates.map(\.captureRevisionID),
+            [newest, oldest].map(\.captureRevisionID)
+        )
+        XCTAssertTrue(
+            group(revisions: [noPreview])
+                .representativePreviewCandidates
+                .isEmpty
+        )
+    }
+
+    /// An archive-only (imported/export-only) record whose export
+    /// manifest declares a preview counts exactly like a finalized
+    /// one — provenance never changes the thumbnail policy.
+    func testRepresentativePreviewCandidatesTreatArchiveOnlyIdentically()
+        throws
+    {
+        let previewPath = "evidence/frames/f1.preview.heic"
+        let archiveOnly = try record(
+            canOpen: false,
+            finalizedAt: "2026-09-19T00:00:00Z",
+            previewPaths: [previewPath]
+        )
+        let candidates = group(
+            revisions: [archiveOnly]
+        ).representativePreviewCandidates
+        XCTAssertEqual(
+            candidates.map(\.captureRevisionID),
+            [archiveOnly.captureRevisionID]
+        )
     }
 
     func testDateLabelParsesCanonicalUTC() {

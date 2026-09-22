@@ -609,6 +609,35 @@ public struct CaptureSeriesGroup:
     public var isBranched: Bool {
         revisionGraph.isBranched
     }
+
+    /// Representative-preview candidates for the library row (issue
+    /// #411): the head the row presents first (`preferredRevision`,
+    /// when it resolves), then every other revision newest-first —
+    /// filtered to those whose validated manifest declares at least
+    /// one `evidence/frames/*.preview.heic` entry. The ordering IS
+    /// the policy: presented head preferred, then the most recent
+    /// revision in the series that retains a preview; an empty result
+    /// means the semantic placeholder. This is pure metadata ordering
+    /// over the scan-time validation, so no file I/O ever runs here;
+    /// the caller resolves bytes lazily and may skip a candidate whose
+    /// payload turns out unreadable.
+    public var representativePreviewCandidates:
+        [PersistedCaptureRecord]
+    {
+        let preferred = preferredRevision
+        var ordered: [PersistedCaptureRecord] = []
+        if let preferred {
+            ordered.append(preferred)
+        }
+        ordered.append(
+            contentsOf: revisions.reversed().filter {
+                $0.captureRevisionID != preferred?.captureRevisionID
+            }
+        )
+        return ordered.filter {
+            !$0.declaredPreviewPaths.isEmpty
+        }
+    }
 }
 
 public enum CaptureSeriesGrouper {

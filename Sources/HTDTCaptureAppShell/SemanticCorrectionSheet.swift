@@ -269,9 +269,13 @@ public struct SemanticCorrectionSheet: View {
         let entity = entities[index]
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(entity.type.rawValue)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(
+                    MissionPresentation.annotationEntityTypeName(
+                        entity.type
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
                 Spacer()
             }
             TextField(
@@ -311,7 +315,8 @@ public struct SemanticCorrectionSheet: View {
                         Self.commonChannelRoles,
                         id: \.self
                     ) { role in
-                        Text(role.rawValue).tag(role.rawValue)
+                        Text(MissionPresentation.channelRoleName(role))
+                            .tag(role.rawValue)
                     }
                 }
             }
@@ -335,7 +340,11 @@ public struct SemanticCorrectionSheet: View {
                         ListeningPositionRole.allCases,
                         id: \.self
                     ) { role in
-                        Text(role.rawValue).tag(role)
+                        Text(
+                            MissionPresentation.listeningPositionRoleName(
+                                role
+                            )
+                        ).tag(role)
                     }
                 }
             }
