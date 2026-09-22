@@ -616,6 +616,101 @@ final class ScanMotionGuidanceTests: XCTestCase {
         )
         XCTAssertTrue(progress.isComplete)
         XCTAssertEqual(progress.actionableWeakRegionCount, 1)
+        XCTAssertEqual(progress.completionSource, .movementConstrained)
+    }
+
+    func testSafetyConstrainedModeSuppressesTranslationAndCompletesHonestly() {
+        // #313: a safety-constrained completion is movement-
+        // constrained, never "observed" — the app did not verify the
+        // operator's path was safe.
+        var tracker = ScanMotionGuidanceTracker(
+            configuration: ScanMotionGuidanceConfiguration(
+                minimumRepeatedWeakObservations: 1,
+                spatialGuidanceActivationCoverageFraction: 0.55,
+                completionDirectionCoverageFraction: 0.95
+            )
+        )
+        tracker.setMovementCapability(.safetyConstrained)
+
+        let weak = spatial(
+            cameraX: 0,
+            cameraZ: 0,
+            region: region(
+                observations: 5,
+                diversity: 1,
+                distance: .medium,
+                classification: .weak
+            )
+        )
+        let fullDirection = coverage(
+            gap: nil,
+            observedCellCount: 36
+        )
+
+        let guidance = tracker.record(
+            timestampSeconds: 0,
+            coverage: fullDirection,
+            spatialCoverage: weak,
+            observation: .empty
+        )
+        let progress = tracker.progress(
+            coverage: fullDirection,
+            spatialCoverage: weak
+        )
+
+        XCTAssertNil(guidance)
+        XCTAssertEqual(
+            progress.movementCapability,
+            .safetyConstrained
+        )
+        XCTAssertTrue(progress.isComplete)
+        XCTAssertEqual(progress.actionableWeakRegionCount, 1)
+        XCTAssertEqual(progress.completionSource, .movementConstrained)
+    }
+
+    func testSafetyConstrainedDeclarationDropsInflightTranslationPrompt() {
+        // #313: declaring movement unsafe suppresses a risky prompt
+        // immediately — it does not wait for the prompt to dwell out.
+        var tracker = ScanMotionGuidanceTracker(
+            configuration: ScanMotionGuidanceConfiguration(
+                minimumRepeatedWeakObservations: 1,
+                spatialGuidanceActivationCoverageFraction: 0.55
+            )
+        )
+        tracker.setMovementCapability(.unrestricted)
+
+        let weak = spatial(
+            cameraX: 0,
+            cameraZ: 0,
+            region: region(
+                observations: 5,
+                diversity: 1,
+                distance: .near,
+                classification: .weak
+            )
+        )
+        let prompted = tracker.record(
+            timestampSeconds: 0,
+            coverage: coverage(gap: nil, observedCellCount: 10),
+            spatialCoverage: weak,
+            observation: .empty
+        )
+        XCTAssertNotNil(prompted)
+        XCTAssertEqual(
+            prompted?.action.requiresPhysicalTranslation,
+            true
+        )
+
+        tracker.setMovementCapability(.safetyConstrained)
+        XCTAssertNil(tracker.guidance())
+
+        let suppressed = tracker.record(
+            timestampSeconds: 0.1,
+            coverage: coverage(gap: nil, observedCellCount: 10),
+            spatialCoverage: weak,
+            observation: .empty
+        )
+        XCTAssertNil(suppressed)
     }
 
     func testSuccessfulSpatialActionStillConsumesGlobalBudget() {

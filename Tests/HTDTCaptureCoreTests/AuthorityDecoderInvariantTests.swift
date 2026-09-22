@@ -40,13 +40,15 @@ private func decodeEntity(
 }
 
 @Test
-func speakerDecodeRequiresOrientationAndChannelRole() throws {
+func speakerDecodeRequiresOrientationNotChannelRole() throws {
     #expect(throws: AnnotationModelError.speakerOrientationRequired) {
         _ = try decodeEntity { $0["orientation"] = NSNull() }
     }
-    #expect(throws: AnnotationModelError.speakerChannelRoleRequired) {
-        _ = try decodeEntity { $0["channel_role"] = NSNull() }
-    }
+    // #315: a missing channel_role decodes as a valid unbound
+    // speaker — never replaced by a placeholder token.
+    let unbound = try decodeEntity { $0["channel_role"] = NSNull() }
+    #expect(unbound.channelRole == nil)
+    #expect(unbound.roleBinding == nil)
 }
 
 @Test

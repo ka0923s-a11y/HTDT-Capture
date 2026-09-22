@@ -1265,10 +1265,8 @@ public struct AnnotationEntityForm: View {
                         .uppercased()
                     role = ChannelRole(rawValue: text)
                 }
-                if type == .speaker, role == nil {
-                    throw ManualAuthorityBuilderError
-                        .invalidSpeakerChannelRole
-                }
+                // #315: an unbound speaker is a valid state — Review
+                // surfaces it and missions report the missing role.
                 if type == .subwoofer, role == nil {
                     throw ManualAuthorityBuilderError
                         .invalidSubwooferChannelRole
@@ -1361,7 +1359,7 @@ public struct AnnotationEntityForm: View {
             if isSpeakerLike, let layoutProfile,
                !selectedRoleBindingID.isEmpty
             {
-                roleBinding = try? SpeakerRoleBinding(
+                roleBinding = try SpeakerRoleBinding(
                     profileID: layoutProfile.profileID,
                     profileVersion: layoutProfile.profileVersion,
                     roleID: selectedRoleBindingID
