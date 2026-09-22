@@ -5,12 +5,15 @@ public protocol CaptureIdentifier:
     Codable,
     Hashable,
     Sendable,
-    CustomStringConvertible
+    CustomStringConvertible,
+    Identifiable
 where RawValue == UUID {
     init(rawValue: UUID)
 }
 
 public extension CaptureIdentifier {
+    var id: UUID { rawValue }
+
     init() {
         self.init(rawValue: UUID())
     }
