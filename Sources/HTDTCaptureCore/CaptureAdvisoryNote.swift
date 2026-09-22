@@ -22,6 +22,17 @@ public enum CaptureAdvisoryNoteKind: String, Codable, Sendable {
     case loopClosureCheck = "loop_closure_check"
     /// An operator-targeted object orbit pass completed (#250).
     case targetScanPass = "target_scan_pass"
+    /// An operator revisit flag was dropped mid-scan (#325).
+    case revisitFlag = "revisit_flag"
+    /// A revisit flag was resolved/skipped/unavailable in Review
+    /// (#325).
+    case revisitFlagResolution = "revisit_flag_resolution"
+    /// A capture mission (generic task profile or imported HTDT task
+    /// plan) was bound to the session before scanning started (#352).
+    case missionBound = "mission_bound"
+    /// The bound task profile changed after scanning started — an
+    /// explicit operator action with provenance, never silent (#352).
+    case taskProfileChange = "task_profile_change"
 }
 
 public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
@@ -75,6 +86,18 @@ public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
             severity = .info
         case .targetScanPass:
             code = "target_scan_pass"
+            severity = .info
+        case .revisitFlag:
+            code = "revisit_flag"
+            severity = .info
+        case .revisitFlagResolution:
+            code = "revisit_flag_resolution"
+            severity = .info
+        case .missionBound:
+            code = "mission_bound"
+            severity = .info
+        case .taskProfileChange:
+            code = "task_profile_change"
             severity = .info
         }
         return QualityDiagnostic(

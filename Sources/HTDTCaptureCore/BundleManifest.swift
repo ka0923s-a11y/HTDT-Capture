@@ -785,6 +785,12 @@ enum BundleReservedPaths {
             provenanceClass: .captureAppDerived,
             role: .canonical
         ),
+        "session/revisit-flags.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_session",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
         "session/task-plan-status.json": Binding(
             mediaType: "application/json",
             producer: "capture_session",
