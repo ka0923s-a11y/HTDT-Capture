@@ -277,8 +277,7 @@ public struct CaptureRootActions {
             SurveyReportSelection
         ) async -> DerivedExportOutcome = { _, _ in
             DerivedExportOutcome(files: [], error: nil)
-        }
-        ) -> Void = { _, _, _ in },
+        },
         retryCameraPermission: @escaping () -> Void = {},
         openCameraSettings: @escaping () -> Void = {},
         cancelCaptureStart: @escaping () -> Void = {}
