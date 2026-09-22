@@ -1053,8 +1053,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 : nil,
             taskProfile: taskProfile,
             importedTaskPlan: pendingTaskPlanImport?.plan,
-            taskPlanImportError: pendingTaskPlanImportError
-                : nil,
+            taskPlanImportError: pendingTaskPlanImportError,
             cameraPermission:
                 CameraPermissionController.currentStatus()
         )
@@ -7059,7 +7058,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                                 )
                             )
                         }
-                )
+                ),
                 guidanceComplete: progress.isComplete,
                 // #347: unresolved weak regions beyond the displayed
                 // map window, and #336: the retention capacity outcome
