@@ -412,112 +412,6 @@ public struct CaptureRootActions {
     }
 }
 
-/// Library filter for acquisition origin (#317): imported/received
-/// captures are always visually distinct from device-created ones, so
-/// the filter narrows on that axis rather than on file presence.
-private enum CaptureOriginFilter: String, CaseIterable, Identifiable {
-    case all
-    case device
-    case external
-    var id: String { rawValue }
-}
-
-/// The pending delete-local-capture confirmation: which validated
-/// revision is selected and whether its canonical export slot exists.
-private struct PendingCaptureDeletion {
-    let revisionID: CaptureRevisionID
-    let includesExport: Bool
-}
-
-/// Identifiable target for the library-metadata editor sheet (#219):
-/// exactly one of `revisionID`/`seriesID` is set.
-private struct LibraryMetadataEditorTarget: Identifiable {
-    let revisionID: CaptureRevisionID?
-    let seriesID: CaptureSeriesID?
-    var id: String {
-        revisionID?.description
-            ?? seriesID?.description
-            ?? "editor"
-    }
-}
-
-/// Edits an operator-facing name + note for a capture revision or a
-/// whole series (#219). App-local metadata only — the capture bundle
-/// on disk is never touched.
-private struct LibraryMetadataEditor: View {
-    let revisionID: CaptureRevisionID?
-    let seriesID: CaptureSeriesID?
-    let document: CaptureLibraryMetadataDocument
-    let onSave:
-        (CaptureRevisionID?, CaptureSeriesID?,
-         CaptureLibraryEntryMetadata) -> Void
-
-    @State private var displayName: String
-    @State private var note: String
-    @Environment(\.dismiss) private var dismiss
-
-    init(
-        revisionID: CaptureRevisionID?,
-        seriesID: CaptureSeriesID?,
-        document: CaptureLibraryMetadataDocument,
-        onSave: @escaping (
-            CaptureRevisionID?,
-            CaptureSeriesID?,
-            CaptureLibraryEntryMetadata
-        ) -> Void
-    ) {
-        self.revisionID = revisionID
-        self.seriesID = seriesID
-        self.document = document
-        self.onSave = onSave
-        let existing = revisionID.flatMap {
-            document.revisions[$0.description]
-        } ?? seriesID.flatMap {
-            document.series[$0.description]
-        }
-        _displayName = State(
-            initialValue: existing?.displayName ?? ""
-        )
-        _note = State(
-            initialValue: existing?.note ?? ""
-        )
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                TextField("Room or project name", text: $displayName)
-                TextField(
-                    "Notes",
-                    text: $note,
-                    axis: .vertical
-                )
-            }
-            .navigationTitle("Capture details")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        onSave(
-                            revisionID,
-                            seriesID,
-                            CaptureLibraryEntryMetadata(
-                                displayName: displayName.isEmpty
-                                    ? nil
-                                    : displayName,
-                                note: note.isEmpty ? nil : note
-                            )
-                        )
-                        dismiss()
-                    }
-                }
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
-        }
-    }
-}
-
 #if os(iOS)
 /// The system share sheet used for the share-destination HTDT
 /// handoff (#225): presenting it and completing the share is the
@@ -688,16 +582,11 @@ public struct CaptureRootView: View {
     @State private var importingCaptureArchive = false
     @State private var confirmingDiscard = false
     @State private var reviewWorkspaceShown = false
-    @State private var persistedViewerShown = false
     @State private var handoffDestinationsShown = false
     @State private var shareArchiveForHandoff = false
     @State private var revisionComparison:
         CaptureRevisionComparison?
     @State private var comparisonLoading = false
-    @State private var metadataEditorTarget:
-        LibraryMetadataEditorTarget?
-    @State private var libraryQuery = ""
-    @State private var libraryOriginFilter: CaptureOriginFilter = .all
     @State private var importingPlanReference = false
     @State private var confirmingExport = false
     @State private var diagnosticShareURL: URL?
@@ -914,6 +803,19 @@ public struct CaptureRootView: View {
                         actions.setScanMovementCapability,
                     endScan: actions.beginReview
                 )
+            } else if state == .idle {
+                // #360/#362: capture-first home + series-first
+                // library. NavigationSplitView collapses to the push
+                // stack on compact width and splits on regular width.
+                CaptureHomeView(
+                    capabilities: capabilities,
+                    cameraPermission: cameraPermission,
+                    persistedInventory: persistedInventory,
+                    libraryMetadata: libraryMetadata,
+                    persistedWorkspace: persistedWorkspace,
+                    captureOrigins: captureOrigins,
+                    actions: actions
+                )
             } else {
                 NavigationStack {
             if state == .setup,
@@ -1012,63 +914,67 @@ public struct CaptureRootView: View {
                 .navigationTitle("Capture authority")
             } else {
                 List {
-                Section("Capture") {
-                    LabeledContent(
-                        "State",
-                        value: localizedState(state)
+                Section {
+                    CaptureTaskHeader(
+                        LocalizedStringKey(localizedState(state)),
+                        status: captureStateStatus(state)
                     )
-                    if let cameraPermission {
-                        LabeledContent(
-                            "Camera permission",
-                            value: localizedPermission(
-                                cameraPermission
-                            )
-                        )
-                    }
                     if let workingSetStatus {
-                        LabeledContent(
-                            "Working set",
-                            value: workingSetStatus
-                        )
-                    }
-                    if let lastFailure {
-                        LabeledContent(
-                            "Failure",
-                            value: localizedFailure(lastFailure)
-                        )
-                    }
-                    if let identity = workingSetIdentity,
-                       let parent = identity.parentRevisionID
-                    {
-                        LabeledContent(
-                            "Series",
-                            value: identity
-                                .captureSeriesID.description
-                        )
-                        LabeledContent(
-                            "Revises",
-                            value: parent.description
-                        )
+                        Text(workingSetStatus)
+                            .font(
+                                CaptureDesign.Typography
+                                    .secondary
+                            )
+                            .foregroundStyle(.secondary)
                     }
                 }
 
-                Section("Capabilities") {
-                    LabeledContent(
-                        "RoomPlan + mesh",
-                        value: localizedAvailability(
-                            capabilities.roomPlanMeshEligible
+                if state == .failed,
+                   let lastFailure
+                {
+                    Section {
+                        CaptureNotice(
+                            status: .blocked,
+                            title: LocalizedStringKey(
+                                failureReasonText(lastFailure)
+                            ),
+                            message: LocalizedStringKey(
+                                failureRecoveryText(lastFailure)
+                            )
                         )
-                    )
-                    LabeledContent(
-                        "Scene depth",
-                        value: localizedAvailability(
-                            capabilities.sceneDepthSupported
+                        .listRowSeparator(.hidden)
+                    }
+                }
+
+                if let lastFailure {
+                    Section("Details") {
+                        CaptureTechnicalDetail(
+                            "Failure code",
+                            value: lastFailure.rawValue
                         )
-                    )
-                    if capabilities.requiresCombinedFeatureProbe {
-                        Text(
-                            "Combined RoomPlan/depth behavior still requires physical-device verification."
-                        )
+                        if let cameraPermission {
+                            CaptureTechnicalDetail(
+                                "Camera permission",
+                                value: cameraPermission
+                                    .rawValue
+                            )
+                        }
+                        if let identity = workingSetIdentity {
+                            CaptureTechnicalDetail(
+                                "Series",
+                                value: identity
+                                    .captureSeriesID
+                                    .description
+                            )
+                            if let parent =
+                                identity.parentRevisionID
+                            {
+                                CaptureTechnicalDetail(
+                                    "Revises",
+                                    value: parent.description
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -1077,20 +983,8 @@ public struct CaptureRootView: View {
                 }
 
                 if state == .failed,
-                   let lastFailure
+                   lastFailure != nil
                 {
-                    Section("Recovery") {
-                        Text(
-                            failureReasonText(lastFailure)
-                        )
-                        .font(.headline)
-
-                        Text(
-                            failureRecoveryText(lastFailure)
-                        )
-                        .foregroundStyle(.secondary)
-                    }
-
                     if let failedInspection {
                         failedInspectionSection(
                             failedInspection
@@ -1121,15 +1015,16 @@ public struct CaptureRootView: View {
                    let qualityReport
                 {
                     Section("Quality") {
-                        LabeledContent(
+                        CaptureStatusContent(
                             "HTDT ingestion",
-                            value: localizedReadiness(
-                                qualityReport.readyForHTDTIngestion
-                            )
+                            status: qualityReport
+                                .readyForHTDTIngestion
+                                ? .ready
+                                : .incomplete
                         )
-                        LabeledContent(
+                        CaptureStatusContent(
                             "Integrity preflight",
-                            value: localizedIntegrity(
+                            status: integrityStatus(
                                 qualityReport.integrityStatus
                             )
                         )
@@ -1147,30 +1042,13 @@ public struct CaptureRootView: View {
                 if (state == .finalized || state == .exported),
                    let validationReport
                 {
-                    Section("Finalized bundle") {
-                        LabeledContent(
+                    Section {
+                        CaptureStatusContent(
                             "Validator",
-                            value: localizedPassFail(
-                                validationReport.valid
-                            )
+                            status: validationReport.valid
+                                ? .verified
+                                : .blocked
                         )
-                        Text(validationReport.bundleDigest.description)
-                            .font(.caption.monospaced())
-                            .textSelection(.enabled)
-                        LabeledContent(
-                            "Series",
-                            value: validationReport.manifest
-                                .captureSeriesID.description
-                        )
-                        if let parent =
-                            validationReport.manifest
-                                .parentRevisionID
-                        {
-                            LabeledContent(
-                                "Revises",
-                                value: parent.description
-                            )
-                        }
                         if let qualityReport {
                             NavigationLink(
                                 "Review finalized capture"
@@ -1192,35 +1070,36 @@ public struct CaptureRootView: View {
                                 )
                             }
                         }
-                    }
-                }
-
-                if state == .idle,
-                   !persistedInventory.captures.isEmpty
-                       || !persistedInventory
-                           .quarantinedArtifacts.isEmpty
-                       || !persistedInventory
-                           .enumerationFailures.isEmpty
-                {
-                    captureLibrarySection
-                }
-
-                if state == .idle,
-                   !persistedInventory
-                       .orphanedWorkingArtifacts.isEmpty
-                {
-                    Section("Abandoned working data") {
-                        ForEach(
-                            persistedInventory
-                                .orphanedWorkingArtifacts
-                        ) { orphan in
-                            workingOrphanRow(orphan)
+                    } header: {
+                        Text("Finalized bundle")
+                    } footer: {
+                        VStack(
+                            alignment: .leading,
+                            spacing: CaptureDesign.Spacing.micro
+                        ) {
+                            CaptureTechnicalText(
+                                validationReport.bundleDigest
+                                    .description
+                            )
+                            CaptureTechnicalText(
+                                validationReport.manifest
+                                    .captureSeriesID
+                                    .description
+                            )
+                            if let parent =
+                                validationReport.manifest
+                                    .parentRevisionID
+                            {
+                                CaptureTechnicalText(
+                                    String(
+                                        format: String(
+                                            localized: "Revises %@"
+                                        ),
+                                        parent.description
+                                    )
+                                )
+                            }
                         }
-                        Text(
-                            "Left by an interrupted capture. It is never resumed as an active scan and can be safely deleted."
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -1257,17 +1136,6 @@ public struct CaptureRootView: View {
                         )
                     } else {
                         ProgressView("Loading workspace…")
-                    }
-                }
-                .navigationDestination(
-                    isPresented: $persistedViewerShown
-                ) {
-                    if let persistedWorkspace {
-                        CaptureReviewWorkspaceView(
-                            model: persistedWorkspace
-                        )
-                    } else {
-                        ProgressView("Loading capture…")
                     }
                 }
                 .confirmationDialog(
@@ -1414,32 +1282,6 @@ public struct CaptureRootView: View {
                         )
                     }
                 }
-                .sheet(
-                    isPresented: Binding(
-                        get: { semanticCorrectionContext != nil },
-                        set: { presented in
-                            if !presented {
-                                actions.cancelSemanticCorrection()
-                            }
-                        }
-                    )
-                ) {
-                    if let context = semanticCorrectionContext {
-                        SemanticCorrectionSheet(
-                            context: context,
-                            commit: actions.commitSemanticCorrection,
-                            cancel: actions.cancelSemanticCorrection
-                        )
-                    }
-                }
-                .sheet(item: $metadataEditorTarget) { target in
-                    LibraryMetadataEditor(
-                        revisionID: target.revisionID,
-                        seriesID: target.seriesID,
-                        document: libraryMetadata,
-                        onSave: actions.updateLibraryEntry
-                    )
-                }
                 .confirmationDialog(
                     "Delete local capture?",
                     isPresented: Binding(
@@ -1481,20 +1323,38 @@ public struct CaptureRootView: View {
                     }
                     actions.importCaptureArchive(url)
                 }
-                .fileImporter(
-                    isPresented: $importingPlanReference,
-                    allowedContentTypes: [.json],
-                    allowsMultipleSelection: false
-                ) { result in
-                    guard let urls = try? result.get(),
-                          let url = urls.first
-                    else {
-                        return
-                    }
-                    actions.importPlanReference(url)
-                }
             }
                 }
+            }
+        }
+        .fileImporter(
+            isPresented: $importingPlanReference,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false
+        ) { result in
+            guard let urls = try? result.get(),
+                  let url = urls.first
+            else {
+                return
+            }
+            actions.importPlanReference(url)
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { semanticCorrectionContext != nil },
+                set: { presented in
+                    if !presented {
+                        actions.cancelSemanticCorrection()
+                    }
+                }
+            )
+        ) {
+            if let context = semanticCorrectionContext {
+                SemanticCorrectionSheet(
+                    context: context,
+                    commit: actions.commitSemanticCorrection,
+                    cancel: actions.cancelSemanticCorrection
+                )
             }
         }
     }
@@ -1871,384 +1731,6 @@ public struct CaptureRootView: View {
         }
     }
 
-    /// The capture library (#219/#251): series grouping, names/notes,
-    /// search, and per-revision storage breakdown. Extracted so the
-    /// type-checker stays inside its budget.
-    @ViewBuilder
-    private var captureLibrarySection: some View {
-        Section("Capture library") {
-            LabeledContent(
-                "Total storage",
-                value: String(
-                    persistedInventory.totalRetainedBytes
-                )
-            )
-            TextField(
-                "Search captures",
-                text: $libraryQuery
-            )
-            #if os(iOS)
-            .textInputAutocapitalization(.never)
-            #endif
-            Picker(
-                String(localized: "Capture origin"),
-                selection: $libraryOriginFilter
-            ) {
-                Text(String(localized: "All"))
-                    .tag(CaptureOriginFilter.all)
-                Text(String(localized: "This device"))
-                    .tag(CaptureOriginFilter.device)
-                Text(String(localized: "Imported or received"))
-                    .tag(CaptureOriginFilter.external)
-            }
-            .pickerStyle(.segmented)
-        }
-
-        ForEach(
-            libraryGroups.filter {
-                CaptureSeriesGrouper.matches(
-                    group: $0,
-                    revisionNotes: revisionNotesByID,
-                    query: libraryQuery
-                )
-            }.filter { group in
-                group.revisions.contains(where: matchesOriginFilter)
-            }
-        ) { group in
-            Section(seriesTitle(group)) {
-                Button("Edit series name") {
-                    metadataEditorTarget =
-                        LibraryMetadataEditorTarget(
-                            revisionID: nil,
-                            seriesID: group.captureSeriesID
-                        )
-                }
-                .font(.caption)
-                ForEach(
-                    group.revisions.filter(matchesOriginFilter)
-                ) { record in
-                    persistedCaptureRow(record)
-                }
-            }
-        }
-
-        if !persistedInventory.quarantinedArtifacts.isEmpty
-            || !persistedInventory.enumerationFailures.isEmpty
-        {
-            Section("Inventory issues") {
-                ForEach(
-                    persistedInventory.quarantinedArtifacts
-                ) { artifact in
-                    quarantinedArtifactRow(artifact)
-                }
-                ForEach(
-                    persistedInventory.enumerationFailures,
-                    id: \.self
-                ) { failure in
-                    Text(failure)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    /// Series-grouped view of the persisted inventory (#219).
-    private var libraryGroups: [CaptureSeriesGroup] {
-        CaptureSeriesGrouper.group(
-            records: persistedInventory.captures,
-            metadata: libraryMetadata
-        )
-    }
-
-    private var revisionNotesByID:
-        [String: CaptureLibraryEntryMetadata]
-    {
-        libraryMetadata.revisions
-    }
-
-    private func seriesTitle(
-        _ group: CaptureSeriesGroup
-    ) -> String {
-        if let name = group.displayName, !name.isEmpty {
-            return name
-        }
-        return String(
-            localized: "Series "
-        ) + group.captureSeriesID.description
-    }
-
-    /// Whether a library record matches the selected origin filter
-    /// (#317). Records with no origin record at all count as
-    /// device-created only under `.all`/`.device` — pre-tracking
-    /// captures surface as "origin unknown" rather than silently
-    /// claiming local provenance.
-    private func matchesOriginFilter(
-        _ record: PersistedCaptureRecord
-    ) -> Bool {
-        let kind =
-            captureOrigins[record.captureRevisionID]?.kind
-                ?? .legacyUnknown
-        switch libraryOriginFilter {
-        case .all:
-            return true
-        case .device:
-            return kind == .createdOnThisDevice
-                || kind == .legacyUnknown
-        case .external:
-            return kind == .importedFile
-                || kind == .receivedFromHTDT
-                || kind == .sharedOther
-        }
-    }
-
-    private func originKindLabel(
-        _ kind: CaptureAcquisitionOriginKind
-    ) -> String {
-        switch kind {
-        case .createdOnThisDevice:
-            return String(localized: "Created on this device")
-        case .importedFile:
-            return String(localized: "Imported file")
-        case .receivedFromHTDT:
-            return String(localized: "Received from HTDT")
-        case .sharedOther:
-            return String(localized: "Shared")
-        case .legacyUnknown:
-            return String(localized: "Origin unknown")
-        }
-    }
-
-    @ViewBuilder
-    private func persistedCaptureRow(
-        _ record: PersistedCaptureRecord
-    ) -> some View {
-        let entry = libraryMetadata.revisions[
-            record.captureRevisionID.description
-        ]
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 10) {
-                #if os(iOS)
-                // Representative retained-evidence thumbnail (issue
-                // #219): first manifest-declared preview payload.
-                if let data = record.representativePreviewData(),
-                   let image = UIImage(data: data)
-                {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 56, height: 56)
-                        .clipShape(
-                            RoundedRectangle(cornerRadius: 6)
-                        )
-                } else {
-                    Image(systemName: "camera.aperture")
-                        .frame(width: 56, height: 56)
-                        .background(.quaternary)
-                        .clipShape(
-                            RoundedRectangle(cornerRadius: 6)
-                        )
-                        .foregroundStyle(.secondary)
-                }
-                #endif
-                VStack(alignment: .leading, spacing: 4) {
-                    if let name = entry?.displayName, !name.isEmpty {
-                        Text(name).font(.headline)
-                    }
-                    Text(record.captureRevisionID.description)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                    if let note = entry?.note, !note.isEmpty {
-                        Text(note)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            if let origin =
-                captureOrigins[record.captureRevisionID]
-            {
-                HStack(spacing: 6) {
-                    Label(
-                        originKindLabel(origin.kind),
-                        systemImage: origin.kind
-                            == .createdOnThisDevice
-                            ? "iphone"
-                            : "square.and.arrow.down.on.square"
-                    )
-                    .font(.caption2)
-                    .foregroundStyle(
-                        origin.kind == .createdOnThisDevice
-                            ? AnyShapeStyle(.secondary)
-                            : AnyShapeStyle(.indigo)
-                    )
-                    if let filename = origin.originalFilename {
-                        Text(filename)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-            }
-
-
-            if let validation = record.finalizedValidation {
-                LabeledContent(
-                    "Finalized",
-                    value: record.finalizedAtUTC
-                )
-                LabeledContent(
-                    "Payloads",
-                    value: String(validation.payloadCount)
-                )
-                LabeledContent(
-                    "Finalized bytes",
-                    value: String(
-                        record.finalizedByteCount ?? 0
-                    )
-                )
-            } else {
-                Text("Export archive only")
-                    .foregroundStyle(.secondary)
-            }
-            if record.exportArchive != nil {
-                LabeledContent(
-                    "Archive bytes",
-                    value: String(
-                        record.exportArchiveByteCount ?? 0
-                    )
-                )
-                if record.exportArchiveIsDerivedCopy {
-                    Text(
-                        "Archive is a derived copy of the finalized bundle"
-                    )
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                }
-            }
-            LabeledContent(
-                "Retained bytes",
-                value: String(record.retainedByteCount)
-            )
-
-            // #309: while a host operation targets this revision the
-            // row shows its busy state; during any in-flight persisted
-            // operation the guarded actions are disabled rather than
-            // silently no-op'd.
-            let rowBusy =
-                operationTargetRevisionID
-                    == record.captureRevisionID
-            if rowBusy {
-                ForEach(
-                    Array(activeOperations),
-                    id: \.self
-                ) { operation in
-                    progressRow(operationLabel(operation))
-                        .font(.caption)
-                }
-            }
-
-            HStack(spacing: 16) {
-                if record.canOpen {
-                    Button("View") {
-                        actions.loadPersistedWorkspace(record)
-                        persistedViewerShown = true
-                    }
-                    .disabled(hostBusy)
-                    Button("Adopt") {
-                        actions.openPersistedCapture(
-                            record.captureRevisionID
-                        )
-                    }
-                    .disabled(hostBusy)
-                }
-                if record.canOpen || record.exportArchive != nil {
-                    Button("Rescan") {
-                        actions.revisePersistedCapture(
-                            record
-                        )
-                    }
-                    .disabled(hostBusy)
-                }
-                if record.canOpen {
-                    Button("Correct metadata") {
-                        actions.beginSemanticCorrection(record)
-                    }
-                    .accessibilityIdentifier(
-                        "library.correctMetadata"
-                    )
-                }
-                Button("Edit name") {
-                    metadataEditorTarget =
-                        LibraryMetadataEditorTarget(
-                            revisionID: record.captureRevisionID,
-                            seriesID: nil
-                        )
-                }
-                .disabled(rowBusy)
-                Spacer()
-                Button("Delete", role: .destructive) {
-                    pendingDeletion = PendingCaptureDeletion(
-                        revisionID: record.captureRevisionID,
-                        includesExport:
-                            record.exportArchive != nil
-                    )
-                }
-                .disabled(hostBusy)
-            }
-            if record.exportArchive != nil,
-               record.finalizedDirectory != nil
-            {
-                // The archive is a derived copy: it can be deleted
-                // without touching the canonical finalized capture
-                // (#251).
-                Button("Delete archive only") {
-                    actions.deleteExportArchive(record)
-                }
-                .font(.caption)
-                .disabled(hostBusy)
-            }
-        }
-    }
-
-    private func workingOrphanRow(
-        _ orphan: PersistedCaptureWorkingOrphan
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            LabeledContent(
-                orphan.kind == .abandonedRevision
-                    ? String(localized: "Abandoned revision")
-                    : String(localized: "Writer temp file"),
-                value: orphan.url.lastPathComponent
-            )
-            LabeledContent(
-                "Retained bytes",
-                value: String(orphan.retainedBytes)
-            )
-            Button("Delete", role: .destructive) {
-                actions.removeWorkingOrphan(orphan)
-            }
-            .disabled(hostBusy)
-        }
-    }
-
-    private func quarantinedArtifactRow(
-        _ artifact: PersistedCaptureQuarantinedArtifact
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            LabeledContent(
-                "Unreadable artifact",
-                value: artifact.url.lastPathComponent
-            )
-            Text(artifact.reason)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Button("Remove artifact", role: .destructive) {
-                actions.removeQuarantinedArtifact(artifact)
-            }
-            .disabled(hostBusy)
-        }
-    }
 
     private func progressRow(_ text: LocalizedStringKey) -> some View {
         HStack(spacing: 12) {
@@ -2378,43 +1860,43 @@ public struct CaptureRootView: View {
         }
     }
 
-    private func localizedPermission(
-        _ status: CameraPermissionStatus
-    ) -> String {
-        switch status {
-        case .notDetermined:
-            return String(localized: "Not determined")
-        case .authorized:
-            return String(localized: "Authorized")
-        case .denied:
-            return String(localized: "Denied")
-        case .restricted:
-            return String(localized: "Restricted")
-        case .unavailable:
-            return String(localized: "Unavailable")
+    /// Maps the capture state onto the frozen status vocabulary
+    /// (#361/#364): every screen reports state through the same
+    /// symbol+label.
+    private func captureStateStatus(
+        _ state: CaptureState
+    ) -> CaptureSemanticStatus {
+        switch state {
+        case .idle, .setup, .capabilityCheck, .permissions,
+             .preparing:
+            return .pending
+        case .scanning, .annotating:
+            return .pending
+        case .paused:
+            return .pending
+        case .reviewing:
+            return .needsReview
+        case .validating:
+            return .pending
+        case .finalized:
+            return .finalized
+        case .exported:
+            return .verified
+        case .failed:
+            return .blocked
         }
     }
 
-    private func localizedFailure(_ failure: CaptureFailureCode) -> String {
-        switch failure {
-        case .permissionDenied:
-            return String(localized: "Permission denied")
-        case .unsupportedDevice:
-            return String(localized: "Unsupported device")
-        case .trackingUnavailable:
-            return String(localized: "Tracking unavailable")
-        case .roomPlanFailure:
-            return String(localized: "RoomPlan failure")
-        case .storagePressure:
-            return String(localized: "Storage pressure")
-        case .persistenceFailure:
-            return String(localized: "Persistence failure")
-        case .thermalPressure:
-            return String(localized: "Thermal pressure")
-        case .interrupted:
-            return String(localized: "Interrupted")
-        case .unknown:
-            return String(localized: "Unknown error")
+    private func integrityStatus(
+        _ status: BundleIntegrityStatus
+    ) -> CaptureSemanticStatus {
+        switch status {
+        case .notChecked:
+            return .pending
+        case .pass:
+            return .verified
+        case .fail:
+            return .blocked
         }
     }
 
@@ -2522,34 +2004,4 @@ public struct CaptureRootView: View {
         }
     }
 
-    private func localizedAvailability(_ available: Bool) -> String {
-        available
-            ? String(localized: "Available")
-            : String(localized: "Unavailable")
-    }
-
-    private func localizedReadiness(_ ready: Bool) -> String {
-        ready
-            ? String(localized: "Ready")
-            : String(localized: "Not ready")
-    }
-
-    private func localizedPassFail(_ pass: Bool) -> String {
-        pass
-            ? String(localized: "Pass")
-            : String(localized: "Fail")
-    }
-
-    private func localizedIntegrity(
-        _ status: BundleIntegrityStatus
-    ) -> String {
-        switch status {
-        case .notChecked:
-            return String(localized: "Not checked")
-        case .pass:
-            return String(localized: "Pass")
-        case .fail:
-            return String(localized: "Fail")
-        }
-    }
 }
