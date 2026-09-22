@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 import HTDTCaptureCore
 
 /// Task-oriented measurement form (#220): the operator picks a common
@@ -36,6 +37,12 @@ public struct MeasurementFormView: View {
     @State private var endpointB = ""
     @State private var showingAdvanced = false
     @State private var errorText: String?
+    @State private var importingInstrumentReading = false
+    @State private var instrumentSession =
+        InstrumentMeasurementSession()
+    @State private var importMakeModel = ""
+    @State private var importMethod: MeasurementAcquisitionMethod =
+        .externalInstrument
 
     // Derived acquisition methods are intentionally absent: every
     // value this form submits is persisted as `user_attested` /
@@ -45,6 +52,16 @@ public struct MeasurementFormView: View {
         .tapeMeasure,
         .laserDistanceMeter,
         .manufacturerSpecification,
+        .other,
+    ]
+
+    /// Physical methods the file/document instrument adapter may
+    /// declare (issue #226/#355). Derived methods are rejected by the
+    /// descriptor itself — an instrument never produces them.
+    private let importMethods: [MeasurementAcquisitionMethod] = [
+        .externalInstrument,
+        .laserDistanceMeter,
+        .tapeMeasure,
         .other,
     ]
 
@@ -210,6 +227,14 @@ public struct MeasurementFormView: View {
                 }
             }
 
+            if editingMeasurement == nil {
+                Section(
+                    String(localized: "Instrument reading (optional)")
+                ) {
+                    instrumentImportContent
+                }
+            }
+
             Section {
                 DisclosureGroup(
                     String(localized: "Advanced"),
@@ -267,6 +292,13 @@ public struct MeasurementFormView: View {
                 }
             }
         }
+        .fileImporter(
+            isPresented: $importingInstrumentReading,
+            allowedContentTypes: [.json, .text],
+            allowsMultipleSelection: false
+        ) { result in
+            importInstrumentReading(result)
+        }
         .navigationTitle(
             editingMeasurement == nil
                 ? String(localized: "Add measurement")
@@ -285,6 +317,172 @@ public struct MeasurementFormView: View {
                     save()
                 }
             }
+        }
+    }
+
+    /// The device-reading import flow (issue #226/#355): the
+    /// operator describes the instrument, imports the file the
+    /// instrument's own tooling produced, reviews the staged reading
+    /// — exact received text, unit, device id, calibration — then
+    /// explicitly confirms it into a pending measurement. A failed
+    /// or stale file never overwrites typed input; the manual path
+    /// stays untouched underneath.
+    @ViewBuilder
+    private var instrumentImportContent: some View {
+        Picker(
+            String(localized: "Instrument method"),
+            selection: $importMethod
+        ) {
+            ForEach(importMethods, id: \.self) { method in
+                Text(
+                    AnnotationPresentation
+                        .acquisitionMethodName(method)
+                )
+                .tag(method)
+            }
+        }
+        TextField(
+            String(localized: "Instrument make/model"),
+            text: $importMakeModel
+        )
+        Button(
+            String(localized: "Import reading file…")
+        ) {
+            importingInstrumentReading = true
+        }
+        .disabled(importMakeModel.isEmpty)
+        if let pending = instrumentSession.pending {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(String(localized: "Staged device reading"))
+                    .font(.subheadline.weight(.semibold))
+                Text(
+                    String(pending.reading.value) + " "
+                        + pending.reading.unit.rawValue
+                )
+                Text(
+                    String(localized: "Received: ")
+                        + pending.reading.receivedValueText
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                if let deviceID =
+                    pending.reading.deviceMeasurementID
+                {
+                    Text(
+                        String(localized: "Device id: ") + deviceID
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                if let observedAt = pending.reading.observedAtUTC {
+                    Text(
+                        String(localized: "Observed at: ")
+                            + observedAt
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                if let calibration =
+                    pending.reading.calibrationStatus
+                {
+                    Text(
+                        String(localized: "Calibration: ")
+                            + calibration
+                            + (pending.reading.calibrationDate
+                                .map { " · " + $0 } ?? "")
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Button(
+                        String(localized: "Use this reading")
+                    ) {
+                        confirmPendingReading()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button(
+                        String(localized: "Discard")
+                    ) {
+                        instrumentSession.clearPending()
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+        }
+        Text(
+            "Reads a value file exported by the instrument (JSON or \"4.215 m\" text). The reading is staged first — nothing is recorded until you confirm it."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    private func importInstrumentReading(
+        _ result: Result<[URL], Error>
+    ) {
+        do {
+            let urls = try result.get()
+            guard let url = urls.first else {
+                return
+            }
+            let accessing =
+                url.startAccessingSecurityScopedResource()
+            defer {
+                if accessing {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+            let data = try Data(contentsOf: url)
+            let descriptor = try InstrumentAdapterDescriptor(
+                adapterID: "file-import",
+                acquisitionMethod: importMethod,
+                makeModel: importMakeModel,
+                transport: "file"
+            )
+            let adapter = FileImportInstrumentAdapter(
+                descriptor: descriptor,
+                data: data
+            )
+            Task {
+                // The session is a value type; mutate a copy so the
+                // staged write lands after the async adapter call.
+                var session = instrumentSession
+                do {
+                    _ = try await session.stageReading(
+                        from: adapter
+                    )
+                    instrumentSession = session
+                    errorText = nil
+                } catch {
+                    instrumentSession = session
+                    errorText = AnnotationPresentation
+                        .errorText(error)
+                }
+            }
+        } catch {
+            errorText = AnnotationPresentation.errorText(error)
+        }
+    }
+
+    private func confirmPendingReading() {
+        guard let pending = instrumentSession.pending else {
+            return
+        }
+        do {
+            let endpoints = try endpointRefs()
+            let measurement =
+                try instrumentSession.confirmMeasurement(
+                    pending,
+                    quantityType: quantityType,
+                    coordinateSpaceID:
+                        endpoints.isEmpty ? nil : coordinateSpaceID,
+                    endpointRefs: endpoints,
+                    evidenceRefs: selectedEvidenceRefs.sorted()
+                )
+            onSave(measurement)
+            dismiss()
+        } catch {
+            errorText = AnnotationPresentation.errorText(error)
         }
     }
 

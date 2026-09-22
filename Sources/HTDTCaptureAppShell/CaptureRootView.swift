@@ -120,6 +120,21 @@ public struct CaptureRootActions {
     public let inspectFailedCapture: () -> Void
     public let exportFailedCaptureDiagnostics:
         () async -> URL?
+    /// Mission workflows (#353) + closed-loop repair (#321).
+    public let importMissionDocument: (URL) -> Void
+    public let markTaskPlanItem:
+        (String, TaskPlanItemOutcome) -> Void
+    public let setConnectedSpaceIntent: (Bool) -> Void
+    public let beginConnectedSegment:
+        (String, CaptureRegionKind) -> Void
+    public let completeConnectedSegment: () -> Void
+    public let recordConnectedPortal: (CaptureRegionID) -> Void
+    public let revisitConnectedRegion: (CaptureRegionID) -> Void
+    public let asBuiltMarkUnavailable: (String) -> Void
+    public let asBuiltEstablishAlignment: () -> Void
+    public let asBuiltRecordActual:
+        (String, AnnotationEntityID) -> Void
+    public let resolveRepairTask: (HTDTRepairTaskRow) -> Void
     /// Explicit Send-to-HTDT handoff (#225).
     public let sendCaptureToHTDT:
         (HTDTHandoffDestination) async -> Void
@@ -233,6 +248,26 @@ public struct CaptureRootActions {
         inspectFailedCapture: @escaping () -> Void = {},
         exportFailedCaptureDiagnostics: @escaping
             () async -> URL? = { nil },
+        importMissionDocument: @escaping (URL) -> Void
+            = { _ in },
+        markTaskPlanItem: @escaping
+            (String, TaskPlanItemOutcome) -> Void = { _, _ in },
+        setConnectedSpaceIntent: @escaping (Bool) -> Void
+            = { _ in },
+        beginConnectedSegment: @escaping
+            (String, CaptureRegionKind) -> Void = { _, _ in },
+        completeConnectedSegment: @escaping () -> Void = {},
+        recordConnectedPortal: @escaping
+            (CaptureRegionID) -> Void = { _ in },
+        revisitConnectedRegion: @escaping
+            (CaptureRegionID) -> Void = { _ in },
+        asBuiltMarkUnavailable: @escaping (String) -> Void
+            = { _ in },
+        asBuiltEstablishAlignment: @escaping () -> Void = {},
+        asBuiltRecordActual: @escaping
+            (String, AnnotationEntityID) -> Void = { _, _ in },
+        resolveRepairTask: @escaping
+            (HTDTRepairTaskRow) -> Void = { _ in },
         sendCaptureToHTDT: @escaping
             (HTDTHandoffDestination) async -> Void = { _ in },
         deleteExportArchive: @escaping
@@ -301,6 +336,19 @@ public struct CaptureRootActions {
         self.inspectFailedCapture = inspectFailedCapture
         self.exportFailedCaptureDiagnostics =
             exportFailedCaptureDiagnostics
+        self.importMissionDocument = importMissionDocument
+        self.markTaskPlanItem = markTaskPlanItem
+        self.setConnectedSpaceIntent = setConnectedSpaceIntent
+        self.beginConnectedSegment = beginConnectedSegment
+        self.completeConnectedSegment =
+            completeConnectedSegment
+        self.recordConnectedPortal = recordConnectedPortal
+        self.revisitConnectedRegion = revisitConnectedRegion
+        self.asBuiltMarkUnavailable = asBuiltMarkUnavailable
+        self.asBuiltEstablishAlignment =
+            asBuiltEstablishAlignment
+        self.asBuiltRecordActual = asBuiltRecordActual
+        self.resolveRepairTask = resolveRepairTask
         self.sendCaptureToHTDT = sendCaptureToHTDT
         self.deleteExportArchive = deleteExportArchive
         self.updateLibraryEntry = updateLibraryEntry
@@ -527,6 +575,20 @@ public struct CaptureRootView: View {
     public let failedInspection: FailedCaptureInspection?
     /// Spatial authority sealed for finalization (#276).
     public let spatialCaptureSealed: Bool
+    /// Mission workflow state surfaced on the root (#353/#321).
+    public let missionEntries: [MissionWorkflowEntry]
+    public let missionTaskPlan: HTDTCaptureTaskPlan?
+    public let missionTaskPlanOutcomes:
+        [CaptureTaskPlanStatusDocument.ItemOutcome]
+    public let connectedSpaceIntent: Bool
+    public let connectedTracker: ConnectedSpaceTracker?
+    public let asBuiltPlanLoaded: Bool
+    public let asBuiltItems: [AsBuiltVerificationItem]
+    public let asBuiltGhostOverlayEnabled: Bool
+    public let asBuiltAlignmentInstalled: Bool
+    public let asBuiltActualCandidates: [CaptureAnnotationEntity]
+    public let roomFrameAvailable: Bool
+    public let repairTaskRows: [HTDTRepairTaskRow]
     public let actions: CaptureRootActions
 
     @State private var pendingDeletion:
@@ -544,6 +606,8 @@ public struct CaptureRootView: View {
         LibraryMetadataEditorTarget?
     @State private var libraryQuery = ""
     @State private var diagnosticShareURL: URL?
+    @State private var missionWorkflowsShown = false
+    @State private var importingMissionDocument = false
 
     public init(
         state: CaptureState,
@@ -606,6 +670,19 @@ public struct CaptureRootView: View {
             = CaptureLibraryMetadataDocument(),
         failedInspection: FailedCaptureInspection? = nil,
         spatialCaptureSealed: Bool = false,
+        missionEntries: [MissionWorkflowEntry] = [],
+        missionTaskPlan: HTDTCaptureTaskPlan? = nil,
+        missionTaskPlanOutcomes:
+            [CaptureTaskPlanStatusDocument.ItemOutcome] = [],
+        connectedSpaceIntent: Bool = false,
+        connectedTracker: ConnectedSpaceTracker? = nil,
+        asBuiltPlanLoaded: Bool = false,
+        asBuiltItems: [AsBuiltVerificationItem] = [],
+        asBuiltGhostOverlayEnabled: Bool = false,
+        asBuiltAlignmentInstalled: Bool = false,
+        asBuiltActualCandidates: [CaptureAnnotationEntity] = [],
+        roomFrameAvailable: Bool = false,
+        repairTaskRows: [HTDTRepairTaskRow] = [],
         actions: CaptureRootActions = CaptureRootActions()
     ) {
         self.state = state
@@ -668,6 +745,19 @@ public struct CaptureRootView: View {
         self.libraryMetadata = libraryMetadata
         self.failedInspection = failedInspection
         self.spatialCaptureSealed = spatialCaptureSealed
+        self.missionEntries = missionEntries
+        self.missionTaskPlan = missionTaskPlan
+        self.missionTaskPlanOutcomes = missionTaskPlanOutcomes
+        self.connectedSpaceIntent = connectedSpaceIntent
+        self.connectedTracker = connectedTracker
+        self.asBuiltPlanLoaded = asBuiltPlanLoaded
+        self.asBuiltItems = asBuiltItems
+        self.asBuiltGhostOverlayEnabled =
+            asBuiltGhostOverlayEnabled
+        self.asBuiltAlignmentInstalled = asBuiltAlignmentInstalled
+        self.asBuiltActualCandidates = asBuiltActualCandidates
+        self.roomFrameAvailable = roomFrameAvailable
+        self.repairTaskRows = repairTaskRows
         self.actions = actions
     }
 
@@ -721,6 +811,15 @@ public struct CaptureRootView: View {
             {
                 CaptureSetupView(
                     presentation: captureSetup,
+                    connectedSpaceIntent: Binding(
+                        get: { connectedSpaceIntent },
+                        set: {
+                            actions.setConnectedSpaceIntent($0)
+                        }
+                    ),
+                    onImportMissionDocument: {
+                        importingMissionDocument = true
+                    },
                     beginScanning: actions.beginScanning,
                     cancel: actions.cancelCaptureSetup
                 )
@@ -844,6 +943,30 @@ public struct CaptureRootView: View {
 
                 Section("Controls") {
                     controls
+                }
+
+                // #353: mission workflows reachable from production
+                // root; entries appear only when a mission requires
+                // them. #321: unresolved repair tasks surface here.
+                Section("Mission workflows") {
+                    Button("Mission workflows…") {
+                        missionWorkflowsShown = true
+                    }
+                    Button("Import mission document (.json)") {
+                        importingMissionDocument = true
+                    }
+                    let unresolved = repairTaskRows.filter {
+                        $0.resolvedByRevisionID == nil
+                    }
+                    if !unresolved.isEmpty {
+                        LabeledContent(
+                            "Repair tasks",
+                            value: String(
+                                format: "%d open",
+                                unresolved.count
+                            )
+                        )
+                    }
                 }
 
                 if state == .failed,
@@ -1222,6 +1345,60 @@ public struct CaptureRootView: View {
                     }
                     actions.importCaptureArchive(url)
                 }
+                .fileImporter(
+                    isPresented: $importingMissionDocument,
+                    allowedContentTypes: [.json, .plainText],
+                    allowsMultipleSelection: false
+                ) { result in
+                    guard let urls = try? result.get(),
+                          let url = urls.first
+                    else {
+                        return
+                    }
+                    actions.importMissionDocument(url)
+                }
+                .sheet(isPresented: $missionWorkflowsShown) {
+                    MissionWorkflowsView(
+                        entries: missionEntries,
+                        taskPlan: missionTaskPlan,
+                        taskPlanOutcomes: missionTaskPlanOutcomes,
+                        connectedSpaceIntent: connectedSpaceIntent,
+                        connectedTracker: connectedTracker,
+                        asBuiltPlanLoaded: asBuiltPlanLoaded,
+                        asBuiltItems: asBuiltItems,
+                        asBuiltGhostOverlayEnabled:
+                            asBuiltGhostOverlayEnabled,
+                        asBuiltAlignmentInstalled:
+                            asBuiltAlignmentInstalled,
+                        asBuiltActualCandidates:
+                            asBuiltActualCandidates,
+                        roomFrameAvailable: roomFrameAvailable,
+                        repairRows: repairTaskRows,
+                        onMarkTaskPlanItem:
+                            actions.markTaskPlanItem,
+                        onSetConnectedSpaceIntent:
+                            actions.setConnectedSpaceIntent,
+                        onBeginConnectedSegment:
+                            actions.beginConnectedSegment,
+                        onCompleteConnectedSegment:
+                            actions.completeConnectedSegment,
+                        onRecordPortal:
+                            actions.recordConnectedPortal,
+                        onRevisitRegion:
+                            actions.revisitConnectedRegion,
+                        onAsBuiltMarkUnavailable:
+                            actions.asBuiltMarkUnavailable,
+                        onAsBuiltEstablishAlignment:
+                            actions.asBuiltEstablishAlignment,
+                        onAsBuiltRecordActual:
+                            actions.asBuiltRecordActual,
+                        onResolveRepairTask:
+                            actions.resolveRepairTask,
+                        onOpenAnnotationWorkspace:
+                            actions.beginAnnotation
+                    )
+                    .presentationDetents([.medium, .large])
+                }
             }
                 }
             }
@@ -1234,12 +1411,15 @@ public struct CaptureRootView: View {
         case .idle:
             Button("Start capture", action: actions.beginCapture)
                 .disabled(!capabilities.roomPlanMeshEligible)
-
-        case .setup:
-            EmptyView()
+            // #351: import is a library/home action, not a capture
+            // capability — it stays available on non-capture-capable
+            // devices.
             Button("Import .htdtcapture") {
                 importingCaptureArchive = true
             }
+
+        case .setup:
+            EmptyView()
 
         case .capabilityCheck:
             progressRow("Checking device capabilities…")

@@ -37,15 +37,26 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
 /// capture clock or RoomPlan session starts from this view.
 public struct CaptureSetupView: View {
     public let presentation: CaptureSetupPresentation
+    /// Operator's multi-region capture intent (#353): when on, the
+    /// connected-space workflow is reachable for this capture.
+    public let connectedSpaceIntent: Binding<Bool>
+    /// Opens the mission-document importer (task plans, as-built
+    /// plans, repair task plans as .json) (#353/#321).
+    public let onImportMissionDocument: () -> Void
     public let beginScanning: () -> Void
     public let cancel: () -> Void
 
     public init(
         presentation: CaptureSetupPresentation,
+        connectedSpaceIntent: Binding<Bool>
+            = .constant(false),
+        onImportMissionDocument: @escaping () -> Void = {},
         beginScanning: @escaping () -> Void = {},
         cancel: @escaping () -> Void = {}
     ) {
         self.presentation = presentation
+        self.connectedSpaceIntent = connectedSpaceIntent
+        self.onImportMissionDocument = onImportMissionDocument
         self.beginScanning = beginScanning
         self.cancel = cancel
     }
@@ -131,6 +142,23 @@ public struct CaptureSetupView: View {
                 Text(
                     "Turn on normal room lighting for the scan if you can — visual tracking and evidence frames still need light even though depth works in the dark. You can dim the room again afterward."
                 )
+            }
+
+            // #353: mission opt-in lives at setup so a simple
+            // capture is never burdened with mission controls.
+            Section("Mission") {
+                Toggle(
+                    "Multi-region connected capture",
+                    isOn: connectedSpaceIntent
+                )
+                Button("Import mission document (.json)") {
+                    onImportMissionDocument()
+                }
+                Text(
+                    "Task plans, as-built plans, and HTDT repair plans import as .json mission documents."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section {
