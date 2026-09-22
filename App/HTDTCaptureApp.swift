@@ -130,6 +130,11 @@ private struct HTDTCaptureHostView: View {
                 coordinator.pairedDestinations,
             deliveryJobs: coordinator.deliveryJobs,
             libraryMetadata: coordinator.libraryMetadata,
+            localStateUpgradeNotice:
+                coordinator.localStateUpgradeNotice,
+            libraryImportPreview:
+                coordinator.libraryImportPreview,
+            libraryExportURL: coordinator.libraryExportURL,
             failedInspection: coordinator.failedInspection,
             spatialCaptureSealed:
                 coordinator.annotationCoordinateSpaceID == nil
@@ -334,6 +339,19 @@ private struct HTDTCaptureHostView: View {
                     coordinator.deleteExportArchive,
                 updateLibraryEntry:
                     coordinator.updateLibraryEntry,
+                importInboundDocument:
+                    coordinator.importInboundDocument,
+                confirmLibraryImport:
+                    coordinator.confirmLibraryImport,
+                dismissLibraryImport:
+                    coordinator.dismissLibraryImport,
+                exportLibraryPackage:
+                    coordinator.exportLibraryPackage,
+                setSeriesArchived:
+                    coordinator.setSeriesArchived,
+                updateRevisionMark:
+                    coordinator.updateRevisionMark,
+                deleteSeries: coordinator.deleteSeries,
                 derivedExportInfo:
                     coordinator.derivedExportInfo,
                 exportDerived3D:
@@ -375,7 +393,10 @@ private struct HTDTCaptureHostView: View {
             )
         )
         .onOpenURL { url in
-            coordinator.importCaptureArchive(from: url)
+            // #393: every external document enters through the
+            // inbound router — the kind is identified, gated by
+            // capture state, then handed to its owning importer.
+            coordinator.importInboundDocument(from: url)
         }
         // Foregrounding is when an iOS-Settings permission change
         // takes effect (#295).
@@ -596,10 +617,30 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// SHA of the plan bytes bound to `taskPlan` (#386): the mission's
     /// embedded plan import carries its own content digest.
     private var taskPlanSHA256: EvidenceSHA256?
-    /// Operator-facing library metadata (names, notes) layered over the
-    /// persisted inventory (issue #219).
+    /// Operator-facing library metadata (names, notes, series
+    /// lifecycle state, revision marks) layered over the persisted
+    /// inventory (issues #219/#394).
     @Published private(set)
     var libraryMetadata = CaptureLibraryMetadataDocument()
+    /// #390: one-line operator notice when an app-local durable
+    /// document was written by a different app version and could not
+    /// be upgraded — its bytes are preserved and journaled instead
+    /// of silently emptied. nil when everything migrated or nothing
+    /// was preserved.
+    @Published private(set)
+    var localStateUpgradeNotice: String?
+    /// #378: staged library-package import preview awaiting the
+    /// operator's confirm — the owning importer has already
+    /// validated the manifest, every archive, and the merge.
+    @Published private(set)
+    var libraryImportPreview: CaptureLibraryImportPreview?
+    /// Staging directory backing `libraryImportPreview`; discarded
+    /// on confirm or dismiss.
+    private var libraryImportStagingDirectory: URL?
+    /// #378: the most recently written `.htdtcapturelibrary`
+    /// package, offered to the ShareLink row on the home surface.
+    @Published private(set)
+    var libraryExportURL: URL?
     /// Inspection of the retained working set of the current failed
     /// capture (issue #224); populated on demand.
     @Published private(set)
@@ -971,6 +1012,29 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         persistedStore = Self.makePersistedStore()
         captureOriginStore = Self.captureRootDirectory().map {
             CaptureAcquisitionOriginStore(captureRoot: $0)
+        }
+
+        // #390: every registered app-local durable document upgrades
+        // before any store reads it — only through a verified
+        // version step, preserving bytes + a journal entry whenever
+        // the stored version is newer, unreadable, or has no
+        // migration path.
+        if let captureRoot = Self.captureRootDirectory() {
+            let runtime = PlatformRuntimeProvenance.current()
+            let report = LocalStateMigrator.migrate(
+                captureRoot: captureRoot,
+                appVersion: runtime.appVersion,
+                appBuild: runtime.appBuild
+            )
+            let preserved = report.events.filter {
+                $0.outcome != .migrated
+            }
+            if !preserved.isEmpty {
+                localStateUpgradeNotice = HostLocalization.text(
+                    "Some saved app data was written by a different app version and was kept unchanged so nothing was lost",
+                    "異なるバージョンのアプリで保存されたデータは失われないよう変更せずに保持しました"
+                )
+            }
         }
 
         // #338: load the versioned app-local settings before any
@@ -7582,6 +7646,476 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     + Self.persistenceDiagnostic(error)
                     + "]"
             }
+        }
+    }
+
+    /// The single validated file-entry boundary (issue #393):
+    /// identify the document kind, hold its security-scoped access
+    /// for the whole async import, gate by capture state, then hand
+    /// to the owning importer — which remains authoritative for its
+    /// own schema.
+    func importInboundDocument(from url: URL) {
+        let classification =
+            InboundDocumentRouter.classify(url: url)
+        let availability = InboundDocumentRouter.availability(
+            kind: classification.kind,
+            captureState: state
+        )
+        switch availability {
+        case .idleOnly:
+            workingSetStatus = HostLocalization.text(
+                "This document can only be imported while no capture is active",
+                "キャプチャ実行中はこのドキュメントを読み込めません"
+            )
+            return
+        case .unsupported:
+            workingSetStatus = HostLocalization.text(
+                "The selected file is not a recognized HTDT document",
+                "選択したファイルは認識できるHTDTドキュメントではありません"
+            )
+            return
+        case .allowed, .storableDuringActiveCapture:
+            break
+        }
+        switch classification.kind {
+        case .captureBundle:
+            importCaptureArchive(from: url)
+        case .captureLibraryPackage:
+            importLibraryPackage(from: url)
+        case .captureMission:
+            Task { @MainActor [weak self] in
+                await self?.importMissionPackage(url)
+            }
+        case .equipmentCatalog:
+            importEquipmentCatalogDocument(from: url)
+        case .unsupported:
+            break
+        }
+    }
+
+    /// Catalogs arriving via the shared boundary (#393): stored
+    /// without activation while a capture is active — explicit
+    /// adoption stays an operator action on the catalog picker;
+    /// adopted immediately while idle.
+    private func importEquipmentCatalogDocument(
+        from url: URL
+    ) {
+        let access = SecurityScopedAccess(url: url)
+        defer { access.finish() }
+        guard let data = try? Data(contentsOf: url) else {
+            workingSetStatus = HostLocalization.text(
+                "The equipment catalog could not be read",
+                "機器カタログを読み込めませんでした"
+            )
+            return
+        }
+        do {
+            // Decode through the validating snapshot type so the
+            // stored bytes are exactly the validated document.
+            let snapshot = try JSONDecoder().decode(
+                HTDTEquipmentCatalogSnapshot.self,
+                from: data
+            )
+            let encoded = try JSONEncoder().encode(snapshot)
+            if state == .idle {
+                _ = try equipmentCatalogStore?
+                    .storeAndActivate(encoded)
+                equipmentCatalog = snapshot
+                workingSetStatus = HostLocalization.text(
+                    "Equipment catalog imported",
+                    "機器カタログを読み込みました"
+                )
+            } else {
+                _ = try equipmentCatalogStore?.store(encoded)
+                workingSetStatus = HostLocalization.text(
+                    "Equipment catalog stored; activate it from the catalog picker",
+                    "機器カタログを保存しました。カタログピッカーから有効化してください"
+                )
+            }
+            equipmentCatalogLibrary =
+                equipmentCatalogStore?.list()
+                    ?? equipmentCatalogLibrary
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The equipment catalog could not be imported",
+                "機器カタログを読み込めませんでした"
+            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
+    /// #378: validates a `.htdtcapturelibrary` package and stages an
+    /// import preview — manifest → per-archive validation → dedup /
+    /// conflict classification → merge counts. Nothing is imported
+    /// until `confirmLibraryImport`.
+    func importLibraryPackage(from url: URL) {
+        guard state == .idle else {
+            workingSetStatus = HostLocalization.text(
+                "A library package can only be imported while no capture is active",
+                "キャプチャ実行中はライブラリパッケージを読み込めません"
+            )
+            return
+        }
+        guard !importOperationInFlight,
+              !persistedAdoptionInFlight,
+              !persistedDeletionInFlight,
+              persistedStore != nil,
+              let captureRoot = Self.captureRootDirectory()
+        else {
+            return
+        }
+        let access = SecurityScopedAccess(url: url)
+        importOperationInFlight = true
+        workingSetStatus = HostLocalization.text(
+            "Validating the library package",
+            "ライブラリパッケージを検証しています"
+        )
+        let localRecords = persistedInventory.captures
+        Task { @MainActor [weak self] in
+            guard let self else {
+                access.finish()
+                return
+            }
+            defer {
+                access.finish()
+                self.importOperationInFlight = false
+            }
+            let staging = captureRoot
+                .appendingPathComponent(
+                    "library-import-staging",
+                    isDirectory: true
+                )
+                .appendingPathComponent(
+                    UUID().uuidString,
+                    isDirectory: true
+                )
+            do {
+                let preview = try await Task.detached(
+                    priority: .userInitiated
+                ) {
+                    try CaptureLibraryImporter.preview(
+                        package: url,
+                        captureRoot: captureRoot,
+                        localRecords: localRecords,
+                        stagingDirectory: staging
+                    )
+                }.value
+                guard self.state == .idle else {
+                    try? CaptureLibraryImporter.discard(
+                        preview: preview
+                    )
+                    return
+                }
+                self.libraryImportStagingDirectory = staging
+                self.libraryImportPreview = preview
+                self.workingSetStatus =
+                    preview.importableCount > 0
+                    ? HostLocalization.text(
+                        "Library package ready: \(preview.importableCount) revision(s) to import",
+                        "ライブラリパッケージを読み込めます: \(preview.importableCount) リビジョン"
+                    )
+                    : HostLocalization.text(
+                        "Nothing new to import from this library package",
+                        "このライブラリパッケージから読み込む新しいリビジョンはありません"
+                    )
+            } catch {
+                try? FileManager.default.removeItem(
+                    at: staging
+                )
+                guard self.state == .idle else { return }
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "The library package failed validation; nothing was imported",
+                        "ライブラリパッケージの検証に失敗したため何も読み込まれませんでした"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+            }
+        }
+    }
+
+    /// #378: commits the staged library import — each new revision's
+    /// archive bytes are installed verbatim, filtered metadata merges
+    /// with adopt-empty / retain-local-conflict, receipts append
+    /// deduped.
+    func confirmLibraryImport() {
+        guard let preview = libraryImportPreview,
+              !importOperationInFlight,
+              let captureRoot = Self.captureRootDirectory()
+        else {
+            return
+        }
+        importOperationInFlight = true
+        workingSetStatus = HostLocalization.text(
+            "Importing the library package",
+            "ライブラリパッケージを読み込んでいます"
+        )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.importOperationInFlight = false
+                self.libraryImportPreview = nil
+                self.libraryImportStagingDirectory = nil
+            }
+            do {
+                let result = try await Task.detached(
+                    priority: .userInitiated
+                ) {
+                    try CaptureLibraryImporter.commit(
+                        preview: preview,
+                        captureRoot: captureRoot
+                    )
+                }.value
+                self.loadPersistedCaptures()
+                self.refreshMissionDeliveryStores()
+                var status = HostLocalization.text(
+                    "Imported \(result.imported.count) revision(s)",
+                    "\(result.imported.count) リビジョンを読み込みました"
+                )
+                if !result.failed.isEmpty {
+                    status += HostLocalization.text(
+                        "; \(result.failed.count) could not be imported and were left untouched",
+                        "。\(result.failed.count) 件は読み込めず変更されていません"
+                    )
+                }
+                if !result.conflicts.isEmpty {
+                    status += HostLocalization.text(
+                        "; \(result.conflicts.count) conflict(s) skipped",
+                        "。\(result.conflicts.count) 件の競合をスキップしました"
+                    )
+                }
+                self.workingSetStatus = status
+            } catch {
+                self.loadPersistedCaptures()
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "The library package import did not complete",
+                        "ライブラリパッケージの読み込みが完了しませんでした"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+            }
+        }
+    }
+
+    /// Dismisses the staged library preview and removes its staging
+    /// directory (#378).
+    func dismissLibraryImport() {
+        if let preview = libraryImportPreview {
+            try? CaptureLibraryImporter.discard(preview: preview)
+        }
+        libraryImportPreview = nil
+        libraryImportStagingDirectory = nil
+    }
+
+    /// #378: exports every persisted capture — active and archived —
+    /// plus filtered metadata and receipts as one
+    /// `.htdtcapturelibrary` package under `exports/` for sharing.
+    func exportLibraryPackage() {
+        guard let captureRoot = Self.captureRootDirectory(),
+              persistedStore != nil,
+              !exportOperationInFlight
+        else {
+            return
+        }
+        exportOperationInFlight = true
+        workingSetStatus = HostLocalization.text(
+            "Exporting the capture library",
+            "キャプチャライブラリを書き出しています"
+        )
+        let records = persistedInventory.captures
+        let metadata = libraryMetadata
+        let receipts = handoffReceipts
+        let destination = captureRoot
+            .appendingPathComponent(
+                "exports",
+                isDirectory: true
+            )
+            .appendingPathComponent(
+                "htdt-library-"
+                    + BundleTimestamp.utcString(from: Date())
+                    .replacingOccurrences(of: ":", with: "-")
+                    + "."
+                    + HTDTCaptureLibraryFileType.filenameExtension,
+                isDirectory: false
+            )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.exportOperationInFlight = false }
+            let runtime = PlatformRuntimeProvenance.current()
+            do {
+                let result = try await Task.detached(
+                    priority: .userInitiated
+                ) {
+                    try CaptureLibraryPackageExporter.export(
+                        records: records,
+                        scope: .all,
+                        metadata: metadata,
+                        receipts: receipts,
+                        destination: destination,
+                        appVersion: runtime.appVersion,
+                        appBuild: runtime.appBuild,
+                        nowUTC: BundleTimestamp.utcString(
+                            from: Date()
+                        )
+                    )
+                }.value
+                self.libraryExportURL = result.packageURL
+                var status = HostLocalization.text(
+                    "Library package exported (\(result.revisionCount) revision(s))",
+                    "ライブラリパッケージを書き出しました（\(result.revisionCount) リビジョン）"
+                )
+                if !result.skippedRevisions.isEmpty {
+                    status += HostLocalization.text(
+                        "; \(result.skippedRevisions.count) revision(s) had no exportable evidence",
+                        "。\(result.skippedRevisions.count) リビジョンには書き出せるエビデンスがありませんでした"
+                    )
+                }
+                self.workingSetStatus = status
+            } catch {
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "The library package could not be exported",
+                        "ライブラリパッケージを書き出せませんでした"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+            }
+        }
+    }
+
+    /// #394: archives or restores a series — the lifecycle state is
+    /// app-local metadata; the canonical bundles and receipts are
+    /// untouched.
+    func setSeriesArchived(
+        _ seriesID: CaptureSeriesID,
+        archived: Bool
+    ) {
+        guard let captureRoot = Self.captureRootDirectory()
+        else {
+            return
+        }
+        let store = CaptureLibraryMetadataStore(
+            captureRoot: captureRoot
+        )
+        do {
+            try store.setSeriesState(
+                seriesID,
+                archived: archived,
+                archivedAtUTC: archived
+                    ? BundleTimestamp.utcString(from: Date())
+                    : nil
+            )
+            libraryMetadata = try store.load()
+            workingSetStatus = archived
+                ? HostLocalization.text(
+                    "Series archived; its captures and history are unchanged",
+                    "シリーズをアーカイブしました。キャプチャと履歴は変更されていません"
+                )
+                : HostLocalization.text(
+                    "Series restored to the active library",
+                    "シリーズをアクティブなライブラリに戻しました"
+                )
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The series state could not be saved",
+                "シリーズの状態を保存できませんでした"
+            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
+    /// #394: sets/clears a revision's importance marks — milestone,
+    /// keep local, favorite, pinned.
+    func updateRevisionMark(
+        _ revisionID: CaptureRevisionID,
+        mark: CaptureRevisionMark
+    ) {
+        guard let captureRoot = Self.captureRootDirectory()
+        else {
+            return
+        }
+        let store = CaptureLibraryMetadataStore(
+            captureRoot: captureRoot
+        )
+        do {
+            try store.updateRevisionMark(
+                revisionID,
+                mark: mark
+            )
+            libraryMetadata = try store.load()
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The revision mark could not be saved",
+                "リビジョンのマークを保存できませんでした"
+            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
+    /// #394: dependency-aware series delete — the preview's blockers
+    /// (pending delivery jobs, importance marks without the explicit
+    /// override) skip revisions instead of deleting them, and the
+    /// result names exactly what left the device.
+    func deleteSeries(
+        _ seriesID: CaptureSeriesID,
+        includeProtected: Bool
+    ) {
+        guard let store = persistedStore,
+              let captureRoot = Self.captureRootDirectory(),
+              !persistedDeletionInFlight
+        else {
+            return
+        }
+        persistedDeletionInFlight = true
+        let records = persistedInventory.captures
+        let jobs = deliveryJobs
+        let missions = missionRecords
+        let receipts = handoffReceipts
+        workingSetStatus = HostLocalization.text(
+            "Deleting the series",
+            "シリーズを削除しています"
+        )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.persistedDeletionInFlight = false }
+            let result = await Task.detached(
+                priority: .userInitiated
+            ) {
+                CaptureLibraryRetentionPlanner.deleteSeries(
+                    seriesID: seriesID,
+                    records: records.filter {
+                        $0.captureSeriesID == seriesID
+                    },
+                    allRecords: records,
+                    inventory: store,
+                    metadataStore: CaptureLibraryMetadataStore(
+                        captureRoot: captureRoot
+                    ),
+                    deliveryJobs: jobs,
+                    missionRecords: missions,
+                    receipts: receipts,
+                    includeProtected: includeProtected
+                )
+            }.value
+            self.loadPersistedCaptures()
+            var status = HostLocalization.text(
+                "Deleted \(result.deleted.count) revision(s)",
+                "\(result.deleted.count) リビジョンを削除しました"
+            )
+            if !result.skipped.isEmpty {
+                status += HostLocalization.text(
+                    "; \(result.skipped.count) blocked revision(s) were kept",
+                    "。\(result.skipped.count) 件はブロックされ残っています"
+                )
+            }
+            if !result.remaining.isEmpty {
+                status += HostLocalization.text(
+                    "; \(result.remaining.count) revision(s) could not be fully removed",
+                    "。\(result.remaining.count) 件は完全に削除できませんでした"
+                )
+            }
+            self.workingSetStatus = status
         }
     }
 

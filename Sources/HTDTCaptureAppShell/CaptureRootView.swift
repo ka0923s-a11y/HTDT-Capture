@@ -236,6 +236,29 @@ public struct CaptureRootActions {
     public let updateLibraryEntry:
         (CaptureRevisionID?, CaptureSeriesID?,
          CaptureLibraryEntryMetadata) -> Void
+    /// #393: the shared inbound-document boundary — identifies the
+    /// file, gates it by capture state, and hands it to the owning
+    /// importer.
+    public let importInboundDocument: (URL) -> Void
+    /// #378: commits or dismisses the staged library-package import
+    /// preview shown on the home surface.
+    public let confirmLibraryImport: () -> Void
+    public let dismissLibraryImport: () -> Void
+    /// #378: writes a `.htdtcapturelibrary` package of every
+    /// persisted capture plus filtered metadata and receipts.
+    public let exportLibraryPackage: () -> Void
+    /// #394: archives or restores a series — lifecycle state only;
+    /// canonical bundles are untouched.
+    public let setSeriesArchived:
+        (CaptureSeriesID, Bool) -> Void
+    /// #394: sets a revision's importance marks (milestone,
+    /// keep-local, favorite, pinned).
+    public let updateRevisionMark:
+        (CaptureRevisionID, CaptureRevisionMark) -> Void
+    /// #394: dependency-aware whole-series delete; `Bool` is the
+    /// explicit protected-marks override.
+    public let deleteSeries:
+        (CaptureSeriesID, Bool) -> Void
     /// Derived export support (#306/#318): availability probe plus the
     /// two export actions. All take the finalized capture's revision
     /// id — the host resolves the finalized directory itself.
@@ -500,6 +523,17 @@ public struct CaptureRootActions {
             CaptureSeriesID?,
             CaptureLibraryEntryMetadata
         ) -> Void = { _, _, _ in },
+        importInboundDocument: @escaping (URL) -> Void = { _ in },
+        confirmLibraryImport: @escaping () -> Void = {},
+        dismissLibraryImport: @escaping () -> Void = {},
+        exportLibraryPackage: @escaping () -> Void = {},
+        setSeriesArchived: @escaping
+            (CaptureSeriesID, Bool) -> Void = { _, _ in },
+        updateRevisionMark: @escaping
+            (CaptureRevisionID, CaptureRevisionMark) -> Void
+                = { _, _ in },
+        deleteSeries: @escaping
+            (CaptureSeriesID, Bool) -> Void = { _, _ in },
         derivedExportInfo: @escaping
             (CaptureRevisionID) async -> DerivedExportInfo? = {
                 _ in nil
@@ -650,6 +684,13 @@ public struct CaptureRootActions {
         self.preflightDestination = preflightDestination
         self.deleteExportArchive = deleteExportArchive
         self.updateLibraryEntry = updateLibraryEntry
+        self.importInboundDocument = importInboundDocument
+        self.confirmLibraryImport = confirmLibraryImport
+        self.dismissLibraryImport = dismissLibraryImport
+        self.exportLibraryPackage = exportLibraryPackage
+        self.setSeriesArchived = setSeriesArchived
+        self.updateRevisionMark = updateRevisionMark
+        self.deleteSeries = deleteSeries
         self.derivedExportInfo = derivedExportInfo
         self.exportDerived3D = exportDerived3D
         self.exportSurveyReport = exportSurveyReport
@@ -815,6 +856,15 @@ public struct CaptureRootView: View {
     public let deliveryJobs: [HTDTDeliveryJob]
     /// App-local capture names/notes/series metadata (#219).
     public let libraryMetadata: CaptureLibraryMetadataDocument
+    /// #390: one-line notice when a durable document was preserved
+    /// rather than upgraded (its bytes are kept, never emptied).
+    public let localStateUpgradeNotice: String?
+    /// #378: staged library-package import preview awaiting confirm.
+    public let libraryImportPreview:
+        CaptureLibraryImportPreview?
+    /// #378: the `.htdtcapturelibrary` the host last wrote, offered
+    /// to the home surface's share affordance.
+    public let libraryExportURL: URL?
     /// Retained-evidence inspection for a failed capture (#224).
     public let failedInspection: FailedCaptureInspection?
     /// Required-task mission progress shown in the journey header
@@ -983,6 +1033,10 @@ public struct CaptureRootView: View {
         deliveryJobs: [HTDTDeliveryJob] = [],
         libraryMetadata: CaptureLibraryMetadataDocument
             = CaptureLibraryMetadataDocument(),
+        localStateUpgradeNotice: String? = nil,
+        libraryImportPreview:
+            CaptureLibraryImportPreview? = nil,
+        libraryExportURL: URL? = nil,
         failedInspection: FailedCaptureInspection? = nil,
         spatialCaptureSealed: Bool = false,
         appSettings: CaptureAppSettings = CaptureAppSettings(),
@@ -1086,6 +1140,9 @@ public struct CaptureRootView: View {
         self.pairedDestinations = pairedDestinations
         self.deliveryJobs = deliveryJobs
         self.libraryMetadata = libraryMetadata
+        self.localStateUpgradeNotice = localStateUpgradeNotice
+        self.libraryImportPreview = libraryImportPreview
+        self.libraryExportURL = libraryExportURL
         self.failedInspection = failedInspection
         self.spatialCaptureSealed = spatialCaptureSealed
         self.appSettings = appSettings
@@ -1190,7 +1247,12 @@ public struct CaptureRootView: View {
                     cameraPermission: cameraPermission,
                     persistedInventory: persistedInventory,
                     libraryMetadata: libraryMetadata,
+                    localStateUpgradeNotice:
+                        localStateUpgradeNotice,
+                    libraryImportPreview: libraryImportPreview,
+                    libraryExportURL: libraryExportURL,
                     persistedWorkspace: persistedWorkspace,
+                    handoffReceipts: handoffReceipts,
                     captureOrigins: captureOrigins,
                     missionRecords: missionRecords,
                     activeMissionRecordID: activeMissionRecordID,
