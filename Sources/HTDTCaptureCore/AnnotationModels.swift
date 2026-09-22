@@ -1984,19 +1984,22 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
     /// The payload version this build emits (#332). v1.1.0 adds the
     /// shared typed relation graph (#333), entity lineage (#303), and
     /// the open-token namespace policy (#344).
-    public static let expectedSchemaVersion = "1.1.0"
+    public static let expectedSchemaVersion = "1.2.0"
     /// Every payload version this build can decode (#332): 1.0.0
     /// records are legacy — lineage is unknown and unscoped tokens
-    /// classify `legacy_custom_unscoped`.
+    /// classify `legacy_custom_unscoped`. 1.2.0 adds the
+    /// `same_physical_equipment` relation token and the first-class
+    /// `inventory_item:` endpoint namespace (#403); 1.1.0 payloads
+    /// remain readable.
     public static let supportedSchemaVersions: [String] = [
-        "1.0.0", "1.1.0",
+        "1.0.0", "1.1.0", "1.2.0",
     ]
 
     public let schema: String
     public let schemaVersion: String
     public let entities: [CaptureAnnotationEntity]
     /// Typed semantic relations between entities in this revision
-    /// (#333). Always emitted on v1.1.0 (possibly empty); absent on
+    /// (#333). Always emitted on v1.1.0+ (possibly empty); absent on
     /// v1.0.0 payloads.
     public let relations: [CaptureSemanticRelation]
 
@@ -2031,7 +2034,8 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
         if declaredSchemaVersion != "1.0.0" {
             try Self.validateTokenNamespaces(
                 entities: entities,
-                relations: relations
+                relations: relations,
+                declaredSchemaVersion: declaredSchemaVersion
             )
         }
         self.schema = Self.expectedSchema
@@ -2058,25 +2062,29 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
         relations.filter { $0.references(entityID: entityID) }
     }
 
-    /// Open-token namespace policy (#344): standard tokens or
-    /// custom-scoped tokens only. Unscoped non-standard tokens are
-    /// legacy and never appear on wire-legal v1.1.0 payloads.
+    /// Open-token namespace policy (#344): standard tokens (as pinned
+    /// to `declaredSchemaVersion`, #332) or custom-scoped tokens only.
+    /// Unscoped non-standard tokens are legacy and never appear on
+    /// wire-legal v1.1.0+ payloads.
     private static func validateTokenNamespaces(
         entities: [CaptureAnnotationEntity],
-        relations: [CaptureSemanticRelation]
+        relations: [CaptureSemanticRelation],
+        declaredSchemaVersion: String
     ) throws {
         for entity in entities {
             if let role = entity.channelRole,
                !OpenTokenPolicy.isWireLegal(
                    role.rawValue,
-                   vocabulary: .channelRole
+                   vocabulary: .channelRole,
+                   asOf: declaredSchemaVersion
                )
             {
                 throw AnnotationModelError.unscopedCustomToken
             }
             if !OpenTokenPolicy.isWireLegal(
                 entity.referencePointSemantics.rawValue,
-                vocabulary: .referencePointSemantics
+                vocabulary: .referencePointSemantics,
+                asOf: declaredSchemaVersion
             ) {
                 throw AnnotationModelError.unscopedCustomToken
             }
@@ -2084,7 +2092,8 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
         for relation in relations
         where !OpenTokenPolicy.isWireLegal(
             relation.relationType.rawValue,
-            vocabulary: .relationType
+            vocabulary: .relationType,
+            asOf: declaredSchemaVersion
         ) {
             throw AnnotationModelError.unscopedCustomToken
         }
@@ -2103,8 +2112,34 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
                 ($0.entityID, $0.type)
             }
         )
+        func kind(of endpoint: SemanticRelationEndpoint)
+            -> SemanticRelationEndpointKind?
+        {
+            if let entityID = endpoint.entityID {
+                guard let type = entityTypes[entityID] else {
+                    return nil
+                }
+                return .entity(type)
+            }
+            if endpoint.isInventoryItemRef {
+                // The reserved namespace requires a canonical
+                // AuthorityRecordID (#403) — a malformed inventory ref
+                // is a dangling endpoint, not an external authority.
+                return endpoint.inventoryItemID != nil
+                    ? .inventoryItem : nil
+            }
+            if let ref = endpoint.externalRef {
+                return .externalAuthority(namespace: ref.namespace)
+            }
+            return nil
+        }
         var seenIDs = Set<SemanticRelationID>()
         var seenTuples = Set<String>()
+        // #403: same_physical_equipment is a 1:1 identity equivalence —
+        // each entity and each inventory item may be bound at most
+        // once per revision.
+        var identityBoundEntityIDs = Set<AnnotationEntityID>()
+        var identityBoundItemRefs = Set<String>()
         for relation in relations {
             guard seenIDs.insert(relation.relationID).inserted else {
                 throw SemanticRelationGraphError.duplicateRelationID
@@ -2112,24 +2147,31 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
             let endpoints = [relation.subjectRef]
                 + relation.objectRefs
             for endpoint in endpoints {
-                if let entityID = endpoint.entityID {
-                    guard entityTypes[entityID] != nil else {
-                        throw SemanticRelationGraphError
-                            .danglingEntityReference
-                    }
-                } else if endpoint.externalRef == nil {
+                guard kind(of: endpoint) != nil else {
                     throw SemanticRelationGraphError.danglingEntityReference
                 }
             }
-            let subjectType = relation.subjectRef.entityID
-                .flatMap { entityTypes[$0] }
+            guard let subjectKind = kind(of: relation.subjectRef)
+            else {
+                throw SemanticRelationGraphError.danglingEntityReference
+            }
+            let isIdentityBinding =
+                relation.relationType == .samePhysicalEquipment
+            if isIdentityBinding {
+                // Identity equivalence is pairwise: exactly one object.
+                guard relation.objectRefs.count == 1 else {
+                    throw SemanticRelationGraphError
+                        .invalidIdentityBindingShape
+                }
+            }
             for objectRef in relation.objectRefs {
-                let objectType = objectRef.entityID
-                    .flatMap { entityTypes[$0] }
+                guard let objectKind = kind(of: objectRef) else {
+                    throw SemanticRelationGraphError.danglingEntityReference
+                }
                 guard SemanticRelationPolicy.allows(
                     relation.relationType,
-                    subjectType: subjectType,
-                    objectType: objectType
+                    subject: subjectKind,
+                    object: objectKind
                 )
                 else {
                     throw SemanticRelationGraphError
@@ -2140,6 +2182,23 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
                     + "\u{0}" + objectRef.rawValue
                 guard seenTuples.insert(tuple).inserted else {
                     throw SemanticRelationGraphError.duplicateRelation
+                }
+            }
+            if isIdentityBinding {
+                for endpoint in endpoints {
+                    if let entityID = endpoint.entityID,
+                       !identityBoundEntityIDs.insert(entityID).inserted
+                    {
+                        throw SemanticRelationGraphError
+                            .duplicatePhysicalEquipmentBinding
+                    }
+                    if endpoint.isInventoryItemRef,
+                       !identityBoundItemRefs
+                           .insert(endpoint.rawValue).inserted
+                    {
+                        throw SemanticRelationGraphError
+                            .duplicatePhysicalEquipmentBinding
+                    }
                 }
             }
         }

@@ -101,12 +101,14 @@
       ],
       "documents": {
         "1.0.0": "entities",
-        "1.1.0": "entities-1.1.0"
+        "1.1.0": "entities-1.1.0",
+        "1.2.0": "entities-1.2.0"
       },
-      "emitted": "1.1.0",
+      "emitted": "1.2.0",
       "read": [
         "1.0.0",
-        "1.1.0"
+        "1.1.0",
+        "1.2.0"
       ]
     },
     "measurements": {

@@ -80,16 +80,42 @@ public struct SemanticRelationType:
     /// subject may be an external topology reference.
     public static let routesToPhysicalSource =
         Self(rawValue: "routes_to_physical_source")!
+    /// Identity equivalence: one annotation entity and one
+    /// `inventory_item:` endpoint describe the same physical installed
+    /// unit (#403). Distinct from same-model equality, `mounted_on`,
+    /// `member_of_rack` and `corresponds_to_planned_target`.
+    public static let samePhysicalEquipment =
+        Self(rawValue: "same_physical_equipment")!
 
     /// The standard tokens defined by this contract version. The set
     /// is pinned per contract — a later contract may add tokens but
     /// never redefines or removes an existing one (#344).
+    /// `same_physical_equipment` entered the vocabulary at entities
+    /// schema_version 1.2.0 (#403).
     public static let standardSet: Set<String> = [
         "mounted_on", "member_of_rack", "listener_point_for_seat",
         "eye_point_for_seat", "supported_by", "behind_screen",
         "terminates_at", "corresponds_to_planned_target",
         "logical_role_binding", "routes_to_physical_source",
+        "same_physical_equipment",
     ]
+
+    /// The standard-token set pinned to a payload's declared
+    /// `schema_version` (#332): tokens introduced by a later contract
+    /// version are not standard vocabulary for older payloads.
+    /// Unknown or newer versions resolve to this build's full set.
+    public static func standardSet(asOf schemaVersion: String?)
+        -> Set<String>
+    {
+        switch schemaVersion {
+        case nil:
+            return standardSet
+        case "1.0.0", "1.1.0":
+            return standardSet.subtracting(["same_physical_equipment"])
+        default:
+            return standardSet
+        }
+    }
 }
 
 /// Reference to a relation endpoint (#333). Endpoints are either
@@ -105,14 +131,20 @@ public struct SemanticRelationEndpoint:
 {
     public let rawValue: String
 
+    /// Namespace reserved for first-class references to a
+    /// `SystemInventoryItem` committed in the same contribution's
+    /// `TheaterAuthorityCollection` (#403). It is not an opaque
+    /// external authority: referential integrity is validated locally.
+    public static let inventoryItemNamespace = "inventory_item"
+
     /// The entity this endpoint references, when it is a same-revision
     /// entity reference.
     public var entityID: AnnotationEntityID? {
         AnnotationEntityID(canonicalString: rawValue)
     }
 
-    /// `(namespace, reference)` when this endpoint is an external
-    /// authority reference.
+    /// `(namespace, reference)` when this endpoint is a namespaced
+    /// authority reference (external or first-class `inventory_item`).
     public var externalRef: (namespace: String, reference: String)? {
         guard entityID == nil,
               let colon = rawValue.firstIndex(of: ":")
@@ -120,6 +152,21 @@ public struct SemanticRelationEndpoint:
         let ns = String(rawValue[..<colon])
         let ref = String(rawValue[rawValue.index(after: colon)...])
         return (ns, ref)
+    }
+
+    /// The inventory item this endpoint references when it uses the
+    /// first-class `inventory_item:` namespace (#403).
+    public var inventoryItemID: AuthorityRecordID? {
+        guard let ref = externalRef,
+              ref.namespace == Self.inventoryItemNamespace
+        else { return nil }
+        return AuthorityRecordID(canonicalString: ref.reference)
+    }
+
+    /// Whether any endpoint namespace is the reserved `inventory_item`
+    /// authority (#403).
+    public var isInventoryItemRef: Bool {
+        externalRef?.namespace == Self.inventoryItemNamespace
     }
 
     public init(rawValue: String) {
@@ -130,8 +177,19 @@ public struct SemanticRelationEndpoint:
         self.rawValue = entityID.description
     }
 
+    /// First-class inventory-item endpoint (#403):
+    /// `inventory_item:<AuthorityRecordID>`.
+    public init(inventoryItemID: AuthorityRecordID) {
+        self.rawValue =
+            "\(Self.inventoryItemNamespace):\(inventoryItemID)"
+    }
+
     /// Parse an endpoint: a bare canonical UUIDv4 entity reference, or
-    /// a `namespace:reference` external authority token.
+    /// a `namespace:reference` authority token. The reserved
+    /// `inventory_item` namespace additionally requires its reference
+    /// to be a canonical `AuthorityRecordID` — a malformed inventory
+    /// ref is an invalid endpoint, never an opaque external token
+    /// (#403).
     public init?(validating rawValue: String) {
         if AnnotationEntityID(canonicalString: rawValue) != nil {
             self.rawValue = rawValue
@@ -145,11 +203,24 @@ public struct SemanticRelationEndpoint:
         else {
             return nil
         }
+        if rawValue.hasPrefix(Self.inventoryItemNamespace + ":") {
+            let ref = String(
+                rawValue.dropFirst(Self.inventoryItemNamespace.count + 1)
+            )
+            guard AuthorityRecordID(canonicalString: ref) != nil else {
+                return nil
+            }
+        }
         self.rawValue = rawValue
     }
 
-    /// External authority endpoint.
+    /// External authority endpoint. The `inventory_item` namespace is
+    /// reserved for the first-class `init(inventoryItemID:)` form and
+    /// is rejected here.
     public init?(externalNamespace namespace: String, reference: String) {
+        guard namespace != Self.inventoryItemNamespace else {
+            return nil
+        }
         let raw = "\(namespace):\(reference)"
         guard let value = SemanticRelationEndpoint(validating: raw),
               value.entityID == nil
@@ -158,6 +229,21 @@ public struct SemanticRelationEndpoint:
     }
 
     public var description: String { rawValue }
+}
+
+/// How a relation endpoint resolves for endpoint-type policy checks
+/// (#333/#403): a same-revision entity of a known type, a first-class
+/// `inventory_item:` reference, or an external authority reference.
+public enum SemanticRelationEndpointKind: Equatable, Sendable {
+    /// Same-revision `AnnotationEntityID` endpoint, resolved to its
+    /// entity type.
+    case entity(AnnotationEntityType)
+    /// `inventory_item:<AuthorityRecordID>` endpoint — a
+    /// `SystemInventoryItem` in the same contribution's authority
+    /// collection.
+    case inventoryItem
+    /// `namespace:reference` endpoint owned by an external authority.
+    case externalAuthority(namespace: String)
 }
 
 public enum SemanticRelationError: Error, Equatable {
@@ -279,81 +365,131 @@ public enum SemanticRelationGraphError: Error, Equatable {
     case disallowedEndpointCombination
     /// A non-standard relation type is not custom-scoped (#344).
     case unscopedCustomRelationType
+    /// `same_physical_equipment` is a pairwise identity equivalence —
+    /// it takes exactly one object endpoint (#403).
+    case invalidIdentityBindingShape
+    /// An entity or inventory item is asserted as the same physical
+    /// unit more than once in one revision — the 1:1 default
+    /// cardinality for `same_physical_equipment` (#403).
+    case duplicatePhysicalEquipmentBinding
 }
 
 /// Entity-type combination policy for the standard relation types
 /// (#333): each known type bounds subject/object roles; custom `x_`
 /// types are open. Endpoint entities are looked up in the same
-/// revision; external endpoints are accepted only where the type
-/// permits.
+/// revision; `inventory_item:` endpoints are first-class references to
+/// the same contribution's inventory (#403); external endpoints are
+/// accepted only where the type permits.
 public enum SemanticRelationPolicy {
+    /// Entity types that can stand for a physical installed unit in a
+    /// `same_physical_equipment` binding (#403): real equipment and
+    /// misc spatial objects — not listening points, seats or
+    /// measurement/reference points.
+    public static let physicalEquipmentEntityTypes:
+        Set<AnnotationEntityType> = [
+            .speaker, .subwoofer, .display, .projectionScreen,
+            .projector, .equipmentRack, .acousticTreatment, .custom,
+        ]
+
     /// Whether `relationType` permits a relation whose subject resolves
-    /// to `subjectType` (nil = external endpoint) and whose object
-    /// resolves to `objectType` (nil = external endpoint).
+    /// to `subject` and whose object resolves to `object`.
     public static func allows(
         _ relationType: SemanticRelationType,
-        subjectType: AnnotationEntityType?,
-        objectType: AnnotationEntityType?
+        subject: SemanticRelationEndpointKind,
+        object: SemanticRelationEndpointKind
     ) -> Bool {
+        func isEntity(
+            _ kind: SemanticRelationEndpointKind,
+            in types: Set<AnnotationEntityType>
+        ) -> Bool {
+            guard case .entity(let type) = kind else { return false }
+            return types.contains(type)
+        }
+        func isEntity(
+            _ kind: SemanticRelationEndpointKind,
+            of type: AnnotationEntityType
+        ) -> Bool {
+            kind == .entity(type)
+        }
         switch relationType.rawValue {
         case "mounted_on":
             // Equipment/fixtures mount onto entities or surfaces.
             // Subject is the mounted device; object may be any entity
             // or an external surface authority.
-            let subjects: Set<AnnotationEntityType> = [
+            return isEntity(subject, in: [
                 .speaker, .subwoofer, .display, .projector,
                 .acousticTreatment, .custom,
-            ]
-            return subjectType.map(subjects.contains) ?? false
+            ])
         case "member_of_rack":
-            // Only rack-housed devices; object must be the rack itself.
-            guard objectType == .equipmentRack else { return false }
-            let subjects: Set<AnnotationEntityType> = [
-                .speaker, .subwoofer, .display, .projector, .custom,
-            ]
-            return subjectType.map(subjects.contains) ?? false
+            // Only rack-housed devices and inventory physical units;
+            // the object must be the rack entity itself. An
+            // `inventory_item:` subject is the canonical rack
+            // membership for non-spatial equipment (#333/#403).
+            guard isEntity(object, of: .equipmentRack) else {
+                return false
+            }
+            switch subject {
+            case .inventoryItem:
+                return true
+            case .entity(let subjectType):
+                return [
+                    AnnotationEntityType.speaker, .subwoofer, .display,
+                    .projector, .custom,
+                ].contains(subjectType)
+            case .externalAuthority:
+                return false
+            }
+        case "same_physical_equipment":
+            // Identity equivalence between exactly one spatial entity
+            // and one inventory item — either direction (#403).
+            switch (subject, object) {
+            case (.entity(let type), .inventoryItem),
+                 (.inventoryItem, .entity(let type)):
+                return physicalEquipmentEntityTypes.contains(type)
+            default:
+                return false
+            }
         case "listener_point_for_seat":
-            let subjects: Set<AnnotationEntityType> = [
+            return isEntity(subject, in: [
                 .listeningPosition, .measurementPoint,
-            ]
-            return subjectType.map(subjects.contains) ?? false
-                && objectType == .seat
+            ]) && isEntity(object, of: .seat)
         case "eye_point_for_seat":
-            let subjects: Set<AnnotationEntityType> = [
+            return isEntity(subject, in: [
                 .referencePoint, .listeningPosition,
-            ]
-            return subjectType.map(subjects.contains) ?? false
-                && objectType == .seat
+            ]) && isEntity(object, of: .seat)
         case "supported_by":
             // Riser/platform support: subject is any physical entity,
-            // object is the supporting entity or an external surface.
-            return subjectType != nil && objectType != nil
+            // object is the supporting entity.
+            guard case .entity = subject,
+                  case .entity = object
+            else { return false }
+            return true
         case "behind_screen":
-            let subjects: Set<AnnotationEntityType> = [
+            return isEntity(subject, in: [
                 .speaker, .subwoofer,
-            ]
-            return subjectType.map(subjects.contains) ?? false
-                && objectType == .projectionScreen
+            ]) && isEntity(object, of: .projectionScreen)
         case "terminates_at":
-            return subjectType != nil && objectType != nil
+            guard case .entity = subject,
+                  case .entity = object
+            else { return false }
+            return true
         case "corresponds_to_planned_target":
             // Observed entity corresponds to a planned target — the
             // target is typically an external HTDT authority ref.
-            return subjectType != nil
+            guard case .entity = subject else { return false }
+            return true
         case "logical_role_binding":
             // A logical channel/role binds to a physical source; the
             // object is an external topology ref or a loudspeaker.
-            let subjects: Set<AnnotationEntityType> = [
+            return isEntity(subject, in: [
                 .speaker, .subwoofer,
-            ]
-            return subjectType.map(subjects.contains) ?? false
+            ])
         case "routes_to_physical_source":
             // Subject may be an external topology ref; object must be
             // the physical loudspeaker.
-            let objects: Set<AnnotationEntityType> = [
+            return isEntity(object, in: [
                 .speaker, .subwoofer,
-            ]
-            return objectType.map(objects.contains) ?? false
+            ])
         default:
             // Custom-scoped relation types are open (#344).
             return true
@@ -368,5 +504,20 @@ extension CaptureSemanticRelation {
     public func references(entityID: AnnotationEntityID) -> Bool {
         subjectRef.entityID == entityID
             || objectRefs.contains { $0.entityID == entityID }
+    }
+
+    /// Whether this relation references `itemID` through an
+    /// `inventory_item:` endpoint (#403).
+    public func references(itemID: AuthorityRecordID) -> Bool {
+        subjectRef.inventoryItemID == itemID
+            || objectRefs.contains { $0.inventoryItemID == itemID }
+    }
+
+    /// Whether any endpoint uses the `inventory_item:` namespace
+    /// (#403) — such relations cannot be committed without the
+    /// authority collection that resolves them.
+    public var referencesInventoryItem: Bool {
+        subjectRef.isInventoryItemRef
+            || objectRefs.contains { $0.isInventoryItemRef }
     }
 }

@@ -13,6 +13,10 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     /// from the committed/candidate annotation collection, or whose
     /// entity type does not match the reference's contract.
     case unresolvedAuthorityReference(String)
+    /// A denormalized authority field disagrees with the canonical
+    /// semantic-relation assertion of the same fact (#333/#403): when
+    /// both forms are present they must agree.
+    case conflictingAuthorityValue(String)
     case invalidSessionFoundationPackage
     case invalidTimingPackage
     case timingFoundationMissing
@@ -2415,7 +2419,8 @@ public actor CaptureWorkingSetStore {
     /// `validateAnnotationMeasurementPackages`.
     private func validateTheaterAuthorityPackage(
         _ authorityPackage: TheaterAuthorityPackage,
-        entities: [CaptureAnnotationEntity]
+        entities: [CaptureAnnotationEntity],
+        relations: [CaptureSemanticRelation]
     ) throws -> (
         authorityDeclaration: BundlePayloadDeclaration,
         coordinateSpaceID: CoordinateSpaceID?
@@ -2433,7 +2438,8 @@ public actor CaptureWorkingSetStore {
 
         try validateAuthorityEntityReferences(
             collection,
-            entities: entities
+            entities: entities,
+            relations: relations
         )
         for snapshot in collection.roomStateSnapshots {
             guard snapshot.captureRevisionID
@@ -2565,9 +2571,14 @@ public actor CaptureWorkingSetStore {
     /// Entity-reference checks that bind authority records to committed
     /// annotation entities: the target must exist and, where the record
     /// contract names an entity kind, carry the matching entity type.
+    /// Relation endpoints resolve here too (#403): the `inventory_item`
+    /// namespace points at this collection's `inventoryItems`, and a
+    /// denormalized `host_rack_entity_id` must agree with the canonical
+    /// `member_of_rack` relation when both are present (#333).
     private func validateAuthorityEntityReferences(
         _ collection: TheaterAuthorityCollection,
-        entities: [CaptureAnnotationEntity]
+        entities: [CaptureAnnotationEntity],
+        relations: [CaptureSemanticRelation]
     ) throws {
         let entityTypes = Dictionary(
             entities.map { ($0.entityID, $0.type) },
@@ -2679,6 +2690,58 @@ public actor CaptureWorkingSetStore {
                 field: "aim_at_entity_id"
             )
         }
+        try validateRelationAuthorityReferences(
+            collection,
+            relations: relations
+        )
+    }
+
+    /// Referential integrity between the annotation relation graph and
+    /// the authority collection (#403): every `inventory_item:`
+    /// endpoint must resolve to an item committed in this collection,
+    /// and a denormalized `host_rack_entity_id` must agree with the
+    /// canonical `member_of_rack` relation when both are present
+    /// (#333). A nil collection means no inventory exists, so any
+    /// `inventory_item:` endpoint dangles.
+    private func validateRelationAuthorityReferences(
+        _ collection: TheaterAuthorityCollection?,
+        relations: [CaptureSemanticRelation]
+    ) throws {
+        let inventoryIDs = Set(
+            (collection?.inventoryItems ?? []).map(\.itemID)
+        )
+        for relation in relations {
+            for endpoint in [relation.subjectRef] + relation.objectRefs
+            where endpoint.isInventoryItemRef {
+                guard let itemID = endpoint.inventoryItemID,
+                      inventoryIDs.contains(itemID)
+                else {
+                    throw CaptureWorkingSetError
+                        .unresolvedAuthorityReference(
+                            "relation \(endpoint.rawValue)"
+                        )
+                }
+            }
+        }
+        for item in collection?.inventoryItems ?? [] {
+            guard let host = item.hostRackEntityID else { continue }
+            let membershipObjects = relations
+                .filter {
+                    $0.relationType == .memberOfRack
+                        && $0.subjectRef.inventoryItemID == item.itemID
+                }
+                .flatMap(\.objectRefs)
+            if !membershipObjects.isEmpty,
+               !membershipObjects.contains(where: {
+                   $0.entityID == host
+               })
+            {
+                throw CaptureWorkingSetError
+                    .conflictingAuthorityValue(
+                        "host_rack_entity_id"
+                    )
+            }
+        }
     }
 
     public func persistAnnotationAndMeasurementPackages(
@@ -2712,10 +2775,24 @@ public actor CaptureWorkingSetStore {
         if let authorityPackage {
             let validated = try validateTheaterAuthorityPackage(
                 authorityPackage,
-                entities: annotationPackage.collection.entities
+                entities: annotationPackage.collection.entities,
+                relations: annotationPackage.collection.relations
             )
             authorityDeclaration = validated.authorityDeclaration
             authoritySpace = validated.coordinateSpaceID
+        } else if let authorityCollection {
+            // No staged authority package: relation endpoints still
+            // resolve against the committed inventory (#403).
+            try validateAuthorityEntityReferences(
+                authorityCollection,
+                entities: annotationPackage.collection.entities,
+                relations: annotationPackage.collection.relations
+            )
+        } else {
+            try validateRelationAuthorityReferences(
+                nil,
+                relations: annotationPackage.collection.relations
+            )
         }
         if let packageSpace, let authoritySpace,
            packageSpace != authoritySpace
@@ -2906,16 +2983,24 @@ public actor CaptureWorkingSetStore {
         if let authorityPackage {
             let validated = try validateTheaterAuthorityPackage(
                 authorityPackage,
-                entities: annotationPackage.collection.entities
+                entities: annotationPackage.collection.entities,
+                relations: annotationPackage.collection.relations
             )
             authorityDeclaration = validated.authorityDeclaration
             authoritySpace = validated.coordinateSpaceID
         } else if let authorityCollection {
             // An entity removed by this replace must not orphan a
-            // committed authority reference.
+            // committed authority reference; relation endpoints
+            // re-resolve against the committed inventory (#403).
             try validateAuthorityEntityReferences(
                 authorityCollection,
-                entities: annotationPackage.collection.entities
+                entities: annotationPackage.collection.entities,
+                relations: annotationPackage.collection.relations
+            )
+        } else {
+            try validateRelationAuthorityReferences(
+                nil,
+                relations: annotationPackage.collection.relations
             )
         }
         if let packageSpace, let authoritySpace,
@@ -7319,7 +7404,8 @@ public actor CaptureWorkingSetStore {
                     collection: collection,
                     data: authorityData
                 ),
-                entities: annotationCollection?.entities ?? []
+                entities: annotationCollection?.entities ?? [],
+                relations: annotationCollection?.relations ?? []
             )
             try register(validated.authorityDeclaration)
             authorityCollection = collection

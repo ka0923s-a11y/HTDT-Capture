@@ -203,8 +203,8 @@ func legacyMeasurementsDecodeWithoutLineage() throws {
 func supportMatrixDecodesEmbeddedDocument() throws {
     let matrix = CaptureBundleSchemaRegistry.supportMatrix
     #expect(matrix.schema == "htdt.capture.bundle-support-matrix")
-    #expect(matrix.families["entities"]?.emitted == "1.1.0")
-    #expect(matrix.families["entities"]?.read == ["1.0.0", "1.1.0"])
+    #expect(matrix.families["entities"]?.emitted == "1.2.0")
+    #expect(matrix.families["entities"]?.read == ["1.0.0", "1.1.0", "1.2.0"])
     #expect(matrix.isExternalAuthorityPath(
         "roomplan/captured-room.json"
     ))
@@ -215,8 +215,12 @@ func supportMatrixDecodesEmbeddedDocument() throws {
 func versionCompatibilityMapping() throws {
     let matrix = CaptureBundleSchemaRegistry.supportMatrix
     #expect(
-        matrix.compatibility(family: "entities", version: "1.1.0")
+        matrix.compatibility(family: "entities", version: "1.2.0")
             == .native
+    )
+    #expect(
+        matrix.compatibility(family: "entities", version: "1.1.0")
+            == .supportedReadOnly
     )
     #expect(
         matrix.compatibility(family: "entities", version: "1.0.0")
@@ -288,6 +292,18 @@ func entitiesPayloadVersionsDispatchToMatchingSchema() throws {
             data: bad
         )
     }
+    // v1.2.0 is the emitted document (#403); the 1.1.0 document
+    // rejects `same_physical_equipment` which only entered the
+    // vocabulary at 1.2.0.
+    let latest = Data(
+        """
+        {"entities":[],"relations":[],"schema":"htdt.capture.entities","schema_version":"1.2.0"}
+        """.utf8
+    )
+    _ = try CanonicalPayloadValidator.validateSchemaOwnedJSON(
+        path: "annotations/entities.json",
+        data: latest
+    )
 }
 
 // MARK: - #333 typed relation graph
