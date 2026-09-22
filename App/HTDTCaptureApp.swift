@@ -101,7 +101,6 @@ private struct HTDTCaptureHostView: View {
                 coordinator.loopClosureAssessment,
             guidanceCuesEnabled:
                 coordinator.guidanceCuesEnabled,
-            appSettings: coordinator.appSettings,
             persistedInventory:
                 coordinator.persistedInventory,
             reviewWorkspace: coordinator.reviewWorkspace,
@@ -118,6 +117,7 @@ private struct HTDTCaptureHostView: View {
             spatialCaptureSealed:
                 coordinator.annotationCoordinateSpaceID == nil
                     && coordinator.annotationAuthorityCommitted,
+            appSettings: coordinator.appSettings,
             actions: CaptureRootActions(
                 beginCapture: coordinator.beginCapture,
                 beginScanning: coordinator.beginScanning,
