@@ -33,6 +33,7 @@ struct HTDTMissionInboxView: View {
     /// Operator note draft for the detail sheet (#463) — seeded
     /// from the record when the sheet opens.
     @State private var userNoteDraft = ""
+    @State private var confirmingArchive = false
 
     private var grouped:
         [String: [String: [HTDTMissionRecord]]]
@@ -1066,6 +1067,13 @@ struct HTDTDeliveryQueueView: View {
     /// contact sheet already has.
     @State private var filter: HTDTDeliveryQueueFilter = .all
     @State private var searchText = ""
+
+    private enum PendingJobAction: Int, Equatable {
+        case cancel
+        case purge
+    }
+    @State private var pendingJobAction:
+        (HTDTDeliveryJob, PendingJobAction)?
 
     private var ordered: [HTDTDeliveryJob] {
         jobs.filter { filter.matches($0) }
