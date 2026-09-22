@@ -19,6 +19,54 @@ public enum MeasurementValueShape: String, Sendable, Equatable {
     case vector3
 }
 
+/// The physical value domain a quantity admits (issue #334). A
+/// syntactically-valid number is not automatically a physically-
+/// possible one — negative room widths or humidities above 100% are
+/// contract violations at authoring time, not quirks to discover in
+/// HTDT.
+public enum MeasurementValueDomain: Sendable, Equatable {
+    /// Real-valued and sign-bearing (e.g. displacement components,
+    /// azimuth).
+    case signedUnbounded
+    /// Zero or positive (e.g. distances).
+    case nonNegative
+    /// Strictly positive (e.g. a room cannot have zero width).
+    case strictlyPositive
+    /// Closed interval `[lower, upper]`; `nil` bounds are open ends.
+    case interval(lowerBound: Double?, upperBound: Double?)
+    /// A normalized 0...1 fraction.
+    case normalizedFraction
+
+    /// Whether a scalar component is inside the domain.
+    public func allows(_ value: Double) -> Bool {
+        guard value.isFinite else { return false }
+        switch self {
+        case .signedUnbounded:
+            return true
+        case .nonNegative:
+            return value >= 0
+        case .strictlyPositive:
+            return value > 0
+        case let .interval(lowerBound, upperBound):
+            if let lowerBound, value < lowerBound { return false }
+            if let upperBound, value > upperBound { return false }
+            return true
+        case .normalizedFraction:
+            return value >= 0 && value <= 1
+        }
+    }
+
+    /// Whether every scalar component of the value is in-domain.
+    public func allows(_ value: MeasurementValue) -> Bool {
+        switch value {
+        case let .scalar(v):
+            return allows(v)
+        case let .vector3(x, y, z):
+            return allows(x) && allows(y) && allows(z)
+        }
+    }
+}
+
 /// One entry of the versioned measurement quantity registry
 /// (issue #287). Registered quantities pin down the physical dimension,
 /// the canonical persisted unit, the value shape, and the endpoint
@@ -40,6 +88,8 @@ public struct MeasurementQuantityDefinition: Sendable, Equatable {
     /// Practical input/display units offered for this quantity
     /// (issue #235); conversion to `canonicalUnit` is deterministic.
     public let inputUnits: [MeasurementInputUnit]
+    /// The physical domain the value must lie in (#334).
+    public let domain: MeasurementValueDomain
 
     public init(
         quantityType: String,
@@ -47,7 +97,8 @@ public struct MeasurementQuantityDefinition: Sendable, Equatable {
         canonicalUnit: MeasurementUnit,
         shape: MeasurementValueShape,
         expectedEndpoints: Int?,
-        inputUnits: [MeasurementInputUnit]
+        inputUnits: [MeasurementInputUnit],
+        domain: MeasurementValueDomain = .signedUnbounded
     ) {
         self.quantityType = quantityType
         self.dimension = dimension
@@ -55,14 +106,18 @@ public struct MeasurementQuantityDefinition: Sendable, Equatable {
         self.shape = shape
         self.expectedEndpoints = expectedEndpoints
         self.inputUnits = inputUnits
+        self.domain = domain
     }
 }
 
 public enum MeasurementQuantityRegistry {
     /// Registry version: bump when entries are added or semantics change.
     /// Wire payloads reference quantities by token; the registry is the
-    /// machine-readable meaning of those tokens (issue #269).
-    public static let version = "1.0.0"
+    /// machine-readable meaning of those tokens (issue #269). v1.1.0
+    /// adds `speaker_to_mlp` and pins a physical value domain per
+    /// standard quantity (#334); it ships with the schema_version 1.1.0
+    /// payloads (#332).
+    public static let version = "1.1.0"
 
     private static let lengthInputUnits: [MeasurementInputUnit] = [
         .meter, .centimeter, .millimeter, .foot, .inch, .footAndInch,
@@ -77,7 +132,8 @@ public enum MeasurementQuantityRegistry {
             canonicalUnit: .meter,
             shape: .scalar,
             expectedEndpoints: 2,
-            inputUnits: lengthInputUnits
+            inputUnits: lengthInputUnits,
+            domain: .strictlyPositive
         ),
         MeasurementQuantityDefinition(
             quantityType: "room_length",
@@ -85,7 +141,8 @@ public enum MeasurementQuantityRegistry {
             canonicalUnit: .meter,
             shape: .scalar,
             expectedEndpoints: 2,
-            inputUnits: lengthInputUnits
+            inputUnits: lengthInputUnits,
+            domain: .strictlyPositive
         ),
         MeasurementQuantityDefinition(
             quantityType: "room_height",
@@ -93,7 +150,8 @@ public enum MeasurementQuantityRegistry {
             canonicalUnit: .meter,
             shape: .scalar,
             expectedEndpoints: 2,
-            inputUnits: lengthInputUnits
+            inputUnits: lengthInputUnits,
+            domain: .strictlyPositive
         ),
         MeasurementQuantityDefinition(
             quantityType: "screen_width",
@@ -101,7 +159,8 @@ public enum MeasurementQuantityRegistry {
             canonicalUnit: .meter,
             shape: .scalar,
             expectedEndpoints: 2,
-            inputUnits: lengthInputUnits
+            inputUnits: lengthInputUnits,
+            domain: .strictlyPositive
         ),
         MeasurementQuantityDefinition(
             quantityType: "screen_height",
@@ -117,7 +176,8 @@ public enum MeasurementQuantityRegistry {
             canonicalUnit: .meter,
             shape: .scalar,
             expectedEndpoints: 2,
-            inputUnits: lengthInputUnits
+            inputUnits: lengthInputUnits,
+            domain: .strictlyPositive
         ),
         MeasurementQuantityDefinition(
             quantityType: "speaker_distance",
@@ -125,7 +185,8 @@ public enum MeasurementQuantityRegistry {
             canonicalUnit: .meter,
             shape: .scalar,
             expectedEndpoints: 2,
-            inputUnits: lengthInputUnits
+            inputUnits: lengthInputUnits,
+            domain: .nonNegative
         ),
         MeasurementQuantityDefinition(
             quantityType: "speaker_spacing",
@@ -133,7 +194,20 @@ public enum MeasurementQuantityRegistry {
             canonicalUnit: .meter,
             shape: .scalar,
             expectedEndpoints: 2,
-            inputUnits: lengthInputUnits
+            inputUnits: lengthInputUnits,
+            domain: .nonNegative
+        ),
+        /// Speaker-to-primary-listener (MLP) distance — the value the
+        /// speaker_to_mlp task template writes (#344: a token used by
+        /// the capture UI must be standard, never an unscoped custom).
+        MeasurementQuantityDefinition(
+            quantityType: "speaker_to_mlp",
+            dimension: .length,
+            canonicalUnit: .meter,
+            shape: .scalar,
+            expectedEndpoints: 2,
+            inputUnits: lengthInputUnits,
+            domain: .nonNegative
         ),
         MeasurementQuantityDefinition(
             quantityType: "listener_distance",
@@ -141,7 +215,8 @@ public enum MeasurementQuantityRegistry {
             canonicalUnit: .meter,
             shape: .scalar,
             expectedEndpoints: 2,
-            inputUnits: lengthInputUnits
+            inputUnits: lengthInputUnits,
+            domain: .nonNegative
         ),
         MeasurementQuantityDefinition(
             quantityType: "endpoint_distance",
@@ -149,7 +224,8 @@ public enum MeasurementQuantityRegistry {
             canonicalUnit: .meter,
             shape: .scalar,
             expectedEndpoints: 2,
-            inputUnits: lengthInputUnits
+            inputUnits: lengthInputUnits,
+            domain: .nonNegative
         ),
         MeasurementQuantityDefinition(
             quantityType: "displacement",
@@ -157,7 +233,8 @@ public enum MeasurementQuantityRegistry {
             canonicalUnit: .meter,
             shape: .vector3,
             expectedEndpoints: 2,
-            inputUnits: lengthInputUnits
+            inputUnits: lengthInputUnits,
+            domain: .signedUnbounded
         ),
         MeasurementQuantityDefinition(
             quantityType: "azimuth",
@@ -165,7 +242,8 @@ public enum MeasurementQuantityRegistry {
             canonicalUnit: .radian,
             shape: .scalar,
             expectedEndpoints: nil,
-            inputUnits: [.radian, .degree]
+            inputUnits: [.radian, .degree],
+            domain: .signedUnbounded
         ),
         MeasurementQuantityDefinition(
             quantityType: "signal_delay",
@@ -173,7 +251,8 @@ public enum MeasurementQuantityRegistry {
             canonicalUnit: .second,
             shape: .scalar,
             expectedEndpoints: nil,
-            inputUnits: [.second]
+            inputUnits: [.second],
+            domain: .nonNegative
         ),
         // Room-condition quantities for the acoustic environment
         // authority (issue #253).
@@ -183,7 +262,9 @@ public enum MeasurementQuantityRegistry {
             canonicalUnit: .degreeCelsius,
             shape: .scalar,
             expectedEndpoints: 0,
-            inputUnits: [.celsius, .fahrenheit]
+            inputUnits: [.celsius, .fahrenheit],
+            // Celsius cannot pass below absolute zero.
+            domain: .interval(lowerBound: -273.15, upperBound: nil)
         ),
         MeasurementQuantityDefinition(
             quantityType: "relative_humidity",
@@ -191,7 +272,8 @@ public enum MeasurementQuantityRegistry {
             canonicalUnit: .percent,
             shape: .scalar,
             expectedEndpoints: 0,
-            inputUnits: [.percent, .fraction]
+            inputUnits: [.percent, .fraction],
+            domain: .interval(lowerBound: 0, upperBound: 100)
         ),
     ]
 
@@ -206,10 +288,12 @@ public enum MeasurementQuantityRegistry {
     }
 
     /// Contract check every production producer applies (issue #287).
-    /// Registered quantities must persist their canonical unit and
-    /// declared value shape/endpoint semantics; unregistered tokens are
-    /// the explicit custom path and are allowed through — their unit
-    /// declares their dimension.
+    /// Registered quantities must persist their canonical unit,
+    /// declared value shape/endpoint semantics, and lie inside their
+    /// physical value domain (#334). Unregistered tokens are the
+    /// explicit custom path: they must carry the reserved `x_`
+    /// namespace prefix (#344) and declare their own domain via their
+    /// unit — the registry cannot know their bounds.
     public static func validate(
         quantityType: String,
         value: MeasurementValue,
@@ -217,6 +301,15 @@ public enum MeasurementQuantityRegistry {
         endpointCount: Int
     ) throws {
         guard let definition = definition(for: quantityType) else {
+            // Custom quantities remain possible — scoped so a custom
+            // token can never silently acquire future standard meaning.
+            guard OpenTokenPolicy.isWireLegal(
+                quantityType,
+                vocabulary: .measurementQuantity
+            )
+            else {
+                throw MeasurementModelError.unscopedCustomQuantity
+            }
             return
         }
         guard unit == definition.canonicalUnit,
@@ -229,6 +322,9 @@ public enum MeasurementQuantityRegistry {
         guard valueShape == definition.shape else {
             throw MeasurementModelError
                 .incompatibleValueShapeForQuantity
+        }
+        guard definition.domain.allows(value) else {
+            throw MeasurementModelError.valueOutsideQuantityDomain
         }
         if let expected = definition.expectedEndpoints {
             if expected == 0 {

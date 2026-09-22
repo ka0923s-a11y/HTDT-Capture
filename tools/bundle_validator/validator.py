@@ -77,26 +77,99 @@ SCHEMA_DIR = (
     Path(__file__).resolve().parents[2] / "schemas" / "capture-bundle-v1"
 )
 
-# Path -> schema mapping for HTDT-Capture-owned JSON payloads. Opaque
-# Apple/raw artifacts (for example roomplan/captured-room*.json) are
-# deliberately absent: no project-owned schema describes them.
-SCHEMA_OWNED_PATHS = {
-    "manifest.json": "manifest.schema.json",
-    "session/capture-session.json": "session.schema.json",
-    "session/device.json": "device.schema.json",
-    "session/capabilities.json": "capabilities.schema.json",
-    "session/capture-configuration.json": "capture-configuration.schema.json",
-    "session/timing.json": "timing.schema.json",
-    "mesh/anchors.json": "mesh-anchors.schema.json",
-    "annotations/entities.json": "entities.schema.json",
-    "annotations/measurements.json": "measurements.schema.json",
-    "annotations/opening-review.json": "opening-review.schema.json",
-    "annotations/authorities.json": "authorities.schema.json",
-    "quality/capture-quality.json": "quality.schema.json",
-    "session/room-reference-frame.json": "room-reference-frame.schema.json",
-    "quality/capture-advisory.json": "capture-advisory.schema.json",
-}
+# Path -> schema-family resolution is driven by
+# support-matrix.json (#332): every schema-owned payload family lists
+# its bundle paths, the published schema document per payload version,
+# the emitted version, and the versions this validator can read.
+# Opaque external authority payloads (roomplan/captured-room*.json)
+# are declared as external families: no project-owned schema applies,
+# they are governed by media type plus lineage binding.
 FRAME_DESCRIPTOR_RE = re.compile(r"^evidence/frames/[^/]+\.json$")
+
+_SUPPORT_MATRIX_PATH = SCHEMA_DIR / "support-matrix.json"
+_support_matrix: dict | None = None
+
+
+def _load_support_matrix() -> dict:
+    global _support_matrix
+    if _support_matrix is None:
+        try:
+            matrix = json.loads(
+                _SUPPORT_MATRIX_PATH.read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValidationError(
+                f"payload support matrix unreadable: {exc}"
+            ) from exc
+        if matrix.get("schema") != "htdt.capture.bundle-support-matrix":
+            raise ValidationError(
+                "payload support matrix has wrong schema token"
+            )
+        _support_matrix = matrix
+    return _support_matrix
+
+
+def _family_for_path(path: str):
+    """Return (family_name, contract) for a bundle path, else (None, None)."""
+    for name, contract in _load_support_matrix()["families"].items():
+        for declared in contract.get("paths", []):
+            if declared == path:
+                return name, contract
+            if "<frame_id>" in declared and FRAME_DESCRIPTOR_RE.fullmatch(
+                path
+            ):
+                return name, contract
+    return None, None
+
+
+def _version_gt(a: str, b: str) -> bool:
+    pa = [int(x) if x.isdigit() else 0 for x in a.split(".")]
+    pb = [int(x) if x.isdigit() else 0 for x in b.split(".")]
+    width = max(len(pa), len(pb))
+    for i in range(width):
+        av = pa[i] if i < len(pa) else 0
+        bv = pb[i] if i < len(pb) else 0
+        if av != bv:
+            return av > bv
+    return False
+
+
+def _schema_document_for_version(
+    path: str, document: dict, family: str, contract: dict
+) -> str:
+    """Resolve the registry document key serving the declared version.
+
+    One schema_version maps to exactly one immutable schema document
+    (#332); unlisted versions fail with an explicit version diagnostic."""
+    documents = contract.get("documents", {})
+    if contract.get("unversioned"):
+        key = documents.get("unversioned")
+        if key is None:
+            raise ValidationError(
+                f"{path}: family {family} has no unversioned document"
+            )
+        return key
+    version = document.get("schema_version")
+    if not isinstance(version, str):
+        raise ValidationError(
+            f"{path}: versioned payload lacks a schema_version member"
+        )
+    key = documents.get(version)
+    if key is None:
+        read = contract.get("read", [])
+        newest = max(read, key=lambda v: [int(x) if x.isdigit() else 0 for x in v.split(".")], default="0")
+        status = (
+            "unsupported_newer"
+            if _version_gt(version, newest)
+            else "unsupported_legacy"
+        )
+        raise ValidationError(
+            f"{path}: family {family} does not support "
+            f"schema_version {version!r} ({status}; "
+            f"supported={sorted(read)})"
+        )
+    return key
+
 
 # Canonical binary payload formats keyed by bundle path extension and by
 # manifest media type. Both signals must agree when both are present.
@@ -734,14 +807,6 @@ class ZipSource:
 _schema_cache: dict[str, object] = {}
 
 
-def _schema_for_path(path: str) -> str | None:
-    """Map a bundle payload path to its published schema filename."""
-    if path in SCHEMA_OWNED_PATHS:
-        return SCHEMA_OWNED_PATHS[path]
-    if FRAME_DESCRIPTOR_RE.fullmatch(path):
-        return "frame.schema.json"
-    return None
-
 
 def _load_schema(name: str):
     schema = _schema_cache.get(name)
@@ -779,15 +844,19 @@ def _binary_format_for(path: str, media_type: str) -> str | None:
 
 
 def _validate_schema_owned_payload(
-    path: str, data: bytes, schema_name: str
+    path: str, data: bytes, family: str, contract: dict
 ):
-    """Enforce canonical JSON bytes and the published schema for a payload."""
+    """Enforce canonical JSON bytes + the versioned published schema."""
     document = parse_json_bytes(data)
     canonical = canonical_payload_json_bytes(document)
     if canonical != data:
         raise ValidationError(
             f"{path} is not Capture Bundle v1 canonical JSON"
         )
+    document_key = _schema_document_for_version(
+        path, document, family, contract
+    )
+    schema_name = f"{document_key}.schema.json"
     schema = _load_schema(schema_name)
     try:
         schema_validate(document, schema)
@@ -1037,9 +1106,18 @@ def validate_bundle(path: Path) -> dict:
 
     # The manifest itself is a schema-owned document; run the published
     # manifest schema as an independent check alongside the dedicated
-    # structural validation above.
+    # structural validation above. The version dispatch goes through
+    # the support matrix like every other schema-owned payload (#332).
+    m_family, m_contract = _family_for_path("manifest.json")
+    if m_contract is None:
+        raise ValidationError(
+            "manifest.json is not covered by the support matrix"
+        )
+    m_doc = _schema_document_for_version(
+        "manifest.json", manifest, m_family, m_contract
+    )
     try:
-        schema_validate(manifest, _load_schema("manifest.schema.json"))
+        schema_validate(manifest, _load_schema(f"{m_doc}.schema.json"))
     except SchemaError as exc:
         raise ValidationError(
             f"manifest.json violates manifest.schema.json: {exc}"
@@ -1066,6 +1144,7 @@ def validate_bundle(path: Path) -> dict:
         )
 
     schema_documents: dict[str, object] = {}
+    payload_versions: dict[str, str] = {}
     binary_facts: dict[str, object] = {}
     for path_text in sorted(declared, key=lambda x: x.encode("utf-8")):
         entry = declared_entries[path_text]
@@ -1080,10 +1159,29 @@ def validate_bundle(path: Path) -> dict:
                 f"SHA-256 mismatch for {path_text}: expected {entry['sha256']} got {digest}"
             )
 
-        schema_name = _schema_for_path(path_text)
-        if schema_name is not None:
+        family, contract = _family_for_path(path_text)
+        if contract is not None and not contract.get("external"):
             schema_documents[path_text] = _validate_schema_owned_payload(
-                path_text, data, schema_name
+                path_text, data, family, contract
+            )
+            version = schema_documents[path_text].get("schema_version")
+            if isinstance(version, str):
+                payload_versions[family] = version
+        elif (
+            contract is None
+            and path_text.endswith(".json")
+            and entry["provenance_class"]
+            not in {"apple_roomplan_raw_scan", "apple_roomplan_inference"}
+        ):
+            # #332: a declared .json payload must be schema-owned or a
+            # registered external authority slot; anything else is a
+            # generic supplemental persistence bypass. Legacy bundles
+            # carrying RoomPlan payloads at non-reserved paths stay
+            # valid and are resolved by the ingestor's provenance
+            # fallback.
+            raise ValidationError(
+                f"{path_text} is a JSON payload owned by no published "
+                "schema or external authority"
             )
 
         binary_format = _binary_format_for(path_text, entry["media_type"])
@@ -1164,6 +1262,7 @@ def validate_bundle(path: Path) -> dict:
         "capture_revision_id": manifest["capture_revision_id"],
         "bundle_digest": bundle_digest,
         "payload_count": len(declared_entries),
+        "payload_versions": payload_versions,
     }
 
 
