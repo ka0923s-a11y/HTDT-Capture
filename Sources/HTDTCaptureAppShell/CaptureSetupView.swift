@@ -136,6 +136,12 @@ public enum CaptureMissionKind: String, Sendable, Equatable {
 /// capture clock or RoomPlan session starts from this view.
 public struct CaptureSetupView: View {
     public let presentation: CaptureSetupPresentation
+    /// Operator's multi-region capture intent (#353): when on, the
+    /// connected-space workflow is reachable for this capture.
+    public let connectedSpaceIntent: Binding<Bool>
+    /// Opens the mission-document importer (task plans, as-built
+    /// plans, repair task plans as .json) (#353/#321).
+    public let onImportMissionDocument: () -> Void
     /// Selected capture-strategy profile (#307): guidance/evidence
     /// budgets only — the choice steers prompts, never quality gates.
     /// `strategyPinned` means a task plan fixed the strategy and the
@@ -169,6 +175,9 @@ public struct CaptureSetupView: View {
 
     public init(
         presentation: CaptureSetupPresentation,
+        connectedSpaceIntent: Binding<Bool>
+            = .constant(false),
+        onImportMissionDocument: @escaping () -> Void = {},
         selectedStrategyID: CaptureStrategyIdentifier = .standard,
         strategyPinnedByTaskPlan: Bool = false,
         planUnderlay: PlanUnderlayDocument? = nil,
@@ -184,6 +193,8 @@ public struct CaptureSetupView: View {
         openCameraSettings: @escaping () -> Void = {}
     ) {
         self.presentation = presentation
+        self.connectedSpaceIntent = connectedSpaceIntent
+        self.onImportMissionDocument = onImportMissionDocument
         self.selectedStrategyID = selectedStrategyID
         self.strategyPinnedByTaskPlan = strategyPinnedByTaskPlan
         self.planUnderlay = planUnderlay
@@ -400,6 +411,23 @@ public struct CaptureSetupView: View {
                 Text(
                     "Turn on normal room lighting for the scan if you can — visual tracking and evidence frames still need light even though depth works in the dark. You can dim the room again afterward."
                 )
+            }
+
+            // #353: mission opt-in lives at setup so a simple
+            // capture is never burdened with mission controls.
+            Section("Mission") {
+                Toggle(
+                    "Multi-region connected capture",
+                    isOn: connectedSpaceIntent
+                )
+                Button("Import mission document (.json)") {
+                    onImportMissionDocument()
+                }
+                Text(
+                    "Task plans, as-built plans, and HTDT repair plans import as .json mission documents."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section {
