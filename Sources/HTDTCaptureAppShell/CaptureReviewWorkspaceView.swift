@@ -158,8 +158,13 @@ public struct CaptureReviewWorkspaceView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(entity.label)
                                 .font(.headline)
-                            Text(entityType + " · " + entityID)
-                                .font(.caption.monospaced())
+                            Text(
+                                entityType + " · " + entityID
+                                    + operatorSuffix(
+                                        entity.authorOperatorID
+                                    )
+                            )
+                            .font(.caption.monospaced())
                         }
                     }
                 }
@@ -171,12 +176,215 @@ public struct CaptureReviewWorkspaceView: View {
                         model.measurements,
                         id: \.measurementID
                     ) { measurement in
-                        LabeledContent(
-                            measurement.quantityType,
-                            value: measurement.measurementID
-                                .description
-                        )
-                        .font(.caption)
+                        VStack(
+                            alignment: .leading,
+                            spacing: 2
+                        ) {
+                            LabeledContent(
+                                measurement.quantityType,
+                                value: measurement.measurementID
+                                    .description
+                            )
+                            .font(.caption)
+                            if let authority =
+                                measurement.instrumentAuthority,
+                               let profile = model.instruments
+                                   .first(where: {
+                                       $0.instrumentID
+                                           == authority
+                                           .instrumentID
+                                           && $0.profileVersion
+                                           == authority
+                                           .profileVersion
+                                   })
+                            {
+                                Text(
+                                    [
+                                        profile.manufacturer,
+                                        profile.model,
+                                        profile.serialOrAssetID
+                                            .map {
+                                                "serial " + $0
+                                            },
+                                        "v"
+                                            + String(
+                                                authority
+                                                    .profileVersion
+                                            ),
+                                    ]
+                                    .compactMap { $0 }
+                                    .joined(separator: " ")
+                                )
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !model.operatorProfiles.isEmpty {
+                Section("Operators") {
+                    ForEach(
+                        model.operatorProfiles,
+                        id: \.operatorID
+                    ) { profile in
+                        VStack(
+                            alignment: .leading,
+                            spacing: 2
+                        ) {
+                            Text(profile.displayName)
+                            Text(
+                                [
+                                    profile.organization,
+                                    profile.role,
+                                ]
+                                .compactMap { $0 }
+                                .joined(separator: " · ")
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            if !model.fieldEvidence.isEmpty {
+                Section("Field evidence") {
+                    ForEach(
+                        model.fieldEvidence,
+                        id: \.evidenceID
+                    ) { record in
+                        VStack(
+                            alignment: .leading,
+                            spacing: 2
+                        ) {
+                            Text(record.title)
+                            Text(
+                                [
+                                    FieldAuthorityPresentation
+                                        .evidenceKindName(
+                                            record.kind
+                                        ),
+                                    record.acquisition.rawValue,
+                                    record.asset?.assetPath
+                                        ?? record.asset?.frameRef,
+                                ]
+                                .compactMap { $0 }
+                                .joined(separator: " · ")
+                            )
+                            .font(.caption.monospaced())
+                            if let operatorID = record.operatorID {
+                                Text(
+                                    "author: "
+                                        + operatorName(
+                                            operatorID
+                                        )
+                                )
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !model.instruments.isEmpty {
+                Section("Measurement instruments") {
+                    ForEach(
+                        model.instruments,
+                        id: \.id
+                    ) { instrument in
+                        VStack(
+                            alignment: .leading,
+                            spacing: 2
+                        ) {
+                            Text(
+                                [
+                                    instrument.manufacturer,
+                                    instrument.model,
+                                ]
+                                .compactMap { $0 }
+                                .joined(separator: " ")
+                            )
+                            Text(
+                                [
+                                    instrument
+                                        .serialOrAssetID
+                                        .map {
+                                            "serial " + $0
+                                        },
+                                    FieldAuthorityPresentation
+                                        .calibrationStateName(
+                                            instrument
+                                                .calibrationState
+                                        ),
+                                    instrument.calibrationDate,
+                                    "v"
+                                        + String(
+                                            instrument
+                                                .profileVersion
+                                        ),
+                                ]
+                                .compactMap { $0 }
+                                .joined(separator: " · ")
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            if !model.settingsObservations.isEmpty {
+                Section("Installed settings") {
+                    ForEach(
+                        model.settingsObservations,
+                        id: \.observationID
+                    ) { observation in
+                        VStack(
+                            alignment: .leading,
+                            spacing: 2
+                        ) {
+                            Text(observation.targetRef)
+                                .font(.caption.monospaced())
+                            Text(
+                                "\(observation.settings.count) setting(s) · "
+                                    + observation.recordedAtUTC
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            if !model.wiringRoutes.isEmpty {
+                Section("As-built wiring") {
+                    ForEach(
+                        model.wiringRoutes,
+                        id: \.routeID
+                    ) { route in
+                        VStack(
+                            alignment: .leading,
+                            spacing: 2
+                        ) {
+                            Text(route.cableType)
+                            Text(
+                                [
+                                    FieldAuthorityPresentation
+                                        .routeStateName(
+                                            route.state
+                                        ),
+                                    route.serviceType,
+                                    "\(route.segments.count) segment(s)",
+                                ]
+                                .compactMap { $0 }
+                                .joined(separator: " · ")
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
@@ -415,6 +623,21 @@ public struct CaptureReviewWorkspaceView: View {
             )
         ) ?? current
         openings = current
+    }
+
+    private func operatorName(
+        _ id: OperatorProfileID
+    ) -> String {
+        model.operatorProfiles.first(where: {
+            $0.operatorID == id
+        })?.displayName ?? id.description
+    }
+
+    private func operatorSuffix(
+        _ id: OperatorProfileID?
+    ) -> String {
+        guard let id else { return "" }
+        return " · author: " + operatorName(id)
     }
 
     private func retentionLabel(
