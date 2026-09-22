@@ -96,16 +96,6 @@ private struct HTDTCaptureHostView: View {
                 coordinator.automaticEvidenceFrameCount,
             lowLightGuidanceActive:
                 coordinator.lowLightGuidanceActive,
-            evidenceStorageAdvisory:
-                coordinator.evidenceStorageAdvisory,
-            selectedStrategyID: coordinator.selectedStrategyID,
-            strategyPinnedByTaskPlan:
-                coordinator.strategyPinnedByTaskPlan,
-            captureOrigins: coordinator.captureOrigins,
-            planUnderlayDocument:
-                coordinator.planUnderlayDocument,
-            semanticCorrectionContext:
-                coordinator.semanticCorrectionContext,
             targetScanStatus: coordinator.targetScanStatus,
             declaredRegions: coordinator.declaredRegionList,
             loopClosureCheckActive:
@@ -130,6 +120,16 @@ private struct HTDTCaptureHostView: View {
             spatialCaptureSealed:
                 coordinator.annotationCoordinateSpaceID == nil
                     && coordinator.annotationAuthorityCommitted,
+            evidenceStorageAdvisory:
+                coordinator.evidenceStorageAdvisory,
+            selectedStrategyID: coordinator.selectedStrategyID,
+            strategyPinnedByTaskPlan:
+                coordinator.strategyPinnedByTaskPlan,
+            captureOrigins: coordinator.captureOrigins,
+            planUnderlayDocument:
+                coordinator.planUnderlayDocument,
+            semanticCorrectionContext:
+                coordinator.semanticCorrectionContext,
             activeOperations: coordinator.activeOperations,
             operationTargetRevisionID:
                 coordinator.operationTargetRevisionID,
@@ -653,7 +653,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// The strategy actually used for the active scan — resolved at
     /// `beginCapture` so mid-scan setup edits cannot change budgets.
     private var activeCaptureStrategy: CaptureStrategyProfile =
-        CaptureStrategyCatalog.standard
+        .standard
     /// The source under which `activeCaptureStrategy` was resolved —
     /// echoed into `session/capture-strategy.json` (#307).
     private var pendingStrategySource: CaptureStrategySource =
@@ -6380,7 +6380,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 let profile = await Task.detached(
                     priority: .utility
                 ) {
-                    try? store.storageProfile()
+                    try? await store.storageProfile()
                 }.value
                 let availableBytes =
                     Self.measuredAvailableStorageBytes()
