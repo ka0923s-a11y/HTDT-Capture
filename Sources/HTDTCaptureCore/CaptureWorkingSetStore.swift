@@ -167,9 +167,7 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         practiceCapture: Bool = false,
         endBoundaryFrameIDs: [EvidenceFrameID] = [],
         fieldNotes: [CaptureFieldNote] = [],
-        latestEvidenceDescriptorPath: String? = nil
-        endBoundaryFrameIDs: [EvidenceFrameID] = []
-        endBoundaryFrameIDs: [EvidenceFrameID] = [],
+        latestEvidenceDescriptorPath: String? = nil,
         captureStrategy: CaptureStrategyDocument? = nil,
         planUnderlay: PlanUnderlayDocument? = nil
     ) {
@@ -5627,9 +5625,7 @@ public actor CaptureWorkingSetStore {
                     "evidence/frames/"
                         + $0.frameID.description
                         + ".json"
-                }
-            }
-            },
+                },
             captureStrategy: captureStrategyDocument,
             planUnderlay: planUnderlayDocument
         )

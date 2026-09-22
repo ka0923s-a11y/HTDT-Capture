@@ -899,17 +899,6 @@ private enum ZIPCRC32Library {
     }
 }
 
-private extension Data {
-    mutating func appendLE<T: FixedWidthInteger>(
-        _ value: T
-    ) {
-        var little = value.littleEndian
-        Swift.withUnsafeBytes(of: &little) {
-            append(contentsOf: $0)
-        }
-    }
-}
-
 private extension FileHandle {
     func readExact(count: Int) throws -> Data {
         guard count >= 0 else {

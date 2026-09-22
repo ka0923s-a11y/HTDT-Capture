@@ -76,14 +76,14 @@ public struct CaptureReviewWorkspaceView: View {
     @State private var newOpeningState: RoomOpeningState = .open
     @State private var newOpeningWidth = "0.30"
     @State private var newOpeningHeight = "0.30"
-    @State private var composingFieldNote = false
-    @State private var supersedingFieldNote: CaptureFieldNote?
-    @State private var bindingFieldNote: CaptureFieldNote?
     /// Plan selection is UI state only — it never persists (#367).
     @State private var planSelection:
         RoomPlanPreviewModel.PlanMarker?
     @State private var planFocusToken = 0
     @State private var planLabelMode: ReviewPlanLabelMode = .off
+    @State private var composingFieldNote = false
+    @State private var supersedingFieldNote: CaptureFieldNote?
+    @State private var bindingFieldNote: CaptureFieldNote?
 
     public init(
         model: CaptureReviewWorkspaceModel,
@@ -180,8 +180,6 @@ public struct CaptureReviewWorkspaceView: View {
                 }
             }
 
-            Section("Plan preview") {
-            Section("Plan preview") {
             Section("Plan") {
                 if let plan = model.planPreview {
                     ReviewPlanSurface(
@@ -1588,12 +1586,6 @@ public struct CaptureReviewWorkspaceView: View {
 #if os(iOS)
 /// Loads a preview HEIC lazily for the evidence gallery. Previews are
 /// derived convenience artifacts; a missing/unreadable preview degrades
-/// to a placeholder, never to a hidden failure.
-struct AsyncPreviewImage: View {
-    let url: URL
-/// to a placeholder, never to a hidden failure.
-private struct AsyncPreviewImage: View {
-    let url: URL
 /// to a stable placeholder — never a hidden failure and never a row
 /// jump (issue #367).
 private struct AsyncPreviewImage: View {
