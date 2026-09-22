@@ -19,11 +19,23 @@ public struct WorldPoint3D: Codable, Sendable, Equatable {
         x.isFinite && y.isFinite && z.isFinite
     }
 
+    public static var zero: WorldPoint3D {
+        WorldPoint3D(x: 0, y: 0, z: 0)
+    }
+
     public func distance(to other: WorldPoint3D) -> Double {
+        distanceSquared(to: other).squareRoot()
+    }
+
+    public func distanceSquared(to other: WorldPoint3D) -> Double {
         let dx = x - other.x
         let dy = y - other.y
         let dz = z - other.z
-        return (dx * dx + dy * dy + dz * dz).squareRoot()
+        return dx * dx + dy * dy + dz * dz
+    }
+
+    public func dot(_ other: WorldPoint3D) -> Double {
+        x * other.x + y * other.y + z * other.z
     }
 }
 

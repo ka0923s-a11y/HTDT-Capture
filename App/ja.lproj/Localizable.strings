@@ -274,7 +274,6 @@
 "Spatial observation" = "空間観測";
 "Observed" = "観測あり";
 "Weak" = "弱い";
-"Unknown" = "unknown";
 "%d observed · %d weak" = "観測 %d · 弱い %d";
 "Mesh unavailable" = "メッシュ利用不可";
 "Mesh enabled · no anchors yet" = "メッシュ有効 · アンカー未取得";
@@ -979,6 +978,117 @@
 "Captured RoomPlan element" = "取得済み RoomPlan 要素";
 "Captured mesh anchor" = "取得済みメッシュアンカー";
 "Treatment placement" = "トリートメント配置";
+"Add opening candidate" = "開口部候補を追加";
+"Width m" = "幅 m";
+"Height m" = "高さ m";
+"Mark opening center" = "開口部の中心を記録";
+"Center captured" = "中心を記録済み";
+"Add candidate" = "候補を追加";
+"Field datum (HTDT promotion)" = "フィールド原点（HTDT 昇格）";
+"Origin" = "原点";
+"Axis" = "軸";
+"Vertical datum" = "垂直原点";
+"Promotion reference only: records the capture-world→field datum convention and its exact transform. It is not T_scene_from_capture_world." = "昇格参照のみ。キャプチャワールドからフィールド原点への規約と正確な変換を記録します。T_scene_from_capture_world ではありません。";
+"Remove field datum" = "フィールド原点を削除";
+"No field datum confirmed" = "フィールド原点が確定していません";
+"Confirm from room frame" = "部屋フレームから確定";
+"Confirm a room reference frame first." = "先に部屋の基準フレームを確定してください。";
+"Automatic keyframe" = "自動キーフレーム";
+"Export includes visual evidence?" = "視覚証拠をエクスポートに含めますか？";
+"The archive packages %lld retained camera frame pixel payload(s) with the capture. Open Visual evidence review first if you need to remove unreferenced frames for privacy." = "アーカイブには保持済みカメラフレーム画素ペイロード %lld 件がキャプチャと共に含まれます。プライバシーのため未参照フレームを削除する場合は、先に視覚証拠レビューを開いてください。";
+
+/* Mission/task plan rows (#357/#359). */
+"Mission tasks" = "ミッションタスク";
+"Mission task" = "ミッションタスク";
+"Author record" = "レコードを作成";
+"Bind existing" = "既存を束縛";
+"Unbind" = "束縛を解除";
+"Bind evidence" = "証拠を束縛";
+"planned, not a position" = "計画値 — 座標ではありません";
+"Document an object" = "対象を記録";
+"Select one" = "選択してください";
+"Document the room" = "部屋を記録";
+"Authority records" = "権威レコード";
+"Every record kind — most flows never need this." = "すべてのレコード種別 — ほとんどのフローでは不要です。";
+"Snapshots bind room-state observations — record an observation first." = "スナップショットは部屋状態の観測を束縛します — 先に観測を記録してください。";
+"Record is still referenced" = "レコードはまだ参照されています";
+"Room & surfaces" = "部屋と面";
+"Room state" = "部屋の状態";
+"Objects & furniture" = "対象と家具";
+"Speakers & audio" = "スピーカーと音声";
+"Projection" = "投影";
+"Seating" = "座席";
+"Placement verification" = "配置検証";
+"Routing verification" = "配線検証";
+"Projector commissioning" = "プロジェクター調整";
+"Advanced — every record kind" = "詳細 — すべてのレコード種別";
+"Edit record" = "レコードを編集";
+"Delete record" = "レコードを削除";
+"Record" = "レコード";
+"Detail" = "詳細";
+
+/* Routing verification (#316). */
+"Output channel" = "出力チャンネル";
+"Channel role (L, LFE1, ...)" = "チャンネルロール（L、LFE1…）";
+"Output label (as printed)" = "出力ラベル（印字どおり）";
+"Source unit" = "ソース機器";
+"Device context (preset/config ref)" = "機器コンテキスト（プリセット/設定参照）";
+"Driven speakers" = "駆動するスピーカー";
+"Add speaker/subwoofer annotations first." = "先にスピーカー/サブウーファーのアノテーションを追加してください。";
+"Verification" = "検証";
+"Method" = "方法";
+"Band scope" = "帯域スコープ";
+"A printed cable label never verifies the live signal path." = "印字済みケーブルラベルは実際の信号経路を検証しません。";
+"Revision" = "改訂";
+"Supersedes" = "上書き対象";
+"Select at least one speaker entity." = "スピーカーエンティティを1つ以上選択してください。";
+
+/* Projector commissioning (#335). */
+"Lens-center reference" = "レンズ中心の参照";
+"Mount orientation" = "設置向き";
+"Not recorded" = "未記録";
+"Optics" = "光学系";
+"Throw distance (m)" = "スロー距離（m）";
+"Throw endpoints" = "スロー端点";
+"e.g. lens_center_to_screen_aperture — the exact two points the distance runs between." = "例: lens_center_to_screen_aperture — 距離が結ぶ正確な2点。";
+"Zoom" = "ズーム";
+"Lens shift horizontal" = "レンズシフト（水平）";
+"Lens shift vertical" = "レンズシフト（垂直）";
+"Lens memory preset" = "レンズメモリプリセット";
+"Image" = "映像";
+"Focus" = "フォーカス";
+"Optical axis azimuth deg (optional)" = "光軸方位角（deg・任意）";
+"Optical axis elevation deg (optional)" = "光軸仰角（deg・任意）";
+"Alignment note (optional)" = "アライメントメモ（任意）";
+"Screen semantics record" = "スクリーン意味レコード";
+"Planned spec ref (optional)" = "計画仕様参照（任意）";
+"Attested" = "証言済み";
+"Unknown" = "不明";
+" value" = " の値";
+" numeric" = " の数値";
+"Add a projector annotation first." = "先にプロジェクターのアノテーションを追加してください。";
+
+/* Placement verification / alignment assist (#346). */
+"Design target" = "設計目標";
+"Planned target" = "計画ターゲット";
+"Entity type" = "エンティティ種別";
+"Aimed-at entity" = "照準先エンティティ";
+"Only record an aim when the design defines one — e.g. the MLP." = "設計が照準を定義している場合のみ記録してください（例: MLP）。";
+"Guidance mode" = "ガイダンスモード";
+"Mechanism" = "方式";
+"Authority reference" = "権威参照";
+"Survey offset X (m)" = "測量オフセット X（m）";
+"Survey offset Y (m)" = "測量オフセット Y（m）";
+"Survey offset Z (m)" = "測量オフセット Z（m）";
+"Manual survey translation with identity rotation." = "手動測量による平行移動（回転は単位）。";
+"Without a proven alignment the assist gives textual instructions only — no metric deltas are fabricated." = "実証済みアライメントがない場合、アシストはテキスト指示のみを提供します — メトリック差分は生成されません。";
+"Precision" = "精度";
+"Independent verification" = "独立検証";
+"Final as-built entity" = "最終竣工エンティティ";
+"The final entity is an independent observation — advisory guidance is never the recorded position." = "最終エンティティは独立した観測です — ガイダンスは記録位置になりません。";
+"Deviation appears once target, alignment, and the final entity are known." = "ターゲット・アライメント・最終エンティティが揃うと偏差が表示されます。";
+"Choose the planned target first." = "先に計画ターゲットを選択してください。";
+"Select the final as-built entity." = "最終竣工エンティティを選択してください。";
 
 /* Settings entry point and taxonomy (#338) */
 "Settings" = "設定";
@@ -1199,7 +1309,6 @@
 "Record wiring route" = "配線経路を記録";
 "Replace document" = "書類を差し替え";
 "Role (optional)" = "役割（任意）";
-"Routing verification" = "経路確認";
 "SPL meter" = "SPL メーター";
 "Scale" = "スケール";
 "Scan frame" = "スキャンフレーム";

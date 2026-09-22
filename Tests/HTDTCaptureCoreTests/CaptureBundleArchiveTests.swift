@@ -818,3 +818,43 @@ func missingExistingArchiveMustRebuild() throws {
         ) == .rebuild
     )
 }
+
+@Test
+func storedArchiveReaderExtractsSingleEntry() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+
+    let finalized = try await makeFinalizedArchiveFixture(
+        root: root
+    )
+    let destination = root.appendingPathComponent(
+        "capture.htdtcapture"
+    )
+    _ = try CaptureBundleArchiveExporter.export(
+        finalizedDirectory: finalized.directory,
+        destination: destination
+    )
+
+    // STORED entries sit uncompressed after their local header —
+    // a single small payload (like a frame preview, issue #219) can
+    // be read without walking or decompressing the package.
+    #expect(
+        StoredCaptureBundleArchiveReader.readEntry(
+            archive: destination,
+            path: "payload.bin"
+        ) == Data([1, 2, 3, 4, 5])
+    )
+    #expect(
+        StoredCaptureBundleArchiveReader.readEntry(
+            archive: destination,
+            path: "does-not-exist.bin"
+        ) == nil
+    )
+}

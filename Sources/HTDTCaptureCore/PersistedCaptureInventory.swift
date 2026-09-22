@@ -139,6 +139,67 @@ public struct PersistedCaptureRecord:
     public var retainedByteCount: Int64 {
         (finalizedByteCount ?? 0) + (exportArchiveByteCount ?? 0)
     }
+
+    /// Manifest-declared frame preview paths in stable frame-id order
+    /// (issue #219): `evidence/frames/<id>.preview.heic` entries the
+    /// validated manifest carries — from the finalized bundle's report
+    /// when present, otherwise the export archive's (their digests
+    /// matched at scan time). Only declared previews are candidates —
+    /// undeclared files on disk never count.
+    public var declaredPreviewPaths: [String] {
+        let files =
+            finalizedValidation?.manifest.files
+            ?? exportValidation?.manifest.files
+            ?? []
+        return files.map(\.path)
+            .filter {
+                $0.hasPrefix("evidence/frames/")
+                    && $0.hasSuffix(".preview.heic")
+            }
+            .sorted()
+    }
+
+    /// A representative preview file for library thumbnails (issue
+    /// #219): the first manifest-declared preview present under the
+    /// validated finalized directory. nil when no preview payload was
+    /// retained or only an export archive remains.
+    public func representativePreviewFile() -> URL? {
+        guard let directory = finalizedDirectory else {
+            return nil
+        }
+        for path in declaredPreviewPaths {
+            let url = path.split(separator: "/").reduce(directory) {
+                $0.appendingPathComponent(
+                    String($1),
+                    isDirectory: false
+                )
+            }
+            if (try? url.checkResourceIsReachable()) == true {
+                return url
+            }
+        }
+        return nil
+    }
+
+    /// Representative preview bytes for records whose only copy is
+    /// the validated export archive (issue #219): archive entries
+    /// are stored uncompressed, so the preview payload is read out
+    /// of the single entry's local header without decompressing the
+    /// package. nil when the finalized directory exists (use
+    /// `representativePreviewFile`) or no preview was retained.
+    public func representativePreviewData() -> Data? {
+        if let url = representativePreviewFile() {
+            return try? Data(contentsOf: url)
+        }
+        guard finalizedDirectory == nil,
+              let archive = exportArchive,
+              let path = declaredPreviewPaths.first
+        else { return nil }
+        return StoredCaptureBundleArchiveReader.readEntry(
+            archive: archive,
+            path: path
+        )
+    }
 }
 
 /// Classifies a direct child of the app-owned `working/` root that a
