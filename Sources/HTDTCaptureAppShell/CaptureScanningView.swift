@@ -2617,6 +2617,23 @@ private struct ScanCoverageEndReview: View {
             sectorCount: coverage.sectorCount
         )
     }
+
+    private func verticalBandLabel(
+        _ band: SpatialVerticalDisplayBand
+    ) -> String {
+        switch band {
+        case .lowest:
+            return String(localized: "Floor band")
+        case .lower:
+            return String(localized: "Lower band")
+        case .middle:
+            return String(localized: "Middle band")
+        case .upper:
+            return String(localized: "Upper band")
+        case .highest:
+            return String(localized: "Ceiling band")
+        }
+    }
 }
 
 /// Localized direction copy for coverage surfaces (#343). Every label
@@ -2675,23 +2692,6 @@ private enum StartRelativeDirectionCopy {
             return String(localized: "left of start")
         case .aheadLeft:
             return String(localized: "ahead-left of start")
-        }
-    }
-
-    private func verticalBandLabel(
-        _ band: SpatialVerticalDisplayBand
-    ) -> String {
-        switch band {
-        case .lowest:
-            return String(localized: "Floor band")
-        case .lower:
-            return String(localized: "Lower band")
-        case .middle:
-            return String(localized: "Middle band")
-        case .upper:
-            return String(localized: "Upper band")
-        case .highest:
-            return String(localized: "Ceiling band")
         }
     }
 }

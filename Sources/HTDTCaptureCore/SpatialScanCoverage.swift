@@ -554,8 +554,7 @@ public struct SpatialScanCoverageSummary: Sendable, Equatable {
         meshAvailability: MeshAvailabilityDiagnostic,
         regions: [SpatialCoverageRegion],
         displayBounds: SpatialCoverageBounds?,
-        vertical: SpatialVerticalCoverageSummary = .empty
-        displayBounds: SpatialCoverageBounds?,
+        vertical: SpatialVerticalCoverageSummary = .empty,
         capacity: SpatialCoverageCapacityDiagnostics? = nil,
         recentlyEvictedKeys: Set<SpatialCoverageCellKey> = []
     ) {
@@ -922,7 +921,18 @@ public struct SpatialScanCoverageTracker: Sendable {
                 if regions[key] == nil,
                    regions.count >= maxRegionCount
                 {
-                    evictOldestRegion()
+                    evictLowestValueRegion(
+                        atTimestampSeconds:
+                            sample.sessionTimestampSeconds
+                    )
+                }
+
+                if regions[key] == nil {
+                    regionEntryCount += 1
+                    if recentlyEvictedKeySet.remove(key) != nil {
+                        // A re-observed cell is no longer a forgotten one.
+                        recentlyEvictedKeys.removeAll { $0 == key }
+                    }
                 }
 
                 var region = regions[key] ?? StoredRegion()
@@ -956,6 +966,7 @@ public struct SpatialScanCoverageTracker: Sendable {
                 }
 
                 regions[key] = region
+                peakRegionCount = max(peakRegionCount, regions.count)
             }
 
             // #329: the additive 3D layer keys the same point by
@@ -979,18 +990,6 @@ public struct SpatialScanCoverageTracker: Sendable {
                voxels.count >= maxVoxelCount
             {
                 evictOldestVoxel()
-                evictLowestValueRegion(
-                    atTimestampSeconds:
-                        sample.sessionTimestampSeconds
-                )
-            }
-
-            if regions[key] == nil {
-                regionEntryCount += 1
-                if recentlyEvictedKeySet.remove(key) != nil {
-                    // A re-observed cell is no longer a forgotten one.
-                    recentlyEvictedKeys.removeAll { $0 == key }
-                }
             }
 
             var voxel = voxels[voxelKey] ?? StoredVoxel()
@@ -1023,8 +1022,6 @@ public struct SpatialScanCoverageTracker: Sendable {
             }
 
             voxels[voxelKey] = voxel
-            regions[key] = region
-            peakRegionCount = max(peakRegionCount, regions.count)
         }
 
         return summary()
@@ -1063,8 +1060,7 @@ public struct SpatialScanCoverageTracker: Sendable {
             meshAvailability: latestMeshAvailability,
             regions: publicRegions,
             displayBounds: displayBounds(),
-            vertical: verticalSummary()
-            displayBounds: displayBounds(),
+            vertical: verticalSummary(),
             capacity: SpatialCoverageCapacityDiagnostics(
                 maxRegionCount: maxRegionCount,
                 peakRegionCount: peakRegionCount,
@@ -1328,7 +1324,6 @@ public struct SpatialScanCoverageTracker: Sendable {
         voxels[oldestKey] = nil
     }
 
-    private mutating func evictOldestRegion() {
     /// Capacity eviction (#336) is value-aware and recorded: low-
     /// information regions (weak/transient) are dropped before a
     /// high-confidence `observed` region, and only among the same tier

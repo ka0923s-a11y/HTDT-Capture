@@ -35,8 +35,7 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
         resolvedMode: CaptureMode?,
         taskProfile: CaptureTaskProfile? = nil,
         importedTaskPlan: HTDTCaptureTaskPlan? = nil,
-        taskPlanImportError: String? = nil
-        resolvedMode: CaptureMode?,
+        taskPlanImportError: String? = nil,
         cameraPermission: CameraPermissionStatus? = nil
     ) {
         self.capabilities = capabilities
@@ -161,8 +160,7 @@ public struct CaptureSetupView: View {
         selectTaskProfile: @escaping
             (CaptureTaskProfile?) -> Void = { _ in },
         importTaskPlan: @escaping (URL) -> Void = { _ in },
-        clearTaskPlan: @escaping () -> Void = {}
-        cancel: @escaping () -> Void = {},
+        clearTaskPlan: @escaping () -> Void = {},
         openCameraSettings: @escaping () -> Void = {}
     ) {
         self.presentation = presentation

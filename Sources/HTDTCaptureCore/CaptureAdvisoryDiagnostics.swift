@@ -416,8 +416,7 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
         verticalWeakVoxelCount: Int? = nil,
         verticalWeakVoxelKeys: [String]? = nil,
         verticalBandSummaries:
-            [String: CaptureVerticalBandSummary]? = nil
-        guidanceComplete: Bool,
+            [String: CaptureVerticalBandSummary]? = nil,
         remoteWeakRegionCount: Int? = nil,
         spatialMaxRegionCount: Int? = nil,
         spatialPeakRegionCount: Int? = nil,
@@ -510,6 +509,12 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
         case verticalWeakVoxelCount = "vertical_weak_voxel_count"
         case verticalWeakVoxelKeys = "vertical_weak_voxel_keys"
         case verticalBandSummaries = "vertical_band_summaries"
+        case remoteWeakRegionCount = "remote_weak_region_count"
+        case spatialMaxRegionCount = "spatial_max_region_count"
+        case spatialPeakRegionCount = "spatial_peak_region_count"
+        case spatialRegionEvictionCount = "spatial_region_eviction_count"
+        case spatialCapacitySaturated = "spatial_capacity_saturated"
+        case directionReference = "direction_reference"
     }
 }
 
@@ -533,12 +538,6 @@ public struct CaptureVerticalBandSummary: Sendable, Equatable, Codable {
         case voxelCount = "voxel_count"
         case observedCount = "observed_count"
         case weakCount = "weak_count"
-        case remoteWeakRegionCount = "remote_weak_region_count"
-        case spatialMaxRegionCount = "spatial_max_region_count"
-        case spatialPeakRegionCount = "spatial_peak_region_count"
-        case spatialRegionEvictionCount = "spatial_region_eviction_count"
-        case spatialCapacitySaturated = "spatial_capacity_saturated"
-        case directionReference = "direction_reference"
     }
 }
 

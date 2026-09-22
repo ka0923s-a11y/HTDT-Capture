@@ -826,8 +826,7 @@ public struct CaptureRootView: View {
                         actions.selectTaskProfile(profile, [])
                     },
                     importTaskPlan: actions.importTaskPlan,
-                    clearTaskPlan: actions.clearTaskPlan
-                    cancel: actions.cancelCaptureSetup,
+                    clearTaskPlan: actions.clearTaskPlan,
                     openCameraSettings: actions.openCameraSettings
                 )
             } else if state == .annotating,
