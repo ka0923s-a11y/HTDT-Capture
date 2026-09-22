@@ -545,7 +545,7 @@ public struct AnnotationEntityForm: View {
             if let errorText {
                 Section {
                     Text(errorText)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(CaptureColorRole.blocked.color)
                 }
             }
         }

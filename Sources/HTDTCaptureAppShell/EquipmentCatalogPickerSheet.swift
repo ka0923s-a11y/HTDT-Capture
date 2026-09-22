@@ -174,7 +174,9 @@ public struct EquipmentCatalogPickerSheet: View {
                     )
                     LabeledContent(
                         String(localized: "Kind"),
-                        value: entry.identityKind.rawValue
+                        value: equipmentIdentityKindName(
+                            entry.identityKind
+                        )
                     )
                     LabeledContent(
                         String(localized: "SHA-256"),
@@ -247,6 +249,9 @@ public struct EquipmentCatalogPickerSheet: View {
                     Image(systemName: "info.circle")
                 }
                 .buttonStyle(.borderless)
+                .accessibilityLabel(
+                    String(localized: "Equipment details")
+                )
             }
         }
         .disabled(!compatible)

@@ -151,8 +151,8 @@ public struct AnnotationCameraCaptureSheet: View {
                 Circle()
                     .stroke(
                         probe.status == .hit
-                            ? Color.green
-                            : Color.orange,
+                            ? CaptureColorRole.success.color
+                            : CaptureColorRole.attention.color,
                         lineWidth: 2
                     )
                     .frame(width: 44, height: 44)
@@ -273,7 +273,7 @@ public struct AnnotationCameraCaptureSheet: View {
             if let errorText {
                 Text(errorText)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(CaptureColorRole.blocked.color)
             }
         }
         .padding()

@@ -384,3 +384,128 @@ public struct CaptureSeriesPresentation:
         )
     }
 }
+
+// MARK: - Operator copy helpers (#442/#443)
+
+/// Chooses the singular or plural localized format string for a
+/// count-bearing message (#442). The raw `"(s)"` idiom never reaches
+/// the operator: each call site passes two complete format strings —
+/// one per grammatical form — so the localization audit extracts a
+/// full, translatable sentence for each. Both take the count as their
+/// single numeric argument.
+public func captureCountPhrase(
+    _ count: Int,
+    singular: String,
+    plural: String
+) -> String {
+    String(format: count == 1 ? singular : plural, count)
+}
+
+/// Humanizes a wire token (`"a_b"` → "a b") as a last-resort display
+/// string where a dedicated localized label does not exist yet (#443).
+public func captureHumanizedToken(_ token: String) -> String {
+    token
+        .replacingOccurrences(of: "_", with: " ")
+        .trimmingCharacters(in: .whitespaces)
+}
+
+/// Localized display name for a recoverable working-revision phase
+/// (#441): draft rows lead with this rather than the stored UUID.
+public func workingRevisionPhaseName(
+    _ phase: WorkingRevisionPhase
+) -> String {
+    switch phase {
+    case .liveScanIncomplete:
+        return String(localized: "Scan interrupted")
+    case .endAccepted:
+        return String(localized: "Ended; ready for review")
+    case .semanticAuthoring:
+        return String(localized: "Ended; annotations in progress")
+    case .readyToFinalize:
+        return String(localized: "Ready to finalize")
+    }
+}
+
+/// Localized display name for a plan-underlay alignment method
+/// (#443): the raw `alignment.method` enum token never reaches the
+/// operator.
+public func planUnderlayAlignmentMethodName(
+    _ method: PlanUnderlayAlignmentMethod
+) -> String {
+    switch method {
+    case .htdtDatum:
+        return String(localized: "HTDT datum alignment")
+    case .referencePointPair:
+        return String(localized: "Reference point pair")
+    case .knownDistanceAxis:
+        return String(localized: "Known distance axis")
+    case .fiducialAlignment:
+        return String(localized: "Fiducial marker alignment")
+    }
+}
+
+/// Localized display name for the session's geometry-evidence mode
+/// (#443), tolerating a missing summary value.
+public func observationGeometryEvidenceModeName(
+    _ mode: ObservationGeometryEvidenceMode?
+) -> String {
+    switch mode {
+    case .some(.none):
+        return String(localized: "No geometry evidence")
+    case .some(.depthOnly):
+        return String(localized: "Depth evidence only")
+    case .some(.meshOnly):
+        return String(localized: "RoomPlan mesh only")
+    case .some(.meshAndDepth):
+        return String(localized: "RoomPlan mesh + depth")
+    case nil:
+        return String(localized: "Unknown")
+    }
+}
+
+/// Localized display name for the movement capability guidance
+/// recorded during the scan (#443).
+public func scanMovementCapabilityName(
+    _ capability: ScanMovementCapability?
+) -> String {
+    switch capability {
+    case .some(.unrestricted):
+        return String(localized: "Free movement")
+    case .some(.stationaryOnly):
+        return String(localized: "Stationary only")
+    case .some(.safetyConstrained):
+        return String(localized: "Movement marked unsafe")
+    case nil:
+        return String(localized: "Unknown")
+    }
+}
+
+/// Localized display name for a directional reference convention
+/// (#443): `"start_relative"` is the only convention producers emit
+/// today; unknown tokens degrade to a humanized phrase rather than a
+/// raw wire value.
+public func directionReferenceName(_ raw: String) -> String {
+    switch raw {
+    case "start_relative":
+        return String(localized: "Start direction")
+    default:
+        let humanized = captureHumanizedToken(raw)
+        return humanized.isEmpty
+            ? String(localized: "Unknown")
+            : humanized
+    }
+}
+
+/// Localized display name for an HTDT equipment-catalog identity
+/// kind (#443) — `user_defined` reads "User defined", never the raw
+/// wire token.
+public func equipmentIdentityKindName(
+    _ kind: HTDTEquipmentIdentityKind
+) -> String {
+    switch kind {
+    case .manufacturer:
+        return String(localized: "Manufacturer")
+    case .userDefined:
+        return String(localized: "User defined")
+    }
+}

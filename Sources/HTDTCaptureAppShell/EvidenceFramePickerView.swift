@@ -168,6 +168,9 @@ public struct EvidenceFramePickerView: View {
                     Image(systemName: "eye")
                 }
                 .buttonStyle(.borderless)
+                .accessibilityLabel(
+                    String(localized: "Preview frame")
+                )
 
                 Image(
                     systemName: selected
@@ -224,6 +227,9 @@ public struct EvidenceFramePickerView: View {
                         Image(systemName: "eye")
                     }
                     .buttonStyle(.borderless)
+                    .accessibilityLabel(
+                        String(localized: "Preview frame")
+                    )
                 }
             }
             .contentShape(Rectangle())

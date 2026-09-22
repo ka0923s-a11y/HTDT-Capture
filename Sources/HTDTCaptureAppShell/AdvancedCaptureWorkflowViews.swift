@@ -223,7 +223,7 @@ public struct CaptureTaskPlanChecklistView: View {
                     )
                 )
                 .font(.caption2)
-                .foregroundStyle(.orange)
+                .foregroundStyle(CaptureColorRole.attention.color)
             }
             Menu(String(localized: "Mark")) {
                 Button(

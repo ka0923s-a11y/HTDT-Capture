@@ -398,7 +398,15 @@ public struct CaptureHomeView: View {
         } message: { pending in
             if pending.descendantCount > 0 {
                 Text(
-                    "This permanently deletes the finalized capture and any export archive stored for it from this device. \(pending.descendantCount) revision(s) declare it as their parent — their lineage link will no longer resolve."
+                    captureCountPhrase(
+                        pending.descendantCount,
+                        singular: String(
+                            localized: "This permanently deletes the finalized capture and any export archive stored for it from this device. %lld revision declares it as their parent — its lineage link will no longer resolve."
+                        ),
+                        plural: String(
+                            localized: "This permanently deletes the finalized capture and any export archive stored for it from this device. %lld revisions declare it as their parent — their lineage links will no longer resolve."
+                        )
+                    )
                 )
             } else {
                 Text(
@@ -663,12 +671,14 @@ public struct CaptureHomeView: View {
                             ) {
                                 Text("Library maintenance")
                                 Text(
-                                    String(
-                                        format: String(
-                                            localized:
-                                                "%d item(s) need attention"
+                                    captureCountPhrase(
+                                        maintenanceCount,
+                                        singular: String(
+                                            localized: "%lld item needs attention"
                                         ),
-                                        maintenanceCount
+                                        plural: String(
+                                            localized: "%lld items need attention"
+                                        )
                                     )
                                 )
                                 .font(.caption)
@@ -712,13 +722,22 @@ public struct CaptureHomeView: View {
                 HStack {
                     Text("Library")
                     Text(
-                        String(
-                            format: String(
-                                localized:
-                                    "%d capture(s) · %d series"
-                            ),
+                        captureCountPhrase(
                             homeModel.libraryCaptureCount,
-                            homeModel.librarySeriesCount
+                            singular: String(
+                                localized: "%lld capture"
+                            ),
+                            plural: String(
+                                localized: "%lld captures"
+                            )
+                        ) + " · " + captureCountPhrase(
+                            homeModel.librarySeriesCount,
+                            singular: String(
+                                localized: "%lld series"
+                            ),
+                            plural: String(
+                                localized: "%lld series"
+                            )
                         )
                     )
                     .font(.caption)
@@ -811,12 +830,14 @@ public struct CaptureHomeView: View {
                         ) {
                             Text("Destinations")
                             Text(
-                                String(
-                                    format: String(
-                                        localized:
-                                            "%d paired receiver(s)"
+                                captureCountPhrase(
+                                    pairedDestinations.count,
+                                    singular: String(
+                                        localized: "%lld paired receiver"
                                     ),
-                                    pairedDestinations.count
+                                    plural: String(
+                                        localized: "%lld paired receivers"
+                                    )
                                 )
                             )
                             .font(.caption)
@@ -1035,22 +1056,24 @@ public struct CaptureHomeView: View {
     private var missionsCaption: String {
         let actionable = homeModel.actionableMissions.count
         if actionable > 0 {
-            return String(
-                format: String(
-                    localized: "%d actionable mission(s)"
+            return captureCountPhrase(
+                actionable,
+                singular: String(
+                    localized: "%lld actionable mission"
                 ),
-                actionable
+                plural: String(
+                    localized: "%lld actionable missions"
+                )
             )
         }
         let visible = missionRecords.filter {
             $0.lifecycle != .archived
                 && $0.lifecycle != .superseded
         }
-        return String(
-            format: String(
-                localized: "%d mission(s)"
-            ),
-            visible.count
+        return captureCountPhrase(
+            visible.count,
+            singular: String(localized: "%lld mission"),
+            plural: String(localized: "%lld missions")
         )
     }
 
@@ -1082,7 +1105,7 @@ public struct CaptureHomeView: View {
     private var nextActionSubtitle: String {
         switch homeModel.nextAction {
         case .resumeDraft(let draft):
-            return draft.revisionID.description
+            return workingRevisionPhaseName(draft.phase)
         case .continueMission:
             return String(
                 localized: "Mission in progress — continue"
@@ -1102,7 +1125,7 @@ public struct CaptureHomeView: View {
                     "Capture a room for Home Theater Digital Twin"
             )
         case .openRecentArtifact(let revisionID):
-            return revisionID.description
+            return recentArtifactSubtitle(revisionID)
         case .retryDelivery(let job):
             return job.lastError
                 ?? String(
@@ -1220,18 +1243,54 @@ public struct CaptureHomeView: View {
     private var deliveryRowCaption: String {
         let pending = deliveryJobs.filter { !$0.isTerminal }
         if pending.isEmpty {
-            return String(
-                format: String(localized: "%d delivery job(s)"),
-                deliveryJobs.count
+            return captureCountPhrase(
+                deliveryJobs.count,
+                singular: String(localized: "%lld delivery job"),
+                plural: String(localized: "%lld delivery jobs")
             )
         }
+        let total = deliveryJobs.count
+        let noun = total == 1
+            ? String(localized: "job")
+            : String(localized: "jobs")
         return String(
             format: String(
-                localized: "%d pending of %d delivery job(s)"
+                localized: "%lld pending of %lld delivery %@"
             ),
             pending.count,
-            deliveryJobs.count
+            total,
+            noun
         )
+    }
+
+    /// Subtitle for the "Review latest capture" card: the series
+    /// name plus the finalized date — never the raw UUID (#441).
+    private func recentArtifactSubtitle(
+        _ revisionID: CaptureRevisionID
+    ) -> String {
+        guard let record = persistedInventory.captures
+            .first(where: {
+                $0.captureRevisionID == revisionID
+            })
+        else {
+            return String(localized: "Latest finalized capture")
+        }
+        let series = libraryGroups.first(where: {
+            $0.captureSeriesID == record.captureSeriesID
+        })?.displayName
+        let date = CaptureSeriesPresentation.dateLabel(
+            for: record.finalizedAtUTC
+        )
+        switch (series, date) {
+        case let (name?, day?):
+            return name + " · " + day
+        case let (name?, nil):
+            return name
+        case let (nil, day?):
+            return day
+        default:
+            return String(localized: "Latest finalized capture")
+        }
     }
 
     /// The app tagline + identity block above the primary actions.
@@ -1295,8 +1354,9 @@ public struct CaptureHomeView: View {
                     actions.removeWorkingOrphan,
                 openRecoveredDraft:
                     actions.openRecoveredDraft,
-                discardRecoveredDraft:
-                    actions.discardRecoveredDraft
+                discardRecoveredDraft: { draft in
+                    pendingDraftDiscard = draft
+                }
             )
         case .readiness:
             CaptureDeviceReadinessView(
@@ -1987,7 +2047,21 @@ private struct CaptureSeriesDetailView: View {
         case .direct(let registration):
             label = "direct registration · uncertainty \(metersLabel(registration.uncertaintyMeters))"
         case .chained(let registrations, _, let uncertainty):
-            label = "chained via \(registrations.count) registration(s) · uncertainty \(metersLabel(uncertainty))"
+            label = String(
+                format: String(
+                    localized: "chained via %@ · uncertainty %@"
+                ),
+                captureCountPhrase(
+                    registrations.count,
+                    singular: String(
+                        localized: "%lld registration"
+                    ),
+                    plural: String(
+                        localized: "%lld registrations"
+                    )
+                ),
+                metersLabel(uncertainty)
+            )
         case .unresolved:
             label = "no registered spatial path"
         }
@@ -2153,7 +2227,7 @@ private struct CaptureSeriesDetailView: View {
                 Section {
                     Text(error)
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(CaptureColorRole.blocked.color)
                 }
             }
         }
@@ -2566,32 +2640,17 @@ private struct CaptureLibraryMaintenanceView: View {
     let discardRecoveredDraft:
         (RecoverableWorkingRevision) -> Void
 
-    private func localizedRevisionPhase(
-        _ phase: WorkingRevisionPhase
-    ) -> String {
-        switch phase {
-        case .liveScanIncomplete:
-            return String(localized: "Scan interrupted")
-        case .endAccepted:
-            return String(localized: "Ended; ready for review")
-        case .semanticAuthoring:
-            return String(
-                localized: "Ended; annotations in progress"
-            )
-        case .readyToFinalize:
-            return String(localized: "Ready to finalize")
-        }
-    }
-
     var body: some View {
         List {
             if !inventory.recoverableDrafts.isEmpty {
                 Section("Recoverable drafts") {
                     ForEach(inventory.recoverableDrafts) { draft in
                         VStack(alignment: .leading, spacing: 4) {
-                            LabeledContent(
-                                localizedRevisionPhase(draft.phase),
-                                value: draft.url.lastPathComponent
+                            Text(
+                                workingRevisionPhaseName(draft.phase)
+                            )
+                            CaptureTechnicalText(
+                                draft.revisionID.description
                             )
                             LabeledContent(
                                 "Retained bytes",
@@ -2602,12 +2661,14 @@ private struct CaptureLibraryMaintenanceView: View {
                             )
                             if !draft.unsupportedPaths.isEmpty {
                                 Text(
-                                    String(
-                                        format: String(
-                                            localized:
-                                                "%d unsupported file(s) kept"
+                                    captureCountPhrase(
+                                        draft.unsupportedPaths.count,
+                                        singular: String(
+                                            localized: "%lld unsupported file kept"
                                         ),
-                                        draft.unsupportedPaths.count
+                                        plural: String(
+                                            localized: "%lld unsupported files kept"
+                                        )
                                     )
                                 )
                                 .font(.caption)
@@ -2617,6 +2678,8 @@ private struct CaptureLibraryMaintenanceView: View {
                                 Button("Reopen for review") {
                                     openRecoveredDraft(draft)
                                 }
+                                // Confirmed by the host's discard
+                                // dialog via the injected closure.
                                 Button(
                                     "Discard draft",
                                     role: .destructive
@@ -2624,7 +2687,8 @@ private struct CaptureLibraryMaintenanceView: View {
                                     discardRecoveredDraft(draft)
                                 }
                             }
-                            .font(.caption)
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
                     }
                     Text(
@@ -2659,7 +2723,8 @@ private struct CaptureLibraryMaintenanceView: View {
                                     artifact
                                 )
                             }
-                            .font(.caption)
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
                     }
                 }
@@ -2702,7 +2767,8 @@ private struct CaptureLibraryMaintenanceView: View {
                             ) {
                                 removeWorkingOrphan(orphan)
                             }
-                            .font(.caption)
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
                     }
                     Text(
@@ -2878,10 +2944,15 @@ private struct CaptureLibraryImportPreviewView: View {
                         ) {
                             HStack {
                                 Text(
-                                    entry.captureRevisionID
-                                        .description
+                                    CaptureSeriesPresentation
+                                        .dateLabel(
+                                            for: entry
+                                                .finalizedAtUTC
+                                        ) ?? String(
+                                            localized: "Unknown capture"
+                                        )
                                 )
-                                .font(.caption.monospaced())
+                                .font(.subheadline)
                                 .lineLimit(1)
                                 Spacer()
                                 Text(
@@ -2892,6 +2963,10 @@ private struct CaptureLibraryImportPreviewView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             }
+                            CaptureTechnicalText(
+                                entry.captureRevisionID
+                                    .description
+                            )
                             if let detail = entry.detail {
                                 Text(detail)
                                     .font(.caption2)
@@ -2909,8 +2984,18 @@ private struct CaptureLibraryImportPreviewView: View {
                                 alignment: .leading,
                                 spacing: 2
                             ) {
-                                Text(conflict.identity)
-                                    .font(.caption.monospaced())
+                                Text(
+                                    conflict.scope == .series
+                                        ? String(
+                                            localized: "Series"
+                                        )
+                                        : String(
+                                            localized: "Capture revision"
+                                        )
+                                )
+                                CaptureTechnicalText(
+                                    conflict.identity
+                                )
                                 Text(
                                     "Local values were kept; the package values were not imported."
                                 )
@@ -2926,8 +3011,16 @@ private struct CaptureLibraryImportPreviewView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(
                         preview.importableCount > 0
-                            ? "Import \(preview.importableCount) revision(s)"
-                            : "Done"
+                            ? captureCountPhrase(
+                                preview.importableCount,
+                                singular: String(
+                                    localized: "Import %lld revision"
+                                ),
+                                plural: String(
+                                    localized: "Import %lld revisions"
+                                )
+                            )
+                            : String(localized: "Done")
                     ) {
                         if preview.importableCount > 0 {
                             onConfirm()
@@ -3001,20 +3094,24 @@ private struct CaptureSeriesRetentionView: View {
     ) -> String {
         switch warning {
         case .parentOfRevisions(let count):
-            return String(
-                format: String(
-                    localized:
-                        "Parent of %d revision(s) on this device"
+            return captureCountPhrase(
+                count,
+                singular: String(
+                    localized: "Parent of %lld revision on this device"
                 ),
-                count
+                plural: String(
+                    localized: "Parent of %lld revisions on this device"
+                )
             )
         case .handoffReceipts(let count):
-            return String(
-                format: String(
-                    localized:
-                        "%d handoff receipt(s) remain as history; the bytes will no longer be inspectable"
+            return captureCountPhrase(
+                count,
+                singular: String(
+                    localized: "%lld handoff receipt remains as history; the bytes will no longer be inspectable"
                 ),
-                count
+                plural: String(
+                    localized: "%lld handoff receipts remain as history; the bytes will no longer be inspectable"
+                )
             )
         case .linkedToMission(let recordID):
             return String(
@@ -3060,12 +3157,14 @@ private struct CaptureSeriesRetentionView: View {
                     )
                     if preview.blockedCount > 0 {
                         Text(
-                            String(
-                                format: String(
-                                    localized:
-                                        "%d revision(s) are protected or blocked"
+                            captureCountPhrase(
+                                preview.blockedCount,
+                                singular: String(
+                                    localized: "%lld revision is protected or blocked"
                                 ),
-                                preview.blockedCount
+                                plural: String(
+                                    localized: "%lld revisions are protected or blocked"
+                                )
                             )
                         )
                         .font(.caption)
@@ -3263,7 +3362,15 @@ private struct CaptureSeriesDeleteSheet: View {
                             isOn: $includeProtected
                         )
                         Text(
-                            "\(protectedCount) revision(s) carry an importance mark. Leave this off to keep them."
+                            captureCountPhrase(
+                                protectedCount,
+                                singular: String(
+                                    localized: "%lld revision carries an importance mark. Leave this off to keep it."
+                                ),
+                                plural: String(
+                                    localized: "%lld revisions carry an importance mark. Leave this off to keep them."
+                                )
+                            )
                         )
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -3313,7 +3420,15 @@ private struct CaptureSeriesDeleteSheet: View {
                     placement: .destructiveAction
                 ) {
                     Button(
-                        "Delete \(deletableCount) revision(s)",
+                        captureCountPhrase(
+                            deletableCount,
+                            singular: String(
+                                localized: "Delete %lld revision"
+                            ),
+                            plural: String(
+                                localized: "Delete %lld revisions"
+                            )
+                        ),
                         role: .destructive
                     ) {
                         dismiss()
@@ -3364,20 +3479,24 @@ private struct CaptureSeriesDeleteSheet: View {
     ) -> String {
         switch warning {
         case .parentOfRevisions(let count):
-            return String(
-                format: String(
-                    localized:
-                        "Parent of %d local revision(s); they will show an absent predecessor"
+            return captureCountPhrase(
+                count,
+                singular: String(
+                    localized: "Parent of %lld local revision; it will show an absent predecessor"
                 ),
-                count
+                plural: String(
+                    localized: "Parent of %lld local revisions; they will show an absent predecessor"
+                )
             )
         case .handoffReceipts(let count):
-            return String(
-                format: String(
-                    localized:
-                        "%d receipt(s) stay as history; the bytes will no longer be inspectable"
+            return captureCountPhrase(
+                count,
+                singular: String(
+                    localized: "%lld receipt stays as history; the bytes will no longer be inspectable"
                 ),
-                count
+                plural: String(
+                    localized: "%lld receipts stay as history; the bytes will no longer be inspectable"
+                )
             )
         case .linkedToMission(let recordID):
             return String(

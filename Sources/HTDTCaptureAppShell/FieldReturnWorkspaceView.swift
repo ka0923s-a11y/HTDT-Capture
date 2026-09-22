@@ -392,11 +392,14 @@ struct HTDTFieldReturnWorkspaceView: View {
                 localized: "Ready to send to this receiver"
             )
         case .compatibleWithOmissions(let gaps):
-            return String(
-                format: String(
-                    localized: "Ready; %d item(s) stage-only"
+            return captureCountPhrase(
+                gaps.count,
+                singular: String(
+                    localized: "Ready; %lld item stage-only"
                 ),
-                gaps.count
+                plural: String(
+                    localized: "Ready; %lld items stage-only"
+                )
             )
         case .incompatible(let gaps):
             return String(
@@ -506,18 +509,20 @@ struct HTDTFieldReturnWorkspaceView: View {
                 }
                 if requiredOpen > 0 {
                     Label(
-                        String(
-                            format: String(
-                                localized:
-                                    "%lld required task(s) still open"
+                        captureCountPhrase(
+                            requiredOpen,
+                            singular: String(
+                                localized: "%lld required task still open"
                             ),
-                            requiredOpen
+                            plural: String(
+                                localized: "%lld required tasks still open"
+                            )
                         ),
                         systemImage:
                             "exclamationmark.triangle"
                     )
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(CaptureColorRole.attention.color)
                 }
                 if optionalOpen > 0 {
                     LabeledContent(
@@ -529,17 +534,19 @@ struct HTDTFieldReturnWorkspaceView: View {
                 }
                 if !brokenRefs.isEmpty {
                     Label(
-                        String(
-                            format: String(
-                                localized:
-                                    "%lld fulfillment ref(s) point at records not in this field return"
+                        captureCountPhrase(
+                            brokenRefs.count,
+                            singular: String(
+                                localized: "%lld fulfillment reference points at records not in this field return"
                             ),
-                            brokenRefs.count
+                            plural: String(
+                                localized: "%lld fulfillment references point at records not in this field return"
+                            )
                         ),
                         systemImage: "link.badge.plus"
                     )
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(CaptureColorRole.attention.color)
                 }
             }
         }
@@ -799,13 +806,15 @@ struct HTDTFieldReturnWorkspaceView: View {
         .padding(.vertical, 2)
         .background(
             (requirement == .required
-                ? Color.orange : Color.secondary)
+                ? CaptureColorRole.attention.color
+                : CaptureColorRole.secondary.color)
                 .opacity(0.15),
             in: Capsule()
         )
         .foregroundStyle(
             requirement == .required
-                ? Color.orange : Color.secondary
+                ? CaptureColorRole.attention.color
+                : CaptureColorRole.secondary.color
         )
     }
 

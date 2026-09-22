@@ -186,7 +186,7 @@ struct SupportDiagnosticsView: View {
                 Section("Error") {
                     Text(notice.message)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(CaptureColorRole.blocked.color)
                     DisclosureGroup(
                         String(localized: "Details")
                     ) {

@@ -248,9 +248,11 @@ public struct CaptureReviewView: View {
                         let remediation = QualityRemediationCatalog
                             .remediation(for: diagnostic)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(diagnostic.code)
-                                .font(.headline)
                             Text(localizedDiagnosticMessage(diagnostic))
+                                .font(.headline)
+                            Text(diagnostic.code)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.tertiary)
                             CaptureStatusView(
                                 severityStatus(
                                     diagnostic.severity
@@ -622,14 +624,20 @@ public struct CaptureReviewView: View {
             // were start-relative or bound to a room reference frame.
             LabeledContent(
                 "Direction reference",
-                value: directionReference == "start_relative"
-                    ? String(localized: "Start direction")
-                    : directionReference
+                value: directionReferenceName(
+                    directionReference
+                )
             )
         }
         LabeledContent(
             "Geometry evidence",
-            value: summary.geometryEvidenceMode
+            value: ObservationGeometryEvidenceMode(
+                rawValue: summary.geometryEvidenceMode
+            ).map {
+                observationGeometryEvidenceModeName($0)
+            } ?? captureHumanizedToken(
+                summary.geometryEvidenceMode
+            )
         )
         LabeledContent(
             "Movement mode",
@@ -694,12 +702,15 @@ public struct CaptureReviewView: View {
             rawValue: summary.guidanceCompletionSource ?? ""
         ), source != .observed, source != .incomplete {
             Text(
-                String(
-                    format: String(
-                        localized: "%d weak area(s) unresolved when guidance ended"
-                    ),
+                captureCountPhrase(
                     summary.actionableWeakRegionCount
-                        + summary.saturatedWeakRegionCount
+                        + summary.saturatedWeakRegionCount,
+                    singular: String(
+                        localized: "%lld weak area unresolved when guidance ended"
+                    ),
+                    plural: String(
+                        localized: "%lld weak areas unresolved when guidance ended"
+                    )
                 )
             )
             .font(.caption)
@@ -729,7 +740,7 @@ public struct CaptureReviewView: View {
                 localized: "Movement marked unsafe by operator"
             )
         case nil:
-            return raw
+            return captureHumanizedToken(raw)
         }
     }
 

@@ -1103,7 +1103,7 @@ public struct CaptureAnnotationWorkspaceView: View {
 
             if let equipmentCatalogError {
                 Text(equipmentCatalogError)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(CaptureColorRole.blocked.color)
             }
         }
     }
@@ -1150,7 +1150,7 @@ public struct CaptureAnnotationWorkspaceView: View {
                     "Legacy catalog (no source identity recorded)")
             )
             .font(.caption)
-            .foregroundStyle(.orange)
+            .foregroundStyle(CaptureColorRole.attention.color)
         }
     }
 
@@ -1175,7 +1175,7 @@ public struct CaptureAnnotationWorkspaceView: View {
                     systemImage: "exclamationmark.triangle"
                 )
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(CaptureColorRole.attention.color)
             case let .mismatchedCatalog(pinnedSHA256, activeSHA256):
                 let detail = String(localized:
                     "Active catalog differs from the catalog pinned by the task plan.")
@@ -1190,7 +1190,7 @@ public struct CaptureAnnotationWorkspaceView: View {
                     systemImage: "exclamationmark.triangle"
                 )
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(CaptureColorRole.attention.color)
             }
         }
     }
@@ -1391,9 +1391,15 @@ public struct CaptureAnnotationWorkspaceView: View {
                                     .fieldEvidenceAcquisitionName(
                                         record.acquisition
                                     ),
-                                String(
-                                    record.targetRefs.count
-                                ) + " target(s)",
+                                captureCountPhrase(
+                                    record.targetRefs.count,
+                                    singular: String(
+                                        localized: "%lld target"
+                                    ),
+                                    plural: String(
+                                        localized: "%lld targets"
+                                    )
+                                ),
                             ]
                             .compactMap { $0 }
                             .joined(separator: " · ")
@@ -1563,9 +1569,15 @@ public struct CaptureAnnotationWorkspaceView: View {
                                         route.state
                                     ),
                                 route.serviceType,
-                                String(
-                                    route.segments.count
-                                ) + " segment(s)",
+                                captureCountPhrase(
+                                    route.segments.count,
+                                    singular: String(
+                                        localized: "%lld segment"
+                                    ),
+                                    plural: String(
+                                        localized: "%lld segments"
+                                    )
+                                ),
                             ]
                             .compactMap { $0 }
                             .joined(separator: " · ")
@@ -1629,7 +1641,7 @@ public struct CaptureAnnotationWorkspaceView: View {
                 if isDirty {
                     Text(String(localized: "Unsaved changes"))
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(CaptureColorRole.attention.color)
                 }
             }
             .font(.callout)

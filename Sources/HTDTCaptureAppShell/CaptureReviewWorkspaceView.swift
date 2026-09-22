@@ -420,12 +420,15 @@ public struct CaptureReviewWorkspaceView: View {
                             alignment: .leading,
                             spacing: 2
                         ) {
-                            LabeledContent(
-                                measurement.quantityType,
-                                value: measurement.measurementID
+                            Text(
+                                FieldNoteBindingResolver
+                                    .measurementTitle(measurement)
+                            )
+                            .font(.subheadline)
+                            CaptureTechnicalText(
+                                measurement.measurementID
                                     .description
                             )
-                            .font(.caption)
                             if let authority =
                                 measurement.instrumentAuthority,
                                let profile = model.instruments
@@ -589,19 +592,34 @@ public struct CaptureReviewWorkspaceView: View {
                             alignment: .leading,
                             spacing: 2
                         ) {
-                            Text(observation.targetRef)
-                                .font(.caption.monospaced())
                             Text(
-                                    String(
-                                        format: String(
-                                            localized: "%lld setting(s) · %@"
+                                FieldNoteBindingResolver
+                                    .settingsTitle(observation)
+                            )
+                            .font(.subheadline)
+                            Text(
+                                String(
+                                    format: String(
+                                        localized: "%@ · %@"
+                                    ),
+                                    captureCountPhrase(
+                                        observation.settings
+                                            .count,
+                                        singular: String(
+                                            localized: "%lld setting"
                                         ),
-                                        observation.settings.count,
-                                        observation.recordedAtUTC
-                                    )
+                                        plural: String(
+                                            localized: "%lld settings"
+                                        )
+                                    ),
+                                    observation.recordedAtUTC
                                 )
+                            )
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            CaptureTechnicalText(
+                                observation.targetRef
+                            )
                         }
                     }
                 }
@@ -625,7 +643,15 @@ public struct CaptureReviewWorkspaceView: View {
                                             route.state
                                         ),
                                     route.serviceType,
-                                    "\(route.segments.count) segment(s)",
+                                    captureCountPhrase(
+                                        route.segments.count,
+                                        singular: String(
+                                            localized: "%lld segment"
+                                        ),
+                                        plural: String(
+                                            localized: "%lld segments"
+                                        )
+                                    ),
                                 ]
                                 .compactMap { $0 }
                                 .joined(separator: " · ")
@@ -640,11 +666,14 @@ public struct CaptureReviewWorkspaceView: View {
             Section("Opening review") {
                 if let review = model.openingReview {
                     Text(
-                        String(
-                            format: String(
-                                localized: "%lld candidate(s) recorded"
+                        captureCountPhrase(
+                            review.openings.count,
+                            singular: String(
+                                localized: "%lld candidate recorded"
                             ),
-                            review.openings.count
+                            plural: String(
+                                localized: "%lld candidates recorded"
+                            )
                         )
                     )
                     .font(.caption)
@@ -866,18 +895,28 @@ public struct CaptureReviewWorkspaceView: View {
                                 .roomFieldDatumStaleness
                             {
                             case .current:
-                                return "current"
+                                return String(
+                                    localized: "Current"
+                                )
                             case .stale(let refs):
-                                return "stale — "
-                                    + "\(refs.count)"
-                                    + " unresolved ref(s)"
+                                return captureCountPhrase(
+                                    refs.count,
+                                    singular: String(
+                                        localized: "Stale — %lld unresolved reference"
+                                    ),
+                                    plural: String(
+                                        localized: "Stale — %lld unresolved references"
+                                    )
+                                )
                             case nil:
-                                return "current"
+                                return String(
+                                    localized: "Current"
+                                )
                             }
                         }()
                     )
                     Text(
-                        "Promotion reference only: records the capture-world→field datum convention and its exact transform. It is not T_scene_from_capture_world."
+                        "Promotion reference only: records the convention that maps capture-world coordinates onto the field datum, plus its exact transform. It is not the scene-to-capture-world transform."
                     )
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -892,7 +931,8 @@ public struct CaptureReviewWorkspaceView: View {
                                 await removeRoomFieldDatum()
                             }
                         }
-                        .font(.caption)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
                 } else {
                     Text("No field datum confirmed")
@@ -1087,12 +1127,14 @@ public struct CaptureReviewWorkspaceView: View {
                         .unresolvedAttention.count
                     if attention > 0 {
                         Label(
-                            String(
-                                format: String(
-                                    localized:
-                                        "%d note(s) need attention before finalize"
+                            captureCountPhrase(
+                                attention,
+                                singular: String(
+                                    localized: "%lld note needs attention before finalize"
                                 ),
-                                attention
+                                plural: String(
+                                    localized: "%lld notes need attention before finalize"
+                                )
                             ),
                             systemImage:
                                 "exclamationmark.circle"
@@ -1302,20 +1344,17 @@ public struct CaptureReviewWorkspaceView: View {
                     Button("Resolve") {
                         resolveFieldNote(note.noteID)
                     }
-                    .font(.caption)
                     Button("Correct…") {
                         supersedingFieldNote = note
                     }
-                    .font(.caption)
                     if note.bindingRefs.isEmpty {
                         Button("Bind…") {
                             bindingFieldNote = note
                         }
-                        .font(.caption)
                     }
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.mini)
+                .controlSize(.small)
             }
         }
         .padding(.vertical, 2)
@@ -1505,7 +1544,6 @@ public struct CaptureReviewWorkspaceView: View {
                                 )
                             }
                         }
-                        .font(.caption)
                         Button("Skip") {
                             resolveRevisitFlag(
                                 flag.flagID,
@@ -1513,13 +1551,15 @@ public struct CaptureReviewWorkspaceView: View {
                                 nil
                             )
                         }
-                        .font(.caption)
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 case .resolved, .skipped, .unavailable:
                     Button("Reopen") {
                         reopenRevisitFlag(flag.flagID)
                     }
-                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
             }
         }
@@ -1531,13 +1571,13 @@ public struct CaptureReviewWorkspaceView: View {
     ) -> Color {
         switch flag.status {
         case .unresolved:
-            return .orange
+            return CaptureColorRole.attention.color
         case .resolved:
-            return .green
+            return CaptureColorRole.success.color
         case .skipped:
-            return .secondary
+            return CaptureColorRole.secondary.color
         case .unavailable:
-            return .gray
+            return CaptureColorRole.unknown.color
         }
     }
 
@@ -1887,11 +1927,14 @@ public struct CaptureReviewWorkspaceView: View {
         if summary.remainingCount == 0 {
             return String(localized: "All targets reviewed")
         }
-        return String(
-            format: String(
-                localized: "%d target(s) still need review"
+        return captureCountPhrase(
+            summary.remainingCount,
+            singular: String(
+                localized: "%lld target still needs review"
             ),
-            summary.remainingCount
+            plural: String(
+                localized: "%lld targets still need review"
+            )
         )
     }
 

@@ -154,7 +154,7 @@ struct DerivedShapePreviewPanel: View {
                         systemImage: "arrow.triangle.branch"
                     )
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(CaptureColorRole.attention.color)
 
                     Text(
                         "This advisory uses only HTDT-visible evidence; it does not infer unavailable RoomPlan geometry. Neither representation is promoted as canonical geometry here."
@@ -262,12 +262,14 @@ struct DerivedShapePreviewPanel: View {
 
             if !decomposition.supportRelations.isEmpty {
                 Text(
-                    String(
-                        format: String(
-                            localized:
-                                "%d preview-only support relation candidate(s)"
+                    captureCountPhrase(
+                        decomposition.supportRelations.count,
+                        singular: String(
+                            localized: "%lld preview-only support relation candidate"
                         ),
-                        decomposition.supportRelations.count
+                        plural: String(
+                            localized: "%lld preview-only support relation candidates"
+                        )
                     )
                 )
                 .font(.caption2)
@@ -280,7 +282,7 @@ struct DerivedShapePreviewPanel: View {
                     systemImage: "viewfinder"
                 )
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(CaptureColorRole.attention.color)
             }
         }
         .padding(8)
@@ -307,7 +309,7 @@ struct DerivedShapePreviewPanel: View {
                 Text(lowerVolumeLabel(analysis))
             }
             .font(.caption2)
-            .foregroundStyle(.cyan)
+            .foregroundStyle(CaptureColorRole.informational.color)
 
             if let advisory = analysis.advisories.first {
                 Label(
@@ -315,7 +317,7 @@ struct DerivedShapePreviewPanel: View {
                     systemImage: "viewfinder"
                 )
                 .font(.caption2)
-                .foregroundStyle(.orange)
+                .foregroundStyle(CaptureColorRole.attention.color)
             }
         }
     }

@@ -227,7 +227,7 @@ public struct Derived3DExportSheet: View {
                 if let failure = info?.failureReason {
                     Section {
                         Text(failure)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(CaptureColorRole.blocked.color)
                     }
                 }
 
@@ -268,7 +268,7 @@ public struct Derived3DExportSheet: View {
                     if let error = outcome.error {
                         Section {
                             Text(error)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(CaptureColorRole.blocked.color)
                         }
                     } else if !outcome.files.isEmpty {
                         Section("Exported files") {
@@ -506,7 +506,7 @@ public struct SurveyReportExportSheet: View {
                 if let failure = info?.failureReason {
                     Section {
                         Text(failure)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(CaptureColorRole.blocked.color)
                     }
                 }
 
@@ -539,7 +539,7 @@ public struct SurveyReportExportSheet: View {
                     if let error = outcome.error {
                         Section {
                             Text(error)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(CaptureColorRole.blocked.color)
                         }
                     } else if !outcome.files.isEmpty {
                         Section("Exported files") {

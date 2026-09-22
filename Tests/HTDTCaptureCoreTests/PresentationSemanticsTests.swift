@@ -398,4 +398,109 @@ final class PresentationSemanticsTests: XCTestCase {
         XCTAssertNil(CaptureSeriesPresentation.dateLabel(for: nil))
         XCTAssertNil(CaptureSeriesPresentation.dateLabel(for: ""))
     }
+
+    // MARK: - Count phrases and wire-token names (#442/#443)
+
+    func testCountPhraseBranchesOnSingular() {
+        XCTAssertEqual(
+            captureCountPhrase(1, singular: "%lld file", plural: "%lld files"),
+            "1 file"
+        )
+        XCTAssertEqual(
+            captureCountPhrase(2, singular: "%lld file", plural: "%lld files"),
+            "2 files"
+        )
+        XCTAssertEqual(
+            captureCountPhrase(0, singular: "%lld file", plural: "%lld files"),
+            "0 files"
+        )
+    }
+
+    func testHumanizedTokenStripsUnderscores() {
+        XCTAssertEqual(captureHumanizedToken("mesh_and_depth"), "mesh and depth")
+        XCTAssertEqual(captureHumanizedToken("  padded  "), "padded")
+        XCTAssertEqual(captureHumanizedToken("plain"), "plain")
+    }
+
+    func testWorkingRevisionPhaseNamesAreHumanSentences() {
+        let phases: [WorkingRevisionPhase] = [
+            .liveScanIncomplete, .endAccepted,
+            .semanticAuthoring, .readyToFinalize,
+        ]
+        for phase in phases {
+            let name = workingRevisionPhaseName(phase)
+            XCTAssertFalse(name.isEmpty)
+            XCTAssertFalse(name.contains("_"))
+            XCTAssertNil(UUID(uuidString: name))
+        }
+        XCTAssertEqual(
+            workingRevisionPhaseName(.liveScanIncomplete),
+            "Scan interrupted"
+        )
+        XCTAssertEqual(
+            workingRevisionPhaseName(.readyToFinalize),
+            "Ready to finalize"
+        )
+    }
+
+    func testPlanUnderlayAlignmentMethodNames() {
+        let methods: [PlanUnderlayAlignmentMethod] = [
+            .htdtDatum, .referencePointPair,
+            .knownDistanceAxis, .fiducialAlignment,
+        ]
+        for method in methods {
+            let name = planUnderlayAlignmentMethodName(method)
+            XCTAssertFalse(name.isEmpty)
+            XCTAssertNotEqual(name, method.rawValue)
+        }
+        XCTAssertEqual(
+            planUnderlayAlignmentMethodName(.referencePointPair),
+            "Reference point pair"
+        )
+    }
+
+    func testObservationGeometryEvidenceModeNames() {
+        XCTAssertEqual(
+            observationGeometryEvidenceModeName(.meshAndDepth),
+            "RoomPlan mesh + depth"
+        )
+        XCTAssertEqual(
+            observationGeometryEvidenceModeName(nil),
+            "Unknown"
+        )
+    }
+
+    func testScanMovementCapabilityNames() {
+        XCTAssertEqual(
+            scanMovementCapabilityName(.unrestricted),
+            "Free movement"
+        )
+        XCTAssertEqual(
+            scanMovementCapabilityName(nil),
+            "Unknown"
+        )
+    }
+
+    func testDirectionReferenceNameMapsKnownAndUnknown() {
+        XCTAssertEqual(
+            directionReferenceName("start_relative"),
+            "Start direction"
+        )
+        XCTAssertEqual(
+            directionReferenceName("other_convention"),
+            "other convention"
+        )
+        XCTAssertEqual(directionReferenceName(""), "Unknown")
+    }
+
+    func testEquipmentIdentityKindNames() {
+        XCTAssertEqual(
+            equipmentIdentityKindName(.manufacturer),
+            "Manufacturer"
+        )
+        XCTAssertEqual(
+            equipmentIdentityKindName(.userDefined),
+            "User defined"
+        )
+    }
 }
