@@ -31,7 +31,6 @@ private struct StoredZIPImportEntry {
 public enum StoredCaptureBundleArchiveImporter {
     private static let localSignature: UInt32 = 0x04034b50
     private static let centralSignature: UInt32 = 0x02014b50
-    private static let utf8Flag: UInt16 = 0x0800
     private static let storeMethod: UInt16 = 0
     private static let chunkBytes = 1024 * 1024
 
@@ -217,7 +216,6 @@ public enum StoredCaptureBundleArchiveImporter {
                 try handle.importReadLE()
 
             guard version == 20,
-                  flags == utf8Flag,
                   method == storeMethod,
                   compressedSize == size,
                   extraLength == 0
@@ -232,6 +230,13 @@ public enum StoredCaptureBundleArchiveImporter {
             guard let path = String(
                 data: nameData,
                 encoding: .utf8
+            ) else {
+                throw CaptureBundleArchiveError
+                    .archiveMalformed
+            }
+            guard CaptureArchiveEntryFlags.isValid(
+                flags,
+                nameBytes: nameData
             ) else {
                 throw CaptureBundleArchiveError
                     .archiveMalformed

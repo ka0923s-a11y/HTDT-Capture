@@ -294,7 +294,8 @@ public struct LibraryActions {
 
 /// Transfer workflow (issue #410): HTDT send, destination pairing/lifecycle, delivery queue, preflight, export-archive cleanup.
 public struct TransferActions {
-    public let sendCaptureToHTDT: (HTDTHandoffDestination) async -> Void
+    public let sendCaptureToHTDT:
+        (HTDTHandoffDestination, HTDTShareSheetOutcome?) async -> Void
     public let pairDestinationPayload: (Data) throws -> HTDTReceiverPairingPayload
     public let confirmPairing: (HTDTReceiverPairingPayload) async -> Void
     public let forgetDestination: (String) async -> Void

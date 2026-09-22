@@ -56,6 +56,25 @@ private struct StoredZIPLocalEntry {
     let dataOffset: UInt64
 }
 
+/// The general-purpose flag rule every stored-archive entry must
+/// satisfy. Bit 11 (0x0800) marks a UTF-8 entry name and is required
+/// whenever the name bytes are non-ASCII; spec-compliant writers such
+/// as Python's zipfile leave the flag clear for pure-ASCII names,
+/// which decode identically, so flag 0 is also accepted for them.
+/// Any other flag value stays rejected.
+enum CaptureArchiveEntryFlags {
+    static let utf8Flag: UInt16 = 0x0800
+
+    static func isValid(
+        _ flags: UInt16,
+        nameBytes: Data
+    ) -> Bool {
+        flags == utf8Flag
+            || (flags == 0
+                && nameBytes.allSatisfy { $0 < 0x80 })
+    }
+}
+
 public enum CaptureBundleArchiveExporter {
     private static let localSignature: UInt32 = 0x04034b50
     private static let centralSignature: UInt32 = 0x02014b50
@@ -297,7 +316,6 @@ public enum StoredCaptureBundleArchiveValidator {
     private static let localSignature: UInt32 = 0x04034b50
     private static let centralSignature: UInt32 = 0x02014b50
     private static let endSignature: UInt32 = 0x06054b50
-    private static let utf8Flag: UInt16 = 0x0800
     private static let storeMethod: UInt16 = 0
     private static let chunkBytes = 1024 * 1024
 
@@ -346,7 +364,6 @@ public enum StoredCaptureBundleArchiveValidator {
             let extraLength: UInt16 = try handle.readLE()
 
             guard version == 20,
-                  flags == utf8Flag,
                   method == storeMethod,
                   compressedSize == size,
                   extraLength == 0
@@ -360,6 +377,12 @@ public enum StoredCaptureBundleArchiveValidator {
             guard let path = String(
                 data: nameData,
                 encoding: .utf8
+            ) else {
+                throw CaptureBundleArchiveError.archiveMalformed
+            }
+            guard CaptureArchiveEntryFlags.isValid(
+                flags,
+                nameBytes: nameData
             ) else {
                 throw CaptureBundleArchiveError.archiveMalformed
             }
@@ -470,7 +493,6 @@ public enum StoredCaptureBundleArchiveValidator {
             let localOffset: UInt32 = try handle.readLE()
 
             guard version == 20,
-                  flags == utf8Flag,
                   method == storeMethod,
                   compressedSize == size,
                   extraLength == 0,
@@ -486,6 +508,12 @@ public enum StoredCaptureBundleArchiveValidator {
             guard let path = String(
                 data: nameData,
                 encoding: .utf8
+            ) else {
+                throw CaptureBundleArchiveError.archiveMalformed
+            }
+            guard CaptureArchiveEntryFlags.isValid(
+                flags,
+                nameBytes: nameData
             ) else {
                 throw CaptureBundleArchiveError.archiveMalformed
             }
