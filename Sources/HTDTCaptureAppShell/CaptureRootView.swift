@@ -1510,7 +1510,8 @@ public struct CaptureRootView: View {
                 integrityFail:
                     qualityReport?.integrityStatus == .fail,
                 hasSpatialAuthority:
-                    annotationCoordinateSpaceID != nil,
+                    annotationCoordinateSpaceID != nil
+                        && liveSpatialAuthority,
                 detailsCommitted: annotationAuthorityCommitted,
                 spatialCaptureSealed: spatialCaptureSealed,
                 hasValidationReport: validationReport != nil,
@@ -1631,46 +1632,6 @@ public struct CaptureRootView: View {
             discardButton
 
         case .reviewing:
-<<<<<<< HEAD
-            // One dominant action per stage (#372): a blocking
-            // integrity problem → Review diagnostics; required
-            // mission tasks outstanding → Complete required tasks;
-            // coverage unknown → Continue scanning; otherwise →
-            // Validate and finalize.
-            switch journey.primaryAction {
-            case .reviewDiagnostics:
-                if let qualityReport {
-                    NavigationLink("Review diagnostics") {
-                        CaptureReviewView(
-                            quality: qualityReport,
-                            advisory: advisoryReport,
-                            spatialFindings:
-                                spatialPlausibilityFindings
-                        )
-                    }
-                    .capturePrimaryAction()
-                }
-            case .completeRequiredTasks:
-                Button(
-                    "Complete required tasks",
-                    action: actions.beginAnnotation
-                )
-                .capturePrimaryAction()
-                .disabled(hostBusy)
-            case .continueScanning:
-||||||| e4f1dbf
-            Button("Open review workspace") {
-                actions.refreshReviewWorkspace()
-                reviewWorkspaceShown = true
-            }
-            .disabled(hostBusy)
-
-            if annotationCoordinateSpaceID != nil {
-                // Saved annotations/measurements survive a reopen
-                // while the same coordinate authority is still valid
-                // (#236), so Continue stays available after a saved
-                // annotation pass.
-=======
             // #297: a draft recovered after relaunch has no live AR
             // coordinate authority — Continue scanning and evidence
             // capture must never appear; semantic review/authoring and
@@ -1720,19 +1681,32 @@ public struct CaptureRootView: View {
                 .foregroundStyle(.secondary)
             }
 
-            Button("Open review workspace") {
-                actions.refreshReviewWorkspace()
-                reviewWorkspaceShown = true
-            }
-            .disabled(hostBusy)
-
-            if liveSpatialAuthority,
-               annotationCoordinateSpaceID != nil {
-                // Saved annotations/measurements survive a reopen
-                // while the same coordinate authority is still valid
-                // (#236), so Continue stays available after a saved
-                // annotation pass.
->>>>>>> origin/main
+            // One dominant action per stage (#372): a blocking
+            // integrity problem → Review diagnostics; required
+            // mission tasks outstanding → Complete required tasks;
+            // coverage unknown → Continue scanning; otherwise →
+            // Validate and finalize.
+            switch journey.primaryAction {
+            case .reviewDiagnostics:
+                if let qualityReport {
+                    NavigationLink("Review diagnostics") {
+                        CaptureReviewView(
+                            quality: qualityReport,
+                            advisory: advisoryReport,
+                            spatialFindings:
+                                spatialPlausibilityFindings
+                        )
+                    }
+                    .capturePrimaryAction()
+                }
+            case .completeRequiredTasks:
+                Button(
+                    "Complete required tasks",
+                    action: actions.beginAnnotation
+                )
+                .capturePrimaryAction()
+                .disabled(hostBusy)
+            case .continueScanning:
                 Button(
                     "Continue scanning",
                     action: actions.continueScanning
