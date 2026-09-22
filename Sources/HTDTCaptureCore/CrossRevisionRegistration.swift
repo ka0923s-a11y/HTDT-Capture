@@ -1130,7 +1130,7 @@ public struct CrossRevisionScaledTransform:
     /// `other ∘ self`: applies `self` first, then `other`.
     public func concatenated(
         then other: CrossRevisionScaledTransform
-    ) -> CrossRevisionScaledTransform {
+    ) throws -> CrossRevisionScaledTransform {
         // R' = R2·R1; t' = R2·(s2·t1) + t2; s' = s1·s2.
         // Element (row, col) of the column-major Matrix4x4F basis is
         // values[row + 4·col].
@@ -1156,14 +1156,17 @@ public struct CrossRevisionScaledTransform:
         // which is folded in separately below.
         let rotatedT1 = r2.applying(toDirection: scaledT1)
         let t2 = r2.values
-        let transform = try! Matrix4x4F(values: [
+        // `s1·s2` and the rotated translation can overflow to non-
+        // finite values on extreme decoded scales — propagate the
+        // validation failure instead of trapping.
+        let transform = try Matrix4x4F(values: [
             columns[0], columns[1], columns[2], 0,
             columns[3], columns[4], columns[5], 0,
             columns[6], columns[7], columns[8], 0,
             rotatedT1.x + t2[12], rotatedT1.y + t2[13],
             rotatedT1.z + t2[14], 1,
         ])
-        return try! CrossRevisionScaledTransform(
+        return try CrossRevisionScaledTransform(
             rigid: transform,
             uniformScale: uniformScale * other.uniformScale
         )
@@ -1171,7 +1174,7 @@ public struct CrossRevisionScaledTransform:
 
     /// The inverse map: `p = Rᵀ·((1/s)·p') − Rᵀ·(t/s)` — rotation
     /// transposed, scale reciprocated, translation `−Rᵀ·t/s`.
-    public func inverted() -> CrossRevisionScaledTransform {
+    public func inverted() throws -> CrossRevisionScaledTransform {
         let t = rigid.translationWorld
         let invScale = Float(1 / uniformScale)
         let negT = Float3(
@@ -1188,14 +1191,15 @@ public struct CrossRevisionScaledTransform:
             rigid.values[2] * negT.x + rigid.values[6] * negT.y
                 + rigid.values[10] * negT.z
         )
-        // Rᵀ's columns are R's rows.
-        let transform = try! Matrix4x4F(values: [
+        // Rᵀ's columns are R's rows. `1/s` and `Rᵀ·(−t/s)` overflow
+        // on extreme decoded scales — propagate instead of trapping.
+        let transform = try Matrix4x4F(values: [
             rigid.values[0], rigid.values[4], rigid.values[8], 0,
             rigid.values[1], rigid.values[5], rigid.values[9], 0,
             rigid.values[2], rigid.values[6], rigid.values[10], 0,
             rotated.x, rotated.y, rotated.z, 1,
         ])
-        return try! CrossRevisionScaledTransform(
+        return try CrossRevisionScaledTransform(
             rigid: transform,
             uniformScale: 1 / uniformScale
         )
@@ -1269,18 +1273,25 @@ public struct CrossRevisionRegistrationGraph: Sendable, Equatable {
                 guard !visited.contains(next) else {
                     continue
                 }
-                let edgeTransform = forward
-                    ? try! CrossRevisionScaledTransform(
+                // An edge whose stored scale cannot be inverted or
+                // composed without overflow is unusable as evidence —
+                // skip it rather than trapping.
+                let edgeTransform = try? forward
+                    ? CrossRevisionScaledTransform(
                         rigid: edge.targetFromSource,
                         uniformScale: edge.uniformScale
                     )
-                    : (try! CrossRevisionScaledTransform(
+                    : (try CrossRevisionScaledTransform(
                         rigid: edge.targetFromSource,
                         uniformScale: edge.uniformScale
                     )).inverted()
-                let combined = hop.transform.concatenated(
-                    then: edgeTransform
-                )
+                guard let edgeTransform,
+                      let combined = try? hop.transform.concatenated(
+                          then: edgeTransform
+                      )
+                else {
+                    continue
+                }
                 let uncertaintySquared = hop.uncertaintySquared
                     + edge.uncertaintyMeters * edge.uncertaintyMeters
                 var path = hop.path

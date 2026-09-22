@@ -145,7 +145,11 @@ public struct TargetedObjectScanTracker: Sendable, Equatable {
         let dx = cameraX - target.x
         let dz = cameraZ - target.z
         let distance = hypot(dx, dz)
-        let outOfRange = distance > maximumRangeMeters
+        // A non-finite camera/target delta reports out-of-range rather
+        // than reaching `Int(normalized)` in `bucketIndex` below.
+        let outOfRange = distance.isFinite
+            ? distance > maximumRangeMeters
+            : true
 
         if trackingState == .normal, !outOfRange,
            let last = lastTimestampSeconds

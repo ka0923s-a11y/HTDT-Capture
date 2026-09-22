@@ -2203,10 +2203,14 @@ public final class SharedARSessionController {
             return $0.evidenceRef < $1.evidenceRef
         }) {
             let key = LiveDerivedVoxelKey(
-                x: Int(floor(point.position.x / voxelSizeMeters)),
-                z: Int(floor(point.position.y / voxelSizeMeters)),
+                x: floorToIntClamped(
+                    point.position.x / voxelSizeMeters
+                ),
+                z: floorToIntClamped(
+                    point.position.y / voxelSizeMeters
+                ),
                 y: point.verticalPositionMeters.map {
-                    Int(floor($0 / voxelSizeMeters))
+                    floorToIntClamped($0 / voxelSizeMeters)
                 } ?? Int.min
             )
             if cells[key] == nil {

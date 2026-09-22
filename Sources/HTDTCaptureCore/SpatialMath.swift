@@ -38,7 +38,7 @@ extension Matrix4x4F {
     /// Inverse of a rigid transform (`R^T` + translated rotation). The
     /// initializer contract already guarantees an orthonormal basis,
     /// so transpose is exact.
-    public func invertedRigid() -> Matrix4x4F {
+    public func invertedRigid() throws -> Matrix4x4F {
         let t = translationWorld
         // worldFromLocal inverse: rotation transposed, translation
         // is -R^T * t.
@@ -46,14 +46,36 @@ extension Matrix4x4F {
         let ty = -(values[4] * t.x + values[5] * t.y + values[6] * t.z)
         let tz = -(values[8] * t.x + values[9] * t.y + values[10] * t.z)
         // The rigid contract keeps the transpose within the validating
-        // initializer's tolerances, so this cannot throw.
-        return try! Matrix4x4F(values: [
+        // initializer's tolerances, but a finite-yet-extreme stored
+        // translation can still overflow the rotated translation column,
+        // so callers handle the throw instead of trapping here.
+        return try Matrix4x4F(values: [
             values[0], values[4], values[8], 0,
             values[1], values[5], values[9], 0,
             values[2], values[6], values[10], 0,
             tx, ty, tz, 1,
         ])
     }
+}
+
+/// `floor` → `Int` for coordinates that can be non-finite or outside
+/// the `Int` range: `.isFinite` filters elsewhere only reject NaN and
+/// ±inf, so corrupted bundle data (e.g. `1e300`) or an overflowed
+/// difference of finite coordinates still reaches these conversions.
+/// Non-finite maps to `0`; out-of-range saturates at `Int.max`/`Int.min`.
+@inline(__always)
+public func floorToIntClamped(_ value: Double) -> Int {
+    guard value.isFinite else {
+        return 0
+    }
+    let floored = value.rounded(.down)
+    if floored >= Double(Int.max) {
+        return Int.max
+    }
+    if floored <= Double(Int.min) {
+        return Int.min
+    }
+    return Int(floored)
 }
 
 extension Float3 {

@@ -188,10 +188,12 @@ public enum DerivedSupportAnalyzer {
         var pointsBySlice: [Int: [SupportPoint]] = [:]
 
         for point in points {
-            let slice = Int(floor((point.y - minimumY) / sliceHeightMeters))
+            let slice = floorToIntClamped(
+                (point.y - minimumY) / sliceHeightMeters
+            )
             let cell = SupportCell(
-                x: Int(floor(point.x / horizontalVoxelMeters)),
-                z: Int(floor(point.z / horizontalVoxelMeters))
+                x: floorToIntClamped(point.x / horizontalVoxelMeters),
+                z: floorToIntClamped(point.z / horizontalVoxelMeters)
             )
             cellsBySlice[slice, default: []].insert(cell)
             evidenceBySlice[slice, default: []].insert(point.evidenceRef)
