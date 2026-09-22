@@ -151,6 +151,43 @@ public struct CaptureRootActions {
     /// Explicit Send-to-HTDT handoff (#225).
     public let sendCaptureToHTDT:
         (HTDTHandoffDestination) async -> Void
+    /// Mission inbox (#386): import a mission package file, start or
+    /// resume a record, deactivate the active mission, archive a
+    /// record, and evaluate a record's dependency report for display
+    /// before Start.
+    public let importMissionPackage: (URL) async -> Void
+    public let startMission: (String) async -> Void
+    public let deactivateMission: () async -> Void
+    public let archiveMission: (String) async -> Void
+    public let evaluateMissionDependencies:
+        (String) async throws -> HTDTMissionDependencyReport
+    /// Destination pairing (#379): decode+validate a pasted/scanned
+    /// QR payload, then confirm (stores the pinned pairing), forget,
+    /// or revoke a pairing, and refresh a paired receiver's cached
+    /// capability snapshot.
+    public let pairDestinationPayload:
+        (Data) throws -> HTDTReceiverPairingPayload
+    public let confirmPairing:
+        (HTDTReceiverPairingPayload) async -> Void
+    public let forgetDestination: (String) async -> Void
+    public let revokeDestination: (String) async -> Void
+    public let refreshEndpointCapabilities:
+        (String) async -> Void
+    /// Delivery queue (#387): operator controls for the durable job
+    /// ledger — retry-now skips backoff, pause/resume gate attempts,
+    /// cancel marks the job terminal, purge frees the queue-owned
+    /// payload copy.
+    public let deliveryRetryNow: (String) async -> Void
+    public let deliveryPause: (String) async -> Void
+    public let deliveryResume: (String) async -> Void
+    public let deliveryCancel: (String) async -> Void
+    public let deliveryPurgePayload: (String) async -> Void
+    /// Endpoint capability preflight (#374): fetches (or reads the
+    /// cached snapshot of) the destination's capability document and
+    /// classifies the current export's compatibility.
+    public let preflightDestination:
+        (HTDTHandoffDestination) async
+            -> HTDTCompatibilityVerdict
     /// Independent export-archive deletion (#251).
     public let deleteExportArchive:
         (PersistedCaptureRecord) -> Void
@@ -159,6 +196,31 @@ public struct CaptureRootActions {
     public let updateLibraryEntry:
         (CaptureRevisionID?, CaptureSeriesID?,
          CaptureLibraryEntryMetadata) -> Void
+    /// Reopen an end-accepted working revision that survived a
+    /// relaunch (issue #297): the draft comes back as a spatially
+    /// sealed Review — semantic work continues, live AR capture never
+    /// resumes.
+    public let openRecoveredDraft:
+        (RecoverableWorkingRevision) -> Void
+    /// Permanently remove a recoverable draft's working revision.
+    public let discardRecoveredDraft:
+        (RecoverableWorkingRevision) -> Void
+    /// "Save and finish later" (issue #297): leave Review without
+    /// discarding the working revision; it stays listed as a
+    /// recoverable draft on the next launch.
+    public let suspendReview: () -> Void
+    /// Review remediation affordance (issue #298): routes the operator
+    /// to the surface that can legitimately clear a diagnostic — never
+    /// a quality-gate bypass.
+    public let performRemediation:
+        (CaptureRemediationAction) -> Void
+    /// Practice/onboarding mode (issue #320): a guided rehearsal
+    /// capture that can never produce a real finalized bundle.
+    public let beginPracticeCapture: () -> Void
+    /// Dismiss the first-launch practice prompt; `permanently` records
+    /// "Don't show again" so the prompt is skipped forever while
+    /// practice stays reachable from the home surface.
+    public let dismissPracticePrompt: (Bool) -> Void
     /// #295 permission-recovery actions for the `.permissions` and
     /// `.setup` states: re-check the camera permission and resume the
     /// pre-capture pipeline, open iOS Settings, or leave the
@@ -289,6 +351,39 @@ public struct CaptureRootActions {
             () async -> URL? = { nil },
         sendCaptureToHTDT: @escaping
             (HTDTHandoffDestination) async -> Void = { _ in },
+        importMissionPackage: @escaping (URL) async -> Void
+            = { _ in },
+        startMission: @escaping (String) async -> Void = { _ in },
+        deactivateMission: @escaping () async -> Void = {},
+        archiveMission: @escaping (String) async -> Void = { _ in },
+        evaluateMissionDependencies: @escaping
+            (String) async throws -> HTDTMissionDependencyReport = { _ in
+                HTDTMissionDependencyReport()
+            },
+        pairDestinationPayload: @escaping
+            (Data) throws -> HTDTReceiverPairingPayload = { data in
+                try HTDTReceiverPairingPayload(data: data)
+            },
+        confirmPairing: @escaping
+            (HTDTReceiverPairingPayload) async -> Void = { _ in },
+        forgetDestination: @escaping (String) async -> Void
+            = { _ in },
+        revokeDestination: @escaping (String) async -> Void
+            = { _ in },
+        refreshEndpointCapabilities: @escaping
+            (String) async -> Void = { _ in },
+        deliveryRetryNow: @escaping (String) async -> Void
+            = { _ in },
+        deliveryPause: @escaping (String) async -> Void = { _ in },
+        deliveryResume: @escaping (String) async -> Void = { _ in },
+        deliveryCancel: @escaping (String) async -> Void = { _ in },
+        deliveryPurgePayload: @escaping (String) async -> Void
+            = { _ in },
+        preflightDestination: @escaping
+            (HTDTHandoffDestination) async
+                -> HTDTCompatibilityVerdict = { _ in
+                    .unknown(reason: "No preflight host bound")
+                },
         deleteExportArchive: @escaping
             (PersistedCaptureRecord) -> Void = { _ in },
         updateLibraryEntry: @escaping (
@@ -296,6 +391,15 @@ public struct CaptureRootActions {
             CaptureSeriesID?,
             CaptureLibraryEntryMetadata
         ) -> Void = { _, _, _ in },
+        openRecoveredDraft: @escaping
+            (RecoverableWorkingRevision) -> Void = { _ in },
+        discardRecoveredDraft: @escaping
+            (RecoverableWorkingRevision) -> Void = { _ in },
+        suspendReview: @escaping () -> Void = {},
+        performRemediation: @escaping
+            (CaptureRemediationAction) -> Void = { _ in },
+        beginPracticeCapture: @escaping () -> Void = {},
+        dismissPracticePrompt: @escaping (Bool) -> Void = { _ in },
         retryCameraPermission: @escaping () -> Void = {},
         openCameraSettings: @escaping () -> Void = {},
         cancelCaptureStart: @escaping () -> Void = {}
@@ -369,8 +473,32 @@ public struct CaptureRootActions {
         self.exportFailedCaptureDiagnostics =
             exportFailedCaptureDiagnostics
         self.sendCaptureToHTDT = sendCaptureToHTDT
+        self.importMissionPackage = importMissionPackage
+        self.startMission = startMission
+        self.deactivateMission = deactivateMission
+        self.archiveMission = archiveMission
+        self.evaluateMissionDependencies =
+            evaluateMissionDependencies
+        self.pairDestinationPayload = pairDestinationPayload
+        self.confirmPairing = confirmPairing
+        self.forgetDestination = forgetDestination
+        self.revokeDestination = revokeDestination
+        self.refreshEndpointCapabilities =
+            refreshEndpointCapabilities
+        self.deliveryRetryNow = deliveryRetryNow
+        self.deliveryPause = deliveryPause
+        self.deliveryResume = deliveryResume
+        self.deliveryCancel = deliveryCancel
+        self.deliveryPurgePayload = deliveryPurgePayload
+        self.preflightDestination = preflightDestination
         self.deleteExportArchive = deleteExportArchive
         self.updateLibraryEntry = updateLibraryEntry
+        self.openRecoveredDraft = openRecoveredDraft
+        self.discardRecoveredDraft = discardRecoveredDraft
+        self.suspendReview = suspendReview
+        self.performRemediation = performRemediation
+        self.beginPracticeCapture = beginPracticeCapture
+        self.dismissPracticePrompt = dismissPracticePrompt
         self.retryCameraPermission = retryCameraPermission
         self.openCameraSettings = openCameraSettings
         self.cancelCaptureStart = cancelCaptureStart
@@ -506,6 +634,13 @@ public struct CaptureRootView: View {
     /// Operator-visible Send-to-HTDT destinations + receipts (#225).
     public let handoffDestinations: [HTDTHandoffDestination]
     public let handoffReceipts: [HTDTHandoffReceipt]
+    /// Mission inbox records (#386), the active record id, QR-paired
+    /// receivers (#379) and the durable delivery-job ledger (#387) —
+    /// surfaced on the home screen's sidebar.
+    public let missionRecords: [HTDTMissionRecord]
+    public let activeMissionRecordID: String?
+    public let pairedDestinations: [PairedHTDTDestination]
+    public let deliveryJobs: [HTDTDeliveryJob]
     /// App-local capture names/notes/series metadata (#219).
     public let libraryMetadata: CaptureLibraryMetadataDocument
     /// Retained-evidence inspection for a failed capture (#224).
@@ -515,6 +650,21 @@ public struct CaptureRootView: View {
     public let taskPlanMission: CaptureJourneyMissionSummary?
     /// Spatial authority sealed for finalization (#276).
     public let spatialCaptureSealed: Bool
+    /// Whether the working set's AR coordinate authority is still
+    /// live (issue #297). False on a draft recovered after relaunch:
+    /// spatial evidence is frozen and live-capture affordances
+    /// (Continue scanning, evidence frames) must not appear.
+    public let liveSpatialAuthority: Bool
+    /// Recovery provenance for a draft reopened after relaunch
+    /// (issue #297): unsupported/superseded files the restore pass
+    /// found, surfaced instead of guessed.
+    public let recoveredDraftReport: WorkingRevisionRestoreReport?
+    /// True while the active working set is a practice capture
+    /// (issue #320): never finalizable, never sendable to HTDT.
+    public let practiceCaptureActive: Bool
+    /// First-launch practice prompt (#320): the host shows it once
+    /// unless the operator permanently dismissed it.
+    public let practicePromptShown: Bool
     /// Long-running host operations currently in flight (#309).
     /// Controls whose underlying guard would silently no-op are
     /// disabled and each in-flight op shows explicit progress.
@@ -545,6 +695,11 @@ public struct CaptureRootView: View {
     @State private var libraryQuery = ""
     @State private var confirmingExport = false
     @State private var diagnosticShareURL: URL?
+    /// Per-destination endpoint preflight results keyed by
+    /// destination id (#374).
+    @State private var preflightVerdicts:
+        [String: HTDTCompatibilityVerdict] = [:]
+    @State private var preflightInFlight: Set<String> = []
 
     public init(
         state: CaptureState,
@@ -612,10 +767,18 @@ public struct CaptureRootView: View {
         danglingSpatialIssues: [SpatialEvidenceIssue] = [],
         handoffDestinations: [HTDTHandoffDestination] = [],
         handoffReceipts: [HTDTHandoffReceipt] = [],
+        missionRecords: [HTDTMissionRecord] = [],
+        activeMissionRecordID: String? = nil,
+        pairedDestinations: [PairedHTDTDestination] = [],
+        deliveryJobs: [HTDTDeliveryJob] = [],
         libraryMetadata: CaptureLibraryMetadataDocument
             = CaptureLibraryMetadataDocument(),
         failedInspection: FailedCaptureInspection? = nil,
         spatialCaptureSealed: Bool = false,
+        liveSpatialAuthority: Bool = true,
+        recoveredDraftReport: WorkingRevisionRestoreReport? = nil,
+        practiceCaptureActive: Bool = false,
+        practicePromptShown: Bool = false,
         activeOperations: Set<CaptureHostOperation> = [],
         operationTargetRevisionID: CaptureRevisionID? = nil,
         actions: CaptureRootActions = CaptureRootActions()
@@ -683,9 +846,17 @@ public struct CaptureRootView: View {
         self.danglingSpatialIssues = danglingSpatialIssues
         self.handoffDestinations = handoffDestinations
         self.handoffReceipts = handoffReceipts
+        self.missionRecords = missionRecords
+        self.activeMissionRecordID = activeMissionRecordID
+        self.pairedDestinations = pairedDestinations
+        self.deliveryJobs = deliveryJobs
         self.libraryMetadata = libraryMetadata
         self.failedInspection = failedInspection
         self.spatialCaptureSealed = spatialCaptureSealed
+        self.liveSpatialAuthority = liveSpatialAuthority
+        self.recoveredDraftReport = recoveredDraftReport
+        self.practiceCaptureActive = practiceCaptureActive
+        self.practicePromptShown = practicePromptShown
         self.activeOperations = activeOperations
         self.operationTargetRevisionID =
             operationTargetRevisionID
@@ -756,6 +927,10 @@ public struct CaptureRootView: View {
                     persistedInventory: persistedInventory,
                     libraryMetadata: libraryMetadata,
                     persistedWorkspace: persistedWorkspace,
+                    missionRecords: missionRecords,
+                    activeMissionRecordID: activeMissionRecordID,
+                    pairedDestinations: pairedDestinations,
+                    deliveryJobs: deliveryJobs,
                     actions: actions
                 )
             } else {
@@ -972,7 +1147,13 @@ public struct CaptureRootView: View {
                                 quality: qualityReport,
                                 advisory: advisoryReport,
                                 spatialFindings:
-                                    spatialPlausibilityFindings
+                                    spatialPlausibilityFindings,
+                                spatialAuthorityLive:
+                                    liveSpatialAuthority,
+                                practiceCapture:
+                                    practiceCaptureActive,
+                                onRemediationAction:
+                                    actions.performRemediation
                             )
                         }
                     }
@@ -1109,10 +1290,41 @@ public struct CaptureRootView: View {
                                 ForEach(
                                     handoffDestinations
                                 ) { destination in
-                                    Button(destination.name) {
-                                        selectHandoffDestination(
-                                            destination
+                                    VStack(
+                                        alignment: .leading,
+                                        spacing: 4
+                                    ) {
+                                        Button(destination.name) {
+                                            selectHandoffDestination(
+                                                destination
+                                            )
+                                        }
+                                        if destination.kind
+                                            == .endpoint
+                                        {
+                                            preflightRow(
+                                                for: destination
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            if !deliveryJobs.isEmpty {
+                                Section("Delivery queue") {
+                                    ForEach(
+                                        deliveryJobs.filter {
+                                            !$0.isTerminal
+                                        }
+                                    ) { job in
+                                        LabeledContent(
+                                            job.destination.name,
+                                            value: job.state.rawValue
+                                                .replacingOccurrences(
+                                                    of: "_",
+                                                    with: " "
+                                                )
                                         )
+                                        .font(.caption)
                                     }
                                 }
                             }
@@ -1316,6 +1528,44 @@ public struct CaptureRootView: View {
         switch state {
         case .idle:
             Button("Start capture", action: actions.beginCapture)
+                .disabled(!capabilities.roomPlanMeshEligible)
+
+            // #320 practice mode: a guided rehearsal of the real
+            // scan → End → Review flow that can never produce a
+            // finalized bundle. Always reachable from here; the
+            // first-launch prompt is dismissible forever.
+            if practicePromptShown {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("New here? Try a practice capture first.")
+                        .font(.headline)
+                    Text(
+                        "Practice mode walks through scanning, End, and Review exactly like a real capture, but nothing is finalized or sent to HTDT. The data stays on this device marked as practice."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    Button(
+                        "Start practice capture",
+                        action: actions.beginPracticeCapture
+                    )
+                    .disabled(!capabilities.roomPlanMeshEligible)
+                    Button("Not now") {
+                        actions.dismissPracticePrompt(false)
+                    }
+                    Button("Don't show again") {
+                        actions.dismissPracticePrompt(true)
+                    }
+                    .font(.caption)
+                }
+            } else {
+                Button(
+                    "Practice a capture (no real bundle)",
+                    action: actions.beginPracticeCapture
+                )
+                .disabled(!capabilities.roomPlanMeshEligible)
+            }
+
+        case .setup:
+            EmptyView()
                 .disabled(
                     !capabilities.roomPlanMeshEligible || hostBusy
                 )
@@ -1360,6 +1610,13 @@ public struct CaptureRootView: View {
             progressRow("Preparing capture working set…")
 
         case .scanning:
+            if practiceCaptureActive {
+                Text(
+                    "Practice mode — this capture is never finalized or sent to HTDT."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
             Button(
                 "Capture evidence frame",
                 action: actions.captureEvidenceFrame
@@ -1374,6 +1631,7 @@ public struct CaptureRootView: View {
             discardButton
 
         case .reviewing:
+<<<<<<< HEAD
             // One dominant action per stage (#372): a blocking
             // integrity problem → Review diagnostics; required
             // mission tasks outstanding → Complete required tasks;
@@ -1400,6 +1658,81 @@ public struct CaptureRootView: View {
                 .capturePrimaryAction()
                 .disabled(hostBusy)
             case .continueScanning:
+||||||| e4f1dbf
+            Button("Open review workspace") {
+                actions.refreshReviewWorkspace()
+                reviewWorkspaceShown = true
+            }
+            .disabled(hostBusy)
+
+            if annotationCoordinateSpaceID != nil {
+                // Saved annotations/measurements survive a reopen
+                // while the same coordinate authority is still valid
+                // (#236), so Continue stays available after a saved
+                // annotation pass.
+=======
+            // #297: a draft recovered after relaunch has no live AR
+            // coordinate authority — Continue scanning and evidence
+            // capture must never appear; semantic review/authoring and
+            // finalization still work.
+            if !liveSpatialAuthority {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Recovered draft")
+                        .font(.headline)
+                    Text(
+                        "This capture was reopened after the app relaunched. Spatial evidence is sealed — you can review, author annotations and measurements, or finalize. You cannot resume scanning; start a new capture to add spatial evidence."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    if let report = recoveredDraftReport {
+                        if !report.unsupportedPaths.isEmpty {
+                            Text(
+                                String(
+                                    format: String(
+                                        localized: "%d file(s) kept but unsupported by this app version."
+                                    ),
+                                    report.unsupportedPaths.count
+                                )
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                        if !report.supersededPaths.isEmpty {
+                            Text(
+                                String(
+                                    format: String(
+                                        localized: "%d stale analysis file(s) will be recomputed."
+                                    ),
+                                    report.supersededPaths.count
+                                )
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            if practiceCaptureActive {
+                Text(
+                    "Practice mode — a rehearsal only; nothing here can be finalized or sent to HTDT."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            Button("Open review workspace") {
+                actions.refreshReviewWorkspace()
+                reviewWorkspaceShown = true
+            }
+            .disabled(hostBusy)
+
+            if liveSpatialAuthority,
+               annotationCoordinateSpaceID != nil {
+                // Saved annotations/measurements survive a reopen
+                // while the same coordinate authority is still valid
+                // (#236), so Continue stays available after a saved
+                // annotation pass.
+>>>>>>> origin/main
                 Button(
                     "Continue scanning",
                     action: actions.continueScanning
@@ -1407,6 +1740,55 @@ public struct CaptureRootView: View {
                 .capturePrimaryAction()
                 .disabled(hostBusy)
             case .validateAndFinalize:
+                if practiceCaptureActive {
+                    Text(
+                        "Practice captures are never finalized; use Discard to end practice."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                } else {
+                    Button(
+                        "Validate and finalize",
+                        action: actions.finalizeCapture
+                    )
+                    .capturePrimaryAction()
+                    .disabled(
+                        !(qualityReport?.readyForHTDTIngestion ?? false)
+                        || qualityReport?.integrityStatus != .pass
+                        || hostBusy
+                    )
+                    // #298: the disabled gate names its blocking
+                    // reasons inline instead of leaving the operator
+                    // to hunt through the diagnostics section.
+                    let blockers = (qualityReport?.diagnostics ?? [])
+                        .filter { $0.severity == .error }
+                    if !blockers.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(
+                                "Blocked by quality diagnostics:"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            ForEach(
+                                Array(blockers.enumerated()),
+                                id: \.offset
+                            ) { _, diagnostic in
+                                Button {
+                                    actions.performRemediation(
+                                        QualityRemediationCatalog
+                                            .remediation(
+                                                for: diagnostic
+                                            ).actions.first
+                                            ?? .discardDraft
+                                    )
+                                } label: {
+                                    Text(diagnostic.code)
+                                        .font(.caption)
+                                }
+                            }
+                        }
+                    }
+                }
                 Button(
                     "Validate and finalize",
                     action: actions.finalizeCapture
@@ -1442,6 +1824,16 @@ public struct CaptureRootView: View {
             if activeOperations.contains(.reviewOperation) {
                 progressRow("Finalizing capture…")
             }
+            // #297 "Save and finish later": the end-accepted draft is
+            // durable; leaving Review keeps it listed as a recoverable
+            // draft on the home surface and next launch.
+            if workingSetIdentity != nil {
+                Button(
+                    "Save and finish later",
+                    action: actions.suspendReview
+                )
+            }
+
             // Discarding the working revision is always legal while
             // unfinalized — kept last and visually separated.
             discardButton
@@ -2110,6 +2502,79 @@ public struct CaptureRootView: View {
             Task {
                 await actions.sendCaptureToHTDT(destination)
             }
+        }
+    }
+
+    /// Endpoint capability preflight row (#374): an explicit "check
+    /// compatibility" action per endpoint destination, then the
+    /// verdict rendered as the exact gap list — never a bare pass.
+    @ViewBuilder
+    private func preflightRow(
+        for destination: HTDTHandoffDestination
+    ) -> some View {
+        if let verdict = preflightVerdicts[destination.id] {
+            switch verdict {
+            case .compatible:
+                Label(
+                    "Compatible",
+                    systemImage: "checkmark.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(.green)
+            case .compatibleWithOmissions(let gaps):
+                VStack(alignment: .leading, spacing: 2) {
+                    Label(
+                        "Compatible with omissions",
+                        systemImage:
+                            "exclamationmark.triangle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    ForEach(
+                        Array(gaps.enumerated()),
+                        id: \.offset
+                    ) { _, gap in
+                        Text(gap.detail)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            case .incompatible(let gaps):
+                VStack(alignment: .leading, spacing: 2) {
+                    Label(
+                        "Incompatible",
+                        systemImage: "xmark.octagon"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    ForEach(
+                        Array(gaps.enumerated()),
+                        id: \.offset
+                    ) { _, gap in
+                        Text(gap.detail)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            case .unknown(let reason):
+                Label(reason, systemImage: "questionmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } else if preflightInFlight.contains(destination.id) {
+            ProgressView()
+                .controlSize(.small)
+        } else {
+            Button("Check compatibility") {
+                preflightInFlight.insert(destination.id)
+                Task {
+                    let verdict = await actions
+                        .preflightDestination(destination)
+                    preflightInFlight.remove(destination.id)
+                    preflightVerdicts[destination.id] = verdict
+                }
+            }
+            .font(.caption)
         }
     }
 
