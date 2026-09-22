@@ -284,8 +284,7 @@ public struct CaptureRootActions {
         performRemediation: @escaping
             (CaptureRemediationAction) -> Void = { _ in },
         beginPracticeCapture: @escaping () -> Void = {},
-        dismissPracticePrompt: @escaping (Bool) -> Void = { _ in }
-        ) -> Void = { _, _, _ in },
+        dismissPracticePrompt: @escaping (Bool) -> Void = { _ in },
         retryCameraPermission: @escaping () -> Void = {},
         openCameraSettings: @escaping () -> Void = {},
         cancelCaptureStart: @escaping () -> Void = {}

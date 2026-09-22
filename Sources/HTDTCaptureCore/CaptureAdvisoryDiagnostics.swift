@@ -387,8 +387,7 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
         actionableWeakRegionCount: Int,
         saturatedWeakRegionCount: Int,
         guidanceComplete: Bool,
-        guidanceCompletionSource: String? = nil
-        guidanceComplete: Bool,
+        guidanceCompletionSource: String? = nil,
         remoteWeakRegionCount: Int? = nil,
         spatialMaxRegionCount: Int? = nil,
         spatialPeakRegionCount: Int? = nil,
