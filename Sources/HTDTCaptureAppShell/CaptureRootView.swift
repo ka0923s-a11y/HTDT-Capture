@@ -131,6 +131,17 @@ public struct CaptureRootActions {
     public let updateLibraryEntry:
         (CaptureRevisionID?, CaptureSeriesID?,
          CaptureLibraryEntryMetadata) -> Void
+    /// Derived export support (#306/#318): availability probe plus the
+    /// two export actions. All take the finalized capture's revision
+    /// id — the host resolves the finalized directory itself.
+    public let derivedExportInfo:
+        (CaptureRevisionID) async -> DerivedExportInfo?
+    public let exportDerived3D:
+        (CaptureRevisionID, Derived3DExportSelection)
+            async -> DerivedExportOutcome
+    public let exportSurveyReport:
+        (CaptureRevisionID, SurveyReportSelection)
+            async -> DerivedExportOutcome
 
     public init(
         beginCapture: @escaping () -> Void = {},
@@ -241,7 +252,23 @@ public struct CaptureRootActions {
             CaptureRevisionID?,
             CaptureSeriesID?,
             CaptureLibraryEntryMetadata
-        ) -> Void = { _, _, _ in }
+        ) -> Void = { _, _, _ in },
+        derivedExportInfo: @escaping
+            (CaptureRevisionID) async -> DerivedExportInfo? = {
+                _ in nil
+            },
+        exportDerived3D: @escaping (
+            CaptureRevisionID,
+            Derived3DExportSelection
+        ) async -> DerivedExportOutcome = { _, _ in
+            DerivedExportOutcome(files: [], error: nil)
+        },
+        exportSurveyReport: @escaping (
+            CaptureRevisionID,
+            SurveyReportSelection
+        ) async -> DerivedExportOutcome = { _, _ in
+            DerivedExportOutcome(files: [], error: nil)
+        }
     ) {
         self.beginCapture = beginCapture
         self.beginScanning = beginScanning
@@ -304,6 +331,9 @@ public struct CaptureRootActions {
         self.sendCaptureToHTDT = sendCaptureToHTDT
         self.deleteExportArchive = deleteExportArchive
         self.updateLibraryEntry = updateLibraryEntry
+        self.derivedExportInfo = derivedExportInfo
+        self.exportDerived3D = exportDerived3D
+        self.exportSurveyReport = exportSurveyReport
     }
 }
 
@@ -544,6 +574,10 @@ public struct CaptureRootView: View {
         LibraryMetadataEditorTarget?
     @State private var libraryQuery = ""
     @State private var diagnosticShareURL: URL?
+    /// Derived export sheets (#306/#318): which validated finalized
+    /// capture to export from — the active adoption or a library row.
+    @State private var derived3DTarget: DerivedExportTarget?
+    @State private var surveyReportTarget: DerivedExportTarget?
 
     public init(
         state: CaptureState,
@@ -962,6 +996,32 @@ public struct CaptureRootView: View {
                                 )
                             }
                         }
+                        Button("Export derived 3D model…") {
+                            derived3DTarget = DerivedExportTarget(
+                                revisionID:
+                                    validationReport.manifest
+                                        .captureRevisionID,
+                                displayName:
+                                    libraryMetadata.revisions[
+                                        validationReport.manifest
+                                            .captureRevisionID
+                                            .description
+                                    ]?.displayName
+                            )
+                        }
+                        Button("Export survey report…") {
+                            surveyReportTarget = DerivedExportTarget(
+                                revisionID:
+                                    validationReport.manifest
+                                        .captureRevisionID,
+                                displayName:
+                                    libraryMetadata.revisions[
+                                        validationReport.manifest
+                                            .captureRevisionID
+                                            .description
+                                    ]?.displayName
+                            )
+                        }
                     }
                 }
 
@@ -1179,6 +1239,18 @@ public struct CaptureRootView: View {
                         seriesID: target.seriesID,
                         document: libraryMetadata,
                         onSave: actions.updateLibraryEntry
+                    )
+                }
+                .sheet(item: $derived3DTarget) { target in
+                    Derived3DExportSheet(
+                        target: target,
+                        actions: actions
+                    )
+                }
+                .sheet(item: $surveyReportTarget) { target in
+                    SurveyReportExportSheet(
+                        target: target,
+                        actions: actions
                     )
                 }
                 .confirmationDialog(
@@ -1603,6 +1675,24 @@ public struct CaptureRootView: View {
                         actions.revisePersistedCapture(
                             record
                         )
+                    }
+                }
+                if record.canOpen {
+                    Menu("Export…") {
+                        Button("Derived 3D model…") {
+                            derived3DTarget = DerivedExportTarget(
+                                revisionID:
+                                    record.captureRevisionID,
+                                displayName: entry?.displayName
+                            )
+                        }
+                        Button("Survey report…") {
+                            surveyReportTarget = DerivedExportTarget(
+                                revisionID:
+                                    record.captureRevisionID,
+                                displayName: entry?.displayName
+                            )
+                        }
                     }
                 }
                 Button("Edit name") {

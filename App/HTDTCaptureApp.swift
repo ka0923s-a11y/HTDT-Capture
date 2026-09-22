@@ -205,7 +205,13 @@ private struct HTDTCaptureHostView: View {
                 deleteExportArchive:
                     coordinator.deleteExportArchive,
                 updateLibraryEntry:
-                    coordinator.updateLibraryEntry
+                    coordinator.updateLibraryEntry,
+                derivedExportInfo:
+                    coordinator.derivedExportInfo,
+                exportDerived3D:
+                    coordinator.exportDerived3D,
+                exportSurveyReport:
+                    coordinator.exportSurveyReport
             )
         )
         .onOpenURL { url in
@@ -4332,6 +4338,334 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             ) + " [" + Self.persistenceDiagnostic(error) + "]"
             return nil
         }
+    }
+
+    // MARK: derived export (issues #306 / #318)
+
+    /// Where a finalized revision's directory, digest, manifest and
+    /// display name come from for a derived export — the currently
+    /// adopted revision when it matches, otherwise the validated
+    /// library record for the revision.
+    private struct DerivedExportContext {
+        let directory: URL
+        let bundleDigest: EvidenceSHA256
+        let manifest: BundleManifest
+        let displayName: String?
+    }
+
+    private func derivedExportContext(
+        _ revisionID: CaptureRevisionID
+    ) async -> DerivedExportContext? {
+        if let finalizedRevision,
+           finalizedRevision.captureRevisionID == revisionID,
+           let manifest = validationReport?.manifest
+        {
+            return DerivedExportContext(
+                directory: finalizedRevision.directory,
+                bundleDigest: finalizedRevision.bundleDigest,
+                manifest: manifest,
+                displayName:
+                    libraryMetadata.revisions[
+                        revisionID.description
+                    ]?.displayName
+            )
+        }
+        guard let store = persistedStore else { return nil }
+        let record = await Task.detached(
+            priority: .userInitiated
+        ) {
+            store.validatedRecord(captureRevisionID: revisionID)
+        }.value
+        guard let directory = record?.finalizedDirectory,
+              let validation = record?.finalizedValidation
+        else {
+            return nil
+        }
+        return DerivedExportContext(
+            directory: directory,
+            bundleDigest: validation.bundleDigest,
+            manifest: validation.manifest,
+            displayName:
+                libraryMetadata.revisions[
+                    revisionID.description
+                ]?.displayName
+        )
+    }
+
+    /// Availability probe for the derived-export sheets (issue #306):
+    /// which geometry sources the finalized bundle carries, plus the
+    /// preview-bearing evidence frames the report may offer for
+    /// explicit opt-in.
+    func derivedExportInfo(
+        _ revisionID: CaptureRevisionID
+    ) async -> DerivedExportInfo? {
+        guard let context = await derivedExportContext(revisionID)
+        else { return nil }
+        return await Task.detached(
+            priority: .userInitiated
+        ) { () -> DerivedExportInfo in
+            let manifest = context.manifest
+            let declared = Set(manifest.files.map(\.path))
+            var anchorCount = 0
+            if declared.contains(MeshEvidencePackage.indexPath),
+               let data = try? Data(
+                   contentsOf: context.directory
+                       .appendingPathComponent(
+                           MeshEvidencePackage.indexPath,
+                           isDirectory: false
+                       )
+               ),
+               let index = try? JSONDecoder().decode(
+                   MeshAnchorEvidenceIndex.self,
+                   from: data
+               )
+            {
+                anchorCount = index.anchors.count
+            }
+            var roomPlanAvailable = false
+            var usdzAvailable = false
+            #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
+            roomPlanAvailable =
+                DerivedRoomPlanExportSupport.isAvailable(
+                    manifest: manifest,
+                    bundleDirectory: context.directory
+                )
+            usdzAvailable = roomPlanAvailable
+            #endif
+            let evidenceOptions =
+                SurveyReportEvidenceEnumerator.options(
+                    bundleDirectory: context.directory,
+                    manifest: manifest
+                )
+            return DerivedExportInfo(
+                roomPlanProcessedAvailable: roomPlanAvailable,
+                usdzAvailable: usdzAvailable,
+                arMeshAvailable: anchorCount > 0,
+                arMeshAnchorCount: anchorCount,
+                evidenceOptions: evidenceOptions
+            )
+        }.value
+    }
+
+    /// Runs a derived 3D export for a finalized capture (issue #306).
+    /// The result is written under `<captureRoot>/derived-exports/` —
+    /// never inside the canonical `finalized/` or `exports/` roots.
+    func exportDerived3D(
+        _ revisionID: CaptureRevisionID,
+        _ selection: Derived3DExportSelection
+    ) async -> DerivedExportOutcome {
+        guard let context =
+            await derivedExportContext(revisionID),
+              let captureRoot = Self.captureRootDirectory()
+        else {
+            return DerivedExportOutcome(
+                files: [],
+                error: HostLocalization.text(
+                    "The finalized capture is no longer available",
+                    "ファイナライズ済みキャプチャはもう利用できません"
+                )
+            )
+        }
+        return await Task.detached(
+            priority: .userInitiated
+        ) { () -> DerivedExportOutcome in
+            do {
+                let result: Derived3DExportResult
+                switch selection.source {
+                case .arMeshAnchors:
+                    result = try DerivedExportRunner.exportMesh(
+                        bundleDirectory: context.directory,
+                        bundleDigest: context.bundleDigest,
+                        captureRoot: captureRoot,
+                        format: selection.format,
+                        source: .arMeshAnchors
+                    )
+                case .roomPlanProcessed:
+                    if selection.format == .usdz {
+                        #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
+                        if #available(iOS 17.0, *) {
+                            result =
+                                try DerivedExportRunner.exportUSDZ(
+                                    bundleDirectory:
+                                        context.directory,
+                                    bundleDigest:
+                                        context.bundleDigest,
+                                    captureRoot: captureRoot
+                                ) { destination in
+                                    try DerivedRoomPlanExportSupport
+                                        .writeUSDZ(
+                                            bundleDirectory:
+                                                context.directory,
+                                            manifest:
+                                                context.manifest,
+                                            to: destination
+                                        )
+                                }
+                        } else {
+                            throw DerivedExportError
+                                .unsupportedCombination(
+                                    reason:
+                                        "USDZ export requires iOS 17 RoomPlan"
+                                )
+                        }
+                        #else
+                        throw DerivedExportError
+                            .unsupportedCombination(
+                                reason:
+                                    "USDZ export requires RoomPlan on iOS"
+                            )
+                        #endif
+                    } else {
+                        #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
+                        if #available(iOS 17.0, *) {
+                            let objects =
+                                try DerivedRoomPlanExportSupport
+                                    .bindableObjects(
+                                        bundleDirectory:
+                                            context.directory,
+                                        manifest: context.manifest
+                                    )
+                            result =
+                                try DerivedExportRunner.exportMesh(
+                                    bundleDirectory:
+                                        context.directory,
+                                    bundleDigest:
+                                        context.bundleDigest,
+                                    captureRoot: captureRoot,
+                                    format: selection.format,
+                                    source: .roomPlanProcessed,
+                                    roomPlanObjects: objects
+                                )
+                        } else {
+                            throw DerivedExportError
+                                .unsupportedCombination(
+                                    reason:
+                                        "RoomPlan-derived exports require iOS 17 RoomPlan"
+                                )
+                        }
+                        #else
+                        throw DerivedExportError
+                            .unsupportedCombination(
+                                reason:
+                                    "RoomPlan-derived exports require RoomPlan on iOS"
+                            )
+                        #endif
+                    }
+                }
+                return DerivedExportOutcome(
+                    files: [
+                        result.primaryFileURL,
+                        result.provenanceFileURL,
+                    ],
+                    error: nil
+                )
+            } catch let error as DerivedExportError {
+                return DerivedExportOutcome(
+                    files: [],
+                    error: error.reason
+                )
+            } catch {
+                return DerivedExportOutcome(
+                    files: [],
+                    error: error.localizedDescription
+                )
+            }
+        }.value
+    }
+
+    /// Runs the field-survey report export (issue #318). Only the
+    /// preview frames the operator explicitly selected are embedded;
+    /// the canonical bundle is never modified.
+    func exportSurveyReport(
+        _ revisionID: CaptureRevisionID,
+        _ selection: SurveyReportSelection
+    ) async -> DerivedExportOutcome {
+        guard let context =
+            await derivedExportContext(revisionID),
+              let captureRoot = Self.captureRootDirectory()
+        else {
+            return DerivedExportOutcome(
+                files: [],
+                error: HostLocalization.text(
+                    "The finalized capture is no longer available",
+                    "ファイナライズ済みキャプチャはもう利用できません"
+                )
+            )
+        }
+        return await Task.detached(
+            priority: .userInitiated
+        ) { () -> DerivedExportOutcome in
+            var plan: RoomPlanPreviewModel? = nil
+            #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
+            if #available(iOS 17.0, *) {
+                if let data = try? DerivedRoomPlanExportSupport
+                    .processedRoomData(
+                        bundleDirectory: context.directory,
+                        manifest: context.manifest
+                    )
+                {
+                    plan = try? RoomPlanReviewDeriver
+                        .planPreview(processedPayload: data)
+                }
+            }
+            #endif
+
+            let options =
+                SurveyReportEvidenceEnumerator.options(
+                    bundleDirectory: context.directory,
+                    manifest: context.manifest
+                )
+            var images: [SurveyReportEvidenceImage] = []
+            for option in options
+            where selection.evidenceFrameIDs.contains(option.id)
+            {
+                guard let jpeg =
+                    SurveyReportImageConverter.jpegData(
+                        from: option.previewFileURL
+                    )
+                else { continue }
+                images.append(
+                    SurveyReportEvidenceImage(
+                        frameID: option.frameID,
+                        caption:
+                            option.frameID.description
+                                + "  t="
+                                + String(
+                                    format: "%.1f",
+                                    option.sessionTimestampSeconds
+                                )
+                                + "s",
+                        jpegData: jpeg
+                    )
+                )
+            }
+
+            do {
+                let result = try SurveyReportRunner.export(
+                    bundleDirectory: context.directory,
+                    bundleDigest: context.bundleDigest,
+                    captureRoot: captureRoot,
+                    displayName: context.displayName,
+                    planPreview: plan,
+                    evidenceImages: images,
+                    language: selection.language
+                )
+                return DerivedExportOutcome(
+                    files: result.files,
+                    error: nil
+                )
+            } catch let error as DerivedExportError {
+                return DerivedExportOutcome(
+                    files: [],
+                    error: error.reason
+                )
+            } catch {
+                return DerivedExportOutcome(
+                    files: [],
+                    error: error.localizedDescription
+                )
+            }
+        }.value
     }
 
     /// Loads the handoff destinations for `sendCaptureToHTDT`

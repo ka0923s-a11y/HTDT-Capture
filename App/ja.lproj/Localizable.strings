@@ -987,3 +987,37 @@
 "Captured RoomPlan element" = "取得済み RoomPlan 要素";
 "Captured mesh anchor" = "取得済みメッシュアンカー";
 "Treatment placement" = "トリートメント配置";
+
+/* Derived export sheets — issues #306 / #318 */
+"Export derived 3D model…" = "派生 3D モデルをエクスポート…";
+"Export survey report…" = "サーベイレポートをエクスポート…";
+"Export…" = "エクスポート…";
+"Derived 3D model…" = "派生 3D モデル…";
+"Survey report…" = "サーベイレポート…";
+"Derived 3D export" = "派生 3D エクスポート";
+"Survey report" = "サーベイレポート";
+"What this is" = "これは何ですか";
+"Derived output — not canonical capture evidence. The .htdtcapture bundle remains the evidence record; this file is a convenience export for external 3D tools." = "派生出力 — 正規のキャプチャ証跡ではありません。.htdtcapture バンドルが証跡レコードです。このファイルは外部 3D ツール向けの便宜上のエクスポートです。";
+"Contains geometry only — no camera imagery, depth frames, annotations, or measurements are embedded." = "ジオメトリのみを含みます — カメラ画像、深度フレーム、アノテーション、計測値は埋め込まれません。";
+"Geometry source" = "ジオメトリソース";
+"RoomPlan surfaces & objects" = "RoomPlan の面とオブジェクト";
+"Bounding boxes synthesized from the processed RoomPlan model. Not measured surface geometry." = "処理済み RoomPlan モデルから合成されたバウンディングボックス。実測の表面ジオメトリではありません。";
+"ARKit scanned mesh" = "ARKit スキャンメッシュ";
+"The recorded scene mesh merged into world space." = "ワールド空間にマージされた記録済みシーンメッシュ。";
+"Format" = "形式";
+"USDZ (RoomPlan parametric)" = "USDZ（RoomPlan パラメトリック）";
+"GLB (glTF binary)" = "GLB（glTF バイナリ）";
+"OBJ (Wavefront)" = "OBJ（Wavefront）";
+"PLY (ASCII)" = "PLY（ASCII）";
+"Not recorded in this capture" = "このキャプチャには記録されていません";
+"Export 3D model" = "3D モデルをエクスポート";
+"A provenance record (.provenance.json) is written next to the model: it binds the file to this exact capture revision and bundle digest, the coordinate space, and the transform and units applied." = "モデルの隣に来歴レコード（.provenance.json）が書き出されます。ファイルを正確なキャプチャリビジョンとバンドルダイジェスト、座標系、適用された変換と単位に紐付けます。";
+"Exported files" = "エクスポートされたファイル";
+"Provenance fields are embedded in the file itself (comments / glTF extras) and in the sidecar record." = "来歴フィールドはファイル自体（コメント／glTF extras）とサイドカーレコードに埋め込まれます。";
+"A printable HTML report plus an SVG plan, derived from this exact capture revision. It summarizes entities, measurements, mission completeness, and findings — it is not canonical evidence." = "この正確なキャプチャリビジョンから派生した、印刷可能な HTML レポートと SVG 平面図。エンティティ、計測値、ミッション達成度、所見を要約します — 正規の証跡ではありません。";
+"Language" = "言語";
+"Report language" = "レポート言語";
+"Evidence previews (optional)" = "証跡プレビュー（任意）";
+"Only frames you select are embedded as downscaled JPEG previews. The canonical bundle is untouched." = "選択したフレームのみが縮小 JPEG プレビューとして埋め込まれます。正規バンドルは変更されません。";
+"No preview-bearing evidence frames are recorded — the report will contain no camera imagery." = "プレビュー付き証跡フレームは記録されていません — レポートにカメラ画像は含まれません。";
+"Generate report" = "レポートを生成";
