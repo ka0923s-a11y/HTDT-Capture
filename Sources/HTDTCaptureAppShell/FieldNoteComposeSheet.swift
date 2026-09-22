@@ -4,7 +4,8 @@ import HTDTCaptureCore
 
 /// The operator's inputs for one field note (issue #375). The host —
 /// never this view — stamps the revision/session binding, timestamp,
-/// and any evidence frame ref.
+/// and any evidence frame ref or spatial anchor the operator asked
+/// for.
 public struct FieldNoteDraft: Sendable {
     public var text: String
     public var category: CaptureFieldNoteCategory
@@ -14,6 +15,10 @@ public struct FieldNoteDraft: Sendable {
     /// Authority/evidence refs the note binds against (Review-time
     /// binding); empty for an unbound note.
     public var bindingRefs: [String]
+    /// The spatial anchor the operator requested (issue #421); the
+    /// host resolves it against the live session — the sheet never
+    /// fabricates a point itself.
+    public var anchorRequest: CaptureFieldNoteAnchorRequest
 
     public init(
         text: String,
@@ -21,7 +26,8 @@ public struct FieldNoteDraft: Sendable {
         needsAttention: Bool,
         attachLatestEvidence: Bool,
         dictated: Bool,
-        bindingRefs: [String] = []
+        bindingRefs: [String] = [],
+        anchorRequest: CaptureFieldNoteAnchorRequest = .none
     ) {
         self.text = text
         self.category = category
@@ -29,19 +35,26 @@ public struct FieldNoteDraft: Sendable {
         self.attachLatestEvidence = attachLatestEvidence
         self.dictated = dictated
         self.bindingRefs = bindingRefs
+        self.anchorRequest = anchorRequest
     }
 }
 
-/// Operator field-note composer (issue #375): free text, an
-/// extensible category, an optional needs-attention flag, and —
-/// when a live scan context offers one — binding of the latest
-/// committed evidence frame. Review passes `bindingCandidates` so an
-/// unbound note can be authored already bound; the host keeps notes
-/// as an append-only supplemental document — this sheet only gathers
-/// inputs.
+/// Operator field-note composer (issue #375, presentation rework
+/// #420, spatial anchoring #421): free text, a localized extensible
+/// category, a needs-attention flag, subject binding drawn from
+/// committed authorities, and — during scanning — an optional
+/// validated spatial anchor. The sheet only gathers inputs; the host
+/// resolves anchors and stamps provenance.
 public struct FieldNoteComposeSheet: View {
     public let allowsEvidenceAttachment: Bool
-    public let bindingCandidates: [String]
+    /// Whether a live AR session can satisfy a spatial anchor
+    /// request — scan-time only (issue #421).
+    public let allowsSpatialAnchor: Bool
+    public let bindingCandidates: [FieldNoteBindingCandidate]
+    /// Category + bindings preloaded when correcting/binding an
+    /// existing note — supersession lineage keeps them (issue #420).
+    public let preselectedCategory: CaptureFieldNoteCategory?
+    public let preselectedBindingRefs: [String]
     public let onSave: (FieldNoteDraft) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -53,17 +66,25 @@ public struct FieldNoteComposeSheet: View {
     @State private var attachLatestEvidence = true
     @State private var dictated = false
     @State private var bindingSelection = ""
+    @State private var anchorRequest: CaptureFieldNoteAnchorRequest =
+        .none
 
     private static let customToken = "x_custom"
     private static let noBinding = "_none_"
 
     public init(
         allowsEvidenceAttachment: Bool = true,
-        bindingCandidates: [String] = [],
+        allowsSpatialAnchor: Bool = false,
+        bindingCandidates: [FieldNoteBindingCandidate] = [],
+        preselectedCategory: CaptureFieldNoteCategory? = nil,
+        preselectedBindingRefs: [String] = [],
         onSave: @escaping (FieldNoteDraft) -> Void = { _ in }
     ) {
         self.allowsEvidenceAttachment = allowsEvidenceAttachment
+        self.allowsSpatialAnchor = allowsSpatialAnchor
         self.bindingCandidates = bindingCandidates
+        self.preselectedCategory = preselectedCategory
+        self.preselectedBindingRefs = preselectedBindingRefs
         self.onSave = onSave
     }
 
@@ -75,7 +96,24 @@ public struct FieldNoteComposeSheet: View {
                 .replacingOccurrences(of: " ", with: "_")
             return try? CaptureFieldNoteCategory(token: token)
         }
+        if let pre = preselectedCategory,
+           categoryToken == pre.rawValue {
+            return pre
+        }
         return CaptureFieldNoteCategory(rawValue: categoryToken)
+    }
+
+    /// Category options: well-known tokens plus the preselected
+    /// custom token when correcting an `x_` note.
+    private var categoryOptions: [CaptureFieldNoteCategory] {
+        var categories = CaptureFieldNoteCategory.wellKnownTokens
+            .map { CaptureFieldNoteCategory(rawValue: $0) }
+        if let pre = preselectedCategory,
+           pre.rawValue.hasPrefix("x_"),
+           !categories.contains(pre) {
+            categories.append(pre)
+        }
+        return categories.sorted { $0.rawValue < $1.rawValue }
     }
 
     public var body: some View {
@@ -104,27 +142,58 @@ public struct FieldNoteComposeSheet: View {
                 Section("Category") {
                     Picker("Category", selection: $categoryToken) {
                         ForEach(
-                            CaptureFieldNoteCategory
-                                .wellKnownTokens
-                                .sorted(),
-                            id: \.self
+                            categoryOptions,
+                            id: \.rawValue
                         ) { token in
                             Text(
-                                token.replacingOccurrences(
-                                    of: "_",
-                                    with: " "
-                                ).capitalized
+                                FieldNoteBindingResolver
+                                    .categoryName(token)
                             )
-                            .tag(token)
+                            .tag(token.rawValue)
                         }
                         Text("Custom…").tag(Self.customToken)
                     }
                     if categoryToken == Self.customToken {
                         TextField(
-                            "custom_category",
+                            "Custom category",
                             text: $customCategory
                         )
-                        .font(.callout.monospaced())
+                        .font(.callout)
+                    }
+                }
+
+                if allowsSpatialAnchor {
+                    Section {
+                        Picker(
+                            "Location",
+                            selection: $anchorRequest
+                        ) {
+                            Text("Note only")
+                                .tag(
+                                    CaptureFieldNoteAnchorRequest
+                                        .none
+                                )
+                            Text("Mark location")
+                                .tag(
+                                    CaptureFieldNoteAnchorRequest
+                                        .subjectPoint
+                                )
+                            Text("Record from here")
+                                .tag(
+                                    CaptureFieldNoteAnchorRequest
+                                        .viewpoint
+                                )
+                        }
+                        .pickerStyle(.segmented)
+                    } footer: {
+                        Text(
+                            anchorRequest == .viewpoint
+                                ? "Saves where the device stood — not the note's subject."
+                                : anchorRequest == .subjectPoint
+                                    ? "Saves the point in view — used when the note is about a spot."
+                                    : "No location is saved with this note."
+                        )
+                        .font(.caption)
                     }
                 }
 
@@ -134,16 +203,16 @@ public struct FieldNoteComposeSheet: View {
                             "Bind to",
                             selection: $bindingSelection
                         ) {
-                            Text("Nothing yet").tag(Self.noBinding)
-                            ForEach(
-                                bindingCandidates,
-                                id: \.self
-                            ) { ref in
-                                Text(ref)
-                                    .font(.caption.monospaced())
-                                    .tag(ref)
+                            Text("Nothing yet")
+                                .tag(Self.noBinding)
+                            ForEach(bindingCandidates) { candidate in
+                                Text(candidate.title)
+                                    .tag(candidate.ref)
                             }
                         }
+                        .accessibilityLabel(
+                            String(localized: "Bind note to subject")
+                        )
                     }
                     Toggle(
                         "Needs attention before finalize",
@@ -180,8 +249,9 @@ public struct FieldNoteComposeSheet: View {
                                         bindingSelection.isEmpty
                                             || bindingSelection
                                                 == Self.noBinding
-                                            ? []
-                                            : [bindingSelection]
+                                            ? preselectedBindingRefs
+                                            : [bindingSelection],
+                                    anchorRequest: anchorRequest
                                 )
                             )
                         }
@@ -197,6 +267,19 @@ public struct FieldNoteComposeSheet: View {
                                         in: .whitespacesAndNewlines
                                     ).isEmpty)
                     )
+                }
+            }
+            .onAppear {
+                if let pre = preselectedCategory {
+                    if pre.rawValue.hasPrefix("x_") {
+                        categoryToken = pre.rawValue
+                    } else {
+                        categoryToken = pre.rawValue
+                    }
+                }
+                if bindingSelection.isEmpty,
+                   let first = preselectedBindingRefs.first {
+                    bindingSelection = first
                 }
             }
         }

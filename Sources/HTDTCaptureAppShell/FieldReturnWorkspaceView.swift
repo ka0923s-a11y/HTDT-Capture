@@ -6,18 +6,18 @@ import HTDTCaptureCore
 import UIKit
 #endif
 
-/// The non-spatial field-return workspace (issue #400): the
-/// operator-facing surface for completing a mission's
+/// The non-spatial field-return workspace (issues #400, #417,
+/// #418): the operator-facing surface for completing a mission's
 /// inventory/photo/settings/wiring tasks without a RoomPlan capture
-/// revision. The ledger mirrors the bound plan — spatial tasks are
-/// pre-marked `not_applicable` with the capability reason on device;
-/// every other task accepts an outcome, fulfilling authority refs,
-/// and an operator note. Staged field-authority records (evidence,
-/// instruments, settings observations, wiring routes) bind the
-/// contribution id in their `capture_revision_id` slot.
+/// revision. Each task row leads with the authoring action its
+/// `task_kind` maps to — inventory units, wiring routes, settings
+/// observations, room states and evidence land as typed authority
+/// records in the workspace and fulfill the task by reference.
 ///
-/// All edits persist through `persistFieldReturnDraft`; Finalize
-/// produces the immutable `.htdtfieldreturn` container.
+/// Finalization freezes the workspace into the immutable
+/// `.htdtfieldreturn` container: once `isFinalized` every mutation
+/// control is hidden and the ledger renders read-only — corrections
+/// flow through a new contribution, never an in-place edit.
 struct HTDTFieldReturnWorkspaceView: View {
     let record: HTDTMissionRecord
     let actions: CaptureRootActions
@@ -30,20 +30,57 @@ struct HTDTFieldReturnWorkspaceView: View {
         let url: URL
     }
 
+    /// Bounded operator-facing error with the technical detail kept
+    /// under a disclosure (issue #417) — the headline never carries
+    /// a raw `error` description.
+    private struct StatusNotice {
+        let message: String
+        let detail: String
+    }
+
+    /// Which typed authoring sheet a task row is presenting.
+    private enum AuthoringSheet: Identifiable {
+        case evidenceNote(itemRef: String)
+        case inventoryItem(itemRef: String)
+        case settings(itemRef: String)
+        case wiring(itemRef: String)
+        case roomState(itemRef: String)
+        case outcomeReason(
+            itemRef: String,
+            outcome: HTDTFieldReturnTaskLedgerEntry.Outcome
+        )
+        #if canImport(UIKit)
+        case camera(itemRef: String)
+        #endif
+
+        var id: String {
+            switch self {
+            case .evidenceNote(let r): "evidence:\(r)"
+            case .inventoryItem(let r): "inventory:\(r)"
+            case .settings(let r): "settings:\(r)"
+            case .wiring(let r): "wiring:\(r)"
+            case .roomState(let r): "room:\(r)"
+            case .outcomeReason(let r, let o):
+                "reason:\(r):\(o.rawValue)"
+            #if canImport(UIKit)
+            case .camera(let r): "camera:\(r)"
+            #endif
+            }
+        }
+    }
+
     @Environment(\.dismiss) private var dismiss
     @State private var workspace: HTDTFieldReturnWorkspace?
     @State private var loadError: String?
-    @State private var statusMessage: String?
+    @State private var notice: StatusNotice?
     @State private var finalizedShare: ShareTarget?
-    @State private var importingFile = false
-    @State private var composingEvidence = false
+    @State private var authoringSheet: AuthoringSheet?
+    @State private var importingFileForItemRef: String?
     @State private var evidenceKind: FieldEvidenceKind =
         .generalNote
     @State private var evidenceTitle = ""
     @State private var evidenceNote = ""
-    @State private var evidenceTargetRef: String?
-    @State private var freeRefDraft = ""
-    @State private var addingRefToItem: String?
+    @State private var reasonDraft = ""
 
     var body: some View {
         Group {
@@ -81,17 +118,22 @@ struct HTDTFieldReturnWorkspaceView: View {
                 }
             }
         }
-        .fileImporter(
-            isPresented: $importingFile,
-            allowedContentTypes: [.data],
-            allowsMultipleSelection: false
-        ) { result in
-            handleImportedFile(result)
+        .sheet(item: $authoringSheet) { sheet in
+            authoringSheetView(sheet)
         }
-        .sheet(
-            isPresented: $composingEvidence
-        ) {
-            evidenceComposer()
+        .fileImporter(
+            isPresented: Binding(
+                get: { importingFileForItemRef != nil },
+                set: { if !$0 { importingFileForItemRef = nil } }
+            ),
+            allowedContentTypes: [.data]
+        ) { result in
+            if case .success(let url) = result,
+               let itemRef = importingFileForItemRef
+            {
+                attachFile(url, itemRef: itemRef)
+            }
+            importingFileForItemRef = nil
         }
         #if os(iOS)
         .sheet(item: $finalizedShare) { share in
@@ -106,11 +148,6 @@ struct HTDTFieldReturnWorkspaceView: View {
     ) -> some View {
         List {
             Section(String(localized: "Contribution")) {
-                LabeledContent(
-                    String(localized: "Contribution ID"),
-                    value: workspace.contributionID.description
-                )
-                .font(.caption.monospaced())
                 LabeledContent(
                     String(localized: "Mission"),
                     value: record.missionID
@@ -131,9 +168,42 @@ struct HTDTFieldReturnWorkspaceView: View {
                     )
                     .foregroundStyle(.secondary)
                 }
+                DisclosureGroup(
+                    String(localized: "Details")
+                ) {
+                    LabeledContent(
+                        String(localized: "Contribution ID"),
+                        value: workspace.contributionID
+                            .description
+                    )
+                    .font(.caption.monospaced())
+                    if let superseded =
+                        workspace.supersedesContributionID
+                    {
+                        LabeledContent(
+                            String(localized: "Supersedes"),
+                            value: superseded.description
+                        )
+                        .font(.caption.monospaced())
+                    }
+                }
+                .font(.caption)
             }
 
-            if !workspace.taskLedger.isEmpty {
+            readinessSection(workspace)
+
+            if workspace.taskLedger.isEmpty {
+                Section {
+                    Text(
+                        String(
+                            localized:
+                                "This mission has no field-return tasks — every task needs spatial capture or is already covered."
+                        )
+                    )
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                }
+            } else {
                 Section(
                     String(localized: "Task fulfillment")
                 ) {
@@ -141,72 +211,69 @@ struct HTDTFieldReturnWorkspaceView: View {
                         workspace.taskLedger,
                         id: \.itemRef
                     ) { entry in
-                        ledgerRow(entry)
+                        ledgerRow(
+                            entry,
+                            finalized: workspace.isFinalized
+                        )
                     }
                 }
             }
 
             Section(String(localized: "Field authority")) {
-                authoritySummary(workspace)
-                Button {
-                    evidenceTitle = ""
-                    evidenceNote = ""
-                    evidenceKind = .generalNote
-                    evidenceTargetRef = workspace.taskLedger
-                        .first?.itemRef
-                    composingEvidence = true
-                } label: {
-                    Label(
-                        String(localized: "Add evidence note"),
-                        systemImage: "square.and.pencil"
-                    )
-                }
-                Button {
-                    importingFile = true
-                } label: {
-                    Label(
-                        String(
-                            localized:
-                                "Attach evidence file"
-                        ),
-                        systemImage: "paperclip"
-                    )
-                }
+                authoritySummary(
+                    workspace,
+                    finalized: workspace.isFinalized
+                )
             }
 
             Section {
-                Button {
-                    Task { await finalize() }
-                } label: {
-                    Label(
-                        String(
-                            localized:
-                                "Finalize field return"
-                        ),
-                        systemImage: "checkmark.seal"
-                    )
-                }
-                .disabled(
-                    workspace.isFinalized
-                        || !hasCompletions(workspace)
-                )
-                if !hasCompletions(workspace) {
+                if workspace.isFinalized {
                     Text(
                         String(
                             localized:
-                                "Record at least one task outcome before finalizing."
+                                "Finalized — corrections go into a new field return."
                         )
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                } else {
+                    Button {
+                        Task { await finalize() }
+                    } label: {
+                        Label(
+                            String(
+                                localized:
+                                    "Finalize field return"
+                            ),
+                            systemImage: "checkmark.seal"
+                        )
+                    }
+                    .disabled(
+                        !hasCompletions(workspace)
+                    )
+                    if !hasCompletions(workspace) {
+                        Text(
+                            String(
+                                localized:
+                                    "Record at least one task outcome before finalizing."
+                            )
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
                 }
             }
 
-            if let statusMessage {
+            if let notice {
                 Section {
-                    Text(statusMessage)
+                    Text(notice.message)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                    DisclosureGroup(
+                        String(localized: "Details")
+                    ) {
+                        Text(notice.detail)
+                            .font(.caption2.monospaced())
+                    }
                 }
             }
         }
@@ -219,13 +286,111 @@ struct HTDTFieldReturnWorkspaceView: View {
             $0.outcome != .unfulfilled
                 && $0.outcome != .notApplicable
         } || workspace.authority.hasContent
+            || !workspace.inventoryItems.isEmpty
+            || !workspace.roomStateObservations.isEmpty
+    }
+
+    // MARK: - Readiness
+
+    /// Finalization readiness (issue #418): how many required tasks
+    /// are fulfilled, which are still open, and whether any ledger
+    /// ref is broken. Artifact validity ≠ mission completeness —
+    /// this panel reports both without blocking.
+    @ViewBuilder
+    private func readinessSection(
+        _ workspace: HTDTFieldReturnWorkspace
+    ) -> some View {
+        let required = workspace.taskLedger.filter {
+            $0.requirement == .required
+        }
+        let requiredDone = required.filter {
+            $0.outcome == .fulfilled
+        }.count
+        let requiredDeclined = required.filter {
+            $0.outcome == .declined
+                || $0.outcome == .notApplicable
+        }.count
+        let requiredOpen = required.count
+            - requiredDone - requiredDeclined
+        let optionalOpen = workspace.taskLedger.filter {
+            $0.requirement == .optional
+                && $0.outcome == .unfulfilled
+        }.count
+        let brokenRefs = brokenLedgerRefs(workspace)
+
+        if !workspace.taskLedger.isEmpty {
+            Section(
+                String(localized: "Finalization readiness")
+            ) {
+                LabeledContent(
+                    String(localized: "Required fulfilled"),
+                    value: "\(requiredDone)/\(required.count)"
+                )
+                if requiredDeclined > 0 {
+                    LabeledContent(
+                        String(localized: "Required declined"),
+                        value: String(requiredDeclined)
+                    )
+                }
+                if requiredOpen > 0 {
+                    Label(
+                        String(
+                            format: String(
+                                localized:
+                                    "%lld required task(s) still open"
+                            ),
+                            requiredOpen
+                        ),
+                        systemImage:
+                            "exclamationmark.triangle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                }
+                if optionalOpen > 0 {
+                    LabeledContent(
+                        String(
+                            localized: "Optional open"
+                        ),
+                        value: String(optionalOpen)
+                    )
+                }
+                if !brokenRefs.isEmpty {
+                    Label(
+                        String(
+                            format: String(
+                                localized:
+                                    "%lld fulfillment ref(s) point at records not in this field return"
+                            ),
+                            brokenRefs.count
+                        ),
+                        systemImage: "link.badge.plus"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                }
+            }
+        }
+    }
+
+    /// Ledger fulfillment refs that do not resolve against the
+    /// staged authority collections — surfaced pre-finalization so
+    /// the validator's rejection is never a surprise (issue #418).
+    private func brokenLedgerRefs(
+        _ workspace: HTDTFieldReturnWorkspace
+    ) -> [String] {
+        let known = Set(fulfillmentCandidates(workspace)
+            .map(\.ref))
+        return workspace.taskLedger.flatMap(\.fulfilledByRefs)
+            .filter { !known.contains($0) }
     }
 
     // MARK: - Task ledger
 
     @ViewBuilder
     private func ledgerRow(
-        _ entry: HTDTFieldReturnTaskLedgerEntry
+        _ entry: HTDTFieldReturnTaskLedgerEntry,
+        finalized: Bool
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -234,70 +399,218 @@ struct HTDTFieldReturnWorkspaceView: View {
                 Spacer()
                 requirementBadge(entry.requirement)
             }
-            HStack(spacing: 8) {
-                Menu {
-                    ForEach(
-                        HTDTFieldReturnTaskLedgerEntry.Outcome
-                            .allCases,
-                        id: \.self
-                    ) { outcome in
-                        Button(outcome.displayName) {
-                            updateLedger(
-                                itemRef: entry.itemRef,
-                                outcome: outcome
-                            )
-                        }
-                    }
-                } label: {
-                    Label(
-                        entry.outcome.displayName,
-                        systemImage: "chevron.up.chevron.down"
+            if let taskKind = entry.taskKind {
+                Text(
+                    FieldReturnPresentation.taskKindName(
+                        taskKind
                     )
-                    .font(.caption.weight(.medium))
-                }
-                .buttonStyle(.bordered)
-                ForEach(
-                    entry.fulfilledByRefs,
-                    id: \.self
-                ) { ref in
-                    Text(ref)
-                        .font(.caption2.monospaced())
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+            if finalized {
+                Label(
+                    entry.outcome.displayName,
+                    systemImage: "lock.fill"
+                )
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            } else {
+                HStack(spacing: 8) {
+                    Menu {
+                        ForEach(
+                            HTDTFieldReturnTaskLedgerEntry
+                                .Outcome.allCases,
+                            id: \.self
+                        ) { outcome in
+                            Button(outcome.displayName) {
+                                pickOutcome(
+                                    itemRef: entry.itemRef,
+                                    outcome: outcome,
+                                    hasNote: entry.note?
+                                        .isEmpty == false
+                                )
+                            }
+                        }
+                    } label: {
+                        Label(
+                            entry.outcome.displayName,
+                            systemImage:
+                                "chevron.up.chevron.down"
+                        )
+                        .font(.caption.weight(.medium))
+                    }
+                    .buttonStyle(.bordered)
+                    authoringButton(
+                        for: entry
+                    )
                 }
             }
-            HStack(spacing: 8) {
-                Menu {
-                    let candidates = refCandidates()
-                    ForEach(candidates, id: \.self) { ref in
-                        Button(ref) {
-                            addLedgerRef(
-                                itemRef: entry.itemRef,
-                                ref: ref
-                            )
-                        }
-                    }
-                } label: {
-                    Label(
-                        String(localized: "Link ref"),
-                        systemImage: "link"
-                    )
+            ForEach(
+                entry.fulfilledByRefs,
+                id: \.self
+            ) { ref in
+                fulfillmentRefRow(
+                    ref,
+                    workspace: workspace
+                )
+            }
+            if let note = entry.note, !note.isEmpty {
+                Text(note)
                     .font(.caption)
-                }
-                .buttonStyle(.bordered)
-                .disabled(refCandidates().isEmpty)
-                if let note = entry.note, !note.isEmpty {
-                    Text(note)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
         }
         .padding(.vertical, 2)
         .accessibilityIdentifier(
             "fieldreturn.ledger.\(entry.itemRef)"
         )
+    }
+
+    /// The lead authoring control for a task row (issue #418): the
+    /// action is shaped by the task's kind — an inventory task adds
+    /// an inventory unit, a routing task records a wiring route, and
+    /// so on — and committing it attaches the typed ref.
+    @ViewBuilder
+    private func authoringButton(
+        for entry: HTDTFieldReturnTaskLedgerEntry
+    ) -> some View {
+        switch entry.taskKind ?? .otherSemantic {
+        case .inventoryItem:
+            taskActionButton(
+                String(localized: "Add inventory item"),
+                systemImage: "shippingbox",
+                itemRef: entry.itemRef
+            ) {
+                authoringSheet =
+                    .inventoryItem(itemRef: entry.itemRef)
+            }
+        case .routingVerification:
+            taskActionButton(
+                String(localized: "Record wiring route"),
+                systemImage: "cable.connector",
+                itemRef: entry.itemRef
+            ) {
+                authoringSheet =
+                    .wiring(itemRef: entry.itemRef)
+            }
+        case .projectorCommissioning:
+            taskActionButton(
+                String(
+                    localized: "Record settings observation"
+                ),
+                systemImage: "slider.horizontal.3",
+                itemRef: entry.itemRef
+            ) {
+                authoringSheet =
+                    .settings(itemRef: entry.itemRef)
+            }
+        case .roomStateObservation:
+            taskActionButton(
+                String(localized: "Record room state"),
+                systemImage: "house",
+                itemRef: entry.itemRef
+            ) {
+                authoringSheet =
+                    .roomState(itemRef: entry.itemRef)
+            }
+        case .evidenceTask, .measurement:
+            Menu {
+                Button {
+                    beginEvidenceNote(
+                        itemRef: entry.itemRef
+                    )
+                } label: {
+                    Label(
+                        String(
+                            localized: "Evidence note"
+                        ),
+                        systemImage: "square.and.pencil"
+                    )
+                }
+                #if canImport(UIKit)
+                Button {
+                    authoringSheet =
+                        .camera(itemRef: entry.itemRef)
+                } label: {
+                    Label(
+                        String(localized: "Take photo"),
+                        systemImage: "camera"
+                    )
+                }
+                #endif
+                Button {
+                    importingFileForItemRef = entry.itemRef
+                } label: {
+                    Label(
+                        String(
+                            localized: "Attach file"
+                        ),
+                        systemImage: "paperclip"
+                    )
+                }
+            } label: {
+                Label(
+                    String(localized: "Add evidence"),
+                    systemImage: "photo.badge.plus"
+                )
+                .font(.caption)
+            }
+            .buttonStyle(.bordered)
+        case .entityChecklist, .surfaceReview,
+             .otherSemantic:
+            taskActionButton(
+                String(localized: "Link record"),
+                systemImage: "link",
+                itemRef: entry.itemRef
+            ) {
+                authoringSheet =
+                    .evidenceNote(itemRef: entry.itemRef)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func taskActionButton(
+        _ title: String,
+        systemImage: String,
+        itemRef: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.caption)
+        }
+        .buttonStyle(.bordered)
+    }
+
+    /// One fulfillment ref rendered as its human label with the
+    /// exact ref under it (issue #417) — unresolved refs keep the
+    /// raw token visible since nothing else identifies them.
+    @ViewBuilder
+    private func fulfillmentRefRow(
+        _ ref: String,
+        workspace: HTDTFieldReturnWorkspace?
+    ) -> some View {
+        let candidates = workspace.map {
+            fulfillmentCandidates($0)
+        } ?? []
+        let resolved = FieldNoteBindingResolver.resolve(
+            ref: ref,
+            in: candidates
+        )
+        VStack(alignment: .leading, spacing: 1) {
+            Text(resolved.title)
+                .font(.caption2)
+            Text(ref)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(resolved.title)
     }
 
     @ViewBuilder
@@ -324,33 +637,31 @@ struct HTDTFieldReturnWorkspaceView: View {
         )
     }
 
-    /// Authority refs present in the staged workspace that a ledger
-    /// item may point at — never a fabricated `entity:`/`frame:` ref.
-    private func refCandidates() -> [String] {
-        guard let workspace else { return [] }
-        var refs: [String] = []
-        refs += workspace.authority.fieldEvidence.map {
-            "field_evidence:" + $0.evidenceID.description
+    /// Operator picked an outcome directly — `declined` and
+    /// `notApplicable` carry a required reason (issue #418), so the
+    /// reason sheet interposes before the record is written.
+    private func pickOutcome(
+        itemRef: String,
+        outcome: HTDTFieldReturnTaskLedgerEntry.Outcome,
+        hasNote: Bool
+    ) {
+        switch outcome {
+        case .declined, .notApplicable
+        where !hasNote:
+            reasonDraft = ""
+            authoringSheet = .outcomeReason(
+                itemRef: itemRef,
+                outcome: outcome
+            )
+        default:
+            updateLedger(itemRef: itemRef, outcome: outcome)
         }
-        refs += workspace.authority.instruments.map {
-            "instrument:" + $0.instrumentID.description
-        }
-        refs += workspace.authority.settingsObservations.map {
-            "settings_observation:"
-                + $0.observationID.description
-        }
-        refs += workspace.authority.wiringRoutes.map {
-            "wiring_route:" + $0.routeID.description
-        }
-        refs += workspace.authority.operatorProfiles.map {
-            "operator:" + $0.operatorID.description
-        }
-        return refs.sorted()
     }
 
     private func updateLedger(
         itemRef: String,
-        outcome: HTDTFieldReturnTaskLedgerEntry.Outcome
+        outcome: HTDTFieldReturnTaskLedgerEntry.Outcome,
+        note: String? = nil
     ) {
         guard var draft = workspace,
               let entry = draft.taskLedger.first(where: {
@@ -363,38 +674,74 @@ struct HTDTFieldReturnWorkspaceView: View {
             try draft.recordTaskOutcome(
                 itemRef: itemRef,
                 outcome: outcome,
-                fulfilledByRefs: entry.fulfilledByRefs
+                fulfilledByRefs: entry.fulfilledByRefs,
+                note: note ?? entry.note
             )
             workspace = draft
             persist(draft)
         } catch {
-            statusMessage = String(describing: error)
+            notice = StatusNotice(
+                message: String(
+                    localized:
+                        "The task outcome could not be recorded."
+                ),
+                detail: String(describing: error)
+            )
         }
     }
 
-    private func addLedgerRef(itemRef: String, ref: String) {
-        guard var draft = workspace,
-              let entry = draft.taskLedger.first(where: {
-                  $0.itemRef == itemRef
-              })
-        else {
-            return
-        }
-        var refs = entry.fulfilledByRefs
-        if !refs.contains(ref) {
-            refs.append(ref)
-        }
+    /// Commit a typed record and fulfill the task with its ref —
+    /// the shared path every authoring sheet funnels into.
+    private func commitRecord(
+        itemRef: String,
+        ref: String,
+        mutate: (inout HTDTFieldReturnWorkspace) throws
+            -> Void
+    ) {
+        guard var draft = workspace else { return }
         do {
+            try mutate(&draft)
             try draft.recordTaskOutcome(
                 itemRef: itemRef,
-                outcome: entry.outcome,
-                fulfilledByRefs: refs
+                outcome: .fulfilled,
+                fulfilledByRefs: [ref]
             )
             workspace = draft
             persist(draft)
+            authoringSheet = nil
         } catch {
-            statusMessage = String(describing: error)
+            notice = StatusNotice(
+                message: String(
+                    localized:
+                        "The record could not be saved."
+                ),
+                detail: String(describing: error)
+            )
         }
+    }
+
+    /// Typed refs the staged workspace offers as fulfillment basis —
+    /// labels come from the shared authority-ref resolver so no raw
+    /// namespace token reaches the surface (issues #417/#418).
+    private func fulfillmentCandidates(
+        _ workspace: HTDTFieldReturnWorkspace
+    ) -> [FieldNoteBindingCandidate] {
+        FieldNoteBindingResolver
+            .fieldReturnCandidates(
+                inventoryItems: workspace.inventoryItems,
+                fieldEvidence:
+                    workspace.authority.fieldEvidence,
+                instruments:
+                    workspace.authority.instruments,
+                operatorProfiles:
+                    workspace.authority.operatorProfiles,
+                settingsObservations:
+                    workspace.authority.settingsObservations,
+                wiringRoutes:
+                    workspace.authority.wiringRoutes,
+                roomStateObservations:
+                    workspace.roomStateObservations
+            )
     }
 
     private func persist(
@@ -409,10 +756,51 @@ struct HTDTFieldReturnWorkspaceView: View {
 
     @ViewBuilder
     private func authoritySummary(
-        _ workspace: HTDTFieldReturnWorkspace
+        _ workspace: HTDTFieldReturnWorkspace,
+        finalized: Bool
     ) -> some View {
         let authority = workspace.authority
-        if authority.hasContent {
+        if authority.hasContent
+            || !workspace.inventoryItems.isEmpty
+            || !workspace.roomStateObservations.isEmpty
+        {
+            if !workspace.inventoryItems.isEmpty {
+                LabeledContent(
+                    String(localized: "Inventory items"),
+                    value: String(
+                        workspace.inventoryItems.count
+                    )
+                )
+                ForEach(
+                    workspace.inventoryItems,
+                    id: \.itemID
+                ) { item in
+                    VStack(alignment: .leading, spacing: 2)
+                    {
+                        Text(item.userLabel)
+                            .font(.caption)
+                        Text(
+                            FieldReturnPresentation
+                                .equipmentClassName(
+                                    item.equipmentClass
+                                )
+                        )
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if !workspace.roomStateObservations.isEmpty {
+                LabeledContent(
+                    String(
+                        localized: "Room-state observations"
+                    ),
+                    value: String(
+                        workspace.roomStateObservations
+                            .count
+                    )
+                )
+            }
             LabeledContent(
                 String(localized: "Evidence records"),
                 value: String(authority.fieldEvidence.count)
@@ -451,23 +839,23 @@ struct HTDTFieldReturnWorkspaceView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(record.title).font(.caption)
                     Text(
-                        record.kind.rawValue
-                            .replacingOccurrences(
-                                of: "_", with: " "
-                            )
+                        FieldAuthorityPresentation
+                            .evidenceKindName(record.kind)
                     )
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 }
             }
             .onDelete { offsets in
-                removeEvidence(at: offsets)
+                if !finalized {
+                    removeEvidence(at: offsets)
+                }
             }
         } else {
             Text(
                 String(
                     localized:
-                        "No field-authority records yet — add an evidence note or attach a file."
+                        "No field-authority records yet — use a task action above to add one."
                 )
             )
             .font(.caption)
@@ -486,8 +874,95 @@ struct HTDTFieldReturnWorkspaceView: View {
         persist(draft)
     }
 
+    private func beginEvidenceNote(itemRef: String) {
+        evidenceTitle = ""
+        evidenceNote = ""
+        evidenceKind = .generalNote
+        authoringSheet = .evidenceNote(itemRef: itemRef)
+    }
+
+    // MARK: - Authoring sheets
+
     @ViewBuilder
-    private func evidenceComposer() -> some View {
+    private func authoringSheetView(
+        _ sheet: AuthoringSheet
+    ) -> some View {
+        switch sheet {
+        case .evidenceNote(let itemRef):
+            evidenceComposer(itemRef: itemRef)
+        case .inventoryItem(let itemRef):
+            inventoryItemComposer(itemRef: itemRef)
+        case .settings(let itemRef):
+            if let workspace {
+                NavigationStack {
+                    SettingsObservationFormView(
+                        captureRevisionID:
+                            workspace.recordCarrierID,
+                        inventoryItems:
+                            workspace.inventoryItems,
+                        onCommit: { observation in
+                            commitRecord(
+                                itemRef: itemRef,
+                                ref: "settings_observation:"
+                                    + observation
+                                        .observationID
+                                        .description
+                            ) { draft in
+                                draft.authority
+                                    .settingsObservations
+                                    .append(observation)
+                            }
+                        }
+                    )
+                }
+            }
+        case .wiring(let itemRef):
+            if let workspace {
+                NavigationStack {
+                    WiringRouteFormView(
+                        captureRevisionID:
+                            workspace.recordCarrierID,
+                        inventoryItems:
+                            workspace.inventoryItems,
+                        onCommit: { route in
+                            commitRecord(
+                                itemRef: itemRef,
+                                ref: "wiring_route:"
+                                    + route.routeID
+                                        .description
+                            ) { draft in
+                                draft.authority.wiringRoutes
+                                    .append(route)
+                            }
+                        }
+                    )
+                }
+            }
+        case .roomState(let itemRef):
+            roomStateComposer(itemRef: itemRef)
+        case .outcomeReason(let itemRef, let outcome):
+            reasonSheet(itemRef: itemRef, outcome: outcome)
+        #if canImport(UIKit)
+        case .camera(let itemRef):
+            FieldReturnCameraSheet(
+                onPhoto: { data in
+                    attachCameraPhoto(
+                        data,
+                        itemRef: itemRef
+                    )
+                }
+            )
+            .ignoresSafeArea()
+        #endif
+        }
+    }
+
+    // MARK: - Evidence note composer
+
+    @ViewBuilder
+    private func evidenceComposer(
+        itemRef: String
+    ) -> some View {
         NavigationStack {
             Form {
                 Picker(
@@ -499,9 +974,8 @@ struct HTDTFieldReturnWorkspaceView: View {
                         id: \.self
                     ) { kind in
                         Text(
-                            kind.rawValue.replacingOccurrences(
-                                of: "_", with: " "
-                            )
+                            FieldAuthorityPresentation
+                                .evidenceKindName(kind)
                         ).tag(kind)
                     }
                 }
@@ -509,24 +983,6 @@ struct HTDTFieldReturnWorkspaceView: View {
                     String(localized: "Title"),
                     text: $evidenceTitle
                 )
-                Picker(
-                    String(localized: "Bound task"),
-                    selection: Binding(
-                        get: {
-                            evidenceTargetRef
-                                ?? workspace?.taskLedger
-                                .first?.itemRef
-                        },
-                        set: { evidenceTargetRef = $0 }
-                    )
-                ) {
-                    ForEach(
-                        workspace?.taskLedger ?? [],
-                        id: \.itemRef
-                    ) { entry in
-                        Text(entry.title).tag(entry.itemRef)
-                    }
-                }
                 TextField(
                     String(localized: "Note (optional)"),
                     text: $evidenceNote
@@ -538,12 +994,12 @@ struct HTDTFieldReturnWorkspaceView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(String(localized: "Cancel")) {
-                        composingEvidence = false
+                        authoringSheet = nil
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(String(localized: "Save")) {
-                        saveEvidenceNote()
+                        saveEvidenceNote(itemRef: itemRef)
                     }
                     .disabled(
                         evidenceTitle.trimmingCharacters(
@@ -556,99 +1012,392 @@ struct HTDTFieldReturnWorkspaceView: View {
         .presentationDetents([.medium, .large])
     }
 
-    private func saveEvidenceNote() {
-        guard var draft = workspace,
-              let targetRef = evidenceTargetRef
-                ?? draft.taskLedger.first?.itemRef
-        else {
-            return
-        }
+    private func saveEvidenceNote(itemRef: String) {
         do {
+            guard let carrier = workspace?.recordCarrierID
+            else { return }
             let record = try FieldEvidenceRecord(
                 kind: evidenceKind,
                 title: evidenceTitle,
                 note: evidenceNote.isEmpty ? nil : evidenceNote,
-                targetRefs: [targetRef],
+                targetRefs: [itemRef],
                 asset: nil,
-                captureRevisionID: draft.bindingRevisionID
+                captureRevisionID: carrier
             )
-            draft.authority.fieldEvidence.append(record)
-            workspace = draft
-            persist(draft)
-            composingEvidence = false
+            commitRecord(
+                itemRef: itemRef,
+                ref: "field_evidence:"
+                    + record.evidenceID.description
+            ) { draft in
+                draft.authority.fieldEvidence.append(record)
+            }
         } catch {
-            statusMessage = String(
-                localized:
-                    "Evidence note could not be saved: \(String(describing: error))"
+            notice = StatusNotice(
+                message: String(
+                    localized:
+                        "Evidence note could not be saved."
+                ),
+                detail: String(describing: error)
             )
         }
     }
 
-    private func handleImportedFile(
-        _ result: Result<[URL], Error>
+    // MARK: - File attach / camera
+
+    private func attachFile(
+        _ source: URL,
+        itemRef: String
     ) {
-        guard var draft = workspace else { return }
-        switch result {
-        case .failure(let error):
-            statusMessage = String(describing: error)
-        case .success(let urls):
-            guard let source = urls.first else { return }
-            let needsScope = source
-                .startAccessingSecurityScopedResource()
-            defer {
-                if needsScope {
-                    source.stopAccessingSecurityScopedResource()
-                }
-            }
-            do {
-                let data = try Data(contentsOf: source)
-                let ext = source.pathExtension.lowercased()
-                let mediaType: FieldEvidenceMediaType =
-                    switch ext {
-                    case "heic": .heic
-                    case "jpg", "jpeg": .jpeg
-                    case "png": .png
-                    case "pdf": .pdf
-                    default: .binary
-                    }
-                let filename = source.lastPathComponent
-                let stagedPath = "evidence/field/"
-                    + UUID().uuidString.lowercased() + "."
-                    + mediaType.fileExtension
-                draft.authority.fieldEvidenceAssets.append(
-                    StagedFieldAsset(
-                        path: stagedPath,
-                        data: data
-                    )
-                )
-                let asset = try FieldEvidenceAsset.importedFile(
-                    assetPath: stagedPath,
-                    sha256: EvidenceIntegrity.sha256(
-                        of: data
-                    ),
-                    mediaType: mediaType,
-                    originalFilename: filename
-                )
-                let targetRef = draft.taskLedger.first?.itemRef
-                    ?? "task_item:general"
-                let record = try FieldEvidenceRecord(
-                    kind: .externalDocument,
-                    title: filename,
-                    targetRefs: [targetRef],
-                    asset: asset,
-                    captureRevisionID:
-                        draft.bindingRevisionID
-                )
-                draft.authority.fieldEvidence.append(record)
-                workspace = draft
-                persist(draft)
-            } catch {
-                statusMessage = String(
-                    localized:
-                        "The file could not be attached: \(String(describing: error))"
-                )
+        let needsScope = source
+            .startAccessingSecurityScopedResource()
+        defer {
+            if needsScope {
+                source.stopAccessingSecurityScopedResource()
             }
         }
+        let filename = source.lastPathComponent
+        do {
+            let data = try Data(contentsOf: source)
+            stageAsset(
+                data: data,
+                filename: filename,
+                title: filename,
+                kind: .externalDocument,
+                itemRef: itemRef
+            )
+        } catch {
+            notice = StatusNotice(
+                message: String(
+                    format: String(
+                        localized:
+                            "Could not attach \"%@\". The file could not be read."
+                    ),
+                    filename
+                ),
+                detail: String(describing: error)
+            )
+        }
+    }
+
+    #if canImport(UIKit)
+    private func attachCameraPhoto(
+        _ data: Data,
+        itemRef: String
+    ) {
+        let filename = "photo-"
+            + UUID().uuidString.lowercased() + ".jpg"
+        stageAsset(
+            data: data,
+            filename: filename,
+            title: filename,
+            kind: .installationPhoto,
+            itemRef: itemRef
+        )
+    }
+    #endif
+
+    /// Stage asset bytes + record a `field_evidence` row bound to
+    /// the task — shared by file import and the camera capture
+    /// path so both land in the same schema (issue #418).
+    private func stageAsset(
+        data: Data,
+        filename: String,
+        title: String,
+        kind: FieldEvidenceKind,
+        itemRef: String
+    ) {
+        guard let carrier = workspace?.recordCarrierID
+        else { return }
+        let ext = (filename as NSString)
+            .pathExtension.lowercased()
+        let mediaType: FieldEvidenceMediaType =
+            switch ext {
+            case "heic": .heic
+            case "jpg", "jpeg": .jpeg
+            case "png": .png
+            case "pdf": .pdf
+            default: .binary
+            }
+        do {
+            let stagedPath = "evidence/field/"
+                + UUID().uuidString.lowercased() + "."
+                + mediaType.fileExtension
+            let asset = try FieldEvidenceAsset.importedFile(
+                assetPath: stagedPath,
+                sha256: EvidenceIntegrity.sha256(of: data),
+                mediaType: mediaType,
+                originalFilename: filename
+            )
+            let record = try FieldEvidenceRecord(
+                kind: kind,
+                title: title,
+                targetRefs: [itemRef],
+                asset: asset,
+                captureRevisionID: carrier
+            )
+            let staged = StagedFieldAsset(
+                path: stagedPath,
+                data: data
+            )
+            commitRecord(
+                itemRef: itemRef,
+                ref: "field_evidence:"
+                    + record.evidenceID.description
+            ) { draft in
+                draft.authority.fieldEvidenceAssets
+                    .append(staged)
+                draft.authority.fieldEvidence.append(record)
+            }
+        } catch {
+            notice = StatusNotice(
+                message: String(
+                    localized:
+                        "The selected file could not be attached."
+                ),
+                detail: String(describing: error)
+            )
+        }
+    }
+
+    // MARK: - Inventory item composer
+
+    @State private var inventoryLabel = ""
+    @State private var inventoryClass:
+        InventoryEquipmentClass = .avReceiver
+    @State private var inventoryModel = ""
+    @State private var inventorySerial = ""
+
+    /// Bounded inventory authoring for `inventory_item` tasks
+    /// (issue #418): the operator labels the physical unit — class
+    /// + label + optional model/serial — and the record lands in
+    /// `inventory_items.json` as a `SystemInventoryItem`, never as
+    /// a freeform evidence title.
+    @ViewBuilder
+    private func inventoryItemComposer(
+        itemRef: String
+    ) -> some View {
+        NavigationStack {
+            Form {
+                Picker(
+                    String(localized: "Equipment class"),
+                    selection: $inventoryClass
+                ) {
+                    ForEach(
+                        InventoryEquipmentClass.allCases,
+                        id: \.self
+                    ) { value in
+                        Text(
+                            FieldReturnPresentation
+                                .equipmentClassName(value)
+                        ).tag(value)
+                    }
+                }
+                TextField(
+                    String(localized: "Label"),
+                    text: $inventoryLabel
+                )
+                TextField(
+                    String(localized: "Model (optional)"),
+                    text: $inventoryModel
+                )
+                TextField(
+                    String(localized: "Serial (optional)"),
+                    text: $inventorySerial
+                )
+            }
+            .navigationTitle(
+                String(localized: "Inventory item")
+            )
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "Cancel")) {
+                        authoringSheet = nil
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(String(localized: "Save")) {
+                        saveInventoryItem(itemRef: itemRef)
+                    }
+                    .disabled(
+                        inventoryLabel.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ).isEmpty
+                    )
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func saveInventoryItem(itemRef: String) {
+        do {
+            let item = try SystemInventoryItem(
+                equipmentClass: inventoryClass,
+                model: inventoryModel.isEmpty
+                    ? nil : inventoryModel,
+                userLabel: inventoryLabel,
+                serialNumber: inventorySerial.isEmpty
+                    ? nil : inventorySerial
+            )
+            commitRecord(
+                itemRef: itemRef,
+                ref: "inventory_item:"
+                    + item.itemID.description
+            ) { draft in
+                draft.inventoryItems.append(item)
+            }
+        } catch {
+            notice = StatusNotice(
+                message: String(
+                    localized:
+                        "The inventory item could not be saved."
+                ),
+                detail: String(describing: error)
+            )
+        }
+    }
+
+    // MARK: - Room-state composer
+
+    @State private var roomStateKind: RoomStateKind = .other
+    @State private var roomStateValue: RoomStateValue = .other
+    @State private var roomStateDetail = ""
+
+    /// Bounded room-state authoring (issue #418): a `room_state`
+    /// observation with a closed kind/value vocabulary — never a
+    /// freeform evidence title standing in for the room state.
+    @ViewBuilder
+    private func roomStateComposer(
+        itemRef: String
+    ) -> some View {
+        NavigationStack {
+            Form {
+                Picker(
+                    String(localized: "Kind"),
+                    selection: $roomStateKind
+                ) {
+                    ForEach(
+                        RoomStateKind.allCases,
+                        id: \.self
+                    ) { value in
+                        Text(
+                            FieldReturnPresentation
+                                .roomStateKindName(value)
+                        ).tag(value)
+                    }
+                }
+                Picker(
+                    String(localized: "State"),
+                    selection: $roomStateValue
+                ) {
+                    ForEach(
+                        RoomStateValue.allCases,
+                        id: \.self
+                    ) { value in
+                        Text(
+                            FieldReturnPresentation
+                                .roomStateValueName(value)
+                        ).tag(value)
+                    }
+                }
+                TextField(
+                    String(localized: "Detail (optional)"),
+                    text: $roomStateDetail
+                )
+            }
+            .navigationTitle(
+                String(localized: "Room state")
+            )
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "Cancel")) {
+                        authoringSheet = nil
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(String(localized: "Save")) {
+                        saveRoomState(itemRef: itemRef)
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func saveRoomState(itemRef: String) {
+        do {
+            let observation = try RoomStateObservation(
+                kind: roomStateKind,
+                state: roomStateValue,
+                stateDetail: roomStateDetail.isEmpty
+                    ? nil : roomStateDetail,
+                observedAtUTC: BundleTimestamp.utcString(
+                    from: Date()
+                )
+            )
+            commitRecord(
+                itemRef: itemRef,
+                ref: "room_state:"
+                    + observation.observationID.description
+            ) { draft in
+                draft.roomStateObservations.append(observation)
+            }
+        } catch {
+            notice = StatusNotice(
+                message: String(
+                    localized:
+                        "The room state could not be saved."
+                ),
+                detail: String(describing: error)
+            )
+        }
+    }
+
+    // MARK: - Outcome reason
+
+    /// `declined`/`notApplicable` require a structured reason
+    /// (issue #418) — collected before the outcome is written so a
+    /// reason-less outcome can never reach the ledger.
+    @ViewBuilder
+    private func reasonSheet(
+        itemRef: String,
+        outcome: HTDTFieldReturnTaskLedgerEntry.Outcome
+    ) -> some View {
+        NavigationStack {
+            Form {
+                TextField(
+                    String(localized: "Reason"),
+                    text: $reasonDraft,
+                    axis: .vertical
+                )
+            }
+            .navigationTitle(
+                String(localized: "Outcome reason")
+            )
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "Cancel")) {
+                        authoringSheet = nil
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(String(localized: "Save")) {
+                        updateLedger(
+                            itemRef: itemRef,
+                            outcome: outcome,
+                            note: reasonDraft
+                        )
+                        authoringSheet = nil
+                    }
+                    .disabled(
+                        reasonDraft.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ).isEmpty
+                    )
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 
     // MARK: - Finalize
@@ -659,15 +1408,32 @@ struct HTDTFieldReturnWorkspaceView: View {
             .finalizeFieldReturn(draft)
         {
             var marked = draft
-            marked.finalizedAtUTC = BundleTimestamp.utcString(
-                from: Date()
-            )
+            marked.finalizedAtUTC =
+                BundleTimestamp.utcString(
+                    from: Date()
+                )
             workspace = marked
             #if os(iOS)
             finalizedShare = ShareTarget(url: url)
             #else
-            statusMessage = url.path
+            notice = StatusNotice(
+                message: String(
+                    localized: "Field return finalized."
+                ),
+                detail: url.path
+            )
             #endif
+        } else {
+            notice = StatusNotice(
+                message: String(
+                    localized:
+                        "Field return could not be finalized."
+                ),
+                detail: String(
+                    localized:
+                        "The finalized container was not produced."
+                )
+            )
         }
     }
 }
@@ -695,3 +1461,194 @@ extension HTDTFieldReturnTaskLedgerEntry.Outcome:
         }
     }
 }
+
+/// Localized human labels for field-return surfaces (issue #417):
+/// task kinds, equipment classes, room-state vocabularies. Core
+/// enums stay serialization tokens — every user-facing name maps
+/// here.
+enum FieldReturnPresentation {
+    static func taskKindName(
+        _ kind: HTDTFieldTaskKind
+    ) -> String {
+        switch kind {
+        case .entityChecklist:
+            String(localized: "Entity checklist")
+        case .surfaceReview:
+            String(localized: "Surface review")
+        case .inventoryItem:
+            String(localized: "Inventory item")
+        case .evidenceTask:
+            String(localized: "Evidence")
+        case .measurement:
+            String(localized: "Measurement")
+        case .routingVerification:
+            String(localized: "Routing verification")
+        case .projectorCommissioning:
+            String(localized: "Projector commissioning")
+        case .roomStateObservation:
+            String(localized: "Room-state observation")
+        case .otherSemantic:
+            String(localized: "Task")
+        }
+    }
+
+    static func equipmentClassName(
+        _ value: InventoryEquipmentClass
+    ) -> String {
+        switch value {
+        case .avReceiver:
+            String(localized: "AV receiver")
+        case .avProcessor:
+            String(localized: "AV processor")
+        case .powerAmplifier:
+            String(localized: "Power amplifier")
+        case .dspUnit:
+            String(localized: "DSP unit")
+        case .projector:
+            String(localized: "Projector")
+        case .display:
+            String(localized: "Display")
+        case .sourceDevice:
+            String(localized: "Source device")
+        case .measurementInterface:
+            String(localized: "Measurement interface")
+        case .other:
+            String(localized: "Other equipment")
+        }
+    }
+
+    static func roomStateKindName(
+        _ kind: RoomStateKind
+    ) -> String {
+        switch kind {
+        case .curtain:
+            String(localized: "Curtain")
+        case .movablePanel:
+            String(localized: "Movable panel")
+        case .door:
+            String(localized: "Door")
+        case .window:
+            String(localized: "Window")
+        case .screenMasking:
+            String(localized: "Screen masking")
+        case .seatPosture:
+            String(localized: "Seat posture")
+        case .hvac:
+            String(localized: "HVAC")
+        case .airPurifier:
+            String(localized: "Air purifier")
+        case .lighting:
+            String(localized: "Lighting")
+        case .removableElement:
+            String(localized: "Removable element")
+        case .other:
+            String(localized: "Other")
+        }
+    }
+
+    static func roomStateValueName(
+        _ value: RoomStateValue
+    ) -> String {
+        switch value {
+        case .open:
+            String(localized: "Open")
+        case .closed:
+            String(localized: "Closed")
+        case .deployed:
+            String(localized: "Deployed")
+        case .stowed:
+            String(localized: "Stowed")
+        case .on:
+            String(localized: "On")
+        case .off:
+            String(localized: "Off")
+        case .reclined:
+            String(localized: "Reclined")
+        case .upright:
+            String(localized: "Upright")
+        case .present:
+            String(localized: "Present")
+        case .absent:
+            String(localized: "Absent")
+        case .unknown:
+            String(localized: "Unknown")
+        case .other:
+            String(localized: "Other")
+        }
+    }
+}
+
+#if canImport(UIKit)
+/// Camera capture for field-return evidence (issue #418): a plain
+/// `UIImagePickerController` — permission is requested lazily by
+/// the system on first use, and no RoomPlan/AR session is touched.
+/// The photo lands as a staged `field_evidence` asset bound to the
+/// task that launched it.
+struct FieldReturnCameraSheet: UIViewControllerRepresentable {
+    let onPhoto: (Data) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(
+        context: Context
+    ) -> UIViewController {
+        guard UIImagePickerController.isSourceTypeAvailable(
+            .camera
+        ) else {
+            let fallback = UIViewController()
+            fallback.view.backgroundColor = .systemBackground
+            return fallback
+        }
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(
+        _ uiViewController: UIViewController,
+        context: Context
+    ) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPhoto: onPhoto, dismiss: dismiss)
+    }
+
+    final class Coordinator: NSObject,
+        UIImagePickerControllerDelegate,
+        UINavigationControllerDelegate
+    {
+        let onPhoto: (Data) -> Void
+        let dismiss: DismissAction
+
+        init(
+            onPhoto: @escaping (Data) -> Void,
+            dismiss: DismissAction
+        ) {
+            self.onPhoto = onPhoto
+            self.dismiss = dismiss
+        }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info:
+                [UIImagePickerController.InfoKey: Any]
+        ) {
+            if let image = info[.originalImage]
+                as? UIImage,
+               let data = image.jpegData(
+                   compressionQuality: 0.85
+               )
+            {
+                onPhoto(data)
+            }
+            dismiss()
+        }
+
+        func imagePickerControllerDidCancel(
+            _ picker: UIImagePickerController
+        ) {
+            dismiss()
+        }
+    }
+}
+#endif

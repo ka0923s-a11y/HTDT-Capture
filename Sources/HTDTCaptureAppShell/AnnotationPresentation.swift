@@ -394,6 +394,34 @@ enum AnnotationPresentation {
                 break
             }
         }
+        if let error = error as? HTDTFieldReturnError {
+            switch error {
+            case .missingFulfillmentBasis(let ref):
+                return String(localized:
+                    "Task \(ref) needs at least one valid fulfilling record.")
+            case .missingOutcomeReason(let ref):
+                return String(localized:
+                    "Task \(ref) needs a reason for that outcome.")
+            case .unresolvedFulfillmentRef(let ref):
+                return String(localized:
+                    "Fulfillment ref \(ref) does not exist in this field return.")
+            case .incompatibleFulfillmentRef(let ref):
+                return String(localized:
+                    "Ref \(ref) cannot fulfill this task — its record type does not match.")
+            case .conflictingContributionRef(let ref):
+                return String(localized:
+                    "Record \(ref) belongs to a different contribution than its document.")
+            case .dualOwnerRecord(let ref):
+                return String(localized:
+                    "Record \(ref) carries two contribution owners — it must carry exactly one.")
+            case .incompatibleAuthoritySchema(let ref),
+                 .unknownAuthoritySchema(let ref):
+                return String(localized:
+                    "Authority document \(ref) does not match the schema this contribution expects.")
+            default:
+                break
+            }
+        }
         return String(describing: error)
     }
 }

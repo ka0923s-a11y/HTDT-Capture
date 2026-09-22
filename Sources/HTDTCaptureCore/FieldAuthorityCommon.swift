@@ -17,6 +17,12 @@ enum FieldAuthorityGrammar {
         "instrument",
         "operator",
         "field_evidence",
+        /// Typed contribution refs (issue #419): `field_return:<uuid>`
+        /// names a non-spatial contribution exactly, never via UUID
+        /// membership inference.
+        "field_return",
+        /// Bounded room-state observations (issue #418).
+        "room_state",
     ]
     /// Binding-ref namespaces carrying an opaque non-empty identifier
     /// (task-plan items, commissioning checks, catalog equipment ids,

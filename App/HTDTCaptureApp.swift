@@ -406,13 +406,15 @@ private struct HTDTCaptureHostView: View {
                 waiveMissionItem:
                     coordinator.waiveMissionItem,
                 recordFieldNote: {
-                    text, category, attention, attach, dictated in
+                    text, category, attention, attach, dictated,
+                    anchor in
                     coordinator.recordFieldNote(
                         text: text,
                         category: category,
                         needsAttention: attention,
                         attachLatestEvidence: attach,
-                        dictated: dictated
+                        dictated: dictated,
+                        anchorRequest: anchor
                     )
                 },
                 recordReviewFieldNote:
@@ -6705,9 +6707,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             } catch {
                 refreshMissionDeliveryStores()
-                workingSetStatus = HostLocalization.text(
-                    "Mission cannot start: \(error)",
-                    "ミッションを開始できません: \(error)"
+                workingSetStatus = String(
+                    format: String(
+                        localized: "Mission cannot start: %@"
+                    ),
+                    String(describing: error)
                 )
                 return
             }
@@ -6715,15 +6719,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 missionRecordID: recordID
             )
             refreshMissionDeliveryStores()
-            workingSetStatus = HostLocalization.text(
-                "Mission activated — its tasks need no spatial capture; continue in Field return",
-                "ミッションを有効化しました — 空間キャプチャは不要です。フィールドリターンで続けてください"
+            workingSetStatus = String(
+                localized:
+                    "Mission activated — its tasks need no spatial capture; continue in Field return"
             )
             return
         case .artifactReview:
-            workingSetStatus = HostLocalization.text(
-                "Mission is past field work — its captures are reviewable from the inbox",
-                "ミッションはフィールド作業を終えています — キャプチャはインボックスから確認できます"
+            workingSetStatus = String(
+                localized:
+                    "Mission is past field work — its captures are reviewable from the inbox"
             )
             return
         case .unsupported(let reason):
@@ -6782,19 +6786,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     ) -> String {
         switch reason {
         case .spatialCaptureUnavailable:
-            return HostLocalization.text(
-                "Mission requires spatial capture, which is unavailable on this device",
-                "このミッションには空間キャプチャが必要ですが、このデバイスでは利用できません"
+            return String(
+                localized:
+                    "Mission requires spatial capture, which is unavailable on this device"
             )
         case .planUnavailable:
-            return HostLocalization.text(
-                "Mission cannot start: its task plan could not be read",
-                "ミッションを開始できません: タスクプランを読み取れませんでした"
+            return String(
+                localized:
+                    "Mission cannot start: its task plan could not be read"
             )
         case .noExecutableTasks:
-            return HostLocalization.text(
-                "Mission has no tasks this device can execute",
-                "このミッションにはこのデバイスで実行できるタスクがありません"
+            return String(
+                localized:
+                    "Mission has no tasks this device can execute"
             )
         }
     }
@@ -8606,7 +8610,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         severity: CaptureFieldNoteSeverity? = nil,
         bindingRefs: [String] = [],
         attachLatestEvidence: Bool = false,
-        dictated: Bool = false
+        dictated: Bool = false,
+        anchorRequest: CaptureFieldNoteAnchorRequest = .none
     ) {
         // Notes are operator-authored supplemental docs — not spatial
         // authority — so the #276 finalization seal never silences
@@ -8616,6 +8621,22 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                   || state == .annotating
         else {
             return
+        }
+        // #421: resolve the requested anchor against the live
+        // session now — a validated raycast point or the device
+        // viewpoint — while the AR session's pose is fresh. A miss
+        // degrades to `spatialPosition = nil` (the note still
+        // records) rather than fabricating a location.
+        var spatialPosition: CaptureFieldNoteSpatialPosition?
+        var anchorFailed = false
+        if anchorRequest != .none, state == .scanning {
+            do {
+                spatialPosition = try fieldNoteAnchor(
+                    request: anchorRequest
+                )
+            } catch {
+                anchorFailed = true
+            }
         }
         let sessionSeconds = latestScanTimestampSeconds
         Task { @MainActor [weak self] in
@@ -8641,15 +8662,64 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     needsAttention: needsAttention,
                     bindingRefs: bindingRefs,
                     evidenceRefs: evidenceRefs,
+                    spatialPosition: spatialPosition,
                     authoringMethod:
                         dictated ? .dictated : .typed
                 )
                 try await store.recordFieldNote(note)
+                if anchorFailed {
+                    self.workingSetStatus = String(
+                        localized:
+                            "Note saved without location — tracking was unavailable."
+                    )
+                }
                 self.refreshReviewWorkspace()
             } catch {
                 self.workingSetStatus = String(localized: "Note could not be saved") + " ["
                     + Self.persistenceDiagnostic(error) + "]"
             }
+        }
+    }
+
+    /// Resolves a scan-time anchor request into a validated spatial
+    /// position (issue #421): `subjectPoint` performs the live center
+    /// raycast against captured geometry; `viewpoint` takes the
+    /// device pose from the current frame. Both record the exact
+    /// coordinate space the session runs under. A ray miss or an
+    /// unavailable session throws — the caller degrades to an
+    /// unanchored note.
+    private func fieldNoteAnchor(
+        request: CaptureFieldNoteAnchorRequest
+    ) throws -> CaptureFieldNoteSpatialPosition? {
+        guard state == .scanning else { return nil }
+        let spaceID = sessionController.context.coordinateSpaceID
+        switch request {
+        case .none:
+            return nil
+        case .subjectPoint:
+            let placement = try sessionController
+                .snapshotCenterRaycastPlacement()
+            let p = placement.positionWorld
+            return try CaptureFieldNoteSpatialPosition(
+                coordinateSpaceID: spaceID,
+                pointMeters: WorldPoint3D(
+                    x: Double(p.x), y: Double(p.y), z: Double(p.z)
+                ),
+                anchorKind: .subjectPoint
+            )
+        case .viewpoint:
+            let orientation = try sessionController
+                .snapshotCameraOrientation()
+            let m = orientation.frameArtifacts
+                .worldFromCamera.values
+            return try CaptureFieldNoteSpatialPosition(
+                coordinateSpaceID: spaceID,
+                pointMeters: WorldPoint3D(
+                    x: Double(m[12]), y: Double(m[13]),
+                    z: Double(m[14])
+                ),
+                anchorKind: .viewpoint
+            )
         }
     }
 

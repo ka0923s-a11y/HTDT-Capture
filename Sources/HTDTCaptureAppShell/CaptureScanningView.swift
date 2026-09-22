@@ -68,9 +68,13 @@ public struct CaptureScanningView: View {
     public let setLoopClosureCheckActive: (Bool) -> Void
     /// #375: commits an operator field note bound to this revision
     /// during scanning — (text, category, needsAttention,
-    /// attachLatestEvidence, dictated).
+    /// attachLatestEvidence, dictated, anchorRequest). #421: the
+    /// anchor request asks the host to validate a subject-point
+    /// raycast or record the device viewpoint; an unavailable
+    /// anchor degrades to no location rather than fabricating one.
     public let recordFieldNote:
-        (String, CaptureFieldNoteCategory, Bool, Bool, Bool) -> Void
+        (String, CaptureFieldNoteCategory, Bool, Bool, Bool,
+         CaptureFieldNoteAnchorRequest) -> Void
 
     @State private var showingEndScanReview = false
     @State private var isHUDExpanded = false
@@ -125,8 +129,9 @@ public struct CaptureScanningView: View {
         setLoopClosureCheckActive: @escaping
             (Bool) -> Void = { _ in },
         recordFieldNote: @escaping
-            (String, CaptureFieldNoteCategory, Bool, Bool, Bool)
-                -> Void = { _, _, _, _, _ in },
+            (String, CaptureFieldNoteCategory, Bool, Bool, Bool,
+             CaptureFieldNoteAnchorRequest) -> Void
+                = { _, _, _, _, _, _ in },
         captureEvidenceFrame: @escaping () -> Void,
         setMovementCapability: @escaping
             (ScanMovementCapability) -> Void,
@@ -242,14 +247,16 @@ public struct CaptureScanningView: View {
         }
         .sheet(isPresented: $composingFieldNote) {
             FieldNoteComposeSheet(
-                allowsEvidenceAttachment: evidenceFrameCount > 0
+                allowsEvidenceAttachment: evidenceFrameCount > 0,
+                allowsSpatialAnchor: true
             ) { draft in
                 recordFieldNote(
                     draft.text,
                     draft.category,
                     draft.needsAttention,
                     draft.attachLatestEvidence,
-                    draft.dictated
+                    draft.dictated,
+                    draft.anchorRequest
                 )
             }
         }
