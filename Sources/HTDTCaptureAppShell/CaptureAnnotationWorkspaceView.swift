@@ -1749,6 +1749,10 @@ public struct CaptureAnnotationWorkspaceView: View {
                 plannedTargets: plannedTargets,
                 establishedAlignment: establishedAlignment,
                 taskPlanStatus: taskPlanStatus,
+                equipmentCatalogEntries:
+                    equipmentCatalog?.definitions ?? [],
+                equipmentRecents: equipmentRecents,
+                scanEquipmentLabel: scanEquipmentLabel,
                 authorities: Binding(
                     get: { authorities },
                     set: { newValue in

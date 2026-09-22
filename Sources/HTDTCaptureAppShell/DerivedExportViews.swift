@@ -391,7 +391,7 @@ public struct Derived3DExportSheet: View {
                     Text(
                         available
                             ? detail
-                            : "Not recorded in this capture"
+                            : String(localized: "Not recorded in this capture")
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)

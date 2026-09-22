@@ -416,8 +416,10 @@ public struct MeasurementFormView: View {
                         + pending.reading.unit.rawValue
                 )
                 Text(
-                    String(localized: "Received: ")
-                        + pending.reading.receivedValueText
+                    String(
+                        format: String(localized: "Received: %@"),
+                        pending.reading.receivedValueText
+                    )
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -425,15 +427,22 @@ public struct MeasurementFormView: View {
                     pending.reading.deviceMeasurementID
                 {
                     Text(
-                        String(localized: "Device id: ") + deviceID
+                        String(
+                            format: String(localized: "Device id: %@"),
+                            deviceID
+                        )
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
                 if let observedAt = pending.reading.observedAtUTC {
                     Text(
-                        String(localized: "Observed at: ")
-                            + observedAt
+                        String(
+                            format: String(
+                                localized: "Observed at: %@"
+                            ),
+                            observedAt
+                        )
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -442,10 +451,14 @@ public struct MeasurementFormView: View {
                     pending.reading.calibrationStatus
                 {
                     Text(
-                        String(localized: "Calibration: ")
-                            + calibration
-                            + (pending.reading.calibrationDate
-                                .map { " · " + $0 } ?? "")
+                        String(
+                            format: String(
+                                localized: "Calibration: %@"
+                            ),
+                            calibration
+                                + (pending.reading.calibrationDate
+                                    .map { " · " + $0 } ?? "")
+                        )
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)

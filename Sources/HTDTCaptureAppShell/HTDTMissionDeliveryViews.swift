@@ -70,7 +70,15 @@ struct HTDTMissionInboxView: View {
                         grouped[project]!.keys.sorted(),
                         id: \.self
                     ) { room in
-                        Section("\(project) — \(room)") {
+                        Section(
+                            String(
+                                format: String(
+                                    localized: "%@ — %@"
+                                ),
+                                project,
+                                room
+                            )
+                        ) {
                             ForEach(
                                 grouped[project]![room]!
                             ) { record in
@@ -154,8 +162,15 @@ struct HTDTMissionInboxView: View {
                         .isEmpty
                     {
                         Label(
-                            "\(record.associatedCaptureRevisionIDs.count) capture(s)",
-                            systemImage: "cube"
+                                String(
+                                    format: String(
+                                        localized: "%lld capture(s)"
+                                    ),
+                                    record
+                                        .associatedCaptureRevisionIDs
+                                        .count
+                                ),
+                                systemImage: "cube"
                         )
                     }
                     if record.followUpOfMissionID != nil {
@@ -261,7 +276,12 @@ struct HTDTMissionInboxView: View {
                             id: \.self
                         ) { ref in
                             Label(
-                                "Required: \(ref)",
+                                String(
+                                    format: String(
+                                        localized: "Required: %@"
+                                    ),
+                                    ref
+                                ),
                                 systemImage: "xmark.octagon"
                             )
                             .foregroundStyle(.red)
@@ -271,7 +291,12 @@ struct HTDTMissionInboxView: View {
                             id: \.self
                         ) { ref in
                             Label(
-                                "Optional: \(ref)",
+                                String(
+                                    format: String(
+                                        localized: "Optional: %@"
+                                    ),
+                                    ref
+                                ),
                                 systemImage:
                                     "exclamationmark.triangle"
                             )

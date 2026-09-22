@@ -14,9 +14,12 @@ public enum SurveyReportLanguage:
 
     public var localeCode: String { rawValue }
 
-    /// The UI default — follows the device's preferred language.
+    /// The UI default — follows the app's resolved localization
+    /// (#399): the same `Localizable.strings` authority that decides
+    /// every other string, never raw device preferences.
     public static var preferred: SurveyReportLanguage {
-        Locale.preferredLanguages.first?.hasPrefix("ja") == true
+        Bundle.main.preferredLocalizations
+            .contains { $0.lowercased().hasPrefix("ja") }
             ? .japanese
             : .english
     }

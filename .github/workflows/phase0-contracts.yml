@@ -32,6 +32,10 @@ jobs:
           PY
       - name: Run validator tests
         run: python -m unittest tools.bundle_validator.test_validator -v
+      - name: Run localization audit tests
+        run: python -m unittest tools.test_localization_audit -v
+      - name: Localization audit (#399)
+        run: python tools/localization_audit.py
       - name: Validate frozen minimal fixture
         run: |
           python tools/bundle_validator/validator.py samples/minimal-capture \

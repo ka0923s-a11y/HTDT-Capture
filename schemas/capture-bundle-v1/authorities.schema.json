@@ -98,6 +98,12 @@
       "items": {
         "$ref": "#/$defs/installationAlignmentRecord"
       }
+    },
+    "rack_placements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/rackPlacementObservation"
+      }
     }
   },
   "$defs": {
@@ -1457,6 +1463,75 @@
             "type": "string",
             "minLength": 1
           }
+        }
+      }
+    },
+    "rackFacing": {
+      "enum": [
+        "front",
+        "rear",
+        "side",
+        "unknown"
+      ]
+    },
+    "rackPlacementObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "placement_id",
+        "item_id",
+        "host_rack_entity_id",
+        "evidence_refs"
+      ],
+      "properties": {
+        "placement_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "item_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "host_rack_entity_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "rack_unit_position": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "shelf_slot_label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "facing": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/rackFacing"
+            }
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "coordinate_space_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
         }
       }
     }

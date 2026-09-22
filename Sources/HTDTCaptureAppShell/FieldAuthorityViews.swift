@@ -2060,7 +2060,12 @@ struct SegmentEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("#\(segment.order)")
+                Text(
+                    String(
+                        format: String(localized: "#%lld"),
+                        segment.order
+                    )
+                )
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
                 Spacer()

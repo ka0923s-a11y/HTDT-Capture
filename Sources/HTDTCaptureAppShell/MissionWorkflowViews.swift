@@ -338,8 +338,8 @@ public struct MissionWorkflowsView: View {
                     } footer: {
                         Text(
                             roomFrameAvailable
-                                ? "Uses the committed room reference frame to anchor the plan to this capture's coordinate authority."
-                                : "Requires a committed room reference frame. Confirm the room frame in the review workspace, then return."
+                                ? String(localized: "Uses the committed room reference frame to anchor the plan to this capture's coordinate authority.")
+                                : String(localized: "Requires a committed room reference frame. Confirm the room frame in the review workspace, then return.")
                         )
                     }
                 }
@@ -488,14 +488,26 @@ public struct MissionWorkflowsView: View {
                     Text(row.task.reason)
                         .font(.caption)
                     Text(
-                        "Plan \(row.planID) v\(row.planVersion) · \(row.task.kind.rawValue)"
-                    )
+                            String(
+                                format: String(
+                                    localized: "Plan %@ v%@ · %@"
+                                ),
+                                row.planID,
+                                row.planVersion,
+                                row.task.kind.rawValue
+                            )
+                        )
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     if let resolvedBy = row.resolvedByRevisionID {
                         Text(
-                            "Resolved — revision \(resolvedBy.description)"
-                        )
+                                String(
+                                    format: String(
+                                        localized: "Resolved — revision %@"
+                                    ),
+                                    resolvedBy.description
+                                )
+                            )
                         .font(.caption2)
                         .foregroundStyle(.green)
                     } else {

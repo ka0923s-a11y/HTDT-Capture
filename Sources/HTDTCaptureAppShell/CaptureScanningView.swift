@@ -399,11 +399,7 @@ public struct CaptureScanningView: View {
                 Text(
                     primaryScanReadyToEnd
                     ? String(localized: "Optional extra observation")
-                    : ScanMotionGuidanceCopy.category(
-                        for: motionGuidance.action,
-                        language:
-                            ScanMotionGuidanceCopy.preferredLanguage
-                    )
+                    : ScanMotionGuidanceCopy.category(for: motionGuidance.action)
                 )
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
@@ -427,10 +423,7 @@ public struct CaptureScanningView: View {
             // qualifier inline; the note reminds the operator the app
             // cannot verify their path.
             if let motionGuidance,
-               let note = ScanMotionGuidanceCopy.safetyNote(
-                for: motionGuidance,
-                language: ScanMotionGuidanceCopy.preferredLanguage
-               )
+               let note = ScanMotionGuidanceCopy.safetyNote(for: motionGuidance)
             {
                 Text(note)
                     .font(.caption2)
@@ -1080,11 +1073,7 @@ public struct CaptureScanningView: View {
         }
 
         if let motionGuidance {
-            let prompt = ScanMotionGuidanceCopy.prompt(
-                for: motionGuidance,
-                language:
-                    ScanMotionGuidanceCopy.preferredLanguage
-            )
+            let prompt = ScanMotionGuidanceCopy.prompt(for: motionGuidance)
             if primaryScanReadyToEnd {
                 return String(
                     format: String(
@@ -1130,11 +1119,7 @@ public struct CaptureScanningView: View {
                         "If the room layout prevents you from walking around a target, choose I cannot move around this area. HTDT will stop requiring translation/orbit guidance for this scan; weak and unknown spatial cells remain advisory."
                     )
                     Text(
-                        ScanMotionGuidanceCopy.safetyDisclaimer(
-                            language:
-                                ScanMotionGuidanceCopy
-                                .preferredLanguage
-                        )
+                        ScanMotionGuidanceCopy.safetyDisclaimer()
                     )
                     Text(
                         "Movement prompts are advisory: they never claim the path behind you was checked, and they never require walking backward. When movement is not safe, choose Movement unsafe here to hide translation prompts without failing the scan."
@@ -1275,12 +1260,9 @@ public struct CaptureScanningView: View {
     /// state the visual grid renders — percent, missing directions by
     /// band, and the deterministic next target.
     private var directionCoverageAccessibilityText: String {
-        ScanAccessibilityText.directionCoverage(
-            DirectionCoverageAccessibilitySummary(
+        ScanAccessibilityText.directionCoverage(DirectionCoverageAccessibilitySummary(
                 coverage: coverage
-            ),
-            language: ScanMotionGuidanceCopy.preferredLanguage
-        )
+            ))
     }
 
     @ViewBuilder
@@ -1918,11 +1900,7 @@ public struct CaptureScanningView: View {
         }
 
         if let motionGuidance {
-            return ScanMotionGuidanceCopy.prompt(
-                for: motionGuidance,
-                language:
-                    ScanMotionGuidanceCopy.preferredLanguage
-            )
+            return ScanMotionGuidanceCopy.prompt(for: motionGuidance)
         }
 
         if let guidance = coverage.recommendedGuidance {
@@ -2018,11 +1996,7 @@ public struct CaptureScanningView: View {
                 .shadow(radius: 4)
 
             Text(
-                ScanMotionGuidanceCopy.category(
-                    for: guidance.action,
-                    language:
-                        ScanMotionGuidanceCopy.preferredLanguage
-                )
+                ScanMotionGuidanceCopy.category(for: guidance.action)
             )
             .font(.caption.weight(.semibold))
             .padding(.horizontal, 9)
@@ -2034,11 +2008,7 @@ public struct CaptureScanningView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-            ScanMotionGuidanceCopy.prompt(
-                for: guidance,
-                language:
-                    ScanMotionGuidanceCopy.preferredLanguage
-            )
+            ScanMotionGuidanceCopy.prompt(for: guidance)
         )
     }
 
@@ -2827,10 +2797,8 @@ private struct ScanCoverageEndReview: View {
     /// one announcement so the review state is never visual-only.
     private func announceReviewSummary() {
         #if os(iOS)
-        let language = ScanMotionGuidanceCopy.preferredLanguage
         let direction = ScanAccessibilityText.directionCoverage(
-            DirectionCoverageAccessibilitySummary(coverage: coverage),
-            language: language
+            DirectionCoverageAccessibilitySummary(coverage: coverage)
         )
         let spatial = ScanAccessibilityText.spatialCoverage(
             SpatialCoverageAccessibilitySummary(
@@ -2838,8 +2806,7 @@ private struct ScanCoverageEndReview: View {
                 declaredRegionKeys: Set(
                     declaredRegions.map(\.key)
                 )
-            ),
-            language: language
+            )
         )
         UIAccessibility.post(
             notification: .announcement,
@@ -3287,10 +3254,7 @@ private struct SpatialCoverageMapView: View {
                 SpatialCoverageAccessibilitySummary(
                     coverage: summary,
                     declaredRegionKeys: declaredRegionKeys
-                ),
-                language:
-                    ScanMotionGuidanceCopy.preferredLanguage
-            )
+                ))
         )
     }
 }

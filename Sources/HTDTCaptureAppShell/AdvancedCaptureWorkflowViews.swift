@@ -69,7 +69,13 @@ public struct ConnectedSpaceStatusView: View {
                             VStack(alignment: .leading) {
                                 Text(region.label)
                                 Text(
-                                    "revisits: \(region.revisitCount)"
+                                    String(
+                                        format: String(
+                                            localized:
+                                                "revisits: %lld"
+                                        ),
+                                        region.revisitCount
+                                    )
                                 )
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -87,9 +93,14 @@ public struct ConnectedSpaceStatusView: View {
                 Section("Portals") {
                     ForEach(tracker.portals, id: \.portalID) { portal in
                         Text(
-                            "\(regionLabel(portal.regionAID)) ↔ "
-                                + "\(regionLabel(portal.regionBID)) "
-                                + "(\(portal.kind.rawValue))"
+                            String(
+                                format: String(
+                                    localized: "%1$@ ↔ %2$@ (%3$@)"
+                                ),
+                                regionLabel(portal.regionAID),
+                                regionLabel(portal.regionBID),
+                                portal.kind.rawValue
+                            )
                         )
                         .font(.caption)
                     }
@@ -127,8 +138,14 @@ public struct CaptureTaskPlanChecklistView: View {
     public var body: some View {
         List {
             Section(
-                "Plan \(plan.planID) v\(plan.planVersion) — "
-                    + plan.roomName
+                String(
+                    format: String(
+                        localized: "Plan %@ v%@ — %@"
+                    ),
+                    plan.planID,
+                    plan.planVersion,
+                    plan.roomName
+                )
             ) {
                 ForEach(plan.entityChecklist, id: \.itemID) { item in
                     row(
@@ -236,8 +253,7 @@ public struct AsBuiltVerificationStatusView: View {
             if !ghostOverlayEnabled {
                 Section {
                     Text(
-                        "No alignment authority — spatial verdicts "
-                            + "unavailable; checklist mode only."
+                        "No alignment authority — spatial verdicts unavailable; checklist mode only."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)

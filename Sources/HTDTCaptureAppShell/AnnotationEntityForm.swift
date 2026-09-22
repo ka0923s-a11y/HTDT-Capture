@@ -840,8 +840,8 @@ public struct AnnotationEntityForm: View {
                 }
                 Text(
                     isSpeakerLike
-                        ? "Aim the phone the way the speaker faces, or enter a yaw angle in Advanced."
-                        : "Aim the phone in the direction this item faces, or enter a yaw angle in Advanced. Leave it unset when no facing authority exists."
+                        ? String(localized: "Aim the phone the way the speaker faces, or enter a yaw angle in Advanced.")
+                        : String(localized: "Aim the phone in the direction this item faces, or enter a yaw angle in Advanced. Leave it unset when no facing authority exists.")
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)

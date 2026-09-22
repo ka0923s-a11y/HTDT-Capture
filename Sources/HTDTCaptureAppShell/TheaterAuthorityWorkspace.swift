@@ -56,8 +56,15 @@ struct TheaterAuthoritySection: View {
     /// into authoring and fulfill through exact record/evidence refs
     /// (#357/#359).
     var taskPlanStatus: Binding<CaptureTaskPlanStatus>?
+    /// Catalog entries + label-scan assist feeding the rack-inventory
+    /// workflow (#402); empty/nil degrade it to manual entry.
+    var equipmentCatalogEntries: [HTDTEquipmentCatalogEntry] = []
+    var equipmentRecents = EquipmentRecents()
+    var scanEquipmentLabel:
+        (() async throws -> EquipmentLabelScanResult)? = nil
     @Binding var authorities: TheaterAuthorityCollection
 
+    @State private var showingInventory = false
     @State private var addingKind: AuthorityKind?
     @State private var addPrefillEntityID: AnnotationEntityID?
     @State private var missionContext: MissionContext?
@@ -272,6 +279,27 @@ struct TheaterAuthoritySection: View {
         }
         .sheet(item: $bindingEvidenceItem) { item in
             evidenceBindSheet(item)
+        }
+        .sheet(isPresented: $showingInventory) {
+            NavigationStack {
+                EquipmentInventoryView(
+                    coordinateSpaceID: coordinateSpaceID,
+                    entities: entities,
+                    availableEvidenceRefs: availableEvidenceRefs,
+                    equipmentCatalogEntries: equipmentCatalogEntries,
+                    equipmentRecents: equipmentRecents,
+                    scanEquipmentLabel: scanEquipmentLabel,
+                    taskPlanStatus: taskPlanStatus,
+                    authorities: $authorities
+                )
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(String(localized: "Done")) {
+                            showingInventory = false
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -553,6 +581,19 @@ struct TheaterAuthoritySection: View {
         Text(String(localized: "Document the room"))
             .font(.subheadline)
             .foregroundStyle(.secondary)
+        Button {
+            showingInventory = true
+        } label: {
+            Label(
+                String(localized: "Equipment inventory"),
+                systemImage: "server.rack"
+            )
+        }
+        Text(
+            "Rack-first repeated capture: scan a label, confirm, assign a slot, save the next unit."
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
         ForEach(
             [
                 AuthorityKind.surfaceSemantics, .surfaceConstruction,
@@ -1345,6 +1386,7 @@ enum AuthorityRecordDraft: Identifiable {
         var routingVerifications: [RoutingVerificationAuthority]
         var projectorCommissionings: [ProjectorCommissioningAuthority]
         var installationAlignments: [InstallationAlignmentRecord]
+        var rackPlacements: [RackPlacementObservation]
 
         init(_ collection: TheaterAuthorityCollection) {
             surfaceSemantics = collection.surfaceSemantics
@@ -1362,6 +1404,7 @@ enum AuthorityRecordDraft: Identifiable {
             projectorCommissionings =
                 collection.projectorCommissionings
             installationAlignments = collection.installationAlignments
+            rackPlacements = collection.rackPlacements
         }
 
         func build() throws -> TheaterAuthorityCollection {
@@ -1379,7 +1422,8 @@ enum AuthorityRecordDraft: Identifiable {
                 seatLayouts: seatLayouts,
                 routingVerifications: routingVerifications,
                 projectorCommissionings: projectorCommissionings,
-                installationAlignments: installationAlignments
+                installationAlignments: installationAlignments,
+                rackPlacements: rackPlacements
             )
         }
     }
@@ -1500,6 +1544,10 @@ enum AuthorityRecordDraft: Identifiable {
             }
         case .inventoryItem:
             sections.inventoryItems.removeAll {
+                $0.itemID == recordID
+            }
+            // A placement cannot outlive the unit it describes (#402).
+            sections.rackPlacements.removeAll {
                 $0.itemID == recordID
             }
         case .furnitureSemantics:
@@ -2922,10 +2970,13 @@ private struct AuthorityRecordForm: View {
                             isOn: $useEstablishedAlignment
                         ) {
                             Text(
-                                "Use established alignment ("
-                                    + establishedAlignment
-                                        .authorityRef + ")"
-                            )
+                                    String(
+                                        format: String(
+                                            localized: "Use established alignment (%@)"
+                                        ),
+                                        establishedAlignment.authorityRef
+                                    )
+                                )
                         }
                     }
                     if !useEstablishedAlignment

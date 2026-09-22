@@ -14,6 +14,11 @@ public enum TheaterAuthorityError: Error, Sendable, Equatable {
     case unresolvedFeatureReference
     case unresolvedEntityReference
     case snapshotWithoutObservations
+    /// A rack placement asserting no slot, label, facing, or evidence.
+    case emptyPlacementObservation
+    /// A rack placement's `host_rack_entity_id` disagrees with the
+    /// item's rack membership (#402).
+    case rackPlacementRackMismatch
 }
 
 public struct AuthorityRecordID: CaptureIdentifier {
@@ -836,8 +841,11 @@ public enum InventoryEquipmentClass: String, Codable, Sendable, CaseIterable {
     case other
 }
 
-public struct SystemInventoryItem: Codable, Sendable, Equatable {
+public struct SystemInventoryItem: Codable, Sendable, Equatable,
+    Identifiable
+{
     public let itemID: AuthorityRecordID
+    public var id: AuthorityRecordID { itemID }
     public let equipmentClass: InventoryEquipmentClass
     public let manufacturer: String?
     public let model: String?
@@ -970,6 +978,135 @@ public struct SystemInventoryItem: Codable, Sendable, Equatable {
             worldFromItem: container.decodeIfPresent(
                 Matrix4x4F.self,
                 forKey: .worldFromItem
+            ),
+            evidenceRefs: container.decodeIfPresent(
+                [String].self,
+                forKey: .evidenceRefs
+            ) ?? []
+        )
+    }
+}
+
+/// Which side of a rack slot presents the unit's front panel (#402).
+public enum RackFacing: String, Codable, Sendable, CaseIterable {
+    case front
+    case rear
+    case side
+    case unknown
+}
+
+/// Where one inventory unit sits inside its host rack (#402).
+/// Placement is observation authority separate from the item's
+/// identity: a unit keeps its model/serial when it moves slots, and
+/// `SystemInventoryItem.hostRackEntityID` records membership only, so
+/// ordered slot/facing authority lives here rather than overloading
+/// spatial XYZ.
+public struct RackPlacementObservation: Codable, Sendable, Equatable {
+    public let placementID: AuthorityRecordID
+    /// Inventory item this placement describes.
+    public let itemID: AuthorityRecordID
+    /// `equipment_rack` entity the unit occupies. Must equal the
+    /// item's `hostRackEntityID` — the collection enforces it.
+    public let hostRackEntityID: AnnotationEntityID
+    /// 1-based rack-unit position counted from the bottom.
+    public let rackUnitPosition: Int?
+    /// Free slot label ("top shelf", "rear rail") when the rack has no
+    /// unit numbering.
+    public let shelfSlotLabel: String?
+    public let facing: RackFacing?
+    /// Coordinate authority any evidence refs resolve in — never a
+    /// pose; spatial placement stays on the item.
+    public let coordinateSpaceID: CoordinateSpaceID?
+    /// Evidence refs supporting the observation (e.g. a label photo).
+    public let evidenceRefs: [String]
+
+    public init(
+        placementID: AuthorityRecordID = AuthorityRecordID(),
+        itemID: AuthorityRecordID,
+        hostRackEntityID: AnnotationEntityID,
+        rackUnitPosition: Int? = nil,
+        shelfSlotLabel: String? = nil,
+        facing: RackFacing? = nil,
+        coordinateSpaceID: CoordinateSpaceID? = nil,
+        evidenceRefs: [String] = []
+    ) throws {
+        if let rackUnitPosition, rackUnitPosition < 1 {
+            throw TheaterAuthorityError.nonPositiveDimension
+        }
+        let normalizedSlot = SchemaOwnedText.nfc(shelfSlotLabel)
+        if let normalizedSlot, normalizedSlot.isEmpty {
+            throw AnnotationModelError.emptyAuthorityReference
+        }
+        let normalizedEvidence = SchemaOwnedText.nfc(evidenceRefs)
+        guard normalizedEvidence.allSatisfy({ !$0.isEmpty }) else {
+            throw AnnotationModelError.emptyAuthorityReference
+        }
+        guard Set(normalizedEvidence).count == normalizedEvidence.count
+        else {
+            throw AnnotationModelError.duplicateEvidenceReference
+        }
+        // A placement asserting nothing — no slot, label, facing, or
+        // evidence — carries no observation.
+        guard rackUnitPosition != nil || normalizedSlot != nil
+            || facing != nil || !normalizedEvidence.isEmpty
+        else {
+            throw TheaterAuthorityError.emptyPlacementObservation
+        }
+        guard normalizedEvidence.isEmpty || coordinateSpaceID != nil
+        else {
+            throw TheaterAuthorityError.missingSourceBinding
+        }
+        self.placementID = placementID
+        self.itemID = itemID
+        self.hostRackEntityID = hostRackEntityID
+        self.rackUnitPosition = rackUnitPosition
+        self.shelfSlotLabel = normalizedSlot
+        self.facing = facing
+        self.coordinateSpaceID = coordinateSpaceID
+        self.evidenceRefs = normalizedEvidence.sorted()
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case placementID = "placement_id"
+        case itemID = "item_id"
+        case hostRackEntityID = "host_rack_entity_id"
+        case rackUnitPosition = "rack_unit_position"
+        case shelfSlotLabel = "shelf_slot_label"
+        case facing
+        case coordinateSpaceID = "coordinate_space_id"
+        case evidenceRefs = "evidence_refs"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            placementID: container.decode(
+                AuthorityRecordID.self,
+                forKey: .placementID
+            ),
+            itemID: container.decode(
+                AuthorityRecordID.self,
+                forKey: .itemID
+            ),
+            hostRackEntityID: container.decode(
+                AnnotationEntityID.self,
+                forKey: .hostRackEntityID
+            ),
+            rackUnitPosition: container.decodeIfPresent(
+                Int.self,
+                forKey: .rackUnitPosition
+            ),
+            shelfSlotLabel: container.decodeIfPresent(
+                String.self,
+                forKey: .shelfSlotLabel
+            ),
+            facing: container.decodeIfPresent(
+                RackFacing.self,
+                forKey: .facing
+            ),
+            coordinateSpaceID: container.decodeIfPresent(
+                CoordinateSpaceID.self,
+                forKey: .coordinateSpaceID
             ),
             evidenceRefs: container.decodeIfPresent(
                 [String].self,
@@ -1464,6 +1601,10 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
     public let projectorCommissionings: [ProjectorCommissioningAuthority]
     /// Attested installation-alignment assist outcomes (#346).
     public let installationAlignments: [InstallationAlignmentRecord]
+    /// Rack slot/facing observations bound to inventory items (#402).
+    /// Placement authority stays separate from item identity: a unit
+    /// keeps its serial/model when it moves slots.
+    public let rackPlacements: [RackPlacementObservation]
 
     /// An authority file with no records; the validating init cannot
     /// fail on empty sections.
@@ -1484,6 +1625,7 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
             && routingVerifications.isEmpty
             && projectorCommissionings.isEmpty
             && installationAlignments.isEmpty
+            && rackPlacements.isEmpty
     }
 
     public init(
@@ -1500,7 +1642,8 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
         seatLayouts: [SeatLayoutAuthority] = [],
         routingVerifications: [RoutingVerificationAuthority] = [],
         projectorCommissionings: [ProjectorCommissioningAuthority] = [],
-        installationAlignments: [InstallationAlignmentRecord] = []
+        installationAlignments: [InstallationAlignmentRecord] = [],
+        rackPlacements: [RackPlacementObservation] = []
     ) throws {
         // Record identifiers share one namespace and must be unique
         // across every section.
@@ -1517,6 +1660,7 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
             + routingVerifications.map(\.authorityID)
             + projectorCommissionings.map(\.authorityID)
             + installationAlignments.map(\.authorityID)
+            + rackPlacements.map(\.placementID)
         {
             guard ids.insert(id).inserted else {
                 throw TheaterAuthorityError.duplicateAuthorityRecordID
@@ -1603,6 +1747,21 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
                 }
             }
         }
+        let itemRacks = Dictionary(
+            inventoryItems.map { ($0.itemID, $0.hostRackEntityID) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        for placement in rackPlacements {
+            // A placement can only exist where its item is a member —
+            // the item's `hostRackEntityID` is the membership claim,
+            // the placement's the slot observation (#402).
+            guard let rack = itemRacks[placement.itemID] else {
+                throw TheaterAuthorityError.unresolvedFeatureReference
+            }
+            guard rack == placement.hostRackEntityID else {
+                throw TheaterAuthorityError.rackPlacementRackMismatch
+            }
+        }
 
         self.schema = Self.expectedSchema
         self.schemaVersion = Self.expectedSchemaVersion
@@ -1620,6 +1779,7 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
         self.routingVerifications = routingVerifications
         self.projectorCommissionings = projectorCommissionings
         self.installationAlignments = installationAlignments
+        self.rackPlacements = rackPlacements
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1639,6 +1799,7 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
         case routingVerifications = "routing_verifications"
         case projectorCommissionings = "projector_commissionings"
         case installationAlignments = "installation_alignments"
+        case rackPlacements = "rack_placements"
     }
 
     public init(from decoder: Decoder) throws {
@@ -1714,7 +1875,152 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
             installationAlignments: container.decodeIfPresent(
                 [InstallationAlignmentRecord].self,
                 forKey: .installationAlignments
+            ) ?? [],
+            rackPlacements: container.decodeIfPresent(
+                [RackPlacementObservation].self,
+                forKey: .rackPlacements
             ) ?? []
         )
+    }
+}
+
+public extension TheaterAuthorityCollection {
+    /// Placements bound to one inventory item, in stored order (#402).
+    func rackPlacements(
+        for itemID: AuthorityRecordID
+    ) -> [RackPlacementObservation] {
+        rackPlacements.filter { $0.itemID == itemID }
+    }
+
+    /// Upserts the item and, when given, its placement in one
+    /// validating rebuild (#402): the pair is staged atomically so a
+    /// placement never lands without the item it describes.
+    func upsertingInventoryItem(
+        _ item: SystemInventoryItem,
+        placement: RackPlacementObservation? = nil
+    ) throws -> TheaterAuthorityCollection {
+        var items = inventoryItems
+        if let index = items.firstIndex(where: {
+            $0.itemID == item.itemID
+        }) {
+            items[index] = item
+        } else {
+            items.append(item)
+        }
+        var placements = rackPlacements
+        if let placement {
+            if let index = placements.firstIndex(where: {
+                $0.placementID == placement.placementID
+            }) {
+                placements[index] = placement
+            } else {
+                placements.append(placement)
+            }
+        }
+        return try TheaterAuthorityCollection(
+            surfaceSemantics: surfaceSemantics,
+            surfaceConstructions: surfaceConstructions,
+            problemSurfaces: problemSurfaces,
+            constructionFeatures: constructionFeatures,
+            roomStateObservations: roomStateObservations,
+            roomStateSnapshots: roomStateSnapshots,
+            inventoryItems: items,
+            furnitureSemantics: furnitureSemantics,
+            speakerInstallations: speakerInstallations,
+            screenSemantics: screenSemantics,
+            seatLayouts: seatLayouts,
+            routingVerifications: routingVerifications,
+            projectorCommissionings: projectorCommissionings,
+            installationAlignments: installationAlignments,
+            rackPlacements: placements
+        )
+    }
+
+    /// Removes one placement observation, keeping the item (#402).
+    func removingRackPlacement(
+        _ placementID: AuthorityRecordID
+    ) throws -> TheaterAuthorityCollection {
+        let placements = rackPlacements.filter {
+            $0.placementID != placementID
+        }
+        guard placements.count != rackPlacements.count else {
+            return self
+        }
+        return try TheaterAuthorityCollection(
+            surfaceSemantics: surfaceSemantics,
+            surfaceConstructions: surfaceConstructions,
+            problemSurfaces: problemSurfaces,
+            constructionFeatures: constructionFeatures,
+            roomStateObservations: roomStateObservations,
+            roomStateSnapshots: roomStateSnapshots,
+            inventoryItems: inventoryItems,
+            furnitureSemantics: furnitureSemantics,
+            speakerInstallations: speakerInstallations,
+            screenSemantics: screenSemantics,
+            seatLayouts: seatLayouts,
+            routingVerifications: routingVerifications,
+            projectorCommissionings: projectorCommissionings,
+            installationAlignments: installationAlignments,
+            rackPlacements: placements
+        )
+    }
+
+    /// Removes the item and every placement bound to it — a placement
+    /// cannot outlive the unit it describes (#402). Other records
+    /// still referencing the item (e.g. routing sources) refuse the
+    /// delete through the validating init.
+    func removingInventoryItem(
+        _ itemID: AuthorityRecordID
+    ) throws -> TheaterAuthorityCollection {
+        let items = inventoryItems.filter { $0.itemID != itemID }
+        guard items.count != inventoryItems.count else { return self }
+        let placements = rackPlacements.filter {
+            $0.itemID != itemID
+        }
+        return try TheaterAuthorityCollection(
+            surfaceSemantics: surfaceSemantics,
+            surfaceConstructions: surfaceConstructions,
+            problemSurfaces: problemSurfaces,
+            constructionFeatures: constructionFeatures,
+            roomStateObservations: roomStateObservations,
+            roomStateSnapshots: roomStateSnapshots,
+            inventoryItems: items,
+            furnitureSemantics: furnitureSemantics,
+            speakerInstallations: speakerInstallations,
+            screenSemantics: screenSemantics,
+            seatLayouts: seatLayouts,
+            routingVerifications: routingVerifications,
+            projectorCommissionings: projectorCommissionings,
+            installationAlignments: installationAlignments,
+            rackPlacements: placements
+        )
+    }
+
+    /// Conservative same-unit candidates within the staged inventory
+    /// (#402 §7): an identical non-empty serial/asset text, or an
+    /// identical exact catalog reference sharing the same rack or
+    /// label. Detection never merges — the operator decides whether
+    /// the candidate is the same physical unit.
+    func inventoryDuplicateCandidates(
+        for item: SystemInventoryItem
+    ) -> [SystemInventoryItem] {
+        inventoryItems.filter { candidate in
+            guard candidate.itemID != item.itemID else { return false }
+            if let serial = item.serialNumber,
+               candidate.serialNumber == serial
+            {
+                return true
+            }
+            if let reference = item.equipmentRef,
+               candidate.equipmentRef == reference,
+               (item.hostRackEntityID != nil
+                    && candidate.hostRackEntityID
+                        == item.hostRackEntityID)
+                    || candidate.userLabel == item.userLabel
+            {
+                return true
+            }
+            return false
+        }
     }
 }
