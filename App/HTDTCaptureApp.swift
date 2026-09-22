@@ -107,6 +107,8 @@ private struct HTDTCaptureHostView: View {
                 coordinator.loopClosureAssessment,
             guidanceCuesEnabled:
                 coordinator.guidanceCuesEnabled,
+            revisitFlags: coordinator.revisitFlags,
+            revisitFlagsFull: coordinator.revisitFlagsFull,
             persistedInventory:
                 coordinator.persistedInventory,
             reviewWorkspace: coordinator.reviewWorkspace,
@@ -190,6 +192,14 @@ private struct HTDTCaptureHostView: View {
                     coordinator.commitAnnotationAuthority,
                 cancelAnnotation: coordinator.cancelAnnotation,
                 selectTaskProfile: coordinator.selectTaskProfile,
+                importTaskPlan: coordinator.importTaskPlan,
+                clearTaskPlan: coordinator.clearTaskPlan,
+                flagForReview: coordinator.flagForReview,
+                updateRevisitFlagDetails:
+                    coordinator.updateRevisitFlagDetails,
+                resolveRevisitFlag: coordinator.resolveRevisitFlag,
+                reopenRevisitFlag: coordinator.reopenRevisitFlag,
+                markTaskPlanItem: coordinator.markTaskPlanItem,
                 importEquipmentCatalog:
                     coordinator.importEquipmentCatalog,
                 selectEquipmentCatalog:
@@ -340,6 +350,26 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// explicit "no profile" state, never a misleading "Complete".
     @Published private(set) var taskProfile: CaptureTaskProfile?
     @Published private(set) var skippedTaskRequirementIDs: Set<String> = []
+    /// Revisit flags dropped during the live scan (#325). Persisted
+    /// into the working set at `session/revisit-flags.json` after
+    /// every mutation; Review lists every unresolved one.
+    @Published private(set)
+    var revisitFlags: [ScanRevisitFlag] = []
+    private var revisitFlagStore = CaptureRevisitFlagStore()
+    /// #352: the HTDT task plan imported on the setup screen, held as
+    /// verbatim bytes+plan until `continueBeginCapture` binds it to
+    /// the new working revision.
+    @Published private(set)
+    var pendingTaskPlanImport: CaptureTaskPlanImport?
+    /// Operator-visible failure of the last attempted plan import.
+    @Published private(set)
+    var pendingTaskPlanImportError: String?
+    /// Live item-mark tracker for the bound task plan (#240/#352).
+    private var boundTaskPlanStatus: CaptureTaskPlanStatus?
+    /// True when the bounded revisit-flag store is full (#325).
+    var revisitFlagsFull: Bool {
+        revisitFlagStore.isFull
+    }
     @Published private(set) var validationReport: BundleValidationReport?
     @Published private(set) var exportURL: URL?
     @Published private(set)
@@ -1127,6 +1157,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         endTargetScan()
         operatorRegionDeclarations = OperatorRegionDeclarations()
         declaredRegionList = []
+        revisitFlagStore = CaptureRevisitFlagStore()
+        revisitFlags = []
+        pendingTaskPlanImport = nil
+        pendingTaskPlanImportError = nil
+        boundTaskPlanStatus = nil
         loopClosureCheckActive = false
         loopClosureAssessment = nil
         latestScanTimestampSeconds = nil
@@ -1200,9 +1235,53 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             resolvedMode: capabilities.roomPlanMeshEligible
                 ? .roomPlanMesh
                 : nil,
+            taskProfile: taskProfile,
+            importedTaskPlan: pendingTaskPlanImport?.plan,
+            taskPlanImportError: pendingTaskPlanImportError,
             cameraPermission:
                 CameraPermissionController.currentStatus()
         )
+    }
+
+    /// #352: import an HTDT task plan on the setup screen, before any
+    /// acquisition. The file is decoded+validated now so the operator
+    /// sees failures immediately; the verbatim bytes bind to the
+    /// working set only when scanning actually starts.
+    func importTaskPlan(from url: URL) {
+        guard state == .setup else {
+            return
+        }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer {
+            if scoped {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            pendingTaskPlanImport = try CaptureTaskPlanImport(
+                data: data
+            )
+            pendingTaskPlanImportError = nil
+        } catch {
+            pendingTaskPlanImport = nil
+            pendingTaskPlanImportError = HostLocalization.text(
+                "The selected file is not a valid HTDT task plan",
+                "選択したファイルは有効な HTDT タスク計画ではありません"
+            )
+        }
+        refreshCaptureSetupPresentation()
+    }
+
+    /// Removes the imported plan so the setup returns to the generic
+    /// task-profile intent (#352).
+    func clearTaskPlan() {
+        guard state == .setup else {
+            return
+        }
+        pendingTaskPlanImport = nil
+        pendingTaskPlanImportError = nil
+        refreshCaptureSetupPresentation()
     }
 
     /// One-shot storage preflight for the setup screen using the same
@@ -1917,7 +1996,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         case .endAvailable, .targetObserved:
             UIImpactFeedbackGenerator(style: .medium)
                 .impactOccurred()
-        case .evidenceSaved, .holdSteady:
+        case .evidenceSaved, .holdSteady, .revisitFlagSaved:
             UIImpactFeedbackGenerator(style: .light)
                 .impactOccurred()
         case .moveLeft, .moveRight, .moveForward, .moveBack,
@@ -1943,6 +2022,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         case .targetObserved:
             emitted = scanGuidanceCuePolicy
                 .targetObserved(timestampSeconds: timestampSeconds)
+        case .revisitFlagSaved:
+            emitted = scanGuidanceCuePolicy
+                .revisitFlagSaved(timestampSeconds: timestampSeconds)
         default:
             emitted = nil
         }
@@ -2005,6 +2087,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return HostLocalization.text(
                 "Evidence frame saved",
                 "証拠フレームを保存しました"
+            )
+        case .revisitFlagSaved:
+            return HostLocalization.text(
+                "Review flag saved",
+                "レビューフラグを保存しました"
             )
         }
     }
@@ -4325,6 +4412,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         endTargetScan()
         operatorRegionDeclarations = OperatorRegionDeclarations()
         declaredRegionList = []
+        revisitFlagStore = CaptureRevisitFlagStore()
+        revisitFlags = []
+        pendingTaskPlanImport = nil
+        pendingTaskPlanImportError = nil
+        boundTaskPlanStatus = nil
         loopClosureCheckActive = false
         loopClosureAssessment = nil
         latestScanTimestampSeconds = nil
@@ -4843,6 +4935,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     qualityReport: model.qualityReport,
                     readOnly: model.readOnly,
                     spatialCaptureSealed: true,
+                    revisitFlags: model.revisitFlags,
+                    captureTaskPlan: model.captureTaskPlan,
+                    taskPlanStatus: model.taskPlanStatus,
                     issues: model.issues
                 )
             }
@@ -4871,6 +4966,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         readOnly: model.readOnly,
                         spatialCaptureSealed:
                             model.spatialCaptureSealed,
+                        revisitFlags: model.revisitFlags,
+                        captureTaskPlan: model.captureTaskPlan,
+                        taskPlanStatus: model.taskPlanStatus,
                         issues: model.issues
                     )
                 }
@@ -7028,9 +7126,276 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         _ profile: CaptureTaskProfile?,
         skippedRequirementIDs: Set<String> = []
     ) {
+        let previous = taskProfile
         taskProfile = profile
         self.skippedTaskRequirementIDs = skippedRequirementIDs
+        // #352: profile selection on the setup screen is pending
+        // mission intent, bound at Begin; keep the presentation in
+        // sync. Once a working set exists the same action is an
+        // explicit mission change and records provenance.
+        if state == .setup {
+            refreshCaptureSetupPresentation()
+        }
         guard let store = workingSetStore else { return }
+        let generation = captureGeneration
+        let changedAfterBind =
+            previous?.identifier != profile?.identifier
+        let timestamp = latestScanTimestampSeconds ?? 0
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.captureGeneration == generation
+            else {
+                return
+            }
+            if changedAfterBind {
+                try? await store.recordAdvisoryNote(
+                    CaptureAdvisoryNote(
+                        kind: .taskProfileChange,
+                        sessionTimestampSeconds: timestamp,
+                        detail:
+                            "from=\(previous?.identifier ?? "none") to=\(profile?.identifier ?? "none")"
+                    )
+                )
+            }
+            try? await store.recordTaskProfile(
+                profile,
+                skippedRequirementIDs: skippedRequirementIDs
+            )
+        }
+    }
+
+    // MARK: - Revisit flags (#325)
+
+    /// One-tap flag during scanning: snapshots the center-raycast
+    /// target (or the camera pose when no hit exists), appends a
+    /// bounded marker, persists the flag document, and confirms
+    /// through the #252 cue channel. Returns the new flag id so the
+    /// view can offer the optional details sheet, nil when the flag
+    /// could not be recorded.
+    func flagForReview() -> String? {
+        guard state == .scanning,
+              !isEndingScan,
+              !revisitFlagStore.isFull,
+              workingSetStore != nil,
+              workingSetIdentity != nil
+        else {
+            return nil
+        }
+
+        let context = sessionController.context
+        let orientation =
+            try? sessionController.snapshotCameraOrientation()
+        let raycast =
+            try? sessionController.snapshotCenterRaycastPlacement()
+        let pose =
+            orientation?.frameArtifacts.worldFromCamera
+            ?? raycast?.frameArtifacts.worldFromCamera
+        let timestamp =
+            orientation?.frameArtifacts
+            .sessionTimestampSeconds
+            ?? raycast?.frameArtifacts.sessionTimestampSeconds
+            ?? latestScanTimestampSeconds
+            ?? 0
+
+        var target: ScanRevisitFlagVector?
+        var targetFromRaycast = false
+        var coverageCell: String?
+        if let raycast {
+            let p = raycast.positionWorld
+            target = ScanRevisitFlagVector(
+                x: Double(p.x),
+                y: Double(p.y),
+                z: Double(p.z)
+            )
+            targetFromRaycast = true
+            if let cell = spatialCoverage.cellKey(
+                forWorldPoint: SpatialCoveragePoint3D(
+                    x: Double(p.x),
+                    y: Double(p.y),
+                    z: Double(p.z)
+                )
+            ) {
+                coverageCell = "\(cell.x),\(cell.z)"
+            }
+        }
+        var cameraPosition: ScanRevisitFlagVector?
+        var cameraForward: ScanRevisitFlagVector?
+        if let pose {
+            cameraPosition = ScanRevisitFlagVector(
+                x: Double(pose.values[12]),
+                y: Double(pose.values[13]),
+                z: Double(pose.values[14])
+            )
+            cameraForward = ScanRevisitFlagVector(
+                x: Double(-pose.values[8]),
+                y: Double(-pose.values[9]),
+                z: Double(-pose.values[10])
+            )
+        }
+
+        let flag = ScanRevisitFlag(
+            coordinateSpaceID: context.coordinateSpaceID,
+            captureSessionID: context.captureSessionID,
+            targetPointWorld: target,
+            targetFromRaycast: targetFromRaycast,
+            cameraPositionWorld: cameraPosition,
+            cameraForwardWorld: cameraForward,
+            coverageCell: coverageCell,
+            category: nil,
+            note: nil,
+            createdSessionTimestampSeconds: timestamp
+        )
+        guard revisitFlagStore.add(flag) else {
+            return nil
+        }
+        revisitFlags = revisitFlagStore.flags
+        playCueIfAdmitted(
+            .revisitFlagSaved,
+            timestampSeconds: timestamp
+        )
+        persistRevisitFlags()
+        return flag.flagID
+    }
+
+    /// Saves the optional details (category/note) after the operator
+    /// stopped to fill them in — never required to drop a flag.
+    func updateRevisitFlagDetails(
+        _ flagID: String,
+        category: ScanRevisitFlagCategory?,
+        note: String?
+    ) {
+        guard revisitFlagStore.updateDetails(
+            flagID: flagID,
+            category: category,
+            note: note
+        ) else {
+            return
+        }
+        revisitFlags = revisitFlagStore.flags
+        persistRevisitFlags()
+    }
+
+    /// #325 Review resolution: the outcome names what the flag
+    /// resolved to — linked authority, acknowledged, or unavailable.
+    func resolveRevisitFlag(
+        _ flagID: String,
+        outcome: ScanRevisitFlagResolution.Outcome,
+        authorityRef: String?
+    ) {
+        guard revisitFlagStore.resolve(
+            flagID: flagID,
+            outcome: outcome,
+            authorityRef: authorityRef,
+            sessionTimestampSeconds: latestScanTimestampSeconds
+        ) else {
+            return
+        }
+        revisitFlags = revisitFlagStore.flags
+        if let store = workingSetStore {
+            let generation = captureGeneration
+            Task { @MainActor [weak self] in
+                guard self?.captureGeneration == generation else {
+                    return
+                }
+                try? await store.recordAdvisoryNote(
+                    CaptureAdvisoryNote(
+                        kind: .revisitFlagResolution,
+                        sessionTimestampSeconds:
+                            self?.latestScanTimestampSeconds ?? 0,
+                        detail:
+                            "flag_id=\(flagID) outcome=\(outcome.rawValue)"
+                    )
+                )
+            }
+        }
+        persistRevisitFlags()
+    }
+
+    func reopenRevisitFlag(_ flagID: String) {
+        guard revisitFlagStore.reopen(flagID: flagID) else {
+            return
+        }
+        revisitFlags = revisitFlagStore.flags
+        persistRevisitFlags()
+    }
+
+    /// Persists the current flag document; failures surface on the
+    /// status line rather than silently dropping flags (#325).
+    private func persistRevisitFlags() {
+        guard let store = workingSetStore,
+              let identity = workingSetIdentity
+        else {
+            return
+        }
+        let context = sessionController.context
+        let generation = captureGeneration
+        // Flags pinned to a coordinate space a mid-scan discontinuity
+        // left behind stay listed but marked unavailable — never
+        // silently resolved (#325).
+        revisitFlagStore.markFlagsUnavailable(
+            notIn: context.coordinateSpaceID
+        )
+        revisitFlags = revisitFlagStore.flags
+        let document = revisitFlagStore.document(
+            captureRevisionID: identity.captureRevisionID
+        )
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.captureGeneration == generation
+            else {
+                return
+            }
+            do {
+                let data = try document.encoded()
+                try await store.replaceSupplementalDocument(
+                    WorkingSetSupplementalDocument(
+                        path: CaptureRevisitFlagDocument.path,
+                        data: data,
+                        declaration: BundlePayloadDeclaration(
+                            path: CaptureRevisitFlagDocument.path,
+                            mediaType: "application/json",
+                            producer: "capture_session",
+                            provenanceClass: .captureAppDerived,
+                            role: .canonical
+                        ),
+                        coordinateSpaceIDs: [
+                            context.coordinateSpaceID,
+                        ],
+                        captureSessionIDs: [
+                            context.captureSessionID,
+                        ]
+                    )
+                )
+            } catch {
+                self.workingSetStatus = HostLocalization.text(
+                    "Review flag could not be saved",
+                    "レビューフラグを保存できませんでした"
+                ) + " ["
+                    + Self.persistenceDiagnostic(error) + "]"
+            }
+        }
+    }
+
+    /// #352 Review-time checklist marks for the bound task plan.
+    func markTaskPlanItem(
+        _ itemID: String,
+        outcome: TaskPlanItemOutcome
+    ) {
+        guard var status = boundTaskPlanStatus,
+              let store = workingSetStore,
+              let identity = workingSetIdentity
+        else {
+            return
+        }
+        do {
+            try status.mark(itemID: itemID, as: outcome)
+        } catch {
+            return
+        }
+        boundTaskPlanStatus = status
+        let context = sessionController.context
+        let annotations = reviewWorkspace?.annotations ?? []
+        let measurements = reviewWorkspace?.measurements ?? []
         let generation = captureGeneration
         Task { @MainActor [weak self] in
             guard let self,
@@ -7038,10 +7403,30 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             else {
                 return
             }
-            try? await store.recordTaskProfile(
-                profile,
-                skippedRequirementIDs: skippedRequirementIDs
+            guard let data = try? status.statusPackage(
+                captureRevisionID: identity.captureRevisionID,
+                captureSessionID: context.captureSessionID,
+                annotations: annotations,
+                measurements: measurements
+            ) else {
+                return
+            }
+            try? await store.replaceSupplementalDocument(
+                WorkingSetSupplementalDocument(
+                    path: CaptureTaskPlanStatusDocument.path,
+                    data: data,
+                    declaration: BundlePayloadDeclaration(
+                        path: CaptureTaskPlanStatusDocument.path,
+                        mediaType: "application/json",
+                        producer: "capture_session",
+                        provenanceClass: .captureAppDerived,
+                        role: .canonical
+                    ),
+                    coordinateSpaceIDs: [context.coordinateSpaceID],
+                    captureSessionIDs: [context.captureSessionID]
+                )
             )
+            self.refreshReviewWorkspace()
         }
     }
 
@@ -7053,6 +7438,101 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             "HTDTCapture",
             isDirectory: true
         )
+    }
+
+    /// #352: freezes the mission the operator chose on the setup
+    /// screen onto the fresh working revision — the imported HTDT
+    /// task-plan bytes persist verbatim at
+    /// `session/capture-task-plan.json` with an initial all-pending
+    /// status document at `session/task-plan-status.json`, or the
+    /// generic task profile is recorded. Either binding writes a
+    /// `mission_bound` provenance note; a persistence failure surfaces
+    /// on the status line, never silently.
+    private func bindPendingMission(
+        store: CaptureWorkingSetStore,
+        revisionID: CaptureRevisionID,
+        context: CaptureSessionContext
+    ) async {
+        do {
+            if let planImport = pendingTaskPlanImport {
+                try await store.persistSupplementalDocument(
+                    WorkingSetSupplementalDocument(
+                        path: CaptureTaskPlanImport.path,
+                        data: planImport.data,
+                        declaration: BundlePayloadDeclaration(
+                            path: CaptureTaskPlanImport.path,
+                            mediaType: "application/json",
+                            producer: "htdt_plan",
+                            provenanceClass: .importedReference,
+                            role: .canonical
+                        ),
+                        coordinateSpaceIDs: [
+                            context.coordinateSpaceID,
+                        ],
+                        captureSessionIDs: [
+                            context.captureSessionID,
+                        ]
+                    )
+                )
+                let status = CaptureTaskPlanStatus(
+                    planImport: planImport
+                )
+                boundTaskPlanStatus = status
+                let statusData = try status.statusPackage(
+                    captureRevisionID: revisionID,
+                    captureSessionID: context.captureSessionID,
+                    annotations: [],
+                    measurements: []
+                )
+                try await store.replaceSupplementalDocument(
+                    WorkingSetSupplementalDocument(
+                        path: CaptureTaskPlanStatusDocument.path,
+                        data: statusData,
+                        declaration: BundlePayloadDeclaration(
+                            path: CaptureTaskPlanStatusDocument.path,
+                            mediaType: "application/json",
+                            producer: "capture_session",
+                            provenanceClass: .captureAppDerived,
+                            role: .canonical
+                        ),
+                        coordinateSpaceIDs: [
+                            context.coordinateSpaceID,
+                        ],
+                        captureSessionIDs: [
+                            context.captureSessionID,
+                        ]
+                    )
+                )
+                try? await store.recordAdvisoryNote(
+                    CaptureAdvisoryNote(
+                        kind: .missionBound,
+                        sessionTimestampSeconds: 0,
+                        detail:
+                            "mission=htdt_task_plan plan_id=\(planImport.plan.planID) plan_version=\(planImport.plan.planVersion) plan_sha256=\(planImport.planSHA256.value)"
+                    )
+                )
+            } else if let taskProfile {
+                try await store.recordTaskProfile(
+                    taskProfile,
+                    skippedRequirementIDs:
+                        skippedTaskRequirementIDs
+                )
+                try? await store.recordAdvisoryNote(
+                    CaptureAdvisoryNote(
+                        kind: .missionBound,
+                        sessionTimestampSeconds: 0,
+                        detail:
+                            "mission=task_profile profile=\(taskProfile.identifier)"
+                    )
+                )
+            }
+        } catch {
+            boundTaskPlanStatus = nil
+            workingSetStatus += HostLocalization.text(
+                " (mission binding failed)",
+                "（ミッションの紐付けに失敗しました）"
+            )
+        }
     }
 
     private static func makePersistedStore()
@@ -7190,6 +7670,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let runtime = PlatformRuntimeProvenance.current()
         let generation = prepared.generation
         let store = prepared.store
+
+        // #352: bind the mission configured on the setup screen to the
+        // new working revision before any scan sample lands — plan
+        // identity+version are recorded verbatim; the mission is
+        // workflow intent, never observed truth.
+        await bindPendingMission(
+            store: store,
+            revisionID: prepared.identity.captureRevisionID,
+            context: context
+        )
 
         sessionController.setRoomPlanCompletionHandler {
             [weak self] data, error in
@@ -8072,10 +8562,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let spatial = spatialCoverage
         let progress = scanGuidanceProgress
         let stability = observationStability
+        let vertical = spatial.vertical
         await store.recordAdvisoryEndContext(
             CaptureEndCoverageSummary(
+                // 1.1.0: adds the additive 3D voxel layer summary
+                // (#329); older payloads read as azimuth-only 2D.
                 algorithm: "advisory-scan-coverage",
-                algorithmVersion: "1.0.0",
+                algorithmVersion: "1.1.0",
                 endSessionTimestampSeconds:
                     prepared.trackingQualityEvent
                     .sessionTimestampSeconds,
@@ -8130,6 +8623,34 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 saturatedWeakRegionCount:
                     progress.saturatedWeakRegionCount,
                 guidanceComplete: progress.isComplete,
+                viewpointDiversitySemantics:
+                    "azimuth_elevation_3d",
+                verticalCellSizeMeters:
+                    vertical.verticalCellSizeMeters,
+                verticalVoxelCount: vertical.voxelCount,
+                verticalObservedVoxelCount:
+                    vertical.observedVoxelCount,
+                verticalWeakVoxelCount: vertical.weakVoxelCount,
+                verticalWeakVoxelKeys: vertical.voxels
+                    .filter {
+                        $0.classification == .weak
+                    }
+                    .map {
+                        "\($0.key.x),\($0.key.z),\($0.key.yBand)"
+                    },
+                verticalBandSummaries: Dictionary(
+                    uniqueKeysWithValues: vertical.displayBands
+                        .map {
+                            (
+                                $0.band.rawValue,
+                                CaptureVerticalBandSummary(
+                                    voxelCount: $0.voxelCount,
+                                    observedCount: $0.observedCount,
+                                    weakCount: $0.weakCount
+                                )
+                            )
+                        }
+                ),
                 guidanceCompletionSource:
                     progress.completionSource.rawValue,
                 // #347: unresolved weak regions beyond the displayed

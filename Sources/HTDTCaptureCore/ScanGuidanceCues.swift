@@ -21,6 +21,9 @@ public enum ScanGuidanceCue: String, Sendable, Equatable, CaseIterable {
     case guidanceComplete = "guidance_complete"
     case endAvailable = "end_available"
     case evidenceSaved = "evidence_saved"
+    /// A revisit flag was recorded during scanning (#325) — one-shot
+    /// confirmation haptic where non-visual cues are enabled.
+    case revisitFlagSaved = "revisit_flag_saved"
 }
 
 /// Snapshot of the guidance-facing state the cue policy diffs between
@@ -159,6 +162,15 @@ public struct ScanGuidanceCuePolicy: Sendable, Equatable {
     ) -> ScanGuidanceCue? {
         admit(.targetObserved, timestampSeconds: timestampSeconds)
             ? .targetObserved
+            : nil
+    }
+
+    /// One-shot confirmation that a revisit flag was persisted (#325).
+    public mutating func revisitFlagSaved(
+        timestampSeconds: Double
+    ) -> ScanGuidanceCue? {
+        admit(.revisitFlagSaved, timestampSeconds: timestampSeconds)
+            ? .revisitFlagSaved
             : nil
     }
 

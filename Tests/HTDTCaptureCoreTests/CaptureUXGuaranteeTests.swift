@@ -614,6 +614,7 @@ final class CaptureUXGuaranteeTests: XCTestCase {
             limitedTrackingObservationCount: 0,
             lastObservedTimestampSeconds: 1,
             viewAngleBucketMask: 0b11,
+            elevationBucketMask: 0,
             latestDistanceBucket: .near,
             depthObservationCount: 0,
             meshSupportCount: 2,
