@@ -1064,45 +1064,6 @@ public struct CaptureRootView: View {
                                 )
                             }
                         }
-                    }
-                }
-
-                if state == .idle,
-                   !persistedInventory.captures.isEmpty
-                       || !persistedInventory
-                           .quarantinedArtifacts.isEmpty
-                       || !persistedInventory
-                           .enumerationFailures.isEmpty
-                {
-                    captureLibrarySection
-                }
-
-                if state == .idle,
-                   !persistedInventory.recoverableDrafts.isEmpty
-                {
-                    Section("Recoverable drafts") {
-                        ForEach(persistedInventory.recoverableDrafts) {
-                            draft in
-                            recoverableDraftRow(draft)
-                        }
-                        Text(
-                            "An Ended capture whose data survived an interruption. Reopening restores Review with spatial capture sealed — you can finish annotations and finalize, but you cannot resume scanning."
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                }
-
-                if state == .idle,
-                   !persistedInventory
-                       .orphanedWorkingArtifacts.isEmpty
-                {
-                    Section("Abandoned working data") {
-                        ForEach(
-                            persistedInventory
-                                .orphanedWorkingArtifacts
-                        ) { orphan in
-                            workingOrphanRow(orphan)
                     } header: {
                         Text("Finalized bundle")
                     } footer: {
@@ -2137,44 +2098,6 @@ public struct CaptureRootView: View {
         }
     }
 
-    /// A recoverable draft row (issue #297): phase, size, restore
-    /// caveats, and the reopen/discard affordances. Extracted like
-    /// `workingOrphanRow` so the section's type-check stays cheap.
-    private func recoverableDraftRow(
-        _ draft: RecoverableWorkingRevision
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            LabeledContent(
-                localizedRevisionPhase(draft.phase),
-                value: draft.url.lastPathComponent
-            )
-            LabeledContent(
-                "Retained bytes",
-                value: String(draft.retainedBytes)
-            )
-            if !draft.unsupportedPaths.isEmpty {
-                Text(
-                    String(
-                        format: String(
-                            localized: "%d unsupported file(s) kept"
-                        ),
-                        draft.unsupportedPaths.count
-                    )
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            HStack {
-                Button("Reopen for review") {
-                    actions.openRecoveredDraft(draft)
-                }
-                Button("Discard draft", role: .destructive) {
-                    actions.discardRecoveredDraft(draft)
-                }
-            }
-        }
-    }
-
     private func workingOrphanRow(
         _ orphan: PersistedCaptureWorkingOrphan
     ) -> some View {
@@ -2486,52 +2409,4 @@ public struct CaptureRootView: View {
         }
     }
 
-    private func localizedAvailability(_ available: Bool) -> String {
-        available
-            ? String(localized: "Available")
-            : String(localized: "Unavailable")
-    }
-
-    private func localizedReadiness(_ ready: Bool) -> String {
-        ready
-            ? String(localized: "Ready")
-            : String(localized: "Not ready")
-    }
-
-    private func localizedPassFail(_ pass: Bool) -> String {
-        pass
-            ? String(localized: "Pass")
-            : String(localized: "Fail")
-    }
-
-    private func localizedIntegrity(
-        _ status: BundleIntegrityStatus
-    ) -> String {
-        switch status {
-        case .notChecked:
-            return String(localized: "Not checked")
-        case .pass:
-            return String(localized: "Pass")
-        case .fail:
-            return String(localized: "Fail")
-        }
-    }
-
-    /// Durable lifecycle phase of a recoverable draft (issue #297).
-    private func localizedRevisionPhase(
-        _ phase: WorkingRevisionPhase
-    ) -> String {
-        switch phase {
-        case .liveScanIncomplete:
-            return String(localized: "Scan interrupted")
-        case .endAccepted:
-            return String(localized: "Ended; ready for review")
-        case .semanticAuthoring:
-            return String(
-                localized: "Ended; annotations in progress"
-            )
-        case .readyToFinalize:
-            return String(localized: "Ready to finalize")
-        }
-    }
 }
