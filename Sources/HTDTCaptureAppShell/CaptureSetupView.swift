@@ -15,6 +15,14 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
     /// Option B): mesh when the device is mesh-eligible, nil when the
     /// host cannot start a production capture at all.
     public let resolvedMode: CaptureMode?
+    /// The generic task profile chosen before acquisition (#352).
+    /// Nil means a general capture with no task checklist.
+    public let taskProfile: CaptureTaskProfile?
+    /// The imported HTDT task plan bound for this capture (#240/#352),
+    /// decoded for display. Its bytes persist verbatim at Begin.
+    public let importedTaskPlan: HTDTCaptureTaskPlan?
+    /// Human-readable import failure for the last attempted plan file.
+    public let taskPlanImportError: String?
     /// Last-known camera authorization shown as denied-state UI
     /// (#295): setup surfaces a denied prerequisite with a direct
     /// Settings path instead of letting Begin run into a failure.
@@ -25,14 +33,98 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
         storagePreflight: CaptureStoragePreflight,
         deviceReadiness: CaptureDeviceReadiness?,
         resolvedMode: CaptureMode?,
+        taskProfile: CaptureTaskProfile? = nil,
+        importedTaskPlan: HTDTCaptureTaskPlan? = nil,
+        taskPlanImportError: String? = nil,
         cameraPermission: CameraPermissionStatus? = nil
     ) {
         self.capabilities = capabilities
         self.storagePreflight = storagePreflight
         self.deviceReadiness = deviceReadiness
         self.resolvedMode = resolvedMode
+        self.taskProfile = taskProfile
+        self.importedTaskPlan = importedTaskPlan
+        self.taskPlanImportError = taskPlanImportError
         self.cameraPermission = cameraPermission
     }
+
+    /// Which mission authority will bind at Begin: an imported HTDT
+    /// task plan wins over the generic profile (#352).
+    public var missionKind: CaptureMissionKind {
+        importedTaskPlan != nil ? .htdtTaskPlan
+            : taskProfile != nil ? .taskProfile
+            : .generalCapture
+    }
+
+    /// A short human-readable mission statement — what this capture is
+    /// for — shown before Start Scan and carried into the binding
+    /// advisory note.
+    public var missionStatement: String {
+        switch missionKind {
+        case .htdtTaskPlan:
+            guard let plan = importedTaskPlan else { break }
+            let required = plan.entityChecklist.filter {
+                $0.requirement == .required
+            }.count
+                + plan.measurementRequests.filter {
+                    $0.requirement == .required
+                }.count
+                + plan.surfaceReviewTasks.filter {
+                    $0.requirement == .required
+                }.count
+            let optional = plan.allItemIDs.count - required
+            return String(
+                format: String(
+                    localized:
+                        "Mission: HTDT task plan %@ v%@ — %d required and %d optional checklist items. Mission completeness is tracked in Review and never gates ingestion readiness."
+                ),
+                plan.planID,
+                plan.planVersion,
+                required,
+                optional
+            )
+        case .taskProfile:
+            guard let profile = taskProfile else { break }
+            if profile.requirements.isEmpty {
+                return String(
+                    format: String(
+                        localized:
+                            "Mission: %@ — a general room capture with no required checklist items."
+                    ),
+                    profile.title
+                )
+            }
+            let required = profile.requirements.filter {
+                !$0.isOptional
+            }.count
+            let optional = profile.requirements.count - required
+            return String(
+                format: String(
+                    localized:
+                        "Mission: %@ — %d required and %d optional items. Mission completeness is advisory and never gates ingestion readiness."
+                ),
+                profile.title,
+                required,
+                optional
+            )
+        case .generalCapture:
+            return String(
+                localized:
+                    "Mission: general capture — no task checklist. You can flag anything for review while scanning."
+            )
+        }
+        return String(localized: "Mission: general capture")
+    }
+}
+
+/// The mission authority chosen pre-capture (#352).
+public enum CaptureMissionKind: String, Sendable, Equatable {
+    /// No task profile or plan — a short happy-path standalone scan.
+    case generalCapture = "general_capture"
+    /// A generic operator task profile (#217/#352).
+    case taskProfile = "task_profile"
+    /// An imported HTDT task plan (#240) bound verbatim.
+    case htdtTaskPlan = "htdt_task_plan"
 }
 
 /// The explicit pre-capture setup step (#212).
@@ -52,6 +144,16 @@ public struct CaptureSetupView: View {
     public let onImportMissionDocument: () -> Void
     public let beginScanning: () -> Void
     public let cancel: () -> Void
+    /// Picks (or clears) the generic task profile bound at Begin
+    /// (#352). Called with nil for a general capture.
+    public let selectTaskProfile: (CaptureTaskProfile?) -> Void
+    /// Imports an HTDT task plan file (#240) — the URL is opened
+    /// inside the coordinator which handles security scope.
+    public let importTaskPlan: (URL) -> Void
+    /// Removes the imported plan, returning to generic profile intent.
+    public let clearTaskPlan: () -> Void
+
+    @State private var importingTaskPlan = false
     /// Opens the app's iOS Settings page (#295). The host decides
     /// whether the platform offers a direct path; the default is a
     /// no-op so previews/tests stay platform-neutral.
@@ -64,6 +166,10 @@ public struct CaptureSetupView: View {
         onImportMissionDocument: @escaping () -> Void = {},
         beginScanning: @escaping () -> Void = {},
         cancel: @escaping () -> Void = {},
+        selectTaskProfile: @escaping
+            (CaptureTaskProfile?) -> Void = { _ in },
+        importTaskPlan: @escaping (URL) -> Void = { _ in },
+        clearTaskPlan: @escaping () -> Void = {},
         openCameraSettings: @escaping () -> Void = {}
     ) {
         self.presentation = presentation
@@ -71,11 +177,17 @@ public struct CaptureSetupView: View {
         self.onImportMissionDocument = onImportMissionDocument
         self.beginScanning = beginScanning
         self.cancel = cancel
+        self.selectTaskProfile = selectTaskProfile
+        self.importTaskPlan = importTaskPlan
+        self.clearTaskPlan = clearTaskPlan
         self.openCameraSettings = openCameraSettings
     }
 
     public var body: some View {
         List {
+            captureMissionSection
+
+
             Section {
                 CaptureTaskHeader(
                     "Before scanning",
@@ -225,6 +337,17 @@ public struct CaptureSetupView: View {
             }
         }
         .navigationTitle("Capture setup")
+        .fileImporter(
+            isPresented: $importingTaskPlan,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false
+        ) { result in
+            if case let .success(urls) = result,
+               let url = urls.first
+            {
+                importTaskPlan(url)
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: CaptureDesign.Spacing.row) {
                 Button(action: beginScanning) {
@@ -255,6 +378,126 @@ public struct CaptureSetupView: View {
             .background(.bar)
         }
     }
+
+    /// #352: mission intent is configured here — before acquisition
+    /// begins — never after scanning. The chosen authority (a generic
+    /// task profile or an imported HTDT plan) is bound to the working
+    /// capture at Begin with its identity and version recorded.
+    private var captureMissionSection: some View {
+        Section {
+            Text(presentation.missionStatement)
+                .font(.callout)
+
+            // `CaptureTaskProfile` isn't Hashable — the picker keys on
+            // the stable identifier string instead.
+            Picker(
+                "Task profile",
+                selection: Binding<String>(
+                    get: {
+                        presentation.taskProfile?.identifier
+                            ?? "none"
+                    },
+                    set: { identifier in
+                        selectTaskProfile(
+                            Self.profile(forIdentifier: identifier)
+                        )
+                    }
+                )
+            ) {
+                Text("No task profile")
+                    .tag("none")
+                Text("Geometry only")
+                    .tag(CaptureTaskProfile.geometryOnly.identifier)
+                Text("Room + listening position")
+                    .tag(
+                        CaptureTaskProfile
+                            .roomAndListeningPosition.identifier
+                    )
+                Text("Theater layout")
+                    .tag(Self.theaterProfile.identifier)
+            }
+            .disabled(presentation.importedTaskPlan != nil)
+
+            if let plan = presentation.importedTaskPlan {
+                LabeledContent(
+                    "HTDT task plan",
+                    value: "\(plan.planID) · v\(plan.planVersion)"
+                )
+                LabeledContent(
+                    "Checklist",
+                    value: String(
+                        format: String(
+                            localized: "%d items"
+                        ),
+                        plan.allItemIDs.count
+                    )
+                )
+                Button("Remove task plan", role: .destructive) {
+                    clearTaskPlan()
+                }
+            } else {
+                Button("Import HTDT task plan…") {
+                    importingTaskPlan = true
+                }
+            }
+
+            if let error = presentation.taskPlanImportError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            LabeledContent(
+                "Strategy profile",
+                value: String(localized: "Standard")
+            )
+
+            Text(
+                ScanMotionGuidanceCopy.safetyDisclaimer(
+                    language:
+                        ScanMotionGuidanceCopy.preferredLanguage
+                )
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        } header: {
+            Text("Capture mission")
+        } footer: {
+            Text(
+                "Mission intent is bound when scanning starts; changing it mid-scan is an explicit recorded action. Capture strategy profiles (#307) plug into this setup in a future update."
+            )
+        }
+    }
+
+    /// The default theater topology offered by the profile picker —
+    /// matches the annotation workspace preset.
+    private static var theaterProfile: CaptureTaskProfile {
+        .theaterLayout(
+            speakerRoles: standardSpeakerRoles,
+            subwooferCount: 1
+        )
+    }
+
+    private static func profile(
+        forIdentifier identifier: String
+    ) -> CaptureTaskProfile? {
+        switch identifier {
+        case CaptureTaskProfile.geometryOnly.identifier:
+            return .geometryOnly
+        case CaptureTaskProfile.roomAndListeningPosition.identifier:
+            return .roomAndListeningPosition
+        case theaterProfile.identifier:
+            return theaterProfile
+        default:
+            return nil
+        }
+    }
+
+    private static let standardSpeakerRoles: [String] = [
+        "L", "C", "R", "LS", "RS", "LB", "RB",
+        "LTF", "RTF", "LTB", "RTB",
+    ]
+
 
     private var resolvedMode: CaptureMode? {
         presentation.resolvedMode
