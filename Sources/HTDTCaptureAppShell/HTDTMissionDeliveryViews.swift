@@ -19,11 +19,20 @@ struct HTDTMissionInboxView: View {
     /// #422/#423: active paired receivers — the Mission pull refresh
     /// and the Field Return send surface both key off this list.
     var pairedDestinations: [PairedHTDTDestination] = []
+    /// Idle-only import/action outcomes (`workingSetStatus` on the
+    /// host) — the missions surface is where mission imports land,
+    /// so their results must stay visible here.
+    var workingSetStatus: String? = nil
 
     @State private var importingMission = false
     @State private var missionCheckSummary: String?
     @State private var selectedRecord: HTDTMissionRecord?
     @State private var fieldReturnRecord: HTDTMissionRecord?
+    /// A field return to open once the detail sheet dismisses —
+    /// presenting `fieldReturnRecord` over `selectedRecord` is dead
+    /// because both sheets share one host.
+    @State private var pendingFieldReturnRecord:
+        HTDTMissionRecord?
     @State private var fieldReturnDocuments:
         [HTDTFieldReturnDocument] = []
     @State private var dependencyReport:
@@ -56,6 +65,13 @@ struct HTDTMissionInboxView: View {
 
     var body: some View {
         List {
+            if let workingSetStatus {
+                Section {
+                    Text(workingSetStatus)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
             Section {
                 Button {
                     importingMission = true
@@ -157,7 +173,14 @@ struct HTDTMissionInboxView: View {
                 await actions.importMissionPackage(url)
             }
         }
-        .sheet(item: $selectedRecord) { record in
+        .sheet(item: $selectedRecord) {
+            // Promote a queued field-return handoff once the detail
+            // sheet is gone — two sheets cannot stack on one host.
+            if let pendingFieldReturnRecord {
+                fieldReturnRecord = pendingFieldReturnRecord
+                self.pendingFieldReturnRecord = nil
+            }
+        } content: { record in
             NavigationStack {
                 missionDetail(record)
             }
@@ -220,11 +243,12 @@ struct HTDTMissionInboxView: View {
             ForEach(progress.kinds, id: \.kind) { kind in
                 LabeledContent(
                     kindLabel(kind.kind),
-                    value:
-                        "\(kind.completedCount)/\(kind.itemCount) completed"
-                        + (kind.requiredOutstandingCount > 0
-                            ? " · \(kind.requiredOutstandingCount) required open"
-                            : "")
+                    value: MissionPresentation.kindProgressText(
+                        completedCount: kind.completedCount,
+                        itemCount: kind.itemCount,
+                        requiredOutstandingCount:
+                            kind.requiredOutstandingCount
+                    )
                 )
                 .font(.caption)
             }
@@ -516,7 +540,11 @@ struct HTDTMissionInboxView: View {
             {
                 Section("Field return") {
                     Button {
-                        fieldReturnRecord = record
+                        // Queue the handoff: presenting the field
+                        // return sheet directly would stack a second
+                        // sheet on the detail sheet's host and die.
+                        pendingFieldReturnRecord = record
+                        selectedRecord = nil
                     } label: {
                         Label(
                             "Open field return",
@@ -829,6 +857,10 @@ struct PairedHTDTDestinationsView: View {
     /// Legacy `handoff-destinations.json` raw-URL entries kept for
     /// reference — never selectable once pairing replaces them.
     let actions: CaptureRootActions
+    /// Idle-only import/action outcomes (`workingSetStatus` on the
+    /// host) — pairing imports report through it, so this surface
+    /// must render the status too.
+    var workingSetStatus: String? = nil
 
     @State private var pairingSheetShown = false
     @State private var pastePayloadText = ""
@@ -839,6 +871,13 @@ struct PairedHTDTDestinationsView: View {
 
     var body: some View {
         List {
+            if let workingSetStatus {
+                Section {
+                    Text(workingSetStatus)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
             Section {
                 Button {
                     pairingSheetShown = true

@@ -2084,6 +2084,9 @@ public struct WiringRouteFormView: View {
     @State private var evidenceRefText = ""
     @State private var notes = ""
     @State private var errorText: String?
+    /// Bumped on every save attempt so a repeated failure re-scrolls
+    /// to the error even when the message text is unchanged.
+    @State private var saveAttempts = 0
 
     public init(
         captureRevisionID: CaptureRevisionID,
@@ -2125,8 +2128,23 @@ public struct WiringRouteFormView: View {
         return options
     }
 
+    private static let errorAnchor = "wiringRouteError"
+
     public var body: some View {
+        ScrollViewReader { proxy in
         Form {
+            // A failed save must read as one: the error renders
+            // adjacent to Save — at the top of the form — and the
+            // view scrolls to it, so Save never looks dead.
+            if let errorText {
+                Section {
+                    Text(errorText)
+                        .foregroundStyle(
+                            CaptureColorRole.blocked.color
+                        )
+                }
+                .id(Self.errorAnchor)
+            }
             Section(String(localized: "Cable")) {
                 TextField(
                     String(localized: "Cable type"),
@@ -2274,12 +2292,6 @@ public struct WiringRouteFormView: View {
                     axis: .vertical
                 )
             }
-
-            if let errorText {
-                Section {
-                    Text(errorText).foregroundStyle(CaptureColorRole.blocked.color)
-                }
-            }
         }
         .navigationTitle(
             String(localized: "Record wiring route")
@@ -2293,6 +2305,16 @@ public struct WiringRouteFormView: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button(String(localized: "Save")) { save() }
             }
+        }
+        .onChange(of: saveAttempts) { _, _ in
+            guard errorText != nil else { return }
+            withAnimation {
+                proxy.scrollTo(
+                    Self.errorAnchor,
+                    anchor: .top
+                )
+            }
+        }
         }
     }
 
@@ -2431,6 +2453,7 @@ public struct WiringRouteFormView: View {
         } catch {
             errorText =
                 AnnotationPresentation.errorText(error)
+            saveAttempts += 1
         }
     }
 }

@@ -40,6 +40,9 @@ private enum CaptureHomeSelection: Hashable {
     /// Support & Diagnostics center (#389): privacy-reviewed
     /// diagnostic package export, independent of capture bundles.
     case diagnostics
+    /// App settings & storage controls (#338) — reachable from idle,
+    /// not only inside an active capture workflow.
+    case settings
 }
 
 /// The pending delete-local-capture confirmation: which validated
@@ -189,6 +192,15 @@ public struct CaptureHomeView: View {
     /// Replayed mission progress keyed by inbox record id (#397).
     public let missionProgressEvaluations:
         [String: MissionProgressEvaluation]
+    /// Transient workflow status (`workingSetStatus` on the host):
+    /// document-import outcomes are idle-only, so the home surface
+    /// must render them or every import result is silently dropped.
+    public let workingSetStatus: String?
+    /// App settings document backing the idle Settings surface.
+    public let appSettings: CaptureAppSettings
+    /// Host-managed equipment-catalog reference context, for the
+    /// settings surface's managed-contexts section (#338).
+    public let equipmentCatalog: HTDTEquipmentCatalogSnapshot?
     public let actions: CaptureRootActions
 
     @State private var selection: CaptureHomeSelection?
@@ -244,6 +256,9 @@ public struct CaptureHomeView: View {
             [CrossRevisionRegistration] = [],
         missionProgressEvaluations:
             [String: MissionProgressEvaluation] = [:],
+        workingSetStatus: String? = nil,
+        appSettings: CaptureAppSettings = CaptureAppSettings(),
+        equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil,
         actions: CaptureRootActions = CaptureRootActions()
     ) {
         self.capabilities = capabilities
@@ -266,6 +281,9 @@ public struct CaptureHomeView: View {
             crossRevisionRegistrations
         self.missionProgressEvaluations =
             missionProgressEvaluations
+        self.workingSetStatus = workingSetStatus
+        self.appSettings = appSettings
+        self.equipmentCatalog = equipmentCatalog
         self.actions = actions
     }
 
@@ -454,6 +472,18 @@ public struct CaptureHomeView: View {
                     trailing: 0
                 )
             )
+
+            // Idle-only operations (document imports, refusals)
+            // report through `workingSetStatus`; rendering it on the
+            // home keeps their outcomes visible without an active
+            // capture workflow.
+            if let workingSetStatus {
+                Section {
+                    Text(workingSetStatus)
+                        .font(CaptureDesign.Typography.secondary)
+                        .foregroundStyle(.secondary)
+                }
+            }
 
             // #406: the landing answers "what next?" — one dominant
             // action card chosen by the Core presentation model,
@@ -952,6 +982,14 @@ public struct CaptureHomeView: View {
                         systemImage: "stethoscope"
                     )
                 }
+                NavigationLink(
+                    value: CaptureHomeSelection.settings
+                ) {
+                    Label(
+                        "Preferences & storage",
+                        systemImage: "gear"
+                    )
+                }
             } header: {
                 Text("Device")
             }
@@ -1012,7 +1050,9 @@ public struct CaptureHomeView: View {
             items.append(
                 HomeReadinessAttention(
                     kind: .cameraPermissionDenied,
-                    label: "Camera access needs attention"
+                    label: String(
+                        localized: "Camera access needs attention"
+                    )
                 )
             )
         }
@@ -1020,7 +1060,10 @@ public struct CaptureHomeView: View {
             items.append(
                 HomeReadinessAttention(
                     kind: .spatialCaptureUnavailable,
-                    label: "Spatial capture unavailable on this device"
+                    label: String(
+                        localized:
+                            "Spatial capture unavailable on this device"
+                    )
                 )
             )
         }
@@ -1369,12 +1412,14 @@ public struct CaptureHomeView: View {
                 activeMissionRecordID: activeMissionRecordID,
                 progressEvaluations: missionProgressEvaluations,
                 actions: actions,
-                pairedDestinations: pairedDestinations
+                pairedDestinations: pairedDestinations,
+                workingSetStatus: workingSetStatus
             )
         case .destinations:
             PairedHTDTDestinationsView(
                 destinations: pairedDestinations,
-                actions: actions
+                actions: actions,
+                workingSetStatus: workingSetStatus
             )
         case .deliveries:
             HTDTDeliveryQueueView(
@@ -1383,6 +1428,16 @@ public struct CaptureHomeView: View {
             )
         case .diagnostics:
             SupportDiagnosticsView(actions: actions)
+        case .settings:
+            CaptureSettingsView(
+                settings: appSettings,
+                equipmentCatalog: equipmentCatalog,
+                retainedByteCount: persistedInventory
+                    .totalRetainedBytes,
+                onChange: actions.updateAppSettings,
+                onClearEquipmentCatalog: actions
+                    .clearEquipmentCatalogCache
+            )
         case nil:
             if libraryGroups.isEmpty {
                 CaptureEmptyState(

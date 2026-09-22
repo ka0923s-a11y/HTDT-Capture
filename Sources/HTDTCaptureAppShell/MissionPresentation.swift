@@ -160,6 +160,28 @@ public enum MissionPresentation {
         return humanized.isEmpty ? taskItemID : humanized
     }
 
+    /// Per-kind field-progress value for a mission's replayed ledger
+    /// (#397): "x/y completed", plus " · n required open" while
+    /// required items stay outstanding.
+    public static func kindProgressText(
+        completedCount: Int,
+        itemCount: Int,
+        requiredOutstandingCount: Int
+    ) -> String {
+        String(
+            format: String(localized: "%lld/%lld completed"),
+            completedCount,
+            itemCount
+        ) + (requiredOutstandingCount > 0
+            ? String(
+                format: String(
+                    localized: " · %lld required open"
+                ),
+                requiredOutstandingCount
+            )
+            : "")
+    }
+
     // MARK: Connected regions
 
     public static func regionKindName(

@@ -3554,3 +3554,27 @@
 "Saved on this device" = "このデバイスに保存済み";
 "Add to capture" = "キャプチャに追加";
 
+
+// Dynamic UX review fixes — idle status surface, field-authority
+// model errors, progress counts, plan-token display names.
+"Camera access needs attention" = "カメラアクセスの確認が必要です";
+"Spatial capture unavailable on this device" = "このデバイスでは空間キャプチャを利用できません";
+"%lld/%lld completed" = "%lld/%lld 完了";
+" · %lld required open" = "・必須 %lld 件未完了";
+"Equipment label photo" = "機器ラベル写真";
+"AVR rack wiring" = "AVR ラック配線";
+"Field %@ is required." = "項目 %@ は必須です。";
+"Reference %@ does not match the binding-ref form." = "参照 %@ はバインド参照の形式ではありません。";
+"Value %@ is not a valid lowercase token." = "値 %@ は有効な小文字トークンではありません。";
+"Timestamp %@ is invalid." = "タイムスタンプ %@ が無効です。";
+"Date %@ is invalid — use YYYY-MM-DD." = "日付 %@ が無効です — YYYY-MM-DD 形式を使用してください。";
+"Record %@ already exists in this document." = "レコード %@ はこのドキュメント内にすでに存在します。";
+"Reference %@ is not bound to a record in this document." = "参照 %@ はこのドキュメント内のレコードにバインドされていません。";
+"This entry needs at least one physically observed element to be recorded as observed." = "観測済みとして記録するには、少なくとも 1 つの実際に観測された要素が必要です。";
+"Attach the evidence asset this record points at." = "このレコードが参照する証拠アセットを添付してください。";
+"Asset path %@ is invalid — it must stay inside the document." = "アセットパス %@ が無効です — ドキュメント内に収める必要があります。";
+"The recorded value is not a finite, valid number." = "記録された値は有限の有効な数値ではありません。";
+"The instrument's calibration is outside its valid window." = "計器の校正が有効期間外です。";
+"This instrument version is not in the known profile set." = "この機器バージョンは既知のプロファイルセットにありません。";
+"Each endpoint needs a distinct identity — bind it, capture its position, or label it — and endpoints A and B must differ." = "各エンドポイントには固有の識別情報が必要です — バインド・位置のキャプチャ・ラベルのいずれかを行い、エンドポイント A と B は異なる必要があります。";
+"Hidden path sections are recorded as unknown — remove waypoints or a surface binding from them." = "隠蔽パス区間は「不明」として記録されます — ウェイポイントまたはサーフェスバインドを削除してください。";
