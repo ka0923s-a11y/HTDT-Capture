@@ -31,6 +31,11 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
     /// (#295): setup surfaces a denied prerequisite with a direct
     /// Settings path instead of letting Begin run into a failure.
     public let cameraPermission: CameraPermissionStatus?
+    /// End-accepted drafts that survived an interrupted capture
+    /// (#437) — surfaced on setup so a stranded capture is
+    /// discoverable with its next-step affordances before a new
+    /// capture starts.
+    public let interruptedDrafts: [RecoverableWorkingRevision]
 
     public init(
         capabilities: CaptureCapabilityMatrix,
@@ -42,7 +47,8 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
         taskProfile: CaptureTaskProfile? = nil,
         importedTaskPlan: HTDTCaptureTaskPlan? = nil,
         taskPlanImportError: String? = nil,
-        cameraPermission: CameraPermissionStatus? = nil
+        cameraPermission: CameraPermissionStatus? = nil,
+        interruptedDrafts: [RecoverableWorkingRevision] = []
     ) {
         self.capabilities = capabilities
         self.storagePreflight = storagePreflight
@@ -53,6 +59,7 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
         self.importedTaskPlan = importedTaskPlan
         self.taskPlanImportError = taskPlanImportError
         self.cameraPermission = cameraPermission
+        self.interruptedDrafts = interruptedDrafts
     }
 
     /// Which mission authority will bind at Begin: an imported HTDT
@@ -173,8 +180,17 @@ public struct CaptureSetupView: View {
     public let importTaskPlan: (URL) -> Void
     /// Removes the imported plan, returning to generic profile intent.
     public let clearTaskPlan: () -> Void
+    /// #437: reopens a stranded draft — leaves setup for the sealed
+    /// Review so the capture can be finished.
+    public let onResumeDraft: (RecoverableWorkingRevision) -> Void
+    /// #437: permanently removes a stranded draft's saved data.
+    public let onDiscardDraft: (RecoverableWorkingRevision) -> Void
 
     @State private var importingTaskPlan = false
+    /// Draft pending discard confirmation (#437) — removing it is
+    /// irreversible, so the affordance confirms first.
+    @State private var pendingDraftDiscard:
+        RecoverableWorkingRevision?
     /// Opens the app's iOS Settings page (#295). The host decides
     /// whether the platform offers a direct path; the default is a
     /// no-op so previews/tests stay platform-neutral.
@@ -197,6 +213,10 @@ public struct CaptureSetupView: View {
             (CaptureTaskProfile?) -> Void = { _ in },
         importTaskPlan: @escaping (URL) -> Void = { _ in },
         clearTaskPlan: @escaping () -> Void = {},
+        onResumeDraft: @escaping
+            (RecoverableWorkingRevision) -> Void = { _ in },
+        onDiscardDraft: @escaping
+            (RecoverableWorkingRevision) -> Void = { _ in },
         openCameraSettings: @escaping () -> Void = {}
     ) {
         self.presentation = presentation
@@ -212,6 +232,8 @@ public struct CaptureSetupView: View {
         self.selectTaskProfile = selectTaskProfile
         self.importTaskPlan = importTaskPlan
         self.clearTaskPlan = clearTaskPlan
+        self.onResumeDraft = onResumeDraft
+        self.onDiscardDraft = onDiscardDraft
         self.openCameraSettings = openCameraSettings
     }
 
@@ -219,6 +241,50 @@ public struct CaptureSetupView: View {
         List {
             captureMissionSection
 
+            // #437: a stranded draft is discoverable before a new
+            // capture starts — the same resume/discard affordances
+            // the home surface offers.
+            if !presentation.interruptedDrafts.isEmpty {
+                Section {
+                    CaptureNotice(
+                        status: .draft,
+                        title: "Interrupted capture",
+                        message:
+                            "A capture ended or was interrupted before it was saved. Its data is kept as a draft — reopen it to finish, or discard it."
+                    )
+                    .listRowSeparator(.hidden)
+                    ForEach(
+                        presentation.interruptedDrafts
+                    ) { draft in
+                        VStack(
+                            alignment: .leading,
+                            spacing: 4
+                        ) {
+                            Text(
+                                draft.revisionID.description
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            HStack(spacing: 12) {
+                                Button("Resume the draft") {
+                                    onResumeDraft(draft)
+                                }
+                                Button(
+                                    "Discard the draft",
+                                    role: .destructive
+                                ) {
+                                    pendingDraftDiscard = draft
+                                }
+                            }
+                            .font(.callout)
+                        }
+                    }
+                } footer: {
+                    Text(
+                        "Reopening restores Review — you can finish annotations and save, but you cannot resume scanning."
+                    )
+                }
+            }
 
             Section {
                 CaptureTaskHeader(
@@ -490,6 +556,24 @@ public struct CaptureSetupView: View {
             {
                 importTaskPlan(url)
             }
+        }
+        .confirmationDialog(
+            "Discard the draft?",
+            isPresented: Binding(
+                get: { pendingDraftDiscard != nil },
+                set: { presented in
+                    if !presented { pendingDraftDiscard = nil }
+                }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDraftDiscard
+        ) { draft in
+            Button("Discard the draft", role: .destructive) {
+                onDiscardDraft(draft)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Permanently removes the draft's saved data.")
         }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: CaptureDesign.Spacing.row) {

@@ -153,6 +153,10 @@ public enum CaptureHomeNotice:
     case deviceUnsupported
     /// Free storage is critically low.
     case storageCritical
+    /// An end-accepted capture draft survived an interruption (#437)
+    /// — the persistent stranded-draft indicator. Carries the draft
+    /// count.
+    case interruptedCapture(draftCount: Int)
     /// Quarantined artifacts, orphaned working data, or enumeration
     /// failures need bounded cleanup. Carries the item count.
     case libraryMaintenance(itemCount: Int)
@@ -166,6 +170,8 @@ public enum CaptureHomeNotice:
             return "This device cannot scan"
         case .storageCritical:
             return "Not enough free storage"
+        case .interruptedCapture:
+            return "Interrupted capture"
         case .libraryMaintenance:
             return "Library maintenance needed"
         }
@@ -180,6 +186,8 @@ public enum CaptureHomeNotice:
             return "Use a supported LiDAR-capable iPhone or iPad for this capture workflow."
         case .storageCritical:
             return "Free device storage before starting a capture."
+        case .interruptedCapture:
+            return "A capture ended or was interrupted before it was saved. Its data is kept as a draft — reopen it to finish, or discard it."
         case .libraryMaintenance:
             return "Interrupted capture data needs attention."
         }
@@ -190,6 +198,8 @@ public enum CaptureHomeNotice:
         case .cameraAccessRequired, .deviceUnsupported,
              .storageCritical:
             return .blocked
+        case .interruptedCapture:
+            return .draft
         case .libraryMaintenance:
             return .needsReview
         }
@@ -200,17 +210,26 @@ public enum CaptureHomeNotice:
 /// notices are visible, and whether New capture is enabled. Pure value
 /// mapping so the information hierarchy stays unit-testable.
 public enum CaptureHomePresentation {
-    /// Ordered home notices. Camera/permission problems come first,
-    /// storage next, library maintenance last — the same order the
-    /// operator must act on them.
+    /// Ordered home notices. The stranded-draft indicator comes
+    /// first — its data is only safe once the operator decides —
+    /// then camera/permission problems, storage, library maintenance
+    /// last.
     public static func notices(
         cameraPermissionDenied: Bool,
         cameraPermissionRestricted: Bool,
         deviceCaptureEligible: Bool,
         storageReadiness: CaptureStorageReadiness,
-        maintenanceItemCount: Int
+        maintenanceItemCount: Int,
+        recoverableDraftCount: Int = 0
     ) -> [CaptureHomeNotice] {
         var notices: [CaptureHomeNotice] = []
+        if recoverableDraftCount > 0 {
+            notices.append(
+                .interruptedCapture(
+                    draftCount: recoverableDraftCount
+                )
+            )
+        }
         if cameraPermissionDenied || cameraPermissionRestricted {
             notices.append(.cameraAccessRequired)
         }

@@ -471,7 +471,7 @@ public actor CaptureWorkingSetStore {
     public static let maxCoordinateTransitions = 64
 
     public let identity: CaptureWorkingSetIdentity
-    public let rootDirectory: URL
+    public nonisolated let rootDirectory: URL
 
     private let writer: AtomicCaptureFileWriter
     private var captureSessionID: CaptureSessionID?

@@ -139,6 +139,10 @@ private struct HTDTCaptureHostView: View {
                 coordinator.libraryImportPreview,
             libraryExportURL: coordinator.libraryExportURL,
             failedInspection: coordinator.failedInspection,
+            failedDraftRecoverable:
+                coordinator.failedDraftRecoverable,
+            finalizeRejection: coordinator.finalizeRejection,
+            exportRejection: coordinator.exportRejection,
             spatialCaptureSealed:
                 coordinator.annotationCoordinateSpaceID == nil
                     && coordinator.annotationAuthorityCommitted,
@@ -265,6 +269,12 @@ private struct HTDTCaptureHostView: View {
                     coordinator.importCaptureArchive,
                 discardActiveCapture:
                     coordinator.discardActiveCapture,
+                resumeFailedAsDraft:
+                    coordinator.resumeFailedCaptureAsDraft,
+                keepFailedAsDraft:
+                    coordinator.preserveFailedCaptureAsDraft,
+                discardFailedAndStartNew:
+                    coordinator.discardFailedAndStartNewCapture,
                 refreshReviewWorkspace:
                     coordinator.refreshReviewWorkspace,
                 captureRoomFrameOrigin:
@@ -501,6 +511,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
     @Published private(set) var validationReport: BundleValidationReport?
     @Published private(set) var exportURL: URL?
+    /// #437: typed reason the last finalize attempt was rejected —
+    /// cleared when a retry starts or the capture leaves Review.
+    @Published private(set)
+    var finalizeRejection: CaptureFinalizeRejection?
+    /// #437: typed reason the last export attempt was rejected —
+    /// cleared on retry or when the finalized surface is left.
+    @Published private(set)
+    var exportRejection: CaptureExportRejection?
+    /// #437: true when `.failed` was entered with a durable End
+    /// boundary already committed — the failed working set can be
+    /// preserved as a recoverable draft.
+    @Published private(set)
+    var failedDraftRecoverable = false
     @Published private(set)
     var annotationAuthorityCommitted = false
     @Published private(set)
@@ -1605,7 +1628,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             importedTaskPlan: pendingTaskPlanImport?.plan,
             taskPlanImportError: pendingTaskPlanImportError,
             cameraPermission:
-                CameraPermissionController.currentStatus()
+                CameraPermissionController.currentStatus(),
+            interruptedDrafts:
+                persistedInventory.recoverableDrafts
         )
     }
 
@@ -4295,6 +4320,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        // #437: a new attempt replaces the rejection it answered.
+        finalizeRejection = nil
         reviewOperationInFlight = true
         let generation = captureGeneration
         Task { @MainActor [weak self] in
@@ -4343,6 +4370,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     generation: generation
                 )
                 self.reviewOperationInFlight = false
+                self.finalizeRejection = .deferredThermal
                 self.workingSetStatus = String(localized: "Finalization is deferred while the device is critically hot. Let it cool, then retry.")
                 return
             }
@@ -4382,6 +4410,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         generation: generation
                     )
                     self.reviewOperationInFlight = false
+                    self.finalizeRejection = .deferredStorage
                     self.workingSetStatus = String(localized: "Finalization is deferred because storage is critically low. Free storage, then retry.")
                     return
                 }
@@ -4402,6 +4431,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                   quality.integrityStatus == .pass
             else {
                 self.reviewOperationInFlight = false
+                self.finalizeRejection = .qualityRegression
                 self.workingSetStatus = String(localized: "Review quality changed before finalization; resolve the diagnostics and retry")
                 return
             }
@@ -4441,6 +4471,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        // #437: a new attempt replaces the rejection it answered.
+        exportRejection = nil
         exportOperationInFlight = true
         workingSetStatus = String(localized: "Creating validated .htdtcapture archive")
         let generation = captureGeneration
@@ -4466,6 +4498,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 else {
                     return
                 }
+                self.exportRejection = .destinationUnavailable
                 self.workingSetStatus =
                     String(localized: "Archive destination could not be prepared. The finalized revision is preserved and export can be retried.")
                     + " ["
@@ -4529,6 +4562,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             at: destination
                         )
                     } catch {
+                        self.exportRejection = .staleArchiveBlocked
                         self.workingSetStatus =
                             String(localized: "A stale export archive blocks rebuilding and could not be removed. The finalized revision is unchanged.")
                             + " ["
@@ -4577,6 +4611,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
 
+                self.exportRejection = .exportFailed
                 self.workingSetStatus =
                     String(localized: "Archive export failed. The finalized revision is preserved; retry export when ready.")
                     + " ["
@@ -4587,6 +4622,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     func resetCapture() {
+        resetCaptureImpl(preservingFailedDraft: false)
+    }
+
+    /// #437: the failed surface's discard and draft-preservation
+    /// paths share the same teardown. `preservingFailedDraft` keeps
+    /// an end-accepted failed working set on disk as a recoverable
+    /// draft — the inventory picks it up on the next refresh — and
+    /// never purges its annotation drafts, because the draft is
+    /// meant to be reopened.
+    private func resetCaptureImpl(
+        preservingFailedDraft: Bool
+    ) {
         guard state == .failed
                 || state == .finalized
                 || state == .exported
@@ -4594,8 +4641,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        let preserveDraft =
+            preservingFailedDraft && state == .failed
         let failedWorkingSet =
-            state == .failed ? workingSetStore : nil
+            state == .failed && !preserveDraft
+                ? workingSetStore : nil
         let pendingResourceEvents = resourceEventTask
         resourceEventTask = nil
 
@@ -4635,8 +4685,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         asBuiltPlan = nil
         asBuiltPlanImport = nil
         // A failed/finalized revision's drafts are bound to it
-        // forever; purge them (#266).
-        annotationDraftStore?.discardAll()
+        // forever; purge them (#266) — except when the failed working
+        // set is being preserved as a recoverable draft (#437): the
+        // annotation drafts reopen with it.
+        if !preserveDraft {
+            annotationDraftStore?.discardAll()
+        }
         annotationRoomPlanSurfaces = []
         annotationMeshAnchors = []
         activeRevisionLineage = nil
@@ -4788,6 +4842,96 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
+    /// Best-effort byte total for a directory tree — the same
+    /// shallow FileManager enumeration the persisted inventory
+    /// uses. Informational only; never gates a restore.
+    private static func retainedByteTotal(at url: URL) -> Int64 {
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [
+                .fileSizeKey,
+                .isRegularFileKey,
+            ]
+        ) else {
+            return 0
+        }
+        var total: Int64 = 0
+        for case let file as URL in enumerator {
+            if let values = try? file.resourceValues(
+                forKeys: [.fileSizeKey, .isRegularFileKey]
+            ), values.isRegularFile == true {
+                total += Int64(values.fileSize ?? 0)
+            }
+        }
+        return total
+    }
+
+    /// #437 "Keep the draft for later" on the failed surface: the
+    /// failed end-accepted working set is preserved on disk as a
+    /// recoverable draft — teardown still runs, the working root
+    /// stays, and the next inventory refresh lists it on Home.
+    func preserveFailedCaptureAsDraft() {
+        guard state == .failed, failedDraftRecoverable else {
+            return
+        }
+        resetCaptureImpl(preservingFailedDraft: true)
+        loadPersistedCaptures()
+        workingSetStatus = String(
+            localized: "Draft saved — reopen it from Home to finish the capture"
+        )
+    }
+
+    /// #437 "Reopen the draft and finish" on the failed surface:
+    /// preserves the failed end-accepted working set as a recoverable
+    /// draft, then immediately reopens it into sealed Review — the
+    /// same destination the home draft affordance offers.
+    func resumeFailedCaptureAsDraft() {
+        guard state == .failed, failedDraftRecoverable,
+              let store = workingSetStore
+        else {
+            return
+        }
+        let draftURL = store.rootDirectory
+        let document = CaptureWorkingSetStore.peekRevisionPhase(
+            workingRevisionURL: draftURL
+        )
+        resetCaptureImpl(preservingFailedDraft: true)
+        guard let document,
+              document.phase.isRecoverableDraft
+        else {
+            // The phase marker went missing between fail() and the
+            // action — the working set is still preserved; the next
+            // inventory refresh decides what it lists.
+            loadPersistedCaptures()
+            workingSetStatus = String(
+                localized: "Draft saved — reopen it from Home to finish the capture"
+            )
+            return
+        }
+        let draft = RecoverableWorkingRevision(
+            url: draftURL,
+            revisionID: document.captureRevisionID,
+            phase: document.phase,
+            captureSessionID: document.captureSessionID,
+            coordinateSpaceID: document.coordinateSpaceID,
+            retainedBytes: Self.retainedByteTotal(at: draftURL)
+        )
+        loadPersistedCaptures()
+        openRecoveredDraft(draft)
+    }
+
+    /// #437 "Discard and start a new capture" on the failed surface:
+    /// permanently removes the failed capture's retained data, then
+    /// opens capture setup — a real two-step path, not a dead
+    /// confirm.
+    func discardFailedAndStartNewCapture() {
+        guard state == .failed else {
+            return
+        }
+        resetCapture()
+        beginCapture()
+    }
+
     /// Operator-initiated discard of the active capture (issue #254):
     /// scanning, paused, review, or annotation state. The caller must
     /// have already shown a confirmation; this fence is terminal —
@@ -4907,6 +5051,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// lands in Review where semantic authoring and finalization work
     /// but live-capture affordances are gone.
     func openRecoveredDraft(_ draft: RecoverableWorkingRevision) {
+        // #437: the setup surface offers the same stranded-draft
+        // affordances as Home — resuming leaves setup for Review.
+        if state == .setup {
+            cancelCaptureSetup()
+        }
         guard state == .idle,
               workingSetStore == nil,
               !persistedAdoptionInFlight,
@@ -5094,6 +5243,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func discardRecoveredDraft(
         _ draft: RecoverableWorkingRevision
     ) {
+        // #437: the setup surface offers the same discard affordance
+        // as Home — removing a draft leaves setup too.
+        if state == .setup {
+            cancelCaptureSetup()
+        }
         guard state == .idle,
               !persistedDeletionInFlight,
               !persistedAdoptionInFlight,
@@ -11985,6 +12139,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        // #437: the commit aborted and rolled back — the capture is
+        // still in Review unchanged, so the rejection surface names
+        // the step and the concrete next-step set. A fenced
+        // lifecycle failure below may still route elsewhere; that
+        // transition clears this flag.
+        finalizeRejection = .commitRejected
+
         if let fencedFailure {
             // The lifecycle failure was fenced only while the commit
             // transaction held the generation. Now that the attempt
@@ -12681,6 +12842,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         try stateMachine.apply(event)
         state = stateMachine.state
         lastFailure = stateMachine.lastFailure
+        // #437: a rejection flag lives only while the surface that
+        // shows it is active — entering `.validating` (a retry) or
+        // leaving Review/finalized/failed clears it.
+        if state != .reviewing {
+            finalizeRejection = nil
+        }
+        if state != .finalized {
+            exportRejection = nil
+        }
+        if state != .failed {
+            failedDraftRecoverable = false
+        }
         // #272: the display keep-awake override is scoped strictly to
         // `.scanning`; every transition out of it restores the device
         // default regardless of which path left scanning.
@@ -12757,6 +12930,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             state = .failed
             lastFailure = .unknown
         }
+
+        // #437: whether the failed working set's durable End boundary
+        // survived decides if "reopen as draft" is a real recovery —
+        // a mid-scan failure leaves non-resumable data and the failed
+        // surface says so plainly instead of offering a dead path.
+        failedDraftRecoverable =
+            workingSetStore.flatMap { store in
+                CaptureWorkingSetStore.peekRevisionPhase(
+                    workingRevisionURL: store.rootDirectory
+                )?.phase.isRecoverableDraft
+            } ?? false
     }
 
     // MARK: - Mission workflows (issues #353, #240, #222, #293, #321)
