@@ -587,6 +587,7 @@ public enum SurveyReportBuilder {
         body += measurementsSection(input: input)
         body += missionSection(input: input)
         body += findingsSection(input: input)
+        body += fieldNotesSection(input: input)
         body += evidenceSection(input: input)
         body += provenanceSection(input: input, manifest: manifest)
         body += "</body>\n</html>\n"
@@ -857,6 +858,106 @@ public enum SurveyReportBuilder {
             html += "<li>\(item)</li>"
         }
         return html + "</ul>"
+    }
+
+    /// Operator field notes (#459): the notes recorded during the
+    /// scan reach the report — they were previously persisted in the
+    /// bundle but never rendered into the export the receiving side
+    /// reads.
+    private static func fieldNotesSection(
+        input: SurveyReportInput
+    ) -> String {
+        let language = input.language
+        var html = "<h2>\(esc(t(.sectionFieldNotes, language)))</h2>"
+        let notes = input.contents.fieldNotes
+        guard !notes.isEmpty else {
+            return html + "<p class=\"note\">"
+                + esc(t(.noFieldNotes, language)) + "</p>"
+        }
+        html += "<ul>"
+        for note in notes {
+            var tags = [
+                esc(fieldNoteCategoryName(note.category, language)),
+                esc(fieldNoteStatusName(note.status, language)),
+            ]
+            if let severity = note.severity {
+                tags.append(
+                    esc(t(.fieldNoteSeverity, language)) + ": "
+                        + esc(
+                            fieldNoteSeverityName(
+                                severity,
+                                language
+                            )
+                        )
+                )
+            }
+            if note.needsAttention {
+                tags.append(esc(t(.fieldNoteNeedsAttention, language)))
+            }
+            html += "<li><strong>\(esc(note.text))</strong><br>"
+                + "<span class=\"note\">"
+                + tags.joined(separator: " · ")
+                + " — \(esc(t(.fieldNoteRecorded, language))): "
+                + "\(esc(note.createdAtUTC))"
+                + "</span></li>"
+        }
+        return html + "</ul>"
+    }
+
+    private static func fieldNoteCategoryName(
+        _ category: CaptureFieldNoteCategory,
+        _ language: SurveyReportLanguage
+    ) -> String {
+        switch category.rawValue {
+        case "room_condition":
+            return t(.fieldNoteCategoryRoomCondition, language)
+        case "obstruction":
+            return t(.fieldNoteCategoryObstruction, language)
+        case "equipment_state":
+            return t(.fieldNoteCategoryEquipmentState, language)
+        case "geometry_caveat":
+            return t(.fieldNoteCategoryGeometryCaveat, language)
+        case "measurement_caveat":
+            return t(.fieldNoteCategoryMeasurementCaveat, language)
+        case "follow_up":
+            return t(.fieldNoteCategoryFollowUp, language)
+        case "installation_observation":
+            return t(.fieldNoteCategoryInstallationObservation, language)
+        case "general":
+            return t(.fieldNoteCategoryGeneral, language)
+        default:
+            // `x_` extension categories carry no shared vocabulary —
+            // render the deployment's token verbatim.
+            return category.rawValue
+        }
+    }
+
+    private static func fieldNoteStatusName(
+        _ status: CaptureFieldNoteStatus,
+        _ language: SurveyReportLanguage
+    ) -> String {
+        switch status {
+        case .active:
+            return t(.fieldNoteStatusActive, language)
+        case .resolved:
+            return t(.fieldNoteStatusResolved, language)
+        case .superseded:
+            return t(.fieldNoteStatusSuperseded, language)
+        }
+    }
+
+    private static func fieldNoteSeverityName(
+        _ severity: CaptureFieldNoteSeverity,
+        _ language: SurveyReportLanguage
+    ) -> String {
+        switch severity {
+        case .observation:
+            return t(.fieldNoteSeverityObservation, language)
+        case .concern:
+            return t(.fieldNoteSeverityConcern, language)
+        case .hazard:
+            return t(.fieldNoteSeverityHazard, language)
+        }
     }
 
     private static func evidenceSection(
@@ -1238,6 +1339,25 @@ enum ReportKey: String {
     case provenanceNote
     case sourcePayloads
     case reportExporter
+    case sectionFieldNotes
+    case noFieldNotes
+    case fieldNoteRecorded
+    case fieldNoteNeedsAttention
+    case fieldNoteSeverity
+    case fieldNoteCategoryRoomCondition
+    case fieldNoteCategoryObstruction
+    case fieldNoteCategoryEquipmentState
+    case fieldNoteCategoryGeometryCaveat
+    case fieldNoteCategoryMeasurementCaveat
+    case fieldNoteCategoryFollowUp
+    case fieldNoteCategoryInstallationObservation
+    case fieldNoteCategoryGeneral
+    case fieldNoteStatusActive
+    case fieldNoteStatusResolved
+    case fieldNoteStatusSuperseded
+    case fieldNoteSeverityObservation
+    case fieldNoteSeverityConcern
+    case fieldNoteSeverityHazard
     case unknown
     case yes
     case no
@@ -1331,6 +1451,27 @@ func t(_ key: ReportKey, _ language: SurveyReportLanguage) -> String {
             "This document is derived from the exact capture revision and bundle digest above; every source payload was read from the finalized bundle."
         case .sourcePayloads: "Source payloads"
         case .reportExporter: "Exporter"
+        case .sectionFieldNotes: "Field notes"
+        case .noFieldNotes:
+            "No field notes were recorded during this capture."
+        case .fieldNoteRecorded: "Recorded at (UTC)"
+        case .fieldNoteNeedsAttention: "needs attention"
+        case .fieldNoteSeverity: "severity"
+        case .fieldNoteCategoryRoomCondition: "room condition"
+        case .fieldNoteCategoryObstruction: "obstruction"
+        case .fieldNoteCategoryEquipmentState: "equipment state"
+        case .fieldNoteCategoryGeometryCaveat: "geometry caveat"
+        case .fieldNoteCategoryMeasurementCaveat: "measurement caveat"
+        case .fieldNoteCategoryFollowUp: "follow-up"
+        case .fieldNoteCategoryInstallationObservation:
+            "installation observation"
+        case .fieldNoteCategoryGeneral: "general"
+        case .fieldNoteStatusActive: "active"
+        case .fieldNoteStatusResolved: "resolved"
+        case .fieldNoteStatusSuperseded: "superseded"
+        case .fieldNoteSeverityObservation: "observation"
+        case .fieldNoteSeverityConcern: "concern"
+        case .fieldNoteSeverityHazard: "hazard"
         case .unknown: "unknown"
         case .yes: "yes"
         case .no: "no"
@@ -1417,6 +1558,26 @@ func t(_ key: ReportKey, _ language: SurveyReportLanguage) -> String {
         case .evidenceSelectedNote:
             "以下のプレビューは明示的に選択されて含まれています。フル解像度フレームは .htdtcapture バンドル内にのみ残ります。"
         case .sectionProvenance: "来歴"
+        case .sectionFieldNotes: "フィールドメモ"
+        case .noFieldNotes:
+            "このキャプチャではフィールドメモは記録されていません。"
+        case .fieldNoteRecorded: "記録日時 (UTC)"
+        case .fieldNoteNeedsAttention: "要注意"
+        case .fieldNoteSeverity: "重要度"
+        case .fieldNoteCategoryRoomCondition: "部屋の状況"
+        case .fieldNoteCategoryObstruction: "障害物"
+        case .fieldNoteCategoryEquipmentState: "機器の状態"
+        case .fieldNoteCategoryGeometryCaveat: "ジオメトリ注意"
+        case .fieldNoteCategoryMeasurementCaveat: "計測注意"
+        case .fieldNoteCategoryFollowUp: "フォローアップ"
+        case .fieldNoteCategoryInstallationObservation: "設置時の観察"
+        case .fieldNoteCategoryGeneral: "一般"
+        case .fieldNoteStatusActive: "未対応"
+        case .fieldNoteStatusResolved: "対応済み"
+        case .fieldNoteStatusSuperseded: "置き換え済み"
+        case .fieldNoteSeverityObservation: "観察"
+        case .fieldNoteSeverityConcern: "懸念"
+        case .fieldNoteSeverityHazard: "危険"
         case .provenanceNote:
             "このドキュメントは上記の正確なキャプチャリビジョンとバンドルダイジェストから派生しています。すべてのソースペイロードはファイナライズ済みバンドルから読み取られました。"
         case .sourcePayloads: "ソースペイロード"

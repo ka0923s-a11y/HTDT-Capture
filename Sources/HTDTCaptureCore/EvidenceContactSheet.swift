@@ -244,6 +244,12 @@ public struct EvidenceContactSheetModel: Sendable, Equatable {
                 if let frameID = frameToken(note.detail) {
                     privacyFlagged.insert(frameID)
                 }
+            case .privacyFlagCleared:
+                // #460: notes replay in capture order — a clearing
+                // note recorded after the flag lifts it again.
+                if let frameID = frameToken(note.detail) {
+                    privacyFlagged.remove(frameID)
+                }
             default:
                 continue
             }

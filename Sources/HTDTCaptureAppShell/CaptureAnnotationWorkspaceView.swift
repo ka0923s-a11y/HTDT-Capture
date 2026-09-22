@@ -148,6 +148,13 @@ public struct CaptureAnnotationWorkspaceView: View {
     /// host owns the store so a failed activation never mutates the
     /// workspace's adopted snapshot.
     public let onSelectEquipmentCatalog: (String) -> Void
+    /// App-local operator roster (#458): profiles remembered on this
+    /// device, offered for one-tap reuse in the Operators sheet.
+    public let operatorRoster: [OperatorProfile]
+    /// #458: remember an operator profile app-wide.
+    public let onUpdateOperatorRoster: (OperatorProfile) -> Void
+    /// #458: forget a roster profile.
+    public let onRemoveFromOperatorRoster: (OperatorProfileID) -> Void
     /// Imported capture task plan (#240), when the host has one — its
     /// pinned catalog identity drives the stale/missing-catalog
     /// warning (#302) and its layout profile drives role bindings
@@ -299,6 +306,11 @@ public struct CaptureAnnotationWorkspaceView: View {
             [HTDTEquipmentCatalogLibrary.StoredCatalog] = [],
         onSelectEquipmentCatalog:
             @escaping (String) -> Void = { _ in },
+        operatorRoster: [OperatorProfile] = [],
+        onUpdateOperatorRoster: @escaping
+            (OperatorProfile) -> Void = { _ in },
+        onRemoveFromOperatorRoster: @escaping
+            (OperatorProfileID) -> Void = { _ in },
         taskPlan: HTDTCaptureTaskPlan? = nil,
         scanEquipmentLabel:
             (() async throws -> EquipmentLabelScanResult)? = nil,
@@ -349,6 +361,10 @@ public struct CaptureAnnotationWorkspaceView: View {
         self.onImportEquipmentCatalog = onImportEquipmentCatalog
         self.equipmentCatalogLibrary = equipmentCatalogLibrary
         self.onSelectEquipmentCatalog = onSelectEquipmentCatalog
+        self.operatorRoster = operatorRoster
+        self.onUpdateOperatorRoster = onUpdateOperatorRoster
+        self.onRemoveFromOperatorRoster =
+            onRemoveFromOperatorRoster
         self.taskPlan = taskPlan
         self.scanEquipmentLabel = scanEquipmentLabel
         self.taskProfile = taskProfile
@@ -465,7 +481,11 @@ public struct CaptureAnnotationWorkspaceView: View {
                     operators: $fieldAuthority.operatorProfiles,
                     selectedOperatorID:
                         $fieldAuthority.selectedOperatorID,
-                    onChange: scheduleDraftSave
+                    onChange: scheduleDraftSave,
+                    roster: operatorRoster,
+                    onSaveToRoster: onUpdateOperatorRoster,
+                    onRemoveFromRoster:
+                        onRemoveFromOperatorRoster
                 )
             }
         }

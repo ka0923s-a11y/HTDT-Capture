@@ -103,6 +103,7 @@ public struct ReviewAuthoringActions {
     public let commitAnnotationAuthority: ( [CaptureAnnotationEntity], [CaptureMeasurement], [EquipmentIdentityRecord], TheaterAuthorityCollection ) -> Void
     public let cancelAnnotation: () -> Void
     public let flagEvidenceFrameForPrivacy: (EvidenceFrameID) -> Void
+    public let unflagEvidenceFrameForPrivacy: (EvidenceFrameID) -> Void
     public let removeEvidenceFrameForPrivacy: (EvidenceFrameID) async -> Void
     public let captureRoomFrameOrigin: () -> Void
     public let confirmRoomReferenceFrame: () -> Void
@@ -147,6 +148,7 @@ public struct ReviewAuthoringActions {
         self.commitAnnotationAuthority = actions.commitAnnotationAuthority
         self.cancelAnnotation = actions.cancelAnnotation
         self.flagEvidenceFrameForPrivacy = actions.flagEvidenceFrameForPrivacy
+        self.unflagEvidenceFrameForPrivacy = actions.unflagEvidenceFrameForPrivacy
         self.removeEvidenceFrameForPrivacy = actions.removeEvidenceFrameForPrivacy
         self.captureRoomFrameOrigin = actions.captureRoomFrameOrigin
         self.confirmRoomReferenceFrame = actions.confirmRoomReferenceFrame
@@ -208,6 +210,9 @@ public struct MissionActions {
     public let startMission: (String) async -> Void
     public let deactivateMission: () async -> Void
     public let archiveMission: (String) async -> Void
+    public let completeMission: (String) async -> Void
+    public let updateMissionUserNote:
+        (String, String?) async -> Void
     public let evaluateMissionDependencies: (String) async throws -> HTDTMissionDependencyReport
     public let waiveMissionItem: (String, String, String?) async -> Void
     public let markTaskPlanItem: (String, TaskPlanItemOutcome) -> Void
@@ -225,6 +230,8 @@ public struct MissionActions {
         self.startMission = actions.startMission
         self.deactivateMission = actions.deactivateMission
         self.archiveMission = actions.archiveMission
+        self.completeMission = actions.completeMission
+        self.updateMissionUserNote = actions.updateMissionUserNote
         self.evaluateMissionDependencies = actions.evaluateMissionDependencies
         self.waiveMissionItem = actions.waiveMissionItem
         self.markTaskPlanItem = actions.markTaskPlanItem

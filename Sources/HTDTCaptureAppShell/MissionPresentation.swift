@@ -287,6 +287,22 @@ public enum MissionPresentation {
         }
     }
 
+    /// #462: operator-facing names for the delivery-queue filters.
+    public static func deliveryQueueFilterName(
+        _ filter: HTDTDeliveryQueueFilter
+    ) -> String {
+        switch filter {
+        case .all:
+            return String(localized: "All")
+        case .active:
+            return String(localized: "Active")
+        case .attention:
+            return String(localized: "Needs attention")
+        case .delivered:
+            return String(localized: "Delivered")
+        }
+    }
+
     public static func missionDependencyKindName(
         _ kind: HTDTMissionDependency.Kind
     ) -> String {

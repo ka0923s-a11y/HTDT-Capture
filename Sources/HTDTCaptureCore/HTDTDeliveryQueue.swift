@@ -53,6 +53,34 @@ public enum HTDTDeliveryJobState: String, Codable, Sendable {
     case failed
 }
 
+/// Operator-facing queue filters (#462): the queue grows with every
+/// send — the operator needs the same triage affordances the
+/// evidence contact sheet already has.
+public enum HTDTDeliveryQueueFilter: String, CaseIterable, Sendable {
+    /// Every recorded job.
+    case all
+    /// Non-terminal work in flight (queued → paused → blocked).
+    case active
+    /// Jobs that need an operator decision: blocked on pin/payload/
+    /// endpoint validation or terminally failed.
+    case attention
+    /// Successful deliveries staged at the receiver.
+    case delivered
+
+    public func matches(_ job: HTDTDeliveryJob) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .active:
+            return !job.isTerminal
+        case .attention:
+            return job.state == .blocked || job.state == .failed
+        case .delivered:
+            return job.state == .deliveredStaged
+        }
+    }
+}
+
 /// Artifact family a delivery job transports (issue #423). The kind
 /// is part of the idempotency contract: the same UUID text under
 /// `capture_bundle` and `field_return` can never collide.

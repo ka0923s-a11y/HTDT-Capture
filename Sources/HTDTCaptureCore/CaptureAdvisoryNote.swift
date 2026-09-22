@@ -36,6 +36,9 @@ public enum CaptureAdvisoryNoteKind: String, Codable, Sendable {
     /// The operator flagged an evidence frame as privacy-sensitive
     /// (person visible, credentials on a plate, …) for Review (#376).
     case privacyFlag = "privacy_flag"
+    /// The operator cleared a frame's privacy flag — the paired
+    /// revocation of `privacy_flag`, mirroring declare/revoke (#460).
+    case privacyFlagCleared = "privacy_flag_cleared"
 }
 
 public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
@@ -104,6 +107,9 @@ public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
             severity = .info
         case .privacyFlag:
             code = "frame_privacy_flag"
+            severity = .info
+        case .privacyFlagCleared:
+            code = "frame_privacy_flag_cleared"
             severity = .info
         }
         return QualityDiagnostic(
