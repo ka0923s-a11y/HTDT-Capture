@@ -7,6 +7,16 @@ import HTDTCapturePlatform
 import UIKit
 #endif
 
+/// Library filter for acquisition origin (#317): imported/received
+/// captures are always visually distinct from device-created ones, so
+/// the filter narrows on that axis rather than on file presence.
+private enum CaptureOriginFilter: String, CaseIterable, Identifiable {
+    case all
+    case device
+    case external
+    var id: String { rawValue }
+}
+
 /// Sidebar/detail selection for the capture-first home (#360/#362).
 /// A `NavigationSplitView` drives both layouts: collapsed on compact
 /// width it behaves as the normal push stack; on regular width the
@@ -139,6 +149,11 @@ public struct CaptureHomeView: View {
     public let libraryMetadata: CaptureLibraryMetadataDocument
     /// Read-only workspace for the persisted viewer (#294).
     public let persistedWorkspace: CaptureReviewWorkspaceModel?
+    /// App-local acquisition provenance per revision (#317):
+    /// imported or received captures read differently from
+    /// device-created ones everywhere the library surfaces them.
+    public let captureOrigins:
+        [CaptureRevisionID: CaptureAcquisitionOriginRecord]
     /// Mission inbox records (#386) and the active record id.
     public let missionRecords: [HTDTMissionRecord]
     public let activeMissionRecordID: String?
@@ -150,6 +165,7 @@ public struct CaptureHomeView: View {
 
     @State private var selection: CaptureHomeSelection?
     @State private var libraryQuery = ""
+    @State private var libraryOriginFilter: CaptureOriginFilter = .all
     @State private var importingCaptureArchive = false
     @State private var metadataEditorTarget:
         LibraryMetadataEditorTarget?
@@ -165,6 +181,8 @@ public struct CaptureHomeView: View {
         libraryMetadata: CaptureLibraryMetadataDocument
             = CaptureLibraryMetadataDocument(),
         persistedWorkspace: CaptureReviewWorkspaceModel? = nil,
+        captureOrigins:
+            [CaptureRevisionID: CaptureAcquisitionOriginRecord] = [:],
         missionRecords: [HTDTMissionRecord] = [],
         activeMissionRecordID: String? = nil,
         pairedDestinations: [PairedHTDTDestination] = [],
@@ -176,6 +194,7 @@ public struct CaptureHomeView: View {
         self.persistedInventory = persistedInventory
         self.libraryMetadata = libraryMetadata
         self.persistedWorkspace = persistedWorkspace
+        self.captureOrigins = captureOrigins
         self.missionRecords = missionRecords
         self.activeMissionRecordID = activeMissionRecordID
         self.pairedDestinations = pairedDestinations
@@ -346,6 +365,37 @@ public struct CaptureHomeView: View {
             } header: {
                 HStack {
                     Text("Captures")
+                    Menu {
+                        Picker(
+                            String(localized: "Capture origin"),
+                            selection: $libraryOriginFilter
+                        ) {
+                            Text(String(localized: "All"))
+                                .tag(CaptureOriginFilter.all)
+                            Text(
+                                String(localized: "This device")
+                            )
+                            .tag(CaptureOriginFilter.device)
+                            Text(
+                                String(
+                                    localized: "Imported or received"
+                                )
+                            )
+                            .tag(CaptureOriginFilter.external)
+                        }
+                    } label: {
+                        Image(
+                            systemName:
+                                libraryOriginFilter == .all
+                                    ? "line.3.horizontal.decrease.circle"
+                                    : "line.3.horizontal.decrease.circle.fill"
+                        )
+                        .accessibilityLabel(
+                            String(localized: "Capture origin")
+                        )
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
                     Spacer()
                     if persistedInventory.totalRetainedBytes > 0 {
                         Text(
@@ -508,6 +558,7 @@ public struct CaptureHomeView: View {
                     persistedViewerShown: $persistedViewerShown,
                     metadataEditorTarget: $metadataEditorTarget,
                     pendingDeletion: $pendingDeletion,
+                    captureOrigins: captureOrigins,
                     actions: actions
                 )
             } else {
@@ -701,6 +752,32 @@ public struct CaptureHomeView: View {
                 revisionNotes: libraryMetadata.revisions,
                 query: libraryQuery
             )
+        }.filter { group in
+            group.revisions.contains(where: matchesOriginFilter)
+        }
+    }
+
+    /// Whether a library record matches the selected origin filter
+    /// (#317). Records with no origin entry count as device-created
+    /// under `.all`/`.device` — pre-tracking captures surface as
+    /// "origin unknown" rather than silently claiming local
+    /// provenance.
+    private func matchesOriginFilter(
+        _ record: PersistedCaptureRecord
+    ) -> Bool {
+        let kind =
+            captureOrigins[record.captureRevisionID]?.kind
+                ?? .legacyUnknown
+        switch libraryOriginFilter {
+        case .all:
+            return true
+        case .device:
+            return kind == .createdOnThisDevice
+                || kind == .legacyUnknown
+        case .external:
+            return kind == .importedFile
+                || kind == .receivedFromHTDT
+                || kind == .sharedOther
         }
     }
 
@@ -760,6 +837,8 @@ private struct CaptureSeriesDetailView: View {
     @Binding var metadataEditorTarget:
         LibraryMetadataEditorTarget?
     @Binding var pendingDeletion: PendingCaptureDeletion?
+    let captureOrigins:
+        [CaptureRevisionID: CaptureAcquisitionOriginRecord]
     let actions: CaptureRootActions
 
     var body: some View {
@@ -899,6 +978,13 @@ private struct CaptureSeriesDetailView: View {
                         )
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        Text(originLabel(for: record))
+                            .font(.caption)
+                            .foregroundStyle(
+                                isExternalOrigin(record)
+                                    ? CaptureColorRole.accent.color
+                                    : .secondary
+                            )
                     }
                     if let note = entry?.note, !note.isEmpty {
                         Text(note)
@@ -950,6 +1036,48 @@ private struct CaptureSeriesDetailView: View {
         }
     }
 
+    /// Acquisition-provenance badge for a row (#317): device
+    /// captures carry their ordinary label; anything imported or
+    /// received is additionally color-distinguished so external
+    /// bundles never read as device-created.
+    private func originLabel(
+        for record: PersistedCaptureRecord
+    ) -> String {
+        switch
+        captureOrigins[record.captureRevisionID]?.kind
+            ?? .legacyUnknown
+        {
+        case .createdOnThisDevice:
+            return String(
+                localized: "Created on this device"
+            )
+        case .importedFile:
+            return String(localized: "Imported file")
+        case .receivedFromHTDT:
+            return String(
+                localized: "Received from HTDT"
+            )
+        case .sharedOther:
+            return String(localized: "Shared")
+        case .legacyUnknown:
+            return String(localized: "Origin unknown")
+        }
+    }
+
+    private func isExternalOrigin(
+        _ record: PersistedCaptureRecord
+    ) -> Bool {
+        switch
+        captureOrigins[record.captureRevisionID]?.kind
+            ?? .legacyUnknown
+        {
+        case .importedFile, .receivedFromHTDT, .sharedOther:
+            return true
+        case .createdOnThisDevice, .legacyUnknown:
+            return false
+        }
+    }
+
     /// Secondary/destructive revision actions — present but visually
     /// subordinate until invoked (#360 §3.3).
     @ViewBuilder
@@ -971,6 +1099,14 @@ private struct CaptureSeriesDetailView: View {
             Button("Rescan as new revision") {
                 actions.revisePersistedCapture(record)
             }
+        }
+        if record.canOpen {
+            Button("Correct metadata…") {
+                actions.beginSemanticCorrection(record)
+            }
+            .accessibilityIdentifier(
+                "library.correctMetadata"
+            )
         }
         Button("Rename…") {
             metadataEditorTarget =
