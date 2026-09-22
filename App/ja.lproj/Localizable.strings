@@ -1066,7 +1066,6 @@
 "No task profile" = "タスクプロファイルなし";
 "Geometry only" = "ジオメトリのみ";
 "Strategy profile" = "戦略プロファイル";
-"Standard" = "標準";
 "HTDT task plan" = "HTDT タスク計画";
 "Import HTDT task plan…" = "HTDT タスク計画を読み込む…";
 "Remove task plan" = "タスク計画を削除";
@@ -1168,7 +1167,6 @@
 "Device context (preset/config ref)" = "機器コンテキスト（プリセット/設定参照）";
 "Driven speakers" = "駆動するスピーカー";
 "Add speaker/subwoofer annotations first." = "先にスピーカー/サブウーファーのアノテーションを追加してください。";
-"Verification" = "検証";
 "Method" = "方法";
 "Band scope" = "帯域スコープ";
 "A printed cable label never verifies the live signal path." = "印字済みケーブルラベルは実際の信号経路を検証しません。";
@@ -1223,6 +1221,56 @@
 "Choose the planned target first." = "先に計画ターゲットを選択してください。";
 "Select the final as-built entity." = "最終竣工エンティティを選択してください。";
 
+/* Settings entry point and taxonomy (#338) */
+"Settings" = "設定";
+"Preferences & storage" = "設定とストレージ";
+"Presentation" = "表示設定";
+"Presentation choices only change how information is displayed or announced. They never change recorded capture data." = "表示設定は情報の表示方法や読み上げの方法だけを変更します。記録されたキャプチャデータは変更されません。";
+"Haptic and spoken guidance cues" = "触覚・音声ガイダンスキュー";
+"Length display unit" = "長さの表示単位";
+"Meters" = "メートル";
+"Millimeters" = "ミリメートル";
+"Inches" = "インチ";
+"Feet" = "フィート";
+"Reset presentation preferences" = "表示設定をリセット";
+"Capture defaults" = "キャプチャの既定値";
+"Default capture task" = "既定のキャプチャタスク";
+"Choose for each capture" = "キャプチャごとに選択";
+"Return-to-start consistency check" = "開始地点への復帰チェック";
+"A default applies when a new capture begins and stays changeable per capture. An explicit selection in the capture — or a project/task requirement — always wins, and the value the capture actually used is recorded with it." = "既定値は新しいキャプチャの開始時に適用され、キャプチャごとに変更できます。キャプチャ内での明示的な選択やプロジェクト・タスクの要件が常に優先され、実際に使用した値がキャプチャに記録されます。";
+"Reference contexts" = "参照コンテキスト";
+"Equipment catalog" = "機器カタログ";
+"Authority version" = "権威バージョン";
+"%lld definitions" = "%lld 件の定義";
+"Clear equipment catalog cache" = "機器カタログのキャッシュを消去";
+"No equipment catalog imported. Import one from the annotation workspace to bind exact equipment definitions." = "機器カタログが読み込まれていません。注釈ワークスペースから読み込んで、機器定義を正確に紐付けてください。";
+"An imported catalog is reference context only — a capture records the exact equipment identifiers it used, so clearing the cache never changes saved captures." = "読み込んだカタログは参照コンテキストにすぎません。キャプチャは使用した機器識別子を正確に記録するため、キャッシュを消去しても保存済みキャプチャは変わりません。";
+
+/* Data & backup disclosure and policy control (#305) */
+"Data & backup" = "データとバックアップ";
+"Finalized data backup" = "確定済みデータのバックアップ";
+"May join device backup" = "デバイスバックアップに含める";
+"Excluded from backup" = "バックアップから除外";
+"Retained data" = "保持データ";
+"Working scan data is kept app-private and is always excluded from device backup." = "作業スキャンデータはアプリ内に留まり、常にデバイスバックアップから除外されます。";
+"While you scan, working scan data stays app-private and is always excluded from device backup." = "スキャン中、作業スキャンデータはアプリ内に留まり、常にデバイスバックアップから除外されます。";
+"After a successful capture, the finalized capture and its export archive stay in this app's storage on this device and may be included in your device backup." = "キャプチャが成功すると、確定済みキャプチャとその書き出しアーカイブはこのデバイス上のこのアプリのストレージに残り、デバイスバックアップに含まれる場合があります。";
+"After a successful capture, the finalized capture and its export archive stay in this app's storage on this device and are excluded from device backup." = "キャプチャが成功すると、確定済みキャプチャとその書き出しアーカイブはこのデバイス上のこのアプリのストレージに残り、デバイスバックアップから除外されます。";
+"Finalized captures and their export archives stay in this app's storage on this device and may be included in your device backup, depending on your system settings." = "確定済みキャプチャとその書き出しアーカイブはこのデバイス上のこのアプリのストレージに残り、システム設定によってはデバイスバックアップに含まれる場合があります。";
+"Finalized captures and their export archives stay in this app's storage on this device and are excluded from device backup." = "確定済みキャプチャとその書き出しアーカイブはこのデバイス上のこのアプリのストレージに残り、デバイスバックアップから除外されます。";
+"Finalized captures and export archives stay in this app's on-device storage and may be included in your device backup." = "確定済みキャプチャと書き出しアーカイブはこのデバイス上のこのアプリのストレージに残り、デバイスバックアップに含まれる場合があります。";
+"Finalized captures and export archives stay in this app's on-device storage and are excluded from device backup." = "確定済みキャプチャと書き出しアーカイブはこのデバイス上のこのアプリのストレージに残り、デバイスバックアップから除外されます。";
+"Sharing or sending to HTDT is always an explicit action you choose — it is never tied to device backup." = "共有や HTDT への送信は、常に自分で選んで行う明示的な操作であり、デバイスバックアップとは無関係です。";
+"Sharing or sending to HTDT is always an explicit action you choose — device backup never sends data to HTDT." = "共有や HTDT への送信は、常に自分で選んで行う明示的な操作であり、デバイスバックアップがデータを HTDT に送ることはありません。";
+"Deleting a capture permanently removes its finalized copy and stored export archive from this device." = "キャプチャを削除すると、その確定済みコピーと保存済みの書き出しアーカイブがこのデバイスから完全に削除されます。";
+"The backup choice applies to finalized captures already on this device and to new ones." = "バックアップの選択は、このデバイス上にある既存の確定済みキャプチャと、今後作成されるものの両方に適用されます。";
+"This permanently deletes the finalized capture and any export archive stored for it from this device. Nothing is uploaded or backed up by this app." = "この操作により、確定済みキャプチャとそれに保存された書き出しアーカイブがこのデバイスから完全に削除されます。このアプリはアップロードもバックアップも行いません。";
+"This permanently deletes the finalized capture and any export archive stored for it from this device. A copy already inside a device backup is managed by the system." = "この操作により、確定済みキャプチャとそれに保存された書き出しアーカイブがこのデバイスから完全に削除されます。すでにデバイスバックアップに含まれたコピーはシステムが管理します。";
+
+/* Accessibility labels (#342) */
+"Direction coverage grid" = "方向カバレッジグリッド";
+"Series " = "シリーズ ";
+
 /* Mission workflows (#353/#321/#355). */
 "Mission workflows" = "ミッションワークフロー";
 "Mission workflows…" = "ミッションワークフロー…";
@@ -1255,7 +1303,6 @@
 "Planned items" = "計画項目";
 "Actual" = "実測";
 "Choose entity" = "エンティティを選択";
-"Mark unavailable" = "取得不可にする";
 "Import an as-built plan (.json) to compare planned positions against captured observations." = "アズビルトプラン（.json）を読み込み、計画位置と取得済み観測値を比較します。";
 "Label, role, and measure the captured room in the annotation workspace. Committed records stay bound to the live coordinate authority." = "注釈ワークスペースで取得した部屋のラベル付け・役割設定・計測を行います。確定済みレコードはライブ座標権威に束縛されたままです。";
 "Open a measurement form inside the annotation workspace and use the Instrument reading section to import a reading file — the staged value is confirmed explicitly before it commits." = "注釈ワークスペースの計測フォームで「計器読み値」セクションから読み値ファイルを取り込みます。取り込まれた値は確定前に明示的に確認されます。";
@@ -1547,7 +1594,6 @@
 "Service point" = "サービスポイント";
 "Service type (optional, e.g. front_l)" = "サービス種別（任意、例: front_l）";
 "Setting" = "設定";
-"Settings" = "設定";
 "Speaker size" = "スピーカーサイズ";
 "Stated accuracy (optional, e.g. ±0.5 dB)" = "公称精度（任意、例: ±0.5 dB）";
 "Subwoofer crossover" = "サブウーファー クロスオーバー";
@@ -1682,7 +1728,6 @@
 "Spatial data" = "空間データ";
 
 // #367 interactive review plan surface
-"Plan" = "平面図";
 "Show on plan" = "平面図で表示";
 "Labels" = "ラベル";
 "Labels off" = "ラベルなし";
@@ -1754,7 +1799,6 @@
 "Deviated" = "偏差あり";
 "Door undercut" = "ドアアンダーカット";
 "Door" = "ドア";
-"Equipment catalog" = "機器カタログ";
 "Equipment furniture" = "機器家具";
 "Equipment item" = "機器項目";
 "Fabric" = "ファブリック";
@@ -1769,13 +1813,11 @@
 "Hard floor" = "ハードフロア";
 "High band direct" = "高域直結";
 "I confirmed this" = "自分で確認しました";
-"Imported file" = "読み込まれたファイル";
 "In ceiling" = "天井埋め込み";
 "In wall" = "壁埋め込み";
 "Installation alignment" = "設置アライメント";
 "Installer or build record" = "施工者または施工記録";
 "Insufficient" = "不十分";
-"Intentionally ignored" = "意図的に除外";
 "Kept as a scan-boundary frame" = "スキャン境界フレームとして保持";
 "Label only" = "ラベルのみ";
 "Lighting" = "照明";
@@ -1793,14 +1835,12 @@
 "Movable" = "可動";
 "My attestation" = "自分の証明";
 "My observation" = "自分の観測";
-"Needs more scanning" = "追加スキャンが必要";
 "Object identity" = "オブジェクト識別";
 "Object surface" = "オブジェクト面";
 "Occluded" = "遮蔽";
 "Off" = "オフ";
 "On a stand" = "スタンド上";
 "On wall" = "壁掛け";
-"Opening" = "開口部";
 "Partial-height wall" = "腰壁";
 "Pending review" = "レビュー待ち";
 "Platform top" = "プラットフォーム上面";
@@ -1843,7 +1883,6 @@
 "Transfer grille" = "トランスファーグリル";
 "Transparent" = "透明";
 "Two surveyed points" = "2つの測量点";
-"Unverified" = "未検証";
 "Upright" = "直立";
 "Wall direction" = "壁方向";
 "Window" = "窓";
@@ -1882,14 +1921,12 @@
 "Deleted " = "削除済み ";
 "target " = "対象 ";
 "plan " = "計画 ";
-"required" = "必須";
 "current" = "現在";
 "stale — " = "陳腐化 — ";
 "unknown" = "不明";
 
 // #386/#387/#374/#379 mission inbox, delivery queue, pairing, preflight
 "Missions" = "ミッション";
-"Mission" = "ミッション";
 "Destinations" = "送信先";
 "Deliveries" = "配信";
 "Delivery queue" = "配信キュー";
@@ -1904,7 +1941,6 @@
 "Resume mission" = "ミッションを再開";
 "Deactivate" = "非アクティブ化";
 "Archive" = "アーカイブ";
-"Discard" = "破棄";
 "Forget" = "解除";
 "Pause" = "一時停止";
 "Resume" = "再開";
@@ -1914,7 +1950,6 @@
 "Follow-up of" = "フォローアップ対象";
 "Follow-up origin" = "フォローアップ元";
 "Mission ID" = "ミッション ID";
-"Issued" = "発行";
 "Plan version" = "プランバージョン";
 "Project" = "プロジェクト";
 "Receiver" = "受信機";

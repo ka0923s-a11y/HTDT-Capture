@@ -134,6 +134,7 @@ private struct HTDTCaptureHostView: View {
             spatialCaptureSealed:
                 coordinator.annotationCoordinateSpaceID == nil
                     && coordinator.annotationAuthorityCommitted,
+            appSettings: coordinator.appSettings,
             missionEntries: coordinator.missionEntries,
             missionTaskPlan: coordinator.captureTaskPlan,
             missionTaskPlanOutcomes:
@@ -333,6 +334,10 @@ private struct HTDTCaptureHostView: View {
                     coordinator.deleteExportArchive,
                 updateLibraryEntry:
                     coordinator.updateLibraryEntry,
+                updateAppSettings:
+                    coordinator.updateAppSettings,
+                clearEquipmentCatalogCache:
+                    coordinator.clearEquipmentCatalogCache,
                 selectCaptureStrategy:
                     coordinator.selectCaptureStrategy,
                 importPlanReference:
@@ -484,8 +489,20 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set)
     var deviceReadiness: CaptureDeviceReadiness?
     /// Whether haptic/announcement guidance cues play (#252). Mirrors
-    /// the operator toggle; default on.
+    /// the persisted presentation preference (#338); default on.
     @Published var guidanceCuesEnabled = true
+    /// Versioned app-local settings (#338): presentation preferences,
+    /// device-local workflow defaults, and the storage/privacy policy
+    /// — never capture authority.
+    @Published private(set)
+    var appSettings = CaptureAppSettings()
+    /// Durable store for `appSettings` under the app-private capture
+    /// root — outside `finalized/`, `exports/` and `working/` so it is
+    /// never part of a bundle or the persisted inventory.
+    private lazy var appSettingsStore: CaptureAppSettingsStore? =
+        Self.captureRootDirectory().map {
+            CaptureAppSettingsStore(captureRoot: $0)
+        }
     /// Operator-selected capture strategy for the next scan (#307).
     /// Drives advisory guidance/evidence budgets only — the canonical
     /// quality rule set never reads it.
@@ -950,6 +967,28 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             CaptureAcquisitionOriginStore(captureRoot: $0)
         }
 
+        // #338: load the versioned app-local settings before any
+        // policy application so the at-rest backup policy below
+        // matches the operator's stored choice. A corrupt settings
+        // file fails closed like the library metadata store — the
+        // app runs on defaults and the status line says why rather
+        // than silently discarding the operator's intent.
+        if let appSettingsStore {
+            do {
+                appSettings = try appSettingsStore.load()
+            } catch {
+                workingSetStatus = HostLocalization.text(
+                    "Device settings could not be read; defaults are in use",
+                    "デバイス設定を読み取れなかったため、既定値を使用しています"
+                )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+            }
+        }
+        guidanceCuesEnabled =
+            appSettings.presentation.guidanceCuesEnabled
+
         // #320: the first-launch practice prompt is suppressed only by
         // an explicit permanent dismissal; "Not now" hides it for this
         // run while practice stays reachable from the home surface.
@@ -964,7 +1003,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         if let captureRoot = Self.captureRootDirectory() {
             let policyFailures =
                 CaptureStoragePolicy.applyCaptureRootPolicy(
-                    captureRoot: captureRoot
+                    captureRoot: captureRoot,
+                    finalizedBackupPolicy: appSettings
+                        .storagePrivacy.finalizedBackupPolicy
                 )
             if !policyFailures.isEmpty {
                 workingSetStatus =
@@ -1358,6 +1399,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         endTargetScan()
         operatorRegionDeclarations = OperatorRegionDeclarations()
         declaredRegionList = []
+        // Device-local workflow defaults seed each capture (#338):
+        // the stored default task profile initializes unset task
+        // state, but the project/task plan — the workspace's
+        // explicit selection — stays the override authority.
+        taskProfile = appSettings.captureDefaults.defaultTaskProfile
+        skippedTaskRequirementIDs = []
+        loopClosureCheckActive =
+            appSettings.captureDefaults.returnToStartCheckEnabled
         revisitFlagStore = CaptureRevisitFlagStore()
         revisitFlags = []
         pendingTaskPlanImport = nil
@@ -1436,6 +1485,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             resolvedMode: capabilities.roomPlanMeshEligible
                 ? .roomPlanMesh
                 : nil,
+            finalizedBackupPolicy: appSettings.storagePrivacy
+                .finalizedBackupPolicy,
             taskProfile: taskProfile,
             importedTaskPlan: pendingTaskPlanImport?.plan,
             taskPlanImportError: pendingTaskPlanImportError,
@@ -2172,6 +2223,109 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guidanceCuesEnabled = enabled
         if !enabled {
             scanGuidanceCuePolicy.reset()
+        }
+        // The toggle is a presentation preference (#338): persist it
+        // so the choice survives relaunch; it never enters capture
+        // authority.
+        var copy = appSettings
+        copy.presentation.guidanceCuesEnabled = enabled
+        updateAppSettings(copy)
+    }
+
+    // MARK: - App-local settings (#338)
+
+    /// Persists a new settings document and applies its side effects.
+    /// Presentation choices take effect at once; the finalized backup
+    /// policy is re-applied to `finalized/`/`exports/` and every
+    /// artifact already inside them so existing captures get the
+    /// operator's current policy — never a reinterpretation of their
+    /// recorded content.
+    func updateAppSettings(_ newSettings: CaptureAppSettings) {
+        let previousPolicy =
+            appSettings.storagePrivacy.finalizedBackupPolicy
+        appSettings = newSettings
+        guidanceCuesEnabled =
+            newSettings.presentation.guidanceCuesEnabled
+
+        if let appSettingsStore {
+            do {
+                try appSettingsStore.save(newSettings)
+            } catch {
+                workingSetStatus = HostLocalization.text(
+                    "Device settings could not be saved",
+                    "デバイス設定を保存できませんでした"
+                )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+            }
+        }
+
+        if newSettings.storagePrivacy.finalizedBackupPolicy
+            != previousPolicy,
+           let captureRoot = Self.captureRootDirectory()
+        {
+            let failures = CaptureStoragePolicy
+                .applyFinalizedBackupPolicy(
+                    captureRoot: captureRoot,
+                    policy: newSettings.storagePrivacy
+                        .finalizedBackupPolicy
+                )
+            if !failures.isEmpty {
+                workingSetStatus = HostLocalization.text(
+                    "The backup policy could not be applied to every stored capture",
+                    "バックアップ方針をすべての保存済みキャプチャに適用できませんでした"
+                )
+                    + " ["
+                    + failures.joined(separator: "; ")
+                    + "]"
+            }
+        }
+
+        if state == .setup {
+            refreshCaptureSetupPresentation()
+        }
+    }
+
+    /// Clears the durable equipment-catalog cache (#338): the import
+    /// mirror is removed and the reference context resets for the
+    /// next import. Committed captures keep the exact equipment
+    /// tuples they recorded — the cache is convenience, never
+    /// authority.
+    func clearEquipmentCatalogCache() {
+        if let equipmentCatalogStore {
+            for stored in equipmentCatalogStore.list() {
+                try? equipmentCatalogStore.remove(
+                    contentKey: stored.contentKey
+                )
+            }
+            if let legacyFileURL = equipmentCatalogStore.legacyFileURL {
+                try? FileManager.default.removeItem(at: legacyFileURL)
+            }
+        }
+        equipmentCatalog = nil
+        equipmentCatalogLibrary = []
+    }
+
+    /// Applies the stored backup policy to a share archive (#305);
+    /// export archives are app-owned transport output and follow the
+    /// same policy as finalized data. A flag failure is surfaced,
+    /// never fatal to the archive already produced.
+    private func applyExportArchiveBackupPolicy(to archive: URL) {
+        do {
+            try CaptureStoragePolicy.applyExportArchivePolicy(
+                archiveURL: archive,
+                policy: appSettings.storagePrivacy
+                    .finalizedBackupPolicy
+            )
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The backup policy could not be applied to the export archive",
+                "書き出しアーカイブにバックアップ方針を適用できませんでした"
+            )
+                + " ["
+                + Self.persistenceDiagnostic(error)
+                + "]"
         }
     }
 
@@ -4423,6 +4577,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     ) == .recoverValidated {
                         self.exportURL = destination
                         try self.transition(.export)
+                        self.applyExportArchiveBackupPolicy(
+                            to: destination
+                        )
                         self.workingSetStatus = HostLocalization.text(
                             "Existing validated archive recovered and is ready to share",
                             "既存の検証済みアーカイブを復旧し、共有できる状態にしました"
@@ -4479,6 +4636,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
                 self.exportURL = result.archiveURL
                 try self.transition(.export)
+                self.applyExportArchiveBackupPolicy(
+                    to: result.archiveURL
+                )
                 self.workingSetStatus = HostLocalization.text(
                     "Validated share-ready archive created",
                     "検証済みの共有用アーカイブを作成しました"
@@ -10130,6 +10290,27 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             } catch {
                 protectionWarning =
                     Self.persistenceDiagnostic(error)
+            }
+
+            // #305: a same-volume rename carries the working
+            // directory's backup-exclusion flag into finalized/;
+            // write the selected policy explicitly so finalized
+            // data honors it (default: backup-eligible per
+            // ADR-0004). Like the protection class above, a
+            // failure is surfaced, never fatal to the promoted
+            // bundle.
+            do {
+                try CaptureStoragePolicy
+                    .applyFinalizedRevisionPolicy(
+                        revisionRoot: finalized.directory,
+                        policy: appSettings.storagePrivacy
+                            .finalizedBackupPolicy
+                    )
+            } catch {
+                let warning = Self.persistenceDiagnostic(error)
+                protectionWarning =
+                    protectionWarning.map { $0 + "; " + warning }
+                    ?? warning
             }
         } catch {
             // Errors here are strictly pre-commit: promotion never
