@@ -22,13 +22,50 @@ public enum CaptureTaskPlanError: Error, Sendable, Equatable {
     case unknownItemID
     case unsupportedSchema
     case encodedDocumentMismatch
+    /// A fulfillment binding names a record of the wrong kind for
+    /// this plan item (#354).
+    case fulfillmentKindMismatch
+    /// A fulfillment binding does not name a canonical record id
+    /// (#354).
+    case invalidFulfillmentLink
     /// A fulfillment binding does not match the item's declared kind,
     /// subtype, or target — or points at a record/evidence ref that
     /// does not exist, or shares one record across tasks without an
     /// explicit `allow_shared_fulfillment` on both items.
     case fulfillmentMismatch
-    /// The item is not a kind that accepts this fulfillment payload.
-    case fulfillmentKindMismatch
+}
+
+/// The record kind a plan item's fulfillment link may name (#354).
+public enum TaskFulfillmentRecordKind: String, Codable, Sendable,
+    Equatable
+{
+    case entity
+    case measurement
+}
+
+/// Exact identity of the committed record fulfilling a plan item
+/// (#354). Fulfillment is a typed link — never inferred from generic
+/// type/unit equality on the persisted status document.
+public struct TaskFulfillmentLink: Codable, Sendable, Equatable {
+    public let recordKind: TaskFulfillmentRecordKind
+    /// Canonical UUIDv4 text of the entity or measurement record.
+    public let recordID: String
+
+    public init(
+        recordKind: TaskFulfillmentRecordKind,
+        recordID: String
+    ) throws {
+        guard UUID(canonicalUUIDv4Text: recordID) != nil else {
+            throw CaptureTaskPlanError.invalidFulfillmentLink
+        }
+        self.recordKind = recordKind
+        self.recordID = recordID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case recordKind = "record_kind"
+        case recordID = "record_id"
+    }
 }
 
 /// One entity the plan asks the operator to place (issue #240). The
@@ -805,6 +842,10 @@ public struct CaptureTaskPlanStatusDocument: Codable, Sendable,
     public struct ItemOutcome: Codable, Sendable, Equatable {
         public let itemID: String
         public let outcome: TaskPlanItemOutcome
+        /// The exact fulfilling record for `completed` items (#354).
+        /// Nil means completion was operator-asserted (surface review
+        /// items) or the outcome is not completed.
+        public let fulfillment: TaskFulfillmentLink?
         /// Exact fulfilling record/evidence identity (#359): the
         /// authority record id for semantic tasks, the committed
         /// evidence ref for evidence tasks. nil for the other item
@@ -814,25 +855,57 @@ public struct CaptureTaskPlanStatusDocument: Codable, Sendable,
         public init(
             itemID: String,
             outcome: TaskPlanItemOutcome,
+            fulfillment: TaskFulfillmentLink? = nil,
             fulfillmentRef: String? = nil
         ) {
             self.itemID = itemID
             self.outcome = outcome
+            self.fulfillment = fulfillment
             self.fulfillmentRef = fulfillmentRef
         }
 
         private enum CodingKeys: String, CodingKey {
             case itemID = "item_id"
             case outcome
+            case fulfillment
             case fulfillmentRef = "fulfillment_ref"
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(
+                keyedBy: CodingKeys.self
+            )
+            try self.init(
+                itemID: container.decode(
+                    String.self,
+                    forKey: .itemID
+                ),
+                outcome: container.decode(
+                    TaskPlanItemOutcome.self,
+                    forKey: .outcome
+                ),
+                fulfillment: container.decodeIfPresent(
+                    TaskFulfillmentLink.self,
+                    forKey: .fulfillment
+                ),
+                fulfillmentRef: container.decodeIfPresent(
+                    String.self,
+                    forKey: .fulfillmentRef
+                )
+            )
         }
     }
 
     public static let schema = "htdt.capture-task-plan-status"
-    /// Emitted since the #359 contract: v1 documents still decode
-    /// (their items carry no `fulfillment_ref`).
+    /// The payload version this build emits: v1.1.0 adds the typed
+    /// `fulfillment` link (#354); v2.0.0 adds `fulfillment_ref` (#359).
     public static let schemaVersion = "2.0.0"
-    public static let supportedSchemaVersions = ["1.0.0", "2.0.0"]
+    /// Every payload version this build can decode: v1.0.0 documents
+    /// carry outcomes without fulfillment fields, v1.1.0 adds the
+    /// typed link, v2.0.0 adds the identity string.
+    public static let supportedSchemaVersions: [String] = [
+        "1.0.0", "1.1.0", "2.0.0",
+    ]
     public static let path = "session/task-plan-status.json"
 
     public let schema: String
@@ -859,6 +932,14 @@ public struct CaptureTaskPlanStatusDocument: Codable, Sendable,
         for item in items {
             guard seen.insert(item.itemID).inserted else {
                 throw CaptureTaskPlanError.duplicateItemID
+            }
+            // A fulfillment link only accompanies a completed
+            // outcome — it never decorates a pending/skipped item
+            // (#354).
+            guard item.outcome == .completed
+                    || item.fulfillment == nil
+            else {
+                throw CaptureTaskPlanError.invalidFulfillmentLink
             }
         }
         self.schema = Self.schema
@@ -927,12 +1008,68 @@ public struct CaptureTaskPlanStatusDocument: Codable, Sendable,
 public struct CaptureTaskPlanStatus: Sendable, Equatable {
     public let planImport: CaptureTaskPlanImport
     private var explicitMarks: [String: TaskPlanItemOutcome]
+    /// Explicit fulfillment bindings (#354): operator-confirmed links
+    /// from a plan item to the exact committed record that satisfies
+    /// it. A binding never makes an item complete on its own — the
+    /// bound record must still exist and still satisfy the item's
+    /// declared constraints at outcome-evaluation time.
+    private var bindings: [String: TaskFulfillmentLink]
     /// Exact fulfillment bindings for semantic/evidence tasks (#359).
     public private(set) var fulfillments: [String: TaskPlanFulfillment]
 
     public init(planImport: CaptureTaskPlanImport) {
         self.planImport = planImport
         self.explicitMarks = [:]
+        self.bindings = [:]
+        self.fulfillments = [:]
+    }
+
+    /// Bind a plan item to the exact entity record fulfilling it
+    /// (#354). Used to disambiguate when several entities match the
+    /// item's declared constraints, or when the plan pins a specific
+    /// target.
+    public mutating func bind(
+        itemID: String,
+        toEntity entityID: AnnotationEntityID
+    ) throws {
+        guard planImport.plan.entityChecklist
+            .contains(where: { $0.itemID == itemID })
+        else {
+            throw planImport.plan.allItemIDs.contains(itemID)
+                ? CaptureTaskPlanError.fulfillmentKindMismatch
+                : CaptureTaskPlanError.unknownItemID
+        }
+        bindings[itemID] = try TaskFulfillmentLink(
+            recordKind: .entity,
+            recordID: entityID.description
+        )
+    }
+
+    /// Bind a plan item to the exact measurement record fulfilling it
+    /// (#354).
+    public mutating func bind(
+        itemID: String,
+        toMeasurement measurementID: MeasurementID
+    ) throws {
+        guard planImport.plan.measurementRequests
+            .contains(where: { $0.itemID == itemID })
+        else {
+            throw planImport.plan.allItemIDs.contains(itemID)
+                ? CaptureTaskPlanError.fulfillmentKindMismatch
+                : CaptureTaskPlanError.unknownItemID
+        }
+        bindings[itemID] = try TaskFulfillmentLink(
+            recordKind: .measurement,
+            recordID: measurementID.description
+        )
+    }
+
+    /// Clear an explicit fulfillment binding (#354).
+    public mutating func unbind(itemID: String) throws {
+        guard planImport.plan.allItemIDs.contains(itemID) else {
+            throw CaptureTaskPlanError.unknownItemID
+        }
+        bindings.removeValue(forKey: itemID)
         self.fulfillments = [:]
     }
 
@@ -1112,6 +1249,28 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
     }
 
     /// Resolves every checklist item's outcome against committed
+    /// capture truth (#354). Completion is typed fulfillment, not
+    /// generic type/unit equality:
+    ///
+    ///   * an explicit `bind` link wins — the bound record must still
+    ///     exist and still satisfy the item's declared constraints
+    ///     (type + channel_role + label_hint + equipment_ref tuple, or
+    ///     quantity_type + expected_unit); a replaced or deleted
+    ///     fulfillment record never silently leaves the item
+    ///     completed.
+    ///   * a measurement carrying `lineage.task_ref` naming the item
+    ///     fulfills it directly — the stronger typed contract
+    ///     `endpoint_semantics` demands.
+    ///   * generic declarative matching only completes an item when
+    ///     exactly one candidate satisfies the item AND that record
+    ///     satisfies no other item — a single record can never
+    ///     accidentally satisfy two distinct requested tasks.
+    ///
+    /// Superseded or rejected measurements never fulfill a plan.
+    /// Auto-computed completion wins over explicit marks — committed
+    /// evidence is the authority. The evaluation is deterministic,
+    /// so a persisted status document replays exactly from plan +
+    /// records + fulfillment links.
     /// capture truth. Auto-computed completion wins over explicit
     /// marks — committed evidence is the authority. Semantic tasks
     /// complete only via an exact record fulfillment that still matches
@@ -1123,35 +1282,98 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
         committedEvidenceRefs: [String] = []
     ) -> [CaptureTaskPlanStatusDocument.ItemOutcome] {
         var outcomes: [CaptureTaskPlanStatusDocument.ItemOutcome] = []
+
         for item in planImport.plan.entityChecklist {
-            let satisfied = annotations.contains { entity in
+            let candidates = annotations.filter { entity in
                 entity.type == item.entityType
                     && (item.channelRole == nil
                         || entity.channelRole == item.channelRole)
                     && (item.labelHint == nil
                         || entity.label == item.labelHint)
+                    && (item.equipmentRef == nil
+                        || entity.equipmentRef == item.equipmentRef)
             }
+            let link = resolveEntityBinding(
+                itemID: item.itemID,
+                candidates: candidates
+            )
+            let mark = explicitMarks[item.itemID] ?? .pending
             outcomes.append(
                 .init(
                     itemID: item.itemID,
-                    outcome: satisfied
-                        ? .completed
-                        : explicitMarks[item.itemID] ?? .pending
+                    outcome: link != nil ? .completed : mark,
+                    fulfillment: link
                 )
             )
         }
+
+        // Measurement fulfillment needs global uniqueness context: a
+        // record matching two requested items satisfies neither
+        // automatically.
+        let eligible = measurements.filter {
+            $0.lineage?.disposition != .superseded
+                && $0.lineage?.disposition != .rejectedWithReason
+        }
+        var itemsMatchingRecord: [MeasurementID: [String]] = [:]
+        var candidatesByItem: [String: [CaptureMeasurement]] = [:]
         for item in planImport.plan.measurementRequests {
-            let satisfied = measurements.contains { measurement in
+            let candidates = eligible.filter { measurement in
                 measurement.quantityType == item.quantityType
                     && (item.expectedUnit == nil
                         || measurement.unit == item.expectedUnit)
             }
+            candidatesByItem[item.itemID] = candidates
+            for measurement in candidates {
+                itemsMatchingRecord[
+                    measurement.measurementID,
+                    default: []
+                ].append(item.itemID)
+            }
+        }
+
+        for item in planImport.plan.measurementRequests {
+            let candidates = candidatesByItem[item.itemID] ?? []
+            // Typed task binding (#354): a measurement declaring
+            // lineage.task_ref -> this item fulfills it. Required
+            // when the item declares endpoint semantics — generic
+            // equality never satisfies a typed-endpoint request.
+            let taskBound = candidates.filter {
+                $0.lineage?.taskRef?.itemID == item.itemID
+                    && $0.lineage?.taskRef?.planID
+                        == planImport.plan.planID
+            }
+            let mark = explicitMarks[item.itemID] ?? .pending
+            let link: TaskFulfillmentLink?
+            if let binding = bindings[item.itemID] {
+                link = resolveMeasurementBinding(
+                    binding,
+                    candidates: candidates
+                )
+            } else if let taskHit = taskBound.first,
+                      taskBound.count == 1
+            {
+                link = try? TaskFulfillmentLink(
+                    recordKind: .measurement,
+                    recordID: taskHit.measurementID.description
+                )
+            } else if item.endpointSemantics == nil,
+                      candidates.count == 1,
+                      let candidate = candidates.first,
+                      itemsMatchingRecord[candidate.measurementID]?
+                        .count == 1
+            {
+                link = try? TaskFulfillmentLink(
+                    recordKind: .measurement,
+                    recordID: candidate.measurementID.description
+                )
+            } else {
+                link = nil
+            }
             outcomes.append(
                 .init(
                     itemID: item.itemID,
-                    outcome: satisfied
-                        ? .completed
-                        : explicitMarks[item.itemID] ?? .pending
+                    outcome: link != nil ? .completed : mark,
+                    fulfillment: link
                 )
             )
         }
@@ -1190,6 +1412,41 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
             )
         }
         return outcomes
+    }
+
+    /// Resolve an explicit entity binding: the bound record must
+    /// still exist and still satisfy every declared constraint —
+    /// otherwise the item falls back to its unresolved outcome
+    /// (#354).
+    private func resolveEntityBinding(
+        itemID: String,
+        candidates: [CaptureAnnotationEntity]
+    ) -> TaskFulfillmentLink? {
+        if let binding = bindings[itemID] {
+            return candidates.contains(where: {
+                $0.entityID.description == binding.recordID
+            }) ? binding : nil
+        }
+        // Unique-candidate auto-binding: unambiguous typed match.
+        guard candidates.count == 1, let candidate = candidates.first
+        else {
+            return nil
+        }
+        return try? TaskFulfillmentLink(
+            recordKind: .entity,
+            recordID: candidate.entityID.description
+        )
+    }
+
+    /// Resolve an explicit measurement binding — the record must
+    /// still exist and satisfy the item's constraints.
+    private func resolveMeasurementBinding(
+        _ binding: TaskFulfillmentLink,
+        candidates: [CaptureMeasurement]
+    ) -> TaskFulfillmentLink? {
+        candidates.contains(where: {
+            $0.measurementID.description == binding.recordID
+        }) ? binding : nil
     }
 
     /// Whether every required plan item resolved to `completed` —

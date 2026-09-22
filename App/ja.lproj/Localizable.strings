@@ -1031,6 +1031,9 @@
 "Physical match attested" = "実物一致を証明";
 "Stated uncertainty" = "明示的不確かさ";
 "This creates a new revision that corrects annotations, measurements, and equipment metadata. The room is not rescanned; the original capture's sensor evidence is preserved exactly." = "アノテーション・計測・機器メタデータを修正する新しいリビジョンを作成します。部屋は再スキャンされず、元のキャプチャのセンサー証拠はそのまま保持されます。";
+"Verified" = "検証済み";
+"Out of tolerance" = "公差外";
+"Indeterminate" = "判定不能";
 "Add opening candidate" = "開口部候補を追加";
 "Width m" = "幅 m";
 "Height m" = "高さ m";
@@ -1088,7 +1091,6 @@
 "Device context (preset/config ref)" = "機器コンテキスト（プリセット/設定参照）";
 "Driven speakers" = "駆動するスピーカー";
 "Add speaker/subwoofer annotations first." = "先にスピーカー/サブウーファーのアノテーションを追加してください。";
-"Verification" = "検証";
 "Method" = "方法";
 "Band scope" = "帯域スコープ";
 "A printed cable label never verifies the live signal path." = "印字済みケーブルラベルは実際の信号経路を検証しません。";
@@ -1150,7 +1152,6 @@
 "Draft" = "下書き";
 "Imported" = "取り込み済み";
 "Derived" = "派生";
-"Verified" = "検証済み";
 
 "HTDT Capture" = "HTDT Capture";
 "Capture a room for Home Theater Digital Twin." = "Home Theater Digital Twin 用に部屋をキャプチャします。";

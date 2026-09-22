@@ -121,7 +121,7 @@ final class AuthorityCommitBindingTests: XCTestCase {
         try MeasurementEvidencePackageBuilder.build(
             measurements: [
                 try CaptureMeasurement(
-                    quantityType: "wall_length",
+                    quantityType: "x_wall_length",
                     value: .scalar(4.2),
                     unit: .meter,
                     acquisitionMethod: .laserDistanceMeter,
@@ -138,7 +138,7 @@ final class AuthorityCommitBindingTests: XCTestCase {
         try MeasurementEvidencePackageBuilder.build(
             measurements: [
                 try CaptureMeasurement(
-                    quantityType: "anchor_point",
+                    quantityType: "x_anchor_point",
                     value: .vector3(1, 2, 3),
                     unit: .meter,
                     coordinateSpaceID: space,

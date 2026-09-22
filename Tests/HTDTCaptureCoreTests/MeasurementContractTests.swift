@@ -219,17 +219,20 @@ func registryEnforcesValueShapeAndEndpointSemantics() throws {
 
 @Test
 func customQuantitiesPassRegistryWithDeclaredUnit() throws {
+    // #344: custom quantities remain possible but must carry the
+    // reserved x_ namespace so they can never collide with future
+    // standard vocabulary.
     try MeasurementQuantityRegistry.validate(
-        quantityType: "panel_thickness",
+        quantityType: "x_panel_thickness",
         value: .scalar(0.02),
         unit: .meter,
         endpointCount: 0
     )
     #expect(
-        MeasurementQuantityRegistry.definition(for: "panel_thickness")
+        MeasurementQuantityRegistry.definition(for: "x_panel_thickness")
             == nil
     )
-    #expect(MeasurementQuantityRegistry.version == "1.0.0")
+    #expect(MeasurementQuantityRegistry.version == "1.1.0")
 }
 
 // MARK: - Manufacturer source authority (#275)

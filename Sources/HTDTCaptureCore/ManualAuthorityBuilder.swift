@@ -316,7 +316,13 @@ public enum ManualAuthorityBuilder {
             let roleText = speakerChannelRole?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .uppercased() ?? ""
-            guard let parsedRole = ChannelRole(rawValue: roleText)
+            // #344: non-standard roles are auto-scoped into the
+            // reserved X_ namespace so they can never collide with
+            // future standard vocabulary.
+            guard let scopedRole = OpenTokenPolicy.scopedForAuthoring(
+                roleText,
+                vocabulary: .channelRole
+            ), let parsedRole = ChannelRole(rawValue: scopedRole)
             else {
                 throw ManualAuthorityBuilderError
                     .invalidSpeakerChannelRole
@@ -335,7 +341,10 @@ public enum ManualAuthorityBuilder {
             let roleText = subwooferChannelRole?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .uppercased() ?? ""
-            guard let parsedRole = ChannelRole(rawValue: roleText)
+            guard let scopedRole = OpenTokenPolicy.scopedForAuthoring(
+                roleText,
+                vocabulary: .channelRole
+            ), let parsedRole = ChannelRole(rawValue: scopedRole)
             else {
                 throw ManualAuthorityBuilderError
                     .invalidSubwooferChannelRole
@@ -528,14 +537,25 @@ public enum ManualAuthorityBuilder {
              .manufacturerSpecification, .externalInstrument, .other:
             break
         }
+        // #344: unregistered quantity tokens are scoped into the
+        // reserved x_ namespace at authoring time so the emitted
+        // record is wire-legal under the v1.1.0 contract.
+        guard let scopedQuantityType =
+            OpenTokenPolicy.scopedForAuthoring(
+                quantityType,
+                vocabulary: .measurementQuantity
+            )
+        else {
+            throw MeasurementModelError.unscopedCustomQuantity
+        }
         try MeasurementQuantityRegistry.validate(
-            quantityType: quantityType,
+            quantityType: scopedQuantityType,
             value: value,
             unit: unit,
             endpointCount: endpointRefs.count
         )
         return try CaptureMeasurement(
-            quantityType: quantityType,
+            quantityType: scopedQuantityType,
             value: value,
             unit: unit,
             coordinateSpaceID: coordinateSpaceID,
