@@ -722,8 +722,13 @@ private struct EndpointPicker: View {
         Picker(title, selection: $selection) {
             Text(String(localized: "None")).tag("")
             ForEach(candidates, id: \.entityID) { entity in
-                Text(entity.label + " · " + entity.type.rawValue)
-                    .tag(entity.entityID.description)
+                Text(
+                    entity.label + " · "
+                        + MissionPresentation.annotationEntityTypeName(
+                            entity.type
+                        )
+                )
+                .tag(entity.entityID.description)
             }
         }
     }

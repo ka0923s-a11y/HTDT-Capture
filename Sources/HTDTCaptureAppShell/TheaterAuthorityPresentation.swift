@@ -563,7 +563,7 @@ public enum TheaterAuthorityPresentation {
         case .verified:
             return String(localized: "Verified")
         case .deviated:
-            return String(localized: "Deviated")
+            return String(localized: "Out of tolerance")
         case .captured:
             return String(localized: "Captured")
         case .indeterminate:

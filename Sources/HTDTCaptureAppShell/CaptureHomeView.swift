@@ -206,6 +206,9 @@ public struct CaptureHomeView: View {
     @State private var deleteSeriesIncludeProtected = false
     @State private var derived3DTarget: DerivedExportTarget?
     @State private var surveyReportTarget: DerivedExportTarget?
+    /// Disposable bounded decode cache for library-row previews
+    /// (#411) — tied to this view's lifetime, never authority.
+    @State private var thumbnailCache = SeriesThumbnailCache()
 
     public init(
         capabilities: CaptureCapabilityMatrix,
@@ -917,18 +920,10 @@ public struct CaptureHomeView: View {
         return HStack(
             spacing: CaptureDesign.Spacing.group
         ) {
-            Image(systemName: "house")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-                .frame(width: 40, height: 40)
-                .background(
-                    .quaternary,
-                    in: RoundedRectangle(
-                        cornerRadius: 8,
-                        style: .continuous
-                    )
-                )
-                .accessibilityHidden(true)
+            SeriesThumbnailView(
+                group: group,
+                cache: thumbnailCache
+            )
             VStack(alignment: .leading, spacing: 2) {
                 Text(presentation.title)
                     .font(CaptureDesign.Typography.sectionHeading)

@@ -284,7 +284,10 @@ public struct MissionWorkflowsView: View {
                         ],
                         id: \.self
                     ) { kind in
-                        Text(kind.rawValue).tag(kind)
+                        Text(
+                            MissionPresentation.regionKindName(kind)
+                        )
+                        .tag(kind)
                     }
                 }
             }
@@ -369,9 +372,13 @@ public struct MissionWorkflowsView: View {
                         ?? item.spec.plannedEntityID
                 )
                 Spacer()
-                Text(item.state.rawValue)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(
+                    TheaterAuthorityPresentation.asBuiltStateName(
+                        item.state
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
             if let deviation = item.deviation {
                 Text(
@@ -473,20 +480,29 @@ public struct MissionWorkflowsView: View {
             ForEach(repairRows) { row in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text(row.task.taskID)
-                            .font(.caption.monospaced())
-                        Text(row.task.issueCode)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                        Text(
+                            MissionPresentation.repairTaskKindName(
+                                row.task.kind
+                            )
+                        )
+                        .font(.callout.weight(.medium))
                         Spacer()
                         if row.task.requirement == .required {
-                            Text("required")
-                                .font(.caption2)
-                                .foregroundStyle(.orange)
+                            Text(
+                                MissionPresentation
+                                    .taskPlanRequirementName(
+                                        row.task.requirement
+                                    )
+                            )
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
                         }
                     }
                     Text(row.task.reason)
                         .font(.caption)
+                    // Task/issue/plan identifiers stay inspectable
+                    // for plan follow-up — never the row's title
+                    // (issue #412).
                     Text(
                             String(
                                 format: String(
@@ -499,6 +515,14 @@ public struct MissionWorkflowsView: View {
                         )
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                        "Plan \(row.planID) v\(row.planVersion) · \(row.task.kind.rawValue)"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                        "\(row.task.taskID) · \(row.task.issueCode) · Plan \(row.planID) v\(row.planVersion)"
+                    )
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
                     if let resolvedBy = row.resolvedByRevisionID {
                         Text(
                                 String(

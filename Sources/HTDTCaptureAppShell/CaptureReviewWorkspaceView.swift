@@ -1189,9 +1189,13 @@ public struct CaptureReviewWorkspaceView: View {
                 )
                 .font(.subheadline.weight(.semibold))
                 Spacer()
-                Text(flag.status.rawValue)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
+                Text(
+                    MissionPresentation.scanRevisitFlagStatusName(
+                        flag.status
+                    )
+                )
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
             }
 
             Text(flag.locationSummary)

@@ -571,7 +571,11 @@ public struct FieldEvidenceFormView: View {
                         ],
                             id: \.self
                         ) { unit in
-                            Text(unit.rawValue).tag(unit)
+                            Text(
+                                MissionPresentation.measurementUnitSymbol(
+                                    unit
+                                )
+                            ).tag(unit)
                         }
                     }
                     TextField(

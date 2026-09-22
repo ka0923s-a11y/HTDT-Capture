@@ -33,8 +33,12 @@ public struct ConnectedSpaceStatusView: View {
                     HStack {
                         Text(active.label)
                         Spacer()
-                        Text(active.kind.rawValue)
-                            .foregroundStyle(.secondary)
+                        Text(
+                            MissionPresentation.regionKindName(
+                                active.kind
+                            )
+                        )
+                        .foregroundStyle(.secondary)
                     }
                     Button("Complete region") {
                         onCompleteActiveSegment()
@@ -101,6 +105,12 @@ public struct ConnectedSpaceStatusView: View {
                                 regionLabel(portal.regionBID),
                                 portal.kind.rawValue
                             )
+                            "\(regionLabel(portal.regionAID)) ↔ "
+                                + "\(regionLabel(portal.regionBID)) "
+                                + "(\(portal.kind.rawValue))"
+                            "\(regionLabel(portal.regionAID)) ↔ "
+                                + "\(regionLabel(portal.regionBID)) "
+                                + "(\(MissionPresentation.portalKindName(portal.kind)))"
                         )
                         .font(.caption)
                     }
@@ -147,14 +157,21 @@ public struct CaptureTaskPlanChecklistView: View {
                     plan.roomName
                 )
             ) {
+            Section(
+                "Plan \(plan.planID) v\(plan.planVersion) — "
+                    + plan.roomName
+            ) {
+            Section(plan.roomName) {
+                // Plan identity stays inspectable but secondary — it
+                // is a reference, not the row's job (issue #412).
+                Text("Plan \(plan.planID) v\(plan.planVersion)")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
                 ForEach(plan.entityChecklist, id: \.itemID) { item in
                     row(
                         itemID: item.itemID,
-                        title:
-                            "\(item.entityType.rawValue)"
-                            + (item.channelRole.map {
-                                " · \($0.rawValue)"
-                            } ?? ""),
+                        title: MissionPresentation
+                            .entityTaskTitle(item),
                         requirement: item.requirement
                     )
                 }
@@ -164,7 +181,8 @@ public struct CaptureTaskPlanChecklistView: View {
                 ) { item in
                     row(
                         itemID: item.itemID,
-                        title: "measure: \(item.quantityType)",
+                        title: MissionPresentation
+                            .measurementTaskTitle(item),
                         requirement: item.requirement
                     )
                 }
@@ -174,7 +192,8 @@ public struct CaptureTaskPlanChecklistView: View {
                 ) { item in
                     row(
                         itemID: item.itemID,
-                        title: "review: \(item.surfaceKind)",
+                        title: MissionPresentation
+                            .surfaceTaskTitle(item),
                         requirement: item.requirement
                     )
                 }
@@ -194,21 +213,40 @@ public struct CaptureTaskPlanChecklistView: View {
             Image(systemName: symbol(for: outcome))
             VStack(alignment: .leading) {
                 Text(title)
-                Text(outcome.rawValue)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(
+                    MissionPresentation.taskPlanItemOutcomeName(
+                        outcome
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                Text(itemID)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
             }
             Spacer()
             if requirement == .required {
-                Text("required")
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
+                Text(
+                    MissionPresentation.taskPlanRequirementName(
+                        requirement
+                    )
+                )
+                .font(.caption2)
+                .foregroundStyle(.orange)
             }
-            Menu("Mark") {
-                Button("Skipped") {
+            Menu(String(localized: "Mark")) {
+                Button(
+                    MissionPresentation.taskPlanItemOutcomeName(
+                        .skipped
+                    )
+                ) {
                     onMark(itemID, .skipped)
                 }
-                Button("Unavailable") {
+                Button(
+                    MissionPresentation.taskPlanItemOutcomeName(
+                        .unavailable
+                    )
+                ) {
                     onMark(itemID, .unavailable)
                 }
             }
@@ -270,9 +308,12 @@ public struct AsBuiltVerificationStatusView: View {
                                 item.spec.label
                                     ?? item.spec.plannedEntityID
                             )
-                            Text(item.state.displayTitle)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            Text(
+                                TheaterAuthorityPresentation
+                                    .asBuiltStateName(item.state)
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         }
                         Spacer()
                         if let deviation = item.deviation {
@@ -287,29 +328,6 @@ public struct AsBuiltVerificationStatusView: View {
                     }
                 }
             }
-        }
-    }
-}
-
-private extension AsBuiltItemState {
-    /// User-facing verdict label (#356): `indeterminate` is a distinct
-    /// state — deviation plus the observation-uncertainty/alignment
-    /// band overlaps the tolerance boundary, or the policy required
-    /// inputs were never declared.
-    var displayTitle: String {
-        switch self {
-        case .pending:
-            return String(localized: "Pending")
-        case .verified:
-            return String(localized: "Verified")
-        case .deviated:
-            return String(localized: "Out of tolerance")
-        case .captured:
-            return String(localized: "Captured")
-        case .indeterminate:
-            return String(localized: "Indeterminate")
-        case .unavailable:
-            return String(localized: "Unavailable")
         }
     }
 }

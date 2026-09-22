@@ -470,7 +470,10 @@ public struct AnnotationEntityForm: View {
                             },
                             id: \.self
                         ) { token in
-                            Text(token.rawValue).tag(token.rawValue)
+                            Text(
+                                MissionPresentation
+                                    .referencePointSemanticsName(token)
+                            ).tag(token.rawValue)
                         }
                     }
                 }
