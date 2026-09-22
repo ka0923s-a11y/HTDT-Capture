@@ -285,17 +285,17 @@ public struct DerivedShapeTemporalFusionTracker: Sendable {
            vertical.isFinite
         {
             return VoxelKey(
-                x: Int(floor(point.position.x / voxel)),
-                y: Int(floor(vertical / voxel)),
-                z: Int(floor(point.position.y / voxel)),
+                x: floorToIntClamped(point.position.x / voxel),
+                y: floorToIntClamped(vertical / voxel),
+                z: floorToIntClamped(point.position.y / voxel),
                 hasVertical: true
             )
         }
 
         return VoxelKey(
-            x: Int(floor(point.position.x / voxel)),
+            x: floorToIntClamped(point.position.x / voxel),
             y: 0,
-            z: Int(floor(point.position.y / voxel)),
+            z: floorToIntClamped(point.position.y / voxel),
             hasVertical: false
         )
     }

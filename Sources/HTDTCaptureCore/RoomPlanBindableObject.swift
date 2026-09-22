@@ -85,8 +85,10 @@ public struct RoomPlanBindableObject: Sendable, Equatable, Identifiable {
     /// with the object's bounding box in object space, or nil when the
     /// ray misses the box.
     public func raycastEntryDistance(_ ray: SpatialRay) -> Float? {
-        let localFromWorld = worldFromObject.invertedRigid()
-        guard let localRay = try? SpatialRay(
+        guard
+            let localFromWorld =
+                try? worldFromObject.invertedRigid(),
+            let localRay = try? SpatialRay(
             origin: localFromWorld.applying(to: ray.origin),
             direction: localFromWorld.applying(toDirection: ray.direction)
         ) else {

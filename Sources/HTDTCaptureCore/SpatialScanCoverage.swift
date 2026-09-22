@@ -734,8 +734,8 @@ public struct SpatialScanCoverageSummary: Sendable, Equatable {
         cellSizeMeters: Double
     ) -> SpatialCoverageCellKey {
         SpatialCoverageCellKey(
-            x: Int(floor(point.x / cellSizeMeters)),
-            z: Int(floor(point.z / cellSizeMeters))
+            x: floorToIntClamped(point.x / cellSizeMeters),
+            z: floorToIntClamped(point.z / cellSizeMeters)
         )
     }
 }
@@ -1246,7 +1246,7 @@ public struct SpatialScanCoverageTracker: Sendable {
         for relativeY: Double,
         verticalCellSizeMeters: Double
     ) -> Int {
-        Int(floor(relativeY / verticalCellSizeMeters))
+        floorToIntClamped(relativeY / verticalCellSizeMeters)
     }
 
     static func elevationBucket(
@@ -1314,11 +1314,23 @@ public struct SpatialScanCoverageTracker: Sendable {
             return nil
         }
 
+        // Cell keys saturate at `Int.min`/`Int.max` under
+        // `floorToIntClamped`; expand the display window without
+        // overflowing so an extreme key still renders a degenerate
+        // bounds rather than trapping.
+        let clamped = min(
+            Int.max - displayRadiusCells,
+            max(Int.min + displayRadiusCells, center.x)
+        )
+        let clampedZ = min(
+            Int.max - displayRadiusCells,
+            max(Int.min + displayRadiusCells, center.z)
+        )
         return SpatialCoverageBounds(
-            minX: center.x - displayRadiusCells,
-            maxX: center.x + displayRadiusCells,
-            minZ: center.z - displayRadiusCells,
-            maxZ: center.z + displayRadiusCells
+            minX: clamped - displayRadiusCells,
+            maxX: clamped + displayRadiusCells,
+            minZ: clampedZ - displayRadiusCells,
+            maxZ: clampedZ + displayRadiusCells
         )
     }
 
@@ -1415,8 +1427,8 @@ public struct SpatialScanCoverageTracker: Sendable {
         cellSizeMeters: Double
     ) -> SpatialCoverageCellKey {
         SpatialCoverageCellKey(
-            x: Int(floor(point.x / cellSizeMeters)),
-            z: Int(floor(point.z / cellSizeMeters))
+            x: floorToIntClamped(point.x / cellSizeMeters),
+            z: floorToIntClamped(point.z / cellSizeMeters)
         )
     }
 

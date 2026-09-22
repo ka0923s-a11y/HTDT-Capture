@@ -55,7 +55,12 @@ public enum MeshRaycast {
             // Intersect in anchor-local space: transform the ray by the
             // inverse rigid transform so triangle math stays in the
             // payload's native coordinates.
-            let localFromWorld = anchor.worldFromAnchor.invertedRigid()
+            guard
+                let localFromWorld =
+                    try? anchor.worldFromAnchor.invertedRigid()
+            else {
+                continue
+            }
             let localOrigin = localFromWorld.applying(to: ray.origin)
             let localDirection =
                 localFromWorld.applying(toDirection: ray.direction)
