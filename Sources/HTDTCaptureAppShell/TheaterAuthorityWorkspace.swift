@@ -104,7 +104,7 @@ struct TheaterAuthoritySection: View {
         var title: String {
             switch self {
             case .surfaceSemantics:
-                return String(localized: "Surface authority")
+                return String(localized: "Target surface")
             case .surfaceConstruction:
                 return String(localized: "Construction observation")
             case .problemSurface:
@@ -122,7 +122,7 @@ struct TheaterAuthoritySection: View {
             case .speakerInstallation:
                 return String(localized: "Speaker installation")
             case .screenSemantics:
-                return String(localized: "Screen semantics")
+                return String(localized: "Screen")
             case .seatLayout:
                 return String(localized: "Seat layout")
             case .routingVerification:
@@ -897,38 +897,38 @@ struct TheaterAuthoritySection: View {
         else { return lines }
         switch draft {
         case .surfaceSemantics(let record):
-            lines.append(("Host", record.hostClassification.rawValue))
+            lines.append(("Host", TheaterAuthorityPresentation.hostClassificationName(record.hostClassification)))
             if let label = record.label {
                 lines.append(("Label", label))
             }
             lines += bindingLines(record.binding)
         case .surfaceConstruction(let record):
             lines.append(
-                ("Construction", record.constructionKind.rawValue)
+                ("Construction", TheaterAuthorityPresentation.constructionKindName(record.constructionKind))
             )
-            lines.append(("Source", record.source.rawValue))
+            lines.append(("Source", TheaterAuthorityPresentation.constructionSourceName(record.source)))
             if let detail = record.materialDetail {
                 lines.append(("Material", detail))
             }
             lines += bindingLines(record.binding)
         case .problemSurface(let record):
-            lines.append(("Kind", record.kind.rawValue))
+            lines.append(("Kind", TheaterAuthorityPresentation.problemSurfaceKindName(record.kind)))
             if let notes = record.notes {
                 lines.append(("Notes", notes))
             }
             lines += bindingLines(record.binding)
         case .constructionFeature(let record):
-            lines.append(("Kind", record.kind.rawValue))
+            lines.append(("Kind", TheaterAuthorityPresentation.constructionFeatureKindName(record.kind)))
             lines.append(
-                ("Confirmation", record.confirmationSource.rawValue)
+                ("Confirmation", TheaterAuthorityPresentation.confirmationSourceName(record.confirmationSource))
             )
             if let label = record.label {
                 lines.append(("Label", label))
             }
             lines += bindingLines(record.binding)
         case .roomStateObservation(let record):
-            lines.append(("Kind", record.kind.rawValue))
-            lines.append(("State", record.state.rawValue))
+            lines.append(("Kind", TheaterAuthorityPresentation.roomStateKindName(record.kind)))
+            lines.append(("State", TheaterAuthorityPresentation.roomStateValueName(record.state)))
             if let detail = record.stateDetail {
                 lines.append(("Detail", detail))
             }
@@ -952,7 +952,7 @@ struct TheaterAuthoritySection: View {
             lines.append(("Observed", record.observedAtUTC))
         case .inventoryItem(let record):
             lines.append(
-                ("Class", record.equipmentClass.rawValue)
+                ("Class", TheaterAuthorityPresentation.inventoryClassName(record.equipmentClass))
             )
             lines.append(("Label", record.userLabel))
             if let manufacturer = record.manufacturer {
@@ -965,11 +965,11 @@ struct TheaterAuthoritySection: View {
                 lines.append(("Rack", entityLabel(rack)))
             }
         case .furnitureSemantics(let record):
-            lines.append(("Category", record.category.rawValue))
+            lines.append(("Category", TheaterAuthorityPresentation.furnitureCategoryName(record.category)))
             lines.append(
-                ("Relevance", record.relevance.rawValue)
+                ("Relevance", TheaterAuthorityPresentation.furnitureRelevanceName(record.relevance))
             )
-            lines.append(("Source", record.source.rawValue))
+            lines.append(("Source", TheaterAuthorityPresentation.confirmationSourceName(record.source)))
             if let target = record.targetEntityID {
                 lines.append(("Entity", entityLabel(target)))
             }
@@ -978,7 +978,7 @@ struct TheaterAuthoritySection: View {
                 ("Speaker", entityLabel(record.speakerEntityID))
             )
             lines.append(
-                ("Mounting", record.mountingMode.rawValue)
+                ("Mounting", TheaterAuthorityPresentation.mountingModeName(record.mountingMode))
             )
             if let note = record.hardwareNote {
                 lines.append(("Hardware", note))
@@ -990,7 +990,7 @@ struct TheaterAuthoritySection: View {
             lines.append(
                 (
                     "Transparent",
-                    record.acousticallyTransparent.rawValue
+                    TheaterAuthorityPresentation.transparencyName(record.acousticallyTransparent)
                 )
             )
             if !record.behindScreenSpeakerEntityIDs.isEmpty {
@@ -1016,13 +1016,13 @@ struct TheaterAuthoritySection: View {
             lines.append(
                 (
                     "Output",
-                    record.channelRole?.rawValue
+                    record.channelRole.map(TheaterAuthorityPresentation.channelRoleName)
                         ?? record.outputLabel ?? ""
                 )
             )
-            lines.append(("Band", record.bandScope.rawValue))
+            lines.append(("Band", TheaterAuthorityPresentation.bandScopeName(record.bandScope)))
             lines.append(
-                ("State", record.verificationState.rawValue)
+                ("State", TheaterAuthorityPresentation.routingStateName(record.verificationState))
             )
             lines.append(
                 (
@@ -1032,7 +1032,7 @@ struct TheaterAuthoritySection: View {
                 )
             )
             if let method = record.verificationMethod {
-                lines.append(("Method", method.rawValue))
+                lines.append(("Method", TheaterAuthorityPresentation.routingMethodName(method)))
             }
             lines.append(("Observed", record.observedAtUTC))
         case .projectorCommissioning(let record):
@@ -1051,17 +1051,17 @@ struct TheaterAuthoritySection: View {
                 }
             }
             if let mount = record.mountOrientation {
-                lines.append(("Mount", mount.rawValue))
+                lines.append(("Mount", TheaterAuthorityPresentation.mountOrientationName(mount)))
             }
             if let focus = record.focusState {
-                lines.append(("Focus", focus.rawValue))
+                lines.append(("Focus", TheaterAuthorityPresentation.focusStateName(focus)))
             }
             lines.append(("Observed", record.observedAtUTC))
         case .installationAlignment(let record):
             lines.append(("Target", record.targetPlannedEntityID))
-            lines.append(("Mode", record.guidanceMode.rawValue))
+            lines.append(("Mode", TheaterAuthorityPresentation.guidanceModeName(record.guidanceMode)))
             lines.append(
-                ("Precision", record.precisionSufficiency.rawValue)
+                ("Precision", TheaterAuthorityPresentation.precisionName(record.precisionSufficiency))
             )
             lines.append(
                 ("Final entity", entityLabel(record.finalEntityID))
@@ -1207,19 +1207,19 @@ enum AuthorityRecordDraft: Identifiable {
         case .surfaceSemantics(let record):
             return record.label ?? record.authorityID.description
         case .surfaceConstruction(let record):
-            return record.constructionKind.rawValue
+            return TheaterAuthorityPresentation.constructionKindName(record.constructionKind)
         case .problemSurface(let record):
-            return record.kind.rawValue
+            return TheaterAuthorityPresentation.problemSurfaceKindName(record.kind)
         case .constructionFeature(let record):
-            return record.label ?? record.kind.rawValue
+            return record.label ?? TheaterAuthorityPresentation.constructionFeatureKindName(record.kind)
         case .roomStateObservation(let record):
-            return record.kind.rawValue
+            return TheaterAuthorityPresentation.roomStateKindName(record.kind)
         case .roomStateSnapshot(let record):
             return record.label
         case .inventoryItem(let record):
             return record.userLabel
         case .furnitureSemantics(let record):
-            return record.category.rawValue
+            return TheaterAuthorityPresentation.furnitureCategoryName(record.category)
         case .speakerInstallation(let record):
             return record.speakerEntityID.description
         case .screenSemantics(let record):
@@ -1227,7 +1227,7 @@ enum AuthorityRecordDraft: Identifiable {
         case .seatLayout(let record):
             return record.seatEntityID.description
         case .routingVerification(let record):
-            return record.channelRole?.rawValue
+            return record.channelRole.map(TheaterAuthorityPresentation.channelRoleName)
                 ?? record.outputLabel
                 ?? record.authorityID.description
         case .projectorCommissioning(let record):
@@ -1581,7 +1581,7 @@ private struct EntityPicker: View {
                 Text(String(localized: "None"))
                     .tag(AnnotationEntityID?.none)
                 ForEach(candidates, id: \.entityID) { entity in
-                    Text(entity.label + " · " + entity.type.rawValue)
+                    Text(entity.label + " · " + TheaterAuthorityPresentation.entityTypeName(entity.type))
                         .tag(AnnotationEntityID?.some(entity.entityID))
                 }
             }
@@ -1771,7 +1771,10 @@ private struct AuthorityRecordForm: View {
         Form {
             missionBanner
             if usesBinding {
-                Section("Surface binding") {
+                // #365: the primary path binds the record to a
+                // captured object by its human label; raw lineage
+                // tokens stay one disclosure away.
+                Section("Target surface") {
                     if !roomPlanSurfaces.isEmpty {
                         Picker(
                             "Captured RoomPlan element",
@@ -1800,14 +1803,6 @@ private struct AuthorityRecordForm: View {
                             }
                         }
                     }
-                    TextField(
-                        "RoomPlan surface ID",
-                        text: $roomPlanSurfaceID
-                    )
-                    TextField(
-                        "RoomPlan object ID",
-                        text: $roomPlanObjectID
-                    )
                     if !meshAnchors.isEmpty {
                         Picker(
                             "Captured mesh anchor",
@@ -1826,21 +1821,31 @@ private struct AuthorityRecordForm: View {
                             }
                         }
                     }
-                    TextField(
-                        "Mesh anchor UUID",
-                        text: $meshAnchorText
-                    )
-                    TextField(
-                        "Semantic entity ID",
-                        text: $semanticEntityID
-                    )
-                    TextField(
-                        "Polygon outline, one x,y,z per line",
-                        text: $polygonText,
-                        axis: .vertical
-                    )
+                    DisclosureGroup("Advanced binding") {
+                        TextField(
+                            "RoomPlan surface ID",
+                            text: $roomPlanSurfaceID
+                        )
+                        TextField(
+                            "RoomPlan object ID",
+                            text: $roomPlanObjectID
+                        )
+                        TextField(
+                            "Mesh anchor UUID",
+                            text: $meshAnchorText
+                        )
+                        TextField(
+                            "Semantic entity ID",
+                            text: $semanticEntityID
+                        )
+                        TextField(
+                            "Polygon outline, one x,y,z per line",
+                            text: $polygonText,
+                            axis: .vertical
+                        )
+                    }
                     Text(
-                        "At least one lineage anchor is required: a RoomPlan ID, mesh anchor, semantic ID, or polygon."
+                        "The record needs a captured element, mesh anchor, or manual binding to stay anchored."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1860,9 +1865,18 @@ private struct AuthorityRecordForm: View {
             }
 
             if let errorText {
+                // #365: a concise advisory up top; the raw error
+                // description stays under technical detail.
                 Section {
-                    Text(errorText)
-                        .foregroundStyle(.red)
+                    CaptureNotice(
+                        status: .needsReview,
+                        title: "Couldn't save",
+                        message:
+                            "The record could not be saved. Check the highlighted fields, or expand the technical detail."
+                    )
+                    DisclosureGroup("Technical detail") {
+                        CaptureTechnicalText(errorText)
+                    }
                 }
             }
         }
@@ -1875,7 +1889,11 @@ private struct AuthorityRecordForm: View {
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button(String(localized: "Add")) {
+                Button(
+                    editing == nil
+                        ? String(localized: "Add")
+                        : String(localized: "Save changes")
+                ) {
                     produce()
                 }
             }
@@ -1950,10 +1968,10 @@ private struct AuthorityRecordForm: View {
 
     private var surfaceSemanticsSection: some View {
         Group {
-            Section("Surface authority") {
+            Section("Target surface") {
                 TextField("Label", text: $label)
                 Picker(
-                    "Host classification",
+                    "Host",
                     selection: $hostClassification
                 ) {
                     ForEach(
@@ -1964,8 +1982,16 @@ private struct AuthorityRecordForm: View {
                         ],
                         id: \.self
                     ) { value in
-                        Text(value.rawValue).tag(value)
+                        Text(TheaterAuthorityPresentation.hostClassificationName(value)).tag(value)
                     }
+                }
+                if hostClassification == .unknown {
+                    Text(
+                        TheaterAuthorityPresentation
+                            .unknownIsRecordedNote
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
             Section("Treatment placement") {
@@ -2002,7 +2028,7 @@ private struct AuthorityRecordForm: View {
     }
 
     private var surfaceConstructionSection: some View {
-        Section("Construction observation") {
+        Section("Construction") {
             Picker(
                 "Construction",
                 selection: $constructionKind
@@ -2011,7 +2037,7 @@ private struct AuthorityRecordForm: View {
                     SurfaceConstructionKind.allCases,
                     id: \.self
                 ) { value in
-                    Text(value.rawValue).tag(value)
+                    Text(TheaterAuthorityPresentation.constructionKindName(value)).tag(value)
                 }
             }
             TextField(
@@ -2023,8 +2049,16 @@ private struct AuthorityRecordForm: View {
                     ConstructionObservationSource.allCases,
                     id: \.self
                 ) { value in
-                    Text(value.rawValue).tag(value)
+                    Text(TheaterAuthorityPresentation.constructionSourceName(value)).tag(value)
                 }
+            }
+            if constructionSource == .other {
+                Text(
+                    TheaterAuthorityPresentation
+                        .unknownIsRecordedNote
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
         }
     }
@@ -2036,7 +2070,7 @@ private struct AuthorityRecordForm: View {
                     ProblemSurfaceKind.allCases,
                     id: \.self
                 ) { value in
-                    Text(value.rawValue).tag(value)
+                    Text(TheaterAuthorityPresentation.problemSurfaceKindName(value)).tag(value)
                 }
             }
             TextField(
@@ -2053,7 +2087,7 @@ private struct AuthorityRecordForm: View {
                     ConstructionFeatureKind.allCases,
                     id: \.self
                 ) { value in
-                    Text(value.rawValue).tag(value)
+                    Text(TheaterAuthorityPresentation.constructionFeatureKindName(value)).tag(value)
                 }
             }
             Picker(
@@ -2064,7 +2098,7 @@ private struct AuthorityRecordForm: View {
                     SemanticConfirmationSource.allCases,
                     id: \.self
                 ) { value in
-                    Text(value.rawValue).tag(value)
+                    Text(TheaterAuthorityPresentation.confirmationSourceName(value)).tag(value)
                 }
             }
             TextField(
@@ -2076,13 +2110,13 @@ private struct AuthorityRecordForm: View {
 
     private var roomStateObservationSection: some View {
         Group {
-            Section("Room state observation") {
+            Section("Room state") {
                 Picker("Kind", selection: $roomStateKind) {
                     ForEach(
                         RoomStateKind.allCases,
                         id: \.self
                     ) { value in
-                        Text(value.rawValue).tag(value)
+                        Text(TheaterAuthorityPresentation.roomStateKindName(value)).tag(value)
                     }
                 }
                 Picker("State", selection: $roomStateValue) {
@@ -2090,7 +2124,7 @@ private struct AuthorityRecordForm: View {
                         RoomStateValue.allCases,
                         id: \.self
                     ) { value in
-                        Text(value.rawValue).tag(value)
+                        Text(TheaterAuthorityPresentation.roomStateValueName(value)).tag(value)
                     }
                 }
                 TextField(
@@ -2175,9 +2209,9 @@ private struct AuthorityRecordForm: View {
                             )
                         ) {
                             Text(
-                                observation.kind.rawValue
+                                TheaterAuthorityPresentation.roomStateKindName(observation.kind)
                                     + " · "
-                                    + observation.state.rawValue
+                                    + TheaterAuthorityPresentation.roomStateValueName(observation.state)
                             )
                         }
                     }
@@ -2197,7 +2231,7 @@ private struct AuthorityRecordForm: View {
                         InventoryEquipmentClass.allCases,
                         id: \.self
                     ) { value in
-                        Text(value.rawValue).tag(value)
+                        Text(TheaterAuthorityPresentation.inventoryClassName(value)).tag(value)
                     }
                 }
                 TextField(
@@ -2234,7 +2268,7 @@ private struct AuthorityRecordForm: View {
                     TextField("Z (m)", text: $posZ)
                 }
             }
-            Section("Equipment authority") {
+            Section("Equipment") {
                 Toggle(
                     "Attach equipment reference",
                     isOn: $includeEquipmentRef
@@ -2278,7 +2312,7 @@ private struct AuthorityRecordForm: View {
                         FurnitureCategory.allCases,
                         id: \.self
                     ) { value in
-                        Text(value.rawValue).tag(value)
+                        Text(TheaterAuthorityPresentation.furnitureCategoryName(value)).tag(value)
                     }
                 }
                 Picker(
@@ -2289,7 +2323,7 @@ private struct AuthorityRecordForm: View {
                         FurnitureRelevance.allCases,
                         id: \.self
                     ) { value in
-                        Text(value.rawValue).tag(value)
+                        Text(TheaterAuthorityPresentation.furnitureRelevanceName(value)).tag(value)
                     }
                 }
                 Picker(
@@ -2300,7 +2334,7 @@ private struct AuthorityRecordForm: View {
                         SemanticConfirmationSource.allCases,
                         id: \.self
                     ) { value in
-                        Text(value.rawValue).tag(value)
+                        Text(TheaterAuthorityPresentation.confirmationSourceName(value)).tag(value)
                     }
                 }
             }
@@ -2324,7 +2358,7 @@ private struct AuthorityRecordForm: View {
                         SpeakerMountingMode.allCases,
                         id: \.self
                     ) { value in
-                        Text(value.rawValue).tag(value)
+                        Text(TheaterAuthorityPresentation.mountingModeName(value)).tag(value)
                     }
                 }
                 TextField(
@@ -2345,7 +2379,7 @@ private struct AuthorityRecordForm: View {
 
     private var screenSemanticsSection: some View {
         Group {
-            Section("Screen semantics") {
+            Section("Screen") {
                 EntityPicker(
                     title: String(localized: "Screen"),
                     entities: entities,
@@ -2360,7 +2394,7 @@ private struct AuthorityRecordForm: View {
                         AcousticTransparencyState.allCases,
                         id: \.self
                     ) { value in
-                        Text(value.rawValue).tag(value)
+                        Text(TheaterAuthorityPresentation.transparencyName(value)).tag(value)
                     }
                 }
                 if transparency != .unknown {
@@ -2373,7 +2407,7 @@ private struct AuthorityRecordForm: View {
                                 .allCases,
                             id: \.self
                         ) { value in
-                            Text(value.rawValue).tag(value)
+                            Text(TheaterAuthorityPresentation.transparencySourceName(value)).tag(value)
                         }
                     }
                 }
@@ -2410,7 +2444,7 @@ private struct AuthorityRecordForm: View {
                             },
                         id: \.observationID
                     ) { observation in
-                        Text(observation.state.rawValue)
+                        Text(TheaterAuthorityPresentation.roomStateValueName(observation.state))
                             .tag(
                                 RoomStateObservationID?
                                     .some(observation.observationID)
@@ -2601,7 +2635,7 @@ private struct AuthorityRecordForm: View {
                     ) {
                         Text(
                             entity.label + " · "
-                                + entity.type.rawValue
+                                + TheaterAuthorityPresentation.entityTypeName(entity.type)
                         )
                     }
                 }
@@ -2612,8 +2646,16 @@ private struct AuthorityRecordForm: View {
                         RoutingVerificationState.allCases,
                         id: \.self
                     ) { value in
-                        Text(value.rawValue).tag(value)
+                        Text(TheaterAuthorityPresentation.routingStateName(value)).tag(value)
                     }
+                }
+                if routingState == .unknown {
+                    Text(
+                        TheaterAuthorityPresentation
+                            .unknownIsRecordedNote
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
                 if routingState != .unknown {
                     Picker("Method", selection: $routingMethod) {
@@ -2621,7 +2663,7 @@ private struct AuthorityRecordForm: View {
                             RoutingVerificationMethod.allCases,
                             id: \.self
                         ) { value in
-                            Text(value.rawValue).tag(value)
+                            Text(TheaterAuthorityPresentation.routingMethodName(value)).tag(value)
                         }
                     }
                     if routingState == .verified,
@@ -2639,7 +2681,7 @@ private struct AuthorityRecordForm: View {
                         RoutingBandScope.allCases,
                         id: \.self
                     ) { value in
-                        Text(value.rawValue).tag(value)
+                        Text(TheaterAuthorityPresentation.bandScopeName(value)).tag(value)
                     }
                 }
             }
@@ -2656,7 +2698,7 @@ private struct AuthorityRecordForm: View {
                         }.map {
                             (
                                 id: $0.authorityID,
-                                label: $0.channelRole?.rawValue
+                                label: $0.channelRole.map(TheaterAuthorityPresentation.channelRoleName)
                                     ?? $0.outputLabel
                                     ?? $0.authorityID.description
                             )
@@ -2703,7 +2745,7 @@ private struct AuthorityRecordForm: View {
                         ProjectorMountOrientation.allCases,
                         id: \.self
                     ) { value in
-                        Text(value.rawValue).tag(value.rawValue)
+                        Text(TheaterAuthorityPresentation.mountOrientationName(value)).tag(value.rawValue)
                     }
                 }
             }
@@ -2751,7 +2793,7 @@ private struct AuthorityRecordForm: View {
                         ProjectorFocusState.allCases,
                         id: \.self
                     ) { value in
-                        Text(value.rawValue).tag(value.rawValue)
+                        Text(TheaterAuthorityPresentation.focusStateName(value)).tag(value.rawValue)
                     }
                 }
                 TextField(
@@ -2819,7 +2861,7 @@ private struct AuthorityRecordForm: View {
                             Text(
                                 (spec.label
                                     ?? spec.plannedEntityID)
-                                    + " · " + spec.entityType.rawValue
+                                    + " · " + TheaterAuthorityPresentation.entityTypeName(spec.entityType)
                             )
                             .tag(spec.plannedEntityID)
                         }
@@ -2844,7 +2886,7 @@ private struct AuthorityRecordForm: View {
                         AnnotationEntityType.allCases,
                         id: \.self
                     ) { value in
-                        Text(value.rawValue).tag(value)
+                        Text(TheaterAuthorityPresentation.entityTypeName(value)).tag(value)
                     }
                 }
                 EntityPicker(
@@ -2871,7 +2913,7 @@ private struct AuthorityRecordForm: View {
                         AlignmentGuidanceMode.allCases,
                         id: \.self
                     ) { value in
-                        Text(value.rawValue).tag(value)
+                        Text(TheaterAuthorityPresentation.guidanceModeName(value)).tag(value)
                     }
                 }
                 if guidanceMode == .spatialDelta {
@@ -2902,7 +2944,7 @@ private struct AuthorityRecordForm: View {
                                 ],
                                 id: \.self
                             ) { value in
-                                Text(value.rawValue).tag(value)
+                                Text(TheaterAuthorityPresentation.alignmentMechanismName(value)).tag(value)
                             }
                         }
                         TextField(
@@ -2942,7 +2984,7 @@ private struct AuthorityRecordForm: View {
                         PrecisionSufficiency.allCases,
                         id: \.self
                     ) { value in
-                        Text(value.rawValue).tag(value)
+                        Text(TheaterAuthorityPresentation.precisionName(value)).tag(value)
                     }
                 }
             }
@@ -3322,7 +3364,7 @@ private struct AuthorityRecordForm: View {
                 facingElevation = heading.elevation
             }
         case .routingVerification(let record):
-            channelRoleText = record.channelRole?.rawValue ?? ""
+            channelRoleText = record.channelRole.map(TheaterAuthorityPresentation.channelRoleName) ?? ""
             outputLabelText = record.outputLabel ?? ""
             sourceItemSelection = record.sourceInventoryItemID
             bandScope = record.bandScope
@@ -3399,20 +3441,20 @@ private struct AuthorityRecordForm: View {
                 (
                     $0.authorityID,
                     "construction · "
-                        + $0.constructionKind.rawValue
+                        + TheaterAuthorityPresentation.constructionKindName($0.constructionKind)
                 )
             }
         )
         options += rows(
             authorities.problemSurfaces.map {
-                ($0.authorityID, "problem · " + $0.kind.rawValue)
+                ($0.authorityID, "problem · " + TheaterAuthorityPresentation.problemSurfaceKindName($0.kind))
             }
         )
         options += rows(
             authorities.constructionFeatures.map {
                 (
                     $0.authorityID,
-                    "feature · " + $0.kind.rawValue
+                    "feature · " + TheaterAuthorityPresentation.constructionFeatureKindName($0.kind)
                 )
             }
         )
@@ -3429,7 +3471,7 @@ private struct AuthorityRecordForm: View {
                 (
                     $0.authorityID,
                     "installation · "
-                        + $0.mountingMode.rawValue
+                        + TheaterAuthorityPresentation.mountingModeName($0.mountingMode)
                 )
             }
         )
@@ -3444,7 +3486,8 @@ private struct AuthorityRecordForm: View {
             .map {
                 (
                     $0.authorityID,
-                    $0.kind.rawValue
+                    TheaterAuthorityPresentation
+                        .constructionFeatureKindName($0.kind)
                         + " · "
                         + ($0.label ?? "")
                 )
@@ -3962,7 +4005,7 @@ struct EvidenceReferenceSelector: View {
     @Binding var selectedEvidenceRefs: Set<String>
 
     var body: some View {
-        Section(String(localized: "Linked evidence frames")) {
+        Section(String(localized: "Evidence")) {
             ForEach(availableEvidenceRefs, id: \.self) { reference in
                 Toggle(
                     isOn: Binding(
