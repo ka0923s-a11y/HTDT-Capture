@@ -51,6 +51,8 @@ private struct HTDTCaptureHostView: View {
                 coordinator.annotationRevisionSeed,
             equipmentCatalog:
                 coordinator.equipmentCatalog,
+            operatorRoster:
+                coordinator.operatorRoster,
             equipmentCatalogLibrary:
                 coordinator.equipmentCatalogLibrary,
             taskPlan: coordinator.taskPlan,
@@ -332,6 +334,9 @@ private struct HTDTCaptureHostView: View {
                 deactivateMission:
                     coordinator.deactivateMission,
                 archiveMission: coordinator.archiveMission,
+                completeMission: coordinator.completeMission,
+                updateMissionUserNote:
+                    coordinator.updateMissionUserNote,
                 evaluateMissionDependencies:
                     coordinator.evaluateMissionDependencies,
                 pairDestinationPayload:
@@ -437,6 +442,8 @@ private struct HTDTCaptureHostView: View {
                     coordinator.bindFieldNote,
                 flagEvidenceFrameForPrivacy:
                     coordinator.flagEvidenceFrameForPrivacy,
+                unflagEvidenceFrameForPrivacy:
+                    coordinator.unflagEvidenceFrameForPrivacy,
                 collectSupportDiagnostics:
                     coordinator.collectSupportDiagnostics,
                 openFieldReturnWorkspace:
@@ -454,7 +461,11 @@ private struct HTDTCaptureHostView: View {
                 sendFieldReturnToHTDT:
                     coordinator.sendFieldReturnToHTDT,
                 fieldReturnArtifactURL:
-                    coordinator.fieldReturnArtifactURL
+                    coordinator.fieldReturnArtifactURL,
+                updateOperatorRoster:
+                    coordinator.updateOperatorRoster,
+                removeFromOperatorRoster:
+                    coordinator.removeFromOperatorRoster
             )
         )
         .onOpenURL { url in
@@ -755,6 +766,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var taskPlan: HTDTCaptureTaskPlan?
     private let equipmentCatalogStore =
         HTDTCaptureHostCoordinator.makeEquipmentCatalogLibrary()
+    /// App-local operator roster (#458): Author identities saved once
+    /// on this device, persisted beside the equipment catalog at the
+    /// capture root — never inside a bundle.
+    private let operatorRosterStore =
+        HTDTCaptureHostCoordinator.makeOperatorRosterStore()
+    /// Profiles remembered on this device (#458), mirrored to the
+    /// Operators sheet.
+    @Published private(set)
+    var operatorRoster: [OperatorProfile] = []
 
     /// Visual presentation for each retained evidence frame (#255),
     /// refreshed whenever the workspace's linkable ref set changes.
@@ -1195,6 +1215,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             equipmentCatalogLibrary = equipmentCatalogStore.list()
             equipmentCatalog = equipmentCatalogStore.active()?.snapshot
         }
+
+        // #458: restore the app-local operator roster — saved Author
+        // profiles survive relaunch and are offered for reuse in the
+        // Operators sheet of every later capture.
+        operatorRoster =
+            (try? operatorRosterStore?.load().operators) ?? []
 
         #if canImport(UIKit)
         memoryWarningCancellable =
@@ -6513,6 +6539,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
         let inbox = HTDTMissionInboxStore(captureRoot: captureRoot)
+        // #456: advance each record's lifecycle from the associations
+        // already on disk — an associated committed artifact is
+        // `finalized`, a staged send is `delivered`.
+        _ = try? inbox.reconcileLifecycles(
+            inventory: persistedInventory,
+            deliveryQueue: HTDTDeliveryQueue(
+                captureRoot: captureRoot
+            )
+        )
         missionRecords = (try? inbox.records()) ?? []
         let activeRecord = try? inbox.activeMissionRecord()
         activeMissionRecordID = activeRecord?.recordID
@@ -6814,6 +6849,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
+    /// Inbox import shared by every mission entry point (#386/#457):
+    /// envelopes and bare plans land as mission records with the
+    /// dedup/supersession contract intact.
+    private func importMissionEnvelopeData(_ data: Data) throws {
+        guard let store = missionInboxStore else {
+            throw RepairTaskError.unreadableDocument
+        }
+        let outcome = try store.importMission(data: data)
+        refreshMissionDeliveryStores()
+        switch outcome {
+        case .imported:
+            workingSetStatus = String(localized: "Mission imported")
+        case .duplicate:
+            workingSetStatus = String(localized: "This mission is already in the inbox")
+        case .superseding:
+            workingSetStatus = String(localized: "Mission imported; the replaced mission is marked superseded")
+        }
+    }
+
     /// Imports a mission package file — envelope or bare task plan —
     /// into the inbox (issue #386).
     func importMissionPackage(_ url: URL) async {
@@ -6824,23 +6878,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 url.stopAccessingSecurityScopedResource()
             }
         }
-        guard let store = missionInboxStore,
+        guard missionInboxStore != nil,
               let data = try? Data(contentsOf: url)
         else {
             workingSetStatus = String(localized: "The mission package could not be read")
             return
         }
         do {
-            let outcome = try store.importMission(data: data)
-            refreshMissionDeliveryStores()
-            switch outcome {
-            case .imported:
-                workingSetStatus = String(localized: "Mission imported")
-            case .duplicate:
-                workingSetStatus = String(localized: "This mission is already in the inbox")
-            case .superseding:
-                workingSetStatus = String(localized: "Mission imported; the replaced mission is marked superseded")
-            }
+            try importMissionEnvelopeData(data)
         } catch {
             workingSetStatus = String(
                 format: String(localized: "Mission import failed: %@"),
@@ -6985,6 +7030,40 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             recordID: recordID,
             .archived
         )
+        refreshMissionDeliveryStores()
+    }
+
+    /// Closes a mission whose field work or delivery already landed
+    /// (#456) — the explicit counterpart of the derived states.
+    func completeMission(_ recordID: String) async {
+        guard let store = missionInboxStore else { return }
+        do {
+            try store.completeMission(recordID: recordID)
+        } catch {
+            workingSetStatus = String(
+                format: String(
+                    localized: "Mission cannot be completed: %@"
+                ),
+                String(describing: error)
+            )
+        }
+        refreshMissionDeliveryStores()
+    }
+
+    /// Persists the operator's mission annotation (#463) — operator
+    /// truth only, never written into the mission payload.
+    func updateMissionUserNote(
+        _ recordID: String,
+        _ note: String?
+    ) async {
+        guard let store = missionInboxStore else { return }
+        do {
+            try store.setUserNote(recordID: recordID, note)
+        } catch {
+            workingSetStatus = String(
+                localized: "The mission note could not be saved"
+            )
+        }
         refreshMissionDeliveryStores()
     }
 
@@ -9121,6 +9200,30 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
+    /// #460: records the paired clearing note — the flag is advisory,
+    /// so the operator must be able to undo it without losing the
+    /// provenance trail (declare/revoke precedent).
+    func unflagEvidenceFrameForPrivacy(_ frameID: EvidenceFrameID) {
+        guard let store = workingSetStore else { return }
+        let seconds = latestScanTimestampSeconds ?? 0
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await store.recordAdvisoryNote(
+                    CaptureAdvisoryNote(
+                        kind: .privacyFlagCleared,
+                        sessionTimestampSeconds: seconds,
+                        detail: "frame=\(frameID.description)"
+                    )
+                )
+                self.refreshReviewWorkspace()
+            } catch {
+                self.workingSetStatus = String(localized: "Privacy flag could not be saved") + " ["
+                    + Self.persistenceDiagnostic(error) + "]"
+            }
+        }
+    }
+
     // MARK: - Support & Diagnostics (#389)
 
     /// Collects a privacy-reviewed app diagnostic package (#389).
@@ -9995,6 +10098,44 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             )
         }
+    }
+
+    /// #458: the roster file sits directly under the capture root —
+    /// outside `finalized/`, `exports/` and `working/` — for the same
+    /// reason the equipment catalog does: the persisted-capture
+    /// inventory must never classify app-owned identity metadata as a
+    /// capture artifact.
+    private static func makeOperatorRosterStore()
+        -> HTDTOperatorProfileRosterStore?
+    {
+        captureRootDirectory().map {
+            HTDTOperatorProfileRosterStore(captureRoot: $0)
+        }
+    }
+
+    /// #458: remember an operator profile app-wide (upsert by
+    /// `operator_id`). Called when the workspace saves an Author
+    /// profile — committed captures keep their own immutable copy.
+    func updateOperatorRoster(_ profile: OperatorProfile) {
+        guard let store = operatorRosterStore,
+              let roster = try? store.upsert(profile)
+        else {
+            return
+        }
+        operatorRoster = roster.operators
+    }
+
+    /// #458: forget a roster profile; in-capture records keep the
+    /// copy they already committed.
+    func removeFromOperatorRoster(
+        operatorID: OperatorProfileID
+    ) {
+        guard let store = operatorRosterStore,
+              let roster = try? store.remove(operatorID: operatorID)
+        else {
+            return
+        }
+        operatorRoster = roster.operators
     }
 
     private func continueBeginCapture() async {
@@ -12928,6 +13069,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         try stateMachine.apply(event)
         state = stateMachine.state
         lastFailure = stateMachine.lastFailure
+        // #456: entering Review from a live scan under an active
+        // mission completes the field-capture leg of its lifecycle;
+        // the store only advances `in_progress` records.
+        if case .beginReview = event,
+           state == .reviewing,
+           let missionID = activeMissionRecordID {
+            try? missionInboxStore?.noteFieldCaptureCompleted(
+                recordID: missionID
+            )
+        }
         // #437: a rejection flag lives only while the surface that
         // shows it is active — entering `.validating` (a retry) or
         // leaving Review/finalized/failed clears it.
@@ -13116,6 +13267,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             from: data
         ).schema
         switch schema {
+        case HTDTMissionPackage.schema:
+            // #457: a mission envelope picked on the document import
+            // belongs to the inbox — every mission import affordance
+            // accepts every mission payload shape.
+            try importMissionEnvelopeData(data)
         case HTDTCaptureTaskPlan.schema:
             let planImport = try CaptureTaskPlanImport(data: data)
             captureTaskPlanImport = planImport

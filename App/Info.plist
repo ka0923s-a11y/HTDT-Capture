@@ -108,8 +108,31 @@
             <string>Alternate</string>
             <key>LSItemContentTypes</key>
             <array>
+                <string>com.hometheaterdigitaltwin.capture-mission</string>
                 <string>public.json</string>
             </array>
+        </dict>
+    </array>
+    <key>UTImportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.json</string>
+            </array>
+            <key>UTTypeDescription</key>
+            <string>HTDT Mission Package</string>
+            <key>UTTypeIdentifier</key>
+            <string>com.hometheaterdigitaltwin.capture-mission</string>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>htdtmission</string>
+                </array>
+                <key>public.mime-type</key>
+                <string>application/vnd.htdt.mission+json</string>
+            </dict>
         </dict>
     </array>
     <key>LSSupportsOpeningDocumentsInPlace</key>

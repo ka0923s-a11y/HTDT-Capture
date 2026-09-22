@@ -13,6 +13,9 @@ struct EvidenceContactSheetView: View {
     let removeEvidenceFrame:
         (EvidenceFrameID) async -> Void
     let flagForPrivacy: (EvidenceFrameID) -> Void
+    /// #460: clears a frame's privacy flag — the paired action of
+    /// `flagForPrivacy`.
+    let unflagForPrivacy: (EvidenceFrameID) -> Void
 
     @State private var filter: EvidenceContactSheetFilter = .all
     @State private var sort: EvidenceContactSheetSort = .captureTime
@@ -312,8 +315,14 @@ struct EvidenceContactSheetView: View {
             }
         }
         .contextMenu {
-            Button("Flag for privacy review") {
-                flagForPrivacy(item.item.frameID)
+            if item.privacyFlagged {
+                Button("Remove privacy flag") {
+                    unflagForPrivacy(item.item.frameID)
+                }
+            } else {
+                Button("Flag for privacy review") {
+                    flagForPrivacy(item.item.frameID)
+                }
             }
         }
         .accessibilityElement(children: .combine)

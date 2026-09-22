@@ -211,6 +211,11 @@ public struct CaptureRootActions {
     public let startMission: (String) async -> Void
     public let deactivateMission: () async -> Void
     public let archiveMission: (String) async -> Void
+    /// Closes a mission whose field work or delivery landed (#456).
+    public let completeMission: (String) async -> Void
+    /// Persists the operator's mission annotation (#463).
+    public let updateMissionUserNote:
+        (String, String?) async -> Void
     public let evaluateMissionDependencies:
         (String) async throws -> HTDTMissionDependencyReport
     /// Destination pairing (#379): decode+validate a pasted/scanned
@@ -385,10 +390,19 @@ public struct CaptureRootActions {
     /// sheet (advisory flag — never deletes or mutates pixels).
     public let flagEvidenceFrameForPrivacy:
         (EvidenceFrameID) -> Void
+    /// #460: clears a frame's privacy flag — the paired revocation of
+    /// `flagEvidenceFrameForPrivacy`.
+    public let unflagEvidenceFrameForPrivacy:
+        (EvidenceFrameID) -> Void
     /// #389 Support & Diagnostics: collect a privacy-reviewed
     /// diagnostic package independent of any capture bundle.
     public let collectSupportDiagnostics:
         () async throws -> SupportDiagnosticsPackage
+    /// #458: app-local operator roster mutations — the workspace
+    /// remembers each saved Author profile app-wide and lets the
+    /// operator forget one; committed captures keep their own copy.
+    public let updateOperatorRoster: (OperatorProfile) -> Void
+    public let removeFromOperatorRoster: (OperatorProfileID) -> Void
     /// #400 non-spatial field mission returns: open (or resume) the
     /// field-return workspace for a mission record, persist a draft
     /// edit, finalize it into a `.htdtfieldreturn` artifact, and list
@@ -580,6 +594,9 @@ public struct CaptureRootActions {
         startMission: @escaping (String) async -> Void = { _ in },
         deactivateMission: @escaping () async -> Void = {},
         archiveMission: @escaping (String) async -> Void = { _ in },
+        completeMission: @escaping (String) async -> Void = { _ in },
+        updateMissionUserNote: @escaping
+            (String, String?) async -> Void = { _, _ in },
         evaluateMissionDependencies: @escaping
             (String) async throws -> HTDTMissionDependencyReport = { _ in
                 HTDTMissionDependencyReport()
@@ -695,6 +712,8 @@ public struct CaptureRootActions {
             (CaptureFieldNoteID, String) -> Void = { _, _ in },
         flagEvidenceFrameForPrivacy: @escaping
             (EvidenceFrameID) -> Void = { _ in },
+        unflagEvidenceFrameForPrivacy: @escaping
+            (EvidenceFrameID) -> Void = { _ in },
         collectSupportDiagnostics: @escaping
             () async throws -> SupportDiagnosticsPackage = {
                 throw SupportDiagnosticsError.emptyPackage
@@ -720,7 +739,11 @@ public struct CaptureRootActions {
             (HTDTFieldReturnID, HTDTHandoffDestination) async
                 -> Void = { _, _ in },
         fieldReturnArtifactURL: @escaping
-            (HTDTFieldReturnID) -> URL? = { _ in nil }
+            (HTDTFieldReturnID) -> URL? = { _ in nil },
+        updateOperatorRoster: @escaping
+            (OperatorProfile) -> Void = { _ in },
+        removeFromOperatorRoster: @escaping
+            (OperatorProfileID) -> Void = { _ in }
     ) {
         self.beginCapture = beginCapture
         self.beginScanning = beginScanning
@@ -817,6 +840,8 @@ public struct CaptureRootActions {
         self.startMission = startMission
         self.deactivateMission = deactivateMission
         self.archiveMission = archiveMission
+        self.completeMission = completeMission
+        self.updateMissionUserNote = updateMissionUserNote
         self.evaluateMissionDependencies =
             evaluateMissionDependencies
         self.pairDestinationPayload = pairDestinationPayload
@@ -871,6 +896,8 @@ public struct CaptureRootActions {
         self.bindFieldNote = bindFieldNote
         self.flagEvidenceFrameForPrivacy =
             flagEvidenceFrameForPrivacy
+        self.unflagEvidenceFrameForPrivacy =
+            unflagEvidenceFrameForPrivacy
         self.collectSupportDiagnostics = collectSupportDiagnostics
         self.openFieldReturnWorkspace = openFieldReturnWorkspace
         self.persistFieldReturnDraft = persistFieldReturnDraft
@@ -880,6 +907,8 @@ public struct CaptureRootActions {
         self.preflightFieldReturn = preflightFieldReturn
         self.sendFieldReturnToHTDT = sendFieldReturnToHTDT
         self.fieldReturnArtifactURL = fieldReturnArtifactURL
+        self.updateOperatorRoster = updateOperatorRoster
+        self.removeFromOperatorRoster = removeFromOperatorRoster
     }
 }
 
@@ -943,6 +972,9 @@ public struct CaptureRootView: View {
     /// annotation workspace (#211). Survives annotation cancel → Review
     /// → re-enter and relaunch; never part of capture-bundle authority.
     public let equipmentCatalog: HTDTEquipmentCatalogSnapshot?
+    /// #458: profiles remembered on this device for reuse across
+    /// captures — fed to the Operators sheet in the workspace.
+    public let operatorRoster: [OperatorProfile]
     /// Every snapshot stored in the host's catalog library (#302); the
     /// workspace renders identity rows and explicit switching.
     public let equipmentCatalogLibrary:
@@ -1179,6 +1211,7 @@ public struct CaptureRootView: View {
         annotationAuthorityCommitted: Bool = false,
         annotationRevisionSeed: AnnotationWorkspaceSeed? = nil,
         equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil,
+        operatorRoster: [OperatorProfile] = [],
         equipmentCatalogLibrary:
             [HTDTEquipmentCatalogLibrary.StoredCatalog] = [],
         taskPlan: HTDTCaptureTaskPlan? = nil,
@@ -1302,6 +1335,7 @@ public struct CaptureRootView: View {
             annotationAuthorityCommitted
         self.annotationRevisionSeed = annotationRevisionSeed
         self.equipmentCatalog = equipmentCatalog
+        self.operatorRoster = operatorRoster
         self.equipmentCatalogLibrary = equipmentCatalogLibrary
         self.taskPlan = taskPlan
         self.taskPlanMission = taskPlanMission
@@ -1684,6 +1718,11 @@ public struct CaptureRootView: View {
                     equipmentCatalogLibrary: equipmentCatalogLibrary,
                     onSelectEquipmentCatalog:
                         actions.selectEquipmentCatalog,
+                    operatorRoster: operatorRoster,
+                    onUpdateOperatorRoster:
+                        actions.updateOperatorRoster,
+                    onRemoveFromOperatorRoster:
+                        actions.removeFromOperatorRoster,
                     taskPlan: taskPlan,
                     scanEquipmentLabel: {
                         try await actions.scanEquipmentLabel()
@@ -2018,6 +2057,9 @@ public struct CaptureRootView: View {
                             flagEvidenceFrameForPrivacy:
                                 actions
                                     .flagEvidenceFrameForPrivacy,
+                            unflagEvidenceFrameForPrivacy:
+                                actions
+                                    .unflagEvidenceFrameForPrivacy,
                             roomPlanObjects:
                                 annotationRoomPlanObjects
                         )
@@ -2328,7 +2370,11 @@ public struct CaptureRootView: View {
                 }
                 .fileImporter(
                     isPresented: $importingMissionDocument,
-                    allowedContentTypes: [.json, .plainText],
+                    // #457: `.htdtmission` mission packages are
+                    // pickable alongside JSON mission documents.
+                    allowedContentTypes: [
+                        .json, .plainText, .htdtMission,
+                    ],
                     allowsMultipleSelection: false
                 ) { result in
                     guard let urls = try? result.get(),

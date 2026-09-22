@@ -3534,3 +3534,19 @@
 "chained via %@ · uncertainty %@" = "%@ 経由で連鎖 · 不確実性 %@";
 "job" = "ジョブ";
 "jobs" = "ジョブ";
+
+// Feature-gap workflow completion (#456–#463)
+"Mission note" = "ミッションメモ";
+"Operator note" = "オペレーターメモ";
+"Save note" = "メモを保存";
+"Mark completed" = "完了にする";
+"Mission cannot be completed: %@" = "ミッションを完了できません: %@";
+"The mission note could not be saved" = "ミッションメモを保存できませんでした";
+"Remove privacy flag" = "プライバシーフラグを解除";
+"Open capture" = "キャプチャを開く";
+"Field return artifact" = "フィールドリターン成果物";
+"Destination" = "宛先";
+"Filter" = "フィルター";
+"Search deliveries" = "配信を検索";
+"Saved on this device" = "このデバイスに保存済み";
+"Add to capture" = "キャプチャに追加";

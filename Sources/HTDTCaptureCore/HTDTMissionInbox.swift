@@ -230,6 +230,19 @@ public enum HTDTMissionLifecycle: String, Codable, Sendable {
             return false
         }
     }
+
+    /// States from which the operator may close the mission — its
+    /// field work or delivery has already landed.
+    public var canMarkCompleted: Bool {
+        switch self {
+        case .fieldCaptureCompleted, .finalized, .delivered,
+             .needsFollowUp:
+            return true
+        case .received, .ready, .blockedDependency, .inProgress,
+             .completed, .superseded, .archived:
+            return false
+        }
+    }
 }
 
 /// One persisted mission record (issue #386). Every field survives
@@ -679,6 +692,20 @@ public struct HTDTMissionInboxStore: Sendable {
             document.records[index] = old
             superseded = old
         }
+        // A mission naming an earlier mission as its follow-up origin
+        // is the receiver's signal that the earlier mission needs
+        // follow-up work (#386) — it flips to `needs_follow_up`
+        // unless it already sits in a terminal-ish state.
+        if let followUpOf = parsed.package.followUpOfMissionID,
+           let index = document.records.firstIndex(where: {
+               $0.missionID == followUpOf
+               && $0.lifecycle != .superseded
+               && $0.lifecycle != .completed
+               && $0.lifecycle != .archived
+           })
+        {
+            document.records[index].lifecycle = .needsFollowUp
+        }
         try save(document)
         if let superseded {
             return .superseding(record: record, superseded: superseded)
@@ -801,6 +828,9 @@ public struct HTDTMissionInboxStore: Sendable {
 
     /// Re-opens a mission that is already in progress — same record,
     /// same plan bytes; the live AR session is never claimed resumed.
+    /// New starts go through `startMission`, which also re-evaluates
+    /// dependencies — this path must not become a second Start that
+    /// bypasses them.
     public func resumeMission(
         recordID: String
     ) throws -> HTDTMissionResume {
@@ -811,7 +841,7 @@ public struct HTDTMissionInboxStore: Sendable {
             throw HTDTMissionInboxError.unknownMission(recordID)
         }
         var record = document.records[index]
-        guard record.lifecycle.canStart else {
+        guard record.lifecycle == .inProgress else {
             throw HTDTMissionInboxError.invalidLifecycleTransition(
                 record.lifecycle.rawValue
             )
@@ -835,9 +865,19 @@ public struct HTDTMissionInboxStore: Sendable {
     }
 
     /// Clears the active pointer without touching the record's
-    /// captures or lifecycle — pausing is persistence, not deletion.
+    /// captures — pausing is persistence, not deletion. A mission
+    /// still in `in_progress` returns to `ready` so it can be
+    /// started again (#386).
     public func pauseActiveMission() throws {
         var document = try load()
+        if let activeID = document.activeMissionRecordID,
+           let index = document.records.firstIndex(where: {
+               $0.recordID == activeID
+           }),
+           document.records[index].lifecycle == .inProgress
+        {
+            document.records[index].lifecycle = .ready
+        }
         document.activeMissionRecordID = nil
         try save(document)
     }
@@ -851,6 +891,102 @@ public struct HTDTMissionInboxStore: Sendable {
         try mutate(recordID: recordID) { record in
             record.lifecycle = lifecycle
         }
+    }
+
+    /// Notes that a live capture under this mission finished its
+    /// field scan — advances `in_progress` only; later states arrive
+    /// through `reconcileLifecycles` or explicit completion.
+    public func noteFieldCaptureCompleted(recordID: String) throws {
+        try mutate(recordID: recordID) { record in
+            if record.lifecycle == .inProgress {
+                record.lifecycle = .fieldCaptureCompleted
+            }
+        }
+    }
+
+    /// Closes a mission whose field work or delivery already landed
+    /// — the explicit operator counterpart of the derived states.
+    public func completeMission(recordID: String) throws {
+        try mutate(recordID: recordID) { record in
+            guard record.lifecycle.canMarkCompleted else {
+                throw HTDTMissionInboxError
+                    .invalidLifecycleTransition(
+                        record.lifecycle.rawValue
+                    )
+            }
+            record.lifecycle = .completed
+        }
+    }
+
+    /// Operator annotation — never issuer truth. Empty text clears
+    /// the note.
+    public func setUserNote(recordID: String, _ note: String?) throws {
+        try mutate(recordID: recordID) { record in
+            let trimmed = note?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            record.userNote = trimmed?.isEmpty == false ? trimmed : nil
+        }
+    }
+
+    /// Derives post-field lifecycle from the associations the app
+    /// records as work lands (#386): a record with associated capture
+    /// revisions in the inventory or committed field returns is
+    /// `finalized`, and once an associated queue job reaches
+    /// `deliveredStaged` the mission is `delivered`. Only forward
+    /// motion is applied — pre-field states, `needs_follow_up`,
+    /// `completed`, `superseded` and `archived` are untouched.
+    @discardableResult
+    public func reconcileLifecycles(
+        inventory: PersistedCaptureInventoryResult? = nil,
+        deliveryQueue: HTDTDeliveryQueue? = nil
+    ) throws -> [HTDTMissionRecord] {
+        var document = try load()
+        let inventoryRevisionIDs = Set(
+            (inventory?.captures ?? []).map {
+                $0.captureRevisionID.description
+            }
+        )
+        let deliveredJobIDs = Set(
+            ((try? deliveryQueue?.jobs()) ?? []).filter {
+                $0.state == .deliveredStaged
+            }.map(\.deliveryJobID)
+        )
+        var changed = false
+        for index in document.records.indices {
+            var record = document.records[index]
+            switch record.lifecycle {
+            case .inProgress, .fieldCaptureCompleted, .finalized:
+                break
+            case .received, .ready, .blockedDependency, .delivered,
+                 .needsFollowUp, .completed, .superseded, .archived:
+                continue
+            }
+            let isDelivered = record.deliveryJobIDs.contains {
+                deliveredJobIDs.contains($0)
+            }
+            let hasCommittedFieldWork =
+                record.associatedCaptureRevisionIDs.contains {
+                    inventoryRevisionIDs.contains($0)
+                } || !record.fieldReturnIDs.isEmpty
+            let target: HTDTMissionLifecycle
+            if isDelivered {
+                target = .delivered
+            } else if hasCommittedFieldWork {
+                target = .finalized
+            } else {
+                continue
+            }
+            if record.lifecycle != target {
+                record.lifecycle = target
+                document.records[index] = record
+                changed = true
+            }
+        }
+        if changed {
+            try save(document)
+        }
+        return document.records
     }
 
     /// Associates a capture revision with the mission — many-to-one

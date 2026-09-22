@@ -15,6 +15,14 @@ public extension UTType {
         exportedAs: "com.hometheaterdigitaltwin.capture-library",
         conformingTo: .zip
     )
+
+    /// HTDT mission package (issue #457): the `.htdtmission`
+    /// envelope/document the capture imports as a mission record.
+    /// Imported (not exported) — the mission issuer owns the type.
+    static let htdtMission = UTType(
+        importedAs: "com.hometheaterdigitaltwin.capture-mission",
+        conformingTo: .json
+    )
 }
 
 public enum HTDTCaptureFileType {

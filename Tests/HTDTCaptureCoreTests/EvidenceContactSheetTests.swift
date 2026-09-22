@@ -163,6 +163,49 @@ final class EvidenceContactSheetTests: XCTestCase {
         XCTAssertFalse(model.items[2].privacyFlagged)
     }
 
+    /// #460: a `privacy_flag_cleared` note recorded after the flag
+    /// lifts it again — the paired revocation of the advisory flag.
+    func testPrivacyFlagClearedByPairedNote() throws {
+        let item = try evidenceItem(timestamp: 1)
+        let model = EvidenceContactSheetModel(
+            evidenceItems: [item],
+            descriptors: [],
+            advisoryNotes: [
+                CaptureAdvisoryNote(
+                    kind: .privacyFlag,
+                    sessionTimestampSeconds: 2,
+                    detail: "frame=\(item.frameID.description)"
+                ),
+                CaptureAdvisoryNote(
+                    kind: .privacyFlagCleared,
+                    sessionTimestampSeconds: 3,
+                    detail: "frame=\(item.frameID.description)"
+                ),
+            ]
+        )
+        XCTAssertFalse(model.items[0].privacyFlagged)
+
+        // A flag recorded after the clear re-raises it — notes
+        // replay in capture order, last action wins.
+        let reflagged = EvidenceContactSheetModel(
+            evidenceItems: [item],
+            descriptors: [],
+            advisoryNotes: [
+                CaptureAdvisoryNote(
+                    kind: .privacyFlagCleared,
+                    sessionTimestampSeconds: 3,
+                    detail: "frame=\(item.frameID.description)"
+                ),
+                CaptureAdvisoryNote(
+                    kind: .privacyFlag,
+                    sessionTimestampSeconds: 4,
+                    detail: "frame=\(item.frameID.description)"
+                ),
+            ]
+        )
+        XCTAssertTrue(reflagged.items[0].privacyFlagged)
+    }
+
     func testFiltersAndSorts() throws {
         let referenced = try evidenceItem(
             timestamp: 1,
