@@ -30,7 +30,7 @@ final class AnnotationMeasurementTransactionTests: XCTestCase {
     }
 
     private func measurementPackage(
-        quantityType: String = "wall_length"
+        quantityType: String = "x_wall_length"
     ) throws -> MeasurementEvidencePackage {
         try MeasurementEvidencePackageBuilder.build(
             measurements: [
@@ -247,7 +247,7 @@ final class AnnotationMeasurementTransactionTests: XCTestCase {
         try await store.persistAnnotationAndMeasurementPackages(
             annotationPackage: try annotationPackage(label: "first"),
             measurementPackage: try measurementPackage(
-                quantityType: "wall_length"
+                quantityType: "x_wall_length"
             )
         )
 

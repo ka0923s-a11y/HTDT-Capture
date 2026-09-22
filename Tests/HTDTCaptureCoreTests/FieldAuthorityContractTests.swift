@@ -247,7 +247,7 @@ func measurementInstrumentAuthorityEncoding() throws {
     #expect(
         try validateEncoded(
             collection,
-            schema: "measurements"
+            schema: "measurements-1.1.0"
         ) == nil
     )
     let data = try FieldAuthorityCoding.encoder().encode(collection)
@@ -273,7 +273,7 @@ func entityAuthorOperatorSchema() throws {
     #expect(
         try validateEncoded(
             collection,
-            schema: "entities"
+            schema: "entities-1.1.0"
         ) == nil
     )
 }

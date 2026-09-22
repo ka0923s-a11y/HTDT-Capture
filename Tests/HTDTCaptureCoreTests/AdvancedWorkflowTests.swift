@@ -1207,7 +1207,8 @@ final class AdvancedWorkflowTests: XCTestCase {
     }
 
     private func makeAlignment(
-        dx: Float = 0
+        dx: Float = 0,
+        residualMeters: Double? = nil
     ) throws -> PlanAlignmentAuthority {
         try PlanAlignmentAuthority(
             mechanism: .referenceTarget,
@@ -1218,7 +1219,8 @@ final class AdvancedWorkflowTests: XCTestCase {
                 dx, 0, 0, 1,
             ]),
             authorityRef: "reference_target:00000000-0000-4000-8000-0000000000ff",
-            establishedAtUTC: "2026-09-21T11:00:00Z"
+            establishedAtUTC: "2026-09-21T11:00:00Z",
+            residualMeters: residualMeters
         )
     }
 
@@ -1238,11 +1240,14 @@ final class AdvancedWorkflowTests: XCTestCase {
         let item = try session.item(for: try makeSpec())
         XCTAssertEqual(item.state, .pending)
 
-        session.installAlignment(try makeAlignment())
+        session.installAlignment(
+            try makeAlignment(residualMeters: 0.005)
+        )
         XCTAssertTrue(session.ghostOverlayEnabled)
 
         // Actual lands 2 cm off the planned spot (alignment shifts
-        // world->scene by +0 already applied).
+        // world->scene by +0 already applied). Observation uncertainty
+        // plus the alignment residual bounds well below tolerance.
         try session.recordActual(
             AsBuiltObservation(
                 plannedEntityID: "speaker-l",
@@ -1252,7 +1257,11 @@ final class AdvancedWorkflowTests: XCTestCase {
                     upAxisLocal: .unit(0, 1, 0)
                 ),
                 coordinateSpaceID: spaceID,
-                observedAtUTC: "2026-09-21T11:05:00Z"
+                observedAtUTC: "2026-09-21T11:05:00Z",
+                uncertainty: try SpatialUncertaintyAuthority(
+                    isotropicMeters: 0.005,
+                    basis: .instrumentStated
+                )
             )
         )
         let verified = try XCTUnwrap(
@@ -1276,12 +1285,18 @@ final class AdvancedWorkflowTests: XCTestCase {
             coordinateSpaceID: spaceID,
             specs: [try makeSpec()]
         )
-        session2.installAlignment(try makeAlignment())
+        session2.installAlignment(
+            try makeAlignment(residualMeters: 0.005)
+        )
         try session2.recordActual(
             AsBuiltObservation(
                 plannedEntityID: "speaker-l",
                 positionWorld: try SpatialVector3F(1.3, 1, 0),
-                coordinateSpaceID: spaceID
+                coordinateSpaceID: spaceID,
+                uncertainty: try SpatialUncertaintyAuthority(
+                    isotropicMeters: 0.005,
+                    basis: .instrumentStated
+                )
             )
         )
         XCTAssertEqual(

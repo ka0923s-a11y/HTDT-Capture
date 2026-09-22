@@ -65,29 +65,54 @@ public struct CaptureSetupView: View {
 
     public var body: some View {
         List {
-            Section("Before scanning") {
+            Section {
+                CaptureTaskHeader(
+                    "Before scanning",
+                    status: resolvedMode == nil ? .blocked : .ready
+                )
+            } footer: {
+                if presentation.resolvedMode == nil {
+                    Text(
+                        "Mesh capture is not available on this device. Use a supported LiDAR-capable iPhone or iPad."
+                    )
+                }
+            }
+
+            Section("Device readiness") {
                 LabeledContent(
                     "Scanning mode",
                     value: resolvedModeLabel
                 )
-                LabeledContent(
+                CaptureStatusContent(
                     "RoomPlan + mesh",
-                    value: availabilityLabel(
-                        presentation.capabilities
-                            .roomPlanMeshEligible
-                    )
+                    status: presentation.capabilities
+                        .roomPlanMeshEligible
+                        ? .ready : .unavailable
                 )
-                LabeledContent(
+                CaptureStatusContent(
                     "Scene depth",
-                    value: availabilityLabel(
-                        presentation.capabilities
-                            .sceneDepthSupported
+                    status: presentation.capabilities
+                        .sceneDepthSupported
+                        ? .ready : .unavailable
+                )
+                LabeledContent("Storage") {
+                    CaptureStatusView(storageStatus)
+                }
+                if let bytes = presentation.storagePreflight
+                    .availableBytes
+                {
+                    Text(
+                        ByteCountFormatter.string(
+                            fromByteCount: Int64(
+                                clamping: bytes
+                            ),
+                            countStyle: .file
+                        ) + " "
+                            + String(localized: "free")
                     )
-                )
-                LabeledContent(
-                    "Storage",
-                    value: storageLabel
-                )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
                 if let readiness = presentation.deviceReadiness {
                     if let battery = readiness.batteryLevel {
                         LabeledContent(
@@ -99,29 +124,45 @@ public struct CaptureSetupView: View {
                         )
                     }
                     if readiness.advisories.isEmpty {
-                        LabeledContent(
+                        CaptureStatusContent(
                             "Device readiness",
-                            value: String(localized: "OK")
+                            status: .ready
                         )
-                    } else {
-                        ForEach(
-                            readiness.advisories,
-                            id: \.self
-                        ) { advisory in
-                            Text(advisoryLabel(advisory))
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        }
                     }
                 }
-                if presentation.storagePreflight.readiness
-                    == .critical
-                {
-                    Text(
-                        "Very little free storage remains. Free space before scanning; capture may stop early."
+            }
+
+            if let readiness = presentation.deviceReadiness,
+               !readiness.advisories.isEmpty
+            {
+                Section {
+                    ForEach(
+                        readiness.advisories,
+                        id: \.self
+                    ) { advisory in
+                        CaptureNotice(
+                            status: .advisory,
+                            title: "Device advisory",
+                            message: LocalizedStringKey(
+                                advisoryLabel(advisory)
+                            )
+                        )
+                        .listRowSeparator(.hidden)
+                    }
+                }
+            }
+
+            if presentation.storagePreflight.readiness
+                == .critical
+            {
+                Section {
+                    CaptureNotice(
+                        status: .blocked,
+                        title: "Not enough free storage",
+                        message:
+                            "Very little free storage remains. Free space before scanning; capture may stop early."
                     )
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .listRowSeparator(.hidden)
                 }
                 cameraPermissionRows
             }
@@ -157,17 +198,20 @@ public struct CaptureSetupView: View {
         }
         .navigationTitle("Capture setup")
         .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 8) {
+            VStack(spacing: CaptureDesign.Spacing.row) {
                 Button(action: beginScanning) {
                     Text("Begin scanning")
-                        .font(.headline)
+                        .font(
+                            CaptureDesign.Typography
+                                .taskHeadline
+                        )
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .capturePrimaryAction()
                 .disabled(
                     presentation.storagePreflight.blocksCaptureStart
+                        || presentation.resolvedMode == nil
                 )
                 .accessibilityIdentifier("captureSetup.begin")
 
@@ -178,9 +222,26 @@ public struct CaptureSetupView: View {
                 )
                 .controlSize(.regular)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.horizontal, CaptureDesign.Spacing.edge)
+            .padding(.vertical, CaptureDesign.Spacing.row)
             .background(.bar)
+        }
+    }
+
+    private var resolvedMode: CaptureMode? {
+        presentation.resolvedMode
+    }
+
+    private var storageStatus: CaptureSemanticStatus {
+        switch presentation.storagePreflight.readiness {
+        case .sufficient:
+            return .ready
+        case .low:
+            return .needsReview
+        case .critical:
+            return .blocked
+        case .unknown:
+            return .unknown
         }
     }
 
@@ -252,44 +313,6 @@ public struct CaptureSetupView: View {
                 localized: "Cannot start: mesh capture is not available on this device"
             )
         }
-    }
-
-    private var storageLabel: String {
-        let preflight = presentation.storagePreflight
-        guard let bytes = preflight.availableBytes else {
-            return String(localized: "Unknown")
-        }
-        let formatted = ByteCountFormatter.string(
-            fromByteCount: Int64(clamping: bytes),
-            countStyle: .file
-        )
-        switch preflight.readiness {
-        case .sufficient:
-            return String(
-                format: String(localized: "%@ free"),
-                formatted
-            )
-        case .low:
-            return String(
-                format: String(localized: "%@ free (low)"),
-                formatted
-            )
-        case .critical:
-            return String(
-                format: String(
-                    localized: "%@ free (critically low)"
-                ),
-                formatted
-            )
-        case .unknown:
-            return String(localized: "Unknown")
-        }
-    }
-
-    private func availabilityLabel(_ available: Bool) -> String {
-        available
-            ? String(localized: "Available")
-            : String(localized: "Unavailable")
     }
 
     private func advisoryLabel(

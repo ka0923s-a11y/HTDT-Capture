@@ -176,7 +176,7 @@ func spatialMeasurementRequiresCoordinateSpace() throws {
 @Test
 func conflictingMeasurementsCoexistWithoutOverwrite() throws {
     let inferred = try CaptureMeasurement(
-        quantityType: "table_diameter",
+        quantityType: "x_table_diameter",
         value: .scalar(1.08),
         unit: .meter,
         acquisitionMethod: .roomPlanDerived,
@@ -184,7 +184,7 @@ func conflictingMeasurementsCoexistWithoutOverwrite() throws {
         provenanceClass: .appleRoomPlanInference
     )
     let attested = try CaptureMeasurement(
-        quantityType: "table_diameter",
+        quantityType: "x_table_diameter",
         value: .scalar(1.10),
         unit: .meter,
         acquisitionMethod: .tapeMeasure,
