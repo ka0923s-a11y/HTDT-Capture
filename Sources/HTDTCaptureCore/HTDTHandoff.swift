@@ -61,10 +61,19 @@ public struct HTDTHandoffReceipt:
     public let schemaVersion: String
     /// Unique receipt id (UUIDv4) for this attempt.
     public let receiptID: String
-    public let captureRevisionID: CaptureRevisionID
-    public let captureSeriesID: CaptureSeriesID
-    /// The finalized bundle digest the archive was proven to carry.
-    public let bundleDigest: String
+    /// Capture-specific identity — present for `capture_bundle`
+    /// artifacts, nil for field returns (issue #423: never a fake
+    /// revision id; the artifact fields below carry the identity).
+    public let captureRevisionID: CaptureRevisionID?
+    public let captureSeriesID: CaptureSeriesID?
+    /// The finalized bundle digest the archive was proven to carry;
+    /// nil for non-capture artifacts.
+    public let bundleDigest: String?
+    /// Typed artifact identity (#423): artifact family, artifact id
+    /// and semantic/root digest echoed with the transfer.
+    public let artifactKind: String?
+    public let artifactID: String?
+    public let artifactDigest: String?
     /// SHA-256 of the transmitted archive file bytes.
     public let archiveSHA256: String
     public let archiveByteCount: Int64
@@ -85,9 +94,12 @@ public struct HTDTHandoffReceipt:
 
     public init(
         receiptID: String,
-        captureRevisionID: CaptureRevisionID,
-        captureSeriesID: CaptureSeriesID,
-        bundleDigest: String,
+        captureRevisionID: CaptureRevisionID? = nil,
+        captureSeriesID: CaptureSeriesID? = nil,
+        bundleDigest: String? = nil,
+        artifactKind: String? = nil,
+        artifactID: String? = nil,
+        artifactDigest: String? = nil,
         archiveSHA256: String,
         archiveByteCount: Int64,
         destination: HTDTHandoffDestination,
@@ -103,6 +115,9 @@ public struct HTDTHandoffReceipt:
         self.captureRevisionID = captureRevisionID
         self.captureSeriesID = captureSeriesID
         self.bundleDigest = bundleDigest
+        self.artifactKind = artifactKind
+        self.artifactID = artifactID
+        self.artifactDigest = artifactDigest
         self.archiveSHA256 = archiveSHA256
         self.archiveByteCount = archiveByteCount
         self.destination = destination
@@ -115,6 +130,13 @@ public struct HTDTHandoffReceipt:
 
     public var id: String { receiptID }
 
+    /// Identity text of the artifact this receipt covers — the
+    /// generic artifact id when present (#423), else the legacy
+    /// capture revision id.
+    public var artifactIDText: String? {
+        artifactID ?? captureRevisionID?.description
+    }
+
     private enum CodingKeys: String, CodingKey {
         case schema
         case schemaVersion = "schema_version"
@@ -122,6 +144,9 @@ public struct HTDTHandoffReceipt:
         case captureRevisionID = "capture_revision_id"
         case captureSeriesID = "capture_series_id"
         case bundleDigest = "bundle_digest"
+        case artifactKind = "artifact_kind"
+        case artifactID = "artifact_id"
+        case artifactDigest = "artifact_digest"
         case archiveSHA256 = "archive_sha256"
         case archiveByteCount = "archive_byte_count"
         case destination
@@ -162,8 +187,17 @@ public struct HTDTIngestionResponse: Codable, Sendable, Equatable {
     public static let outcomeAlreadyStaged = "already_staged"
 
     public let ingestionOutcome: String
-    public let captureRevisionID: String
-    public let bundleDigest: String
+    /// Legacy Capture echo (#225) — required for `capture_bundle`
+    /// receipts, may be absent on artifact-aware (#423) receivers
+    /// that answer only the generic artifact fields.
+    public let captureRevisionID: String?
+    public let bundleDigest: String?
+    /// Generic artifact echo (#423): the receiver repeats the exact
+    /// artifact kind/id/digest it staged. A generic HTTP 200 without
+    /// the echoed identity is never success (#423 §6).
+    public let artifactKind: String?
+    public let artifactID: String?
+    public let artifactDigest: String?
     /// Server-side staging/receipt identity when the receiver reports
     /// one; nil for receivers that do not name their staging slot
     /// (issue #387).
@@ -177,8 +211,11 @@ public struct HTDTIngestionResponse: Codable, Sendable, Equatable {
 
     public init(
         ingestionOutcome: String,
-        captureRevisionID: String,
-        bundleDigest: String,
+        captureRevisionID: String? = nil,
+        bundleDigest: String? = nil,
+        artifactKind: String? = nil,
+        artifactID: String? = nil,
+        artifactDigest: String? = nil,
         stagingRef: String? = nil,
         detail: String? = nil,
         repairTaskPlan: HTDTRepairTaskPlan? = nil
@@ -186,6 +223,9 @@ public struct HTDTIngestionResponse: Codable, Sendable, Equatable {
         self.ingestionOutcome = ingestionOutcome
         self.captureRevisionID = captureRevisionID
         self.bundleDigest = bundleDigest
+        self.artifactKind = artifactKind
+        self.artifactID = artifactID
+        self.artifactDigest = artifactDigest
         self.stagingRef = stagingRef
         self.detail = detail
         self.repairTaskPlan = repairTaskPlan
@@ -195,6 +235,9 @@ public struct HTDTIngestionResponse: Codable, Sendable, Equatable {
         case ingestionOutcome = "ingestion_outcome"
         case captureRevisionID = "capture_revision_id"
         case bundleDigest = "bundle_digest"
+        case artifactKind = "artifact_kind"
+        case artifactID = "artifact_id"
+        case artifactDigest = "artifact_digest"
         case stagingRef = "staging_ref"
         case detail
         case repairTaskPlan = "repair_task_plan"
@@ -208,13 +251,19 @@ public enum HTDTHandoffRequestBuilder {
     /// POST of the raw archive bytes with the identity headers an HTDT
     /// endpoint binds to the received bytes. The body is the exact
     /// archive file — never a re-serialized or transformed copy.
+    ///
+    /// #423: the versioned generic handoff envelope —
+    /// `X-HTDT-Artifact-Kind` / `-ID` / `-Digest` always travel; the
+    /// legacy Capture headers (`X-HTDT-Capture-Revision-ID`,
+    /// `X-HTDT-Bundle-Digest`) are still sent for `capture_bundle` so
+    /// Capture-only receivers keep working during migration. A field
+    /// return never travels under `X-HTDT-Capture-Revision-ID`.
     public static func buildRequest(
         endpoint: URL,
         archive: URL,
         archiveSHA256: EvidenceSHA256,
         archiveByteCount: Int64,
-        captureRevisionID: CaptureRevisionID,
-        bundleDigest: EvidenceSHA256,
+        deliverable: HTDTDeliverableIdentity,
         deliveryID: String? = nil
     ) throws -> URLRequest {
         guard endpoint.scheme?.lowercased() == "https",
@@ -224,18 +273,43 @@ public enum HTDTHandoffRequestBuilder {
         }
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
+        switch deliverable.artifactKind {
+        case .captureBundle:
+            request.setValue(
+                "application/vnd.htdt.capture-bundle",
+                forHTTPHeaderField: "Content-Type"
+            )
+        case .fieldReturn:
+            request.setValue(
+                "application/vnd.htdt.field-return",
+                forHTTPHeaderField: "Content-Type"
+            )
+        }
         request.setValue(
-            "application/vnd.htdt.capture-bundle",
-            forHTTPHeaderField: "Content-Type"
+            deliverable.artifactKind.rawValue,
+            forHTTPHeaderField: "X-HTDT-Artifact-Kind"
         )
         request.setValue(
-            captureRevisionID.description,
-            forHTTPHeaderField: "X-HTDT-Capture-Revision-ID"
+            deliverable.artifactID,
+            forHTTPHeaderField: "X-HTDT-Artifact-ID"
         )
         request.setValue(
-            bundleDigest.value,
-            forHTTPHeaderField: "X-HTDT-Bundle-Digest"
+            deliverable.semanticDigest,
+            forHTTPHeaderField: "X-HTDT-Artifact-Digest"
         )
+        if deliverable.artifactKind == .captureBundle {
+            // Legacy Capture headers preserved during migration —
+            // receivers that know only the #225 contract still
+            // resolve the same identity (#423 §4/§14).
+            request.setValue(
+                deliverable.artifactID,
+                forHTTPHeaderField: "X-HTDT-Capture-Revision-ID"
+            )
+            request.setValue(
+                deliverable.semanticDigest,
+                forHTTPHeaderField: "X-HTDT-Bundle-Digest"
+            )
+        }
         request.setValue(
             archiveSHA256.value,
             forHTTPHeaderField: "X-HTDT-Archive-SHA256"
@@ -256,13 +330,14 @@ public enum HTDTHandoffRequestBuilder {
         return request
     }
 
-    /// Validates a server receipt: it must echo the exact revision and
-    /// bundle digest that was sent, otherwise it is refused rather than
-    /// recorded as a delivery of the wrong bundle.
+    /// Validates a server receipt against the deliverable that was
+    /// sent (#423 §6). For `capture_bundle` the legacy revision +
+    /// bundle-digest echo remains authoritative (artifact fields may
+    /// add to it); for `field_return` the artifact kind/id/digest must
+    /// echo exactly — a generic HTTP 200 is never success.
     public static func validateServerReceipt(
         data: Data,
-        captureRevisionID: CaptureRevisionID,
-        bundleDigest: EvidenceSHA256
+        deliverable: HTDTDeliverableIdentity
     ) throws -> HTDTIngestionResponse {
         guard let response = try? JSONDecoder().decode(
             HTDTIngestionResponse.self,
@@ -270,11 +345,31 @@ public enum HTDTHandoffRequestBuilder {
         ) else {
             throw HTDTHandoffError.malformedServerReceipt
         }
-        guard response.captureRevisionID
-                == captureRevisionID.description,
-              response.bundleDigest == bundleDigest.value
-        else {
-            throw HTDTHandoffError.archiveIdentityMismatch
+        switch deliverable.artifactKind {
+        case .captureBundle:
+            let legacyEcho = response.captureRevisionID
+                == deliverable.artifactID
+                && response.bundleDigest
+                    == deliverable.semanticDigest
+            let artifactEcho = response.artifactID
+                == deliverable.artifactID
+                && response.artifactDigest
+                    == deliverable.semanticDigest
+                && (response.artifactKind == nil
+                    || response.artifactKind
+                        == HTDTDeliverableKind.captureBundle.rawValue)
+            guard legacyEcho || artifactEcho else {
+                throw HTDTHandoffError.archiveIdentityMismatch
+            }
+        case .fieldReturn:
+            guard response.artifactKind
+                    == HTDTDeliverableKind.fieldReturn.rawValue,
+                  response.artifactID == deliverable.artifactID,
+                  response.artifactDigest
+                    == deliverable.semanticDigest
+            else {
+                throw HTDTHandoffError.archiveIdentityMismatch
+            }
         }
         guard response.ingestionOutcome
                 == HTDTIngestionResponse.outcomeAccepted
@@ -290,8 +385,9 @@ public enum HTDTHandoffRequestBuilder {
             // exact revision + digest this handoff just delivered —
             // never a plan describing other bytes (#321).
             guard plan.sourceCaptureRevisionID
-                    == captureRevisionID.description,
-                  plan.sourceBundleDigest == bundleDigest.value
+                    == deliverable.artifactID,
+                  plan.sourceBundleDigest
+                    == deliverable.semanticDigest
             else {
                 throw HTDTHandoffError.archiveIdentityMismatch
             }
@@ -325,8 +421,7 @@ public struct HTDTHandoffClient: Sendable {
         archive: URL,
         archiveSHA256: EvidenceSHA256,
         archiveByteCount: Int64,
-        captureRevisionID: CaptureRevisionID,
-        bundleDigest: EvidenceSHA256,
+        deliverable: HTDTDeliverableIdentity,
         endpoint: URL,
         deliveryID: String? = nil,
         pinnedIdentity: String? = nil,
@@ -337,8 +432,7 @@ public struct HTDTHandoffClient: Sendable {
             archive: archive,
             archiveSHA256: archiveSHA256,
             archiveByteCount: archiveByteCount,
-            captureRevisionID: captureRevisionID,
-            bundleDigest: bundleDigest,
+            deliverable: deliverable,
             deliveryID: deliveryID
         )
         let transport = pinnedIdentity.map {
@@ -367,8 +461,7 @@ public struct HTDTHandoffClient: Sendable {
         }
         return try HTDTHandoffRequestBuilder.validateServerReceipt(
             data: data,
-            captureRevisionID: captureRevisionID,
-            bundleDigest: bundleDigest
+            deliverable: deliverable
         )
     }
 }
@@ -562,6 +655,17 @@ public struct HTDTHandoffReceiptStore: Sendable {
     ) throws -> [HTDTHandoffReceipt] {
         try load().receipts.filter {
             $0.captureRevisionID == captureRevisionID
+        }
+    }
+
+    /// Receipts for one artifact id of any family (#423) — matches
+    /// both the generic `artifact_id` and the legacy revision field.
+    public func receipts(
+        forArtifactID artifactID: String
+    ) throws -> [HTDTHandoffReceipt] {
+        try load().receipts.filter {
+            $0.artifactID == artifactID
+                || $0.captureRevisionID?.description == artifactID
         }
     }
 }

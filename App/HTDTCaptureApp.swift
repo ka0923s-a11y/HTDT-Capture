@@ -434,7 +434,15 @@ private struct HTDTCaptureHostView: View {
                 finalizeFieldReturn:
                     coordinator.finalizeFieldReturn,
                 listFieldReturns:
-                    coordinator.listFieldReturns
+                    coordinator.listFieldReturns,
+                checkHTDTForMissions:
+                    coordinator.checkHTDTForMissions,
+                preflightFieldReturn:
+                    coordinator.preflightFieldReturn,
+                sendFieldReturnToHTDT:
+                    coordinator.sendFieldReturnToHTDT,
+                fieldReturnArtifactURL:
+                    coordinator.fieldReturnArtifactURL
             )
         )
         .onOpenURL { url in
@@ -6705,9 +6713,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             } catch {
                 refreshMissionDeliveryStores()
-                workingSetStatus = HostLocalization.text(
-                    "Mission cannot start: \(error)",
-                    "ミッションを開始できません: \(error)"
+                workingSetStatus = String(
+                    format: String(
+                        localized: "Mission cannot start: %@"
+                    ),
+                    String(describing: error)
                 )
                 return
             }
@@ -6715,15 +6725,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 missionRecordID: recordID
             )
             refreshMissionDeliveryStores()
-            workingSetStatus = HostLocalization.text(
-                "Mission activated — its tasks need no spatial capture; continue in Field return",
-                "ミッションを有効化しました — 空間キャプチャは不要です。フィールドリターンで続けてください"
+            workingSetStatus = String(
+                localized:
+                    "Mission activated — its tasks need no spatial capture; continue in Field return"
             )
             return
         case .artifactReview:
-            workingSetStatus = HostLocalization.text(
-                "Mission is past field work — its captures are reviewable from the inbox",
-                "ミッションはフィールド作業を終えています — キャプチャはインボックスから確認できます"
+            workingSetStatus = String(
+                localized:
+                    "Mission is past field work — its captures are reviewable from the inbox"
             )
             return
         case .unsupported(let reason):
@@ -6782,19 +6792,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     ) -> String {
         switch reason {
         case .spatialCaptureUnavailable:
-            return HostLocalization.text(
-                "Mission requires spatial capture, which is unavailable on this device",
-                "このミッションには空間キャプチャが必要ですが、このデバイスでは利用できません"
+            return String(
+                localized:
+                    "Mission requires spatial capture, which is unavailable on this device"
             )
         case .planUnavailable:
-            return HostLocalization.text(
-                "Mission cannot start: its task plan could not be read",
-                "ミッションを開始できません: タスクプランを読み取れませんでした"
+            return String(
+                localized:
+                    "Mission cannot start: its task plan could not be read"
             )
         case .noExecutableTasks:
-            return HostLocalization.text(
-                "Mission has no tasks this device can execute",
-                "このミッションにはこのデバイスで実行できるタスクがありません"
+            return String(
+                localized:
+                    "Mission has no tasks this device can execute"
             )
         }
     }
@@ -6902,6 +6912,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             _ = try pairedDestinationStore?.pair(payload: payload)
             refreshMissionDeliveryStores()
             refreshHandoffDestinations()
+            // #422: a fresh pairing is one of the receive leg's
+            // refresh triggers — pull pending missions now.
+            _ = await checkHTDTForMissions()
         } catch {
             workingSetStatus = String(localized: "Pairing could not be stored")
         }
@@ -9144,6 +9157,282 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             workingSetStatus = String(localized: "Field return could not be finalized") + " ["
                 + Self.persistenceDiagnostic(error) + "]"
             return nil
+        }
+    }
+
+    /// Paired Mission receive leg (issue #422): pulls pending
+    /// Mission packages from every active paired receiver,
+    /// verifies the exact bytes against each descriptor's pinned
+    /// digest, and feeds the canonical Mission Inbox importer —
+    /// the same validator the Files/share-sheet path uses. Runs as
+    /// a bounded foreground action only ("Check HTDT", missions
+    /// open, post-pairing); revoked pairings are skipped but their
+    /// local records persist. A receiver must be reachable on the
+    /// same network with its Mission service running (HTDT #593) —
+    /// otherwise pending missions stay pending and the Files/share
+    /// import remains the path.
+    func checkHTDTForMissions() async
+        -> [HTDTMissionReceiveReport]
+    {
+        guard let root = Self.captureRootDirectory() else {
+            return []
+        }
+        let reports = await HTDTMissionReceiveService(
+            captureRoot: root
+        ).syncAll()
+        refreshMissionDeliveryStores()
+        let imported = reports.reduce(0) { $0 + $1.imported }
+        let superseded = reports.reduce(0) { $0 + $1.superseded }
+        let conflicts = reports.reduce(0) { $0 + $1.conflicts.count }
+        let enumerated = reports.reduce(0) { $0 + $1.enumerated }
+        if reports.isEmpty {
+            workingSetStatus = String(
+                localized:
+                    "No paired HTDT receivers — pair a receiver or import the mission file"
+            )
+        } else if imported + superseded > 0 {
+            workingSetStatus = String(
+                localized:
+                    "Checked HTDT — \(imported + superseded) new mission(s) received into the inbox"
+            )
+        } else if conflicts > 0 {
+            workingSetStatus = String(
+                localized:
+                    "Checked HTDT — a pending mission conflicts with a local record; it was not merged"
+            )
+        } else if enumerated > 0 {
+            workingSetStatus = String(
+                localized:
+                    "Checked HTDT — pending mission(s) could not be staged (see receipt ledger)"
+            )
+        }
+        return reports
+    }
+
+    /// Resolves the finalized `.htdtfieldreturn` container's URL
+    /// (#423) — nil until finalize has produced the artifact.
+    func fieldReturnArtifactURL(
+        contributionID: HTDTFieldReturnID
+    ) -> URL? {
+        guard let root = Self.captureRootDirectory() else {
+            return nil
+        }
+        let url = Self.fieldReturnsDirectory(captureRoot: root)
+            .appendingPathComponent(
+                contributionID.description + ".htdtfieldreturn"
+            )
+        return FileManager.default.fileExists(
+            atPath: url.path
+        ) ? url : nil
+    }
+
+    /// Field-return artifact preflight (#423 §5): classifies the
+    /// `.htdtfieldreturn` container against the destination's
+    /// capability document — kind/schema/size admission, never a
+    /// bundle-manifest check against non-bundle bytes. Fetch failure
+    /// falls back to the labeled cache; a receiver that cannot take
+    /// field returns answers `incompatible` so the Send button can
+    /// be disabled with the explanation.
+    func preflightFieldReturn(
+        contributionID: HTDTFieldReturnID,
+        destination: HTDTHandoffDestination
+    ) async -> HTDTCompatibilityVerdict {
+        guard destination.kind == .endpoint,
+              let urlString = destination.url,
+              let root = Self.captureRootDirectory()
+        else {
+            return .unknown(
+                reason: "Share destinations accept every artifact"
+            )
+        }
+        guard let document = try? HTDTFieldReturnStore(
+            captureRoot: root
+        ).load().workspaces.first(where: {
+            $0.contributionID == contributionID
+        }), document.isFinalized,
+              let digest = document.finalizedDigest
+        else {
+            return .unknown(reason: "Field return not finalized")
+        }
+        let deliverable = HTDTDeliverableIdentity.fieldReturn(
+            contributionID: contributionID,
+            contentDigest: digest,
+            missionRecordID: document.missionRecordID
+        )
+        let archiveURL = Self.fieldReturnsDirectory(
+            captureRoot: root
+        ).appendingPathComponent(
+            contributionID.description + ".htdtfieldreturn"
+        )
+        let archiveBytes = Int64(
+            (try? FileManager.default.attributesOfItem(
+                atPath: archiveURL.path
+            )[.size] as? Int64) ?? 0
+        )
+        let paired = try? PairedHTDTDestinationStore(
+            captureRoot: root
+        ).activeDestinations().first(where: {
+            $0.endpointURL == urlString
+        })
+        guard let capabilityURL = paired
+            .flatMap({ $0.capabilityEndpointURL })
+            .flatMap(URL.init)
+            ?? URL(string: urlString)
+        else {
+            return .unknown(
+                reason: "Endpoint has no capability URL"
+            )
+        }
+        do {
+            let snapshot = try await HTDTCapabilityClient().fetch(
+                endpoint: capabilityURL,
+                pinnedIdentity: paired?.pinnedIdentity
+            )
+            if let paired {
+                try? PairedHTDTDestinationStore(captureRoot: root)
+                    .updateCachedCapability(
+                        destinationID: paired.destinationID,
+                        snapshot: snapshot
+                    )
+            }
+            return HTDTCompatibilityChecker.checkDeliverable(
+                deliverable: deliverable,
+                archiveByteCount: archiveBytes,
+                capabilities: snapshot.document,
+                requiresMissionReceipts:
+                    document.missionRecordID != nil
+            )
+        } catch {
+            if let cached = paired?.cachedCapability {
+                return HTDTCompatibilityChecker.checkDeliverable(
+                    deliverable: deliverable,
+                    archiveByteCount: archiveBytes,
+                    capabilities: cached.document,
+                    requiresMissionReceipts:
+                        document.missionRecordID != nil
+                )
+            }
+            return .unknown(
+                reason: String(describing: error)
+            )
+        }
+    }
+
+    /// Sends a finalized `.htdtfieldreturn` container through the
+    /// same durable delivery queue captures ride (issue #423): the
+    /// job is recorded before any bytes move, idempotent at the
+    /// receiver via its stable delivery id, and retries carry the
+    /// exact finalized bytes — re-finalization is never required.
+    /// The artifact kind travels as `field_return`; no fake
+    /// CaptureRevisionID is minted.
+    func sendFieldReturnToHTDT(
+        contributionID: HTDTFieldReturnID,
+        destination: HTDTHandoffDestination
+    ) async {
+        guard destination.kind == .endpoint,
+              let urlString = destination.url,
+              URL(string: urlString) != nil
+        else {
+            workingSetStatus = String(
+                localized:
+                    "The destination has no valid HTTPS endpoint"
+            )
+            return
+        }
+        guard let root = Self.captureRootDirectory() else {
+            return
+        }
+        guard let document = try? HTDTFieldReturnStore(
+            captureRoot: root
+        ).load().workspaces.first(where: {
+            $0.contributionID == contributionID
+        }), document.isFinalized,
+              let digest = document.finalizedDigest
+        else {
+            workingSetStatus = String(
+                localized:
+                    "Finalize the field return before sending it"
+            )
+            return
+        }
+        let archiveURL = Self.fieldReturnsDirectory(
+            captureRoot: root
+        ).appendingPathComponent(
+            contributionID.description + ".htdtfieldreturn"
+        )
+        guard FileManager.default.fileExists(
+            atPath: archiveURL.path
+        ) else {
+            workingSetStatus = String(
+                localized:
+                    "The finalized field-return file is missing"
+            )
+            return
+        }
+        let pairedID = (try? PairedHTDTDestinationStore(
+            captureRoot: root
+        ).activeDestinations())?.first(where: {
+            $0.endpointURL == urlString
+        })?.destinationID
+        let queue = HTDTDeliveryQueue(captureRoot: root)
+        do {
+            let (sha, bytes) = try BundleFileReader.sha256(
+                archiveURL, maxBytes: Int64.max
+            )
+            let job = try queue.enqueueFieldReturn(
+                contributionID: contributionID,
+                contentDigest: digest,
+                archiveSHA256: sha,
+                archiveByteCount: bytes,
+                archiveURL: archiveURL,
+                destination: destination,
+                pairedDestinationID: pairedID,
+                missionRecordID: document.missionRecordID,
+                projectRef: nil,
+                compatibilitySummary: nil
+            )
+            if let missionRecordID = document.missionRecordID {
+                try? missionInboxStore?.associateDeliveryJob(
+                    recordID: missionRecordID,
+                    deliveryJobID: job.deliveryJobID
+                )
+            }
+            let jobs = await queue.processDueJobs(
+                receiptStore: HTDTHandoffReceiptStore(
+                    captureRoot: root
+                )
+            )
+            deliveryJobs = jobs
+            switch jobs.first(where: {
+                $0.deliveryJobID == job.deliveryJobID
+            })?.state {
+            case .deliveredStaged:
+                workingSetStatus = String(
+                    localized:
+                        "Field return delivered and staged at the receiver; receipt saved"
+                )
+            case .rejected:
+                workingSetStatus = String(
+                    localized:
+                        "The receiver rejected the field return; it will not be retried"
+                )
+            case .blocked:
+                workingSetStatus = String(
+                    localized:
+                        "Delivery is blocked and needs an operator decision (see Deliveries)"
+                )
+            default:
+                workingSetStatus = String(
+                    localized:
+                        "Field return queued; it will retry under the queue's policy (see Deliveries)"
+                )
+            }
+            refreshMissionDeliveryStores()
+        } catch {
+            workingSetStatus = String(
+                localized:
+                    "The field-return delivery could not be queued"
+            )
         }
     }
 

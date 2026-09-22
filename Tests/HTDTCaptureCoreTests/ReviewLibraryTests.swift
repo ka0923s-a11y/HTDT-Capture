@@ -661,13 +661,16 @@ final class ReviewLibraryTests: XCTestCase {
             )
         try Data([1, 2, 3]).write(to: archive)
         defer { try? FileManager.default.removeItem(at: archive) }
+        let revisionID = CaptureRevisionID()
         let request = try HTDTHandoffRequestBuilder.buildRequest(
             endpoint: URL(string: "https://htdt.example.com/ingest")!,
             archive: archive,
             archiveSHA256: archiveSHA,
             archiveByteCount: 128,
-            captureRevisionID: CaptureRevisionID(),
-            bundleDigest: digest
+            deliverable: .captureBundle(
+                revisionID: revisionID,
+                bundleDigest: digest.value
+            )
         )
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertNotNil(
@@ -713,9 +716,11 @@ final class ReviewLibraryTests: XCTestCase {
                     "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
                 ),
                 archiveByteCount: 1,
-                captureRevisionID: CaptureRevisionID(),
-                bundleDigest: EvidenceSHA256(
-                    "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"
+                deliverable: .captureBundle(
+                    revisionID: CaptureRevisionID(),
+                    bundleDigest: try EvidenceSHA256(
+                        "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"
+                    ).value
                 )
             )
         ) { error in
@@ -741,11 +746,13 @@ final class ReviewLibraryTests: XCTestCase {
         XCTAssertThrowsError(
             try HTDTHandoffRequestBuilder.validateServerReceipt(
                 data: receiptJSON,
-                captureRevisionID: CaptureRevisionID(
-                    canonicalString:
-                        "00000000-0000-4000-8000-0000000000ff"
-                )!,
-                bundleDigest: digest
+                deliverable: .captureBundle(
+                    revisionID: CaptureRevisionID(
+                        canonicalString:
+                            "00000000-0000-4000-8000-0000000000ff"
+                    )!,
+                    bundleDigest: digest.value
+                )
             )
         ) { error in
             XCTAssertEqual(

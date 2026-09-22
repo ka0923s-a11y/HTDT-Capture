@@ -52,6 +52,17 @@ public struct HTDTEndpointCapabilityDocument:
     /// a catalog the receiver does not recognize lands as a staged
     /// gap, not a hard failure.
     public let equipmentCatalogsRecognized: [String]
+    /// Per-artifact-family capabilities (#423 §5, #422 §capability
+    /// handshake): which artifact kinds the receiver accepts, with
+    /// the schema versions and byte ceiling it stages for each.
+    /// Absent on a legacy document means capture-bundle only —
+    /// interpreted by `acceptedKinds`, never rewritten.
+    public let acceptedArtifactKinds: [HTDTArtifactKindCapability]?
+    /// Direction capability (#422): whether the receiver serves
+    /// pending Mission packages to paired Capture identities for
+    /// the receive leg. Absent = false (legacy receivers never
+    /// offer Mission pulls).
+    public let missionPackagesServed: Bool
     /// Project the receiver declares itself bound to, if any.
     public let projectRef: String?
     /// When true, staged captures require manual promotion review —
@@ -66,6 +77,8 @@ public struct HTDTEndpointCapabilityDocument:
         supportedAuthorityFamilies: [String] = [],
         maxArchiveBytes: Int64? = nil,
         missionReceiptsSupported: Bool = false,
+        acceptedArtifactKinds: [HTDTArtifactKindCapability]? = nil,
+        missionPackagesServed: Bool = false,
         equipmentCatalogsRecognized: [String] = [],
         projectRef: String? = nil,
         manualReviewRequired: Bool = false
@@ -79,9 +92,24 @@ public struct HTDTEndpointCapabilityDocument:
         self.supportedAuthorityFamilies = supportedAuthorityFamilies
         self.maxArchiveBytes = maxArchiveBytes
         self.missionReceiptsSupported = missionReceiptsSupported
+        self.acceptedArtifactKinds = acceptedArtifactKinds
+        self.missionPackagesServed = missionPackagesServed
         self.equipmentCatalogsRecognized = equipmentCatalogsRecognized
         self.projectRef = projectRef
         self.manualReviewRequired = manualReviewRequired
+    }
+
+    /// Resolved per-kind capabilities: an explicit list when the
+    /// receiver advertises one, otherwise the legacy default —
+    /// `capture_bundle` only (issue #423 §14 backward compat: a
+    /// capture-only receiver stays usable for `.htdtcapture` and is
+    /// preflighted as unsupported for field returns).
+    public var acceptedKinds: [HTDTArtifactKindCapability] {
+        acceptedArtifactKinds ?? [
+            HTDTArtifactKindCapability(
+                artifactKind: HTDTDeliverableKind.captureBundle.rawValue
+            )
+        ]
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -95,10 +123,45 @@ public struct HTDTEndpointCapabilityDocument:
         case supportedAuthorityFamilies = "supported_authority_families"
         case maxArchiveBytes = "max_archive_bytes"
         case missionReceiptsSupported = "mission_receipts_supported"
+        case acceptedArtifactKinds = "accepted_artifact_kinds"
+        case missionPackagesServed = "mission_packages_served"
         case equipmentCatalogsRecognized =
             "equipment_catalogs_recognized"
         case projectRef = "project_ref"
         case manualReviewRequired = "manual_review_required"
+    }
+}
+
+/// One artifact-family admission entry in the capability document
+/// (#423 §5): the receiver stages this kind, within this schema
+/// range and byte ceiling.
+public struct HTDTArtifactKindCapability:
+    Codable, Sendable, Equatable
+{
+    /// `HTDTDeliverableKind` raw value (e.g. `capture_bundle`,
+    /// `field_return`).
+    public let artifactKind: String
+    /// Artifact document schema versions the receiver parses; an
+    /// empty list means any version stages without promotion.
+    public let acceptedSchemaVersions: [String]
+    /// Byte ceiling for this artifact family; nil falls back to the
+    /// document-wide `max_archive_bytes`.
+    public let maxArchiveBytes: Int64?
+
+    public init(
+        artifactKind: String,
+        acceptedSchemaVersions: [String] = [],
+        maxArchiveBytes: Int64? = nil
+    ) {
+        self.artifactKind = artifactKind
+        self.acceptedSchemaVersions = acceptedSchemaVersions
+        self.maxArchiveBytes = maxArchiveBytes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case artifactKind = "artifact_kind"
+        case acceptedSchemaVersions = "accepted_schema_versions"
+        case maxArchiveBytes = "max_archive_bytes"
     }
 }
 
@@ -220,6 +283,11 @@ public struct HTDTCompatibilityGap: Sendable, Equatable {
         case unrecognizedEquipmentCatalog =
             "unrecognized_equipment_catalog"
         case projectRefMismatch = "project_ref_mismatch"
+        /// Hard failure — the receiver cannot stage this artifact
+        /// family at all (#423 §5): e.g. a field return aimed at a
+        /// capture-only receiver. The Send button is disabled with
+        /// this explanation; Share remains.
+        case unsupportedArtifactKind = "unsupported_artifact_kind"
     }
 
     public let kind: Kind
@@ -412,6 +480,78 @@ public enum HTDTCompatibilityChecker {
             return .compatibleWithOmissions(omissions)
         }
         return .compatible
+    }
+
+    /// Artifact-kind preflight (#423 §5): whether the receiver
+    /// stages this artifact family at all. `capture_bundle` keeps
+    /// the full bundle check above; other kinds run only the
+    /// kind/schema/size admission — never a bundle-manifest
+    /// requirement against non-bundle bytes.
+    public static func checkDeliverable(
+        deliverable: HTDTDeliverableIdentity,
+        archiveByteCount: Int64,
+        capabilities: HTDTEndpointCapabilityDocument,
+        requiresMissionReceipts: Bool = false
+    ) -> HTDTCompatibilityVerdict {
+        var hard: [HTDTCompatibilityGap] = []
+        if !capabilities.handoffProtocolVersions.contains(
+            HTDTEndpointCapabilityDocument.handoffProtocol
+        ) {
+            hard.append(HTDTCompatibilityGap(
+                kind: .unsupportedHandoffProtocol,
+                subject: HTDTEndpointCapabilityDocument.handoffProtocol,
+                detail: "Receiver does not accept handoff protocol "
+                    + HTDTEndpointCapabilityDocument.handoffProtocol
+            ))
+        }
+        let kindAdmission = capabilities.acceptedKinds.first {
+            $0.artifactKind == deliverable.artifactKind.rawValue
+        }
+        guard let kindAdmission else {
+            hard.append(HTDTCompatibilityGap(
+                kind: .unsupportedArtifactKind,
+                subject: deliverable.artifactKind.rawValue,
+                detail: "Receiver does not accept "
+                    + deliverable.artifactKind.displayName
+            ))
+            return .incompatible(hard)
+        }
+        if let schemaVersion = deliverable.schemaVersion,
+           !kindAdmission.acceptedSchemaVersions.isEmpty,
+           !kindAdmission.acceptedSchemaVersions
+               .contains(schemaVersion)
+        {
+            hard.append(HTDTCompatibilityGap(
+                kind: .unsupportedArtifactKind,
+                subject: schemaVersion,
+                detail: "Receiver does not accept "
+                    + deliverable.artifactKind.displayName
+                    + " schema " + schemaVersion
+            ))
+        }
+        let byteCeiling = kindAdmission.maxArchiveBytes
+            ?? capabilities.maxArchiveBytes
+        if let maxBytes = byteCeiling,
+           archiveByteCount > maxBytes
+        {
+            hard.append(HTDTCompatibilityGap(
+                kind: .archiveTooLarge,
+                subject: String(archiveByteCount),
+                detail: "Archive exceeds receiver limit of "
+                    + String(maxBytes) + " bytes"
+            ))
+        }
+        if requiresMissionReceipts,
+           !capabilities.missionReceiptsSupported
+        {
+            hard.append(HTDTCompatibilityGap(
+                kind: .missionReceiptsUnsupported,
+                subject: "mission_receipts",
+                detail: "Mission-bound delivery requires mission "
+                    + "receipt support the receiver does not advertise"
+            ))
+        }
+        return hard.isEmpty ? .compatible : .incompatible(hard)
     }
 
     /// Preflight a mission's declared minimum receiver requirement —

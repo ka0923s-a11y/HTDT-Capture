@@ -205,9 +205,8 @@ public enum CaptureLibraryPackageExporter {
         )
         let filteredReceipts = HTDTHandoffReceiptStore.Document(
             receipts: receipts.filter {
-                includedRevisions.contains(
-                    $0.captureRevisionID.description
-                )
+                $0.artifactIDText.map(includedRevisions.contains)
+                    ?? false
             }
         )
 
@@ -716,9 +715,8 @@ public enum CaptureLibraryImporter {
                     manifest.revisions.map(\.captureRevisionID)
                 )
                 receiptsToAppend = incoming.receipts.filter {
-                    included.contains(
-                        $0.captureRevisionID.description
-                    ) && !localIDs.contains($0.receiptID)
+                    ($0.artifactIDText.map(included.contains) ?? false)
+                        && !localIDs.contains($0.receiptID)
                 }.count
             }
         }
@@ -949,9 +947,9 @@ public enum CaptureLibraryImporter {
                 let localIDs = Set(local.map(\.receiptID))
                 let importedIDs = Set(imported.map(\.description))
                 for receipt in incoming.receipts {
-                    guard importedIDs.contains(
-                        receipt.captureRevisionID.description
-                    ), !localIDs.contains(receipt.receiptID)
+                    guard receipt.artifactIDText.map(
+                        importedIDs.contains
+                    ) ?? false, !localIDs.contains(receipt.receiptID)
                     else {
                         continue
                     }

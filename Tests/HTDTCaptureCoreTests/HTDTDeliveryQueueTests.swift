@@ -22,8 +22,12 @@ final class HTDTDeliveryQueueTests: XCTestCase {
 
         private var steps: [Step]
         private(set) var submissions:
-            [(endpoint: URL, deliveryID: String?, pin: String?)]
-            = []
+            [(
+                endpoint: URL,
+                deliveryID: String?,
+                pin: String?,
+                deliverable: HTDTDeliverableIdentity
+            )] = []
 
         init(steps: [Step]) {
             self.steps = steps
@@ -33,8 +37,7 @@ final class HTDTDeliveryQueueTests: XCTestCase {
             archive: URL,
             archiveSHA256: EvidenceSHA256,
             archiveByteCount: Int64,
-            captureRevisionID: CaptureRevisionID,
-            bundleDigest: EvidenceSHA256,
+            deliverable: HTDTDeliverableIdentity,
             endpoint: URL,
             deliveryID: String?,
             pinnedIdentity: String?
@@ -42,7 +45,8 @@ final class HTDTDeliveryQueueTests: XCTestCase {
             submissions.append((
                 endpoint: endpoint,
                 deliveryID: deliveryID,
-                pin: pinnedIdentity
+                pin: pinnedIdentity,
+                deliverable: deliverable
             ))
             let step = steps.isEmpty
                 ? Step.accept(stagingRef: nil)
@@ -53,8 +57,13 @@ final class HTDTDeliveryQueueTests: XCTestCase {
                     ingestionOutcome:
                         HTDTIngestionResponse.outcomeAccepted,
                     captureRevisionID:
-                        captureRevisionID.description,
-                    bundleDigest: bundleDigest.value,
+                        deliverable.artifactID,
+                    bundleDigest: deliverable.semanticDigest,
+                    artifactKind:
+                        deliverable.artifactKind.rawValue,
+                    artifactID: deliverable.artifactID,
+                    artifactDigest:
+                        deliverable.semanticDigest,
                     stagingRef: stagingRef
                 )
             case .alreadyStaged:
@@ -62,8 +71,13 @@ final class HTDTDeliveryQueueTests: XCTestCase {
                     ingestionOutcome:
                         HTDTIngestionResponse.outcomeAlreadyStaged,
                     captureRevisionID:
-                        captureRevisionID.description,
-                    bundleDigest: bundleDigest.value,
+                        deliverable.artifactID,
+                    bundleDigest: deliverable.semanticDigest,
+                    artifactKind:
+                        deliverable.artifactKind.rawValue,
+                    artifactID: deliverable.artifactID,
+                    artifactDigest:
+                        deliverable.semanticDigest,
                     stagingRef: "st-9"
                 )
             case .reject(let detail):
@@ -71,8 +85,8 @@ final class HTDTDeliveryQueueTests: XCTestCase {
                     ingestionOutcome:
                         HTDTIngestionResponse.outcomeRejected,
                     captureRevisionID:
-                        captureRevisionID.description,
-                    bundleDigest: bundleDigest.value,
+                        deliverable.artifactID,
+                    bundleDigest: deliverable.semanticDigest,
                     detail: detail
                 )
             case .transportError:

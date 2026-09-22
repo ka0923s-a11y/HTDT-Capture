@@ -146,13 +146,14 @@ public enum CaptureWorkflowActionMap {
     public static let fieldReturn: Set<String> = [
         "openFieldReturnWorkspace", "persistFieldReturnDraft",
         "finalizeFieldReturn", "listFieldReturns",
+        "fieldReturnArtifactURL",
     ]
     public static let mission: Set<String> = [
         "importTaskPlan", "clearTaskPlan", "importMissionDocument",
         "importMissionPackage", "startMission", "deactivateMission",
         "archiveMission", "evaluateMissionDependencies",
         "waiveMissionItem", "markTaskPlanItem", "resolveRepairTask",
-        "importPlanReference",
+        "importPlanReference", "checkHTDTForMissions",
     ]
     public static let library: Set<String> = [
         "openPersistedCapture", "deletePersistedCapture",
@@ -172,6 +173,7 @@ public enum CaptureWorkflowActionMap {
         "refreshEndpointCapabilities", "deliveryRetryNow",
         "deliveryPause", "deliveryResume", "deliveryCancel",
         "deliveryPurgePayload", "preflightDestination",
+        "preflightFieldReturn", "sendFieldReturnToHTDT",
         "deleteExportArchive",
     ]
     public static let administration: Set<String> = [

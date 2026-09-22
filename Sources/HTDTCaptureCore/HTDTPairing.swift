@@ -68,6 +68,11 @@ public struct HTDTReceiverPairingPayload: Codable, Sendable, Equatable {
     /// Optional endpoint serving the `htdt.endpoint-capabilities`
     /// document (#374).
     public let capabilityEndpointURL: String?
+    /// Optional base URL of the receiver's Mission-serving service
+    /// (#422): enumeration, download and receipt endpoints hang off
+    /// it. Absent means the receiver does not serve Missions and the
+    /// manual import path remains.
+    public let missionsEndpointURL: String?
     /// `sha256:<64hex>` of the receiver's leaf TLS certificate.
     public let pinnedIdentity: String
     /// One-time ceremony token mixed into the verification code.
@@ -82,6 +87,7 @@ public struct HTDTReceiverPairingPayload: Codable, Sendable, Equatable {
         displayName: String,
         endpointURL: String,
         capabilityEndpointURL: String? = nil,
+        missionsEndpointURL: String? = nil,
         pinnedIdentity: String,
         pairingToken: String,
         projectRef: String? = nil,
@@ -93,6 +99,7 @@ public struct HTDTReceiverPairingPayload: Codable, Sendable, Equatable {
         self.displayName = displayName
         self.endpointURL = endpointURL
         self.capabilityEndpointURL = capabilityEndpointURL
+        self.missionsEndpointURL = missionsEndpointURL
         self.pinnedIdentity = pinnedIdentity
         self.pairingToken = pairingToken
         self.projectRef = projectRef
@@ -106,6 +113,7 @@ public struct HTDTReceiverPairingPayload: Codable, Sendable, Equatable {
         case displayName = "display_name"
         case endpointURL = "endpoint_url"
         case capabilityEndpointURL = "capability_endpoint_url"
+        case missionsEndpointURL = "missions_endpoint_url"
         case pinnedIdentity = "pinned_identity"
         case pairingToken = "pairing_token"
         case projectRef = "project_ref"
@@ -153,6 +161,14 @@ public struct HTDTReceiverPairingPayload: Codable, Sendable, Equatable {
                 throw HTDTPairingError.nonSecureEndpoint
             }
         }
+        if let missions = payload.missionsEndpointURL {
+            guard let missionsURL = URL(string: missions),
+                  missionsURL.scheme?.lowercased() == "https",
+                  missionsURL.host != nil
+            else {
+                throw HTDTPairingError.nonSecureEndpoint
+            }
+        }
         guard HTDTPinnedIdentity.digestText(payload.pinnedIdentity)
                 != nil
         else {
@@ -195,6 +211,10 @@ public struct PairedHTDTDestination:
     public let receiverInstanceID: String
     public let endpointURL: String
     public let capabilityEndpointURL: String?
+    /// Mission-serving base URL advertised at pairing (#422); nil
+    /// means this receiver offers no Mission pull and the manual
+    /// Files/share-sheet import remains the path.
+    public let missionsEndpointURL: String?
     public let pinnedIdentity: String
     public let projectRef: String?
     public let pairedAtUTC: String
@@ -215,6 +235,7 @@ public struct PairedHTDTDestination:
         receiverInstanceID: String,
         endpointURL: String,
         capabilityEndpointURL: String? = nil,
+        missionsEndpointURL: String? = nil,
         pinnedIdentity: String,
         projectRef: String? = nil,
         pairedAtUTC: String,
@@ -227,6 +248,7 @@ public struct PairedHTDTDestination:
         self.receiverInstanceID = receiverInstanceID
         self.endpointURL = endpointURL
         self.capabilityEndpointURL = capabilityEndpointURL
+        self.missionsEndpointURL = missionsEndpointURL
         self.pinnedIdentity = pinnedIdentity
         self.projectRef = projectRef
         self.pairedAtUTC = pairedAtUTC
@@ -243,12 +265,55 @@ public struct PairedHTDTDestination:
         case receiverInstanceID = "receiver_instance_id"
         case endpointURL = "endpoint_url"
         case capabilityEndpointURL = "capability_endpoint_url"
+        case missionsEndpointURL = "missions_endpoint_url"
         case pinnedIdentity = "pinned_identity"
         case projectRef = "project_ref"
         case pairedAtUTC = "paired_at"
         case lastSeenAtUTC = "last_seen_at"
         case cachedCapability = "cached_capability"
         case revoked
+    }
+
+    /// Pairings recorded before #422 lack `missions_endpoint_url` —
+    /// decode as nil so the record stays usable for uploads while
+    /// receive stays off until re-pairing.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.destinationID = try container.decode(
+            String.self, forKey: .destinationID
+        )
+        self.displayName = try container.decode(
+            String.self, forKey: .displayName
+        )
+        self.receiverInstanceID = try container.decode(
+            String.self, forKey: .receiverInstanceID
+        )
+        self.endpointURL = try container.decode(
+            String.self, forKey: .endpointURL
+        )
+        self.capabilityEndpointURL = try container.decodeIfPresent(
+            String.self, forKey: .capabilityEndpointURL
+        )
+        self.missionsEndpointURL = try container.decodeIfPresent(
+            String.self, forKey: .missionsEndpointURL
+        )
+        self.pinnedIdentity = try container.decode(
+            String.self, forKey: .pinnedIdentity
+        )
+        self.projectRef = try container.decodeIfPresent(
+            String.self, forKey: .projectRef
+        )
+        self.pairedAtUTC = try container.decode(
+            String.self, forKey: .pairedAtUTC
+        )
+        self.lastSeenAtUTC = try container.decodeIfPresent(
+            String.self, forKey: .lastSeenAtUTC
+        )
+        self.cachedCapability = try container.decodeIfPresent(
+            HTDTEndpointCapabilitySnapshot.self,
+            forKey: .cachedCapability
+        )
+        self.revoked = try container.decode(Bool.self, forKey: .revoked)
     }
 
     /// The destination as the send flow sees it — a named endpoint.
@@ -335,6 +400,7 @@ public struct PairedHTDTDestinationStore: Sendable {
                 receiverInstanceID: payload.receiverInstanceID,
                 endpointURL: payload.endpointURL,
                 capabilityEndpointURL: payload.capabilityEndpointURL,
+                missionsEndpointURL: payload.missionsEndpointURL,
                 pinnedIdentity: payload.pinnedIdentity,
                 projectRef: payload.projectRef,
                 pairedAtUTC: nowUTC,
@@ -351,6 +417,7 @@ public struct PairedHTDTDestinationStore: Sendable {
             receiverInstanceID: payload.receiverInstanceID,
             endpointURL: payload.endpointURL,
             capabilityEndpointURL: payload.capabilityEndpointURL,
+            missionsEndpointURL: payload.missionsEndpointURL,
             pinnedIdentity: payload.pinnedIdentity,
             projectRef: payload.projectRef,
             pairedAtUTC: nowUTC,
@@ -387,6 +454,7 @@ public struct PairedHTDTDestinationStore: Sendable {
             receiverInstanceID: existing.receiverInstanceID,
             endpointURL: existing.endpointURL,
             capabilityEndpointURL: existing.capabilityEndpointURL,
+            missionsEndpointURL: existing.missionsEndpointURL,
             pinnedIdentity: existing.pinnedIdentity,
             projectRef: existing.projectRef,
             pairedAtUTC: existing.pairedAtUTC,
@@ -415,6 +483,7 @@ public struct PairedHTDTDestinationStore: Sendable {
             receiverInstanceID: existing.receiverInstanceID,
             endpointURL: existing.endpointURL,
             capabilityEndpointURL: existing.capabilityEndpointURL,
+            missionsEndpointURL: existing.missionsEndpointURL,
             pinnedIdentity: existing.pinnedIdentity,
             projectRef: existing.projectRef,
             pairedAtUTC: existing.pairedAtUTC,
@@ -444,6 +513,7 @@ public struct PairedHTDTDestinationStore: Sendable {
             receiverInstanceID: existing.receiverInstanceID,
             endpointURL: existing.endpointURL,
             capabilityEndpointURL: existing.capabilityEndpointURL,
+            missionsEndpointURL: existing.missionsEndpointURL,
             pinnedIdentity: existing.pinnedIdentity,
             projectRef: existing.projectRef,
             pairedAtUTC: existing.pairedAtUTC,
