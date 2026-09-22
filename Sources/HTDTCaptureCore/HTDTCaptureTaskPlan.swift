@@ -22,6 +22,13 @@ public enum CaptureTaskPlanError: Error, Sendable, Equatable {
     case unknownItemID
     case unsupportedSchema
     case encodedDocumentMismatch
+    /// A fulfillment binding does not match the item's declared kind,
+    /// subtype, or target — or points at a record/evidence ref that
+    /// does not exist, or shares one record across tasks without an
+    /// explicit `allow_shared_fulfillment` on both items.
+    case fulfillmentMismatch
+    /// The item is not a kind that accepts this fulfillment payload.
+    case fulfillmentKindMismatch
 }
 
 /// One entity the plan asks the operator to place (issue #240). The
@@ -204,16 +211,260 @@ public struct HTDTTaskPlanSurfaceItem: Codable, Sendable, Equatable {
     }
 }
 
+/// A theater-semantic authority task the plan requests (#359). The
+/// item names an exact record kind — never a free-form string — so a
+/// single vague record cannot silently satisfy unrelated tasks. The
+/// operator fulfills it by binding an exact authority record via
+/// `CaptureTaskPlanStatus.fulfill`.
+public struct HTDTTaskPlanSemanticItem: Codable, Sendable, Equatable {
+    public let itemID: String
+    public let requirement: TaskPlanRequirement
+    /// The authority record kind that satisfies this item.
+    public let semanticKind: SemanticTaskKind
+    /// Exact subtype token within the kind the fulfilling record must
+    /// carry — e.g. an inventory `equipment_class` value, a room-state
+    /// `kind`, a mounting mode. nil accepts any subtype.
+    public let expectedSubtype: String?
+    /// Exact entity identity (`AnnotationEntityID` text) the
+    /// fulfilling record must describe, when the plan targets one.
+    public let targetRef: String?
+    /// Operator-facing label for the requested work.
+    public let label: String?
+    /// Plan-side reference the record answers to (e.g. a planned
+    /// entity id or spec ref), when the plan declares one.
+    public let plannedRef: String?
+    /// Whether this item permits one record to also satisfy other
+    /// items. Sharing is only allowed when both items opt in.
+    public let allowSharedFulfillment: Bool
+
+    public init(
+        itemID: String,
+        requirement: TaskPlanRequirement,
+        semanticKind: SemanticTaskKind,
+        expectedSubtype: String? = nil,
+        targetRef: String? = nil,
+        label: String? = nil,
+        plannedRef: String? = nil,
+        allowSharedFulfillment: Bool = false
+    ) throws {
+        let normalizedID = SchemaOwnedText.nfc(itemID)
+        guard !normalizedID.isEmpty else {
+            throw CaptureTaskPlanError.emptyField
+        }
+        for value in [
+            SchemaOwnedText.nfc(expectedSubtype),
+            SchemaOwnedText.nfc(targetRef),
+            SchemaOwnedText.nfc(label),
+            SchemaOwnedText.nfc(plannedRef),
+        ] {
+            if let value, value.isEmpty {
+                throw CaptureTaskPlanError.emptyField
+            }
+        }
+        self.itemID = normalizedID
+        self.requirement = requirement
+        self.semanticKind = semanticKind
+        self.expectedSubtype = SchemaOwnedText.nfc(expectedSubtype)
+        self.targetRef = SchemaOwnedText.nfc(targetRef)
+        self.label = SchemaOwnedText.nfc(label)
+        self.plannedRef = SchemaOwnedText.nfc(plannedRef)
+        self.allowSharedFulfillment = allowSharedFulfillment
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case itemID = "item_id"
+        case requirement
+        case semanticKind = "semantic_kind"
+        case expectedSubtype = "expected_subtype"
+        case targetRef = "target_ref"
+        case label
+        case plannedRef = "planned_ref"
+        case allowSharedFulfillment = "allow_shared_fulfillment"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            itemID: container.decode(String.self, forKey: .itemID),
+            requirement: container.decode(
+                TaskPlanRequirement.self,
+                forKey: .requirement
+            ),
+            semanticKind: container.decode(
+                SemanticTaskKind.self,
+                forKey: .semanticKind
+            ),
+            expectedSubtype: container.decodeIfPresent(
+                String.self,
+                forKey: .expectedSubtype
+            ),
+            targetRef: container.decodeIfPresent(
+                String.self,
+                forKey: .targetRef
+            ),
+            label: container.decodeIfPresent(
+                String.self,
+                forKey: .label
+            ),
+            plannedRef: container.decodeIfPresent(
+                String.self,
+                forKey: .plannedRef
+            ),
+            allowSharedFulfillment: container.decodeIfPresent(
+                Bool.self,
+                forKey: .allowSharedFulfillment
+            ) ?? false
+        )
+    }
+}
+
+/// A first-class evidence target the plan requests (#359): a stable
+/// item id plus the evidence purpose, so the fulfilled answer is an
+/// exact committed evidence ref — never a loose string match.
+public struct HTDTTaskPlanEvidenceItem: Codable, Sendable, Equatable {
+    public let itemID: String
+    public let requirement: TaskPlanRequirement
+    /// What the evidence is for — e.g. "equipment_label_photo",
+    /// "avr_rack_wiring". A typed purpose token, not a capture value.
+    public let purpose: String
+    /// Entity/record the evidence must relate to, when the plan names
+    /// one (entity id text or authority record id text).
+    public let subjectRef: String?
+    /// Free-text capture guidance for the operator.
+    public let guidance: String?
+
+    public init(
+        itemID: String,
+        requirement: TaskPlanRequirement,
+        purpose: String,
+        subjectRef: String? = nil,
+        guidance: String? = nil
+    ) throws {
+        let normalizedID = SchemaOwnedText.nfc(itemID)
+        let normalizedPurpose = SchemaOwnedText.nfc(purpose)
+        guard !normalizedID.isEmpty, !normalizedPurpose.isEmpty else {
+            throw CaptureTaskPlanError.emptyField
+        }
+        for value in [
+            SchemaOwnedText.nfc(subjectRef),
+            SchemaOwnedText.nfc(guidance),
+        ] {
+            if let value, value.isEmpty {
+                throw CaptureTaskPlanError.emptyField
+            }
+        }
+        self.itemID = normalizedID
+        self.requirement = requirement
+        self.purpose = normalizedPurpose
+        self.subjectRef = SchemaOwnedText.nfc(subjectRef)
+        self.guidance = SchemaOwnedText.nfc(guidance)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case itemID = "item_id"
+        case requirement
+        case purpose
+        case subjectRef = "subject_ref"
+        case guidance
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            itemID: container.decode(String.self, forKey: .itemID),
+            requirement: container.decode(
+                TaskPlanRequirement.self,
+                forKey: .requirement
+            ),
+            purpose: container.decode(
+                String.self,
+                forKey: .purpose
+            ),
+            subjectRef: container.decodeIfPresent(
+                String.self,
+                forKey: .subjectRef
+            ),
+            guidance: container.decodeIfPresent(
+                String.self,
+                forKey: .guidance
+            )
+        )
+    }
+}
+
+/// The exact payload a semantic or evidence task is fulfilled with
+/// (#359): an authority record id for semantic tasks, a committed
+/// evidence ref for evidence tasks. Encoded tagged so a status
+/// document round-trips without ambiguity.
+public enum TaskPlanFulfillment: Codable, Sendable, Equatable {
+    case authorityRecord(AuthorityRecordID)
+    case evidenceRef(String)
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case ref
+    }
+
+    private enum Kind: String, Codable {
+        case authorityRecord = "authority_record"
+        case evidenceRef = "evidence_ref"
+    }
+
+    /// Canonical string form persisted on item outcomes — the exact
+    /// fulfilling record/evidence identity.
+    public var refText: String {
+        switch self {
+        case let .authorityRecord(id):
+            return id.description
+        case let .evidenceRef(ref):
+            return ref
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try container.decode(Kind.self, forKey: .kind)
+        switch kind {
+        case .authorityRecord:
+            self = .authorityRecord(
+                try container.decode(AuthorityRecordID.self, forKey: .ref)
+            )
+        case .evidenceRef:
+            self = .evidenceRef(
+                try container.decode(String.self, forKey: .ref)
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case let .authorityRecord(id):
+            try container.encode(Kind.authorityRecord, forKey: .kind)
+            try container.encode(id, forKey: .ref)
+        case let .evidenceRef(ref):
+            try container.encode(Kind.evidenceRef, forKey: .kind)
+            try container.encode(ref, forKey: .ref)
+        }
+    }
+}
+
 /// A versioned HTDT capture task plan (issue #240): project/document
 /// reference, room name, required/optional entity checklist, expected
 /// channel roles, equipment catalog snapshot, requested measurements
-/// with endpoint semantics, evidence targets, and surface/opening
-/// review tasks. The plan is an operator workflow request and is
-/// persisted verbatim as imported reference — it is never capture
-/// truth and never pre-populates the working set.
+/// with endpoint semantics, evidence targets, surface/opening review
+/// tasks, and — from schema 2.0.0 (#359) — first-class theater-semantic
+/// authority tasks and stable-id evidence tasks. The plan is an
+/// operator workflow request and is persisted verbatim as imported
+/// reference — it is never capture truth and never pre-populates the
+/// working set.
 public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
     public static let schema = "htdt.capture-task-plan"
-    public static let schemaVersion = "1.0.0"
+    /// Every plan version this build can import. v1 files decode with
+    /// the new task arrays empty — their meaning is unchanged (#359).
+    public static let supportedSchemaVersions = ["1.0.0", "2.0.0"]
+    /// The version emitted when a plan is authored in-process.
+    public static let schemaVersion = "2.0.0"
 
     public let schema: String
     public let schemaVersion: String
@@ -236,6 +487,10 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
     /// completeness requirements evaluate from. Nil plans keep the
     /// legacy `expected_channel_roles` behavior.
     public let layoutProfile: SpeakerLayoutProfile?
+    /// Theater-semantic authority tasks the plan requests (#359).
+    public let semanticTasks: [HTDTTaskPlanSemanticItem]
+    /// Stable-id evidence tasks the plan requests (#359).
+    public let evidenceTasks: [HTDTTaskPlanEvidenceItem]
 
     public init(
         planID: String,
@@ -249,8 +504,15 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
         evidenceTargets: [String] = [],
         expectedChannelRoles: [ChannelRole] = [],
         equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil,
-        layoutProfile: SpeakerLayoutProfile? = nil
+        layoutProfile: SpeakerLayoutProfile? = nil,
+        semanticTasks: [HTDTTaskPlanSemanticItem] = [],
+        evidenceTasks: [HTDTTaskPlanEvidenceItem] = [],
+        schemaVersion: String = HTDTCaptureTaskPlan.schemaVersion
     ) throws {
+        guard Self.supportedSchemaVersions.contains(schemaVersion)
+        else {
+            throw CaptureTaskPlanError.unsupportedSchema
+        }
         let normalizedID = SchemaOwnedText.nfc(planID)
         let normalizedVersion = SchemaOwnedText.nfc(planVersion)
         let normalizedProject = SchemaOwnedText.nfc(projectRef)
@@ -284,6 +546,16 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
                 throw CaptureTaskPlanError.duplicateItemID
             }
         }
+        for item in semanticTasks {
+            guard seen.insert(item.itemID).inserted else {
+                throw CaptureTaskPlanError.duplicateItemID
+            }
+        }
+        for item in evidenceTasks {
+            guard seen.insert(item.itemID).inserted else {
+                throw CaptureTaskPlanError.duplicateItemID
+            }
+        }
         let normalizedEvidenceTargets = SchemaOwnedText.nfc(
             evidenceTargets
         )
@@ -293,7 +565,7 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
             throw CaptureTaskPlanError.emptyField
         }
         self.schema = Self.schema
-        self.schemaVersion = Self.schemaVersion
+        self.schemaVersion = schemaVersion
         self.planID = normalizedID
         self.planVersion = normalizedVersion
         self.projectRef = normalizedProject
@@ -306,12 +578,16 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
         self.expectedChannelRoles = expectedChannelRoles
         self.equipmentCatalog = equipmentCatalog
         self.layoutProfile = layoutProfile
+        self.semanticTasks = semanticTasks
+        self.evidenceTasks = evidenceTasks
     }
 
     public var allItemIDs: [String] {
         entityChecklist.map(\.itemID)
             + measurementRequests.map(\.itemID)
             + surfaceReviewTasks.map(\.itemID)
+            + semanticTasks.map(\.itemID)
+            + evidenceTasks.map(\.itemID)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -329,6 +605,8 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
         case expectedChannelRoles = "expected_channel_roles"
         case equipmentCatalog = "equipment_catalog"
         case layoutProfile = "layout_profile"
+        case semanticTasks = "semantic_tasks"
+        case evidenceTasks = "evidence_tasks"
     }
 
     /// Decodes an imported plan. Malformed bytes, unsupported schema
@@ -342,7 +620,7 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
             forKey: .schemaVersion
         )
         guard schema == Self.schema,
-              schemaVersion == Self.schemaVersion
+              Self.supportedSchemaVersions.contains(schemaVersion)
         else {
             throw CaptureTaskPlanError.unsupportedSchema
         }
@@ -391,7 +669,16 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
             layoutProfile: container.decodeIfPresent(
                 SpeakerLayoutProfile.self,
                 forKey: .layoutProfile
-            )
+            ),
+            semanticTasks: container.decodeIfPresent(
+                [HTDTTaskPlanSemanticItem].self,
+                forKey: .semanticTasks
+            ) ?? [],
+            evidenceTasks: container.decodeIfPresent(
+                [HTDTTaskPlanEvidenceItem].self,
+                forKey: .evidenceTasks
+            ) ?? [],
+            schemaVersion: schemaVersion
         )
     }
 }
@@ -481,20 +768,34 @@ public struct CaptureTaskPlanStatusDocument: Codable, Sendable,
     public struct ItemOutcome: Codable, Sendable, Equatable {
         public let itemID: String
         public let outcome: TaskPlanItemOutcome
+        /// Exact fulfilling record/evidence identity (#359): the
+        /// authority record id for semantic tasks, the committed
+        /// evidence ref for evidence tasks. nil for the other item
+        /// kinds, which resolve against committed capture truth.
+        public let fulfillmentRef: String?
 
-        public init(itemID: String, outcome: TaskPlanItemOutcome) {
+        public init(
+            itemID: String,
+            outcome: TaskPlanItemOutcome,
+            fulfillmentRef: String? = nil
+        ) {
             self.itemID = itemID
             self.outcome = outcome
+            self.fulfillmentRef = fulfillmentRef
         }
 
         private enum CodingKeys: String, CodingKey {
             case itemID = "item_id"
             case outcome
+            case fulfillmentRef = "fulfillment_ref"
         }
     }
 
     public static let schema = "htdt.capture-task-plan-status"
-    public static let schemaVersion = "1.0.0"
+    /// Emitted since the #359 contract: v1 documents still decode
+    /// (their items carry no `fulfillment_ref`).
+    public static let schemaVersion = "2.0.0"
+    public static let supportedSchemaVersions = ["1.0.0", "2.0.0"]
     public static let path = "session/task-plan-status.json"
 
     public let schema: String
@@ -552,7 +853,7 @@ public struct CaptureTaskPlanStatusDocument: Codable, Sendable,
             forKey: .schemaVersion
         )
         guard schema == Self.schema,
-              schemaVersion == Self.schemaVersion
+              Self.supportedSchemaVersions.contains(schemaVersion)
         else {
             throw CaptureTaskPlanError.unsupportedSchema
         }
@@ -589,16 +890,41 @@ public struct CaptureTaskPlanStatusDocument: Codable, Sendable,
 public struct CaptureTaskPlanStatus: Sendable, Equatable {
     public let planImport: CaptureTaskPlanImport
     private var explicitMarks: [String: TaskPlanItemOutcome]
+    /// Exact fulfillment bindings for semantic/evidence tasks (#359).
+    public private(set) var fulfillments: [String: TaskPlanFulfillment]
 
     public init(planImport: CaptureTaskPlanImport) {
         self.planImport = planImport
         self.explicitMarks = [:]
+        self.fulfillments = [:]
+    }
+
+    /// Rebuilds fulfillment bindings from a persisted status document
+    /// — `fulfillment_ref` on each item is the durable copy of the
+    /// in-memory binding (#359).
+    public mutating func restoreFulfillments(
+        from document: CaptureTaskPlanStatusDocument
+    ) {
+        let semanticIDs = Set(planImport.plan.semanticTasks.map(\.itemID))
+        let evidenceIDs = Set(planImport.plan.evidenceTasks.map(\.itemID))
+        for item in document.items {
+            guard let ref = item.fulfillmentRef else { continue }
+            if semanticIDs.contains(item.itemID),
+               let id = AuthorityRecordID(canonicalString: ref)
+            {
+                fulfillments[item.itemID] = .authorityRecord(id)
+            } else if evidenceIDs.contains(item.itemID) {
+                fulfillments[item.itemID] = .evidenceRef(ref)
+            }
+        }
     }
 
     /// Operator marks an item skipped or unavailable. `pending` clears
     /// the mark. `completed` cannot be asserted ahead of evidence for
-    /// entity/measurement items; surface review items are operator-
-    /// assessed and may be marked completed directly.
+    /// entity/measurement items and never applies to semantic/evidence
+    /// tasks — those complete only through an exact fulfillment
+    /// binding; surface review items are operator-assessed and may be
+    /// marked completed directly.
     public mutating func mark(
         itemID: String,
         as outcome: TaskPlanItemOutcome
@@ -618,12 +944,146 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
         }
     }
 
+    /// Binds an exact authority record to a semantic task (#359).
+    /// Fails closed: the record must exist in `authorities`, carry the
+    /// item's `semantic_kind`, match `expected_subtype`/`target_ref`
+    /// when declared, and — unless both items opt into
+    /// `allow_shared_fulfillment` — must not already fulfill another
+    /// task.
+    public mutating func fulfill(
+        itemID: String,
+        with recordID: AuthorityRecordID,
+        in authorities: TheaterAuthorityCollection
+    ) throws {
+        guard let item = planImport.plan.semanticTasks
+            .first(where: { $0.itemID == itemID })
+        else {
+            guard planImport.plan.allItemIDs.contains(itemID) else {
+                throw CaptureTaskPlanError.unknownItemID
+            }
+            throw CaptureTaskPlanError.fulfillmentKindMismatch
+        }
+        guard let descriptor = authorities.recordDescriptors
+            .first(where: { $0.recordID == recordID }),
+            descriptor.kind == item.semanticKind
+        else {
+            throw CaptureTaskPlanError.fulfillmentMismatch
+        }
+        if let expected = item.expectedSubtype,
+           descriptor.subtype != expected
+        {
+            throw CaptureTaskPlanError.fulfillmentMismatch
+        }
+        if let target = item.targetRef {
+            let matches = descriptor.targetEntityID?.description == target
+                || descriptor.targetPlannedRef == target
+            guard matches else {
+                throw CaptureTaskPlanError.fulfillmentMismatch
+            }
+        }
+        for (otherID, fulfillment) in fulfillments
+        where otherID != itemID {
+            guard case let .authorityRecord(otherRecord) = fulfillment,
+                  otherRecord == recordID
+            else { continue }
+            let otherAllows = planImport.plan.semanticTasks
+                .first(where: { $0.itemID == otherID })?
+                .allowSharedFulfillment ?? false
+            guard item.allowSharedFulfillment, otherAllows else {
+                throw CaptureTaskPlanError.fulfillmentMismatch
+            }
+        }
+        fulfillments[itemID] = .authorityRecord(recordID)
+    }
+
+    /// Binds an exact committed evidence ref to an evidence task
+    /// (#359). The ref must already exist among the session's
+    /// committed evidence — the plan cannot conjure it.
+    public mutating func fulfillEvidence(
+        itemID: String,
+        evidenceRef: String,
+        in committedEvidenceRefs: [String]
+    ) throws {
+        guard let item = planImport.plan.evidenceTasks
+            .first(where: { $0.itemID == itemID })
+        else {
+            guard planImport.plan.allItemIDs.contains(itemID) else {
+                throw CaptureTaskPlanError.unknownItemID
+            }
+            throw CaptureTaskPlanError.fulfillmentKindMismatch
+        }
+        _ = item
+        let normalized = SchemaOwnedText.nfc(evidenceRef)
+        guard !normalized.isEmpty else {
+            throw CaptureTaskPlanError.emptyField
+        }
+        guard committedEvidenceRefs.contains(normalized) else {
+            throw CaptureTaskPlanError.fulfillmentMismatch
+        }
+        fulfillments[itemID] = .evidenceRef(normalized)
+    }
+
+    /// Drops a fulfillment binding so the item returns to pending.
+    public mutating func clearFulfillment(itemID: String) throws {
+        guard planImport.plan.allItemIDs.contains(itemID) else {
+            throw CaptureTaskPlanError.unknownItemID
+        }
+        fulfillments.removeValue(forKey: itemID)
+    }
+
+    private func semanticOutcome(
+        item: HTDTTaskPlanSemanticItem,
+        authorities: TheaterAuthorityCollection
+    ) -> (TaskPlanItemOutcome, String?) {
+        guard case let .authorityRecord(recordID) =
+            fulfillments[item.itemID]
+        else {
+            return (explicitMarks[item.itemID] ?? .pending, nil)
+        }
+        // The bound record must still exist and still match the item —
+        // a deleted record cannot satisfy the task.
+        guard let descriptor = authorities.recordDescriptors
+            .first(where: { $0.recordID == recordID }),
+            descriptor.kind == item.semanticKind
+        else {
+            return (explicitMarks[item.itemID] ?? .pending, nil)
+        }
+        if let expected = item.expectedSubtype,
+           descriptor.subtype != expected
+        {
+            return (explicitMarks[item.itemID] ?? .pending, nil)
+        }
+        if let target = item.targetRef,
+           descriptor.targetEntityID?.description != target,
+           descriptor.targetPlannedRef != target
+        {
+            return (explicitMarks[item.itemID] ?? .pending, nil)
+        }
+        return (.completed, recordID.description)
+    }
+
+    private func evidenceOutcome(
+        item: HTDTTaskPlanEvidenceItem,
+        committedEvidenceRefs: [String]
+    ) -> (TaskPlanItemOutcome, String?) {
+        guard case let .evidenceRef(ref) = fulfillments[item.itemID],
+              committedEvidenceRefs.contains(ref)
+        else {
+            return (explicitMarks[item.itemID] ?? .pending, nil)
+        }
+        return (.completed, ref)
+    }
+
     /// Resolves every checklist item's outcome against committed
     /// capture truth. Auto-computed completion wins over explicit
-    /// marks — committed evidence is the authority.
+    /// marks — committed evidence is the authority. Semantic tasks
+    /// complete only via an exact record fulfillment that still matches
+    /// the live collection; evidence tasks only via a committed ref.
     public func itemOutcomes(
         annotations: [CaptureAnnotationEntity],
-        measurements: [CaptureMeasurement]
+        measurements: [CaptureMeasurement],
+        authorities: TheaterAuthorityCollection = .empty,
+        committedEvidenceRefs: [String] = []
     ) -> [CaptureTaskPlanStatusDocument.ItemOutcome] {
         var outcomes: [CaptureTaskPlanStatusDocument.ItemOutcome] = []
         for item in planImport.plan.entityChecklist {
@@ -666,7 +1126,68 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
                 )
             )
         }
+        for item in planImport.plan.semanticTasks {
+            let (outcome, ref) = semanticOutcome(
+                item: item,
+                authorities: authorities
+            )
+            outcomes.append(
+                .init(
+                    itemID: item.itemID,
+                    outcome: outcome,
+                    fulfillmentRef: ref
+                )
+            )
+        }
+        for item in planImport.plan.evidenceTasks {
+            let (outcome, ref) = evidenceOutcome(
+                item: item,
+                committedEvidenceRefs: committedEvidenceRefs
+            )
+            outcomes.append(
+                .init(
+                    itemID: item.itemID,
+                    outcome: outcome,
+                    fulfillmentRef: ref
+                )
+            )
+        }
         return outcomes
+    }
+
+    /// Whether every required plan item resolved to `completed` —
+    /// mission completeness, deliberately separate from technical
+    /// ingestion/bundle readiness (#359). Optional items may stay
+    /// pending or be skipped without blocking.
+    public func requiredMissionComplete(
+        annotations: [CaptureAnnotationEntity],
+        measurements: [CaptureMeasurement],
+        authorities: TheaterAuthorityCollection = .empty,
+        committedEvidenceRefs: [String] = []
+    ) -> Bool {
+        let outcomesByID = Dictionary(
+            itemOutcomes(
+                annotations: annotations,
+                measurements: measurements,
+                authorities: authorities,
+                committedEvidenceRefs: committedEvidenceRefs
+            ).map { ($0.itemID, $0.outcome) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var requiredIDs: [String] = []
+        requiredIDs += planImport.plan.entityChecklist
+            .filter { $0.requirement == .required }.map(\.itemID)
+        requiredIDs += planImport.plan.measurementRequests
+            .filter { $0.requirement == .required }.map(\.itemID)
+        requiredIDs += planImport.plan.surfaceReviewTasks
+            .filter { $0.requirement == .required }.map(\.itemID)
+        requiredIDs += planImport.plan.semanticTasks
+            .filter { $0.requirement == .required }.map(\.itemID)
+        requiredIDs += planImport.plan.evidenceTasks
+            .filter { $0.requirement == .required }.map(\.itemID)
+        return requiredIDs.allSatisfy {
+            outcomesByID[$0] == .completed
+        }
     }
 
     /// Builds the persisted status document for the working set.
@@ -674,7 +1195,9 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
         captureRevisionID: CaptureRevisionID,
         captureSessionID: CaptureSessionID,
         annotations: [CaptureAnnotationEntity],
-        measurements: [CaptureMeasurement]
+        measurements: [CaptureMeasurement],
+        authorities: TheaterAuthorityCollection = .empty,
+        committedEvidenceRefs: [String] = []
     ) throws -> CaptureTaskPlanStatusDocument {
         try CaptureTaskPlanStatusDocument(
             captureRevisionID: captureRevisionID,
@@ -684,7 +1207,9 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
             planSHA256: planImport.planSHA256,
             items: itemOutcomes(
                 annotations: annotations,
-                measurements: measurements
+                measurements: measurements,
+                authorities: authorities,
+                committedEvidenceRefs: committedEvidenceRefs
             )
         )
     }
@@ -694,13 +1219,17 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
         captureRevisionID: CaptureRevisionID,
         captureSessionID: CaptureSessionID,
         annotations: [CaptureAnnotationEntity],
-        measurements: [CaptureMeasurement]
+        measurements: [CaptureMeasurement],
+        authorities: TheaterAuthorityCollection = .empty,
+        committedEvidenceRefs: [String] = []
     ) throws -> Data {
         let document = try statusDocument(
             captureRevisionID: captureRevisionID,
             captureSessionID: captureSessionID,
             annotations: annotations,
-            measurements: measurements
+            measurements: measurements,
+            authorities: authorities,
+            committedEvidenceRefs: committedEvidenceRefs
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [
