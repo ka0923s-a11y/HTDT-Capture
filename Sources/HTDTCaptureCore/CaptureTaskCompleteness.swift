@@ -8,6 +8,10 @@ public struct CaptureTaskMatch: Sendable, Equatable, Codable {
     public enum Kind: String, Sendable, Equatable, Codable {
         case annotationEntityType = "annotation_entity_type"
         case annotationChannelRole = "annotation_channel_role"
+        /// Logical role binding against a layout profile (#315/#259):
+        /// `value` is the profile `role_id`; `profile_id`/
+        /// `profile_version` optionally pin the exact vocabulary.
+        case annotationRoleBinding = "annotation_role_binding"
         case measurementQuantityType = "measurement_quantity_type"
         case measurementEndpointPair = "measurement_endpoint_pair"
     }
@@ -15,17 +19,30 @@ public struct CaptureTaskMatch: Sendable, Equatable, Codable {
     public let kind: Kind
     public let value: String
     public let endpointRefs: [String]
+    /// Optional profile pin for `annotation_role_binding` matches.
+    public let profileID: String?
+    public let profileVersion: String?
 
-    public init(kind: Kind, value: String, endpointRefs: [String] = []) {
+    public init(
+        kind: Kind,
+        value: String,
+        endpointRefs: [String] = [],
+        profileID: String? = nil,
+        profileVersion: String? = nil
+    ) {
         self.kind = kind
         self.value = value
         self.endpointRefs = endpointRefs
+        self.profileID = profileID
+        self.profileVersion = profileVersion
     }
 
     enum CodingKeys: String, CodingKey {
         case kind
         case value
         case endpointRefs = "endpoint_refs"
+        case profileID = "profile_id"
+        case profileVersion = "profile_version"
     }
 }
 
@@ -112,6 +129,70 @@ public struct CaptureTaskProfile: Sendable, Equatable, Codable {
             ),
         ]
     )
+
+    /// Builds requirements straight from a versioned layout profile's
+    /// declared cardinality (#315/#259): each role's minimum/maximum
+    /// count becomes the requirement bounds and the match pins the
+    /// exact `(profile_id, profile_version)` vocabulary, so evaluation
+    /// counts logical bindings — never arbitrary channel tokens.
+    public static func layoutProfile(
+        _ profile: SpeakerLayoutProfile
+    ) -> CaptureTaskProfile {
+        var requirements: [CaptureTaskRequirement] = [
+            CaptureTaskRequirement(
+                identifier: "primary_listening_position",
+                match: CaptureTaskMatch(
+                    kind: .annotationEntityType,
+                    value: AnnotationEntityType.listeningPosition.rawValue
+                ),
+                minimumCount: 1,
+                maximumCount: 1,
+                allowsSkippedOutcome: false
+            ),
+            CaptureTaskRequirement(
+                identifier: "screen_or_display",
+                match: CaptureTaskMatch(
+                    kind: .annotationEntityType,
+                    value: AnnotationEntityType.display.rawValue
+                ),
+                minimumCount: 1,
+                alternativeGroup: "screen_presence",
+                allowsSkippedOutcome: false
+            ),
+            CaptureTaskRequirement(
+                identifier: "screen_or_display_projection",
+                match: CaptureTaskMatch(
+                    kind: .annotationEntityType,
+                    value: AnnotationEntityType.projectionScreen.rawValue
+                ),
+                minimumCount: 1,
+                alternativeGroup: "screen_presence",
+                allowsSkippedOutcome: false
+            ),
+        ]
+        for role in profile.roles {
+            requirements.append(
+                CaptureTaskRequirement(
+                    identifier: "role_binding_\(role.roleID)",
+                    match: CaptureTaskMatch(
+                        kind: .annotationRoleBinding,
+                        value: role.roleID,
+                        profileID: profile.profileID,
+                        profileVersion: profile.profileVersion
+                    ),
+                    minimumCount: role.minimumCount,
+                    maximumCount: role.maximumCount,
+                    isOptional: role.minimumCount == 0,
+                    allowsSkippedOutcome: false
+                )
+            )
+        }
+        return CaptureTaskProfile(
+            identifier: "layout_profile:\(profile.profileID)",
+            title: profile.displayName ?? profile.profileID,
+            requirements: requirements
+        )
+    }
 
     /// Theater layout profile: exactly one MLP, at least one screen or
     /// display, one annotation per selected speaker role, and a
@@ -390,6 +471,25 @@ public enum CaptureTaskCompletenessEvaluator {
                 entity.channelRole?.rawValue == match.value
                     ? "annotation:\(entity.entityID.description)"
                     : nil
+            }.sorted()
+        case .annotationRoleBinding:
+            return annotations.compactMap { entity in
+                guard let binding = entity.roleBinding,
+                      binding.roleID == match.value
+                else {
+                    return nil
+                }
+                if let profileID = match.profileID,
+                   binding.profileID != profileID
+                {
+                    return nil
+                }
+                if let profileVersion = match.profileVersion,
+                   binding.profileVersion != profileVersion
+                {
+                    return nil
+                }
+                return "annotation:\(entity.entityID.description)"
             }.sorted()
         case .measurementQuantityType:
             return measurements.compactMap { measurement in

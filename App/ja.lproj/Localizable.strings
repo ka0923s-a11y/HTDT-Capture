@@ -1032,6 +1032,41 @@
 "Discard" = "破棄";
 "Reads a value file exported by the instrument (JSON or \"4.215 m\" text). The reading is staged first — nothing is recorded until you confirm it." = "計器が出力した値ファイル（JSON または \"4.215 m\" 形式のテキスト）を読み込みます。読み値はまず一時保留され、確認するまで記録されません。";
 
+/* #302 multi-catalog snapshot identity */
+"Catalog" = "カタログ";
+"Generated" = "生成日時";
+"Source project" = "ソースプロジェクト";
+"Source instance" = "ソースインスタンス";
+"Legacy catalog (no source identity recorded)" = "レガシーカタログ（ソース識別情報なし）";
+"Unnamed catalog" = "名称未設定のカタログ";
+"Active" = "使用中";
+"Active: " = "使用中: ";
+"Pinned: " = "ピン留め: ";
+"Import another catalog" = "別のカタログを取り込む";
+"%d definitions" = "%d 件の定義";
+"Task plan requires a pinned catalog that is not loaded." = "タスクプランが要求するピン留めカタログが読み込まれていません。";
+"Active catalog differs from the catalog pinned by the task plan." = "使用中のカタログがタスクプランでピン留めされたカタログと異なります。";
+
+/* #315 versioned speaker-layout role binding */
+"Logical role" = "論理ロール";
+"Not assigned" = "未割り当て";
+"Bound to profile: " = "プロファイルに束縛: ";
+
+/* #345 equipment label scan assist */
+"Label scan" = "ラベルスキャン";
+"Label scan suggestions" = "ラベルスキャン候補";
+"Scanning label…" = "ラベルをスキャン中…";
+"Suggestions only — pick one to apply" = "候補のみ — 適用するものを選択してください";
+"Candidates" = "候補";
+"Catalog match" = "カタログ一致";
+"Recognized text" = "認識されたテキスト";
+"Algorithm" = "アルゴリズム";
+"Unknown device" = "不明な機器";
+"Serial/asset: " = "シリアル/資産番号: ";
+"Multiple candidates matched. Choose one explicitly, or cancel and enter the equipment manually. Serial numbers are a hint, not proof." = "複数の候補が一致しました。明示的に選択するか、キャンセルして機器を手動で入力してください。シリアル番号は手がかりであり、証明ではありません。";
+"One candidate matched. Confirm it explicitly, or cancel and enter the equipment manually. Serial numbers are a hint, not proof." = "1件の候補が一致しました。明示的に確認するか、キャンセルして機器を手動で入力してください。シリアル番号は手がかりであり、証明ではありません。";
+"No candidates. Enter the equipment manually or pick from the catalog." = "候補なし。機器を手動で入力するか、カタログから選択してください。";
+
 /* Field authority: operator identity, field evidence, instruments, settings, wiring (#300/#301/#310/#314/#324/#331). */
 " bytes" = " バイト";
 " segment(s)" = " セグメント";
