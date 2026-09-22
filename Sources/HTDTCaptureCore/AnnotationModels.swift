@@ -1421,11 +1421,12 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         }
 
         if type == .speaker {
+            // Body orientation stays required (#230); a logical role
+            // does not (#315): `channel_role` and `role_binding` are
+            // both optional — an unbound physical speaker is a valid
+            // record, never silently assigned a placeholder token.
             guard orientation != nil else {
                 throw AnnotationModelError.speakerOrientationRequired
-            }
-            guard channelRole != nil else {
-                throw AnnotationModelError.speakerChannelRoleRequired
             }
         }
 
@@ -1789,6 +1790,20 @@ public struct AnnotationContractFinding:
         /// from the pinned vocabulary. Never an error: the record is
         /// readable; the token can never silently become standard.
         case legacyCustomUnscopedToken = "legacy_custom_unscoped"
+        /// A loudspeaker carries neither `channel_role` nor
+        /// `role_binding` (#315) — a first-class unbound state, not a
+        /// silent default. Info-severity: missions that require the
+        /// role surface it through task completeness.
+        case speakerRoleUnbound = "speaker_role_unbound"
+        /// The `role_binding` names a role ID the bound profile does
+        /// not define (#315) — resolvable only against that profile's
+        /// exact vocabulary.
+        case speakerRoleBindingUnknownRole =
+            "speaker_role_binding_unknown_role"
+        /// `channel_role` and `role_binding` disagree (#315): both are
+        /// allowed to coexist while legacy records migrate, but a
+        /// mismatch is a distinct conflict state for Review.
+        case speakerRoleConflict = "speaker_role_conflict"
     }
 
     public let entityID: AnnotationEntityID
@@ -1879,6 +1894,69 @@ public enum AnnotationContractReview {
                                 + "label only"
                         )
                     )
+                }
+            }
+
+            // Logical role vocabulary (#315): unbound, unresolved and
+            // conflicting bindings are first-class states so Review
+            // never has to invent a placeholder role. Only built-in
+            // profiles are resolved — custom vocabularies stay
+            // deployment-defined and are never flagged unverifiable.
+            if entity.type == .speaker || entity.type == .subwoofer {
+                if entity.channelRole == nil,
+                   entity.roleBinding == nil
+                {
+                    findings.append(
+                        AnnotationContractFinding(
+                            entityID: entity.entityID,
+                            code: .speakerRoleUnbound,
+                            severity: .info,
+                            detail: entity.type.rawValue
+                                + " has no logical role binding or "
+                                + "legacy channel role"
+                        )
+                    )
+                }
+                if let binding = entity.roleBinding,
+                   let profile = SpeakerLayoutProfiles
+                       .resolveKnown(binding: binding)
+                {
+                    switch profile.resolve(
+                        binding: binding,
+                        entityID: entity.entityID
+                    ) {
+                    case let .resolved(_, definition):
+                        if let channelRole = entity.channelRole,
+                           channelRole != definition.channelRole
+                        {
+                            findings.append(
+                                AnnotationContractFinding(
+                                    entityID: entity.entityID,
+                                    code: .speakerRoleConflict,
+                                    severity: .warning,
+                                    detail: "channel_role "
+                                        + channelRole.rawValue
+                                        + " disagrees with bound role "
+                                        + binding.roleID
+                                )
+                            )
+                        }
+                    case .unknownRoleID:
+                        findings.append(
+                            AnnotationContractFinding(
+                                entityID: entity.entityID,
+                                code: .speakerRoleBindingUnknownRole,
+                                severity: .warning,
+                                detail: "role_binding "
+                                    + binding.roleID
+                                    + " is not defined by profile "
+                                    + binding.profileID + " @ "
+                                    + binding.profileVersion
+                            )
+                        )
+                    case .unbound, .foreignProfile:
+                        break
+                    }
                 }
             }
 

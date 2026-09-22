@@ -2844,3 +2844,57 @@
 "Record %@ carries two contribution owners — it must carry exactly one." = "レコード %@ には 2 つのコントリビューション所有者があります — ちょうど 1 つである必要があります。";
 "Authority document %@ does not match the schema this contribution expects." = "権威ドキュメント %@ はこのコントリビューションが期待するスキーマと一致しません。";
 "This mission has no field-return tasks — every task needs spatial capture or is already covered." = "このミッションにはフィールドリターンのタスクがありません — すべてのタスクは空間キャプチャが必要か、すでにカバーされています。";
+
+// #422/#423: paired Mission receive leg + artifact-aware field-return delivery.
+"Check HTDT for missions" = "HTDT でミッションを確認";
+"Pair an HTDT receiver on the Destinations surface to pull missions from it." = "配信先画面で HTDT 受信機をペアリングしてミッションを取得してください。";
+"No paired HTDT receivers — pair a receiver or import the mission file" = "ペアリング済み HTDT 受信機なし — 受信機をペアリングするかミッションファイルを取り込んでください";
+"Checked HTDT — nothing pending" = "HTDT を確認 — 保留なし";
+"Checked HTDT — receiver unreachable; import the mission file instead" = "HTDT を確認 — 受信機に接続できません。代わりにミッションファイルを取り込んでください";
+"Checked HTDT — \(imported + superseded) new mission(s) received into the inbox" = "HTDT を確認 — \(imported + superseded) 件の新規ミッションを受信ボックスに取り込みました";
+"Checked HTDT — \(pending) mission(s) already staged or pending" = "HTDT を確認 — \(pending) 件のミッションは取り込み済みまたは保留中です";
+"Checked HTDT — \(conflicts + rejected) pending mission(s) could not be staged; receipt ledger has details" = "HTDT を確認 — \(conflicts + rejected) 件の保留ミッションを取り込めませんでした。詳細は受領台帳を確認してください";
+"Checked HTDT — a pending mission conflicts with a local record; it was not merged" = "HTDT を確認 — 保留ミッションがローカルレコードと競合しました。マージされませんでした";
+"Deliver" = "配信";
+"Share file…" = "ファイルを共有…";
+"Send to %@" = "%@ へ送信";
+"Pair an HTDT receiver on the Destinations surface to send this field return. Sharing the file is always available." = "このフィールドリターンを送るには配信先画面で HTDT 受信機をペアリングしてください。ファイル共有はいつでも利用できます。";
+"Ready to send to this receiver" = "この受信機へ送信可能";
+"Ready; %d item(s) stage-only" = "送信可能。%d 件はステージのみ";
+"Cannot send: %@" = "送信不可: %@";
+"receiver does not accept field returns" = "受信機がフィールドリターンに未対応";
+"Capability unknown: %@" = "対応不明: %@";
+"Finalize the field return before sending it" = "送信前にフィールドリターンを確定してください";
+"The finalized field-return file is missing" = "確定済みフィールドリターンファイルが見つかりません";
+"The field-return delivery could not be queued" = "フィールドリターンの配信をキューに登録できませんでした";
+"The receiver rejected the field return; it will not be retried" = "受信機がフィールドリターンを拒否しました。再試行されません";
+"Field return delivered and staged at the receiver; receipt saved" = "フィールドリターンを受信機に配信しステージされました。受領書を保存しました";
+"Field return queued; it will retry under the queue's policy (see Deliveries)" = "フィールドリターンをキューに登録しました。キューのポリシーで再試行されます（配信を参照）";
+"Checked HTDT — pending mission(s) could not be staged (see receipt ledger)" = "HTDT を確認 — 保留ミッションを取り込めませんでした（受領台帳を参照）";
+
+// #422/#423 follow-up: leftover HostLocalization call sites moved onto
+// String(localized:) — same operator text, now catalog-backed.
+
+// #422/#423 follow-up: fills the pre-existing ja.lproj gaps the
+// contracts workflow gates on — none of these keys were added by
+// this branch, but the audit fails on any missing entry.
+"Scene elements (\(scene.elements.count))" = "シーン要素 (\(scene.elements.count))";
+"\(record.evidenceRefs.count) evidence ref(s)" = "証拠参照 \(record.evidenceRefs.count) 件";
+
+// #364 §4: setup mission-needs, device details, and prep rationale.
+"Room surfaces and geometry" = "部屋の表面と形状";
+"%@ or %@" = "%@ または %@";
+", or %@" = "、または %@";
+"Speaker — %@" = "スピーカー — %@";
+"Endpoint-pair measurement" = "端点ペアの測定";
+"Custom item" = "カスタム項目";
+"Device details" = "デバイスの詳細";
+"Free storage" = "空き容量";
+"This capture needs" = "このキャプチャに必要なもの";
+"Why are these recommended?" = "推奨される理由";
+"Moving objects and reflective surfaces can confuse tracking or leave gaps in the room model. Slow, overlapping movement with a loop-closing path gives the reconstruction redundant views to check itself against." = "動く物体や反射面はトラッキングを乱し、ルームモデルに隙間を残すことがあります。ループを閉じる経路でゆっくり重なり合う動きを取ることで、再構築が自分自身を照合する冗長な視点が得られます。";
+
+// #430 audit follow-up: entries for #383/#424-era surfaces that
+// shipped without catalog coverage, plus HostLocalization removals.
+
+// #422/#423 merge resolution: paired-delivery and new review/survey surfaces.

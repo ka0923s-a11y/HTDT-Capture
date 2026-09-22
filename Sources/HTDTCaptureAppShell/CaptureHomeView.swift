@@ -1238,7 +1238,8 @@ public struct CaptureHomeView: View {
                 records: missionRecords,
                 activeMissionRecordID: activeMissionRecordID,
                 progressEvaluations: missionProgressEvaluations,
-                actions: actions
+                actions: actions,
+                pairedDestinations: pairedDestinations
             )
         case .destinations:
             PairedHTDTDestinationsView(

@@ -15,8 +15,12 @@ struct HTDTMissionInboxView: View {
     /// stored percentage.
     let progressEvaluations: [String: MissionProgressEvaluation]
     let actions: CaptureRootActions
+    /// #422/#423: active paired receivers — the Mission pull refresh
+    /// and the Field Return send surface both key off this list.
+    var pairedDestinations: [PairedHTDTDestination] = []
 
     @State private var importingMission = false
+    @State private var missionCheckSummary: String?
     @State private var selectedRecord: HTDTMissionRecord?
     @State private var fieldReturnRecord: HTDTMissionRecord?
     @State private var fieldReturnDocuments:
@@ -58,6 +62,32 @@ struct HTDTMissionInboxView: View {
                     .frame(maxWidth: .infinity)
                 }
                 .captureSecondaryAction()
+                // #422: the receive leg's bounded pull refresh —
+                // enumerates each paired receiver's pending-Mission
+                // listing and stages verified packages here. No
+                // polling; runs only on demand (and on refresh below).
+                Button {
+                    Task { await checkHTDTForMissions() }
+                } label: {
+                    Label(
+                        "Check HTDT for missions",
+                        systemImage: "arrow.triangle.2.circlepath"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .captureSecondaryAction()
+                .disabled(pairedDestinations.isEmpty)
+                if pairedDestinations.isEmpty {
+                    Text(
+                        "Pair an HTDT receiver on the Destinations surface to pull missions from it."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                } else if let missionCheckSummary {
+                    Text(missionCheckSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             if grouped.isEmpty {
                 Section {
@@ -103,6 +133,9 @@ struct HTDTMissionInboxView: View {
             }
         }
         .navigationTitle("Missions")
+        .refreshable {
+            await checkHTDTForMissions()
+        }
         .fileImporter(
             isPresented: $importingMission,
             allowedContentTypes: [.json],
@@ -127,7 +160,8 @@ struct HTDTMissionInboxView: View {
             NavigationStack {
                 HTDTFieldReturnWorkspaceView(
                     record: record,
-                    actions: actions
+                    actions: actions,
+                    pairedDestinations: pairedDestinations
                 )
             }
         }
@@ -631,6 +665,53 @@ struct HTDTMissionInboxView: View {
             return .secondary
         }
     }
+
+    /// #422: runs the bounded Mission pull and summarizes the
+    /// reports into one operator-readable line — counts only; the
+    /// receipt ledger holds the per-package detail.
+    private func checkHTDTForMissions() async {
+        let reports = await actions.checkHTDTForMissions()
+        guard !reports.isEmpty else {
+            missionCheckSummary = String(
+                localized:
+                    "No paired HTDT receivers — pair a receiver or import the mission file"
+            )
+            return
+        }
+        let imported = reports.reduce(0) { $0 + $1.imported }
+        let superseded = reports.reduce(0) { $0 + $1.superseded }
+        let conflicts = reports.reduce(0) { $0 + $1.conflicts.count }
+        let rejected = reports.reduce(0) { $0 + $1.rejected.count }
+        let pending = reports.reduce(0) { $0 + $1.enumerated }
+        let failures = reports.reduce(0) {
+            $0 + $1.notes.filter { $0 != "destination_revoked" }.count
+        }
+        if conflicts + rejected > 0 {
+            missionCheckSummary = String(
+                localized:
+                    "Checked HTDT — \(conflicts + rejected) pending mission(s) could not be staged; receipt ledger has details"
+            )
+        } else if imported + superseded > 0 {
+            missionCheckSummary = String(
+                localized:
+                    "Checked HTDT — \(imported + superseded) new mission(s) received into the inbox"
+            )
+        } else if pending > 0 {
+            missionCheckSummary = String(
+                localized:
+                    "Checked HTDT — \(pending) mission(s) already staged or pending"
+            )
+        } else if failures > 0 {
+            missionCheckSummary = String(
+                localized:
+                    "Checked HTDT — receiver unreachable; import the mission file instead"
+            )
+        } else {
+            missionCheckSummary = String(
+                localized: "Checked HTDT — nothing pending"
+            )
+        }
+    }
 }
 
 /// QR-paired, identity-pinned HTDT destinations (issue #379): each
@@ -872,13 +953,29 @@ struct HTDTDeliveryQueueView: View {
     private func jobRow(_ job: HTDTDeliveryJob) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(job.destination.name).font(.headline)
+                // Human artifact type + context — never a bare
+                // revision id as the only label (#423).
+                Text(job.displayTitle).font(.headline)
                 Spacer()
                 stateBadge(job.state)
             }
-            Text(job.captureRevisionID.description)
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
+            HStack {
+                Text(job.displaySubtitle)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(job.artifactKind.displayName)
+                    .font(.caption2.weight(.medium))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        Color.blue.opacity(0.12),
+                        in: Capsule()
+                    )
+            }
+            Text(job.artifactIDText)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.tertiary)
             LabeledContent(
                 "Attempts",
                 value: String(job.attemptCount)

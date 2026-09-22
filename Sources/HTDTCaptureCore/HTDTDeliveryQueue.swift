@@ -53,20 +53,139 @@ public enum HTDTDeliveryJobState: String, Codable, Sendable {
     case failed
 }
 
+/// Artifact family a delivery job transports (issue #423). The kind
+/// is part of the idempotency contract: the same UUID text under
+/// `capture_bundle` and `field_return` can never collide.
+public enum HTDTDeliverableKind: String, Codable, Sendable {
+    case captureBundle = "capture_bundle"
+    case fieldReturn = "field_return"
+
+    /// Queue-owned payload extension for this artifact family.
+    public var payloadExtension: String {
+        switch self {
+        case .captureBundle: return "htdtcapture"
+        case .fieldReturn: return "htdtfieldreturn"
+        }
+    }
+
+    /// Human artifact type for queue rows.
+    public var displayName: String {
+        switch self {
+        case .captureBundle: return "Capture"
+        case .fieldReturn: return "Field return"
+        }
+    }
+}
+
+/// Typed deliverable identity (issue #423): the discriminated
+/// artifact reference the queue, transport headers and receipts bind
+/// instead of Capture-only fields. `semanticDigest` is the artifact's
+/// own root digest — the finalized bundle digest for a capture, the
+/// field-return document `content_digest` for a field return.
+public struct HTDTDeliverableIdentity: Codable, Sendable, Equatable {
+    public let artifactKind: HTDTDeliverableKind
+    /// Contribution/artifact ID: `capture_revision_id` for captures,
+    /// `contribution_id` for field returns.
+    public let artifactID: String
+    /// Semantic/root digest of the artifact family.
+    public let semanticDigest: String
+    /// Artifact schema version where defined.
+    public let schemaVersion: String?
+    /// Optional Mission/project routing refs (#423 §1).
+    public let missionRecordID: String?
+    public let projectRef: String?
+
+    public init(
+        artifactKind: HTDTDeliverableKind,
+        artifactID: String,
+        semanticDigest: String,
+        schemaVersion: String? = nil,
+        missionRecordID: String? = nil,
+        projectRef: String? = nil
+    ) {
+        self.artifactKind = artifactKind
+        self.artifactID = artifactID
+        self.semanticDigest = semanticDigest
+        self.schemaVersion = schemaVersion
+        self.missionRecordID = missionRecordID
+        self.projectRef = projectRef
+    }
+
+    /// Capture Bundle adapter — preserves the revision id and bundle
+    /// digest so receivers see exactly the identity the export pinned.
+    public static func captureBundle(
+        revisionID: CaptureRevisionID,
+        bundleDigest: String,
+        schemaVersion: String? = nil,
+        missionRecordID: String? = nil,
+        projectRef: String? = nil
+    ) -> HTDTDeliverableIdentity {
+        HTDTDeliverableIdentity(
+            artifactKind: .captureBundle,
+            artifactID: revisionID.description,
+            semanticDigest: bundleDigest,
+            schemaVersion: schemaVersion,
+            missionRecordID: missionRecordID,
+            projectRef: projectRef
+        )
+    }
+
+    /// Field Return adapter — the contribution id and the versioned
+    /// field-return content digest; never a fake CaptureRevisionID.
+    public static func fieldReturn(
+        contributionID: HTDTFieldReturnID,
+        contentDigest: String,
+        schemaVersion: String? = HTDTFieldReturnDocument
+            .schemaVersionValue,
+        missionRecordID: String? = nil,
+        projectRef: String? = nil
+    ) -> HTDTDeliverableIdentity {
+        HTDTDeliverableIdentity(
+            artifactKind: .fieldReturn,
+            artifactID: contributionID.description,
+            semanticDigest: contentDigest,
+            schemaVersion: schemaVersion,
+            missionRecordID: missionRecordID,
+            projectRef: projectRef
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case artifactKind = "artifact_kind"
+        case artifactID = "artifact_id"
+        case semanticDigest = "semantic_digest"
+        case schemaVersion = "schema_version"
+        case missionRecordID = "mission_record_id"
+        case projectRef = "project_ref"
+    }
+}
+
 /// A durable, per-archive delivery job (issue #387). The job is
 /// persisted *before* any bytes move, pins the archive identity it
 /// was created from (digest + byte count), owns a private copy of
 /// the payload under `delivery-queue/payloads/`, and is idempotent
 /// at the receiver via the stable `deliveryJobID` sent as
 /// `X-HTDT-Delivery-ID`.
+///
+/// Issue #423: jobs carry a `deliverable` discriminated identity.
+/// Queue documents written before #423 lack it and reopen exactly —
+/// `deliverable` is normalized in memory to `capture_bundle` from the
+/// legacy fields; the stored ledger is never rewritten without a
+/// verified migration step.
 public struct HTDTDeliveryJob: Codable, Sendable, Equatable, Identifiable {
     /// Stable job identity — also the idempotency key the receiver
     /// uses to recognize a retried delivery as the same one.
     public let deliveryJobID: String
-    public let captureRevisionID: CaptureRevisionID
-    public let captureSeriesID: CaptureSeriesID
-    /// Digest the validated export was proven to carry.
-    public let bundleDigest: String
+    /// Capture-specific identity. Present for `capture_bundle` jobs;
+    /// `nil` for field returns — they never fake a revision id.
+    public let captureRevisionID: CaptureRevisionID?
+    public let captureSeriesID: CaptureSeriesID?
+    /// Digest the validated export was proven to carry; nil for
+    /// field returns (their semantic digest lives in `deliverable`).
+    public let bundleDigest: String?
+    /// Discriminated artifact identity (#423). Nil only on documents
+    /// written before #423 — see `normalizedDeliverable`.
+    public let deliverable: HTDTDeliverableIdentity?
     /// SHA-256 and size of the archive bytes at enqueue time; the
     /// queue-owned payload copy is re-verified against these before
     /// every attempt.
@@ -107,9 +226,10 @@ public struct HTDTDeliveryJob: Codable, Sendable, Equatable, Identifiable {
 
     public init(
         deliveryJobID: String,
-        captureRevisionID: CaptureRevisionID,
-        captureSeriesID: CaptureSeriesID,
-        bundleDigest: String,
+        captureRevisionID: CaptureRevisionID? = nil,
+        captureSeriesID: CaptureSeriesID? = nil,
+        bundleDigest: String? = nil,
+        deliverable: HTDTDeliverableIdentity? = nil,
         archiveSHA256: String,
         archiveByteCount: Int64,
         payloadRelativePath: String,
@@ -132,6 +252,7 @@ public struct HTDTDeliveryJob: Codable, Sendable, Equatable, Identifiable {
         self.captureRevisionID = captureRevisionID
         self.captureSeriesID = captureSeriesID
         self.bundleDigest = bundleDigest
+        self.deliverable = deliverable
         self.archiveSHA256 = archiveSHA256
         self.archiveByteCount = archiveByteCount
         self.payloadRelativePath = payloadRelativePath
@@ -152,6 +273,46 @@ public struct HTDTDeliveryJob: Codable, Sendable, Equatable, Identifiable {
     }
 
     public var id: String { deliveryJobID }
+
+    /// The artifact this job delivers. Jobs written before #423 lack
+    /// `deliverable`; they normalize in memory to `capture_bundle`
+    /// built from the legacy Capture fields — same identity, never
+    /// re-enqueued under a new id (#423 §2).
+    public var normalizedDeliverable: HTDTDeliverableIdentity {
+        if let deliverable {
+            return deliverable
+        }
+        return .captureBundle(
+            revisionID: captureRevisionID
+                ?? CaptureRevisionID(rawValue: UUID()),
+            bundleDigest: bundleDigest ?? "",
+            missionRecordID: missionRecordID
+        )
+    }
+
+    /// Artifact family this job transports.
+    public var artifactKind: HTDTDeliverableKind {
+        normalizedDeliverable.artifactKind
+    }
+
+    /// Artifact id text — revision id for captures, contribution id
+    /// for field returns. Same-UUID collisions across kinds are
+    /// impossible because `artifactKind` travels with it (#423 §10).
+    public var artifactIDText: String {
+        normalizedDeliverable.artifactID
+    }
+
+    /// Queue-row headline: human artifact type + destination (#423 §9).
+    public var displayTitle: String {
+        destination.name + " · " + artifactKind.displayName
+    }
+
+    /// Queue-row subtitle: the operator-facing artifact context —
+    /// archive name or artifact id, never a bare CaptureRevisionID
+    /// as the only label.
+    public var displaySubtitle: String {
+        sourceArchiveName ?? artifactIDText
+    }
 
     /// Terminal states — the job keeps its record and receipts but
     /// will never move again without an explicit operator action.
@@ -181,6 +342,7 @@ public struct HTDTDeliveryJob: Codable, Sendable, Equatable, Identifiable {
         case captureRevisionID = "capture_revision_id"
         case captureSeriesID = "capture_series_id"
         case bundleDigest = "bundle_digest"
+        case deliverable
         case archiveSHA256 = "archive_sha256"
         case archiveByteCount = "archive_byte_count"
         case payloadRelativePath = "payload_relative_path"
@@ -293,13 +455,15 @@ public struct HTDTDeliveryRetryPolicy: Sendable, Equatable {
 /// Transport seam for delivery attempts — `HTDTHandoffClient` in
 /// production, a stub in tests. Keeps the queue engine free of
 /// URLSession so resume/retry policy is testable offline (#387).
+/// #423: submissions bind the typed `deliverable` identity rather
+/// than Capture-only fields, so any artifact family travels the
+/// same durable pipeline.
 public protocol HTDTDeliveryTransport: Sendable {
     func submit(
         archive: URL,
         archiveSHA256: EvidenceSHA256,
         archiveByteCount: Int64,
-        captureRevisionID: CaptureRevisionID,
-        bundleDigest: EvidenceSHA256,
+        deliverable: HTDTDeliverableIdentity,
         endpoint: URL,
         deliveryID: String?,
         pinnedIdentity: String?
@@ -313,8 +477,7 @@ public struct HTDTHandoffDeliveryTransport: HTDTDeliveryTransport {
         archive: URL,
         archiveSHA256: EvidenceSHA256,
         archiveByteCount: Int64,
-        captureRevisionID: CaptureRevisionID,
-        bundleDigest: EvidenceSHA256,
+        deliverable: HTDTDeliverableIdentity,
         endpoint: URL,
         deliveryID: String?,
         pinnedIdentity: String?
@@ -323,8 +486,7 @@ public struct HTDTHandoffDeliveryTransport: HTDTDeliveryTransport {
             archive: archive,
             archiveSHA256: archiveSHA256,
             archiveByteCount: archiveByteCount,
-            captureRevisionID: captureRevisionID,
-            bundleDigest: bundleDigest,
+            deliverable: deliverable,
             endpoint: endpoint,
             deliveryID: deliveryID,
             pinnedIdentity: pinnedIdentity
@@ -432,16 +594,55 @@ public struct HTDTDeliveryQueue: Sendable {
         try load().jobs.first { $0.deliveryJobID == id }
     }
 
-    /// Enqueue a finalized archive for delivery. The archive's
-    /// identity is verified (sha256 + byte count), the payload is
-    /// copied into queue-owned storage, and only then is the durable
-    /// job record persisted — so a crash between steps can never
-    /// produce a job pointing at bytes that were never staged.
+    /// Enqueue a finalized Capture Bundle archive — preserved as the
+    /// `capture_bundle` specialization of the generic enqueue (#423).
     @discardableResult
     public func enqueue(
         captureRevisionID: CaptureRevisionID,
         captureSeriesID: CaptureSeriesID,
         bundleDigest: EvidenceSHA256,
+        archiveSHA256: EvidenceSHA256,
+        archiveByteCount: Int64,
+        archiveURL: URL,
+        destination: HTDTHandoffDestination,
+        pairedDestinationID: String? = nil,
+        missionRecordID: String? = nil,
+        compatibilitySummary: String? = nil,
+        nowUTC: String = BundleTimestamp.utcString(from: Date())
+    ) throws -> HTDTDeliveryJob {
+        let deliverable = HTDTDeliverableIdentity.captureBundle(
+            revisionID: captureRevisionID,
+            bundleDigest: bundleDigest.value,
+            missionRecordID: missionRecordID
+        )
+        return try enqueue(
+            deliverable: deliverable,
+            captureRevisionID: captureRevisionID,
+            captureSeriesID: captureSeriesID,
+            bundleDigest: bundleDigest.value,
+            archiveSHA256: archiveSHA256,
+            archiveByteCount: archiveByteCount,
+            archiveURL: archiveURL,
+            destination: destination,
+            pairedDestinationID: pairedDestinationID,
+            missionRecordID: missionRecordID,
+            compatibilitySummary: compatibilitySummary,
+            nowUTC: nowUTC
+        )
+    }
+
+    /// Enqueue a finalized archive of any artifact family (#423).
+    /// The archive's identity is verified (sha256 + byte count), the
+    /// payload is copied into queue-owned storage under the kind's
+    /// own extension, and only then is the durable job record
+    /// persisted — so a crash between steps can never produce a job
+    /// pointing at bytes that were never staged.
+    @discardableResult
+    public func enqueue(
+        deliverable: HTDTDeliverableIdentity,
+        captureRevisionID: CaptureRevisionID? = nil,
+        captureSeriesID: CaptureSeriesID? = nil,
+        bundleDigest: String? = nil,
         archiveSHA256: EvidenceSHA256,
         archiveByteCount: Int64,
         archiveURL: URL,
@@ -468,8 +669,12 @@ public struct HTDTDeliveryQueue: Sendable {
             throw HTDTDeliveryQueueError.archiveIdentityMismatch
         }
         let jobID = UUID().uuidString.lowercased()
+        // The payload extension derives from the deliverable kind;
+        // the kind itself is persisted explicitly on the job record —
+        // never inferred from the filename (#423 §3).
         let payloadRelativePath =
-            "delivery-queue/payloads/" + jobID + ".htdtcapture"
+            "delivery-queue/payloads/" + jobID + "."
+            + deliverable.artifactKind.payloadExtension
         let payloadURL = captureRoot.appendingPathComponent(
             payloadRelativePath,
             isDirectory: false
@@ -486,7 +691,8 @@ public struct HTDTDeliveryQueue: Sendable {
             deliveryJobID: jobID,
             captureRevisionID: captureRevisionID,
             captureSeriesID: captureSeriesID,
-            bundleDigest: bundleDigest.value,
+            bundleDigest: bundleDigest,
+            deliverable: deliverable,
             archiveSHA256: archiveSHA256.value,
             archiveByteCount: archiveByteCount,
             payloadRelativePath: payloadRelativePath,
@@ -501,6 +707,42 @@ public struct HTDTDeliveryQueue: Sendable {
         document.jobs.append(job)
         try save(document)
         return job
+    }
+
+    /// Convenience: enqueue a finalized Field Return container
+    /// (#423 §7) — same durable pipeline as captures, artifact kind
+    /// `field_return`, no fake CaptureRevisionID.
+    @discardableResult
+    public func enqueueFieldReturn(
+        contributionID: HTDTFieldReturnID,
+        contentDigest: String,
+        archiveSHA256: EvidenceSHA256,
+        archiveByteCount: Int64,
+        archiveURL: URL,
+        destination: HTDTHandoffDestination,
+        pairedDestinationID: String? = nil,
+        missionRecordID: String? = nil,
+        projectRef: String? = nil,
+        compatibilitySummary: String? = nil,
+        nowUTC: String = BundleTimestamp.utcString(from: Date())
+    ) throws -> HTDTDeliveryJob {
+        let deliverable = HTDTDeliverableIdentity.fieldReturn(
+            contributionID: contributionID,
+            contentDigest: contentDigest,
+            missionRecordID: missionRecordID,
+            projectRef: projectRef
+        )
+        return try enqueue(
+            deliverable: deliverable,
+            archiveSHA256: archiveSHA256,
+            archiveByteCount: archiveByteCount,
+            archiveURL: archiveURL,
+            destination: destination,
+            pairedDestinationID: pairedDestinationID,
+            missionRecordID: missionRecordID,
+            compatibilitySummary: compatibilitySummary,
+            nowUTC: nowUTC
+        )
     }
 
     /// On app launch: any job that was `sending` when the app last
@@ -754,11 +996,15 @@ public struct HTDTDeliveryQueue: Sendable {
         }
 
         func receipt(for job: HTDTDeliveryJob) -> HTDTHandoffReceipt? {
-            HTDTHandoffReceipt(
+            let deliverable = job.normalizedDeliverable
+            return HTDTHandoffReceipt(
                 receiptID: UUID().uuidString.lowercased(),
                 captureRevisionID: job.captureRevisionID,
                 captureSeriesID: job.captureSeriesID,
                 bundleDigest: job.bundleDigest,
+                artifactKind: deliverable.artifactKind.rawValue,
+                artifactID: deliverable.artifactID,
+                artifactDigest: deliverable.semanticDigest,
                 archiveSHA256: job.archiveSHA256,
                 archiveByteCount: job.archiveByteCount,
                 destination: job.destination,
@@ -814,8 +1060,7 @@ public struct HTDTDeliveryQueue: Sendable {
                 archive: payloadURL,
                 archiveSHA256: digest,
                 archiveByteCount: byteCount,
-                captureRevisionID: job.captureRevisionID,
-                bundleDigest: try EvidenceSHA256(job.bundleDigest),
+                deliverable: job.normalizedDeliverable,
                 endpoint: endpoint,
                 deliveryID: job.deliveryJobID,
                 pinnedIdentity: pinnedIdentity

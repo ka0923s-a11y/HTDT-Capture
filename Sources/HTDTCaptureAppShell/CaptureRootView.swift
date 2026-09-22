@@ -389,6 +389,23 @@ public struct CaptureRootActions {
         (HTDTFieldReturnWorkspace) async -> URL?
     public let listFieldReturns:
         () async -> [HTDTFieldReturnDocument]
+    /// #422 paired Mission receive leg: bounded pull refresh
+    /// ("Check HTDT") — enumerates each active paired receiver's
+    /// pairing-scoped pending-Mission listing and stages verified
+    /// packages through the canonical Mission Inbox importer.
+    public let checkHTDTForMissions:
+        () async -> [HTDTMissionReceiveReport]
+    /// #423 artifact-aware delivery: capability preflight and
+    /// durable-queue send for a finalized `.htdtfieldreturn`.
+    public let preflightFieldReturn:
+        (HTDTFieldReturnID, HTDTHandoffDestination) async
+            -> HTDTCompatibilityVerdict
+    public let sendFieldReturnToHTDT:
+        (HTDTFieldReturnID, HTDTHandoffDestination) async -> Void
+    /// #423: the finalized `.htdtfieldreturn` container's URL for
+    /// the share sheet — nil when no finalized artifact exists.
+    public let fieldReturnArtifactURL:
+        (HTDTFieldReturnID) -> URL?
 
     public init(
         beginCapture: @escaping () -> Void = {},
@@ -676,7 +693,19 @@ public struct CaptureRootActions {
         finalizeFieldReturn: @escaping
             (HTDTFieldReturnWorkspace) async -> URL? = { _ in nil },
         listFieldReturns: @escaping
-            () async -> [HTDTFieldReturnDocument] = { [] }
+            () async -> [HTDTFieldReturnDocument] = { [] },
+        checkHTDTForMissions: @escaping
+            () async -> [HTDTMissionReceiveReport] = { [] },
+        preflightFieldReturn: @escaping
+            (HTDTFieldReturnID, HTDTHandoffDestination) async
+                -> HTDTCompatibilityVerdict = { _, _ in
+                    .unknown(reason: "Not configured")
+                },
+        sendFieldReturnToHTDT: @escaping
+            (HTDTFieldReturnID, HTDTHandoffDestination) async
+                -> Void = { _, _ in },
+        fieldReturnArtifactURL: @escaping
+            (HTDTFieldReturnID) -> URL? = { _ in nil }
     ) {
         self.beginCapture = beginCapture
         self.beginScanning = beginScanning
@@ -829,6 +858,10 @@ public struct CaptureRootActions {
         self.persistFieldReturnDraft = persistFieldReturnDraft
         self.finalizeFieldReturn = finalizeFieldReturn
         self.listFieldReturns = listFieldReturns
+        self.checkHTDTForMissions = checkHTDTForMissions
+        self.preflightFieldReturn = preflightFieldReturn
+        self.sendFieldReturnToHTDT = sendFieldReturnToHTDT
+        self.fieldReturnArtifactURL = fieldReturnArtifactURL
     }
 }
 

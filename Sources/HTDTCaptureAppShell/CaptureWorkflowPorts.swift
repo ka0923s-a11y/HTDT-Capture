@@ -187,12 +187,15 @@ public struct FieldReturnActions {
     public let persistFieldReturnDraft: (HTDTFieldReturnWorkspace) async -> Void
     public let finalizeFieldReturn: (HTDTFieldReturnWorkspace) async -> URL?
     public let listFieldReturns: () async -> [HTDTFieldReturnDocument]
+    /// #423: resolves the finalized container's URL for share flows.
+    public let fieldReturnArtifactURL: (HTDTFieldReturnID) -> URL?
 
     public init(from actions: CaptureRootActions) {
         self.openFieldReturnWorkspace = actions.openFieldReturnWorkspace
         self.persistFieldReturnDraft = actions.persistFieldReturnDraft
         self.finalizeFieldReturn = actions.finalizeFieldReturn
         self.listFieldReturns = actions.listFieldReturns
+        self.fieldReturnArtifactURL = actions.fieldReturnArtifactURL
     }
 }
 
@@ -210,6 +213,9 @@ public struct MissionActions {
     public let markTaskPlanItem: (String, TaskPlanItemOutcome) -> Void
     public let resolveRepairTask: (HTDTRepairTaskRow) -> Void
     public let importPlanReference: (URL) -> Void
+    /// #422: bounded pairing-scoped Mission pull refresh.
+    public let checkHTDTForMissions:
+        () async -> [HTDTMissionReceiveReport]
 
     public init(from actions: CaptureRootActions) {
         self.importTaskPlan = actions.importTaskPlan
@@ -224,6 +230,7 @@ public struct MissionActions {
         self.markTaskPlanItem = actions.markTaskPlanItem
         self.resolveRepairTask = actions.resolveRepairTask
         self.importPlanReference = actions.importPlanReference
+        self.checkHTDTForMissions = actions.checkHTDTForMissions
     }
 }
 
@@ -292,6 +299,9 @@ public struct TransferActions {
     public let deliveryCancel: (String) async -> Void
     public let deliveryPurgePayload: (String) async -> Void
     public let preflightDestination: (HTDTHandoffDestination) async -> HTDTCompatibilityVerdict
+    /// #423: field-return deliverable preflight + durable-queue send.
+    public let preflightFieldReturn: (HTDTFieldReturnID, HTDTHandoffDestination) async -> HTDTCompatibilityVerdict
+    public let sendFieldReturnToHTDT: (HTDTFieldReturnID, HTDTHandoffDestination) async -> Void
     public let deleteExportArchive: (PersistedCaptureRecord) -> Void
 
     public init(from actions: CaptureRootActions) {
@@ -307,6 +317,8 @@ public struct TransferActions {
         self.deliveryCancel = actions.deliveryCancel
         self.deliveryPurgePayload = actions.deliveryPurgePayload
         self.preflightDestination = actions.preflightDestination
+        self.preflightFieldReturn = actions.preflightFieldReturn
+        self.sendFieldReturnToHTDT = actions.sendFieldReturnToHTDT
         self.deleteExportArchive = actions.deleteExportArchive
     }
 }

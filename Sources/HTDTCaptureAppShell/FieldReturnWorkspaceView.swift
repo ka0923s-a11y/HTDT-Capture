@@ -21,6 +21,10 @@ import UIKit
 struct HTDTFieldReturnWorkspaceView: View {
     let record: HTDTMissionRecord
     let actions: CaptureRootActions
+    /// #423: active paired receivers offered as send targets —
+    /// capability-checked per artifact kind before the operator
+    /// commits bytes.
+    var pairedDestinations: [PairedHTDTDestination] = []
 
     /// Identifiable share payload for the finalized `.htdtfieldreturn`
     /// — `URL` is not `Identifiable` on this SDK, so the sheet binds a
@@ -81,6 +85,15 @@ struct HTDTFieldReturnWorkspaceView: View {
     @State private var evidenceTitle = ""
     @State private var evidenceNote = ""
     @State private var reasonDraft = ""
+    @State private var evidenceTargetRef: String?
+    @State private var freeRefDraft = ""
+    @State private var addingRefToItem: String?
+    /// Per-destination preflight verdicts keyed by pairing id
+    /// (#423 §5/§7) — the Send button disables with the reason
+    /// when a receiver cannot take field returns.
+    @State private var sendVerdicts:
+        [String: HTDTCompatibilityVerdict] = [:]
+    @State private var sendingToDestinationID: String?
 
     var body: some View {
         Group {
@@ -264,6 +277,10 @@ struct HTDTFieldReturnWorkspaceView: View {
                 }
             }
 
+            if workspace.isFinalized {
+                deliverSection(workspace)
+            }
+
             if let notice {
                 Section {
                     Text(notice.message)
@@ -277,6 +294,161 @@ struct HTDTFieldReturnWorkspaceView: View {
                 }
             }
         }
+    }
+
+    /// #423 §7: the durable-delivery affordances offered once the
+    /// `.htdtfieldreturn` exists. Each paired receiver gets its own
+    /// row; capability preflight gates the Send button and explains
+    /// the refusal — Share stays available on every device.
+    @ViewBuilder
+    private func deliverSection(
+        _ workspace: HTDTFieldReturnWorkspace
+    ) -> some View {
+        Section(String(localized: "Deliver")) {
+            ForEach(pairedDestinations) { destination in
+                destinationSendRow(
+                    workspace, destination
+                )
+            }
+            if pairedDestinations.isEmpty {
+                Text(
+                    String(
+                        localized:
+                            "Pair an HTDT receiver on the Destinations surface to send this field return. Sharing the file is always available."
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            Button {
+                shareFinalized(workspace)
+            } label: {
+                Label(
+                    String(localized: "Share file…"),
+                    systemImage: "square.and.arrow.up"
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func destinationSendRow(
+        _ workspace: HTDTFieldReturnWorkspace,
+        _ destination: PairedHTDTDestination
+    ) -> some View {
+        let verdict = sendVerdicts[destination.destinationID]
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                Task {
+                    await sendFieldReturn(
+                        workspace, to: destination
+                    )
+                }
+            } label: {
+                Label(
+                    String(
+                        format: String(
+                            localized: "Send to %@"
+                        ),
+                        destination.displayName
+                    ),
+                    systemImage: "paperplane"
+                )
+            }
+            .disabled(
+                sendingToDestinationID != nil
+                    || (verdict.map { !$0.sendPermitted } ?? false)
+            )
+            if let verdict {
+                Text(sendVerdictCaption(verdict))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if sendingToDestinationID
+                == destination.destinationID
+            {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+        .task(id: workspace.contributionID) {
+            // Precondition: preflight is artifact-kind aware —
+            // captures remain sendable to capture-only receivers,
+            // field returns need declared `field_return` admission.
+            sendVerdicts[destination.destinationID] =
+                await actions.preflightFieldReturn(
+                    workspace.contributionID,
+                    destination.handoffDestination
+                )
+        }
+    }
+
+    private func sendVerdictCaption(
+        _ verdict: HTDTCompatibilityVerdict
+    ) -> String {
+        switch verdict {
+        case .compatible:
+            return String(
+                localized: "Ready to send to this receiver"
+            )
+        case .compatibleWithOmissions(let gaps):
+            return String(
+                format: String(
+                    localized: "Ready; %d item(s) stage-only"
+                ),
+                gaps.count
+            )
+        case .incompatible(let gaps):
+            return String(
+                format: String(
+                    localized: "Cannot send: %@"
+                ),
+                gaps.first?.detail ?? String(
+                    localized: "receiver does not accept field returns"
+                )
+            )
+        case .unknown(let reason):
+            return String(
+                format: String(
+                    localized: "Capability unknown: %@"
+                ),
+                reason
+            )
+        }
+    }
+
+    private func sendFieldReturn(
+        _ workspace: HTDTFieldReturnWorkspace,
+        to destination: PairedHTDTDestination
+    ) async {
+        sendingToDestinationID = destination.destinationID
+        defer { sendingToDestinationID = nil }
+        await actions.sendFieldReturnToHTDT(
+            workspace.contributionID,
+            destination.handoffDestination
+        )
+    }
+
+    private func shareFinalized(
+        _ workspace: HTDTFieldReturnWorkspace
+    ) {
+        guard let url = actions.fieldReturnArtifactURL(
+            workspace.contributionID
+        ) else {
+            notice = StatusNotice(
+                message: String(
+                    localized:
+                        "The finalized field-return file is missing"
+                ),
+                detail: workspace.contributionID.description
+            )
+            return
+        }
+        #if os(iOS)
+        finalizedShare = ShareTarget(url: url)
+        #else
+        notice = StatusNotice(message: url.path, detail: "")
+        #endif
     }
 
     private func hasCompletions(
