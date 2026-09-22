@@ -23,6 +23,10 @@ public enum ScanDirectionOctant:
     /// Buckets an azimuth angle measured clockwise from +z (front)
     /// into 45° sectors centered on the principal directions.
     public init(azimuthRadians: Double) {
+        guard azimuthRadians.isFinite else {
+            self = .front
+            return
+        }
         let fullTurn = 2 * Double.pi
         var shifted = (azimuthRadians + Double.pi / 8)
             .truncatingRemainder(dividingBy: fullTurn)
@@ -237,8 +241,12 @@ public struct SpatialCoverageAccessibilitySummary:
 
         if let position = coverage.currentCameraPosition {
             let cellKey = SpatialCoverageCellKey(
-                x: Int(floor(position.x / coverage.cellSizeMeters)),
-                z: Int(floor(position.z / coverage.cellSizeMeters))
+                x: floorToIntClamped(
+                    position.x / coverage.cellSizeMeters
+                ),
+                z: floorToIntClamped(
+                    position.z / coverage.cellSizeMeters
+                )
             )
             cameraRegion = RegionDescriptor(
                 key: cellKey,

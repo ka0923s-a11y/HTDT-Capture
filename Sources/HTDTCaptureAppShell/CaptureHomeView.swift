@@ -1972,10 +1972,13 @@ private struct CaptureSeriesDetailView: View {
             {
                 Section {
                     Button {
+                        guard let source = registrationSource,
+                              let target = registrationTarget
+                        else {
+                            return
+                        }
                         registrationBusy = true
                         registrationError = nil
-                        let source = registrationSource!
-                        let target = registrationTarget!
                         Task {
                             let proposal = await actions
                                 .proposeRevisionAlignment(
@@ -2035,9 +2038,12 @@ private struct CaptureSeriesDetailView: View {
                 }
                 Section {
                     Button("Accept registration") {
+                        guard let source = registrationSource,
+                              let target = registrationTarget
+                        else {
+                            return
+                        }
                         registrationBusy = true
-                        let source = registrationSource!
-                        let target = registrationTarget!
                         Task {
                             let accepted = await actions
                                 .acceptRevisionAlignment(

@@ -13237,7 +13237,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 ])
                 let authority = try PlanAlignmentAuthority(
                     mechanism: .roomReferenceFrame,
-                    sceneFromCapture: worldFromScene.invertedRigid(),
+                    sceneFromCapture: try worldFromScene.invertedRigid(),
                     authorityRef: RoomReferenceFramePackage.path,
                     evidenceRefs: frame.evidenceRefs,
                     establishedAtUTC: BundleTimestamp.utcString(

@@ -646,8 +646,8 @@ public enum MeshDerivedShapeObservationBuilder {
 
         for point in points {
             let key = DerivedVoxelKey(
-                x: Int(floor(point.position.x / voxelSizeMeters)),
-                y: Int(floor(point.position.y / voxelSizeMeters))
+                x: floorToIntClamped(point.position.x / voxelSizeMeters),
+                y: floorToIntClamped(point.position.y / voxelSizeMeters)
             )
             if let existing = cells[key] {
                 if observationPointLess(point, existing) {
@@ -730,13 +730,17 @@ public enum DerivedShapeProxyFitter {
                 continue
             }
             let key = SliceKey(
-                value: Int(floor(y / sliceHeightMeters))
+                value: floorToIntClamped(y / sliceHeightMeters)
             )
             pointsBySlice[key, default: []].append(point)
             cellsBySlice[key, default: []].insert(
                 HorizontalCell(
-                    x: Int(floor(point.position.x / horizontalVoxelMeters)),
-                    z: Int(floor(point.position.y / horizontalVoxelMeters))
+                    x: floorToIntClamped(
+                        point.position.x / horizontalVoxelMeters
+                    ),
+                    z: floorToIntClamped(
+                        point.position.y / horizontalVoxelMeters
+                    )
                 )
             )
         }
@@ -847,13 +851,17 @@ public enum DerivedShapeProxyFitter {
                 continue
             }
             let key = SliceKey(
-                value: Int(floor(y / sliceHeightMeters))
+                value: floorToIntClamped(y / sliceHeightMeters)
             )
             pointsBySlice[key, default: []].append(point)
             cellsBySlice[key, default: []].insert(
                 HorizontalCell(
-                    x: Int(floor(point.position.x / horizontalVoxelMeters)),
-                    z: Int(floor(point.position.y / horizontalVoxelMeters))
+                    x: floorToIntClamped(
+                        point.position.x / horizontalVoxelMeters
+                    ),
+                    z: floorToIntClamped(
+                        point.position.y / horizontalVoxelMeters
+                    )
                 )
             )
         }
