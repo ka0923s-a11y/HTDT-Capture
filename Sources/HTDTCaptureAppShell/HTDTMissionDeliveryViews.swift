@@ -435,21 +435,6 @@ struct HTDTMissionInboxView: View {
                             report.missingRequired,
                             id: \.self
                         ) { ref in
-                            Label(
-                                String(
-                                    format: String(
-                                        localized: "Required: %@"
-                                    ),
-                                    ref
-                                ),
-                                systemImage: "xmark.octagon"
-                            )
-                            .foregroundStyle(.red)
-                            Label(
-                                "Required: \(ref)",
-                                systemImage: "xmark.octagon"
-                            )
-                            .foregroundStyle(.red)
                             VStack(
                                 alignment: .leading,
                                 spacing: 2
@@ -463,28 +448,26 @@ struct HTDTMissionInboxView: View {
                                     .font(.caption2.monospaced())
                                     .foregroundStyle(.secondary)
                             }
+                            Label(
+                                "Required: \(ref)",
+                                systemImage: "xmark.octagon"
+                            )
+                            .foregroundStyle(.red)
+                            Label(
+                                String(
+                                    format: String(
+                                        localized: "Required: %@"
+                                    ),
+                                    ref
+                                ),
+                                systemImage: "xmark.octagon"
+                            )
+                            .foregroundStyle(.red)
                         }
                         ForEach(
                             report.missingOptional,
                             id: \.self
                         ) { ref in
-                            Label(
-                                String(
-                                    format: String(
-                                        localized: "Optional: %@"
-                                    ),
-                                    ref
-                                ),
-                                systemImage:
-                                    "exclamationmark.triangle"
-                            )
-                            .foregroundStyle(.orange)
-                            Label(
-                                "Optional: \(ref)",
-                                systemImage:
-                                    "exclamationmark.triangle"
-                            )
-                            .foregroundStyle(.orange)
                             VStack(
                                 alignment: .leading,
                                 spacing: 2
@@ -499,6 +482,23 @@ struct HTDTMissionInboxView: View {
                                     .font(.caption2.monospaced())
                                     .foregroundStyle(.secondary)
                             }
+                            Label(
+                                "Optional: \(ref)",
+                                systemImage:
+                                    "exclamationmark.triangle"
+                            )
+                            .foregroundStyle(.orange)
+                            Label(
+                                String(
+                                    format: String(
+                                        localized: "Optional: %@"
+                                    ),
+                                    ref
+                                ),
+                                systemImage:
+                                    "exclamationmark.triangle"
+                            )
+                            .foregroundStyle(.orange)
                         }
                         ForEach(
                             report.receiverGaps,

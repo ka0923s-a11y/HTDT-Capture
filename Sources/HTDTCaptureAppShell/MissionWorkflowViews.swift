@@ -504,6 +504,14 @@ public struct MissionWorkflowsView: View {
                     // for plan follow-up — never the row's title
                     // (issue #412).
                     Text(
+                        "\(row.task.taskID) · \(row.task.issueCode) · Plan \(row.planID) v\(row.planVersion)"
+                    )
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+                        "Plan \(row.planID) v\(row.planVersion) · \(row.task.kind.rawValue)"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                             String(
                                 format: String(
                                     localized: "Plan %@ v%@ · %@"
@@ -515,14 +523,6 @@ public struct MissionWorkflowsView: View {
                         )
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                        "Plan \(row.planID) v\(row.planVersion) · \(row.task.kind.rawValue)"
-                    )
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                        "\(row.task.taskID) · \(row.task.issueCode) · Plan \(row.planID) v\(row.planVersion)"
-                    )
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.tertiary)
                     if let resolvedBy = row.resolvedByRevisionID {
                         Text(
                                 String(
