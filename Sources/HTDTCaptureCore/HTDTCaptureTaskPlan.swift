@@ -33,6 +33,10 @@ public enum CaptureTaskPlanError: Error, Sendable, Equatable {
     /// does not exist, or shares one record across tasks without an
     /// explicit `allow_shared_fulfillment` on both items.
     case fulfillmentMismatch
+    /// The item exists but the asserted outcome is not
+    /// operator-markable for its kind — semantic/evidence items
+    /// complete only through an exact fulfillment binding.
+    case outcomeNotMarkable
 }
 
 /// The record kind a plan item's fulfillment link may name (#354).
@@ -978,9 +982,11 @@ public struct CaptureTaskPlanStatusDocument: Codable, Sendable,
             }
             // A fulfillment link only accompanies a completed
             // outcome — it never decorates a pending/skipped item
-            // (#354).
+            // (#354). The `fulfillment_ref` identity string is the
+            // same decoration under a second representation (#359).
             guard item.outcome == .completed
-                    || item.fulfillment == nil
+                    || (item.fulfillment == nil
+                        && item.fulfillmentRef == nil)
             else {
                 throw CaptureTaskPlanError.invalidFulfillmentLink
             }
@@ -1152,7 +1158,7 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
         let isSurfaceItem = planImport.plan.surfaceReviewTasks
             .contains { $0.itemID == itemID }
         if outcome == .completed, !isSurfaceItem {
-            throw CaptureTaskPlanError.unknownItemID
+            throw CaptureTaskPlanError.outcomeNotMarkable
         }
         if outcome == .pending {
             explicitMarks.removeValue(forKey: itemID)

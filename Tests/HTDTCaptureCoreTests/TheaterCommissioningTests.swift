@@ -907,9 +907,11 @@ final class TheaterCommissioningTests: XCTestCase {
         XCTAssertThrowsError(
             try status.mark(itemID: "sem-1", as: .completed)
         ) { error in
+            // The item exists — .completed is simply not markable
+            // for a semantic task kind (#455).
             XCTAssertEqual(
                 error as? CaptureTaskPlanError,
-                .unknownItemID
+                .outcomeNotMarkable
             )
         }
     }
