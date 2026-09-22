@@ -114,6 +114,17 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
             case annotation
             case roomFrameOrigin
             case roomFrameFront
+            // Committed spatial-authority entities (issue #367): the
+            // glyph grammar distinguishes equipment classes instead of
+            // one generic object dot.
+            case speaker
+            case seat
+            case screen
+            case projector
+            case display
+            case measurement
+            case referencePoint
+            case genericEntity
         }
 
         public let kind: Kind
@@ -122,7 +133,21 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
         /// Optional facing direction (unit vector on the plan).
         public let dirX: Double?
         public let dirZ: Double?
+        /// Human name — never a raw identifier/UUID.
         public let label: String?
+        /// Stable machine ref used for selection linking
+        /// (`entity:<id>`, `opening:<id>`, `roomplan:<kind>:<token>`).
+        /// Presentation-only; it is not an authority identifier.
+        public let identifier: String?
+        /// The workspace record this marker links back to (the entity
+        /// or opening the list rows name), when one exists.
+        public let linkedItemID: String?
+        /// Whether the review surface offers the marker for selection.
+        public let selectable: Bool
+        /// Review/task state carried by the marker (issue #367): glyph
+        /// shape stays the category, this status drives only the
+        /// badge/attention overlay.
+        public let reviewStatus: PlanMarkerReviewStatus
 
         public init(
             kind: Kind,
@@ -130,7 +155,11 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
             z: Double,
             dirX: Double? = nil,
             dirZ: Double? = nil,
-            label: String? = nil
+            label: String? = nil,
+            identifier: String? = nil,
+            linkedItemID: String? = nil,
+            selectable: Bool = false,
+            reviewStatus: PlanMarkerReviewStatus = .nominal
         ) {
             self.kind = kind
             self.x = x
@@ -138,6 +167,10 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
             self.dirX = dirX
             self.dirZ = dirZ
             self.label = label
+            self.identifier = identifier
+            self.linkedItemID = linkedItemID
+            self.selectable = selectable
+            self.reviewStatus = reviewStatus
         }
     }
 

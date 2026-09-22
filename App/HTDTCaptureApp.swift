@@ -54,6 +54,7 @@ private struct HTDTCaptureHostView: View {
             equipmentCatalogLibrary:
                 coordinator.equipmentCatalogLibrary,
             taskPlan: coordinator.taskPlan,
+            taskPlanMission: coordinator.taskPlanMission,
             workingSetIdentity:
                 coordinator.workingSetIdentity,
             annotationEvidenceFrames:
@@ -356,6 +357,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// openings, room frame) for the post-End states (#213/#241).
     @Published private(set)
     var reviewWorkspace: CaptureReviewWorkspaceModel?
+    /// Required-task progress for the journey header (#372):
+    /// evaluated from the active task plan plus the committed
+    /// records — distinct from technical readiness.
+    @Published private(set)
+    var taskPlanMission: CaptureJourneyMissionSummary?
     /// Read-only workspace model for a persisted capture opened from
     /// the library (#294). Independent of the live-capture workspace.
     @Published private(set)
@@ -919,6 +925,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         handoffDestinations = []
         handoffReceipts = []
         reviewWorkspace = nil
+        taskPlanMission = nil
         persistedWorkspace = nil
         roomFrameOriginPending = nil
         openingCenterPending = nil
@@ -3525,6 +3532,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.annotationRevisionSeed = nil
                 self.pendingFieldAuthority = FieldAuthorityWorkspace()
                 try self.transition(.beginReview)
+                self.refreshReviewWorkspace()
                 await self.refreshQuality(
                     store: store,
                     generation: generation
@@ -4109,6 +4117,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         handoffDestinations = []
         handoffReceipts = []
         reviewWorkspace = nil
+        taskPlanMission = nil
         persistedWorkspace = nil
         roomFrameOriginPending = nil
         openingCenterPending = nil
@@ -4177,6 +4186,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         deviceReadiness = nil
         stopDeviceReadinessObserving()
         reviewWorkspace = nil
+        taskPlanMission = nil
         persistedWorkspace = nil
         roomFrameOriginPending = nil
         openingCenterPending = nil
@@ -4299,6 +4309,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         endScanGuidance = nil
         endScanPreflightBlocked = false
         reviewWorkspace = nil
+        taskPlanMission = nil
         persistedWorkspace = nil
         roomFrameOriginPending = nil
         openingCenterPending = nil
@@ -4408,6 +4419,33 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
             #endif
             self.reviewWorkspace = model
+            // Required-task mission progress (#372): evaluated from
+            // the committed records against the active plan — kept
+            // separate from technical readiness.
+            if let taskPlan {
+                let authoritiesURL = snapshot.rootDirectory
+                    .appendingPathComponent(
+                        TheaterAuthorityPackage.path,
+                        isDirectory: false
+                    )
+                let authorities = (try? Data(contentsOf: authoritiesURL))
+                    .flatMap {
+                        try? JSONDecoder().decode(
+                            TheaterAuthorityCollection.self,
+                            from: $0
+                        )
+                    } ?? .empty
+                self.taskPlanMission = CaptureJourneyPresentation
+                    .missionSummary(
+                        plan: taskPlan,
+                        annotations: model.annotations,
+                        measurements: model.measurements,
+                        authorities: authorities,
+                        committedEvidenceRefs: annotationEvidenceRefs
+                    )
+            } else {
+                self.taskPlanMission = nil
+            }
         }
     }
 
@@ -8087,6 +8125,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         finalizedRevision = finalized
         exportURL = nil
         reviewWorkspace = nil
+        taskPlanMission = nil
         danglingSpatialIssues = []
         refreshHandoffDestinations()
         if let captureRoot = Self.captureRootDirectory() {
