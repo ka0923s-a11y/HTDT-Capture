@@ -2898,3 +2898,11 @@
 // shipped without catalog coverage, plus HostLocalization removals.
 
 // #422/#423 merge resolution: paired-delivery and new review/survey surfaces.
+
+// #364: finalized summary + review bottom-CTA surfaces.
+"%@ · %@" = "%@ · %@";
+"%lld annotations" = "注釈 %lld 件";
+"%lld evidence frames" = "証拠フレーム %lld 件";
+"%lld measurements" = "測定 %lld 件";
+"Bundle validated" = "バンドル検証済み";
+"View capture" = "キャプチャを表示";

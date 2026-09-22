@@ -87,6 +87,13 @@ public struct CaptureScanningView: View {
     @State private var flagDetailsCategory: ScanRevisitFlagCategory?
     @State private var flagDetailsNote = ""
     @State private var composingFieldNote = false
+#if os(iOS)
+    /// #364 §5/§16: on regular width the expanded HUD presents as a
+    /// trailing inspector pane instead of a bottom overlay covering
+    /// the preview.
+    @Environment(\.horizontalSizeClass)
+    private var horizontalSizeClass
+#endif
 
     public init(
         preview: AnyView,
@@ -186,27 +193,41 @@ public struct CaptureScanningView: View {
                 preview
                     .ignoresSafeArea()
 
-                VStack(spacing: 8) {
-                    compactStatusHUD
-                        .padding(.horizontal, 10)
-                        .padding(.top, 6)
+                HStack(spacing: 0) {
+                    VStack(spacing: 8) {
+                        compactStatusHUD
+                            .padding(.horizontal, 10)
+                            .padding(.top, 6)
 
-                    Spacer(minLength: 12)
+                        Spacer(minLength: 12)
 
-                    if isHUDExpanded {
-                        expandedHUD(
-                            maxHeight: geometry.size.height * 0.36
-                        )
-                        .padding(.horizontal, 10)
-                        .transition(
-                            .move(edge: .bottom)
-                                .combined(with: .opacity)
-                        )
+                        if isHUDExpanded && !expandedHUDIsInspector {
+                            expandedHUD(
+                                maxHeight: geometry.size.height * 0.36
+                            )
+                            .padding(.horizontal, 10)
+                            .transition(
+                                .move(edge: .bottom)
+                                    .combined(with: .opacity)
+                            )
+                        }
+
+                        compactBottomControls
+                            .padding(.horizontal, 10)
+                            .padding(.bottom, 8)
                     }
+                    .frame(maxWidth: .infinity)
 
-                    compactBottomControls
-                        .padding(.horizontal, 10)
-                        .padding(.bottom, 8)
+                    if isHUDExpanded && expandedHUDIsInspector {
+                        expandedHUD(maxHeight: .infinity)
+                            .frame(width: 360)
+                            .padding(.trailing, 10)
+                            .padding(.vertical, 6)
+                            .transition(
+                                .move(edge: .trailing)
+                                    .combined(with: .opacity)
+                            )
+                    }
                 }
 
                 if let motionGuidance {
@@ -463,7 +484,11 @@ public struct CaptureScanningView: View {
             }
 
             // #283: the low-light prompt is a distinct surface, not
-            // folded into generic tracking wording.
+            // folded into generic tracking wording. #364 §5: the
+            // compact HUD shows at most one highest-priority advisory
+            // — the actionable environment warning outranks transient
+            // status text; everything else stays reachable through
+            // the expanded details.
             if lowLightGuidanceActive {
                 Label(
                     "The room is too dark for reliable visual capture. Turn on normal room lighting while scanning — it can be dimmed again afterward.",
@@ -473,9 +498,7 @@ public struct CaptureScanningView: View {
                 .foregroundStyle(.yellow)
                 .lineLimit(3)
                 .minimumScaleFactor(0.8)
-            }
-
-            if let statusMessage,
+            } else if let statusMessage,
                !statusMessage.isEmpty
             {
                 Text(statusMessage)
@@ -605,7 +628,10 @@ public struct CaptureScanningView: View {
                 .minimumScaleFactor(0.72)
                 .frame(minHeight: 38)
             }
-            .buttonStyle(.borderedProminent)
+            // #364 §5: exactly one prominent action at a time — Save
+            // evidence leads while coverage is incomplete and yields
+            // to End once the scan is ready to finish.
+            .scanControlStyle(prominent: !primaryScanReadyToEnd)
             .controlSize(.regular)
             .disabled(isEndingScan || isCapturingEvidence)
             .accessibilityLabel(
@@ -686,7 +712,7 @@ public struct CaptureScanningView: View {
                 .minimumScaleFactor(0.80)
                 .frame(minHeight: 38)
             }
-            .buttonStyle(.bordered)
+            .scanControlStyle(prominent: primaryScanReadyToEnd)
             .tint(
                 endScanGuidance != nil
                 ? CaptureColorRole.attention.color
@@ -977,6 +1003,17 @@ public struct CaptureScanningView: View {
                 style: .continuous
             )
         )
+    }
+
+    /// #364 §5: the expanded HUD is a trailing inspector on regular
+    /// width (iPad split layout) — it no longer covers the preview —
+    /// and stays a bottom overlay on compact width.
+    private var expandedHUDIsInspector: Bool {
+        #if os(iOS)
+        return horizontalSizeClass == .regular
+        #else
+        return false
+        #endif
     }
 
     private var expandedStatusRow: some View {
@@ -3307,5 +3344,19 @@ private struct SpatialCoverageMapView: View {
                     declaredRegionKeys: declaredRegionKeys
                 ))
         )
+    }
+}
+
+private extension View {
+    /// #364 §5: the bottom scan controls carry exactly one prominent
+    /// action at a time — the call site decides which control is
+    /// primary for the current scan state.
+    @ViewBuilder
+    func scanControlStyle(prominent: Bool) -> some View {
+        if prominent {
+            buttonStyle(.borderedProminent)
+        } else {
+            buttonStyle(.bordered)
+        }
     }
 }
