@@ -215,7 +215,6 @@ extension LifecycleRecoveryTests {
             limitedTrackingObservationCount: 0,
             lastObservedTimestampSeconds: 5,
             viewAngleBucketMask: 0b11,
-            elevationBucketMask: 0,
             latestDistanceBucket: .medium,
             depthObservationCount: 5,
             meshSupportCount: 5,
