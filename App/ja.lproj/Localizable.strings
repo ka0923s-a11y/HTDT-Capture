@@ -987,3 +987,64 @@
 "Captured RoomPlan element" = "取得済み RoomPlan 要素";
 "Captured mesh anchor" = "取得済みメッシュアンカー";
 "Treatment placement" = "トリートメント配置";
+
+// #295 camera permission recovery
+"Open Settings" = "設定を開く";
+"Check again" = "再確認";
+"Camera access is off for this app. HTDT Capture needs the camera to record RoomPlan and AR evidence — enable it in iOS Settings, then Begin scanning." = "このアプリのカメラアクセスがオフになっています。HTDT Capture は RoomPlan と AR の証拠記録にカメラが必要です。iOS の設定で許可してからスキャンを開始してください。";
+"Camera access is off. HTDT Capture needs the camera to record RoomPlan and AR evidence — nothing is captured until you allow it." = "カメラアクセスがオフになっています。HTDT Capture は RoomPlan と AR の証拠記録にカメラが必要です。許可するまで何も記録されません。";
+"Camera access is restricted on this device — for example by Screen Time or a device-management profile — so it cannot be enabled in Settings. Contact the device administrator." = "この端末ではスクリーンタイムやデバイス管理プロファイルなどによりカメラアクセスが制限されており、設定で許可できません。端末の管理者に確認してください。";
+"Camera access is restricted on this device — for example by Screen Time or a device-management profile — so it cannot be enabled in Settings." = "この端末ではスクリーンタイムやデバイス管理プロファイルなどによりカメラアクセスが制限されており、設定で許可できません。";
+"The camera is unavailable on this device, so capture cannot start." = "この端末ではカメラを利用できないため、キャプチャを開始できません。";
+
+// #309 host operation progress
+"Importing capture…" = "キャプチャを読み込み中…";
+"Opening capture…" = "キャプチャを開いています…";
+"Deleting local capture…" = "ローカルキャプチャを削除中…";
+"Preparing archive…" = "アーカイブを準備中…";
+"Finalizing capture…" = "キャプチャを確定中…";
+"Saving annotation authority…" = "注釈データを保存中…";
+"Preparing diagnostic package…" = "診断パッケージを準備中…";
+
+// #330 annotation workspace undo / dirty state
+"Undo" = "取り消す";
+"Redo" = "やり直す";
+"Unsaved changes" = "未保存の変更";
+"Unsaved restored draft" = "復元された未保存の下書き";
+"Discard unsaved changes?" = "未保存の変更を破棄しますか？";
+"Discard changes" = "変更を破棄";
+"Keep editing" = "編集を続ける";
+"Staged annotations, measurements, and identity records that have not been saved are dropped. This does not change the previously saved authority." = "未保存の注釈・計測・識別レコードは破棄されます。保存済みの authority は変更されません。";
+"+%d added" = "+%d 追加";
+"−%d removed" = "−%d 削除";
+"%d edited" = "%d 編集";
+" · %d dropped" = " · %d 除外";
+
+// #336 coverage capacity
+"Dropped (capacity)" = "除外（容量）";
+"Dropped for capacity" = "容量超過で除外";
+"Dropped: %@" = "除外: %@";
+"%d of %d cells" = "%d / %d セル";
+"Region %@" = "領域 %@";
+"Coverage map is at its %d-cell limit; scanning new areas drops the least-observed cells." = "カバレッジマップは %d セルの上限に達しています。新しい領域をスキャンすると観測の少ないセルが除外されます。";
+"Coverage map reached its %d-cell limit and dropped %d earlier cells. Dropped cells were observed before — they are not the same as never-observed cells." = "カバレッジマップが %d セルの上限に達し、以前の %d セルを除外しました。除外されたセルは過去に観測済みであり、一度も観測されていないセルとは異なります。";
+"The coverage map reached its live cell budget and dropped the least-observed cells. A dropped cell was observed before; it is not the same as a never-observed unknown cell." = "ライブのカバレッジマップがセル上限に達し、観測の少ないセルを除外しました。除外されたセルは過去に観測済みであり、一度も観測されていない unknown セルとは異なります。";
+
+// #343 start-relative direction reference
+"Direction reference" = "方向の基準";
+"Direction names are relative to your starting facing direction (marked Start direction), not to the room's front." = "方向名は部屋の正面ではなく、キャプチャ開始時の向き（「開始方向」印）を基準にしています。";
+"ahead of start" = "開始方向の前方";
+"ahead-right of start" = "開始方向の右前方";
+"right of start" = "開始方向の右";
+"behind-right of start" = "開始方向の右後方";
+"behind start" = "開始方向の後方";
+"behind-left of start" = "開始方向の左後方";
+"left of start" = "開始方向の左";
+"ahead-left of start" = "開始方向の左前方";
+"Behind start" = "開始方向の後方";
+"%d° left of start" = "開始方向から左へ %d°";
+"%d° right of start" = "開始方向から右へ %d°";
+
+// #347 remote weak regions
+"Weak beyond map view" = "マップ範囲外の弱い領域";
+"Unknown cells in map view" = "マップ範囲内の unknown セル";
