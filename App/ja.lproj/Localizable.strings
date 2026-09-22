@@ -2782,3 +2782,22 @@
 "Wiring" = "配線";
 "Work" = "作業";
 "\(record.evidenceRefs.count) evidence ref(s)" = "証拠参照 \(record.evidenceRefs.count) 件";
+
+// #364 §4: setup mission-needs, device details, and prep rationale.
+"Room surfaces and geometry" = "部屋の表面と形状";
+"%@ or %@" = "%@ または %@";
+", or %@" = "、または %@";
+"Speaker — %@" = "スピーカー — %@";
+"Surface review" = "面のレビュー";
+"Endpoint-pair measurement" = "端点ペアの測定";
+"Custom item" = "カスタム項目";
+"Device details" = "デバイスの詳細";
+"Free storage" = "空き容量";
+"This capture needs" = "このキャプチャに必要なもの";
+"Why are these recommended?" = "推奨される理由";
+"Moving objects and reflective surfaces can confuse tracking or leave gaps in the room model. Slow, overlapping movement with a loop-closing path gives the reconstruction redundant views to check itself against." = "動く物体や反射面はトラッキングを乱し、ルームモデルに隙間を残すことがあります。ループを閉じる経路でゆっくり重なり合う動きを取ることで、再構築が自分自身を照合する冗長な視点が得られます。";
+
+// #430 audit follow-up: entries for #383/#424-era surfaces that
+// shipped without catalog coverage, plus HostLocalization removals.
+"%lld evidence ref(s)" = "証跡参照 %lld 件";
+"Scene elements (%lld)" = "シーン要素 (%lld)";

@@ -604,7 +604,7 @@ public struct ScanMotionGuidanceTracker: Sendable {
         let completionSource: ScanGuidanceCompletionSource
         if !isComplete {
             completionSource = .incomplete
-        } else if movementCapability == .stationaryOnly {
+        } else if !movementCapability.canGuideTranslation {
             completionSource = .movementConstrained
         } else if spatialBudgetExhausted {
             completionSource = .attemptBudgetExhausted

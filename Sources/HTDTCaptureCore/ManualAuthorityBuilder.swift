@@ -316,18 +316,25 @@ public enum ManualAuthorityBuilder {
             let roleText = speakerChannelRole?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .uppercased() ?? ""
-            // #344: non-standard roles are auto-scoped into the
-            // reserved X_ namespace so they can never collide with
-            // future standard vocabulary.
-            guard let scopedRole = OpenTokenPolicy.scopedForAuthoring(
-                roleText,
-                vocabulary: .channelRole
-            ), let parsedRole = ChannelRole(rawValue: scopedRole)
-            else {
-                throw ManualAuthorityBuilderError
-                    .invalidSpeakerChannelRole
+            if roleText.isEmpty {
+                // #315: no logical role is a valid unbound state —
+                // never synthesize a placeholder token.
+                channelRole = nil
+            } else {
+                // #344: non-standard roles are auto-scoped into the
+                // reserved X_ namespace so they can never collide with
+                // future standard vocabulary.
+                guard let scopedRole = OpenTokenPolicy
+                    .scopedForAuthoring(
+                        roleText,
+                        vocabulary: .channelRole
+                    ), let parsedRole = ChannelRole(rawValue: scopedRole)
+                else {
+                    throw ManualAuthorityBuilderError
+                        .invalidSpeakerChannelRole
+                }
+                channelRole = parsedRole
             }
-            channelRole = parsedRole
         case .subwoofer:
             // Subwoofer topology (#244): every sub carries a typed
             // channel/instance role so multiple subs are
