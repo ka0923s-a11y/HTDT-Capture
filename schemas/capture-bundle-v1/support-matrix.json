@@ -189,6 +189,19 @@
     "1.0.0"
    ]
   },
+  "field-notes": {
+   "schema_id": "htdt.capture.field_notes",
+   "paths": [
+    "session/field-notes.json"
+   ],
+   "documents": {
+    "1.0.0": "field-notes"
+   },
+   "emitted": "1.0.0",
+   "read": [
+    "1.0.0"
+   ]
+  },
   "room-reference-frame": {
    "schema_id": "htdt.capture.room-reference-frame",
    "paths": [

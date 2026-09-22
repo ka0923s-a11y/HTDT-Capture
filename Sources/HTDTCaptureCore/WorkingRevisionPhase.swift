@@ -62,6 +62,10 @@ public struct WorkingRevisionCheckpoint: Codable, Sendable, Equatable {
     /// `advisory/operator-advisories.json`; carried here so a recovery
     /// that finds the advisory file missing still has the notes.
     public let advisoryNotes: [CaptureAdvisoryNote]
+    /// Operator field notes (#375) — also committed as
+    /// `session/field-notes.json`; carried here so recovery still has
+    /// them when the file itself is missing.
+    public let fieldNotes: [CaptureFieldNote]
 
     public init(
         trackingIntervals: [WorkingRevisionTrackingInterval],
@@ -74,7 +78,8 @@ public struct WorkingRevisionCheckpoint: Codable, Sendable, Equatable {
         roomPlanGuidanceAvailable: Bool,
         roomPlanGuidance: RoomPlanGuidanceSummary?,
         meshLifecycle: MeshAnchorLifecycleSummary?,
-        advisoryNotes: [CaptureAdvisoryNote]
+        advisoryNotes: [CaptureAdvisoryNote],
+        fieldNotes: [CaptureFieldNote] = []
     ) {
         self.trackingIntervals = trackingIntervals
         self.resourceEvents = resourceEvents
@@ -87,6 +92,7 @@ public struct WorkingRevisionCheckpoint: Codable, Sendable, Equatable {
         self.roomPlanGuidance = roomPlanGuidance
         self.meshLifecycle = meshLifecycle
         self.advisoryNotes = advisoryNotes
+        self.fieldNotes = fieldNotes
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -103,6 +109,65 @@ public struct WorkingRevisionCheckpoint: Codable, Sendable, Equatable {
         case roomPlanGuidance = "roomplan_guidance"
         case meshLifecycle = "mesh_lifecycle"
         case advisoryNotes = "advisory_notes"
+        case fieldNotes = "field_notes"
+    }
+
+    /// Back-compatible decode: `field_notes` did not exist on
+    /// checkpoints written before issue #375, so it tolerates a
+    /// missing key while every older field keeps its strict
+    /// requirement.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(
+            keyedBy: CodingKeys.self
+        )
+        trackingIntervals = try container.decode(
+            [WorkingRevisionTrackingInterval].self,
+            forKey: .trackingIntervals
+        )
+        resourceEvents = try container.decode(
+            [CaptureResourceEvent].self,
+            forKey: .resourceEvents
+        )
+        benchmarkRefs = try container.decode(
+            [String].self,
+            forKey: .benchmarkRefs
+        )
+        taskProfile = try container.decodeIfPresent(
+            CaptureTaskProfile.self,
+            forKey: .taskProfile
+        )
+        skippedTaskRequirementIDs = try container.decode(
+            [String].self,
+            forKey: .skippedTaskRequirementIDs
+        )
+        endBoundaryFrameIDs = try container.decode(
+            [EvidenceFrameID].self,
+            forKey: .endBoundaryFrameIDs
+        )
+        endCoverage = try container.decodeIfPresent(
+            CaptureEndCoverageSummary.self,
+            forKey: .endCoverage
+        )
+        roomPlanGuidanceAvailable = try container.decode(
+            Bool.self,
+            forKey: .roomPlanGuidanceAvailable
+        )
+        roomPlanGuidance = try container.decodeIfPresent(
+            RoomPlanGuidanceSummary.self,
+            forKey: .roomPlanGuidance
+        )
+        meshLifecycle = try container.decodeIfPresent(
+            MeshAnchorLifecycleSummary.self,
+            forKey: .meshLifecycle
+        )
+        advisoryNotes = try container.decode(
+            [CaptureAdvisoryNote].self,
+            forKey: .advisoryNotes
+        )
+        fieldNotes = try container.decodeIfPresent(
+            [CaptureFieldNote].self,
+            forKey: .fieldNotes
+        ) ?? []
     }
 }
 

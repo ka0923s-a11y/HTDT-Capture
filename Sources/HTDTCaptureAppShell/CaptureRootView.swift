@@ -257,6 +257,39 @@ public struct CaptureRootActions {
     public let openCameraSettings: () -> Void
     /// Leaves `.capabilityCheck`/`.permissions` back to `.idle`.
     public let cancelCaptureStart: () -> Void
+    /// #375 operator field notes: record a note mid-scan or in Review
+    /// (text, category, needsAttention, attachLatestEvidence,
+    /// dictated), resolve one, supersede one with corrected text, or
+    /// bind an unbound note to an authority/evidence ref.
+    public let recordFieldNote:
+        (String, CaptureFieldNoteCategory, Bool, Bool, Bool) -> Void
+    public let recordReviewFieldNote:
+        (String, CaptureFieldNoteCategory, Bool, [String]) -> Void
+    public let resolveFieldNote: (CaptureFieldNoteID) -> Void
+    public let supersedeFieldNote:
+        (CaptureFieldNoteID, String, CaptureFieldNoteCategory) -> Void
+    public let bindFieldNote:
+        (CaptureFieldNoteID, String) -> Void
+    /// #376: marks an evidence frame privacy-sensitive in the contact
+    /// sheet (advisory flag — never deletes or mutates pixels).
+    public let flagEvidenceFrameForPrivacy:
+        (EvidenceFrameID) -> Void
+    /// #389 Support & Diagnostics: collect a privacy-reviewed
+    /// diagnostic package independent of any capture bundle.
+    public let collectSupportDiagnostics:
+        () async throws -> SupportDiagnosticsPackage
+    /// #400 non-spatial field mission returns: open (or resume) the
+    /// field-return workspace for a mission record, persist a draft
+    /// edit, finalize it into a `.htdtfieldreturn` artifact, and list
+    /// finalized field-return documents for mission history.
+    public let openFieldReturnWorkspace:
+        (String) async -> HTDTFieldReturnWorkspace?
+    public let persistFieldReturnDraft:
+        (HTDTFieldReturnWorkspace) async -> Void
+    public let finalizeFieldReturn:
+        (HTDTFieldReturnWorkspace) async -> URL?
+    public let listFieldReturns:
+        () async -> [HTDTFieldReturnDocument]
 
     public init(
         beginCapture: @escaping () -> Void = {},
@@ -444,7 +477,36 @@ public struct CaptureRootActions {
         dismissPracticePrompt: @escaping (Bool) -> Void = { _ in },
         retryCameraPermission: @escaping () -> Void = {},
         openCameraSettings: @escaping () -> Void = {},
-        cancelCaptureStart: @escaping () -> Void = {}
+        cancelCaptureStart: @escaping () -> Void = {},
+        recordFieldNote: @escaping
+            (String, CaptureFieldNoteCategory, Bool, Bool, Bool)
+                -> Void = { _, _, _, _, _ in },
+        recordReviewFieldNote: @escaping
+            (String, CaptureFieldNoteCategory, Bool, [String])
+                -> Void = { _, _, _, _ in },
+        resolveFieldNote: @escaping (CaptureFieldNoteID) -> Void
+            = { _ in },
+        supersedeFieldNote: @escaping
+            (CaptureFieldNoteID, String, CaptureFieldNoteCategory)
+                -> Void = { _, _, _ in },
+        bindFieldNote: @escaping
+            (CaptureFieldNoteID, String) -> Void = { _, _ in },
+        flagEvidenceFrameForPrivacy: @escaping
+            (EvidenceFrameID) -> Void = { _ in },
+        collectSupportDiagnostics: @escaping
+            () async throws -> SupportDiagnosticsPackage = {
+                throw SupportDiagnosticsError.emptyPackage
+            },
+        openFieldReturnWorkspace: @escaping
+            (String) async -> HTDTFieldReturnWorkspace? = { _ in
+                nil
+            },
+        persistFieldReturnDraft: @escaping
+            (HTDTFieldReturnWorkspace) async -> Void = { _ in },
+        finalizeFieldReturn: @escaping
+            (HTDTFieldReturnWorkspace) async -> URL? = { _ in nil },
+        listFieldReturns: @escaping
+            () async -> [HTDTFieldReturnDocument] = { [] }
     ) {
         self.beginCapture = beginCapture
         self.beginScanning = beginScanning
@@ -551,6 +613,18 @@ public struct CaptureRootActions {
         self.retryCameraPermission = retryCameraPermission
         self.openCameraSettings = openCameraSettings
         self.cancelCaptureStart = cancelCaptureStart
+        self.recordFieldNote = recordFieldNote
+        self.recordReviewFieldNote = recordReviewFieldNote
+        self.resolveFieldNote = resolveFieldNote
+        self.supersedeFieldNote = supersedeFieldNote
+        self.bindFieldNote = bindFieldNote
+        self.flagEvidenceFrameForPrivacy =
+            flagEvidenceFrameForPrivacy
+        self.collectSupportDiagnostics = collectSupportDiagnostics
+        self.openFieldReturnWorkspace = openFieldReturnWorkspace
+        self.persistFieldReturnDraft = persistFieldReturnDraft
+        self.finalizeFieldReturn = finalizeFieldReturn
+        self.listFieldReturns = listFieldReturns
     }
 }
 
@@ -967,6 +1041,7 @@ public struct CaptureRootView: View {
                         actions.setGuidanceCuesEnabled,
                     setLoopClosureCheckActive:
                         actions.setLoopClosureCheckActive,
+                    recordFieldNote: actions.recordFieldNote,
                     captureEvidenceFrame:
                         actions.captureEvidenceFrame,
                     setMovementCapability:
@@ -1296,7 +1371,18 @@ public struct CaptureRootView: View {
                             captureOpeningCenter:
                                 actions.captureOpeningCenter,
                             clearOpeningCenter:
-                                actions.clearOpeningCenter
+                                actions.clearOpeningCenter,
+                            recordReviewFieldNote:
+                                actions.recordReviewFieldNote,
+                            resolveFieldNote:
+                                actions.resolveFieldNote,
+                            supersedeFieldNote:
+                                actions.supersedeFieldNote,
+                            bindFieldNote:
+                                actions.bindFieldNote,
+                            flagEvidenceFrameForPrivacy:
+                                actions
+                                    .flagEvidenceFrameForPrivacy
                         )
                     } else {
                         ProgressView("Loading workspace…")

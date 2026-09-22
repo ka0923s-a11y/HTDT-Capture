@@ -791,6 +791,12 @@ enum BundleReservedPaths {
             provenanceClass: .captureAppDerived,
             role: .canonical
         ),
+        "session/field-notes.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_field_notes",
+            provenanceClass: .userAnnotation,
+            role: .canonical
+        ),
         "session/task-plan-status.json": Binding(
             mediaType: "application/json",
             producer: "capture_session",

@@ -33,6 +33,9 @@ public enum CaptureAdvisoryNoteKind: String, Codable, Sendable {
     /// The bound task profile changed after scanning started — an
     /// explicit operator action with provenance, never silent (#352).
     case taskProfileChange = "task_profile_change"
+    /// The operator flagged an evidence frame as privacy-sensitive
+    /// (person visible, credentials on a plate, …) for Review (#376).
+    case privacyFlag = "privacy_flag"
 }
 
 public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
@@ -98,6 +101,9 @@ public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
             severity = .info
         case .taskProfileChange:
             code = "task_profile_change"
+            severity = .info
+        case .privacyFlag:
+            code = "frame_privacy_flag"
             severity = .info
         }
         return QualityDiagnostic(

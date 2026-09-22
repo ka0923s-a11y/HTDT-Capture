@@ -58,6 +58,11 @@ public struct CaptureScanningView: View {
         (SpatialCoverageCellKey) -> Void
     public let setGuidanceCuesEnabled: (Bool) -> Void
     public let setLoopClosureCheckActive: (Bool) -> Void
+    /// #375: commits an operator field note bound to this revision
+    /// during scanning — (text, category, needsAttention,
+    /// attachLatestEvidence, dictated).
+    public let recordFieldNote:
+        (String, CaptureFieldNoteCategory, Bool, Bool, Bool) -> Void
 
     @State private var showingEndScanReview = false
     @State private var isHUDExpanded = false
@@ -69,6 +74,7 @@ public struct CaptureScanningView: View {
     @State private var flagDetailsID: String?
     @State private var flagDetailsCategory: ScanRevisitFlagCategory?
     @State private var flagDetailsNote = ""
+    @State private var composingFieldNote = false
 
     public init(
         preview: AnyView,
@@ -108,6 +114,9 @@ public struct CaptureScanningView: View {
             (Bool) -> Void = { _ in },
         setLoopClosureCheckActive: @escaping
             (Bool) -> Void = { _ in },
+        recordFieldNote: @escaping
+            (String, CaptureFieldNoteCategory, Bool, Bool, Bool)
+                -> Void = { _, _, _, _, _ in },
         captureEvidenceFrame: @escaping () -> Void,
         setMovementCapability: @escaping
             (ScanMovementCapability) -> Void,
@@ -146,6 +155,7 @@ public struct CaptureScanningView: View {
         self.setGuidanceCuesEnabled = setGuidanceCuesEnabled
         self.setLoopClosureCheckActive =
             setLoopClosureCheckActive
+        self.recordFieldNote = recordFieldNote
         self.captureEvidenceFrame = captureEvidenceFrame
         self.setMovementCapability = setMovementCapability
         self.endScan = endScan
@@ -217,6 +227,19 @@ public struct CaptureScanningView: View {
                 }
             )
             .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $composingFieldNote) {
+            FieldNoteComposeSheet(
+                allowsEvidenceAttachment: evidenceFrameCount > 0
+            ) { draft in
+                recordFieldNote(
+                    draft.text,
+                    draft.category,
+                    draft.needsAttention,
+                    draft.attachLatestEvidence,
+                    draft.dictated
+                )
+            }
         }
         .sheet(isPresented: $showingAuthorityHelp) {
             authorityHelpView
@@ -612,6 +635,27 @@ public struct CaptureScanningView: View {
                     localized:
                         "Marks the current view for mandatory review without interrupting the scan."
                 )
+            )
+
+            // #375: operator note bound to the live scan context —
+            // timestamps and the latest committed evidence frame are
+            // captured by the host, never typed in by hand.
+            Button {
+                composingFieldNote = true
+            } label: {
+                Label(
+                    "Note",
+                    systemImage: "note.text"
+                )
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .frame(minHeight: 38)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .disabled(isEndingScan)
+            .accessibilityLabel(
+                String(localized: "Add a field note")
             )
 
             Spacer(minLength: 8)

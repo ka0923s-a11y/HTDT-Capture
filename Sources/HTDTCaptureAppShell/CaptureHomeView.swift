@@ -27,6 +27,9 @@ private enum CaptureHomeSelection: Hashable {
     case destinations
     /// Durable endpoint delivery queue (#387).
     case deliveries
+    /// Support & Diagnostics center (#389): privacy-reviewed
+    /// diagnostic package export, independent of capture bundles.
+    case diagnostics
 }
 
 /// The pending delete-local-capture confirmation: which validated
@@ -428,6 +431,14 @@ public struct CaptureHomeView: View {
                         systemImage: "checklist"
                     )
                 }
+                NavigationLink(
+                    value: CaptureHomeSelection.diagnostics
+                ) {
+                    Label(
+                        "Support & Diagnostics",
+                        systemImage: "stethoscope"
+                    )
+                }
             }
         }
         .modifier(LibrarySearchModifier(query: $libraryQuery))
@@ -546,6 +557,8 @@ public struct CaptureHomeView: View {
                 jobs: deliveryJobs,
                 actions: actions
             )
+        case .diagnostics:
+            SupportDiagnosticsView(actions: actions)
         case nil:
             if libraryGroups.isEmpty {
                 CaptureEmptyState(

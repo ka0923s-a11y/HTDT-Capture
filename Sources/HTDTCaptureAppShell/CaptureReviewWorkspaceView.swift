@@ -55,6 +55,18 @@ public struct CaptureReviewWorkspaceView: View {
     public let clearOpeningCenter: () -> Void
     /// Pending center point for a user-declared opening candidate.
     public let openingCenterPending: WorldPoint3D?
+    /// #375: author a note in Review — (text, category,
+    /// needsAttention, bindingRefs). Resolve/supersede/bind actions
+    /// follow the note lifecycle; notes are never edited in place.
+    public let recordReviewFieldNote:
+        (String, CaptureFieldNoteCategory, Bool, [String]) -> Void
+    public let resolveFieldNote: (CaptureFieldNoteID) -> Void
+    public let supersedeFieldNote:
+        (CaptureFieldNoteID, String, CaptureFieldNoteCategory) -> Void
+    public let bindFieldNote: (CaptureFieldNoteID, String) -> Void
+    /// #376: advisory privacy flag on an evidence frame.
+    public let flagEvidenceFrameForPrivacy:
+        (EvidenceFrameID) -> Void
 
     @State private var openings: [RoomOpeningCandidate]?
     @State private var openingSaveState: String?
@@ -64,6 +76,9 @@ public struct CaptureReviewWorkspaceView: View {
     @State private var newOpeningState: RoomOpeningState = .open
     @State private var newOpeningWidth = "0.30"
     @State private var newOpeningHeight = "0.30"
+    @State private var composingFieldNote = false
+    @State private var supersedingFieldNote: CaptureFieldNote?
+    @State private var bindingFieldNote: CaptureFieldNote?
 
     public init(
         model: CaptureReviewWorkspaceModel,
@@ -90,7 +105,19 @@ public struct CaptureReviewWorkspaceView: View {
             () async -> Bool = { false },
         removeRoomFieldDatum: @escaping () async -> Void = {},
         captureOpeningCenter: @escaping () -> Void = {},
-        clearOpeningCenter: @escaping () -> Void = {}
+        clearOpeningCenter: @escaping () -> Void = {},
+        recordReviewFieldNote: @escaping
+            (String, CaptureFieldNoteCategory, Bool, [String])
+                -> Void = { _, _, _, _ in },
+        resolveFieldNote: @escaping
+            (CaptureFieldNoteID) -> Void = { _ in },
+        supersedeFieldNote: @escaping
+            (CaptureFieldNoteID, String, CaptureFieldNoteCategory)
+                -> Void = { _, _, _ in },
+        bindFieldNote: @escaping
+            (CaptureFieldNoteID, String) -> Void = { _, _ in },
+        flagEvidenceFrameForPrivacy: @escaping
+            (EvidenceFrameID) -> Void = { _ in }
     ) {
         self.model = model
         self.roomFrameOriginPending = roomFrameOriginPending
@@ -108,6 +135,12 @@ public struct CaptureReviewWorkspaceView: View {
         self.removeRoomFieldDatum = removeRoomFieldDatum
         self.captureOpeningCenter = captureOpeningCenter
         self.clearOpeningCenter = clearOpeningCenter
+        self.recordReviewFieldNote = recordReviewFieldNote
+        self.resolveFieldNote = resolveFieldNote
+        self.supersedeFieldNote = supersedeFieldNote
+        self.bindFieldNote = bindFieldNote
+        self.flagEvidenceFrameForPrivacy =
+            flagEvidenceFrameForPrivacy
     }
 
     public var body: some View {
@@ -122,6 +155,21 @@ public struct CaptureReviewWorkspaceView: View {
                         title: "Spatial capture sealed",
                         message:
                             "Live spatial capture is sealed for finalization. Labels, roles, equipment, and scalar values can still be corrected; raycast placement, orientation capture, and additional scanning are unavailable."
+                    )
+                    .listRowSeparator(.hidden)
+                }
+            }
+
+            if !model.fieldNotes.isEmpty,
+               !CaptureFieldNoteCollection(notes: model.fieldNotes)
+                   .unresolvedAttention.isEmpty
+            {
+                Section {
+                    CaptureNotice(
+                        status: .advisory,
+                        title: "Field notes need attention",
+                        message:
+                            "Unresolved attention notes are listed under Field notes. They surface here for review — they never block finalization on their own."
                     )
                     .listRowSeparator(.hidden)
                 }
@@ -176,6 +224,23 @@ public struct CaptureReviewWorkspaceView: View {
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                }
+                if model.contactSheet != nil {
+                    NavigationLink {
+                        EvidenceContactSheetView(
+                            model: model,
+                            removeEvidenceFrame:
+                                removeEvidenceFrame,
+                            flagForPrivacy:
+                                flagEvidenceFrameForPrivacy
+                        )
+                    } label: {
+                        Label(
+                            "Evidence contact sheet",
+                            systemImage:
+                                "rectangle.grid.2x2"
+                        )
+                    }
                 }
             }
         } trailing: {
@@ -704,6 +769,8 @@ public struct CaptureReviewWorkspaceView: View {
                 }
             }
 
+            fieldNotesSection
+
             if !model.issues.isEmpty {
                 Section("Workspace issues") {
                     ForEach(model.issues, id: \.self) { issue in
@@ -717,6 +784,35 @@ public struct CaptureReviewWorkspaceView: View {
         .navigationTitle(
             model.readOnly ? "Persisted capture" : "Review workspace"
         )
+        .sheet(isPresented: $composingFieldNote) {
+            FieldNoteComposeSheet(
+                allowsEvidenceAttachment: false,
+                bindingCandidates: fieldNoteBindingCandidates
+            ) { draft in
+                recordReviewFieldNote(
+                    draft.text,
+                    draft.category,
+                    draft.needsAttention,
+                    draft.bindingRefs
+                )
+            }
+        }
+        .sheet(item: $supersedingFieldNote) { note in
+            FieldNoteComposeSheet(
+                allowsEvidenceAttachment: false,
+                bindingCandidates: fieldNoteBindingCandidates
+            ) { draft in
+                supersedeFieldNote(
+                    note.noteID,
+                    draft.text,
+                    draft.category
+                )
+            }
+            .id(note.noteID)
+        }
+        .sheet(item: $bindingFieldNote) { note in
+            fieldNoteBindingSheet(note)
+        }
         .confirmationDialog(
             "Remove evidence frame?",
             isPresented: Binding(
@@ -797,6 +893,207 @@ public struct CaptureReviewWorkspaceView: View {
                 )
             }
         }
+    }
+
+    /// #375: operator field notes bound to this revision. Notes are
+    /// append-only — corrections supersede — and the unresolved
+    /// attention subset also surfaces in the banner above the plan
+    /// preview. Binding candidates cover the authority refs the
+    /// shared grammar accepts (entities, measurements, field
+    /// evidence, instruments, wiring, settings).
+    @ViewBuilder
+    private var fieldNotesSection: some View {
+        let collection = CaptureFieldNoteCollection(
+            notes: model.fieldNotes
+        )
+        if !model.fieldNotes.isEmpty || !model.readOnly {
+            Section {
+                if !model.readOnly {
+                    Button {
+                        composingFieldNote = true
+                    } label: {
+                        Label(
+                            "Add field note",
+                            systemImage: "note.text.badge.plus"
+                        )
+                    }
+                }
+                if collection.chronological.isEmpty {
+                    Text("No field notes")
+                        .foregroundStyle(.secondary)
+                } else {
+                    let attention = collection
+                        .unresolvedAttention.count
+                    if attention > 0 {
+                        Label(
+                            String(
+                                format: String(
+                                    localized:
+                                        "%d note(s) need attention before finalize"
+                                ),
+                                attention
+                            ),
+                            systemImage:
+                                "exclamationmark.circle"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(
+                            CaptureColorRole.attention.color
+                        )
+                    }
+                    ForEach(
+                        collection.chronological
+                    ) { note in
+                        fieldNoteRow(note)
+                    }
+                }
+            } header: {
+                Text("Field notes")
+            } footer: {
+                Text(
+                    "Notes are operator context carried in the bundle — superseded and resolved notes stay in the document so a receiver sees the full record."
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func fieldNoteRow(
+        _ note: CaptureFieldNote
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(
+                    note.category.rawValue
+                        .replacingOccurrences(
+                            of: "_",
+                            with: " "
+                        ).capitalized
+                )
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                if note.needsAttention,
+                   note.status == .active
+                {
+                    Label(
+                        "Attention",
+                        systemImage:
+                            "exclamationmark.circle.fill"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(
+                        CaptureColorRole.attention.color
+                    )
+                }
+                Spacer()
+                Text(note.status.rawValue)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            Text(note.text)
+                .font(.callout)
+            Text(
+                [
+                    note.createdAtUTC,
+                    note.authoringMethod.rawValue,
+                    note.bindingRefs.isEmpty
+                        ? "unbound"
+                        : "\(note.bindingRefs.count) binding(s)",
+                ].joined(separator: " · ")
+            )
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            if !note.evidenceRefs.isEmpty {
+                Text(
+                    "Evidence: "
+                        + note.evidenceRefs
+                            .joined(separator: ", ")
+                )
+                .font(.caption2.monospaced())
+                .foregroundStyle(.tertiary)
+            }
+            if !model.readOnly, note.status == .active {
+                HStack(spacing: 12) {
+                    Button("Resolve") {
+                        resolveFieldNote(note.noteID)
+                    }
+                    .font(.caption)
+                    Button("Correct…") {
+                        supersedingFieldNote = note
+                    }
+                    .font(.caption)
+                    if note.bindingRefs.isEmpty {
+                        Button("Bind…") {
+                            bindingFieldNote = note
+                        }
+                        .font(.caption)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// #375: binds an unbound note by superseding it with the same
+    /// text + the chosen ref — the stored lineage shows the intent.
+    @ViewBuilder
+    private func fieldNoteBindingSheet(
+        _ note: CaptureFieldNote
+    ) -> some View {
+        NavigationStack {
+            List {
+                Section("Bind note to") {
+                    ForEach(
+                        fieldNoteBindingCandidates,
+                        id: \.self
+                    ) { ref in
+                        Button(ref) {
+                            bindFieldNote(note.noteID, ref)
+                            bindingFieldNote = nil
+                        }
+                        .font(.caption.monospaced())
+                    }
+                }
+            }
+            .navigationTitle("Bind note")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        bindingFieldNote = nil
+                    }
+                }
+            }
+        }
+    }
+
+    /// Binding refs the grammar accepts, drawn from this revision's
+    /// committed authority + evidence.
+    private var fieldNoteBindingCandidates: [String] {
+        var refs: [String] = []
+        refs += model.annotations.map {
+            "entity:" + $0.entityID.description
+        }
+        refs += model.measurements.map {
+            "measurement:" + $0.measurementID.description
+        }
+        refs += model.fieldEvidence.map {
+            "field_evidence:" + $0.evidenceID.description
+        }
+        refs += model.instruments.map {
+            "instrument:" + $0.instrumentID.description
+        }
+        refs += model.operatorProfiles.map {
+            "operator:" + $0.operatorID.description
+        }
+        refs += model.settingsObservations.map {
+            "settings_observation:" + $0.observationID.description
+        }
+        refs += model.wiringRoutes.map {
+            "wiring_route:" + $0.routeID.description
+        }
+        return refs
     }
 
     /// #325: every unresolved flag dropped during scanning is listed
@@ -1274,7 +1571,7 @@ public struct RoomPlanPreviewCanvas: View {
 /// Loads a preview HEIC lazily for the evidence gallery. Previews are
 /// derived convenience artifacts; a missing/unreadable preview degrades
 /// to a placeholder, never to a hidden failure.
-private struct AsyncPreviewImage: View {
+struct AsyncPreviewImage: View {
     let url: URL
 
     var body: some View {

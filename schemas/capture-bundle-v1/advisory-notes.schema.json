@@ -40,7 +40,12 @@
               "automatic_keyframe",
               "frame_usability",
               "loop_closure_check",
-              "target_scan_pass"
+              "target_scan_pass",
+              "revisit_flag",
+              "revisit_flag_resolution",
+              "mission_bound",
+              "task_profile_change",
+              "privacy_flag"
             ]
           },
           "session_timestamp_seconds": {

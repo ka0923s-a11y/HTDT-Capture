@@ -15,6 +15,9 @@ struct HTDTMissionInboxView: View {
 
     @State private var importingMission = false
     @State private var selectedRecord: HTDTMissionRecord?
+    @State private var fieldReturnRecord: HTDTMissionRecord?
+    @State private var fieldReturnDocuments:
+        [HTDTFieldReturnDocument] = []
     @State private var dependencyReport:
         HTDTMissionDependencyReport?
     @State private var dependencyError: String?
@@ -109,10 +112,20 @@ struct HTDTMissionInboxView: View {
             }
             .presentationDetents([.medium, .large])
         }
+        .sheet(item: $fieldReturnRecord) { record in
+            NavigationStack {
+                HTDTFieldReturnWorkspaceView(
+                    record: record,
+                    actions: actions
+                )
+            }
+        }
         .task(id: selectedRecord?.recordID) {
             guard let selectedRecord else { return }
             dependencyReport = nil
             dependencyError = nil
+            fieldReturnDocuments = await actions
+                .listFieldReturns()
             do {
                 dependencyReport = try await actions
                     .evaluateMissionDependencies(
@@ -156,6 +169,13 @@ struct HTDTMissionInboxView: View {
                         Label(
                             "\(record.associatedCaptureRevisionIDs.count) capture(s)",
                             systemImage: "cube"
+                        )
+                    }
+                    if !record.fieldReturnIDs.isEmpty {
+                        Label(
+                            "\(record.fieldReturnIDs.count) field return(s)",
+                            systemImage:
+                                "checklist.unchecked"
                         )
                     }
                     if record.followUpOfMissionID != nil {
@@ -238,6 +258,47 @@ struct HTDTMissionInboxView: View {
                         "Delivery jobs",
                         value: String(record.deliveryJobIDs.count)
                     )
+                }
+            }
+
+            // #400: finalized field returns list separately from
+            // capture revisions in mission history — the non-spatial
+            // completion path stays visible on its own terms.
+            if !record.fieldReturnIDs.isEmpty
+                || record.lifecycle.canStart
+                || record.lifecycle == .inProgress
+            {
+                Section("Field return") {
+                    Button {
+                        fieldReturnRecord = record
+                    } label: {
+                        Label(
+                            "Open field return",
+                            systemImage:
+                                "checklist.unchecked"
+                        )
+                    }
+                    ForEach(
+                        fieldReturnDocuments.filter { doc in
+                            record.fieldReturnIDs.contains(
+                                doc.contributionID.description
+                            )
+                        },
+                        id: \.contributionID
+                    ) { doc in
+                        VStack(
+                            alignment: .leading,
+                            spacing: 2
+                        ) {
+                            Text(doc.contributionID.description)
+                                .font(.caption.monospaced())
+                            Text(
+                                "Finalized \(doc.finalizedAtUTC)"
+                            )
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
 
