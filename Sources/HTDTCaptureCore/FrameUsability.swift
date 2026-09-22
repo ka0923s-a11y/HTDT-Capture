@@ -26,7 +26,7 @@ public enum FrameUsabilityStatus: String, Sendable, Equatable {
 
 /// Bounded image statistics measured by the platform probe on a
 /// subsampled luma grid. Values are normalized 0...1.
-public struct FrameUsabilityMetrics: Sendable, Equatable {
+public struct FrameUsabilityMetrics: Codable, Sendable, Equatable {
     /// Mean luma, 0...1.
     public let meanLuminance: Double
     /// Fraction of sampled pixels at/above the clipping bound.

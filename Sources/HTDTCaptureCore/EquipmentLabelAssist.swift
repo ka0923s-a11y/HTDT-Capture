@@ -97,6 +97,12 @@ public struct EquipmentLabelScanResult: Sendable, Equatable {
     /// Evidence ref (`path:...`) of the persisted source frame the
     /// scan ran on — the image stays linked to the suggestion.
     public let evidenceRef: String
+    /// Advisory usability of the exact source image (#407). Deliberately
+    /// distinct from `confidence` (recognition), catalog-match
+    /// confidence, and operator confirmation: a blurry but perfectly
+    /// recognized label keeps image quality and match confidence
+    /// separate.
+    public let imageQuality: EvidenceImageQualityAssessment?
     public let candidates: [EquipmentLabelScanCandidate]
     /// Every distinct observed string, for the sheet's raw-text view.
     public let rawObservations: [String]
@@ -106,13 +112,15 @@ public struct EquipmentLabelScanResult: Sendable, Equatable {
         algorithmVersion: String,
         evidenceRef: String,
         candidates: [EquipmentLabelScanCandidate],
-        rawObservations: [String]
+        rawObservations: [String],
+        imageQuality: EvidenceImageQualityAssessment? = nil
     ) {
         self.algorithm = algorithm
         self.algorithmVersion = algorithmVersion
         self.evidenceRef = evidenceRef
         self.candidates = candidates
         self.rawObservations = rawObservations
+        self.imageQuality = imageQuality
     }
 
     /// True when the operator genuinely has to choose — zero or more

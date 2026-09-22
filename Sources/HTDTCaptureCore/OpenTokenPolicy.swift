@@ -70,7 +70,15 @@ public enum OpenTokenVocabulary: String, Sendable, Equatable, CaseIterable {
     /// this contract version. Only tokens the contract itself defines
     /// qualify — a token no contract version has defined can never
     /// become "standard" retroactively.
-    public func isStandard(_ token: String) -> Bool {
+    ///
+    /// `asOf` pins the check to a payload's declared `schema_version`
+    /// (#332): tokens added by a later contract version are not
+    /// standard vocabulary for older payloads. nil means this build's
+    /// latest known vocabulary.
+    public func isStandard(
+        _ token: String,
+        asOf schemaVersion: String? = nil
+    ) -> Bool {
         switch self {
         case .measurementQuantity:
             return MeasurementQuantityRegistry.definition(
@@ -81,7 +89,9 @@ public enum OpenTokenVocabulary: String, Sendable, Equatable, CaseIterable {
         case .referencePointSemantics:
             return ReferencePointSemantics.standardSet.contains(token)
         case .relationType:
-            return SemanticRelationType.standardSet.contains(token)
+            return SemanticRelationType
+                .standardSet(asOf: schemaVersion)
+                .contains(token)
         }
     }
 }
@@ -116,12 +126,18 @@ public enum OpenTokenPolicy {
     }
 
     /// Whether a token is wire-legal in a payload claiming
-    /// schema_version 1.1.0 or newer: standard or custom-scoped.
+    /// schema_version 1.1.0 or newer: standard (as pinned to
+    /// `schemaVersion`, or this build's latest when nil) or
+    /// custom-scoped.
     public static func isWireLegal(
         _ token: String,
-        vocabulary: OpenTokenVocabulary
+        vocabulary: OpenTokenVocabulary,
+        asOf schemaVersion: String? = nil
     ) -> Bool {
-        classify(token, vocabulary: vocabulary) != .legacyCustomUnscoped
+        if vocabulary.isStandard(token, asOf: schemaVersion) {
+            return true
+        }
+        return token.hasPrefix(vocabulary.customPrefix)
     }
 
     /// Normalize an authored token for new payloads: standard and
