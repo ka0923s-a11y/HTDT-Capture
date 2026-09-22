@@ -587,10 +587,7 @@ public struct CaptureSetupView: View {
             )
 
             Text(
-                ScanMotionGuidanceCopy.safetyDisclaimer(
-                    language:
-                        ScanMotionGuidanceCopy.preferredLanguage
-                )
+                ScanMotionGuidanceCopy.safetyDisclaimer()
             )
             .font(.caption)
             .foregroundStyle(.secondary)

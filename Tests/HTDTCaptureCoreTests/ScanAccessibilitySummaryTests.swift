@@ -65,23 +65,12 @@ func octantAzimuthMappingMatchesRegionLabelMath() {
 }
 
 @Test
-func octantNamesRenderInBothLanguages() {
-    #expect(
-        ScanDirectionOctant.rearLeft
-            .name(language: .english) == "rear left"
-    )
-    #expect(
-        ScanDirectionOctant.rearLeft
-            .name(language: .japanese) == "左後方"
-    )
-    #expect(
-        ScanDirectionOctant.front
-            .name(language: .english) == "front"
-    )
-    #expect(
-        ScanDirectionOctant.front
-            .name(language: .japanese) == "前方"
-    )
+func octantNamesRender() {
+    // Japanese equivalents live in `ja.lproj/Localizable.strings`
+    // under the same English keys (#399) — verified by the
+    // localization audit, not a second in-code vocabulary.
+    #expect(ScanDirectionOctant.rearLeft.name == "rear left")
+    #expect(ScanDirectionOctant.front.name == "front")
 }
 
 // MARK: - #342: direction coverage summary
@@ -158,8 +147,7 @@ func directionSummaryEnglishTextIsOneCompactReadout() {
                     pitchBand: .low
                 )
             )
-        ),
-        language: .english
+        )
     )
     #expect(text.hasPrefix("Direction coverage 92 percent."))
     #expect(text.contains("lower room missing: rear, rear left."))
@@ -167,19 +155,19 @@ func directionSummaryEnglishTextIsOneCompactReadout() {
 }
 
 @Test
-func directionSummaryJapaneseTextSharesVocabulary() {
+func directionSummaryMultipleBandsListEach() {
     var observed = Set(0..<36)
     for sector in 6...8 {
         observed.remove(cellIndex(sector, .low))
+        observed.remove(cellIndex(sector, .high))
     }
     let text = ScanAccessibilityText.directionCoverage(
         DirectionCoverageAccessibilitySummary(
             coverage: makeCoverage(observed: observed)
-        ),
-        language: .japanese
+        )
     )
-    #expect(text.hasPrefix("方向カバレッジ 92%。"))
-    #expect(text.contains("下部が未走査：後方、左後方。"))
+    #expect(text.contains("lower room missing: rear, rear left."))
+    #expect(text.contains("upper room missing: rear, rear left."))
 }
 
 @Test
@@ -189,10 +177,7 @@ func directionSummaryEmptyCoverageHasNoMissingBands() {
     )
     #expect(summary.missingBands.isEmpty)
     #expect(summary.coveragePercent == 100)
-    let text = ScanAccessibilityText.directionCoverage(
-        summary,
-        language: .english
-    )
+    let text = ScanAccessibilityText.directionCoverage(summary)
     #expect(text == "Direction coverage 100 percent.")
 }
 
@@ -374,10 +359,7 @@ func spatialSummaryEnglishTextCarriesCountsAndLabels() {
     let summary = SpatialCoverageAccessibilitySummary(
         coverage: coverage
     )
-    let text = ScanAccessibilityText.spatialCoverage(
-        summary,
-        language: .english
-    )
+    let text = ScanAccessibilityText.spatialCoverage(summary)
     #expect(
         text.hasPrefix(
             "Spatial coverage: 1 observed, 1 weak, 0 unknown."
@@ -387,17 +369,18 @@ func spatialSummaryEnglishTextCarriesCountsAndLabels() {
 }
 
 @Test
-func spatialSummaryJapaneseTextIsDeterministic() {
+func spatialSummaryCountsRegionsDeterministically() {
     let text = ScanAccessibilityText.spatialCoverage(
         SpatialCoverageAccessibilitySummary(
             coverage: makeSpatialCoverage(regions: [
                 makeRegion(x: 0, z: 2, classification: .weak),
             ])
-        ),
-        language: .japanese
+        )
     )
     #expect(
-        text.hasPrefix("空間カバレッジ：観測済み0、弱い領域1、未観測0。")
+        text.hasPrefix(
+            "Spatial coverage: 0 observed, 1 weak, 0 unknown."
+        )
     )
 }
 
@@ -406,36 +389,18 @@ func spatialSummaryEmptyHasNoObservationClaim() {
     let text = ScanAccessibilityText.spatialCoverage(
         SpatialCoverageAccessibilitySummary(
             coverage: SpatialScanCoverageSummary.empty
-        ),
-        language: .english
+        )
     )
     #expect(text == "No spatial regions observed yet.")
 }
 
 @Test
 func pitchBandNamesMatchReviewVocabulary() {
+    #expect(ScanAccessibilityText.pitchBandName(.low) == "lower room")
     #expect(
-        ScanAccessibilityText.pitchBandName(
-            .low,
-            language: .english
-        ) == "lower room"
+        ScanAccessibilityText.pitchBandName(.level) == "level view"
     )
     #expect(
-        ScanAccessibilityText.pitchBandName(
-            .level,
-            language: .english
-        ) == "level view"
-    )
-    #expect(
-        ScanAccessibilityText.pitchBandName(
-            .high,
-            language: .english
-        ) == "upper room"
-    )
-    #expect(
-        ScanAccessibilityText.pitchBandName(
-            .low,
-            language: .japanese
-        ) == "下部"
+        ScanAccessibilityText.pitchBandName(.high) == "upper room"
     )
 }

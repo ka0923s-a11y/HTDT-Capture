@@ -845,39 +845,50 @@ final class ScanMotionGuidanceTests: XCTestCase {
             ScanMotionGuidance(action: .holdObserve),
         ]
 
-        let japanese = samples.map {
-            ScanMotionGuidanceCopy.prompt(
-                for: $0,
-                language: .japanese
-            )
+        let prompts = samples.map {
+            ScanMotionGuidanceCopy.prompt(for: $0)
         }
 
-        XCTAssertTrue(japanese.contains("その場で右を向いてください"))
-        XCTAssertTrue(japanese.contains("その場で左を向いてください"))
-        XCTAssertTrue(japanese.contains("上側を映してください"))
-        XCTAssertTrue(japanese.contains("下側を映してください"))
-        XCTAssertTrue(japanese.contains("進路が安全なら、少し右へ移動してください"))
-        XCTAssertTrue(japanese.contains("進路が安全なら、少し左へ移動してください"))
-        XCTAssertTrue(japanese.contains("進路が安全なら、少し前へ進んでください"))
-        XCTAssertTrue(japanese.contains("後方が安全なら、少し下がってください"))
-        XCTAssertTrue(japanese.contains("安全なら、別の角度から映してください"))
-        XCTAssertTrue(japanese.contains("安全なら、この領域を別の角度から映してください"))
-        XCTAssertTrue(japanese.contains("この方向をゆっくり映してください"))
-
-        for prompt in japanese {
-            XCTAssertFalse(prompt.contains("歩"))
-            XCTAssertNil(
-                prompt.range(
-                    of: #"[0-9０-９]"#,
-                    options: .regularExpression
-                )
+        XCTAssertTrue(prompts.contains("Turn right in place."))
+        XCTAssertTrue(prompts.contains("Turn left in place."))
+        XCTAssertTrue(prompts.contains("Capture the upper area."))
+        XCTAssertTrue(prompts.contains("Capture the lower area."))
+        XCTAssertTrue(
+            prompts.contains(
+                "If the path is clear, step slightly right."
             )
-        }
+        )
+        XCTAssertTrue(
+            prompts.contains(
+                "If the path is clear, step slightly left."
+            )
+        )
+        XCTAssertTrue(
+            prompts.contains(
+                "If the path is clear, step slightly forward."
+            )
+        )
+        XCTAssertTrue(
+            prompts.contains(
+                "If the path behind you is clear, step slightly back."
+            )
+        )
+        XCTAssertTrue(
+            prompts.contains(
+                "If safe, show this region from another angle."
+            )
+        )
+        XCTAssertTrue(
+            prompts.contains(
+                "If safe, view this region from another angle."
+            )
+        )
+        XCTAssertTrue(prompts.contains("Slowly scan this direction."))
+
 
         for sample in samples {
             let english = ScanMotionGuidanceCopy.prompt(
-                for: sample,
-                language: .english
+                for: sample
             )
             // #313: movement prompts are safety-qualified, never
             // mandatory; no numeric step counts anywhere.

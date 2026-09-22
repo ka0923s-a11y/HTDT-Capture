@@ -2501,6 +2501,17 @@ public actor CaptureWorkingSetStore {
                 }
             }
         }
+        for placement in collection.rackPlacements {
+            if let space = placement.coordinateSpaceID {
+                spaces.insert(space)
+                for ref in placement.evidenceRefs {
+                    try requireSpatialEvidenceLinkCongruence(
+                        ref,
+                        coordinateSpaceID: space
+                    )
+                }
+            }
+        }
         for observation in collection.roomStateObservations {
             if let space = observation.coordinateSpaceID {
                 spaces.insert(space)
@@ -2607,6 +2618,13 @@ public actor CaptureWorkingSetStore {
         for item in collection.inventoryItems {
             try requireEntity(
                 item.hostRackEntityID,
+                types: [.equipmentRack],
+                field: "host_rack_entity_id"
+            )
+        }
+        for placement in collection.rackPlacements {
+            try requireEntity(
+                placement.hostRackEntityID,
                 types: [.equipmentRack],
                 field: "host_rack_entity_id"
             )

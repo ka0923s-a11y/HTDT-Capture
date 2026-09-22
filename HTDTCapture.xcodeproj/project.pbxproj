@@ -9,23 +9,24 @@
 /* Begin PBXBuildFile section */
 		031C2EEEDD86F10DD959C41D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 364679936CEF60373C4FE119 /* Assets.xcassets */; };
 		1F6EAB221C3D7F1B2D8FA06A /* HTDTCaptureApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E75C013589449105C975B579 /* HTDTCaptureApp.swift */; };
-		527DB4ECAC1B32D30FF42570 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 3E3DC4B035D8AFE409BD2035 /* Localizable.strings */; };
 		61181C8A6E982A39C6BF1216 /* HTDTCapturePlatform in Frameworks */ = {isa = PBXBuildFile; productRef = 717DB610F8FAD78BD4039D0F /* HTDTCapturePlatform */; };
 		7E19453D58F50AEE5EA54D34 /* HTDTCaptureCore in Frameworks */ = {isa = PBXBuildFile; productRef = 590C891C6782F2976FFB6AA9 /* HTDTCaptureCore */; };
 		8481C7D89274A601A20E7AB7 /* HTDTCaptureAppShell in Frameworks */ = {isa = PBXBuildFile; productRef = 9C5FEF23A27D1E136BF380A3 /* HTDTCaptureAppShell */; };
+		9C935FA2F7D520280DDC1548 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 78B3CD78A77BFB372AC81ED0 /* Localizable.strings */; };
 		B6C444F90F103CF8CDB2F578 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 7BAD1AF78A238DC024D6423E /* InfoPlist.strings */; };
 		DD899F5B29E497B204FECF63 /* EquipmentLabelVisionScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD7D340D9792493DF5E69A91 /* EquipmentLabelVisionScan.swift */; };
 		DF7DA537D3BEBFC028E24C0A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = BBC338DAC78C95597F325556 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		06B48A712326667E195A0161 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		1B9B9CC2078C03698E3A2BFF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		282B42F79C681C9B22C14CA8 /* HTDT-Capture */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "HTDT-Capture"; path = .; sourceTree = SOURCE_ROOT; };
 		364679936CEF60373C4FE119 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		3E3DC4B035D8AFE409BD2035 /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
 		7BAD1AF78A238DC024D6423E /* InfoPlist.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = InfoPlist.strings; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		BBC338DAC78C95597F325556 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		DD7D340D9792493DF5E69A91 /* EquipmentLabelVisionScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentLabelVisionScan.swift; sourceTree = "<group>"; };
+		E025BD4DB82184FF6142CE78 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
 		E75C013589449105C975B579 /* HTDTCaptureApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTDTCaptureApp.swift; sourceTree = "<group>"; };
 		EB1155D420A6A40C69639413 /* HTDTCapture.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HTDTCapture.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -52,8 +53,8 @@
 				E75C013589449105C975B579 /* HTDTCaptureApp.swift */,
 				1B9B9CC2078C03698E3A2BFF /* Info.plist */,
 				7BAD1AF78A238DC024D6423E /* InfoPlist.strings */,
-				3E3DC4B035D8AFE409BD2035 /* Localizable.strings */,
 				BBC338DAC78C95597F325556 /* PrivacyInfo.xcprivacy */,
+				78B3CD78A77BFB372AC81ED0 /* Localizable.strings */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -153,7 +154,7 @@
 			files = (
 				031C2EEEDD86F10DD959C41D /* Assets.xcassets in Resources */,
 				B6C444F90F103CF8CDB2F578 /* InfoPlist.strings in Resources */,
-				527DB4ECAC1B32D30FF42570 /* Localizable.strings in Resources */,
+				9C935FA2F7D520280DDC1548 /* Localizable.strings in Resources */,
 				DF7DA537D3BEBFC028E24C0A /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -193,6 +194,18 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXVariantGroup section */
+		78B3CD78A77BFB372AC81ED0 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				06B48A712326667E195A0161 /* en */,
+				E025BD4DB82184FF6142CE78 /* ja */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
 		3EC501A4AE2758CCD7F8BD5D /* Debug */ = {
@@ -333,7 +346,7 @@
 				PRODUCT_NAME = HTDTCapture;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -356,7 +369,7 @@
 				PRODUCT_NAME = HTDTCapture;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};

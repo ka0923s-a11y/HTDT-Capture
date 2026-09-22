@@ -266,6 +266,19 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
     /// usability summaries, reference counts and privacy flags.
     /// nil only when the bundle declares no frame descriptors.
     public let contactSheet: EvidenceContactSheetModel?
+    /// Committed theater-authority records (#408/#409): the semantic
+    /// layer of the 3D review surface and the survey pass's record
+    /// source. nil when no authorities payload is declared.
+    public let theaterAuthorities: TheaterAuthorityCollection?
+    /// Derived geometry candidates (issue #408): the derived layer
+    /// of the 3D review surface. Never substitutes captured
+    /// evidence.
+    public let derivedGeometryCandidates:
+        [DerivedGeometryCandidateRecord]
+    /// Decoded mesh anchor snapshots (issue #408): the captured
+    /// evidence layer of the 3D review surface — full vertex/index
+    /// geometry, not a LOD.
+    public let meshSnapshots: [MeshAnchorSnapshot]
     /// Decoding/enumeration problems that degraded the workspace. A
     /// missing optional payload is not an issue; an unreadable declared
     /// payload is listed so the UI can degrade to text while naming
@@ -298,6 +311,10 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
         taskPlanStatus: CaptureTaskPlanStatusDocument? = nil,
         fieldNotes: [CaptureFieldNote] = [],
         contactSheet: EvidenceContactSheetModel? = nil,
+        theaterAuthorities: TheaterAuthorityCollection? = nil,
+        derivedGeometryCandidates:
+            [DerivedGeometryCandidateRecord] = [],
+        meshSnapshots: [MeshAnchorSnapshot] = [],
         issues: [String] = []
     ) {
         self.captureRevisionID = captureRevisionID
@@ -324,6 +341,9 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
         self.taskPlanStatus = taskPlanStatus
         self.fieldNotes = fieldNotes
         self.contactSheet = contactSheet
+        self.theaterAuthorities = theaterAuthorities
+        self.derivedGeometryCandidates = derivedGeometryCandidates
+        self.meshSnapshots = meshSnapshots
         self.issues = issues
     }
 }
@@ -681,6 +701,60 @@ public enum CaptureReviewWorkspaceLoader {
                 readOnly: readOnly
             )
 
+        // Accepted-geometry review inputs (issues #408/#409): the
+        // 3D surface's captured/derived/semantic layers and the
+        // survey pass's record universe — decoded from the same
+        // declared payloads, never undeclared disk contents.
+        var meshSnapshots: [MeshAnchorSnapshot] = []
+        if let meshIndex = decodeIfDeclared(
+            MeshAnchorEvidenceIndex.self,
+            MeshEvidencePackage.indexPath
+        ) {
+            for record in meshIndex.anchors {
+                guard declaredPaths.contains(record.geometryPath)
+                else { continue }
+                let url = record.geometryPath
+                    .split(separator: "/")
+                    .reduce(root) {
+                        $0.appendingPathComponent(
+                            String($1),
+                            isDirectory: false
+                        )
+                    }
+                guard let anchorID = UUID(
+                    uuidString: record.anchorID
+                ),
+                    let data = try? Data(contentsOf: url),
+                    let geometry = try? MeshBinaryCodec.decode(data)
+                else {
+                    issues.append(
+                        "unreadable declared payload: "
+                            + record.geometryPath
+                    )
+                    continue
+                }
+                meshSnapshots.append(
+                    MeshAnchorSnapshot(
+                        anchorID: anchorID,
+                        captureSessionID: record.captureSessionID,
+                        coordinateSpaceID: record.coordinateSpaceID,
+                        worldFromAnchor: record.worldFromAnchor,
+                        sessionTimestampSeconds:
+                            record.sessionTimestampSeconds,
+                        geometry: geometry
+                    )
+                )
+            }
+        }
+        let authorityCollection = decodeIfDeclared(
+            TheaterAuthorityCollection.self,
+            TheaterAuthorityPackage.path
+        )
+        let derivedDocument = decodeIfDeclared(
+            DerivedGeometryCandidateDocument.self,
+            DerivedGeometryCandidatePackage.path
+        )
+
         return CaptureReviewWorkspaceModel(
             captureRevisionID: captureRevisionID,
             coordinateSpaceID: coordinateSpaceID,
@@ -708,6 +782,10 @@ public enum CaptureReviewWorkspaceLoader {
             taskPlanStatus: taskPlanStatus,
             fieldNotes: fieldNotes,
             contactSheet: contactSheet,
+            theaterAuthorities: authorityCollection,
+            derivedGeometryCandidates:
+                derivedDocument?.candidates ?? [],
+            meshSnapshots: meshSnapshots,
             issues: issues
         )
     }

@@ -67,6 +67,11 @@ public struct CaptureReviewWorkspaceView: View {
     /// #376: advisory privacy flag on an evidence frame.
     public let flagEvidenceFrameForPrivacy:
         (EvidenceFrameID) -> Void
+    /// #408/#409: the accepted RoomPlan bindable objects (loaded by
+    /// the host from `roomplan/captured-room.json`) — they drive
+    /// both the 3D scene's surface elements and the survey's
+    /// boundary targets. Empty on hosts that cannot decode RoomPlan.
+    public let roomPlanObjects: [RoomPlanBindableObject]
 
     @State private var openings: [RoomOpeningCandidate]?
     @State private var openingSaveState: String?
@@ -84,6 +89,9 @@ public struct CaptureReviewWorkspaceView: View {
     @State private var composingFieldNote = false
     @State private var supersedingFieldNote: CaptureFieldNote?
     @State private var bindingFieldNote: CaptureFieldNote?
+    /// #408: Plan stays the default surface; the accepted-geometry
+    /// 3D scene is the second tab over the same committed data.
+    @State private var geometryMode: ReviewGeometryMode = .plan
 
     public init(
         model: CaptureReviewWorkspaceModel,
@@ -122,9 +130,11 @@ public struct CaptureReviewWorkspaceView: View {
         bindFieldNote: @escaping
             (CaptureFieldNoteID, String) -> Void = { _, _ in },
         flagEvidenceFrameForPrivacy: @escaping
-            (EvidenceFrameID) -> Void = { _ in }
+            (EvidenceFrameID) -> Void = { _ in },
+        roomPlanObjects: [RoomPlanBindableObject] = []
     ) {
         self.model = model
+        self.roomPlanObjects = roomPlanObjects
         self.roomFrameOriginPending = roomFrameOriginPending
         self.openingCenterPending = openingCenterPending
         self.removeEvidenceFrame = removeEvidenceFrame
@@ -180,30 +190,96 @@ public struct CaptureReviewWorkspaceView: View {
                 }
             }
 
-            Section("Plan") {
-                if let plan = model.planPreview {
-                    ReviewPlanSurface(
-                        model: plan,
-                        markers: planMarkers(plan),
-                        selection: $planSelection,
-                        focusToken: $planFocusToken,
-                        labelMode: $planLabelMode
-                    )
-                    .listRowInsets(
-                        EdgeInsets(
-                            top: 8,
-                            leading: 0,
-                            bottom: 8,
-                            trailing: 0
-                        )
-                    )
-                } else {
+            Section("Geometry") {
+                // #408: the same committed evidence through two
+                // surfaces — the 2D plan stays default; 3D renders
+                // accepted geometry only (never speculative).
+                if sceneModel.elements.isEmpty,
+                   model.planPreview == nil
+                {
                     Text(
                         "No room plan is stored in this capture"
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                } else {
+                    Picker(
+                        "Surface",
+                        selection: $geometryMode
+                    ) {
+                        Text("Plan")
+                            .tag(ReviewGeometryMode.plan)
+                        Text("3D")
+                            .tag(ReviewGeometryMode.threeD)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    if geometryMode == .plan {
+                        if let plan = model.planPreview {
+                            ReviewPlanSurface(
+                                model: plan,
+                                markers: planMarkers(plan),
+                                selection: $planSelection,
+                                focusToken: $planFocusToken,
+                                labelMode: $planLabelMode
+                            )
+                            .listRowInsets(
+                                EdgeInsets(
+                                    top: 8,
+                                    leading: 0,
+                                    bottom: 8,
+                                    trailing: 0
+                                )
+                            )
+                        } else {
+                            Text(
+                                "No room plan is stored in this capture"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        AcceptedGeometrySceneView(
+                            scene: sceneModel,
+                            readOnly: model.readOnly
+                        )
+                    }
                 }
+            }
+
+            // #409: the spatial survey pass — object-first review of
+            // every committed target with its attributed records.
+            Section {
+                NavigationLink {
+                    SpatialSurveyView(
+                        readOnly: model.readOnly
+                    ) { mode in
+                        surveyModel(mode: mode)
+                    }
+                } label: {
+                    Label {
+                        VStack(
+                            alignment: .leading,
+                            spacing: 2
+                        ) {
+                            Text("Spatial survey")
+                            Text(
+                                surveyBadgeText
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(
+                            systemName:
+                                "checklist.checked"
+                        )
+                    }
+                }
+            } footer: {
+                Text(
+                    "Object-first review state over every committed surface, object, and entity — derived from existing records, never a parallel schema."
+                )
             }
 
             captureMissionSection
@@ -499,9 +575,14 @@ public struct CaptureReviewWorkspaceView: View {
                             Text(observation.targetRef)
                                 .font(.caption.monospaced())
                             Text(
-                                "\(observation.settings.count) setting(s) · "
-                                    + observation.recordedAtUTC
-                            )
+                                    String(
+                                        format: String(
+                                            localized: "%lld setting(s) · %@"
+                                        ),
+                                        observation.settings.count,
+                                        observation.recordedAtUTC
+                                    )
+                                )
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         }
@@ -542,7 +623,12 @@ public struct CaptureReviewWorkspaceView: View {
             Section("Opening review") {
                 if let review = model.openingReview {
                     Text(
-                        "\(review.openings.count) candidate(s) recorded"
+                        String(
+                            format: String(
+                                localized: "%lld candidate(s) recorded"
+                            ),
+                            review.openings.count
+                        )
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1583,6 +1669,70 @@ public struct CaptureReviewWorkspaceView: View {
         return " · author: " + operatorName(id)
     }
 
+    // MARK: #408/#409 derived surfaces
+
+    /// The accepted-geometry 3D scene (issue #408): every element is
+    /// committed evidence or a committed authority — mesh snapshots,
+    /// RoomPlan bindables, derived candidates, entities, measurements
+    /// all come straight off `model`/`roomPlanObjects`.
+    private var sceneModel: AcceptedGeometrySceneModel {
+        AcceptedGeometrySceneModel(
+            coordinateSpaceID: nil,
+            meshSnapshots: model.meshSnapshots,
+            roomPlanObjects: roomPlanObjects,
+            derivedCandidates:
+                model.derivedGeometryCandidates,
+            entities: model.annotations,
+            measurements: model.measurements
+        )
+    }
+
+    /// The spatial survey over the same committed set (issue #409):
+    /// RoomPlan/mesh/entity targets with their attributed records.
+    private func surveyModel(
+        mode: SurveyMode
+    ) -> SpatialSurveyModel {
+        SpatialSurveyModel(
+            roomPlanObjects: roomPlanObjects,
+            meshAnchorIDs: model.meshSnapshots
+                .map(\.anchorID),
+            annotations: model.annotations,
+            authorities: model.theaterAuthorities,
+            fieldEvidence: model.fieldEvidence,
+            instruments: model.instruments,
+            settingsObservations: model.settingsObservations,
+            wiringRoutes: model.wiringRoutes,
+            measurements: model.measurements,
+            fieldNotes: model.fieldNotes,
+            revisitFlags: model.revisitFlags,
+            taskPlan: model.captureTaskPlan,
+            taskPlanStatus: model.taskPlanStatus,
+            mode: mode
+        )
+    }
+
+    /// Row caption: honest remaining-work count for the survey link
+    /// — badges only count what still needs a decision (#406 §5).
+    private var surveyBadgeText: String {
+        let summary = surveyModel(mode: .all).summary
+        if summary.remainingCount == 0 {
+            return String(localized: "All targets reviewed")
+        }
+        return String(
+            format: String(
+                localized: "%d target(s) still need review"
+            ),
+            summary.remainingCount
+        )
+    }
+
+}
+
+/// The geometry surface toggle (issue #408): Plan is the default;
+/// the accepted-geometry 3D scene is the second tab.
+private enum ReviewGeometryMode: String {
+    case plan
+    case threeD
 }
 
 

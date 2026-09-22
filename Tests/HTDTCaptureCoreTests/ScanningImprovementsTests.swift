@@ -64,8 +64,7 @@ final class ScanningImprovementsTests: XCTestCase {
         ]
         for guidance in movingActions {
             let prompt = ScanMotionGuidanceCopy.prompt(
-                for: guidance,
-                language: .english
+                for: guidance
             )
             XCTAssertTrue(
                 prompt.hasPrefix("If"),
@@ -73,14 +72,7 @@ final class ScanningImprovementsTests: XCTestCase {
             )
             XCTAssertNotNil(
                 ScanMotionGuidanceCopy.safetyNote(
-                    for: guidance,
-                    language: .english
-                )
-            )
-            XCTAssertNotNil(
-                ScanMotionGuidanceCopy.safetyNote(
-                    for: guidance,
-                    language: .japanese
+                    for: guidance
                 )
             )
         }
@@ -101,8 +93,7 @@ final class ScanningImprovementsTests: XCTestCase {
         ] {
             XCTAssertNil(
                 ScanMotionGuidanceCopy.safetyNote(
-                    for: guidance,
-                    language: .english
+                    for: guidance
                 ),
                 "\(guidance.action) needs no movement note"
             )
@@ -110,26 +101,9 @@ final class ScanningImprovementsTests: XCTestCase {
     }
 
     func testSafetyDisclaimerNeverClaimsObstacleDetection() {
-        for language in [
-            ScanMotionGuidanceLanguage.english,
-            .japanese,
-        ] {
-            let disclaimer = ScanMotionGuidanceCopy.safetyDisclaimer(
-                language: language
-            )
-            XCTAssertFalse(disclaimer.isEmpty)
-            // "advisory only" wording in EN; ja must say it does not
-            // detect obstacles.
-            if language == .english {
-                XCTAssertTrue(
-                    disclaimer.contains("advisory only")
-                )
-            } else {
-                XCTAssertTrue(
-                    disclaimer.contains("障害物を検知するものではありません")
-                )
-            }
-        }
+        let disclaimer = ScanMotionGuidanceCopy.safetyDisclaimer()
+        XCTAssertFalse(disclaimer.isEmpty)
+        XCTAssertTrue(disclaimer.contains("advisory only"))
     }
 
     // MARK: - #325 revisit flags
