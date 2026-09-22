@@ -393,6 +393,21 @@ public enum HTDTCompatibilityChecker {
                     + HTDTEndpointCapabilityDocument.handoffProtocol
             ))
         }
+        // Artifact-kind admission (#423 §5): a receiver that
+        // enumerates accepted_artifact_kinds without a
+        // capture_bundle entry cannot stage captures at all.
+        let kindAdmission = capabilities.acceptedKinds.first {
+            $0.artifactKind
+                == HTDTDeliverableKind.captureBundle.rawValue
+        }
+        if kindAdmission == nil {
+            hard.append(HTDTCompatibilityGap(
+                kind: .unsupportedArtifactKind,
+                subject: HTDTDeliverableKind.captureBundle.rawValue,
+                detail: "Receiver does not accept "
+                    + HTDTDeliverableKind.captureBundle.displayName
+            ))
+        }
         if !capabilities.acceptedBundleSchemaVersions.contains(
             inventory.bundleSchemaVersion
         ) {
@@ -403,7 +418,22 @@ public enum HTDTCompatibilityChecker {
                     + "version " + inventory.bundleSchemaVersion
             ))
         }
-        if let maxBytes = capabilities.maxArchiveBytes,
+        if let admission = kindAdmission,
+           !admission.acceptedSchemaVersions.isEmpty,
+           !admission.acceptedSchemaVersions
+               .contains(inventory.bundleSchemaVersion)
+        {
+            hard.append(HTDTCompatibilityGap(
+                kind: .unsupportedArtifactKind,
+                subject: inventory.bundleSchemaVersion,
+                detail: "Receiver does not accept "
+                    + HTDTDeliverableKind.captureBundle.displayName
+                    + " schema " + inventory.bundleSchemaVersion
+            ))
+        }
+        let byteCeiling = kindAdmission?.maxArchiveBytes
+            ?? capabilities.maxArchiveBytes
+        if let maxBytes = byteCeiling,
            inventory.archiveByteCount > maxBytes
         {
             hard.append(HTDTCompatibilityGap(

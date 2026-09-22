@@ -25,7 +25,6 @@ public enum HTDTFieldReturnError: Error, Sendable, Equatable {
     /// else is a typed mismatch, never silently rewritten.
     case authorityBindingMismatch(String)
     case invalidContainerExtension
-    case containerNotFinalized
     case artifactAlreadyFinalized
     case archiveTooLargeForClassicZIP
     case filenameTooLong(String)
@@ -1095,7 +1094,7 @@ public struct HTDTFieldReturnWorkspace:
         note: String? = nil
     ) throws {
         guard !isFinalized else {
-            throw HTDTFieldReturnError.containerNotFinalized
+            throw HTDTFieldReturnError.artifactAlreadyFinalized
         }
         guard let index = taskLedger.firstIndex(where: {
             $0.itemRef == itemRef

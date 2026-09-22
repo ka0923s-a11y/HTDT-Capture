@@ -78,28 +78,6 @@ public enum FieldContributionDocs {
                 return false
             }
         }
-
-        /// The v1 `htdt.capture.*` schema this family supersedes
-        /// inside Field Return containers (capture bundles still
-        /// emit the v1 docs — they are untouched).
-        public var legacySchema: String {
-            switch self {
-            case .operatorProfiles:
-                return "htdt.capture.operator-profiles"
-            case .instrumentProfiles:
-                return "htdt.capture.instrument-profiles"
-            case .fieldEvidence:
-                return "htdt.capture.field-evidence"
-            case .settingsObservations:
-                return "htdt.capture.installed-settings"
-            case .wiringRoutes:
-                return "htdt.capture.as-built-wiring"
-            case .inventoryItems:
-                return "htdt.capture.inventory-items"
-            case .roomStateObservations:
-                return "htdt.capture.room-state-observations"
-            }
-        }
     }
 
     /// Encodes one envelope document: `{schema, schema_version,

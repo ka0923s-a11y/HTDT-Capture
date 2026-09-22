@@ -434,6 +434,98 @@
       "read": [
         "1.0.0"
       ]
+    },
+    "revisit-flags": {
+      "schema_id": "htdt.capture.revisit_flags",
+      "paths": [
+        "session/revisit-flags.json"
+      ],
+      "documents": {
+        "1.0.0": "revisit-flags"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ],
+      "description": "#325 capture revisit flags: operator-pinned points Review must resurface, persisted as a declared canonical payload."
+    },
+    "room-field-datum": {
+      "schema_id": "htdt.capture.room-field-datum",
+      "paths": [
+        "session/room-field-datum.json"
+      ],
+      "documents": {
+        "1.0.0": "room-field-datum"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "operator-profiles": {
+      "schema_id": "htdt.capture.operator-profiles",
+      "paths": [
+        "derived/operator-profiles.json"
+      ],
+      "documents": {
+        "1.0.0": "operator-profiles"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "field-evidence": {
+      "schema_id": "htdt.capture.field-evidence",
+      "paths": [
+        "derived/field-evidence.json"
+      ],
+      "documents": {
+        "1.0.0": "field-evidence"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "instrument-profiles": {
+      "schema_id": "htdt.capture.instrument-profiles",
+      "paths": [
+        "derived/instrument-profiles.json"
+      ],
+      "documents": {
+        "1.0.0": "instrument-profiles"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "settings-observations": {
+      "schema_id": "htdt.capture.settings-observations",
+      "paths": [
+        "derived/settings-observations.json"
+      ],
+      "documents": {
+        "1.0.0": "settings-observations"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "wiring-routes": {
+      "schema_id": "htdt.capture.wiring-routes",
+      "paths": [
+        "derived/wiring-routes.json"
+      ],
+      "documents": {
+        "1.0.0": "wiring-routes"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
     }
   }
 }

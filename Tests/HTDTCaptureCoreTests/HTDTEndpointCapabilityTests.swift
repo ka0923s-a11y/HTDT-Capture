@@ -12,6 +12,7 @@ final class HTDTEndpointCapabilityTests: XCTestCase {
         authorityFamilies: [String] = [],
         maxArchiveBytes: Int64? = nil,
         missionReceipts: Bool = true,
+        artifactKinds: [HTDTArtifactKindCapability]? = nil,
         catalogKeys: [String] = [],
         projectRef: String? = nil,
         manualReview: Bool = false
@@ -24,6 +25,7 @@ final class HTDTEndpointCapabilityTests: XCTestCase {
             supportedAuthorityFamilies: authorityFamilies,
             maxArchiveBytes: maxArchiveBytes,
             missionReceiptsSupported: missionReceipts,
+            acceptedArtifactKinds: artifactKinds,
             equipmentCatalogsRecognized: catalogKeys,
             projectRef: projectRef,
             manualReviewRequired: manualReview
@@ -238,5 +240,99 @@ final class HTDTEndpointCapabilityTests: XCTestCase {
         // to no families.
         let collection = TheaterAuthorityCollection.empty
         XCTAssertTrue(collection.presentAuthorityFamilies().isEmpty)
+    }
+
+    /// #448: a receiver that enumerates accepted_artifact_kinds
+    /// without a capture_bundle entry cannot stage captures at all —
+    /// bundle preflight enforces the same kind admission the
+    /// field-return preflight already did.
+    func testFieldReturnOnlyReceiverRejectsCaptureBundle() {
+        let verdict = HTDTCompatibilityChecker.check(
+            inventory: makeInventory(),
+            capabilities: makeCapabilities(
+                artifactKinds: [
+                    HTDTArtifactKindCapability(
+                        artifactKind:
+                            HTDTDeliverableKind.fieldReturn.rawValue
+                    ),
+                ]
+            )
+        )
+        guard case .incompatible(let gaps) = verdict else {
+            XCTFail("expected incompatible, got \(verdict)")
+            return
+        }
+        let kinds = gaps.filter {
+            $0.kind == .unsupportedArtifactKind
+        }
+        XCTAssertEqual(kinds.count, 1)
+        XCTAssertEqual(
+            kinds.first?.subject,
+            HTDTDeliverableKind.captureBundle.rawValue
+        )
+        XCTAssertFalse(verdict.sendPermitted)
+    }
+
+    /// #448: the kind admission's own schema-version list and byte
+    /// ceiling apply to the bundle — a receiver may accept bundle
+    /// bytes only inside its advertised per-kind contract.
+    func testKindAdmissionScopesBundleVersionsAndBytes() {
+        let admission = HTDTArtifactKindCapability(
+            artifactKind: HTDTDeliverableKind.captureBundle.rawValue,
+            acceptedSchemaVersions: ["1.0.0"],
+            maxArchiveBytes: 100
+        )
+        // Declared doc-wide version passes; the per-kind list
+        // rejects it anyway.
+        let versionGap = HTDTCompatibilityChecker.check(
+            inventory: makeInventory(
+                bundleVersion: "2.0.0",
+                archiveBytes: 10
+            ),
+            capabilities: makeCapabilities(
+                bundleVersions: ["1.0.0", "2.0.0"],
+                artifactKinds: [admission]
+            )
+        )
+        guard case .incompatible(let versionGaps) = versionGap else {
+            XCTFail("expected incompatible, got \(versionGap)")
+            return
+        }
+        XCTAssertTrue(
+            versionGaps.contains {
+                $0.kind == .unsupportedArtifactKind
+                    && $0.subject == "2.0.0"
+            }
+        )
+
+        // The per-kind byte ceiling overrides the doc-wide one.
+        let byteGap = HTDTCompatibilityChecker.check(
+            inventory: makeInventory(archiveBytes: 1024),
+            capabilities: makeCapabilities(
+                maxArchiveBytes: nil,
+                artifactKinds: [admission]
+            )
+        )
+        guard case .incompatible(let byteGaps) = byteGap else {
+            XCTFail("expected incompatible, got \(byteGap)")
+            return
+        }
+        XCTAssertTrue(
+            byteGaps.contains { $0.kind == .archiveTooLarge }
+        )
+    }
+
+    /// #448: a legacy receiver that never advertises
+    /// accepted_artifact_kinds still admits capture bundles via the
+    /// documented capture_bundle-only default (#423 §14).
+    func testLegacyReceiverDefaultsAdmitCaptureBundle() {
+        let verdict = HTDTCompatibilityChecker.check(
+            inventory: makeInventory(),
+            capabilities: makeCapabilities()
+        )
+        guard case .compatible = verdict else {
+            XCTFail("expected compatible, got \(verdict)")
+            return
+        }
     }
 }

@@ -318,6 +318,52 @@ final class HTDTMissionInboxTests: XCTestCase {
         )
     }
 
+    /// #454: resume re-opens an in-progress mission only — it is
+    /// not a second Start that admits received/ready/blocked
+    /// missions while skipping dependency evaluation.
+    func testResumeRefusesNonInProgressMission() throws {
+        let root = try makeRoot()
+        let store = HTDTMissionInboxStore(captureRoot: root)
+        guard case .imported(let record) = try store.importMission(
+            data: missionData(missionID: "m-1", planID: "plan-1")
+        ) else {
+            XCTFail()
+            return
+        }
+        // .received — never started, dependencies never evaluated.
+        XCTAssertThrowsError(
+            try store.resumeMission(recordID: record.recordID)
+        ) { error in
+            guard case HTDTMissionInboxError
+                .invalidLifecycleTransition = error
+            else {
+                XCTFail("expected invalidLifecycleTransition")
+                return
+            }
+        }
+        // Started then in-progress: resume is admitted.
+        _ = try store.startMission(recordID: record.recordID)
+        let resume = try store.resumeMission(
+            recordID: record.recordID
+        )
+        XCTAssertEqual(resume.planImport.plan.planID, "plan-1")
+        // Archived is refused too.
+        try store.setLifecycle(
+            recordID: record.recordID,
+            .archived
+        )
+        XCTAssertThrowsError(
+            try store.resumeMission(recordID: record.recordID)
+        ) { error in
+            guard case HTDTMissionInboxError
+                .invalidLifecycleTransition = error
+            else {
+                XCTFail("expected invalidLifecycleTransition")
+                return
+            }
+        }
+    }
+
     func testGroupedByProjectAndRoom() throws {
         let root = try makeRoot()
         let store = HTDTMissionInboxStore(captureRoot: root)

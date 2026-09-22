@@ -32,10 +32,41 @@ func registryMapsEverySchemaOwnedPath() throws {
         "derived/settings-observations.json":
             "settings-observations",
         "derived/wiring-routes.json": "wiring-routes",
+        "session/field-notes.json": "field-notes",
+        "session/revisit-flags.json": "revisit-flags",
+        "session/coordinate-space-policy.json":
+            "coordinate-space-policy",
+        "session/connected-spaces.json": "connected-spaces",
+        "session/capture-task-plan.json": "capture-task-plan",
+        "session/task-plan-status.json": "task-plan-status",
+        "session/revision-state.json": "working-revision-state",
+        "session/capture-strategy.json": "capture-strategy",
+        "advisory/operator-advisories.json": "advisory-notes",
+        "revision/intent.json": "revision-intent",
+        "revision/registrations.json":
+            "cross-revision-registration",
+        "reference/plan-underlay.json": "plan-underlay",
+        "derived/authority-dependencies.json":
+            "authority-dependencies",
+        "derived/geometry-candidates.json":
+            "derived-geometry-candidates",
+        "derived/equipment-identity.json": "equipment-identity",
+        "evidence/reference-targets.json": "reference-targets",
+        "verification/as-built.json": "as-built",
     ]
     for (path, name) in expected {
         #expect(CaptureBundleSchemaRegistry.schemaName(forPath: path) == name)
-        _ = try CaptureBundleSchemaRegistry.compiledSchema(named: name)
+        // The emitted version's registry document must compile —
+        // versioned families have no same-named document key.
+        if let contract = CaptureBundleSchemaRegistry
+            .supportMatrix.families[name],
+           let emitted = contract.emitted,
+           let documentName = contract.documents[emitted]
+        {
+            _ = try CaptureBundleSchemaRegistry.compiledSchema(
+                named: documentName
+            )
+        }
     }
     #expect(
         CaptureBundleSchemaRegistry.schemaName(
@@ -47,6 +78,183 @@ func registryMapsEverySchemaOwnedPath() throws {
             forPath: "evidence/frames/nested/anything.json"
         ) == nil
     )
+}
+
+/// #452: a registry-owned path missing from the support matrix
+/// silently bypassed payload-version dispatch *and* failed the
+/// remote validator outright. The matrix is the single authority —
+/// every declared path must resolve back to the family that declares
+/// it, and every declared document key must compile.
+@Test
+func everyMatrixPathResolvesBackToItsFamily() throws {
+    for (name, contract) in CaptureBundleSchemaRegistry
+        .supportMatrix.families
+    {
+        guard !contract.external else { continue }
+        for path in contract.paths {
+            #expect(
+                CaptureBundleSchemaRegistry.schemaName(
+                    forPath: path
+                ) == name
+            )
+        }
+        for documentName in contract.documents.values {
+            _ = try CaptureBundleSchemaRegistry.compiledSchema(
+                named: documentName
+            )
+        }
+    }
+}
+
+/// #451/#452: session/revisit-flags.json is a declared canonical
+/// payload — it validates against the published revisit-flags
+/// schema instead of failing as an unowned .json payload.
+@Test
+func revisitFlagsPayloadValidatesAgainstPublishedSchema() throws {
+    let root = try makeTemporaryDirectory()
+    defer { BundleValidationFixture.remove(root) }
+
+    let payload: StrictJSONValue = .object([
+        ("schema", .string("htdt.capture.revisit_flags")),
+        ("schema_version", .string("1.0.0")),
+        (
+            "capture_revision_id",
+            .string(BundleValidationFixture.sessionUUID)
+        ),
+        (
+            "flags",
+            .array([
+                .object([
+                    (
+                        "flagID",
+                        .string(
+                            "00000000-0000-4000-8000-000000000030"
+                        )
+                    ),
+                    (
+                        "coordinateSpaceID",
+                        .string(BundleValidationFixture.spaceUUID)
+                    ),
+                    (
+                        "captureSessionID",
+                        .string(BundleValidationFixture.sessionUUID)
+                    ),
+                    (
+                        "targetFromRaycast",
+                        .boolean(false)
+                    ),
+                    ("status", .string("unresolved")),
+                    (
+                        "createdSessionTimestampSeconds",
+                        .number(12.5)
+                    ),
+                ]),
+            ])
+        ),
+    ])
+
+    try BundleValidationFixture.stage(
+        root,
+        payloads: [
+            (
+                path: "session/revisit-flags.json",
+                data: try BundleValidationFixture.canonical(payload),
+                mediaType: "application/json"
+            ),
+        ]
+    )
+
+    _ = try BundleDirectoryValidator.validate(root: root)
+}
+
+/// #449: task-plan-status 2.0.0 — a pending item may carry no
+/// fulfillment decoration in *either* representation; `fulfillment`
+/// and `fulfillment_ref` are the same invariant under two keys.
+@Test
+func pendingTaskItemRejectsFulfillmentRef() throws {
+    let root = try makeTemporaryDirectory()
+    defer { BundleValidationFixture.remove(root) }
+
+    func statusPayload(fulfillmentRef: StrictJSONValue)
+        -> StrictJSONValue
+    {
+        .object([
+            (
+                "schema",
+                .string("htdt.capture-task-plan-status")
+            ),
+            ("schema_version", .string("2.0.0")),
+            (
+                "capture_revision_id",
+                .string(BundleValidationFixture.sessionUUID)
+            ),
+            (
+                "capture_session_id",
+                .string(BundleValidationFixture.sessionUUID)
+            ),
+            ("plan_id", .string("plan-1")),
+            ("plan_version", .string("1")),
+            (
+                "plan_sha256",
+                .string(
+                    String(repeating: "ab", count: 32)
+                )
+            ),
+            (
+                "items",
+                .array([
+                    .object([
+                        ("item_id", .string("m-1")),
+                        ("outcome", .string("pending")),
+                        ("fulfillment_ref", fulfillmentRef),
+                    ]),
+                ])
+            ),
+        ])
+    }
+
+    // A pending item carrying a fulfillment_ref string is rejected.
+    try BundleValidationFixture.stage(
+        root,
+        payloads: [
+            (
+                path: "session/task-plan-status.json",
+                data: try BundleValidationFixture.canonical(
+                    statusPayload(
+                        fulfillmentRef: .string("frame:1")
+                    )
+                ),
+                mediaType: "application/json"
+            ),
+        ]
+    )
+    do {
+        _ = try BundleDirectoryValidator.validate(root: root)
+        Issue.record("expected schemaValidationFailed")
+    } catch let error as BundleDirectoryValidationError {
+        guard case .schemaValidationFailed = error else {
+            Issue.record("expected schemaValidationFailed, got \(error)")
+            return
+        }
+    }
+
+    // An explicit null passes — the decoration is absent, not
+    // forbidden from existing as a null slot.
+    let clean = try makeTemporaryDirectory()
+    defer { BundleValidationFixture.remove(clean) }
+    try BundleValidationFixture.stage(
+        clean,
+        payloads: [
+            (
+                path: "session/task-plan-status.json",
+                data: try BundleValidationFixture.canonical(
+                    statusPayload(fulfillmentRef: .null)
+                ),
+                mediaType: "application/json"
+            ),
+        ]
+    )
+    _ = try BundleDirectoryValidator.validate(root: clean)
 }
 
 @Test
