@@ -744,8 +744,7 @@ public struct CaptureAnnotationWorkspaceView: View {
             measurements: measurements,
             equipmentIdentityRecords: identityRecords,
             speakerLayoutPlan: speakerLayoutPlan,
-            theaterAuthorities: authorities
-            speakerLayoutPlan: speakerLayoutPlan,
+            theaterAuthorities: authorities,
             fieldAuthority: fieldAuthority
         )
         try? draftStore.save(draft)

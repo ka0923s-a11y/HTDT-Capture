@@ -42,8 +42,7 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         measurements: [CaptureMeasurement] = [],
         equipmentIdentityRecords: [EquipmentIdentityRecord] = [],
         speakerLayoutPlan: SpeakerLayoutPlan? = nil,
-        theaterAuthorities: TheaterAuthorityCollection? = nil
-        speakerLayoutPlan: SpeakerLayoutPlan? = nil,
+        theaterAuthorities: TheaterAuthorityCollection? = nil,
         fieldAuthority: FieldAuthorityWorkspace? = nil
     ) {
         self.schemaName = Self.schema
