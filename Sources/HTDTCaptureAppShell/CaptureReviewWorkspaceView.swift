@@ -40,15 +40,35 @@ public struct CaptureReviewWorkspaceView: View {
     /// skipped/unavailable from Review.
     public let markTaskPlanItem:
         (String, TaskPlanItemOutcome) -> Void
+    /// #232: confirms a field/install datum derived from the
+    /// committed room reference frame. Returns false when the room
+    /// frame is missing or the commit failed.
+    public let confirmFieldDatumFromRoomFrame:
+        () async -> Bool
+    /// #232: removes the committed field datum payload.
+    public let removeRoomFieldDatum: () async -> Void
+    /// #231: captures the camera position as the center for a
+    /// user-declared opening candidate.
+    public let captureOpeningCenter: () -> Void
+    /// Clears a pending opening-center capture so another candidate
+    /// can be marked.
+    public let clearOpeningCenter: () -> Void
+    /// Pending center point for a user-declared opening candidate.
+    public let openingCenterPending: WorldPoint3D?
 
     @State private var openings: [RoomOpeningCandidate]?
     @State private var openingSaveState: String?
     @State private var confirmingFrameRemoval:
         EvidenceFrameID?
+    @State private var newOpeningKind: RoomOpeningKind = .hvacGrille
+    @State private var newOpeningState: RoomOpeningState = .open
+    @State private var newOpeningWidth = "0.30"
+    @State private var newOpeningHeight = "0.30"
 
     public init(
         model: CaptureReviewWorkspaceModel,
         roomFrameOriginPending: WorldPoint3D? = nil,
+        openingCenterPending: WorldPoint3D? = nil,
         removeEvidenceFrame: @escaping
             (EvidenceFrameID) async -> Void = { _ in },
         openingReviewCandidates: @escaping
@@ -66,9 +86,16 @@ public struct CaptureReviewWorkspaceView: View {
         reopenRevisitFlag: @escaping (String) -> Void = { _ in },
         markTaskPlanItem: @escaping
             (String, TaskPlanItemOutcome) -> Void = { _, _ in }
+        confirmRoomReferenceFrame: @escaping () -> Void = {},
+        confirmFieldDatumFromRoomFrame: @escaping
+            () async -> Bool = { false },
+        removeRoomFieldDatum: @escaping () async -> Void = {},
+        captureOpeningCenter: @escaping () -> Void = {},
+        clearOpeningCenter: @escaping () -> Void = {}
     ) {
         self.model = model
         self.roomFrameOriginPending = roomFrameOriginPending
+        self.openingCenterPending = openingCenterPending
         self.removeEvidenceFrame = removeEvidenceFrame
         self.openingReviewCandidates = openingReviewCandidates
         self.commitOpeningReview = commitOpeningReview
@@ -77,6 +104,11 @@ public struct CaptureReviewWorkspaceView: View {
         self.resolveRevisitFlag = resolveRevisitFlag
         self.reopenRevisitFlag = reopenRevisitFlag
         self.markTaskPlanItem = markTaskPlanItem
+        self.confirmFieldDatumFromRoomFrame =
+            confirmFieldDatumFromRoomFrame
+        self.removeRoomFieldDatum = removeRoomFieldDatum
+        self.captureOpeningCenter = captureOpeningCenter
+        self.clearOpeningCenter = clearOpeningCenter
     }
 
     public var body: some View {
@@ -448,6 +480,66 @@ public struct CaptureReviewWorkspaceView: View {
                             }
                         }
                     }
+                    // User-declared boundary openings (issue #231):
+                    // vents, grilles, undercuts, and penetrations
+                    // RoomPlan never infers. A captured camera point
+                    // supplies the center; these never promote into
+                    // solver Portal physics automatically.
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Add opening candidate")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Picker(
+                            "Kind",
+                            selection: $newOpeningKind
+                        ) {
+                            ForEach(
+                                RoomOpeningKind.allCases,
+                                id: \.self
+                            ) { kind in
+                                Text(kind.rawValue).tag(kind)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        Picker(
+                            "State",
+                            selection: $newOpeningState
+                        ) {
+                            ForEach(
+                                RoomOpeningState.allCases,
+                                id: \.self
+                            ) { state in
+                                Text(state.rawValue).tag(state)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        HStack(spacing: 8) {
+                            TextField(
+                                "Width m",
+                                text: $newOpeningWidth
+                            )
+                            TextField(
+                                "Height m",
+                                text: $newOpeningHeight
+                            )
+                        }
+                        .font(.caption)
+                        Button(
+                            openingCenterPending == nil
+                                ? "Mark opening center"
+                                : "Center captured"
+                        ) {
+                            captureOpeningCenter()
+                        }
+                        .disabled(openingCenterPending != nil)
+                        if let center = openingCenterPending {
+                            Button("Add candidate") {
+                                addUserOpeningCandidate(
+                                    center: center
+                                )
+                            }
+                        }
+                    }
                     if let openingSaveState {
                         Text(openingSaveState)
                             .font(.caption)
@@ -503,6 +595,94 @@ public struct CaptureReviewWorkspaceView: View {
                     if roomFrameOriginPending != nil {
                         Button("Confirm room front") {
                             confirmRoomReferenceFrame()
+                        }
+                    }
+                }
+            }
+
+            Section("Field datum (HTDT promotion)") {
+                if let datum = model.roomFieldDatum {
+                    LabeledContent(
+                        "Origin",
+                        value: datum.origin.kind.rawValue
+                    )
+                    LabeledContent(
+                        "Axis",
+                        value: datum.axis.kind.rawValue
+                    )
+                    LabeledContent(
+                        "Vertical datum",
+                        value: datum.verticalDatum.kind
+                            .rawValue
+                    )
+                    LabeledContent(
+                        "Origin (m)",
+                        value: String(
+                            format: "%.2f, %.2f, %.2f",
+                            datum.fieldFromCaptureWorld
+                                .originMeters.x,
+                            datum.fieldFromCaptureWorld
+                                .originMeters.y,
+                            datum.fieldFromCaptureWorld
+                                .originMeters.z
+                        )
+                    )
+                    LabeledContent(
+                        "Status",
+                        value: {
+                            switch model
+                                .roomFieldDatumStaleness
+                            {
+                            case .current:
+                                return "current"
+                            case .stale(let refs):
+                                return "stale — "
+                                    + "\(refs.count)"
+                                    + " unresolved ref(s)"
+                            case nil:
+                                return "current"
+                            }
+                        }()
+                    )
+                    Text(
+                        "Promotion reference only: records the capture-world→field datum convention and its exact transform. It is not T_scene_from_capture_world."
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    if !model.readOnly
+                        && !model.spatialCaptureSealed
+                    {
+                        Button(
+                            "Remove field datum",
+                            role: .destructive
+                        ) {
+                            Task {
+                                await removeRoomFieldDatum()
+                            }
+                        }
+                        .font(.caption)
+                    }
+                } else {
+                    Text("No field datum confirmed")
+                        .foregroundStyle(.secondary)
+                    if !model.readOnly
+                        && !model.spatialCaptureSealed
+                    {
+                        Button("Confirm from room frame") {
+                            Task {
+                                _ = await
+                                    confirmFieldDatumFromRoomFrame()
+                            }
+                        }
+                        .disabled(
+                            model.roomReferenceFrame == nil
+                        )
+                        if model.roomReferenceFrame == nil {
+                            Text(
+                                "Confirm a room reference frame first."
+                            )
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -842,6 +1022,8 @@ public struct CaptureReviewWorkspaceView: View {
             LabeledContent(
                 opening.kind.rawValue,
                 value: opening.disposition.rawValue
+                    + " · "
+                    + opening.openState.rawValue
             )
             Text(opening.sourceRef)
                 .font(.caption2.monospaced())
@@ -864,6 +1046,16 @@ public struct CaptureReviewWorkspaceView: View {
                     }
                 }
                 .font(.caption)
+                HStack(spacing: 8) {
+                    Text("State")
+                    Button("Open") {
+                        setOpenState(.open, on: opening)
+                    }
+                    Button("Closed") {
+                        setOpenState(.closed, on: opening)
+                    }
+                }
+                .font(.caption)
             }
         }
         .padding(.vertical, 2)
@@ -873,7 +1065,9 @@ public struct CaptureReviewWorkspaceView: View {
         _ disposition: RoomOpeningDisposition,
         on opening: RoomOpeningCandidate
     ) {
-        guard var current = openings else { return }
+        guard var current = openings
+            ?? model.openingReview?.openings
+        else { return }
         current = OpeningReviewEditor.setDisposition(
             disposition,
             openingID: opening.openingID,
@@ -882,6 +1076,49 @@ public struct CaptureReviewWorkspaceView: View {
                 from: Date()
             )
         ) ?? current
+        openings = current
+    }
+
+    private func setOpenState(
+        _ state: RoomOpeningState,
+        on opening: RoomOpeningCandidate
+    ) {
+        guard var current = openings
+            ?? model.openingReview?.openings
+        else { return }
+        current = OpeningReviewEditor.setOpenState(
+            state,
+            openingID: opening.openingID,
+            in: current
+        ) ?? current
+        openings = current
+    }
+
+    private func addUserOpeningCandidate(
+        center: WorldPoint3D
+    ) {
+        let width = Double(newOpeningWidth) ?? 0.3
+        let height = Double(newOpeningHeight) ?? 0.3
+        var current = openings
+            ?? model.openingReview?.openings
+            ?? []
+        if let updated = OpeningReviewEditor
+            .addUserDeclaredCandidate(
+                kind: newOpeningKind,
+                sourceRef: "user:"
+                    + UUID()
+                        .uuidString.lowercased(),
+                centerMeters: center,
+                widthMeters: width,
+                heightMeters: height,
+                openState: newOpeningState,
+                evidenceRefs: [],
+                to: current
+            )
+        {
+            current = updated
+            clearOpeningCenter()
+        }
         openings = current
     }
 
@@ -908,6 +1145,8 @@ public struct CaptureReviewWorkspaceView: View {
             return "Closing evidence"
         case .linkedToAuthority:
             return "Referenced evidence"
+        case .automaticKeyframe:
+            return "Automatic keyframe"
         case .operatorSaved:
             return "Optional visual frame"
         }

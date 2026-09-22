@@ -22,6 +22,10 @@ func registryMapsEverySchemaOwnedPath() throws {
         "quality/capture-quality.json": "quality",
         "quality/capture-advisory.json": "capture-advisory",
         "evidence/frames/anything.json": "frame",
+        "session/room-reference-frame.json":
+            "room-reference-frame",
+        "annotations/opening-review.json": "opening-review",
+        "session/room-field-datum.json": "room-field-datum",
         "derived/operator-profiles.json": "operator-profiles",
         "derived/field-evidence.json": "field-evidence",
         "derived/instrument-profiles.json": "instrument-profiles",

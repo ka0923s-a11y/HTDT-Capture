@@ -1209,4 +1209,429 @@ final class ReviewLibraryTests: XCTestCase {
             freshSpace.child.contains("same space")
         )
     }
+
+    // MARK: - #232 field/install datum
+
+    private func fieldDatumPackage(
+        identity: CaptureWorkingSetIdentity,
+        context: CaptureSessionContext,
+        sourceEvidenceRefs: [String] = ["room_reference_frame"]
+    ) throws -> RoomFieldDatumPackage {
+        let origin = try RoomFieldDatumOrigin(
+            kind: .roomFrameOrigin,
+            ref: "room_reference_frame",
+            pointMeters: WorldPoint3D(
+                x: 1.5, y: 1.4, z: -0.3
+            )
+        )
+        let axis = try RoomFieldDatumAxis(
+            kind: .roomFrameFront,
+            refs: ["room_reference_frame"],
+            directionMeters: WorldPoint3D(
+                x: 0, y: 0.4, z: -1
+            )
+        )
+        let vertical = try RoomFieldDatumVertical(
+            kind: .finishedFloor,
+            ref: "room_reference_frame",
+            zeroElevationMeters: -0.02
+        )
+        let transform = try RoomFieldDatumPackageBuilder
+            .fieldTransform(
+                origin: origin,
+                axis: axis,
+                verticalDatum: vertical
+            )
+        let document = try RoomFieldDatumDocument(
+            captureRevisionID: identity.captureRevisionID,
+            captureSessionID: context.captureSessionID,
+            coordinateSpaceID: context.coordinateSpaceID,
+            origin: origin,
+            axis: axis,
+            verticalDatum: vertical,
+            fieldFromCaptureWorld: transform,
+            uncertaintyMeters: nil,
+            residualMeters: nil,
+            sourceEvidenceRefs: sourceEvidenceRefs,
+            confirmedAtUTC: "2026-09-20T01:04:00Z"
+        )
+        return try RoomFieldDatumPackageBuilder.build(
+            document: document
+        )
+    }
+
+    func testRoomFieldDatumDerivesLeveledTransform() throws {
+        let origin = try RoomFieldDatumOrigin(
+            kind: .roomFrameOrigin,
+            ref: "room_reference_frame",
+            pointMeters: WorldPoint3D(
+                x: 1.5, y: 1.4, z: -0.3
+            )
+        )
+        let axis = try RoomFieldDatumAxis(
+            kind: .roomFrameFront,
+            refs: ["room_reference_frame"],
+            directionMeters: WorldPoint3D(
+                x: 0, y: 0.4, z: -1
+            )
+        )
+        let vertical = try RoomFieldDatumVertical(
+            kind: .finishedFloor,
+            ref: "room_reference_frame",
+            zeroElevationMeters: -0.02
+        )
+        let transform = try RoomFieldDatumPackageBuilder
+            .fieldTransform(
+                origin: origin,
+                axis: axis,
+                verticalDatum: vertical
+            )
+        // The marked origin keeps its horizontal position but is
+        // re-leveled onto the declared vertical zero so field Z = 0
+        // lands on the finished floor.
+        XCTAssertEqual(
+            transform.originMeters,
+            WorldPoint3D(x: 1.5, y: -0.02, z: -0.3)
+        )
+        XCTAssertEqual(
+            transform.yAxis,
+            WorldPoint3D(x: 0, y: 0, z: -1)
+        )
+        XCTAssertEqual(
+            transform.zAxis,
+            WorldPoint3D(x: 0, y: 1, z: 0)
+        )
+        XCTAssertEqual(
+            transform.xAxis,
+            WorldPoint3D(x: 1, y: 0, z: 0)
+        )
+    }
+
+    func testRoomFieldDatumPackageRoundTrips() throws {
+        let context = CaptureSessionContext()
+        let package = try fieldDatumPackage(
+            identity: CaptureWorkingSetIdentity(),
+            context: context
+        )
+        XCTAssertEqual(
+            package.payloadDeclaration.path,
+            RoomFieldDatumPackage.path
+        )
+        XCTAssertEqual(
+            package.payloadDeclaration.role,
+            .canonical
+        )
+        XCTAssertEqual(
+            package.payloadDeclaration.provenanceClass,
+            .userAnnotation
+        )
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                RoomFieldDatumDocument.self,
+                from: package.data
+            ),
+            package.document
+        )
+        XCTAssertEqual(package.document.units, "m")
+        XCTAssertEqual(
+            package.document.axisConvention,
+            "y_front_z_up"
+        )
+        // The emitted document must validate against the published
+        // room-field-datum schema.
+        _ = try CanonicalPayloadValidator.validateSchemaOwnedJSON(
+            path: RoomFieldDatumPackage.path,
+            data: package.data
+        )
+    }
+
+    func testCommitRoomFieldDatumBindsToSession() async throws {
+        let root = try makeRoot()
+        defer { BundleValidationFixture.remove(root) }
+        let context = CaptureSessionContext()
+        let identity = CaptureWorkingSetIdentity()
+        let store = try await readyStore(
+            root: root,
+            identity: identity,
+            context: context
+        )
+        let package = try fieldDatumPackage(
+            identity: identity,
+            context: context
+        )
+        try await store.commitRoomFieldDatum(package)
+        let snapshot = await store.snapshot()
+        XCTAssertEqual(snapshot.roomFieldDatum, package.document)
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(
+                    RoomFieldDatumPackage.path
+                ).path
+            )
+        )
+        try await store.removeRoomFieldDatum()
+        let afterRemoval = await store.snapshot()
+        XCTAssertNil(afterRemoval.roomFieldDatum)
+    }
+
+    func testCommitRoomFieldDatumRejectsOtherRevision()
+        async throws
+    {
+        let root = try makeRoot()
+        defer { BundleValidationFixture.remove(root) }
+        let context = CaptureSessionContext()
+        let store = try await readyStore(
+            root: root,
+            context: context
+        )
+        let package = try fieldDatumPackage(
+            identity: CaptureWorkingSetIdentity(),
+            context: context
+        )
+        do {
+            try await store.commitRoomFieldDatum(package)
+            XCTFail("foreign revision must be rejected")
+        } catch {
+            XCTAssertEqual(
+                error as? CaptureWorkingSetError,
+                .authorityMismatch
+            )
+        }
+    }
+
+    func testRoomFieldDatumDanglingFrameRefRejected() async throws {
+        let root = try makeRoot()
+        defer { BundleValidationFixture.remove(root) }
+        let context = CaptureSessionContext()
+        let identity = CaptureWorkingSetIdentity()
+        let store = try await readyStore(
+            root: root,
+            identity: identity,
+            context: context
+        )
+        // `frame:` tokens are enforced: an uncommitted frame id
+        // fails closed like every other authority reference.
+        let package = try fieldDatumPackage(
+            identity: identity,
+            context: context,
+            sourceEvidenceRefs: [
+                "frame:00000000-0000-4000-8000-000000000099",
+            ]
+        )
+        do {
+            try await store.commitRoomFieldDatum(package)
+            XCTFail("unresolvable evidence ref must fail closed")
+        } catch CaptureWorkingSetError
+            .unresolvableSpatialEvidenceLink
+        {}
+    }
+
+    func testRoomFieldDatumStalenessEvaluation() throws {
+        let context = CaptureSessionContext()
+        let document = try fieldDatumPackage(
+            identity: CaptureWorkingSetIdentity(),
+            context: context
+        ).document
+        // room_reference_frame + room_reference_frame (x2) are the
+        // datum's only refs here.
+        var universe = RoomFieldDatumReferenceUniverse(
+            tokens: ["room_reference_frame"]
+        )
+        XCTAssertEqual(
+            RoomFieldDatumStalenessEvaluator.evaluate(
+                datum: document,
+                universe: universe
+            ),
+            .current
+        )
+        universe.tokens = []
+        XCTAssertEqual(
+            RoomFieldDatumStalenessEvaluator.evaluate(
+                datum: document,
+                universe: universe
+            ),
+            .stale(
+                unresolvedRefs: ["room_reference_frame"]
+            )
+        )
+    }
+
+    func testRoomFieldDatumRoomPlanAndUserRefResolution() throws {
+        let uuid = "00000000-0000-4000-8000-0000000000ab"
+        let payload = Data(
+            "{\"identifier\":\"\(uuid)\"}".utf8
+        )
+        let universe = RoomFieldDatumReferenceUniverse(
+            roomPlanPayload: payload
+        )
+        XCTAssertTrue(
+            universe.resolves("roomplan:wall:\(uuid)")
+        )
+        XCTAssertFalse(
+            universe.resolves(
+                "roomplan:wall:00000000-0000-4000-8000-0000000000ff"
+            )
+        )
+        // Operator-resolved `user:` refs never depend on revision
+        // content.
+        XCTAssertTrue(universe.resolves("user:abc123"))
+        XCTAssertFalse(universe.resolves("entity:abc123"))
+    }
+
+    // MARK: - #231 opening kinds + open state
+
+    func testOpeningReviewNewKindsAndOpenStateRoundTrip() throws {
+        let candidate = try RoomOpeningCandidate(
+            kind: .servicePenetration,
+            source: .userDeclared,
+            sourceRef: "user:00000000-0000-4000-8000-0000000000aa",
+            openState: .closed
+        )
+        XCTAssertEqual(candidate.openState, .closed)
+        let encoded = try JSONEncoder().encode(candidate)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: encoded
+            ) as? [String: Any]
+        )
+        // The field is always emitted so persisted captures record
+        // the explicit state, not an inferred default.
+        XCTAssertEqual(
+            object["open_state"] as? String,
+            "closed"
+        )
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                RoomOpeningCandidate.self,
+                from: encoded
+            ),
+            candidate
+        )
+        // Legacy payloads without open_state decode as unknown.
+        var legacy = object
+        legacy.removeValue(forKey: "open_state")
+        let legacyData = try JSONSerialization.data(
+            withJSONObject: legacy
+        )
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                RoomOpeningCandidate.self,
+                from: legacyData
+            ).openState,
+            .unknown
+        )
+        XCTAssertEqual(
+            RoomOpeningKind.hvacGrille.rawValue,
+            "hvac_grille"
+        )
+        XCTAssertEqual(
+            RoomOpeningKind.transferGrille.rawValue,
+            "transfer_grille"
+        )
+        XCTAssertEqual(
+            RoomOpeningKind.doorUndercut.rawValue,
+            "door_undercut"
+        )
+        XCTAssertEqual(
+            RoomOpeningKind.servicePenetration.rawValue,
+            "service_penetration"
+        )
+    }
+
+    func testOpeningReviewEditorOpenStateAndUserDeclared() throws {
+        let existing = try opening()
+        let updated = try XCTUnwrap(
+            OpeningReviewEditor.setOpenState(
+                .closed,
+                openingID: existing.openingID,
+                in: [existing]
+            )
+        )
+        XCTAssertEqual(updated.first?.openState, .closed)
+
+        let appended = try XCTUnwrap(
+            OpeningReviewEditor.addUserDeclaredCandidate(
+                kind: .hvacGrille,
+                sourceRef: "user:00000000-0000-4000-8000-0000000000bb",
+                centerMeters: WorldPoint3D(
+                    x: 0.4, y: 1.1, z: -2.0
+                ),
+                widthMeters: 0.3,
+                heightMeters: 0.25,
+                openState: .open,
+                evidenceRefs: [],
+                to: updated
+            )
+        )
+        XCTAssertEqual(appended.count, 2)
+        let declared = try XCTUnwrap(
+            appended.first {
+                $0.sourceRef
+                    == "user:00000000-0000-4000-8000-0000000000bb"
+            }
+        )
+        XCTAssertEqual(declared.source, .userDeclared)
+        XCTAssertEqual(declared.kind, .hvacGrille)
+        XCTAssertEqual(declared.openState, .open)
+        // Duplicate source refs are rejected, never duplicated.
+        XCTAssertNil(
+            OpeningReviewEditor.addUserDeclaredCandidate(
+                kind: .hvacGrille,
+                sourceRef:
+                    "user:00000000-0000-4000-8000-0000000000bb",
+                centerMeters: WorldPoint3D(
+                    x: 0, y: 0, z: 0
+                ),
+                widthMeters: 0.3,
+                heightMeters: 0.3,
+                openState: .open,
+                evidenceRefs: [],
+                to: appended
+            )
+        )
+    }
+
+    // MARK: - #241 automatic keyframe retention
+
+    func testAutomaticKeyframeRetentionClassification()
+        async throws
+    {
+        let root = try makeRoot()
+        defer { BundleValidationFixture.remove(root) }
+        let context = CaptureSessionContext()
+        let identity = CaptureWorkingSetIdentity()
+        let store = try await readyStore(
+            root: root,
+            identity: identity,
+            context: context
+        )
+        let frame = try makeFramePackage(
+            sessionID: context.captureSessionID,
+            spaceID: context.coordinateSpaceID
+        )
+        try await store.persistFramePackage(frame)
+        let keyframe = frame.descriptor.frameID
+        try await store.recordAdvisoryNote(
+            CaptureAdvisoryNote(
+                kind: .automaticKeyframe,
+                sessionTimestampSeconds: 1,
+                detail:
+                    "policy=v1 frame=\(keyframe) usability=0.9"
+            )
+        )
+        let snapshot = await store.snapshot()
+        let model = CaptureReviewWorkspaceLoader.loadWorkingSet(
+            snapshot: snapshot
+        )
+        let item = try XCTUnwrap(
+            model.evidenceItems.first {
+                $0.frameID == keyframe
+            }
+        )
+        XCTAssertEqual(
+            item.retentionReason,
+            .automaticKeyframe
+        )
+        XCTAssertTrue(item.removable)
+    }
 }
