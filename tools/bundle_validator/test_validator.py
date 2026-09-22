@@ -394,6 +394,40 @@ class ValidatorTests(unittest.TestCase):
                 source_report["bundle_digest"],
             )
 
+    def test_archive_wrapper_marks_every_entry_utf8(self):
+        """The app-side stored-archive validator requires the UTF-8
+        flag (bit 11) on every entry's local and central header; plain
+        zipfile writes leave it clear for ASCII names."""
+        import struct
+
+        with tempfile.TemporaryDirectory() as td:
+            archive = Path(td) / "fixture.htdtcapture"
+            create_archive(FIXTURE, archive)
+            raw = archive.read_bytes()
+            with zipfile.ZipFile(archive) as zf:
+                infos = zf.infolist()
+            self.assertTrue(infos)
+            for info in infos:
+                (local_flags,) = struct.unpack_from(
+                    "<H", raw, info.header_offset + 6
+                )
+                self.assertEqual(
+                    local_flags,
+                    0x800,
+                    f"{info.filename}: local header flags "
+                    f"0x{local_flags:04x}",
+                )
+                self.assertEqual(
+                    info.flag_bits & 0x800,
+                    0x800,
+                    f"{info.filename}: central header flags "
+                    f"0x{info.flag_bits:04x}",
+                )
+            self.assertEqual(
+                validate_bundle(archive)["bundle_digest"],
+                EXPECTED_DIGEST,
+            )
+
     def test_zip_high_compression_ratio_fails(self):
         with tempfile.TemporaryDirectory() as td:
             archive = Path(td) / "bad.htdtcapture"

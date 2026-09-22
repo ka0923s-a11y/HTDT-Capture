@@ -81,8 +81,10 @@ public struct HTDTHandoffReceipt:
     /// When the handoff was initiated by the operator.
     public let initiatedAtUTC: String
     /// `delivered` when the destination accepted the bytes (endpoint
-    /// ingestion acknowledged, or the share sheet completed);
-    /// `failed` otherwise with `detail` naming the reason.
+    /// ingestion acknowledged, or the share sheet completed an
+    /// activity); `cancelled` when the share sheet was dismissed
+    /// without one; `failed` otherwise with `detail` naming the
+    /// reason.
     public let outcome: String
     public let detail: String?
     /// Paired receiver identity the send was bound to (#379); nil for
@@ -156,6 +158,17 @@ public struct HTDTHandoffReceipt:
         case pairedDestinationID = "paired_destination_id"
         case deliveryJobID = "delivery_job_id"
     }
+}
+
+/// The operator-level result of the system share sheet used for a
+/// share-sheet handoff (#225). Only `completed` means the archive
+/// bytes left the device — a dismissal without a finished activity is
+/// `cancelled`, and an activity-level error is `failed` carrying the
+/// reported description.
+public enum HTDTShareSheetOutcome: Sendable, Equatable {
+    case completed
+    case cancelled
+    case failed(String)
 }
 
 public enum HTDTHandoffError: Error, Sendable, Equatable {

@@ -645,6 +645,239 @@ func storedArchiveImportAppliesExpandedSizeLimits()
     }
 }
 
+// MARK: - ZIP entry-flag acceptance matrix
+
+/// Walks a stored archive's local and central headers, rewriting each
+/// entry's general-purpose flag field through `transform`. Used to
+/// reproduce tool-produced archives whose entries carry flag 0 for
+/// pure-ASCII names (Python's zipfile emits exactly that).
+private func rewritingUtf8Flags(
+    _ data: Data,
+    transform: (_ entryIndex: Int, _ flags: UInt16) -> UInt16
+) -> Data {
+    var result = data
+    func le16(_ offset: Int) -> Int {
+        Int(result[offset]) | (Int(result[offset + 1]) << 8)
+    }
+    func le32(_ offset: Int) -> UInt32 {
+        UInt32(result[offset])
+            | (UInt32(result[offset + 1]) << 8)
+            | (UInt32(result[offset + 2]) << 16)
+            | (UInt32(result[offset + 3]) << 24)
+    }
+    func put16(_ value: UInt16, at offset: Int) {
+        result[offset] = UInt8(value & 0xff)
+        result[offset + 1] = UInt8(value >> 8)
+    }
+
+    var cursor = 0
+    var index = 0
+    // Local headers: flags at +6, name length at +26, extra length at
+    // +28, uncompressed size at +18.
+    while cursor + 30 <= result.count {
+        let signature = le32(cursor)
+        if signature == 0x02014b50 {
+            break
+        }
+        guard signature == 0x04034b50 else {
+            break
+        }
+        put16(
+            transform(index, UInt16(le16(cursor + 6))),
+            at: cursor + 6
+        )
+        let nameLength = le16(cursor + 26)
+        let extraLength = le16(cursor + 28)
+        let size = Int(le32(cursor + 18))
+        cursor += 30 + nameLength + extraLength + size
+        index += 1
+    }
+    // Central headers: flags at +8, name length at +28, extra length
+    // at +30, comment length at +32.
+    index = 0
+    while cursor + 46 <= result.count {
+        guard le32(cursor) == 0x02014b50 else {
+            break
+        }
+        put16(
+            transform(index, UInt16(le16(cursor + 8))),
+            at: cursor + 8
+        )
+        let nameLength = le16(cursor + 28)
+        let extraLength = le16(cursor + 30)
+        let commentLength = le16(cursor + 32)
+        cursor += 46 + nameLength + extraLength + commentLength
+        index += 1
+    }
+    return result
+}
+
+@Test
+func archiveValidatorAcceptsToolProducedClearFlagArchive()
+    async throws
+{
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+
+    let finalized = try await makeFinalizedArchiveFixture(
+        root: root
+    )
+    let archive = try archiveURL(
+        root: root,
+        finalized: finalized
+    )
+
+    // The strict-flag archive still validates.
+    let strictReport =
+        try StoredCaptureBundleArchiveValidator.validate(
+            archive: archive
+        )
+    #expect(strictReport.bundleDigest == finalized.bundleDigest)
+
+    // Python's zipfile leaves bit 11 clear for pure-ASCII names —
+    // exactly what a tool-produced archive carries.
+    let cleared = rewritingUtf8Flags(
+        try Data(contentsOf: archive)
+    ) { _, _ in
+        0
+    }
+    try cleared.write(to: archive)
+
+    let reopened =
+        try StoredCaptureBundleArchiveValidator.validate(
+            archive: archive
+        )
+    #expect(reopened.bundleDigest == strictReport.bundleDigest)
+    #expect(reopened.payloadCount == 5)
+}
+
+@Test
+func archiveValidatorAcceptsMixedUtf8Flags() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+
+    let finalized = try await makeFinalizedArchiveFixture(
+        root: root
+    )
+    let archive = try archiveURL(
+        root: root,
+        finalized: finalized
+    )
+
+    let mixed = rewritingUtf8Flags(
+        try Data(contentsOf: archive)
+    ) { index, flags in
+        index == 0 ? 0 : flags
+    }
+    try mixed.write(to: archive)
+
+    let reopened =
+        try StoredCaptureBundleArchiveValidator.validate(
+            archive: archive
+        )
+    #expect(reopened.bundleDigest == finalized.bundleDigest)
+}
+
+@Test
+func archiveValidatorRejectsClearFlagOnNonAsciiName()
+    async throws
+{
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+
+    let finalized = try await makeFinalizedArchiveFixture(
+        root: root
+    )
+    let archive = try archiveURL(
+        root: root,
+        finalized: finalized
+    )
+
+    // Rename payload.bin's header names to an equal-length NFC
+    // non-ASCII name, then clear every entry flag: a non-ASCII name
+    // still requires the UTF-8 flag even though pure-ASCII entries
+    // no longer do.
+    let original = try Data(contentsOf: archive)
+    let occurrences = occurrenceRanges(
+        of: Data("payload.bin".utf8),
+        in: original
+    )
+    #expect(occurrences.count == 3)
+    var hostile = replacingOccurrences(
+        original,
+        of: "payload.bin",
+        at: [1, 2],
+        with: "paylo\u{00E9}.bin"
+    )
+    hostile = rewritingUtf8Flags(hostile) { _, _ in
+        0
+    }
+    try hostile.write(to: archive)
+
+    #expect(throws: CaptureBundleArchiveError.self) {
+        _ = try StoredCaptureBundleArchiveValidator.validate(
+            archive: archive
+        )
+    }
+}
+
+@Test
+func archiveValidatorStillRejectsForeignFlagBits() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer {
+        try? FileManager.default.removeItem(at: root)
+    }
+    try FileManager.default.createDirectory(
+        at: root,
+        withIntermediateDirectories: true
+    )
+
+    let finalized = try await makeFinalizedArchiveFixture(
+        root: root
+    )
+    let archive = try archiveURL(
+        root: root,
+        finalized: finalized
+    )
+
+    // A data-descriptor bit stays rejected: only flag 0 (ASCII) or
+    // 0x0800 are accepted.
+    let hostile = rewritingUtf8Flags(
+        try Data(contentsOf: archive)
+    ) { index, flags in
+        index == 0 ? 0x0808 : flags
+    }
+    try hostile.write(to: archive)
+
+    #expect(throws: CaptureBundleArchiveError.self) {
+        _ = try StoredCaptureBundleArchiveValidator.validate(
+            archive: archive
+        )
+    }
+}
+
 // MARK: - Existing-archive export recovery (#118)
 
 /// The deterministic export destination is a derived transport wrapper:

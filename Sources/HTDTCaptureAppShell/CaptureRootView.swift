@@ -200,9 +200,13 @@ public struct CaptureRootActions {
     public let asBuiltRecordActual:
         (String, AnnotationEntityID) -> Void
     public let resolveRepairTask: (HTDTRepairTaskRow) -> Void
-    /// Explicit Send-to-HTDT handoff (#225).
+    /// Explicit Send-to-HTDT handoff (#225). For share-sheet
+    /// destinations `shareSheetOutcome` carries the system sheet's
+    /// real completion so the receipt can never claim a delivery the
+    /// operator did not make; nil for endpoint sends.
     public let sendCaptureToHTDT:
-        (HTDTHandoffDestination) async -> Void
+        (HTDTHandoffDestination, HTDTShareSheetOutcome?)
+            async -> Void
     /// Mission inbox (#386): import a mission package file, start or
     /// resume a record, deactivate the active mission, archive a
     /// record, and evaluate a record's dependency report for display
@@ -588,7 +592,8 @@ public struct CaptureRootActions {
         resolveRepairTask: @escaping
             (HTDTRepairTaskRow) -> Void = { _ in },
         sendCaptureToHTDT: @escaping
-            (HTDTHandoffDestination) async -> Void = { _ in },
+            (HTDTHandoffDestination, HTDTShareSheetOutcome?)
+                async -> Void = { _, _ in },
         importMissionPackage: @escaping (URL) async -> Void
             = { _ in },
         startMission: @escaping (String) async -> Void = { _ in },
@@ -914,18 +919,26 @@ public struct CaptureRootActions {
 
 #if os(iOS)
 /// The system share sheet used for the share-destination HTDT
-/// handoff (#225): presenting it and completing the share is the
-/// operator's explicit transfer action.
+/// handoff (#225): completing a share activity is the operator's
+/// explicit transfer action, and `completionWithItemsHandler` reports
+/// whether that actually happened — a dismissed sheet is not a
+/// delivery.
 private struct HandoffShareSheet: UIViewControllerRepresentable {
     let items: [Any]
+    let onComplete: (Bool, Error?) -> Void
 
     func makeUIViewController(
         context: Context
     ) -> UIActivityViewController {
-        UIActivityViewController(
+        let controller = UIActivityViewController(
             activityItems: items,
             applicationActivities: nil
         )
+        controller.completionWithItemsHandler = {
+            _, completed, _, error in
+            onComplete(completed, error)
+        }
+        return controller
     }
 
     func updateUIViewController(
@@ -938,6 +951,7 @@ private struct HandoffShareSheet: UIViewControllerRepresentable {
 /// endpoint destinations still send through the network path.
 private struct HandoffShareSheet: View {
     let items: [Any]
+    let onComplete: (Bool, Error?) -> Void
 
     var body: some View {
         Text("Sharing is available on iOS only")
@@ -2242,12 +2256,14 @@ public struct CaptureRootView: View {
                     .presentationDetents([.medium, .large])
                 }
                 .sheet(
-                    isPresented: $shareArchiveForHandoff,
-                    onDismiss: recordShareSheetHandoff
+                    isPresented: $shareArchiveForHandoff
                 ) {
                     if let exportURL {
-                        HandoffShareSheet(items: [exportURL])
-                            .ignoresSafeArea()
+                        HandoffShareSheet(
+                            items: [exportURL],
+                            onComplete: recordShareSheetHandoff
+                        )
+                        .ignoresSafeArea()
                     }
                 }
                 .sheet(
@@ -3477,9 +3493,9 @@ public struct CaptureRootView: View {
     }
 
     /// Routes a chosen Send-to-HTDT destination: share-sheet
-    /// destinations present the system sheet (receipt recorded on
-    /// dismissal); endpoint destinations POST through the client
-    /// (#225).
+    /// destinations present the system sheet (receipt recorded when
+    /// the sheet reports its outcome); endpoint destinations POST
+    /// through the client (#225).
     private func selectHandoffDestination(
         _ destination: HTDTHandoffDestination
     ) {
@@ -3488,7 +3504,7 @@ public struct CaptureRootView: View {
             shareArchiveForHandoff = true
         } else {
             Task {
-                await actions.sendCaptureToHTDT(destination)
+                await actions.sendCaptureToHTDT(destination, nil)
             }
         }
     }
@@ -3567,15 +3583,27 @@ public struct CaptureRootView: View {
     }
 
     /// The system share completion IS the share-sheet handoff; the
-    /// receipt records it durably (#225).
-    private func recordShareSheetHandoff() {
+    /// receipt records the outcome the sheet actually reported —
+    /// `delivered` only when an activity completed (#225).
+    private func recordShareSheetHandoff(
+        completed: Bool,
+        error: Error?
+    ) {
         guard let destination = handoffDestinations.first(
             where: { $0.kind == .shareSheet }
         ) else {
             return
         }
+        let outcome: HTDTShareSheetOutcome
+        if let error {
+            outcome = .failed(error.localizedDescription)
+        } else if completed {
+            outcome = .completed
+        } else {
+            outcome = .cancelled
+        }
         Task {
-            await actions.sendCaptureToHTDT(destination)
+            await actions.sendCaptureToHTDT(destination, outcome)
         }
     }
 

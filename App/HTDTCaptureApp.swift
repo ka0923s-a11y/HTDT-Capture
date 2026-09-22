@@ -6381,9 +6381,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// exact `capture_revision_id` and bundle digest. Never uploads
     /// silently: the destination is chosen per send and every attempt
     /// is receipted so it can be retried without weakening the digest
-    /// binding.
+    /// binding. For share-sheet destinations the UI layer reports the
+    /// system sheet's real outcome via `shareSheetOutcome`; a receipt
+    /// of `delivered` is written only for a completed activity.
     func sendCaptureToHTDT(
-        destination: HTDTHandoffDestination
+        destination: HTDTHandoffDestination,
+        shareSheetOutcome: HTDTShareSheetOutcome? = nil
     ) async {
         guard state == .finalized || state == .exported,
               let archiveURL = exportURL,
@@ -6418,8 +6421,33 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         switch destination.kind {
         case .shareSheet:
             // The UI layer presents the system share sheet over
-            // archiveURL; the operator's explicit share action is the
-            // handoff and the receipt records it durably.
+            // archiveURL and reports the sheet's real completion: the
+            // handoff is `delivered` only when an activity completed,
+            // so a dismissed sheet never writes a delivery claim.
+            let outcome = shareSheetOutcome ?? .cancelled
+            let receiptOutcome: String
+            let receiptDetail: String
+            let outcomeStatus: String
+            switch outcome {
+            case .completed:
+                receiptOutcome = "delivered"
+                receiptDetail = "operator_shared_via_system_sheet"
+                outcomeStatus = String(
+                    localized: "Capture handed off to HTDT; receipt saved"
+                )
+            case .cancelled:
+                receiptOutcome = "cancelled"
+                receiptDetail = "operator_cancelled_share_sheet"
+                outcomeStatus = String(
+                    localized: "Share cancelled; nothing was delivered to HTDT"
+                )
+            case .failed(let message):
+                receiptOutcome = "failed"
+                receiptDetail = "share_sheet_error: \(message)"
+                outcomeStatus = String(
+                    localized: "The share sheet reported an error; nothing was delivered to HTDT"
+                )
+            }
             let receipt = HTDTHandoffReceipt(
                 receiptID: UUID().uuidString.lowercased(),
                 captureRevisionID: manifest.captureRevisionID,
@@ -6431,18 +6459,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 initiatedAtUTC: BundleTimestamp.utcString(
                     from: Date()
                 ),
-                outcome: "delivered",
-                detail: "operator_shared_via_system_sheet"
+                outcome: receiptOutcome,
+                detail: receiptDetail
             )
             do {
                 try receiptStore.append(receipt)
             } catch {
-                workingSetStatus = String(localized: "The handoff completed but its receipt could not be saved")
+                workingSetStatus = String(localized: "The handoff receipt could not be saved")
             }
             handoffReceipts = (try? receiptStore.receipts(
                 for: manifest.captureRevisionID
             )) ?? [receipt]
-            workingSetStatus = String(localized: "Capture handed off to HTDT; receipt saved")
+            workingSetStatus = outcomeStatus
 
         case .endpoint:
             // #387: endpoint sends are durable jobs — recorded before

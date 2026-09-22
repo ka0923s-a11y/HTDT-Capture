@@ -48,6 +48,7 @@
 "Export archive only" = "書き出しアーカイブのみ";
 "Open" = "開く";
 "Share" = "共有";
+"Share cancelled; nothing was delivered to HTDT" = "共有をキャンセルしました。HTDT への配信はありません";
 "Delete" = "削除";
 "Unreadable artifact" = "読み取れないデータ";
 "Remove artifact" = "このデータを削除";
@@ -2213,6 +2214,7 @@
 "The final RoomPlan result was not accepted; the same HTDT capture is still active" = "最終 RoomPlan 結果を受理できませんでしたが、同じ HTDT キャプチャは継続中です";
 "The finalized capture is no longer available" = "ファイナライズ済みキャプチャはもう利用できません";
 "The handoff completed but its receipt could not be saved" = "送信は完了しましたが、受領記録を保存できませんでした";
+"The handoff receipt could not be saved" = "受領記録を保存できませんでした";
 "The live RoomPlan camera view did not attach in time" = "RoomPlan のライブカメラ画面を時間内に表示できませんでした";
 "The mission document could not be read" = "ミッション文書を読み込めませんでした";
 "The mission package could not be read" = "ミッションパッケージを読み込めませんでした";
@@ -2233,6 +2235,7 @@
 "The selected file is not a valid HTDT task plan" = "選択したファイルは有効な HTDT タスク計画ではありません";
 "The selected file is not an .htdtcapture archive" = "選択されたファイルは .htdtcapture アーカイブではありません";
 "The selected plan reference could not be read" = "選択されたプラン参照を読み込めませんでした";
+"The share sheet reported an error; nothing was delivered to HTDT" = "共有シートでエラーが発生しました。HTDT への配信はありません";
 "The source capture for this repair is not on this device — start a fresh capture to answer it" = "この修復の元キャプチャはこのデバイスにありません — 新規キャプチャで応答してください";
 "This capture revision is already stored locally" = "このキャプチャリビジョンはすでにローカルに保存されています";
 "This frame is retained: it is closing or referenced evidence" = "このフレームは保持されます。終了境界または参照されている証拠です";

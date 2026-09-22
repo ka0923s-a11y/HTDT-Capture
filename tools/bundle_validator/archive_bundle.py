@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+import shutil
 import sys
 import uuid
 import zipfile
@@ -51,7 +52,17 @@ def create_archive(source: Path, destination: Path) -> dict:
         ) as archive:
             for path in files:
                 relative = path.relative_to(source).as_posix()
-                archive.write(path, arcname=relative)
+                zinfo = zipfile.ZipInfo.from_file(path, arcname=relative)
+                with archive.open(zinfo, mode="w") as target:
+                    # zipfile resets flag_bits when opening a write
+                    # handle and only sets the UTF-8 flag for
+                    # non-ASCII names; the app-side archive validator
+                    # requires the flag on every entry. Setting it
+                    # while the handle is open propagates to both the
+                    # rewritten local header and the central directory.
+                    zinfo.flag_bits |= 0x800
+                    with path.open("rb") as source_file:
+                        shutil.copyfileobj(source_file, target)
 
         archive_report = validate_bundle(temp)
         if archive_report["bundle_digest"] != source_report["bundle_digest"]:
