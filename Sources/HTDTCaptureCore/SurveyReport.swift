@@ -370,6 +370,7 @@ public enum SurveyPlanRenderer {
         case .annotation: "#ea580c"
         case .roomFrameOrigin: "#dc2626"
         case .roomFrameFront: "#9333ea"
+        case .revisitFlag: "#f59e0b"
         }
     }
 
