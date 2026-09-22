@@ -36,3 +36,11 @@ Rejected: it would also exclude finalized revisions and exported archives — us
 ## Validation
 
 `WorkingRevisionOrphanTests` verifies exclusion placement and idempotence. iOS attribute enforcement is a platform behavior exercised on device; no RDC or iCloud transfer test is required.
+
+## Amendment (2026-09-22, #305)
+
+Two corrections to the backup-exclusion decision; the Data Protection decision is unchanged.
+
+- **Rename carries the exclusion flag.** Promotion moves a `working/<uuid>` directory — which carries `isExcludedFromBackup` — into `finalized/`, and a same-volume rename preserves extended attributes. Left alone, finalized data actually remained excluded regardless of this decision. The flag is now written explicitly in *both* directions: at promotion (`applyFinalizedRevisionPolicy`), at startup and on settings change over `finalized/`/`exports/` and their direct children (`applyFinalizedBackupPolicy`), and on each new export archive (`applyExportArchivePolicy`).
+- **The finalized backup policy is operator-selectable.** `FinalizedBackupPolicy` defaults to `backupEligible` — identical at-rest behavior to this decision — and `excludedFromBackup` restricts finalized revisions and export archives to on-device app storage. The policy lives in the app-local settings document (`app-settings.json`), never inside a capture bundle, so changing it never reinterprets recorded capture authority. Share/Send-to-HTDT remains the only path data takes off the device, and is unrelated to backup.
+- **No Info.plist exclusion exists.** iOS offers no manifest-level backup exclusion; the runtime `isExcludedFromBackup` resource flag is the only mechanism, so "Info.plist exclusion where appropriate" resolves to the flag plus settings disclosure. Verification of the flag now reads the `com.apple.metadata:com_apple_backup_excludeItem` extended attribute directly: `URL.resourceValues` can report the in-memory value even when the attribute write did not persist.

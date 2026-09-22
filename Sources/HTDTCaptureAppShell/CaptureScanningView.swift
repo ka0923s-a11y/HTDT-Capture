@@ -1,6 +1,9 @@
 import Foundation
 import SwiftUI
 import HTDTCaptureCore
+#if os(iOS)
+import UIKit
+#endif
 
 public struct CaptureScanningView: View {
     public let preview: AnyView
@@ -215,6 +218,7 @@ public struct CaptureScanningView: View {
             ScanCoverageEndReview(
                 coverage: coverage,
                 spatialCoverage: spatialCoverage,
+                declaredRegions: declaredRegions,
                 guidanceProgress: guidanceProgress,
                 continueScanning: {
                     showingEndScanReview = false
@@ -480,6 +484,9 @@ public struct CaptureScanningView: View {
                 style: .continuous
             )
         )
+        // VoiceOver reaches the action sentence first: it carries the
+        // next-action guidance rather than Canvas drawing order (#342).
+        .accessibilitySortPriority(1)
     }
 
     @ViewBuilder
@@ -782,7 +789,10 @@ public struct CaptureScanningView: View {
                 ) {
                     VStack(spacing: 8) {
                         SpatialCoverageMapView(
-                            summary: spatialCoverage
+                            summary: spatialCoverage,
+                            declaredRegionKeys: Set(
+                                declaredRegions.map(\.key)
+                            )
                         )
                         .frame(height: 116)
 
@@ -1039,6 +1049,14 @@ public struct CaptureScanningView: View {
                 }
             }
             .frame(height: 36)
+            // One compact summary instead of 36 near-identical cell
+            // labels (#342); the cells stay visual and their state is
+            // fully expressed by the summary text.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                String(localized: "Direction coverage grid")
+            )
+            .accessibilityValue(directionCoverageAccessibilityText)
 
             HStack {
                 Text("← Look left")
@@ -1225,6 +1243,14 @@ public struct CaptureScanningView: View {
                     Image(systemName: "checkmark")
                         .font(.system(size: 6, weight: .bold))
                         .foregroundStyle(.black.opacity(0.75))
+                } else {
+                    // Missing cells carry their own mark so state is
+                    // never color-only (#342).
+                    Image(systemName: "minus")
+                        .font(.system(size: 6, weight: .black))
+                        .foregroundStyle(
+                            .white.opacity(0.9)
+                        )
                 }
             }
             .overlay {
@@ -1242,11 +1268,19 @@ public struct CaptureScanningView: View {
                         .offset(x: 2, y: -2)
                 }
             }
-            .accessibilityLabel(
-                isTarget
-                ? String(localized: "Next direction")
-                : String(localized: "Look-around coverage")
-            )
+            .accessibilityHidden(true)
+    }
+
+    /// The spoken direction summary (#342) from the same coverage
+    /// state the visual grid renders — percent, missing directions by
+    /// band, and the deterministic next target.
+    private var directionCoverageAccessibilityText: String {
+        ScanAccessibilityText.directionCoverage(
+            DirectionCoverageAccessibilitySummary(
+                coverage: coverage
+            ),
+            language: ScanMotionGuidanceCopy.preferredLanguage
+        )
     }
 
     @ViewBuilder
@@ -2375,6 +2409,31 @@ public struct CaptureScanningView: View {
     }
 }
 
+/// Localized display name for a principal direction — the same
+/// octant vocabulary VoiceOver summaries use (#342).
+private func octantDisplayName(
+    _ octant: ScanDirectionOctant
+) -> String {
+    switch octant {
+    case .front:
+        return String(localized: "Front")
+    case .frontRight:
+        return String(localized: "Front right")
+    case .right:
+        return String(localized: "Right")
+    case .rearRight:
+        return String(localized: "Rear right")
+    case .rear:
+        return String(localized: "Rear")
+    case .rearLeft:
+        return String(localized: "Rear left")
+    case .left:
+        return String(localized: "Left")
+    case .frontLeft:
+        return String(localized: "Front left")
+    }
+}
+
 
 private struct RelativeGuidanceCompass: View {
     let coverage: ScanCoverageSummary
@@ -2493,6 +2552,7 @@ private struct RelativeGuidanceCompass: View {
 private struct ScanCoverageEndReview: View {
     let coverage: ScanCoverageSummary
     let spatialCoverage: SpatialScanCoverageSummary
+    let declaredRegions: [DeclaredCoverageRegion]
     /// Global unresolved-weak accounting (#347): the display window
     /// is presentation scope only, so the review must distinguish
     /// retained weak regions beyond the current map view from the
@@ -2757,6 +2817,35 @@ private struct ScanCoverageEndReview: View {
                 }
             }
         }
+        .onAppear {
+            announceReviewSummary()
+        }
+    }
+
+    /// Spoken coverage summary when the review opens (#342): the same
+    /// semantic state the haptic/spoken cues consume, composed into
+    /// one announcement so the review state is never visual-only.
+    private func announceReviewSummary() {
+        #if os(iOS)
+        let language = ScanMotionGuidanceCopy.preferredLanguage
+        let direction = ScanAccessibilityText.directionCoverage(
+            DirectionCoverageAccessibilitySummary(coverage: coverage),
+            language: language
+        )
+        let spatial = ScanAccessibilityText.spatialCoverage(
+            SpatialCoverageAccessibilitySummary(
+                coverage: spatialCoverage,
+                declaredRegionKeys: Set(
+                    declaredRegions.map(\.key)
+                )
+            ),
+            language: language
+        )
+        UIAccessibility.post(
+            notification: .announcement,
+            argument: direction + " " + spatial
+        )
+        #endif
     }
 
     private var meshAvailabilityReviewLabel: String {
@@ -2834,6 +2923,11 @@ private struct ScanCoverageEndReview: View {
         let z =
             (Double(key.z) + 0.5)
             * spatialCoverage.cellSizeMeters
+        let direction = octantDisplayName(
+            ScanDirectionOctant(
+                azimuthRadians: atan2(x, z)
+            )
+        )
         let angle = atan2(x, z)
 
         // #343: labels are start-relative; the scan's reference yaw
@@ -2992,6 +3086,9 @@ private enum StartRelativeDirectionCopy {
 
 private struct SpatialCoverageMapView: View {
     let summary: SpatialScanCoverageSummary
+    /// Regions the operator marked intentionally unresolved (#257):
+    /// excluded from the prioritized weak-region readout.
+    var declaredRegionKeys: Set<SpatialCoverageCellKey> = []
 
     var body: some View {
         GeometryReader { _ in
@@ -3023,8 +3120,10 @@ private struct SpatialCoverageMapView: View {
                             height: max(0, cell - 1)
                         )
 
+                        let classification =
+                            summary.classification(at: key)
                         let color: Color
-                        switch summary.classification(at: key) {
+                        switch classification {
                         case .observed:
                             color = .green.opacity(0.72)
                         case .weak:
@@ -3033,6 +3132,61 @@ private struct SpatialCoverageMapView: View {
                             color = .gray.opacity(0.18)
                         }
 
+                        let cellPath = Path(rect)
+                        // Shape separates state from color (#342):
+                        // observed fills + a center dot, weak fills +
+                        // a diagonal hatch, unknown is border-only.
+                        if classification == .unknown {
+                            context.stroke(
+                                cellPath,
+                                with: .color(
+                                    .gray.opacity(0.4)
+                                ),
+                                lineWidth: 1
+                            )
+                        } else {
+                            context.fill(
+                                cellPath,
+                                with: .color(color)
+                            )
+                            if classification == .weak {
+                                var hatch = Path()
+                                hatch.move(
+                                    to: CGPoint(
+                                        x: rect.minX,
+                                        y: rect.maxY
+                                    )
+                                )
+                                hatch.addLine(
+                                    to: CGPoint(
+                                        x: rect.maxX,
+                                        y: rect.minY
+                                    )
+                                )
+                                context.stroke(
+                                    hatch,
+                                    with: .color(
+                                        .black.opacity(0.55)
+                                    ),
+                                    lineWidth: 1
+                                )
+                            } else {
+                                let dot = rect.width * 0.2
+                                context.fill(
+                                    Path(
+                                        ellipseIn: CGRect(
+                                            x: rect.midX - dot / 2,
+                                            y: rect.midY - dot / 2,
+                                            width: dot,
+                                            height: dot
+                                        )
+                                    ),
+                                    with: .color(
+                                        .black.opacity(0.6)
+                                    )
+                                )
+                            }
+                        }
                         context.fill(
                             Path(rect),
                             with: .color(color)
@@ -3122,8 +3276,21 @@ private struct SpatialCoverageMapView: View {
                 style: .continuous
             )
         )
+        // The Canvas is one element; the full semantic map state is
+        // delivered as the summary value (#342).
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             "Start-relative spatial observation map"
+        )
+        .accessibilityValue(
+            ScanAccessibilityText.spatialCoverage(
+                SpatialCoverageAccessibilitySummary(
+                    coverage: summary,
+                    declaredRegionKeys: declaredRegionKeys
+                ),
+                language:
+                    ScanMotionGuidanceCopy.preferredLanguage
+            )
         )
     }
 }

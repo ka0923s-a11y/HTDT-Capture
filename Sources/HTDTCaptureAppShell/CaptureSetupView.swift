@@ -15,6 +15,10 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
     /// Option B): mesh when the device is mesh-eligible, nil when the
     /// host cannot start a production capture at all.
     public let resolvedMode: CaptureMode?
+    /// Current finalized-data backup policy so the privacy disclosure
+    /// states the actual behavior before the operator confirms
+    /// (#305).
+    public let finalizedBackupPolicy: FinalizedBackupPolicy
     /// The generic task profile chosen before acquisition (#352).
     /// Nil means a general capture with no task checklist.
     public let taskProfile: CaptureTaskProfile?
@@ -33,6 +37,8 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
         storagePreflight: CaptureStoragePreflight,
         deviceReadiness: CaptureDeviceReadiness?,
         resolvedMode: CaptureMode?,
+        finalizedBackupPolicy: FinalizedBackupPolicy
+            = .backupEligible,
         taskProfile: CaptureTaskProfile? = nil,
         importedTaskPlan: HTDTCaptureTaskPlan? = nil,
         taskPlanImportError: String? = nil,
@@ -42,6 +48,7 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
         self.storagePreflight = storagePreflight
         self.deviceReadiness = deviceReadiness
         self.resolvedMode = resolvedMode
+        self.finalizedBackupPolicy = finalizedBackupPolicy
         self.taskProfile = taskProfile
         self.importedTaskPlan = importedTaskPlan
         self.taskPlanImportError = taskPlanImportError
@@ -397,6 +404,13 @@ public struct CaptureSetupView: View {
                     "Everything stays on this device until you choose to share the .htdtcapture archive."
                 )
                 Text(
+                    "While you scan, working scan data stays app-private and is always excluded from device backup."
+                )
+                Text(finalizedDisclosureText)
+                Text(
+                    "Sharing or sending to HTDT is always an explicit action you choose — device backup never sends data to HTDT."
+                )
+                Text(
                     "Pause people and pets moving through the room during the scan."
                 )
                 Text(
@@ -478,6 +492,24 @@ public struct CaptureSetupView: View {
             .padding(.horizontal, CaptureDesign.Spacing.edge)
             .padding(.vertical, CaptureDesign.Spacing.row)
             .background(.bar)
+        }
+    }
+
+    /// Working-vs-finalized retention disclosure (#305): states the
+    /// configured policy before the capture starts rather than
+    /// implying one.
+    private var finalizedDisclosureText: String {
+        switch presentation.finalizedBackupPolicy {
+        case .backupEligible:
+            return String(
+                localized:
+                    "After a successful capture, the finalized capture and its export archive stay in this app's storage on this device and may be included in your device backup."
+            )
+        case .excludedFromBackup:
+            return String(
+                localized:
+                    "After a successful capture, the finalized capture and its export archive stay in this app's storage on this device and are excluded from device backup."
+            )
         }
     }
 
