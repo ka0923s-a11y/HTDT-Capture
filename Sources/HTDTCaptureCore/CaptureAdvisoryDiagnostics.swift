@@ -358,6 +358,27 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
             .map(\.rawValue)
             .filter { verticalBandSummaries?[$0] != nil }
     }
+    // Optional scope/convention markers added for #336/#343/#347.
+    // Optionals keep `htdt.capture.advisory` v1.0.0 payloads written
+    // before these fields existed decodable.
+    /// Retained weak regions outside the operator's final display
+    /// window (#347): the global-vs-local split is explicit so the
+    /// summary cannot be misread as viewport-scoped.
+    public let remoteWeakRegionCount: Int?
+    /// Live spatial coverage region budget that was configured (#336).
+    public let spatialMaxRegionCount: Int?
+    /// Peak retained region count observed during the scan (#336).
+    public let spatialPeakRegionCount: Int?
+    /// Number of retained regions dropped by the capacity budget
+    /// (#336); nil/zero means nothing was forgotten.
+    public let spatialRegionEvictionCount: Int?
+    /// True when the spatial coverage map was saturated at End (#336).
+    public let spatialCapacitySaturated: Bool?
+    /// Direction-reference convention the coverage labels were
+    /// rendered in (#343): `start_relative` means sectors/regions are
+    /// named relative to the operator's arbitrary start heading, never
+    /// a room authority.
+    public let directionReference: String?
 
 
     public init(
@@ -396,6 +417,13 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
         verticalWeakVoxelKeys: [String]? = nil,
         verticalBandSummaries:
             [String: CaptureVerticalBandSummary]? = nil
+        guidanceComplete: Bool,
+        remoteWeakRegionCount: Int? = nil,
+        spatialMaxRegionCount: Int? = nil,
+        spatialPeakRegionCount: Int? = nil,
+        spatialRegionEvictionCount: Int? = nil,
+        spatialCapacitySaturated: Bool? = nil,
+        directionReference: String? = nil
     ) {
         self.algorithm = algorithm
         self.algorithmVersion = algorithmVersion
@@ -435,6 +463,13 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
         self.verticalWeakVoxelCount = verticalWeakVoxelCount
         self.verticalWeakVoxelKeys = verticalWeakVoxelKeys
         self.verticalBandSummaries = verticalBandSummaries
+        self.remoteWeakRegionCount = remoteWeakRegionCount
+        self.spatialMaxRegionCount = spatialMaxRegionCount
+        self.spatialPeakRegionCount = spatialPeakRegionCount
+        self.spatialRegionEvictionCount =
+            spatialRegionEvictionCount
+        self.spatialCapacitySaturated = spatialCapacitySaturated
+        self.directionReference = directionReference
     }
 
 
@@ -498,6 +533,12 @@ public struct CaptureVerticalBandSummary: Sendable, Equatable, Codable {
         case voxelCount = "voxel_count"
         case observedCount = "observed_count"
         case weakCount = "weak_count"
+        case remoteWeakRegionCount = "remote_weak_region_count"
+        case spatialMaxRegionCount = "spatial_max_region_count"
+        case spatialPeakRegionCount = "spatial_peak_region_count"
+        case spatialRegionEvictionCount = "spatial_region_eviction_count"
+        case spatialCapacitySaturated = "spatial_capacity_saturated"
+        case directionReference = "direction_reference"
     }
 }
 
