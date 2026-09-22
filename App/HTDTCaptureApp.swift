@@ -134,6 +134,16 @@ private struct HTDTCaptureHostView: View {
             spatialCaptureSealed:
                 coordinator.annotationCoordinateSpaceID == nil
                     && coordinator.annotationAuthorityCommitted,
+            evidenceStorageAdvisory:
+                coordinator.evidenceStorageAdvisory,
+            selectedStrategyID: coordinator.selectedStrategyID,
+            strategyPinnedByTaskPlan:
+                coordinator.strategyPinnedByTaskPlan,
+            captureOrigins: coordinator.captureOrigins,
+            planUnderlayDocument:
+                coordinator.planUnderlayDocument,
+            semanticCorrectionContext:
+                coordinator.semanticCorrectionContext,
             liveSpatialAuthority:
                 coordinator.workingSetSpatialAuthorityLive,
             recoveredDraftReport:
@@ -285,6 +295,16 @@ private struct HTDTCaptureHostView: View {
                     coordinator.deleteExportArchive,
                 updateLibraryEntry:
                     coordinator.updateLibraryEntry,
+                selectCaptureStrategy:
+                    coordinator.selectCaptureStrategy,
+                importPlanReference:
+                    coordinator.importPlanReference,
+                beginSemanticCorrection:
+                    coordinator.beginSemanticCorrection,
+                commitSemanticCorrection:
+                    coordinator.commitSemanticCorrection,
+                cancelSemanticCorrection:
+                    coordinator.cancelSemanticCorrection,
                 openRecoveredDraft:
                     coordinator.openRecoveredDraft,
                 discardRecoveredDraft:
@@ -428,6 +448,37 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Whether haptic/announcement guidance cues play (#252). Mirrors
     /// the operator toggle; default on.
     @Published var guidanceCuesEnabled = true
+    /// Operator-selected capture strategy for the next scan (#307).
+    /// Drives advisory guidance/evidence budgets only — the canonical
+    /// quality rule set never reads it.
+    @Published private(set)
+    var selectedStrategyID: CaptureStrategyIdentifier = .standard
+    /// True when an imported task plan pins the strategy (#307/#240):
+    /// the picker stays visible read-only and `selectCaptureStrategy`
+    /// becomes a no-op until a new scan resets the pin.
+    @Published private(set)
+    var strategyPinnedByTaskPlan = false
+    /// Live storage accounting for the active capture (#308):
+    /// working-revision bytes by category, evidence counts, device free
+    /// space and the automatic-keyframe budget. Advisory only.
+    @Published private(set)
+    var evidenceStorageAdvisory: CaptureEvidenceStorageAdvisory?
+    /// Acquisition provenance for the library (#317), joined to
+    /// persisted captures by capture_revision_id.
+    @Published private(set)
+    var captureOrigins:
+        [CaptureRevisionID: CaptureAcquisitionOriginRecord] = [:]
+    /// Imported plan-reference underlay for the next/active capture
+    /// (#322). Shown in setup; rebound to the live revision's identity
+    /// at session-foundation and persisted as `reference/plan-
+    /// underlay.json`. Reference-only — never observed truth.
+    @Published private(set)
+    var planUnderlayDocument: PlanUnderlayDocument?
+    /// Decoded parent context for an in-flight semantic correction
+    /// (#319); non-nil while the correction sheet is open.
+    @Published private(set)
+    var semanticCorrectionContext:
+        SemanticChildRevisionContext?
     @Published private(set)
     var persistedInventory = PersistedCaptureInventoryResult()
     /// Identity of the live working revision; carries the
@@ -748,6 +799,29 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// estimator's own bound so a stored overrun still stops the
     /// selector (#216).
     private var automaticKeyframePersistedBytes = 0
+    /// Task-plan strategy override resolved at scan start (#307/#240):
+    /// a pinned recommendation wins over the operator selection until
+    /// the next `beginCapture` resets it.
+    private var taskPlanStrategyOverride:
+        (identifier: CaptureStrategyIdentifier, pinned: Bool)?
+    /// The strategy actually used for the active scan — resolved at
+    /// `beginCapture` so mid-scan setup edits cannot change budgets.
+    private var activeCaptureStrategy: CaptureStrategyProfile =
+        .standard
+    /// The source under which `activeCaptureStrategy` was resolved —
+    /// echoed into `session/capture-strategy.json` (#307).
+    private var pendingStrategySource: CaptureStrategySource =
+        .operatorSelected
+    /// App-local acquisition-provenance store (#317): lives outside the
+    /// immutable bundle under the capture root, keyed by
+    /// capture_revision_id.
+    private var captureOriginStore: CaptureAcquisitionOriginStore?
+    /// Periodic storage sampler for the #308 advisory surface; runs at
+    /// the resource-monitor cadence while `.scanning`.
+    private var storageSampleTask: Task<Void, Never>?
+    /// Parent record the semantic-correction sheet is editing (#319).
+    private var semanticCorrectionParent: PersistedCaptureRecord?
+    private var semanticCorrectionInFlight = false
     /// Whether the display idle-timer override is currently held for
     /// this capture (#272). Restored on every transition out of
     /// `.scanning`, so failure/End/reset paths cannot leak it.
@@ -781,6 +855,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         capabilities = PlatformCapabilityProbe.current()
         cameraPermission = CameraPermissionController.currentStatus()
         persistedStore = Self.makePersistedStore()
+        captureOriginStore = Self.captureRootDirectory().map {
+            CaptureAcquisitionOriginStore(captureRoot: $0)
+        }
 
         // #320: the first-launch practice prompt is suppressed only by
         // an explicit permanent dismissal; "Not now" hides it for this
@@ -1107,7 +1184,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverageAggregator =
             SpatialScanCoverageAggregator()
         spatialCoverage = .empty
-        motionGuidanceTracker = ScanMotionGuidanceTracker()
+        // Resolve the capture strategy for this scan (#307): a pinned
+        // task-plan recommendation wins, then a plan recommendation,
+        // then the operator pick. The resolved profile configures the
+        // advisory trackers only — canonical quality rules never read
+        // it — and is persisted into session/capture-strategy.json at
+        // session-foundation time.
+        let (strategyProfile, strategySource) =
+            resolvedCaptureStrategy()
+        activeCaptureStrategy = strategyProfile
+        pendingStrategySource = strategySource
+        motionGuidanceTracker = ScanMotionGuidanceTracker(
+            configuration: strategyProfile.motionGuidance
+        )
         motionGuidance = nil
         scanGuidanceProgress = .empty
         derivedObjectFusionTracker =
@@ -1148,11 +1237,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         endScanPreflightBlocked = false
         scanTrackingTransitionGate.reset()
         scanGuidanceCuePolicy.reset()
-        automaticKeyframeTracker = AutomaticKeyframeTracker()
+        automaticKeyframeTracker = AutomaticKeyframeTracker(
+            configuration: strategyProfile.automaticKeyframes
+        )
         automaticKeyframePersistedBytes = 0
         automaticEvidenceFrameCount = 0
         automaticFrameSaveTask?.cancel()
         automaticFrameSaveTask = nil
+        storageSampleTask?.cancel()
+        storageSampleTask = nil
+        evidenceStorageAdvisory = nil
+        semanticCorrectionContext = nil
+        semanticCorrectionParent = nil
         scanLightingStatus = .unknown
         lowLightGuidanceActive = false
         endTargetScan()
@@ -2611,7 +2707,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         draft.equipmentIdentityRecords,
                     speakerLayoutPlan: draft.speakerLayoutPlan,
                     isRestoredDraft: true,
-                    authorities: draft.authorities,
+                    authorities: draft.authorities
+                        ?? draft.theaterAuthorities,
                     fieldAuthority: draft.fieldAuthority
                         ?? FieldAuthorityWorkspace()
                 )
@@ -4341,6 +4438,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewOperationInFlight = false
         exportOperationInFlight = false
         spatialAuthoritySealedForFinalization = false
+        planUnderlayDocument = nil
+        semanticCorrectionContext = nil
+        semanticCorrectionParent = nil
         workingSetSpatialAuthorityLive = true
         recoveredDraftReport = nil
         practiceCaptureActive = false
@@ -4533,6 +4633,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewOperationInFlight = false
         exportOperationInFlight = false
         spatialAuthoritySealedForFinalization = false
+        planUnderlayDocument = nil
+        semanticCorrectionContext = nil
+        semanticCorrectionParent = nil
         workingSetSpatialAuthorityLive = true
         recoveredDraftReport = nil
         practiceCaptureActive = false
@@ -6303,6 +6406,44 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             {
                 self.libraryMetadata = document
             }
+            // Acquisition provenance join (#317): every validated
+            // bundle gets a declared origin — explicit records stay
+            // authoritative; entries that predate the provenance store
+            // backfill as `legacy_unknown` rather than being silently
+            // treated as device-created.
+            if let originStore = self.captureOriginStore {
+                let backfill = await Task.detached(
+                    priority: .utility
+                ) { () -> CaptureAcquisitionOriginDocument? in
+                    let unknowns = inventory.captures.compactMap {
+                        record -> CaptureAcquisitionOriginRecord? in
+                        guard record.finalizedValidation != nil
+                                || record.exportValidation != nil
+                        else {
+                            return nil
+                        }
+                        return try? CaptureAcquisitionOriginRecord(
+                            captureRevisionID:
+                                record.captureRevisionID,
+                            kind: .legacyUnknown,
+                            transport: .unknown,
+                            acquiredAtUTC:
+                                record.finalizedAtUTC
+                        )
+                    }
+                    try? originStore.recordIfAbsent(unknowns)
+                    return try? originStore.load()
+                }.value
+                if let backfill {
+                    var joined:
+                        [CaptureRevisionID:
+                            CaptureAcquisitionOriginRecord] = [:]
+                    for entry in backfill.entries {
+                        joined[entry.captureRevisionID] = entry
+                    }
+                    self.captureOrigins = joined
+                }
+            }
         }
     }
 
@@ -6680,6 +6821,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     priority: .userInitiated
                 ) { () throws -> (
                     revisionID: CaptureRevisionID,
+                    bundleDigest: EvidenceSHA256,
                     promoted: Bool,
                     archiveStored: Bool
                 ) in
@@ -6698,7 +6840,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     guard !FileManager.default.fileExists(
                         atPath: destination.path
                     ) else {
-                        return (revisionID, false, false)
+                        return (
+                            revisionID, report.bundleDigest, false,
+                            false
+                        )
                     }
 
                     _ = try StoredCaptureBundleArchiveImporter
@@ -6726,11 +6871,39 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     } else {
                         archiveStored = true
                     }
-                    return (revisionID, true, archiveStored)
+                    return (
+                        revisionID, report.bundleDigest, true,
+                        archiveStored
+                    )
                 }.value
 
                 guard self.state == .idle else {
                     return
+                }
+                // Acquisition provenance (#317): the imported bundle
+                // carries `imported_file` — never silently grouped
+                // with device-created captures. A digest-pinned
+                // re-import of identical bytes stays a no-op; a
+                // conflicting record for the same revision ID leaves
+                // the first provenance authoritative.
+                if let originStore = self.captureOriginStore,
+                   let originRecord =
+                    try? CaptureAcquisitionOriginRecord(
+                        captureRevisionID: imported.revisionID,
+                        kind: .importedFile,
+                        transport: .fileImport,
+                        acquiredAtUTC:
+                            BundleTimestamp.utcString(
+                                from: Date()
+                            ),
+                        originalFilename: url.lastPathComponent,
+                        bundleDigestSHA256:
+                            imported.bundleDigest.value
+                    )
+                {
+                    try? originStore.record(originRecord)
+                    self.captureOrigins[imported.revisionID] =
+                        originRecord
                 }
                 self.loadPersistedCaptures()
                 self.workingSetStatus = imported.promoted
@@ -7132,6 +7305,291 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             self.refreshReviewWorkspace()
         }
+    }
+
+    /// Operator capture-strategy selection (#307). Advisory only —
+    /// ignored when a pinned task-plan recommendation is in force, and
+    /// applied only at the next `beginCapture`, never retroactively to
+    /// a running scan.
+    func selectCaptureStrategy(
+        _ identifier: CaptureStrategyIdentifier
+    ) {
+        guard !strategyPinnedByTaskPlan else {
+            return
+        }
+        selectedStrategyID = identifier
+    }
+
+    /// Applies a task plan's strategy recommendation (#307/#240).
+    /// `recommended_capture_strategy` adopts the profile as a soft
+    /// recommendation; `capture_strategy_pinned` locks the picker
+    /// until the plan is cleared. Unknown ids are ignored — plan
+    /// validation already rejects them.
+    func applyTaskPlanStrategy(_ plan: HTDTCaptureTaskPlan) {
+        guard let rawID = plan.recommendedCaptureStrategy,
+              let identifier =
+                CaptureStrategyCatalog.identifier(
+                    forPersistedValue: rawID
+                )
+        else {
+            taskPlanStrategyOverride = nil
+            strategyPinnedByTaskPlan = false
+            return
+        }
+        let pinned = plan.captureStrategyPinned
+        taskPlanStrategyOverride = (identifier, pinned)
+        selectedStrategyID = identifier
+        strategyPinnedByTaskPlan = pinned
+    }
+
+    /// Clears any task-plan strategy override, returning the picker to
+    /// the operator's explicit selection (#307).
+    func clearTaskPlanStrategyOverride() {
+        taskPlanStrategyOverride = nil
+        strategyPinnedByTaskPlan = false
+    }
+
+    /// Resolves which published profile steers the next scan and under
+    /// what source that choice is recorded (#307).
+    private func resolvedCaptureStrategy()
+        -> (CaptureStrategyProfile, CaptureStrategySource)
+    {
+        if let override = taskPlanStrategyOverride {
+            let profile = CaptureStrategyCatalog.profile(
+                for: override.identifier
+            )
+            return (
+                profile,
+                override.pinned
+                    ? .taskPlanPinned
+                    : .taskPlanRecommended
+            )
+        }
+        return (
+            CaptureStrategyCatalog.profile(
+                for: selectedStrategyID
+            ),
+            .operatorSelected
+        )
+    }
+
+    /// Imports a plan-reference underlay document (#322). The JSON
+    /// must carry its own explicit scale/alignment authority — this
+    /// path never infers scale. When a working set is already live the
+    /// document is rebound to the active revision and persisted
+    /// immediately; during setup it is held pending until session
+    /// foundation assigns capture/coordinate-space identity.
+    func importPlanReference(from url: URL) {
+        let accessing =
+            url.startAccessingSecurityScopedResource()
+        defer {
+            if accessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        let imported: PlanUnderlayDocument
+        do {
+            let data = try Data(contentsOf: url)
+            imported = try JSONDecoder().decode(
+                PlanUnderlayDocument.self,
+                from: data
+            )
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The selected plan reference could not be read",
+                "選択されたプラン参照を読み込めませんでした"
+            ) + " [\(Self.persistenceDiagnostic(error))]"
+            return
+        }
+        planUnderlayDocument = imported
+        if workingSetStore != nil {
+            Task { @MainActor [weak self] in
+                await self?.persistPendingPlanUnderlay()
+            }
+        }
+        workingSetStatus = HostLocalization.text(
+            "Plan reference registered; it will guide capture as reference only",
+            "プラン参照を登録しました。参照としてのみキャプチャをガイドします"
+        )
+    }
+
+    /// Rebinds the pending underlay to the live revision's identity
+    /// and writes `reference/plan-underlay.json` (#322). A failure is
+    /// recorded as a warning — the underlay stays operator-visible
+    /// in memory and never blocks scanning.
+    private func persistPendingPlanUnderlay() async {
+        guard let pending = planUnderlayDocument,
+              let store = workingSetStore
+        else {
+            return
+        }
+        let snapshot = await store.snapshot()
+        guard let coordinateSpaceID =
+            snapshot.coordinateSpaceIDs.first
+        else {
+            return
+        }
+        let rebound: PlanUnderlayDocument
+        do {
+            rebound = try PlanUnderlayDocument(
+                captureRevisionID:
+                    snapshot.identity.captureRevisionID,
+                coordinateSpaceID: coordinateSpaceID,
+                sourceKind: pending.sourceKind,
+                sourceFilename: pending.sourceFilename,
+                sourceMediaType: pending.sourceMediaType,
+                sourceSHA256: pending.sourceSHA256,
+                htdtReferenceID: pending.htdtReferenceID,
+                alignment: pending.alignment,
+                importedAtUTC: BundleTimestamp.utcString(
+                    from: Date()
+                )
+            )
+            let package = try PlanUnderlayPackageBuilder.build(
+                document: rebound
+            )
+            try await store.persistPlanUnderlay(package)
+            planUnderlayDocument = rebound
+        } catch {
+            try? await store.recordResourceEvent(
+                CaptureResourceEvent(
+                    kind: .persistenceFailure,
+                    severity: .warning,
+                    detail:
+                        "plan underlay could not be persisted: "
+                        + Self.persistenceDiagnostic(error)
+                )
+            )
+        }
+    }
+
+    /// Opens the semantic-correction sheet (#319): the selected
+    /// library record's finalized bundle is validated and its semantic
+    /// records decoded as the correction's starting point. The parent
+    /// stays untouched — edits produce a new child revision only on
+    /// explicit commit.
+    func beginSemanticCorrection(
+        _ record: PersistedCaptureRecord
+    ) {
+        guard let directory = record.finalizedDirectory else {
+            return
+        }
+        semanticCorrectionParent = record
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            let context = await Task.detached(
+                priority: .userInitiated
+            ) {
+                try? SemanticChildRevisionBuilder.loadContext(
+                    parentDirectory: directory
+                )
+            }.value
+            guard let context,
+                  self.semanticCorrectionParent?
+                        .captureRevisionID
+                        == record.captureRevisionID
+            else {
+                if self.semanticCorrectionParent?
+                        .captureRevisionID
+                        == record.captureRevisionID
+                {
+                    self.workingSetStatus = HostLocalization.text(
+                        "The selected capture could not be opened for correction",
+                        "選択されたキャプチャを補正のために開けませんでした"
+                    )
+                    self.semanticCorrectionParent = nil
+                }
+                return
+            }
+            self.semanticCorrectionContext = context
+        }
+    }
+
+    /// Builds the semantic child revision (#319): metadata edits only —
+    /// the parent's sensor evidence is carried over byte-for-byte and
+    /// the child gets its own lifecycle timestamps plus the exact
+    /// semantic diff in `revision/intent.json`.
+    func commitSemanticCorrection(
+        _ edits: SemanticChildRevisionEdits
+    ) async -> Bool {
+        guard !semanticCorrectionInFlight,
+              let context = semanticCorrectionContext,
+              semanticCorrectionParent != nil,
+              let captureRoot = Self.captureRootDirectory()
+        else {
+            return false
+        }
+        semanticCorrectionInFlight = true
+        defer {
+            semanticCorrectionInFlight = false
+        }
+        let childRevisionID = CaptureRevisionID(rawValue: UUID())
+        let stagingDirectory = captureRoot
+            .appendingPathComponent("working", isDirectory: true)
+            .appendingPathComponent(
+                childRevisionID.description,
+                isDirectory: true
+            )
+        let destinationDirectory = captureRoot
+            .appendingPathComponent("finalized", isDirectory: true)
+            .appendingPathComponent(
+                childRevisionID.description,
+                isDirectory: true
+            )
+        let runtime = PlatformRuntimeProvenance.current()
+        do {
+            let built = try await SemanticChildRevisionBuilder.build(
+                context: context,
+                childRevisionID: childRevisionID,
+                edits: edits,
+                stagingDirectory: stagingDirectory,
+                destinationDirectory: destinationDirectory,
+                app: BundleAppIdentity(
+                    version: runtime.appVersion,
+                    build: runtime.appBuild
+                )
+            )
+            try? CaptureStoragePolicy.applyFileProtection(
+                to: built.bundleDirectory
+            )
+            if let originStore = captureOriginStore,
+               let originRecord =
+                   try? CaptureAcquisitionOriginRecord(
+                    captureRevisionID: childRevisionID,
+                    kind: .createdOnThisDevice,
+                    transport: .localCapture,
+                    acquiredAtUTC: BundleTimestamp.utcString(
+                        from: Date()
+                    ),
+                    bundleDigestSHA256:
+                        built.bundleDigestSHA256.value
+                   )
+            {
+                try? originStore.record(originRecord)
+                captureOrigins[childRevisionID] = originRecord
+            }
+            semanticCorrectionContext = nil
+            semanticCorrectionParent = nil
+            workingSetStatus = HostLocalization.text(
+                "Created a corrected revision that reuses the original scan evidence",
+                "元のスキャン証跡を再利用した補正済みリビジョンを作成しました"
+            )
+            loadPersistedCaptures()
+            return true
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The corrected revision could not be created",
+                "補正済みリビジョンを作成できませんでした"
+            ) + " [\(Self.persistenceDiagnostic(error))]"
+            return false
+        }
+    }
+
+    func cancelSemanticCorrection() {
+        semanticCorrectionContext = nil
+        semanticCorrectionParent = nil
     }
 
     private static func captureRootDirectory() -> URL? {
@@ -7623,6 +8081,48 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        // Strategy provenance (#307): record which published
+        // guidance/evidence policy steers this scan so a consumer can
+        // read exactly what the advisory budgets were. Advisory
+        // provenance only — a write failure degrades to a status note,
+        // never a session abort, and the payload never feeds
+        // `ready_for_htdt_ingestion`.
+        if let strategyPackage = try? CaptureStrategyPackageBuilder
+            .build(
+                document: try CaptureStrategyDocument(
+                    captureRevisionID:
+                        prepared.identity.captureRevisionID,
+                    captureSessionID:
+                        foundation.session.captureSessionID,
+                    coordinateSpaceID:
+                        foundation.session.coordinateSpaceID,
+                    profile: activeCaptureStrategy,
+                    source: pendingStrategySource,
+                    selectedAtUTC: startedAtUTC
+                )
+            )
+        {
+            if (try? await store.persistCaptureStrategy(
+                strategyPackage
+            )) == nil {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "capture strategy document could not be persisted; advisory provenance only"
+                    )
+                )
+            }
+        }
+
+        // Plan-reference underlay (#322): an operator import held
+        // during setup is rebound to the live revision and persisted
+        // now that capture/coordinate-space identity exists.
+        if planUnderlayDocument != nil {
+            await persistPendingPlanUnderlay()
+        }
+
         guard state == .scanning,
               captureGeneration == generation
         else {
@@ -7632,10 +8132,102 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         startScanCoverageSampling(
             generation: generation
         )
+        startStorageSampling(
+            store: store,
+            generation: generation
+        )
         workingSetStatus = HostLocalization.text(
             "Scanning; live RoomPlan camera and active AR configuration are ready",
             "スキャン中：ライブカメラと実行中の AR 設定を確認しました"
         )
+    }
+
+    /// Periodic storage accounting for the #308 advisory surface. Runs
+    /// at the resource-monitor cadence while `.scanning`; each sample
+    /// recomputes the working revision's retained bytes by category,
+    /// the measured device free space against the warning/critical
+    /// thresholds, and the automatic-keyframe budget usage. Advisory
+    /// only — a failed sample degrades to `unknown`, never a gate.
+    private func startStorageSampling(
+        store: CaptureWorkingSetStore,
+        generation: UUID
+    ) {
+        storageSampleTask?.cancel()
+        let policy = CaptureResourceMonitorPolicy()
+        storageSampleTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            while !Task.isCancelled {
+                guard self.captureGeneration == generation,
+                      self.state == .scanning
+                else {
+                    return
+                }
+                let profile = await Task.detached(
+                    priority: .utility
+                ) {
+                    try? await store.storageProfile()
+                }.value
+                let availableBytes =
+                    Self.measuredAvailableStorageBytes()
+                let band: CaptureStoragePressureBand
+                if let availableBytes {
+                    if availableBytes <= policy.storageCriticalBytes {
+                        band = .critical
+                    } else if availableBytes
+                        <= policy.storageWarningBytes
+                    {
+                        band = .warning
+                    } else {
+                        band = .nominal
+                    }
+                } else {
+                    band = .unknown
+                }
+                self.evidenceStorageAdvisory =
+                    CaptureEvidenceStorageAdvisory(
+                        profile:
+                            profile
+                                ?? CaptureWorkingSetStorageProfile(),
+                        evidenceFrameCount:
+                            self.scanEvidenceFrameCount,
+                        depthEvidenceCount:
+                            self.scanDepthEvidenceCount,
+                        deviceAvailableBytes: availableBytes,
+                        pressureBand: band,
+                        storageWarningBytes:
+                            policy.storageWarningBytes,
+                        storageCriticalBytes:
+                            policy.storageCriticalBytes,
+                        keyframeBudget:
+                            AutomaticKeyframeBudgetStatus(
+                                tracker:
+                                    self.automaticKeyframeTracker
+                            )
+                    )
+                try? await Task.sleep(
+                    for: policy.storageSampleInterval,
+                    clock: .continuous
+                )
+            }
+        }
+    }
+
+    /// Measured device free capacity for important usage (#308):
+    /// nil when the platform cannot report a value — the UI then
+    /// shows "unknown" rather than a fabricated number.
+    private static func measuredAvailableStorageBytes() -> Int64? {
+        guard let root = captureRootDirectory(),
+              let value = try? root.resourceValues(
+                forKeys: [
+                    .volumeAvailableCapacityForImportantUsageKey
+                ]
+              ).volumeAvailableCapacityForImportantUsage
+        else {
+            return nil
+        }
+        return Int64(max(0, value))
     }
 
     /// Re-check camera authorization while the permission gate is
@@ -8758,7 +9350,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             spatialCoverageAggregator =
                 SpatialScanCoverageAggregator()
             spatialCoverage = .empty
-            motionGuidanceTracker = ScanMotionGuidanceTracker()
+            // Mid-scan tracker reset keeps the strategy resolved at
+            // Begin (#307): the budgets persist for the whole
+            // revision, not per sampling restart.
+            motionGuidanceTracker = ScanMotionGuidanceTracker(
+                configuration:
+                    activeCaptureStrategy.motionGuidance
+            )
             motionGuidance = nil
             scanGuidanceProgress = .empty
             scanTrackingTransitionGate.reset()
@@ -9577,6 +10175,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewWorkspace = nil
         taskPlanMission = nil
         danglingSpatialIssues = []
+
+        // Acquisition provenance (#317): a bundle produced by this
+        // device's capture flow records `created_on_this_device`.
+        // Failure here never disturbs the committed revision — it is
+        // app-local metadata, not bundle authority.
+        if let originStore = captureOriginStore,
+           let originRecord = try? CaptureAcquisitionOriginRecord(
+            captureRevisionID: finalized.captureRevisionID,
+            kind: .createdOnThisDevice,
+            transport: .localCapture,
+            acquiredAtUTC: BundleTimestamp.utcString(from: Date()),
+            bundleDigestSHA256: finalized.bundleDigest.value
+           )
+        {
+            try? originStore.record(originRecord)
+            captureOrigins[finalized.captureRevisionID] = originRecord
+        }
+
         // #386: a finalized capture under an active mission joins
         // that mission's associations — the mission record, never
         // the bundle, carries the intent.
@@ -9588,6 +10204,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             refreshMissionDeliveryStores()
         }
+
         refreshHandoffDestinations()
         if let captureRoot = Self.captureRootDirectory() {
             handoffReceipts =

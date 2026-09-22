@@ -843,6 +843,10 @@ public struct PersistedCaptureContents: Sendable, Equatable {
     /// Decoded payloads that were declared but unreadable — surfaced so
     /// the viewer degrades to text instead of hiding the gap.
     public let issues: [String]
+    /// The revision's declared intent (`revision/intent.json`) — the
+    /// machine-readable added/changed/superseded/reused record diff
+    /// for child revisions (#319/#155). Nil on root revisions.
+    public let revisionIntent: CaptureRevisionIntentDocument?
 
     public init(
         manifest: BundleManifest,
@@ -859,7 +863,8 @@ public struct PersistedCaptureContents: Sendable, Equatable {
         referenceTargets: ReferenceTargetCaptureDocument? = nil,
         roomPlanPayload: Data? = nil,
         frameDescriptors: [FrameEvidenceDescriptor],
-        issues: [String]
+        issues: [String],
+        revisionIntent: CaptureRevisionIntentDocument? = nil
     ) {
         self.manifest = manifest
         self.qualityReport = qualityReport
@@ -876,6 +881,7 @@ public struct PersistedCaptureContents: Sendable, Equatable {
         self.roomPlanPayload = roomPlanPayload
         self.frameDescriptors = frameDescriptors
         self.issues = issues
+        self.revisionIntent = revisionIntent
     }
 
     /// The revision's reference universe for field-datum staleness
@@ -1057,7 +1063,11 @@ public enum PersistedCaptureContentsLoader {
                     : nil
             ),
             frameDescriptors: descriptors,
-            issues: issues
+            issues: issues,
+            revisionIntent: decodeIfDeclared(
+                CaptureRevisionIntentDocument.self,
+                CaptureRevisionIntentPackage.path
+            )
         )
     }
 }
@@ -1289,6 +1299,62 @@ public enum CaptureRevisionComparator {
                 child: dims(child.roomMetadata)
             )
         )
+
+        // Exact semantic diff (#319): when the child declared a
+        // semantic_correction intent, surface the revision kind, the
+        // operator's correction note, and the per-record
+        // added/changed/superseded/reused accounting — never averaged
+        // into the field-level rows above.
+        if let intent = child.revisionIntent,
+           intent.revisionKind == .semanticCorrection
+        {
+            fields.append(
+                RevisionFieldComparison(
+                    field: "revision_kind",
+                    parent: "—",
+                    child: intent.revisionKind.rawValue
+                )
+            )
+            if let note = intent.correctionNote {
+                fields.append(
+                    RevisionFieldComparison(
+                        field: "correction_note",
+                        parent: "—",
+                        child: note
+                    )
+                )
+            }
+            func recordFields(
+                _ refs: [CaptureRevisionRecordRef],
+                _ state: String
+            ) {
+                for ref in refs {
+                    fields.append(
+                        RevisionFieldComparison(
+                            field: ref.payloadPath
+                                + " / " + ref.recordID,
+                            parent: "—",
+                            child: state
+                        )
+                    )
+                }
+            }
+            recordFields(intent.addedRecordRefs, "added")
+            recordFields(intent.changedRecordRefs, "changed")
+            recordFields(
+                intent.supersededRecordRefs,
+                "superseded"
+            )
+            fields.append(
+                RevisionFieldComparison(
+                    field: "reused_evidence_refs",
+                    parent: "—",
+                    child: String(
+                        intent.reusedEvidenceRefs.count
+                    )
+                )
+            )
+        }
         return CaptureRevisionComparison(
             parentRevisionID: parent.manifest.captureRevisionID,
             childRevisionID: child.manifest.captureRevisionID,
