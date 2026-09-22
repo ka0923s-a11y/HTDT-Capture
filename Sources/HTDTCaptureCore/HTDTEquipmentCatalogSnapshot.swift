@@ -12,6 +12,7 @@ public enum HTDTEquipmentCatalogError:
     case emptyIdentity
     case unsupportedIdentityKind
     case emptyDisplayMetadata
+    case invalidCatalogTimestamp
 }
 
 /// Closed `identity_kind` token set of the HTDT equipment-catalog v1
@@ -166,6 +167,142 @@ public struct HTDTEquipmentCatalogEntry:
     }
 }
 
+/// Optional catalog-level source identity on a snapshot (#302).
+///
+/// The v1 entry contract pins every definition by exact
+/// ID/version/SHA-256; this context answers the separate question
+/// "which catalog is this?" — which HTDT project/instance produced it,
+/// when it was generated, and which snapshot/label the backend gave
+/// it. Every field is optional so a snapshot written before the
+/// contract existed remains readable; absent context is surfaced to
+/// the operator as unknown/legacy rather than inferred.
+public struct HTDTEquipmentCatalogContext:
+    Codable,
+    Sendable,
+    Equatable,
+    Hashable
+{
+    /// Backend-assigned snapshot identifier, when the source export
+    /// carries one.
+    public let catalogSnapshotID: String?
+    /// Human-facing catalog name (display only — never identity).
+    public let catalogLabel: String?
+    /// Optional backend-declared catalog version token.
+    public let catalogVersion: String?
+    /// UTC generation timestamp of the source export.
+    public let generatedAtUTC: String?
+    /// HTDT project/workspace the export was produced for.
+    public let sourceProjectRef: String?
+    /// HTDT backend/instance the export came from.
+    public let sourceInstanceRef: String?
+
+    public init(
+        catalogSnapshotID: String? = nil,
+        catalogLabel: String? = nil,
+        catalogVersion: String? = nil,
+        generatedAtUTC: String? = nil,
+        sourceProjectRef: String? = nil,
+        sourceInstanceRef: String? = nil
+    ) throws {
+        let normalized = [
+            catalogSnapshotID,
+            catalogLabel,
+            catalogVersion,
+            sourceProjectRef,
+            sourceInstanceRef,
+        ].map { SchemaOwnedText.nfc($0) }
+        guard normalized.allSatisfy({ !($0?.isEmpty ?? false) }) else {
+            throw HTDTEquipmentCatalogError.emptyDisplayMetadata
+        }
+        if let generatedAtUTC {
+            guard SchemaTimestampText.isUTCTimestamp(generatedAtUTC)
+            else {
+                throw HTDTEquipmentCatalogError.invalidCatalogTimestamp
+            }
+        }
+        self.catalogSnapshotID = normalized[0]
+        self.catalogLabel = normalized[1]
+        self.catalogVersion = normalized[2]
+        self.generatedAtUTC = generatedAtUTC
+        self.sourceProjectRef = normalized[3]
+        self.sourceInstanceRef = normalized[4]
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(
+            keyedBy: CodingKeys.self
+        )
+        try self.init(
+            catalogSnapshotID: container.decodeIfPresent(
+                String.self,
+                forKey: .catalogSnapshotID
+            ),
+            catalogLabel: container.decodeIfPresent(
+                String.self,
+                forKey: .catalogLabel
+            ),
+            catalogVersion: container.decodeIfPresent(
+                String.self,
+                forKey: .catalogVersion
+            ),
+            generatedAtUTC: container.decodeIfPresent(
+                String.self,
+                forKey: .generatedAtUTC
+            ),
+            sourceProjectRef: container.decodeIfPresent(
+                String.self,
+                forKey: .sourceProjectRef
+            ),
+            sourceInstanceRef: container.decodeIfPresent(
+                String.self,
+                forKey: .sourceInstanceRef
+            )
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case catalogSnapshotID = "snapshot_id"
+        case catalogLabel = "label"
+        case catalogVersion = "catalog_version"
+        case generatedAtUTC = "generated_at"
+        case sourceProjectRef = "source_project"
+        case sourceInstanceRef = "source_instance"
+    }
+}
+
+/// The operator-visible identity of a catalog snapshot (#302): the
+/// declared context fields plus the semantic content digest, which is
+/// always computable even for legacy snapshots with no context block.
+/// The stable key — backend snapshot ID when present, content digest
+/// otherwise — is what a task plan pins when it demands an exact
+/// catalog.
+public struct HTDTEquipmentCatalogIdentity:
+    Sendable,
+    Equatable,
+    Hashable
+{
+    public let snapshotID: String?
+    /// Semantic digest over authority version + sorted definitions.
+    /// Definition order and JSON formatting never change it.
+    public let contentSHA256: EvidenceSHA256
+    public let label: String?
+    public let catalogVersion: String?
+    public let generatedAtUTC: String?
+    public let sourceProjectRef: String?
+    public let sourceInstanceRef: String?
+    public let definitionCount: Int
+    /// True when the snapshot carried no context block — the stored
+    /// file predates the identity contract, so source/freshness are
+    /// explicitly unknown rather than fabricated.
+    public let isLegacy: Bool
+
+    /// Stable identity key for pinning and the active-catalog pointer:
+    /// backend snapshot ID when declared, else the content digest.
+    public var stableKey: String {
+        snapshotID ?? contentSHA256.description
+    }
+}
+
 public struct HTDTEquipmentCatalogSnapshot:
     Codable,
     Sendable,
@@ -180,14 +317,19 @@ public struct HTDTEquipmentCatalogSnapshot:
     public let schema: String
     public let schemaVersion: Int
     public let authorityVersion: String
+    /// Source/project identity of this snapshot (#302); nil on imports
+    /// that predate the context contract.
+    public let catalogContext: HTDTEquipmentCatalogContext?
     public let definitions: [HTDTEquipmentCatalogEntry]
 
     public init(
-        definitions: [HTDTEquipmentCatalogEntry]
+        definitions: [HTDTEquipmentCatalogEntry],
+        catalogContext: HTDTEquipmentCatalogContext? = nil
     ) throws {
         self.schema = Self.expectedSchema
         self.schemaVersion = Self.expectedSchemaVersion
         self.authorityVersion = Self.expectedAuthorityVersion
+        self.catalogContext = catalogContext
         self.definitions = definitions
         try Self.validate(definitions)
     }
@@ -207,6 +349,10 @@ public struct HTDTEquipmentCatalogSnapshot:
         let authorityVersion = try container.decode(
             String.self,
             forKey: .authorityVersion
+        )
+        let catalogContext = try container.decodeIfPresent(
+            HTDTEquipmentCatalogContext.self,
+            forKey: .catalogContext
         )
         let definitions = try container.decode(
             [HTDTEquipmentCatalogEntry].self,
@@ -230,6 +376,7 @@ public struct HTDTEquipmentCatalogSnapshot:
         self.schema = schema
         self.schemaVersion = schemaVersion
         self.authorityVersion = authorityVersion
+        self.catalogContext = catalogContext
         self.definitions = definitions
     }
 
@@ -240,6 +387,63 @@ public struct HTDTEquipmentCatalogSnapshot:
         HTDTEquipmentCompatibility.compatibleTypes(
             authorityVersion: authorityVersion
         ) ?? []
+    }
+
+    /// Semantic digest over the authority version plus every
+    /// definition tuple, independent of definition ordering and of any
+    /// JSON formatting in the source file (#302): two snapshots with
+    /// identical content have identical digests even when their bytes
+    /// differ, so the digest is the portable pin a task plan can demand.
+    public var contentSHA256: EvidenceSHA256 {
+        let sortedDefinitions = definitions.sorted {
+            $0.selectionKey < $1.selectionKey
+        }
+        let entries = sortedDefinitions.map {
+            entry -> CanonicalJSONValue in
+            var object: [String: CanonicalJSONValue] = [
+                "definition_id": .string(entry.definitionID),
+                "identity_kind": .string(
+                    entry.identityKind.rawValue
+                ),
+                "semantic_sha256": .string(
+                    entry.semanticSHA256.description
+                ),
+                "version": .string(entry.version),
+            ]
+            if let manufacturer = entry.manufacturer {
+                object["manufacturer"] = .string(manufacturer)
+            }
+            if let model = entry.model {
+                object["model"] = .string(model)
+            }
+            if let userLabel = entry.userLabel {
+                object["user_label"] = .string(userLabel)
+            }
+            return .object(object)
+        }
+        let canonical = try? CanonicalJSON.encode(
+            .object([
+                "authority_version": .string(authorityVersion),
+                "definitions": .array(entries),
+            ])
+        )
+        return EvidenceIntegrity.sha256(of: canonical ?? Data())
+    }
+
+    /// The operator-visible catalog identity (#302): declared context
+    /// when present, content digest always.
+    public var identity: HTDTEquipmentCatalogIdentity {
+        HTDTEquipmentCatalogIdentity(
+            snapshotID: catalogContext?.catalogSnapshotID,
+            contentSHA256: contentSHA256,
+            label: catalogContext?.catalogLabel,
+            catalogVersion: catalogContext?.catalogVersion,
+            generatedAtUTC: catalogContext?.generatedAtUTC,
+            sourceProjectRef: catalogContext?.sourceProjectRef,
+            sourceInstanceRef: catalogContext?.sourceInstanceRef,
+            definitionCount: definitions.count,
+            isLegacy: catalogContext == nil
+        )
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -254,6 +458,10 @@ public struct HTDTEquipmentCatalogSnapshot:
         try container.encode(
             authorityVersion,
             forKey: .authorityVersion
+        )
+        try container.encodeIfPresent(
+            catalogContext,
+            forKey: .catalogContext
         )
         try container.encode(
             definitions,
@@ -282,6 +490,7 @@ public struct HTDTEquipmentCatalogSnapshot:
         case schema
         case schemaVersion = "schema_version"
         case authorityVersion = "authority_version"
+        case catalogContext = "catalog"
         case definitions
     }
 }
@@ -375,5 +584,242 @@ public struct HTDTEquipmentCatalogCache: Sendable {
             return nil
         }
         return snapshot
+    }
+}
+
+/// Multi-catalog store for the app-local equipment-catalog mirror
+/// (#302). Replaces the single `imported-equipment-catalog.json`
+/// slot: every imported snapshot is validated, stored under the SHA-256
+/// of its exact bytes, and only becomes the selection context through
+/// an explicit activation — two project/backend catalogs coexist and
+/// importing a new one never silently overwrites the active choice.
+///
+/// Activation pointer: `active-catalog` inside the library directory
+/// holds the content key of the selected snapshot. When the pointer is
+/// absent and exactly one snapshot is stored, that one is active —
+/// preserving the pre-#302 "last imported catalog" behavior. A
+/// `HTDTEquipmentCatalogCache` single file at `legacyFileURL` is
+/// migrated into the library on first read so its context (absent by
+/// definition) reads as unknown/legacy instead of vanishing.
+public struct HTDTEquipmentCatalogLibrary: Sendable {
+    /// One stored snapshot plus the content key under which it is filed.
+    public struct StoredCatalog: Sendable, Equatable {
+        /// SHA-256 of the stored bytes — the file name and the pointer
+        /// value. Byte identity, deliberately distinct from the
+        /// snapshot's semantic `contentSHA256`.
+        public let contentKey: String
+        public let snapshot: HTDTEquipmentCatalogSnapshot
+        public let fileURL: URL
+    }
+
+    public let directory: URL
+    /// Pre-#302 single-slot cache migrated on first access; nil
+    /// disables migration.
+    public let legacyFileURL: URL?
+
+    private static let pointerFileName = "active-catalog"
+
+    public init(directory: URL, legacyFileURL: URL? = nil) {
+        self.directory = directory
+        self.legacyFileURL = legacyFileURL
+    }
+
+    private var pointerFileURL: URL {
+        directory.appendingPathComponent(
+            Self.pointerFileName,
+            isDirectory: false
+        )
+    }
+
+    private func fileURL(forKey key: String) -> URL {
+        directory.appendingPathComponent(
+            key + ".json",
+            isDirectory: false
+        )
+    }
+
+    /// Validates `data` through the snapshot decoder and stores those
+    /// exact bytes under their content key, atomically. Importing does
+    /// not change the active selection — call `setActive` explicitly.
+    /// Returns the stored descriptor.
+    @discardableResult
+    public func store(
+        _ data: Data
+    ) throws -> StoredCatalog {
+        let snapshot = try JSONDecoder().decode(
+            HTDTEquipmentCatalogSnapshot.self,
+            from: data
+        )
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let key = EvidenceIntegrity.sha256(of: data).description
+        let target = fileURL(forKey: key)
+        try data.write(to: target, options: .atomic)
+        return StoredCatalog(
+            contentKey: key,
+            snapshot: snapshot,
+            fileURL: target
+        )
+    }
+
+    /// Imports `data` and makes it the active catalog in one call —
+    /// the explicit "select this catalog" path for fresh imports.
+    @discardableResult
+    public func storeAndActivate(
+        _ data: Data
+    ) throws -> StoredCatalog {
+        let stored = try store(data)
+        try setActive(contentKey: stored.contentKey)
+        return stored
+    }
+
+    /// Every valid stored snapshot, keyed deterministically. Files that
+    /// fail validation are removed rather than surfaced — the library
+    /// never offers a snapshot the decoder would reject at import.
+    public func list() -> [StoredCatalog] {
+        migrateLegacyIfNeeded()
+        guard
+            let names = try? FileManager.default.contentsOfDirectory(
+                atPath: directory.path
+            )
+        else {
+            return []
+        }
+        var result: [StoredCatalog] = []
+        for name in names {
+            guard name.hasSuffix(".json"),
+                  name != Self.pointerFileName
+            else {
+                continue
+            }
+            let url = fileURL(forKey: String(name.dropLast(5)))
+            guard let data = try? Data(contentsOf: url) else {
+                continue
+            }
+            guard let snapshot = try? JSONDecoder().decode(
+                HTDTEquipmentCatalogSnapshot.self,
+                from: data
+            ) else {
+                try? FileManager.default.removeItem(at: url)
+                continue
+            }
+            result.append(
+                StoredCatalog(
+                    contentKey: EvidenceIntegrity.sha256(of: data)
+                        .description,
+                    snapshot: snapshot,
+                    fileURL: url
+                )
+            )
+        }
+        return result.sorted { $0.contentKey < $1.contentKey }
+    }
+
+    /// The content key the operator last activated, or nil when no
+    /// explicit selection has ever been recorded.
+    public func activeContentKey() -> String? {
+        migrateLegacyIfNeeded()
+        guard let data = try? Data(contentsOf: pointerFileURL),
+              let key = String(
+                  data: data,
+                  encoding: .utf8
+              )?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !key.isEmpty
+        else {
+            return nil
+        }
+        return key
+    }
+
+    /// Makes the stored catalog `contentKey` the active selection.
+    /// Throws when the key does not name a stored catalog — an
+    /// activation can never point at absent bytes.
+    public func setActive(contentKey: String) throws {
+        guard list().contains(where: {
+            $0.contentKey == contentKey
+        }) else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        try Data(contentKey.utf8).write(
+            to: pointerFileURL,
+            options: .atomic
+        )
+    }
+
+    /// The active stored snapshot: the pointer's catalog when present
+    /// and valid, otherwise the single stored catalog (legacy
+    /// last-imported behavior), otherwise nil.
+    public func active() -> StoredCatalog? {
+        migrateLegacyIfNeeded()
+        let all = list()
+        if let key = activeContentKey(),
+           let match = all.first(where: { $0.contentKey == key })
+        {
+            return match
+        }
+        // A stale pointer (catalog removed) falls back only when the
+        // library is unambiguous — never silently switches between two
+        // project catalogs.
+        if all.count == 1 {
+            return all.first
+        }
+        return nil
+    }
+
+    /// Removes a stored catalog; a stale pointer to it is cleared so
+    /// the next read never names absent bytes.
+    public func remove(contentKey: String) throws {
+        let target = fileURL(forKey: contentKey)
+        if FileManager.default.fileExists(atPath: target.path) {
+            try FileManager.default.removeItem(at: target)
+        }
+        if activeContentKey() == contentKey {
+            try? FileManager.default.removeItem(
+                at: pointerFileURL
+            )
+        }
+    }
+
+    /// Folds a readable pre-#302 single-slot cache into the library
+    /// and activates it. Invalid legacy bytes are discarded by the
+    /// single-slot cache's own load() rule — they are never imported.
+    private func migrateLegacyIfNeeded() {
+        guard let legacyFileURL,
+              FileManager.default.fileExists(
+                  atPath: legacyFileURL.path
+              )
+        else {
+            return
+        }
+        let legacyCache = HTDTEquipmentCatalogCache(
+            fileURL: legacyFileURL
+        )
+        guard let data = try? Data(contentsOf: legacyFileURL),
+              (try? JSONDecoder().decode(
+                  HTDTEquipmentCatalogSnapshot.self,
+                  from: data
+              )) != nil,
+              let stored = try? store(data)
+        else {
+            // Not valid snapshot bytes — remove like the single-slot
+            // cache would so a corrupt file cannot wedge migration.
+            if legacyCache.load() == nil {
+                try? FileManager.default.removeItem(
+                    at: legacyFileURL
+                )
+            }
+            return
+        }
+        // Remove the legacy file before activating: `setActive` reads
+        // the listing, which would re-enter this migration while the
+        // source still exists.
+        try? FileManager.default.removeItem(at: legacyFileURL)
+        try? setActive(contentKey: stored.contentKey)
     }
 }

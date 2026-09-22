@@ -239,6 +239,11 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
     /// applies it as binding. When false it is a recommendation the
     /// operator may override.
     public let captureStrategyPinned: Bool
+    /// Optional exact layout profile the plan supplies (#315): the
+    /// versioned role vocabulary bindings resolve against and the
+    /// completeness requirements evaluate from. Nil plans keep the
+    /// legacy `expected_channel_roles` behavior.
+    public let layoutProfile: SpeakerLayoutProfile?
 
     public init(
         planID: String,
@@ -253,7 +258,8 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
         expectedChannelRoles: [ChannelRole] = [],
         equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil,
         recommendedCaptureStrategy: String? = nil,
-        captureStrategyPinned: Bool = false
+        captureStrategyPinned: Bool = false,
+        layoutProfile: SpeakerLayoutProfile? = nil
     ) throws {
         let normalizedID = SchemaOwnedText.nfc(planID)
         let normalizedVersion = SchemaOwnedText.nfc(planVersion)
@@ -326,6 +332,7 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
         // honor the flag when a strategy is present.
         self.captureStrategyPinned = captureStrategyPinned
             && normalizedStrategy != nil
+        self.layoutProfile = layoutProfile
     }
 
     public var allItemIDs: [String] {
@@ -350,6 +357,7 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
         case equipmentCatalog = "equipment_catalog"
         case recommendedCaptureStrategy = "recommended_capture_strategy"
         case captureStrategyPinned = "capture_strategy_pinned"
+        case layoutProfile = "layout_profile"
     }
 
     /// Decodes an imported plan. Malformed bytes, unsupported schema
@@ -416,8 +424,66 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
             captureStrategyPinned: container.decodeIfPresent(
                 Bool.self,
                 forKey: .captureStrategyPinned
-            ) ?? false
+            ) ?? false,
+            layoutProfile: container.decodeIfPresent(
+                SpeakerLayoutProfile.self,
+                forKey: .layoutProfile
+            )
         )
+    }
+}
+
+/// Result of comparing an imported plan's pinned equipment catalog
+/// against the catalog currently adopted on this device (#302).
+///
+/// A plan that carries an `equipment_catalog` snapshot demands that
+/// exact catalog — matched by semantic content digest, never by label.
+/// A mismatched or absent active catalog is reported so the operator
+/// can switch deliberately instead of unknowingly selecting
+/// definitions from a stale or unrelated last-used catalog.
+public enum EquipmentCatalogRequirement: Sendable, Equatable {
+    /// The plan does not pin a catalog; any selection context is fine.
+    case notRequired
+    /// The active catalog's content digest equals the pinned digest.
+    case satisfied
+    /// The plan pins a catalog but none is adopted on this device.
+    case missingCatalog(pinnedSHA256: EvidenceSHA256)
+    /// The plan pins a catalog whose content digest differs from the
+    /// adopted catalog's — an explicit switch/import is required.
+    case mismatchedCatalog(
+        pinnedSHA256: EvidenceSHA256,
+        activeSHA256: EvidenceSHA256
+    )
+
+    /// Whether selections made under the current catalog satisfy the
+    /// plan's pin. `satisfied`/`notRequired` are fine; the other cases
+    /// must be visibly surfaced.
+    public var isSatisfied: Bool {
+        switch self {
+        case .notRequired, .satisfied:
+            return true
+        case .missingCatalog, .mismatchedCatalog:
+            return false
+        }
+    }
+
+    public static func check(
+        plan: HTDTCaptureTaskPlan?,
+        activeCatalog: HTDTEquipmentCatalogSnapshot?
+    ) -> EquipmentCatalogRequirement {
+        guard let pinned = plan?.equipmentCatalog else {
+            return .notRequired
+        }
+        let pinnedDigest = pinned.contentSHA256
+        guard let activeCatalog else {
+            return .missingCatalog(pinnedSHA256: pinnedDigest)
+        }
+        return activeCatalog.contentSHA256 == pinnedDigest
+            ? .satisfied
+            : .mismatchedCatalog(
+                pinnedSHA256: pinnedDigest,
+                activeSHA256: activeCatalog.contentSHA256
+            )
     }
 }
 
