@@ -41,6 +41,17 @@ public struct AnnotationEntityForm: View {
     /// Captures a plain evidence frame for equipment identity photos
     /// (#239); returns its canonical `path:` ref.
     public let captureIdentityPhoto: () async throws -> String
+    /// Versioned layout profile this form binds speaker roles to
+    /// (#315). When non-nil the speaker/subwoofer role picker offers
+    /// the profile's logical role IDs and the saved entity records a
+    /// `role_binding`; nil keeps the legacy free-token behavior.
+    public let layoutProfile: SpeakerLayoutProfile?
+    /// Label-scan assist (#345): captures a close-up label frame,
+    /// runs OCR/barcode recognition, and returns suggestion
+    /// candidates for the operator to confirm. Nil hides the control;
+    /// a result never commits fields by itself.
+    public let scanEquipmentLabel:
+        (() async throws -> EquipmentLabelScanResult)?
     /// Delivers the built entity plus its optional equipment-identity
     /// attestation.
     public let onSave: (
@@ -107,6 +118,14 @@ public struct AnnotationEntityForm: View {
     @State private var showingAdvanced = false
     @State private var errorText: String?
     @State private var capturingPointDirection = false
+    // Profile role binding (#315): the logical role ID selected in
+    // the active profile; "" means unbound/legacy channel token.
+    @State private var selectedRoleBindingID: String
+    // Label-scan assist (#345).
+    @State private var scanningLabel = false
+    @State private var scanResult: EquipmentLabelScanResult?
+    @State private var labelScanProvenance:
+        EquipmentLabelScanProvenance?
 
     public init(
         editingEntity: CaptureAnnotationEntity? = nil,
@@ -139,6 +158,9 @@ public struct AnnotationEntityForm: View {
             () async throws -> String = {
                 throw ManualAuthorityBuilderError.invalidPosition
             },
+        layoutProfile: SpeakerLayoutProfile? = nil,
+        scanEquipmentLabel:
+            (() async throws -> EquipmentLabelScanResult)? = nil,
         onSave: @escaping (
             CaptureAnnotationEntity,
             EquipmentIdentityRecord?
@@ -159,6 +181,8 @@ public struct AnnotationEntityForm: View {
         self.captureSpeakerOrientation = captureSpeakerOrientation
         self.capturePointOrientation = capturePointOrientation
         self.captureIdentityPhoto = captureIdentityPhoto
+        self.layoutProfile = layoutProfile
+        self.scanEquipmentLabel = scanEquipmentLabel
         self.onSave = onSave
 
         let seed = editingEntity.map(AnnotationEditSeed.init(entity:))
@@ -276,6 +300,13 @@ public struct AnnotationEntityForm: View {
             initialValue:
                 editingIdentityRecord?.attestedPhysicalMatch ?? false
         )
+        _selectedRoleBindingID = State(
+            initialValue:
+                editingEntity?.roleBinding?.roleID ?? ""
+        )
+        _labelScanProvenance = State(
+            initialValue: editingIdentityRecord?.labelScan
+        )
         // Preserve every ref the entity already carries as a user
         // selection so an edit never silently drops evidence; fresh
         // captures add their authority-owned refs on top (#245).
@@ -351,6 +382,27 @@ public struct AnnotationEntityForm: View {
                         : newType == .speaker ? .left
                         : nil
                     customRoleText = ""
+                    // Profile-bound role pick (#315): default to the
+                    // profile's first matching logical role so a fresh
+                    // speaker starts bound, never free-token.
+                    if let layoutProfile,
+                       newType == .speaker || newType == .subwoofer
+                    {
+                        selectedRoleBindingID =
+                            layoutProfile.roles.first(where: {
+                                $0.isSubwoofer
+                                    == (newType == .subwoofer)
+                            })?.roleID ?? ""
+                        if let definition = layoutProfile
+                            .roleDefinition(
+                                roleID: selectedRoleBindingID
+                            )
+                        {
+                            channelRole = definition.channelRole
+                        }
+                    } else {
+                        selectedRoleBindingID = ""
+                    }
                     semanticsSelection = ""
                     if !newType.supportsOrientationAuthority {
                         orientationAuthority = nil
@@ -547,6 +599,13 @@ public struct AnnotationEntityForm: View {
                 }
             }
         }
+        .sheet(item: $scanResult) { result in
+            NavigationStack {
+                EquipmentLabelScanSheet(result: result) { candidate in
+                    applyScanCandidate(candidate, from: result)
+                }
+            }
+        }
     }
 
     // MARK: Sections
@@ -672,21 +731,67 @@ public struct AnnotationEntityForm: View {
                 : String(localized: "Orientation")
         ) {
             if isSpeakerLike {
-                Picker(
-                    type == .subwoofer
-                        ? String(localized: "Subwoofer role")
-                        : String(localized: "Channel role"),
-                    selection: $channelRole
-                ) {
-                    Text(String(localized: "Not set"))
-                        .tag(ChannelRole?.none)
-                    ForEach(
+                if let layoutProfile {
+                    // Profile-bound logical role picker (#315): the
+                    // choice writes both the physical channel_role
+                    // token and the exact role_binding triple.
+                    let roles = layoutProfile.roles.filter {
+                        $0.isSubwoofer == (type == .subwoofer)
+                    }
+                    Picker(
                         type == .subwoofer
-                            ? ChannelRole.subwooferRoles
-                            : ChannelRole.standardRoles,
-                        id: \.self
-                    ) { role in
-                        channelRoleTag(for: role)
+                            ? String(localized: "Subwoofer role")
+                            : String(localized: "Logical role"),
+                        selection: $selectedRoleBindingID
+                    ) {
+                        Text(String(localized: "Not assigned"))
+                            .tag("")
+                        ForEach(roles, id: \.roleID) { role in
+                            Text(
+                                role.displayName
+                                    + " (" + role.roleID + ")"
+                                    + (role.allowsMultipleBindings
+                                        ? " *" : "")
+                            )
+                            .tag(role.roleID)
+                        }
+                    }
+                    .onChange(of: selectedRoleBindingID) {
+                        _, roleID in
+                        if let definition = layoutProfile
+                            .roleDefinition(roleID: roleID)
+                        {
+                            channelRole = definition.channelRole
+                        } else if roleID.isEmpty {
+                            channelRole = nil
+                        }
+                    }
+                    if !selectedRoleBindingID.isEmpty {
+                        Text(
+                            String(localized: "Bound to profile: ")
+                                + layoutProfile.profileID
+                                + " @ " + layoutProfile.profileVersion
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Picker(
+                        type == .subwoofer
+                            ? String(localized: "Subwoofer role")
+                            : String(localized: "Channel role"),
+                        selection: $channelRole
+                    ) {
+                        Text(String(localized: "Not set"))
+                            .tag(ChannelRole?.none)
+                        ForEach(
+                            type == .subwoofer
+                                ? ChannelRole.subwooferRoles
+                                : ChannelRole.standardRoles,
+                            id: \.self
+                        ) { role in
+                            channelRoleTag(for: role)
+                        }
                     }
                 }
             }
@@ -790,6 +895,34 @@ public struct AnnotationEntityForm: View {
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+                // Label-scan assist (#345): runs Vision OCR/barcode on
+                // a fresh close-up frame and offers candidates for
+                // explicit confirmation — never auto-fills anything.
+                if let scanEquipmentLabel {
+                    Button {
+                        scanLabel(scanEquipmentLabel)
+                    } label: {
+                        Label(
+                            scanningLabel
+                                ? String(localized: "Scanning label…")
+                                : String(localized:
+                                    "Scan equipment label"),
+                            systemImage: "barcode.viewfinder"
+                        )
+                    }
+                    .disabled(
+                        scanningLabel || cameraPreview == nil
+                    )
+                    if labelScanProvenance != nil {
+                        LabeledContent(
+                            String(localized: "Label scan"),
+                            value: String(localized:
+                                "suggested, confirmed by operator")
+                        )
+                        .font(.caption)
+                    }
+                }
 
                 // Physical-device identity evidence (#239): optional,
                 // explicit, and distinct from placement evidence.
@@ -1018,6 +1151,60 @@ public struct AnnotationEntityForm: View {
         }
     }
 
+    private func scanLabel(
+        _ scan: @escaping () async throws
+            -> EquipmentLabelScanResult
+    ) {
+        guard !scanningLabel else { return }
+        scanningLabel = true
+        errorText = nil
+        Task { @MainActor in
+            defer { scanningLabel = false }
+            do {
+                scanResult = try await scan()
+            } catch {
+                errorText =
+                    AnnotationPresentation.errorText(error)
+            }
+        }
+    }
+
+    /// Applies a confirmed scan candidate (#345): fills fields only
+    /// after the operator explicitly picks a suggestion. Serial stays
+    /// editable text, never proof.
+    private func applyScanCandidate(
+        _ candidate: EquipmentLabelScanCandidate,
+        from result: EquipmentLabelScanResult
+    ) {
+        includeEquipmentReference = true
+        if let key = candidate.catalogSelectionKey,
+           let entry = equipmentCatalogEntries.first(where: {
+               $0.selectionKey == key
+           })
+        {
+            selectedEquipmentKey = entry.selectionKey
+            equipmentID = entry.definitionID
+            equipmentVersion = entry.version
+            equipmentHash = entry.semanticSHA256.description
+            equipmentAuthorityVersion =
+                HTDTEquipmentCatalogSnapshot
+                    .expectedAuthorityVersion
+        }
+        if let serial = candidate.serialOrAssetTag {
+            serialText = serial
+        }
+        labelScanProvenance = try? EquipmentLabelScanProvenance(
+            algorithm: result.algorithm,
+            algorithmVersion: result.algorithmVersion,
+            evidenceRef: result.evidenceRef,
+            matchedRawStrings: candidate.rawStrings
+        )
+        // The scan image joins the entity's identity evidence.
+        if !identityEvidenceRefs.contains(result.evidenceRef) {
+            identityEvidenceRefs.append(result.evidenceRef)
+        }
+    }
+
     private func save() {
         do {
             // Manual XYZ only overrides the authority when the
@@ -1165,11 +1352,27 @@ public struct AnnotationEntityForm: View {
                 referencePointOffset = nil
             }
 
+            // Logical role binding (#315): only when a profile role
+            // is selected; the picker writes it on every change.
+            let roleBinding: SpeakerRoleBinding?
+            if isSpeakerLike, let layoutProfile,
+               !selectedRoleBindingID.isEmpty
+            {
+                roleBinding = try? SpeakerRoleBinding(
+                    profileID: layoutProfile.profileID,
+                    profileVersion: layoutProfile.profileVersion,
+                    roleID: selectedRoleBindingID
+                )
+            } else {
+                roleBinding = nil
+            }
+
             let entity = try seed.buildEntity(
                 coordinateSpaceID: coordinateSpaceID,
                 type: type,
                 label: label,
                 channelRole: role,
+                roleBinding: roleBinding,
                 equipmentRef: equipment,
                 yawDegrees: yawDegrees,
                 orientationYawDegrees: orientationYawDegrees,
@@ -1199,6 +1402,7 @@ public struct AnnotationEntityForm: View {
                     identityEvidenceRefs: identityEvidenceRefs,
                     serialOrAssetTag:
                         serialText.isEmpty ? nil : serialText,
+                    labelScan: labelScanProvenance,
                     attestedPhysicalMatch: true
                 )
             } else {

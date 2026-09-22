@@ -131,6 +131,25 @@ public struct CaptureAnnotationWorkspaceView: View {
     /// only decodes through the validating initializer.
     public let onImportEquipmentCatalog:
         (Data) throws -> HTDTEquipmentCatalogSnapshot
+    /// Every catalog snapshot stored in the host's multi-catalog
+    /// library (#302); each entry's snapshot carries its identity so
+    /// the operator can see source project/instance, freshness, and
+    /// definition counts, and switch the active catalog explicitly.
+    public let equipmentCatalogLibrary:
+        [HTDTEquipmentCatalogLibrary.StoredCatalog]
+    /// Activates a stored catalog by its content key (#302); the
+    /// host owns the store so a failed activation never mutates the
+    /// workspace's adopted snapshot.
+    public let onSelectEquipmentCatalog: (String) -> Void
+    /// Imported capture task plan (#240), when the host has one — its
+    /// pinned catalog identity drives the stale/missing-catalog
+    /// warning (#302) and its layout profile drives role bindings
+    /// (#315).
+    public let taskPlan: HTDTCaptureTaskPlan?
+    /// Label-scan assist (#345): captures a label frame and returns
+    /// suggestion candidates; nil hides the control.
+    public let scanEquipmentLabel:
+        (() async throws -> EquipmentLabelScanResult)?
     /// Current capture-task profile (#217); nil means geometry-only.
     public let taskProfile: CaptureTaskProfile?
     public let onSelectTaskProfile:
@@ -263,6 +282,13 @@ public struct CaptureAnnotationWorkspaceView: View {
                     from: data
                 )
             },
+        equipmentCatalogLibrary:
+            [HTDTEquipmentCatalogLibrary.StoredCatalog] = [],
+        onSelectEquipmentCatalog:
+            @escaping (String) -> Void = { _ in },
+        taskPlan: HTDTCaptureTaskPlan? = nil,
+        scanEquipmentLabel:
+            (() async throws -> EquipmentLabelScanResult)? = nil,
         onCommit: @escaping (
             [CaptureAnnotationEntity],
             [CaptureMeasurement],
@@ -304,6 +330,10 @@ public struct CaptureAnnotationWorkspaceView: View {
         self.draftStore = draftStore
         self.draftRevisionID = draftRevisionID
         self.onImportEquipmentCatalog = onImportEquipmentCatalog
+        self.equipmentCatalogLibrary = equipmentCatalogLibrary
+        self.onSelectEquipmentCatalog = onSelectEquipmentCatalog
+        self.taskPlan = taskPlan
+        self.scanEquipmentLabel = scanEquipmentLabel
         self.taskProfile = taskProfile
         self.onSelectTaskProfile = onSelectTaskProfile
         self.onCommit = onCommit
@@ -962,34 +992,48 @@ public struct CaptureAnnotationWorkspaceView: View {
             }
         }
     }
+    /// Active role vocabulary (#315): the task plan's exact layout
+    /// profile wins; ad-hoc captures get the built-in generic
+    /// profile so speaker roles are still versioned bindings rather
+    /// than free tokens.
+    private var activeLayoutProfile: SpeakerLayoutProfile? {
+        taskPlan?.layoutProfile ?? SpeakerLayoutProfiles.generic
+    }
+
     @ViewBuilder
     private var equipmentCatalogSection: some View {
         Section(
             String(localized: "HTDT equipment catalog")
         ) {
             if let equipmentCatalog {
-                LabeledContent(
-                    String(localized: "Definitions"),
-                    value: String(
-                        equipmentCatalog.definitions.count
-                    )
-                )
+                catalogIdentityRows(equipmentCatalog)
                 Text(
                     "Selections bind exact ID/version/SHA-256 only. The imported catalog is not stored as equipment authority in the capture bundle; it is kept on this device as reference context and can be replaced explicitly."
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                catalogRequirementNotice
             } else {
                 Text(
                     "Optional. Import a catalog snapshot exported from the HTDT backend. Once imported it stays available for later annotation sessions on this device."
                 )
                 .foregroundStyle(.secondary)
+                catalogRequirementNotice
+            }
+
+            if equipmentCatalogLibrary.count > 1 {
+                ForEach(
+                    equipmentCatalogLibrary,
+                    id: \.contentKey
+                ) { stored in
+                    catalogLibraryRow(stored)
+                }
             }
 
             Button(
                 equipmentCatalog == nil
                 ? String(localized: "Import equipment catalog")
-                : String(localized: "Replace equipment catalog")
+                : String(localized: "Import another catalog")
             ) {
                 importingEquipmentCatalog = true
             }
@@ -999,6 +1043,138 @@ public struct CaptureAnnotationWorkspaceView: View {
                     .foregroundStyle(.red)
             }
         }
+    }
+
+    /// Snapshot identity rows (#302): label, generated timestamp,
+    /// source project/instance, definition count — a legacy v1
+    /// cache decodes as `isLegacy` and reads "unknown/legacy".
+    @ViewBuilder
+    private func catalogIdentityRows(
+        _ catalog: HTDTEquipmentCatalogSnapshot
+    ) -> some View {
+        let identity = catalog.identity
+        LabeledContent(
+            String(localized: "Definitions"),
+            value: String(catalog.definitions.count)
+        )
+        if let label = identity.label {
+            LabeledContent(
+                String(localized: "Catalog"),
+                value: label
+            )
+        }
+        if let generated = identity.generatedAtUTC {
+            LabeledContent(
+                String(localized: "Generated"),
+                value: generated
+            )
+        }
+        if let project = identity.sourceProjectRef {
+            LabeledContent(
+                String(localized: "Source project"),
+                value: project
+            )
+        }
+        if let instance = identity.sourceInstanceRef {
+            LabeledContent(
+                String(localized: "Source instance"),
+                value: instance
+            )
+        }
+        if identity.isLegacy {
+            Text(
+                String(localized:
+                    "Legacy catalog (no source identity recorded)")
+            )
+            .font(.caption)
+            .foregroundStyle(.orange)
+        }
+    }
+
+    /// Task-plan catalog pin (#302/#240): a plan may pin the exact
+    /// catalog content hash it was authored against; a missing or
+    /// different active catalog is surfaced, never silently
+    /// substituted.
+    @ViewBuilder
+    private var catalogRequirementNotice: some View {
+        if let taskPlan {
+            let requirement = EquipmentCatalogRequirement.check(
+                plan: taskPlan,
+                activeCatalog: equipmentCatalog
+            )
+            switch requirement {
+            case .notRequired, .satisfied:
+                EmptyView()
+            case .missingCatalog:
+                Label(
+                    String(localized:
+                        "Task plan requires a pinned catalog that is not loaded."),
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            case let .mismatchedCatalog(pinnedSHA256, activeSHA256):
+                let detail = String(localized:
+                    "Active catalog differs from the catalog pinned by the task plan.")
+                    + "\n"
+                    + String(localized: "Pinned: ")
+                    + pinnedSHA256.description.prefix(16)
+                    + "… " + String(localized: "Active: ")
+                    + activeSHA256.description.prefix(16)
+                    + "…"
+                Label(
+                    detail,
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func catalogLibraryRow(
+        _ stored: HTDTEquipmentCatalogLibrary.StoredCatalog
+    ) -> some View {
+        let identity = stored.snapshot.identity
+        let isActive =
+            stored.snapshot.contentSHA256
+                == equipmentCatalog?.contentSHA256
+        let countText = String(
+            format: String(localized: "%d definitions"),
+            stored.snapshot.definitions.count
+        )
+        let subtitle =
+            [identity.generatedAtUTC, identity.sourceProjectRef]
+                .compactMap { $0 }
+                .joined(separator: " · ")
+                + (identity.generatedAtUTC == nil
+                    && identity.sourceProjectRef == nil
+                    ? countText
+                    : " · " + countText)
+        Button {
+            onSelectEquipmentCatalog(stored.contentKey)
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(
+                        identity.label
+                            ?? String(localized: "Unnamed catalog")
+                    )
+                    .foregroundStyle(.primary)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if isActive {
+                    Text(String(localized: "Active"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .disabled(isActive)
     }
     @ViewBuilder
     private var taskProfileSection: some View {
@@ -1494,7 +1670,9 @@ public struct CaptureAnnotationWorkspaceView: View {
             captureSpeakerOrientation:
                 captureSpeakerOrientation,
             capturePointOrientation: capturePointOrientation,
-            captureIdentityPhoto: captureIdentityPhoto
+            captureIdentityPhoto: captureIdentityPhoto,
+            layoutProfile: activeLayoutProfile,
+            scanEquipmentLabel: scanEquipmentLabel
         ) { entity, record in
             recordUndoableEdit()
             annotations.append(entity)
@@ -1589,7 +1767,9 @@ public struct CaptureAnnotationWorkspaceView: View {
                         captureSpeakerOrientation,
                     capturePointOrientation:
                         capturePointOrientation,
-                    captureIdentityPhoto: captureIdentityPhoto
+                    captureIdentityPhoto: captureIdentityPhoto,
+                    layoutProfile: activeLayoutProfile,
+                    scanEquipmentLabel: scanEquipmentLabel
                 ) { updated, record in
                     recordUndoableEdit()
                     annotations.replaceAll(
