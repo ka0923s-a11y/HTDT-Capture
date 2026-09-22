@@ -725,6 +725,15 @@ enum BundleReservedPaths {
             provenanceClass: .captureAppDerived,
             role: .canonical
         ),
+        // Durable working-revision lifecycle marker (issue #297):
+        // written by the working set's atomic transactions and carried
+        // into the finalized bundle as provenance.
+        "session/revision-state.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_session",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
         "session/room-reference-frame.json": Binding(
             mediaType: "application/json",
             producer: "room_frame",

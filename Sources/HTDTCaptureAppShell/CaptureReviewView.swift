@@ -11,17 +11,37 @@ public struct CaptureReviewView: View {
     /// unavailable — the section then reports "analysis unavailable"
     /// rather than implying a pass.
     public let spatialFindings: [SpatialPlausibilityFinding]?
+    /// Whether the working set's spatial authority is live (issue
+    /// #297): false on a relaunch-recovered draft, where actions
+    /// requiring a live scan (Continue scanning, save evidence frame)
+    /// are filtered out of every remediation plan.
+    public let spatialAuthorityLive: Bool
+    /// Practice-mode capture (issue #320): remediation reads as
+    /// rehearsal guidance; finalization is never offered.
+    public let practiceCapture: Bool
+    /// Corrective-action sink (issue #298). nil renders remediation
+    /// explanations without buttons — e.g. a finalized-capture viewer.
+    public let onRemediationAction:
+        ((CaptureRemediationAction) -> Void)?
 
     public init(
         quality: CaptureQualityReport,
         advisory: CaptureAdvisoryReport? = nil,
         validation: BundleValidationReport? = nil,
-        spatialFindings: [SpatialPlausibilityFinding]? = nil
+        spatialFindings: [SpatialPlausibilityFinding]? = nil,
+        spatialAuthorityLive: Bool = true,
+        practiceCapture: Bool = false,
+        onRemediationAction: (
+            (CaptureRemediationAction) -> Void
+        )? = nil
     ) {
         self.quality = quality
         self.advisory = advisory
         self.validation = validation
         self.spatialFindings = spatialFindings
+        self.spatialAuthorityLive = spatialAuthorityLive
+        self.practiceCapture = practiceCapture
+        self.onRemediationAction = onRemediationAction
     }
 
     public var body: some View {
@@ -148,6 +168,30 @@ public struct CaptureReviewView: View {
             if let task = advisory?.taskCompleteness {
                 Section("Capture task") {
                     taskCompletenessRows(task)
+                    // #298: task-completeness gaps get the same
+                    // corrective-action surface as quality
+                    // diagnostics — an unmet requirement is actionable,
+                    // not just reported.
+                    let taskActions = task.remediationActions
+                        .filter {
+                            spatialAuthorityLive
+                                || !$0.requiresLiveSpatialAuthority
+                        }
+                    if !taskActions.isEmpty,
+                       onRemediationAction != nil
+                    {
+                        HStack(spacing: 8) {
+                            ForEach(taskActions, id: \.self) {
+                                action in
+                                Button(
+                                    localizedRemediationAction(action)
+                                ) {
+                                    onRemediationAction?(action)
+                                }
+                            }
+                        }
+                        .font(.callout)
+                    }
                 }
             }
 
@@ -190,10 +234,19 @@ public struct CaptureReviewView: View {
                 if quality.diagnostics.isEmpty {
                     Text("No quality diagnostics.")
                 } else {
+                    // #298: every diagnostic carries a typed
+                    // remediation — why it matters, whether it blocks
+                    // finalization, and the direct corrective action
+                    // affordances. Live-spatial actions are filtered on
+                    // a recovered draft; buttons are hidden entirely
+                    // when no remediation sink is wired (e.g. the
+                    // finalized-capture viewer).
                     ForEach(
                         Array(quality.diagnostics.enumerated()),
                         id: \.offset
                     ) { _, diagnostic in
+                        let remediation = QualityRemediationCatalog
+                            .remediation(for: diagnostic)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(diagnostic.code)
                                 .font(.headline)
@@ -203,6 +256,13 @@ public struct CaptureReviewView: View {
                                     diagnostic.severity
                                 )
                             )
+                                .font(.caption)
+                            Text(
+                                remediationWhyText(remediation)
+                            )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            remediationButtons(remediation)
                         }
                     }
                 }
@@ -614,6 +674,27 @@ public struct CaptureReviewView: View {
                 }
             }
         }
+        LabeledContent(
+            "Guidance completion",
+            value: localizedGuidanceCompletionSource(
+                summary.guidanceCompletionSource
+            )
+        )
+        if let source = ScanGuidanceCompletionSource(
+            rawValue: summary.guidanceCompletionSource ?? ""
+        ), source != .observed, source != .incomplete {
+            Text(
+                String(
+                    format: String(
+                        localized: "%d weak area(s) unresolved when guidance ended"
+                    ),
+                    summary.actionableWeakRegionCount
+                        + summary.saturatedWeakRegionCount
+                )
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
         Text(
             String(
                 localized: "Coverage is advisory; unobserved areas do not prove missing geometry."
@@ -976,6 +1057,45 @@ public struct CaptureReviewView: View {
         return severity
     }
 
+    /// User-facing label for the persisted guidance-completion source
+    /// (issue #296): "completed" is always qualified by *how* it
+    /// completed so a bounded termination never reads as observed
+    /// completeness. Pre-#296 payloads carry nil and stay honest.
+    private func localizedGuidanceCompletionSource(
+        _ source: String?
+    ) -> String {
+        guard let source,
+              let value = ScanGuidanceCompletionSource(
+                  rawValue: source
+              )
+        else {
+            return String(localized: "Not recorded")
+        }
+        switch value {
+        case .incomplete:
+            return String(localized: "Not complete")
+        case .observed:
+            return String(
+                localized: "Observed — all guidance satisfied"
+            )
+        case .weakRegionRetriesExhausted:
+            return String(
+                localized:
+                    "Finished after weak-area retries were exhausted"
+            )
+        case .attemptBudgetExhausted:
+            return String(
+                localized:
+                    "Finished when the guidance attempt budget ran out"
+            )
+        case .movementConstrained:
+            return String(
+                localized:
+                    "Movement-constrained scan; movement checks skipped"
+            )
+        }
+    }
+
     private func localizedDiagnosticMessage(
         _ diagnostic: QualityDiagnostic
     ) -> String {
@@ -1042,6 +1162,125 @@ public struct CaptureReviewView: View {
             )
         default:
             return diagnostic.message
+        }
+    }
+
+    /// Corrective affordances for one diagnostic (issue #298). When
+    /// no remediation sink is wired — the finalized-capture viewer —
+    /// nothing renders; on a recovered draft the live-spatial actions
+    /// are already filtered by `draftActions`.
+    @ViewBuilder
+    private func remediationButtons(
+        _ remediation: QualityRemediation
+    ) -> some View {
+        let available = spatialAuthorityLive
+            ? remediation.actions
+            : remediation.draftActions
+        if !available.isEmpty, let onRemediationAction {
+            HStack(spacing: 8) {
+                ForEach(available, id: \.self) { action in
+                    Button(localizedRemediationAction(action)) {
+                        onRemediationAction(action)
+                    }
+                }
+            }
+            .font(.callout)
+        }
+        if !spatialAuthorityLive,
+           remediation.actions.count != available.count
+        {
+            Text(
+                String(
+                    localized: "Scanning actions are unavailable on a recovered draft — spatial evidence is sealed."
+                )
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Why-this-matters copy keyed to the diagnostic code (issue
+    /// #298): an action surface without the consequence it clears is
+    /// noise. The prefix states blocking vs advisory.
+    private func remediationWhyText(
+        _ remediation: QualityRemediation
+    ) -> String {
+        let consequence: String
+        if remediation.blocking {
+            consequence = String(
+                localized: "Blocking: this must clear before Validate and finalize."
+            )
+        } else {
+            consequence = String(
+                localized: "Advisory: finalization stays available; fixing it improves the bundle."
+            )
+        }
+        switch remediation.diagnosticCode {
+        case "roomplan_not_completed":
+            return consequence + " " + String(
+                localized: "Continue scanning lets RoomPlan finish its accepted geometry."
+            )
+        case "insufficient_mesh_anchors",
+             "depth_fallback_insufficient",
+             "depth_evidence_missing":
+            return consequence + " " + String(
+                localized: "More scan coverage adds the geometric or depth evidence the ruleset requires."
+            )
+        case "insufficient_evidence_frames":
+            return consequence + " " + String(
+                localized: "Saved evidence frames give reviewers the visual record the ruleset requires."
+            )
+        case "annotation_missing":
+            return consequence + " " + String(
+                localized: "The missing annotation is a semantic fix — open the annotation workspace."
+            )
+        case "measurement_missing":
+            return consequence + " " + String(
+                localized: "The missing measurement is a semantic fix — open the measurement workspace."
+            )
+        case "tracking_unavailable_recovering":
+            return consequence + " " + String(
+                localized: "Keep scanning until tracking stays normal for the required stable interval."
+            )
+        case "integrity_not_checked",
+             "integrity_failed":
+            return consequence + " " + String(
+                localized: "Re-verifying reads the committed bytes again; a real corruption needs a discard."
+            )
+        case "resource_error":
+            return consequence + " " + String(
+                localized: "A resource failure damaged capture authority; only a replacement revision clears it."
+            )
+        default:
+            if !remediation.repairableInPlace {
+                return consequence + " " + String(
+                    localized: "The spatial authority for this capture is already damaged; a replacement capture is the only repair."
+                )
+            }
+            return consequence
+        }
+    }
+
+    private func localizedRemediationAction(
+        _ action: CaptureRemediationAction
+    ) -> String {
+        switch action {
+        case .continueScanning:
+            return String(localized: "Continue scanning")
+        case .saveEvidenceFrame:
+            return String(localized: "Save evidence frame")
+        case .addAnnotation:
+            return String(localized: "Add annotations")
+        case .addMeasurement:
+            return String(localized: "Add measurement")
+        case .reviewTaskRequirements:
+            return String(localized: "Review task requirements")
+        case .verifyIntegrityAgain:
+            return String(localized: "Re-verify integrity")
+        case .startReplacementRevision:
+            return String(localized: "Start replacement capture")
+        case .discardDraft:
+            return String(localized: "Discard this capture")
         }
     }
 }

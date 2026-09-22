@@ -66,6 +66,37 @@ public enum ScanMovementCapability: String, Sendable, Equatable {
     }
 }
 
+/// Why guidance reported `isComplete` (issue #296). The boolean alone
+/// conflated "every retained weak/unknown region was genuinely
+/// observed" with termination by retry-budget exhaustion or an
+/// operator-declared movement constraint — three semantically different
+/// outcomes that must surface differently in copy, the persisted
+/// end-of-scan coverage summary, and tutorial vocabulary.
+public enum ScanGuidanceCompletionSource:
+    String,
+    Codable,
+    Sendable,
+    Equatable,
+    CaseIterable
+{
+    /// Guidance is still running: `isComplete` is false.
+    case incomplete
+    /// Direction coverage was satisfied under normal tracking and no
+    /// weak region still has an actionable or saturated retry budget —
+    /// completion was genuinely observed, not negotiated.
+    case observed
+    /// Direction coverage was satisfied and no weak region remains
+    /// actionable, but at least one weak region exhausted its bounded
+    /// retry budget: completion came from saturation, not observation.
+    case weakRegionRetriesExhausted = "weak_region_retries_exhausted"
+    /// The overall spatial-guidance attempt budget ran out while weak
+    /// regions were still actionable.
+    case attemptBudgetExhausted = "attempt_budget_exhausted"
+    /// The operator declared a movement-constrained scan; movement-
+    /// dependent guidance is satisfied vacuously, never observed.
+    case movementConstrained = "movement_constrained"
+}
+
 public struct ScanGuidanceProgress: Sendable, Equatable {
     public let movementCapability: ScanMovementCapability
     public let completedSpatialGuidanceAttemptCount: Int
@@ -83,6 +114,11 @@ public struct ScanGuidanceProgress: Sendable, Equatable {
     public let remoteWeakRegionCount: Int
     public let directionCoverageFraction: Double
     public let isComplete: Bool
+    /// Typed reason behind `isComplete` (issue #296). `.incomplete`
+    /// exactly when `isComplete` is false, so callers that render a
+    /// completion claim can always demand the source instead of
+    /// guessing from the boolean.
+    public let completionSource: ScanGuidanceCompletionSource
 
     public init(
         movementCapability: ScanMovementCapability,
@@ -92,7 +128,8 @@ public struct ScanGuidanceProgress: Sendable, Equatable {
         saturatedWeakRegionCount: Int,
         remoteWeakRegionCount: Int = 0,
         directionCoverageFraction: Double,
-        isComplete: Bool
+        isComplete: Bool,
+        completionSource: ScanGuidanceCompletionSource? = nil
     ) {
         self.movementCapability = movementCapability
         self.completedSpatialGuidanceAttemptCount =
@@ -104,6 +141,15 @@ public struct ScanGuidanceProgress: Sendable, Equatable {
         self.remoteWeakRegionCount = remoteWeakRegionCount
         self.directionCoverageFraction = directionCoverageFraction
         self.isComplete = isComplete
+        self.completionSource = completionSource
+            ?? (isComplete ? .observed : .incomplete)
+    }
+
+    /// Weak regions still unresolved when completion fired — the count
+    /// the UI keeps visible when the source was budget/constraint
+    /// rather than observation (issue #296).
+    public var unresolvedWeakRegionCount: Int {
+        actionableWeakRegionCount + saturatedWeakRegionCount
     }
 
     public static let empty = ScanGuidanceProgress(
@@ -114,7 +160,8 @@ public struct ScanGuidanceProgress: Sendable, Equatable {
         saturatedWeakRegionCount: 0,
         remoteWeakRegionCount: 0,
         directionCoverageFraction: 0,
-        isComplete: false
+        isComplete: false,
+        completionSource: .incomplete
     )
 }
 
@@ -624,6 +671,26 @@ public struct ScanMotionGuidanceTracker: Sendable {
                 spatialCoverage.knownRegionCount > 0
                 && actionable == 0
             )
+        let isComplete = directionReady && spatialComplete
+
+        // Completion source precedence (issue #296): an operator-
+        // declared movement constraint dominates — movement-dependent
+        // guidance never ran. A spent global budget outranks per-region
+        // retry saturation, and both outrank a genuinely-observed
+        // completion, so a "complete" claim is never attributed to
+        // observation when a bound terminated the loop.
+        let completionSource: ScanGuidanceCompletionSource
+        if !isComplete {
+            completionSource = .incomplete
+        } else if movementCapability == .stationaryOnly {
+            completionSource = .movementConstrained
+        } else if spatialBudgetExhausted {
+            completionSource = .attemptBudgetExhausted
+        } else if saturated > 0 {
+            completionSource = .weakRegionRetriesExhausted
+        } else {
+            completionSource = .observed
+        }
 
         return ScanGuidanceProgress(
             movementCapability: movementCapability,
@@ -635,7 +702,8 @@ public struct ScanMotionGuidanceTracker: Sendable {
             saturatedWeakRegionCount: saturated,
             remoteWeakRegionCount: remote,
             directionCoverageFraction: coverage.coverageFraction,
-            isComplete: directionReady && spatialComplete
+            isComplete: isComplete,
+            completionSource: completionSource
         )
     }
 

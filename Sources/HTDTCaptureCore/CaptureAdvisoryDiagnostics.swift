@@ -358,6 +358,11 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
             .map(\.rawValue)
             .filter { verticalBandSummaries?[$0] != nil }
     }
+    /// Why `guidanceComplete` fired (issue #296): a
+    /// `ScanGuidanceCompletionSource` raw value. Optional so payloads
+    /// persisted before the source was tracked still decode; nil means
+    /// "recorded by an older schema", never "observed".
+    public let guidanceCompletionSource: String?
     // Optional scope/convention markers added for #336/#343/#347.
     // Optionals keep `htdt.capture.advisory` v1.0.0 payloads written
     // before these fields existed decodable.
@@ -417,6 +422,7 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
         verticalWeakVoxelKeys: [String]? = nil,
         verticalBandSummaries:
             [String: CaptureVerticalBandSummary]? = nil,
+        guidanceCompletionSource: String? = nil,
         remoteWeakRegionCount: Int? = nil,
         spatialMaxRegionCount: Int? = nil,
         spatialPeakRegionCount: Int? = nil,
@@ -462,6 +468,7 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
         self.verticalWeakVoxelCount = verticalWeakVoxelCount
         self.verticalWeakVoxelKeys = verticalWeakVoxelKeys
         self.verticalBandSummaries = verticalBandSummaries
+        self.guidanceCompletionSource = guidanceCompletionSource
         self.remoteWeakRegionCount = remoteWeakRegionCount
         self.spatialMaxRegionCount = spatialMaxRegionCount
         self.spatialPeakRegionCount = spatialPeakRegionCount
@@ -509,6 +516,7 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
         case verticalWeakVoxelCount = "vertical_weak_voxel_count"
         case verticalWeakVoxelKeys = "vertical_weak_voxel_keys"
         case verticalBandSummaries = "vertical_band_summaries"
+        case guidanceCompletionSource = "guidance_completion_source"
         case remoteWeakRegionCount = "remote_weak_region_count"
         case spatialMaxRegionCount = "spatial_max_region_count"
         case spatialPeakRegionCount = "spatial_peak_region_count"

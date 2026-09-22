@@ -1,0 +1,409 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		031C2EEEDD86F10DD959C41D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 364679936CEF60373C4FE119 /* Assets.xcassets */; };
+		1F6EAB221C3D7F1B2D8FA06A /* HTDTCaptureApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E75C013589449105C975B579 /* HTDTCaptureApp.swift */; };
+		527DB4ECAC1B32D30FF42570 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 3E3DC4B035D8AFE409BD2035 /* Localizable.strings */; };
+		61181C8A6E982A39C6BF1216 /* HTDTCapturePlatform in Frameworks */ = {isa = PBXBuildFile; productRef = 717DB610F8FAD78BD4039D0F /* HTDTCapturePlatform */; };
+		7E19453D58F50AEE5EA54D34 /* HTDTCaptureCore in Frameworks */ = {isa = PBXBuildFile; productRef = 590C891C6782F2976FFB6AA9 /* HTDTCaptureCore */; };
+		8481C7D89274A601A20E7AB7 /* HTDTCaptureAppShell in Frameworks */ = {isa = PBXBuildFile; productRef = 9C5FEF23A27D1E136BF380A3 /* HTDTCaptureAppShell */; };
+		B6C444F90F103CF8CDB2F578 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 7BAD1AF78A238DC024D6423E /* InfoPlist.strings */; };
+		DD899F5B29E497B204FECF63 /* EquipmentLabelVisionScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD7D340D9792493DF5E69A91 /* EquipmentLabelVisionScan.swift */; };
+		DF7DA537D3BEBFC028E24C0A /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = BBC338DAC78C95597F325556 /* PrivacyInfo.xcprivacy */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		1B9B9CC2078C03698E3A2BFF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		282B42F79C681C9B22C14CA8 /* HTDT-Capture */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "HTDT-Capture"; path = .; sourceTree = SOURCE_ROOT; };
+		364679936CEF60373C4FE119 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		3E3DC4B035D8AFE409BD2035 /* Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Localizable.strings; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
+		7BAD1AF78A238DC024D6423E /* InfoPlist.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = InfoPlist.strings; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		BBC338DAC78C95597F325556 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		DD7D340D9792493DF5E69A91 /* EquipmentLabelVisionScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentLabelVisionScan.swift; sourceTree = "<group>"; };
+		E75C013589449105C975B579 /* HTDTCaptureApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTDTCaptureApp.swift; sourceTree = "<group>"; };
+		EB1155D420A6A40C69639413 /* HTDTCapture.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HTDTCapture.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		B7126F5AF41AF798B5B18E35 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7E19453D58F50AEE5EA54D34 /* HTDTCaptureCore in Frameworks */,
+				61181C8A6E982A39C6BF1216 /* HTDTCapturePlatform in Frameworks */,
+				8481C7D89274A601A20E7AB7 /* HTDTCaptureAppShell in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		23328254CD9E4A3E05352D6C /* App */ = {
+			isa = PBXGroup;
+			children = (
+				364679936CEF60373C4FE119 /* Assets.xcassets */,
+				DD7D340D9792493DF5E69A91 /* EquipmentLabelVisionScan.swift */,
+				E75C013589449105C975B579 /* HTDTCaptureApp.swift */,
+				1B9B9CC2078C03698E3A2BFF /* Info.plist */,
+				7BAD1AF78A238DC024D6423E /* InfoPlist.strings */,
+				3E3DC4B035D8AFE409BD2035 /* Localizable.strings */,
+				BBC338DAC78C95597F325556 /* PrivacyInfo.xcprivacy */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		374F825FDB88566A20A301D4 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				EB1155D420A6A40C69639413 /* HTDTCapture.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		4CEB55A604F66C9B0FAA4C2A = {
+			isa = PBXGroup;
+			children = (
+				23328254CD9E4A3E05352D6C /* App */,
+				A143FF39D7FFB71B37A0FE79 /* Packages */,
+				374F825FDB88566A20A301D4 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A143FF39D7FFB71B37A0FE79 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				282B42F79C681C9B22C14CA8 /* HTDT-Capture */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0EBD07EB9BF2481A3F0D2B39 /* HTDTCapture */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 805B6530C1EBF4162D9161DE /* Build configuration list for PBXNativeTarget "HTDTCapture" */;
+			buildPhases = (
+				FC52CF3024920F72475F7720 /* Prepare App Icon */,
+				7E211893711D04F6833735C5 /* Sources */,
+				24E70B9604F397FEDEB827B6 /* Resources */,
+				B7126F5AF41AF798B5B18E35 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HTDTCapture;
+			packageProductDependencies = (
+				590C891C6782F2976FFB6AA9 /* HTDTCaptureCore */,
+				717DB610F8FAD78BD4039D0F /* HTDTCapturePlatform */,
+				9C5FEF23A27D1E136BF380A3 /* HTDTCaptureAppShell */,
+			);
+			productName = HTDTCapture;
+			productReference = EB1155D420A6A40C69639413 /* HTDTCapture.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8BFA1CB32E607B82BDC51631 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					0EBD07EB9BF2481A3F0D2B39 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 3AB1B02DDEBBD5EFDAF7B660 /* Build configuration list for PBXProject "HTDTCapture" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+				ja,
+			);
+			mainGroup = 4CEB55A604F66C9B0FAA4C2A;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				39EC10CA8AAD45323D03658B /* XCLocalSwiftPackageReference "." */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 374F825FDB88566A20A301D4 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				0EBD07EB9BF2481A3F0D2B39 /* HTDTCapture */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		24E70B9604F397FEDEB827B6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				031C2EEEDD86F10DD959C41D /* Assets.xcassets in Resources */,
+				B6C444F90F103CF8CDB2F578 /* InfoPlist.strings in Resources */,
+				527DB4ECAC1B32D30FF42570 /* Localizable.strings in Resources */,
+				DF7DA537D3BEBFC028E24C0A /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		FC52CF3024920F72475F7720 /* Prepare App Icon */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Prepare App Icon";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n/bin/sh \"$SRCROOT/tools/prepare-app-icon.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		7E211893711D04F6833735C5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DD899F5B29E497B204FECF63 /* EquipmentLabelVisionScan.swift in Sources */,
+				1F6EAB221C3D7F1B2D8FA06A /* HTDTCaptureApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		3EC501A4AE2758CCD7F8BD5D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		8F7BC5DDFAECAB4F9295B566 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		B12AC6AEB8D0991757CB5D65 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hometheaterdigitaltwin.capture;
+				PRODUCT_NAME = HTDTCapture;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		B47C27B5B1BAF692BA8B2773 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hometheaterdigitaltwin.capture;
+				PRODUCT_NAME = HTDTCapture;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3AB1B02DDEBBD5EFDAF7B660 /* Build configuration list for PBXProject "HTDTCapture" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3EC501A4AE2758CCD7F8BD5D /* Debug */,
+				8F7BC5DDFAECAB4F9295B566 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		805B6530C1EBF4162D9161DE /* Build configuration list for PBXNativeTarget "HTDTCapture" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B47C27B5B1BAF692BA8B2773 /* Debug */,
+				B12AC6AEB8D0991757CB5D65 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		39EC10CA8AAD45323D03658B /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = .;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		590C891C6782F2976FFB6AA9 /* HTDTCaptureCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HTDTCaptureCore;
+		};
+		717DB610F8FAD78BD4039D0F /* HTDTCapturePlatform */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HTDTCapturePlatform;
+		};
+		9C5FEF23A27D1E136BF380A3 /* HTDTCaptureAppShell */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HTDTCaptureAppShell;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 8BFA1CB32E607B82BDC51631 /* Project object */;
+}
