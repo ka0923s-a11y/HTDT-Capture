@@ -28,6 +28,12 @@ public struct EquipmentIdentityRecord: Codable, Sendable, Equatable {
     public let identityEvidenceRefs: [String]
     /// Optional operator-entered serial/asset identifier.
     public let serialOrAssetTag: String?
+    /// Provenance of the label-scan suggestion the operator confirmed
+    /// (#345): algorithm/version + the persisted source frame. Nil on
+    /// records whose fields were keyed in manually — the field's
+    /// presence is what marks the suggestion-confirmed path versus
+    /// the authority-attested one.
+    public let labelScan: EquipmentLabelScanProvenance?
     /// Explicit operator attestation that the selected catalog
     /// definition matches the physical unit. Required: a record without
     /// attestation carries no identity authority and is rejected.
@@ -39,6 +45,7 @@ public struct EquipmentIdentityRecord: Codable, Sendable, Equatable {
         equipment: HTDTEquipmentReference,
         identityEvidenceRefs: [String] = [],
         serialOrAssetTag: String? = nil,
+        labelScan: EquipmentLabelScanProvenance? = nil,
         attestedPhysicalMatch: Bool,
         recordedAtUTC: String = BundleTimestamp.utcString(from: Date())
     ) throws {
@@ -56,6 +63,7 @@ public struct EquipmentIdentityRecord: Codable, Sendable, Equatable {
         self.serialOrAssetTag = normalizedSerial?.isEmpty == true
             ? nil
             : normalizedSerial
+        self.labelScan = labelScan
         self.attestedPhysicalMatch = attestedPhysicalMatch
         self.recordedAtUTC = recordedAtUTC
     }
@@ -65,6 +73,7 @@ public struct EquipmentIdentityRecord: Codable, Sendable, Equatable {
         case equipment
         case identityEvidenceRefs = "identity_evidence_refs"
         case serialOrAssetTag = "serial_or_asset_tag"
+        case labelScan = "label_scan"
         case attestedPhysicalMatch = "attested_physical_match"
         case recordedAtUTC = "recorded_at_utc"
     }

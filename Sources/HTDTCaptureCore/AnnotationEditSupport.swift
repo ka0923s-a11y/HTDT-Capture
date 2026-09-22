@@ -70,6 +70,9 @@ public struct AnnotationEditSeed: Sendable, Equatable {
     public let yawDegrees: Float?
     public let channelRole: ChannelRole?
     public let equipmentRef: HTDTEquipmentReference?
+    /// Entity's logical role binding (#315); survives an edit verbatim
+    /// unless the form explicitly re-binds.
+    public let originalRoleBinding: SpeakerRoleBinding?
     /// The entity's original provenance fields, reused verbatim when
     /// the operator does not re-capture placement/orientation.
     public let originalPlacement: PlacementProvenance
@@ -107,6 +110,7 @@ public struct AnnotationEditSeed: Sendable, Equatable {
         self.yawDegrees = nil
         self.channelRole = nil
         self.equipmentRef = nil
+        self.originalRoleBinding = nil
         self.originalPlacement = try! PlacementProvenance(
             method: .manualNumeric
         )
@@ -137,6 +141,7 @@ public struct AnnotationEditSeed: Sendable, Equatable {
         }
         self.channelRole = entity.channelRole
         self.equipmentRef = entity.equipmentRef
+        self.originalRoleBinding = entity.roleBinding
         self.originalPlacement = entity.placement
         self.originalOrientation = entity.orientation
         self.originalTransform = entity.worldFromAnnotation
@@ -158,6 +163,7 @@ public struct AnnotationEditSeed: Sendable, Equatable {
         type: AnnotationEntityType,
         label: String,
         channelRole: ChannelRole?,
+        roleBinding: SpeakerRoleBinding? = nil,
         equipmentRef: HTDTEquipmentReference?,
         yawDegrees: Float?,
         orientationYawDegrees: Float? = nil,
@@ -254,6 +260,13 @@ public struct AnnotationEditSeed: Sendable, Equatable {
                 || channelRole == nil
         else {
             throw AnnotationModelError.invalidAuthorityComponent
+        }
+        // A logical role binding only makes sense on a physical
+        // loudspeaker (#315).
+        guard type == .speaker || type == .subwoofer
+                || roleBinding == nil
+        else {
+            throw AnnotationModelError.incompatibleRoleBinding
         }
 
         let semantics = referencePointSemantics
@@ -368,7 +381,7 @@ public struct AnnotationEditSeed: Sendable, Equatable {
                 )
             },
             semanticRole: try (channelRole != nil
-                || listeningRole != nil)
+                || listeningRole != nil || roleBinding != nil)
                 ? AnnotationComponentAuthority(state: .userAttested)
                 : nil
         )
@@ -391,6 +404,7 @@ public struct AnnotationEditSeed: Sendable, Equatable {
             placement: placement,
             orientation: orientation,
             channelRole: channelRole,
+            roleBinding: roleBinding,
             equipmentRef: equipmentRef,
             evidenceRefs: evidenceRefs,
             physicalEnvelope: type == self.type
