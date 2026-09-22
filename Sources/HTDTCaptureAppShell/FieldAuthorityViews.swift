@@ -2190,7 +2190,7 @@ private extension View {
     /// macOS where `autocapitalization` is unavailable.
     @ViewBuilder func noAutocapitalization() -> some View {
         #if os(iOS)
-        autocapitalization(.never)
+        autocapitalization(.none)
         #else
         self
         #endif
