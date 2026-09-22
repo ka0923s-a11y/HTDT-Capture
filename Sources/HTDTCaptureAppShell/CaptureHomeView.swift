@@ -171,6 +171,8 @@ public struct CaptureHomeView: View {
         LibraryMetadataEditorTarget?
     @State private var pendingDeletion: PendingCaptureDeletion?
     @State private var persistedViewerShown = false
+    @State private var derived3DTarget: DerivedExportTarget?
+    @State private var surveyReportTarget: DerivedExportTarget?
 
     public init(
         capabilities: CaptureCapabilityMatrix,
@@ -228,6 +230,12 @@ public struct CaptureHomeView: View {
                 document: libraryMetadata,
                 onSave: actions.updateLibraryEntry
             )
+        }
+        .sheet(item: $derived3DTarget) { target in
+            Derived3DExportSheet(target: target, actions: actions)
+        }
+        .sheet(item: $surveyReportTarget) { target in
+            SurveyReportExportSheet(target: target, actions: actions)
         }
         .confirmationDialog(
             "Delete local capture?",
@@ -558,6 +566,8 @@ public struct CaptureHomeView: View {
                     persistedViewerShown: $persistedViewerShown,
                     metadataEditorTarget: $metadataEditorTarget,
                     pendingDeletion: $pendingDeletion,
+                    derived3DTarget: $derived3DTarget,
+                    surveyReportTarget: $surveyReportTarget,
                     captureOrigins: captureOrigins,
                     actions: actions
                 )
@@ -837,6 +847,8 @@ private struct CaptureSeriesDetailView: View {
     @Binding var metadataEditorTarget:
         LibraryMetadataEditorTarget?
     @Binding var pendingDeletion: PendingCaptureDeletion?
+    @Binding var derived3DTarget: DerivedExportTarget?
+    @Binding var surveyReportTarget: DerivedExportTarget?
     let captureOrigins:
         [CaptureRevisionID: CaptureAcquisitionOriginRecord]
     let actions: CaptureRootActions
@@ -1114,6 +1126,30 @@ private struct CaptureSeriesDetailView: View {
                     revisionID: record.captureRevisionID,
                     seriesID: nil
                 )
+        }
+        if record.canOpen {
+            Menu("Export…") {
+                Button("Derived 3D model…") {
+                    derived3DTarget = DerivedExportTarget(
+                        revisionID: record.captureRevisionID,
+                        displayName:
+                            libraryMetadata.revisions[
+                                record.captureRevisionID
+                                    .description
+                            ]?.displayName
+                    )
+                }
+                Button("Survey report…") {
+                    surveyReportTarget = DerivedExportTarget(
+                        revisionID: record.captureRevisionID,
+                        displayName:
+                            libraryMetadata.revisions[
+                                record.captureRevisionID
+                                    .description
+                            ]?.displayName
+                    )
+                }
+            }
         }
         Divider()
         if record.exportArchive != nil,
