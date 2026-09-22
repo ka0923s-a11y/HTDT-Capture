@@ -142,6 +142,20 @@ public struct CaptureSetupView: View {
     /// Opens the mission-document importer (task plans, as-built
     /// plans, repair task plans as .json) (#353/#321).
     public let onImportMissionDocument: () -> Void
+    /// Selected capture-strategy profile (#307): guidance/evidence
+    /// budgets only — the choice steers prompts, never quality gates.
+    /// `strategyPinned` means a task plan fixed the strategy and the
+    /// picker is display-only.
+    public let selectedStrategyID: CaptureStrategyIdentifier
+    public let strategyPinnedByTaskPlan: Bool
+    /// Imported plan-reference underlay, when the operator attached
+    /// one (#322). Reference-only authority — displayed here so the
+    /// operator sees the plan is registered before scanning.
+    public let planUnderlay: PlanUnderlayDocument?
+    public let selectCaptureStrategy:
+        (CaptureStrategyIdentifier) -> Void
+    /// Presents the plan-document importer (#322).
+    public let importPlanReference: () -> Void
     public let beginScanning: () -> Void
     public let cancel: () -> Void
     /// Picks (or clears) the generic task profile bound at Begin
@@ -164,6 +178,12 @@ public struct CaptureSetupView: View {
         connectedSpaceIntent: Binding<Bool>
             = .constant(false),
         onImportMissionDocument: @escaping () -> Void = {},
+        selectedStrategyID: CaptureStrategyIdentifier = .standard,
+        strategyPinnedByTaskPlan: Bool = false,
+        planUnderlay: PlanUnderlayDocument? = nil,
+        selectCaptureStrategy: @escaping
+            (CaptureStrategyIdentifier) -> Void = { _ in },
+        importPlanReference: @escaping () -> Void = {},
         beginScanning: @escaping () -> Void = {},
         cancel: @escaping () -> Void = {},
         selectTaskProfile: @escaping
@@ -175,6 +195,11 @@ public struct CaptureSetupView: View {
         self.presentation = presentation
         self.connectedSpaceIntent = connectedSpaceIntent
         self.onImportMissionDocument = onImportMissionDocument
+        self.selectedStrategyID = selectedStrategyID
+        self.strategyPinnedByTaskPlan = strategyPinnedByTaskPlan
+        self.planUnderlay = planUnderlay
+        self.selectCaptureStrategy = selectCaptureStrategy
+        self.importPlanReference = importPlanReference
         self.beginScanning = beginScanning
         self.cancel = cancel
         self.selectTaskProfile = selectTaskProfile
@@ -287,6 +312,83 @@ public struct CaptureSetupView: View {
                     )
                     .listRowSeparator(.hidden)
                 }
+                Picker(
+                    String(localized: "Capture strategy"),
+                    selection: Binding(
+                        get: { selectedStrategyID },
+                        set: selectCaptureStrategy
+                    )
+                ) {
+                    ForEach(
+                        CaptureStrategyIdentifier.allCases,
+                        id: \.self
+                    ) { identifier in
+                        Text(
+                            strategyLabel(identifier)
+                        ).tag(identifier)
+                    }
+                }
+                .disabled(strategyPinnedByTaskPlan)
+                .accessibilityIdentifier(
+                    "captureSetup.strategy"
+                )
+                if strategyPinnedByTaskPlan {
+                    Text(
+                        "Strategy is set by the task plan for this capture."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                } else {
+                    Text(
+                        "The strategy adjusts guidance prompts and evidence budgets. It does not change whether the capture meets HTDT ingestion quality."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Plan reference") {
+                if let underlay = planUnderlay {
+                    LabeledContent(
+                        String(localized: "Source"),
+                        value: underlaySourceLabel(underlay)
+                    )
+                    LabeledContent(
+                        String(localized: "Alignment"),
+                        value: String(
+                            underlay.alignment.method.rawValue
+                        )
+                    )
+                    if let residual =
+                        underlay.alignment.residualMeters
+                    {
+                        LabeledContent(
+                            String(localized: "Alignment residual"),
+                            value: String(
+                                format: "%.3f m", residual
+                            )
+                        )
+                    }
+                    Text(
+                        "The plan is reference only. Scale and alignment come from the plan document; observed coverage is never replaced by plan geometry."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                Button(
+                    planUnderlay == nil
+                        ? String(
+                            localized: "Import plan reference…"
+                        )
+                        : String(
+                            localized: "Replace plan reference…"
+                        )
+                ) {
+                    importPlanReference()
+                }
+                .accessibilityIdentifier(
+                    "captureSetup.planReference"
+                )
                 cameraPermissionRows
             }
 
@@ -584,6 +686,32 @@ public struct CaptureSetupView: View {
                 localized: "Cannot start: mesh capture is not available on this device"
             )
         }
+    }
+
+    private func strategyLabel(
+        _ identifier: CaptureStrategyIdentifier
+    ) -> String {
+        switch identifier {
+        case .quickScan:
+            return String(localized: "Quick scan")
+        case .standard:
+            return String(localized: "Standard")
+        case .detailed:
+            return String(localized: "Detailed")
+        case .commissioning:
+            return String(localized: "Commissioning")
+        }
+    }
+
+    private func underlaySourceLabel(
+        _ underlay: PlanUnderlayDocument
+    ) -> String {
+        if underlay.sourceKind == .htdtReference {
+            return underlay.htdtReferenceID
+                ?? String(localized: "HTDT reference")
+        }
+        return underlay.sourceFilename
+            ?? String(localized: "Imported file")
     }
 
     private func advisoryLabel(

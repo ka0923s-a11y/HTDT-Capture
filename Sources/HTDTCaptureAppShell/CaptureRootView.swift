@@ -236,6 +236,25 @@ public struct CaptureRootActions {
     public let updateLibraryEntry:
         (CaptureRevisionID?, CaptureSeriesID?,
          CaptureLibraryEntryMetadata) -> Void
+    /// Capture-strategy profile selection (#307). Advisory guidance
+    /// and evidence budgets only; a task-plan-pinned strategy cannot
+    /// be changed by the operator.
+    public let selectCaptureStrategy:
+        (CaptureStrategyIdentifier) -> Void
+    /// Plan-reference underlay import (#322): the host reads and
+    /// validates the plan document at the given URL. Underlay
+    /// authority stays reference-only — it never becomes observed
+    /// truth.
+    public let importPlanReference: (URL) -> Void
+    /// Semantic-only child revision (#319): loads the parent context
+    /// and opens the correction sheet.
+    public let beginSemanticCorrection:
+        (PersistedCaptureRecord) -> Void
+    /// Builds the semantic child from the sheet's edits; true on
+    /// success.
+    public let commitSemanticCorrection:
+        (SemanticChildRevisionEdits) async -> Bool
+    public let cancelSemanticCorrection: () -> Void
     /// Reopen an end-accepted working revision that survived a
     /// relaunch (issue #297): the draft comes back as a spatially
     /// sealed Review — semantic work continues, live AR capture never
@@ -464,6 +483,16 @@ public struct CaptureRootActions {
             CaptureSeriesID?,
             CaptureLibraryEntryMetadata
         ) -> Void = { _, _, _ in },
+        selectCaptureStrategy: @escaping
+            (CaptureStrategyIdentifier) -> Void = { _ in },
+        importPlanReference: @escaping (URL) -> Void = { _ in },
+        beginSemanticCorrection: @escaping
+            (PersistedCaptureRecord) -> Void = { _ in },
+        commitSemanticCorrection: @escaping
+            (SemanticChildRevisionEdits) async -> Bool = {
+                _ in false
+            },
+        cancelSemanticCorrection: @escaping () -> Void = {},
         openRecoveredDraft: @escaping
             (RecoverableWorkingRevision) -> Void = { _ in },
         discardRecoveredDraft: @escaping
@@ -585,6 +614,12 @@ public struct CaptureRootActions {
         self.preflightDestination = preflightDestination
         self.deleteExportArchive = deleteExportArchive
         self.updateLibraryEntry = updateLibraryEntry
+        self.selectCaptureStrategy = selectCaptureStrategy
+        self.importPlanReference = importPlanReference
+        self.beginSemanticCorrection = beginSemanticCorrection
+        self.commitSemanticCorrection =
+            commitSemanticCorrection
+        self.cancelSemanticCorrection = cancelSemanticCorrection
         self.openRecoveredDraft = openRecoveredDraft
         self.discardRecoveredDraft = discardRecoveredDraft
         self.suspendReview = suspendReview
@@ -757,6 +792,22 @@ public struct CaptureRootView: View {
     public let asBuiltActualCandidates: [CaptureAnnotationEntity]
     public let roomFrameAvailable: Bool
     public let repairTaskRows: [HTDTRepairTaskRow]
+    /// Live evidence-storage advisory for the scanning HUD (#308).
+    public let evidenceStorageAdvisory:
+        CaptureEvidenceStorageAdvisory?
+    /// Selected capture-strategy profile for setup display (#307);
+    /// pinned means the active task plan fixed it.
+    public let selectedStrategyID: CaptureStrategyIdentifier
+    public let strategyPinnedByTaskPlan: Bool
+    /// App-local acquisition origins keyed by revision (#317).
+    public let captureOrigins:
+        [CaptureRevisionID: CaptureAcquisitionOriginRecord]
+    /// Pending/committed plan-reference underlay (#322).
+    public let planUnderlayDocument: PlanUnderlayDocument?
+    /// Parent context for the in-flight semantic correction (#319);
+    /// nil when no correction sheet is open.
+    public let semanticCorrectionContext:
+        SemanticChildRevisionContext?
     /// Whether the working set's AR coordinate authority is still
     /// live (issue #297). False on a draft recovered after relaunch:
     /// spatial evidence is frozen and live-capture affordances
@@ -791,15 +842,12 @@ public struct CaptureRootView: View {
     @State private var importingCaptureArchive = false
     @State private var confirmingDiscard = false
     @State private var reviewWorkspaceShown = false
-    @State private var persistedViewerShown = false
     @State private var handoffDestinationsShown = false
     @State private var shareArchiveForHandoff = false
     @State private var revisionComparison:
         CaptureRevisionComparison?
     @State private var comparisonLoading = false
-    @State private var metadataEditorTarget:
-        LibraryMetadataEditorTarget?
-    @State private var libraryQuery = ""
+    @State private var importingPlanReference = false
     @State private var confirmingExport = false
     @State private var diagnosticShareURL: URL?
     @State private var missionWorkflowsShown = false
@@ -895,6 +943,15 @@ public struct CaptureRootView: View {
         asBuiltActualCandidates: [CaptureAnnotationEntity] = [],
         roomFrameAvailable: Bool = false,
         repairTaskRows: [HTDTRepairTaskRow] = [],
+        evidenceStorageAdvisory:
+            CaptureEvidenceStorageAdvisory? = nil,
+        selectedStrategyID: CaptureStrategyIdentifier = .standard,
+        strategyPinnedByTaskPlan: Bool = false,
+        captureOrigins:
+            [CaptureRevisionID: CaptureAcquisitionOriginRecord] = [:],
+        planUnderlayDocument: PlanUnderlayDocument? = nil,
+        semanticCorrectionContext:
+            SemanticChildRevisionContext? = nil,
         liveSpatialAuthority: Bool = true,
         recoveredDraftReport: WorkingRevisionRestoreReport? = nil,
         practiceCaptureActive: Bool = false,
@@ -987,6 +1044,13 @@ public struct CaptureRootView: View {
         self.asBuiltActualCandidates = asBuiltActualCandidates
         self.roomFrameAvailable = roomFrameAvailable
         self.repairTaskRows = repairTaskRows
+        self.evidenceStorageAdvisory = evidenceStorageAdvisory
+        self.selectedStrategyID = selectedStrategyID
+        self.strategyPinnedByTaskPlan = strategyPinnedByTaskPlan
+        self.captureOrigins = captureOrigins
+        self.planUnderlayDocument = planUnderlayDocument
+        self.semanticCorrectionContext =
+            semanticCorrectionContext
         self.liveSpatialAuthority = liveSpatialAuthority
         self.recoveredDraftReport = recoveredDraftReport
         self.practiceCaptureActive = practiceCaptureActive
@@ -1027,6 +1091,7 @@ public struct CaptureRootView: View {
                     isEndingScan: isEndingScan,
                     isCapturingEvidence: isCapturingEvidence,
                     automaticEvidenceCount: automaticEvidenceCount,
+                    evidenceStorageAdvisory: evidenceStorageAdvisory,
                     lowLightGuidanceActive: lowLightGuidanceActive,
                     targetScanStatus: targetScanStatus,
                     declaredRegions: declaredRegions,
@@ -1068,6 +1133,7 @@ public struct CaptureRootView: View {
                     persistedInventory: persistedInventory,
                     libraryMetadata: libraryMetadata,
                     persistedWorkspace: persistedWorkspace,
+                    captureOrigins: captureOrigins,
                     missionRecords: missionRecords,
                     activeMissionRecordID: activeMissionRecordID,
                     pairedDestinations: pairedDestinations,
@@ -1089,6 +1155,15 @@ public struct CaptureRootView: View {
                     ),
                     onImportMissionDocument: {
                         importingMissionDocument = true
+                    },
+                    selectedStrategyID: selectedStrategyID,
+                    strategyPinnedByTaskPlan:
+                        strategyPinnedByTaskPlan,
+                    planUnderlay: planUnderlayDocument,
+                    selectCaptureStrategy:
+                        actions.selectCaptureStrategy,
+                    importPlanReference: {
+                        importingPlanReference = true
                     },
                     beginScanning: actions.beginScanning,
                     cancel: actions.cancelCaptureSetup,
@@ -1694,6 +1769,36 @@ public struct CaptureRootView: View {
                 }
             }
         }
+        .fileImporter(
+            isPresented: $importingPlanReference,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false
+        ) { result in
+            guard let urls = try? result.get(),
+                  let url = urls.first
+            else {
+                return
+            }
+            actions.importPlanReference(url)
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { semanticCorrectionContext != nil },
+                set: { presented in
+                    if !presented {
+                        actions.cancelSemanticCorrection()
+                    }
+                }
+            )
+        ) {
+            if let context = semanticCorrectionContext {
+                SemanticCorrectionSheet(
+                    context: context,
+                    commit: actions.commitSemanticCorrection,
+                    cancel: actions.cancelSemanticCorrection
+                )
+            }
+        }
     }
 
     /// True while any long-running host operation is in flight
@@ -2220,294 +2325,6 @@ public struct CaptureRootView: View {
         }
     }
 
-    /// The capture library (#219/#251): series grouping, names/notes,
-    /// search, and per-revision storage breakdown. Extracted so the
-    /// type-checker stays inside its budget.
-    @ViewBuilder
-    private var captureLibrarySection: some View {
-        Section("Capture library") {
-            LabeledContent(
-                "Total storage",
-                value: String(
-                    persistedInventory.totalRetainedBytes
-                )
-            )
-            TextField(
-                "Search captures",
-                text: $libraryQuery
-            )
-            #if os(iOS)
-            .textInputAutocapitalization(.never)
-            #endif
-        }
-
-        ForEach(
-            libraryGroups.filter {
-                CaptureSeriesGrouper.matches(
-                    group: $0,
-                    revisionNotes: revisionNotesByID,
-                    query: libraryQuery
-                )
-            }
-        ) { group in
-            Section(seriesTitle(group)) {
-                Button("Edit series name") {
-                    metadataEditorTarget =
-                        LibraryMetadataEditorTarget(
-                            revisionID: nil,
-                            seriesID: group.captureSeriesID
-                        )
-                }
-                .font(.caption)
-                ForEach(group.revisions) { record in
-                    persistedCaptureRow(record)
-                }
-            }
-        }
-
-        if !persistedInventory.quarantinedArtifacts.isEmpty
-            || !persistedInventory.enumerationFailures.isEmpty
-        {
-            Section("Inventory issues") {
-                ForEach(
-                    persistedInventory.quarantinedArtifacts
-                ) { artifact in
-                    quarantinedArtifactRow(artifact)
-                }
-                ForEach(
-                    persistedInventory.enumerationFailures,
-                    id: \.self
-                ) { failure in
-                    Text(failure)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    /// Series-grouped view of the persisted inventory (#219).
-    private var libraryGroups: [CaptureSeriesGroup] {
-        CaptureSeriesGrouper.group(
-            records: persistedInventory.captures,
-            metadata: libraryMetadata
-        )
-    }
-
-    private var revisionNotesByID:
-        [String: CaptureLibraryEntryMetadata]
-    {
-        libraryMetadata.revisions
-    }
-
-    private func seriesTitle(
-        _ group: CaptureSeriesGroup
-    ) -> String {
-        if let name = group.displayName, !name.isEmpty {
-            return name
-        }
-        return String(
-            localized: "Series "
-        ) + group.captureSeriesID.description
-    }
-
-    @ViewBuilder
-    private func persistedCaptureRow(
-        _ record: PersistedCaptureRecord
-    ) -> some View {
-        let entry = libraryMetadata.revisions[
-            record.captureRevisionID.description
-        ]
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 10) {
-                #if os(iOS)
-                // Representative retained-evidence thumbnail (issue
-                // #219): first manifest-declared preview payload.
-                if let data = record.representativePreviewData(),
-                   let image = UIImage(data: data)
-                {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 56, height: 56)
-                        .clipShape(
-                            RoundedRectangle(cornerRadius: 6)
-                        )
-                } else {
-                    Image(systemName: "camera.aperture")
-                        .frame(width: 56, height: 56)
-                        .background(.quaternary)
-                        .clipShape(
-                            RoundedRectangle(cornerRadius: 6)
-                        )
-                        .foregroundStyle(.secondary)
-                }
-                #endif
-                VStack(alignment: .leading, spacing: 4) {
-                    if let name = entry?.displayName, !name.isEmpty {
-                        Text(name).font(.headline)
-                    }
-                    Text(record.captureRevisionID.description)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                    if let note = entry?.note, !note.isEmpty {
-                        Text(note)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-
-            if let validation = record.finalizedValidation {
-                LabeledContent(
-                    "Finalized",
-                    value: record.finalizedAtUTC
-                )
-                LabeledContent(
-                    "Payloads",
-                    value: String(validation.payloadCount)
-                )
-                LabeledContent(
-                    "Finalized bytes",
-                    value: String(
-                        record.finalizedByteCount ?? 0
-                    )
-                )
-            } else {
-                Text("Export archive only")
-                    .foregroundStyle(.secondary)
-            }
-            if record.exportArchive != nil {
-                LabeledContent(
-                    "Archive bytes",
-                    value: String(
-                        record.exportArchiveByteCount ?? 0
-                    )
-                )
-                if record.exportArchiveIsDerivedCopy {
-                    Text(
-                        "Archive is a derived copy of the finalized bundle"
-                    )
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                }
-            }
-            LabeledContent(
-                "Retained bytes",
-                value: String(record.retainedByteCount)
-            )
-
-            // #309: while a host operation targets this revision the
-            // row shows its busy state; during any in-flight persisted
-            // operation the guarded actions are disabled rather than
-            // silently no-op'd.
-            let rowBusy =
-                operationTargetRevisionID
-                    == record.captureRevisionID
-            if rowBusy {
-                ForEach(
-                    Array(activeOperations),
-                    id: \.self
-                ) { operation in
-                    progressRow(operationLabel(operation))
-                        .font(.caption)
-                }
-            }
-
-            HStack(spacing: 16) {
-                if record.canOpen {
-                    Button("View") {
-                        actions.loadPersistedWorkspace(record)
-                        persistedViewerShown = true
-                    }
-                    .disabled(hostBusy)
-                    Button("Adopt") {
-                        actions.openPersistedCapture(
-                            record.captureRevisionID
-                        )
-                    }
-                    .disabled(hostBusy)
-                }
-                if record.canOpen || record.exportArchive != nil {
-                    Button("Rescan") {
-                        actions.revisePersistedCapture(
-                            record
-                        )
-                    }
-                    .disabled(hostBusy)
-                }
-                Button("Edit name") {
-                    metadataEditorTarget =
-                        LibraryMetadataEditorTarget(
-                            revisionID: record.captureRevisionID,
-                            seriesID: nil
-                        )
-                }
-                .disabled(rowBusy)
-                Spacer()
-                Button("Delete", role: .destructive) {
-                    pendingDeletion = PendingCaptureDeletion(
-                        revisionID: record.captureRevisionID,
-                        includesExport:
-                            record.exportArchive != nil
-                    )
-                }
-                .disabled(hostBusy)
-            }
-            if record.exportArchive != nil,
-               record.finalizedDirectory != nil
-            {
-                // The archive is a derived copy: it can be deleted
-                // without touching the canonical finalized capture
-                // (#251).
-                Button("Delete archive only") {
-                    actions.deleteExportArchive(record)
-                }
-                .font(.caption)
-                .disabled(hostBusy)
-            }
-        }
-    }
-
-    private func workingOrphanRow(
-        _ orphan: PersistedCaptureWorkingOrphan
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            LabeledContent(
-                orphan.kind == .abandonedRevision
-                    ? String(localized: "Abandoned revision")
-                    : String(localized: "Writer temp file"),
-                value: orphan.url.lastPathComponent
-            )
-            LabeledContent(
-                "Retained bytes",
-                value: String(orphan.retainedBytes)
-            )
-            Button("Delete", role: .destructive) {
-                actions.removeWorkingOrphan(orphan)
-            }
-            .disabled(hostBusy)
-        }
-    }
-
-    private func quarantinedArtifactRow(
-        _ artifact: PersistedCaptureQuarantinedArtifact
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            LabeledContent(
-                "Unreadable artifact",
-                value: artifact.url.lastPathComponent
-            )
-            Text(artifact.reason)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Button("Remove artifact", role: .destructive) {
-                actions.removeQuarantinedArtifact(artifact)
-            }
-            .disabled(hostBusy)
-        }
-    }
 
     private func progressRow(_ text: LocalizedStringKey) -> some View {
         HStack(spacing: 12) {
