@@ -92,6 +92,11 @@ public struct PersistedCaptureRecord:
     /// Bytes retained on disk by the validated export archive at scan
     /// time; nil when no archive exists (issue #251).
     public let exportArchiveByteCount: Int64?
+    /// The manifest-declared parent revision (`parent_revision_id`),
+    /// when the validated bundle declares one (issue #396). This is the
+    /// lineage edge the revision-fork graph is built from — bundle
+    /// authority, never inferred from ordering or timestamps.
+    public let parentRevisionID: CaptureRevisionID?
 
     public init(
         captureRevisionID: CaptureRevisionID,
@@ -102,7 +107,8 @@ public struct PersistedCaptureRecord:
         exportArchive: URL?,
         exportValidation: BundleValidationReport?,
         finalizedByteCount: Int64? = nil,
-        exportArchiveByteCount: Int64? = nil
+        exportArchiveByteCount: Int64? = nil,
+        parentRevisionID: CaptureRevisionID? = nil
     ) {
         self.captureRevisionID = captureRevisionID
         self.captureSeriesID = captureSeriesID
@@ -113,6 +119,7 @@ public struct PersistedCaptureRecord:
         self.exportValidation = exportValidation
         self.finalizedByteCount = finalizedByteCount
         self.exportArchiveByteCount = exportArchiveByteCount
+        self.parentRevisionID = parentRevisionID
     }
 
     public var id: CaptureRevisionID {
@@ -540,7 +547,9 @@ public struct PersistedCaptureInventory: Sendable {
                     finalizedByteCount: retainedBytes(
                         of: child,
                         failures: &enumerationFailures
-                    )
+                    ),
+                    parentRevisionID:
+                        report.manifest.parentRevisionID
                 )
                 order.append(revisionID)
 
@@ -660,7 +669,9 @@ public struct PersistedCaptureInventory: Sendable {
                             exportValidation: report,
                             finalizedByteCount:
                                 existing.finalizedByteCount,
-                            exportArchiveByteCount: archiveBytes
+                            exportArchiveByteCount: archiveBytes,
+                            parentRevisionID:
+                                existing.parentRevisionID
                         )
                 } else {
                     captures[revisionID] =
@@ -679,7 +690,9 @@ public struct PersistedCaptureInventory: Sendable {
                             ),
                             exportValidation: report,
                             finalizedByteCount: nil,
-                            exportArchiveByteCount: archiveBytes
+                            exportArchiveByteCount: archiveBytes,
+                            parentRevisionID:
+                                report.manifest.parentRevisionID
                         )
                     order.append(revisionID)
                 }

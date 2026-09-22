@@ -329,6 +329,32 @@ public struct CaptureRootActions {
     public let openCameraSettings: () -> Void
     /// Leaves `.capabilityCheck`/`.permissions` back to `.idle`.
     public let cancelCaptureStart: () -> Void
+    /// Revision lineage (#396): operator-picked preferred head for a
+    /// branched series — app-local metadata only, bundles never
+    /// change; nil revision clears the pick.
+    public let preferRevisionHead:
+        (CaptureSeriesID, CaptureRevisionID?) -> Void
+    /// Cross-revision spatial registration (#395): the preview stage
+    /// — gathers shared-field-datum correspondences between the two
+    /// finalized revisions and returns the proposed transform with
+    /// per-correspondence residuals/RMS for inspection. Nil when the
+    /// pair cannot be registered (missing datum, degenerate
+    /// correspondences).
+    public let proposeRevisionAlignment:
+        (CaptureRevisionID, CaptureRevisionID) async
+            -> CrossRevisionRegistrationSolve?
+    /// Cross-revision spatial registration (#395): accept — immutably
+    /// records the alignment the operator previewed; returns the
+    /// accepted record, nil on refusal (conflicting registration or
+    /// solve failure).
+    public let acceptRevisionAlignment:
+        (CaptureRevisionID, CaptureRevisionID) async
+            -> CrossRevisionRegistration?
+    /// Mission progress ledger (#397): records an explicit,
+    /// auditable mission-level waiver for a plan item — recordID,
+    /// itemID, optional operator note.
+    public let waiveMissionItem:
+        (String, String, String?) async -> Void
 
     public init(
         beginCapture: @escaping () -> Void = {},
@@ -574,7 +600,19 @@ public struct CaptureRootActions {
         dismissPracticePrompt: @escaping (Bool) -> Void = { _ in },
         retryCameraPermission: @escaping () -> Void = {},
         openCameraSettings: @escaping () -> Void = {},
-        cancelCaptureStart: @escaping () -> Void = {}
+        cancelCaptureStart: @escaping () -> Void = {},
+        preferRevisionHead: @escaping
+            (CaptureSeriesID, CaptureRevisionID?) -> Void
+                = { _, _ in },
+        proposeRevisionAlignment: @escaping
+            (CaptureRevisionID, CaptureRevisionID) async
+                -> CrossRevisionRegistrationSolve? = { _, _ in nil },
+        acceptRevisionAlignment: @escaping
+            (CaptureRevisionID, CaptureRevisionID) async
+                -> CrossRevisionRegistration? = { _, _ in nil },
+        waiveMissionItem: @escaping
+            (String, String, String?) async -> Void
+                = { _, _, _ in }
     ) {
         self.beginCapture = beginCapture
         self.beginScanning = beginScanning
@@ -711,6 +749,10 @@ public struct CaptureRootActions {
         self.retryCameraPermission = retryCameraPermission
         self.openCameraSettings = openCameraSettings
         self.cancelCaptureStart = cancelCaptureStart
+        self.preferRevisionHead = preferRevisionHead
+        self.proposeRevisionAlignment = proposeRevisionAlignment
+        self.acceptRevisionAlignment = acceptRevisionAlignment
+        self.waiveMissionItem = waiveMissionItem
     }
 }
 
@@ -920,6 +962,15 @@ public struct CaptureRootView: View {
     /// First-launch practice prompt (#320): the host shows it once
     /// unless the operator permanently dismissed it.
     public let practicePromptShown: Bool
+    /// Accepted cross-revision spatial registrations (#395) —
+    /// app-local transform authority listed in series detail.
+    public let crossRevisionRegistrations:
+        [CrossRevisionRegistration]
+    /// Replayed mission progress per inbox record id (#397) —
+    /// derived each load from the append-only ledger, never a stored
+    /// percentage.
+    public let missionProgressEvaluations:
+        [String: MissionProgressEvaluation]
     /// Long-running host operations currently in flight (#309).
     /// Controls whose underlying guard would silently no-op are
     /// disabled and each in-flight op shows explicit progress.
@@ -1066,6 +1117,10 @@ public struct CaptureRootView: View {
         recoveredDraftReport: WorkingRevisionRestoreReport? = nil,
         practiceCaptureActive: Bool = false,
         practicePromptShown: Bool = false,
+        crossRevisionRegistrations:
+            [CrossRevisionRegistration] = [],
+        missionProgressEvaluations:
+            [String: MissionProgressEvaluation] = [:],
         activeOperations: Set<CaptureHostOperation> = [],
         operationTargetRevisionID: CaptureRevisionID? = nil,
         actions: CaptureRootActions = CaptureRootActions()
@@ -1170,6 +1225,10 @@ public struct CaptureRootView: View {
         self.recoveredDraftReport = recoveredDraftReport
         self.practiceCaptureActive = practiceCaptureActive
         self.practicePromptShown = practicePromptShown
+        self.crossRevisionRegistrations =
+            crossRevisionRegistrations
+        self.missionProgressEvaluations =
+            missionProgressEvaluations
         self.activeOperations = activeOperations
         self.operationTargetRevisionID =
             operationTargetRevisionID
@@ -1258,6 +1317,10 @@ public struct CaptureRootView: View {
                     activeMissionRecordID: activeMissionRecordID,
                     pairedDestinations: pairedDestinations,
                     deliveryJobs: deliveryJobs,
+                    crossRevisionRegistrations:
+                        crossRevisionRegistrations,
+                    missionProgressEvaluations:
+                        missionProgressEvaluations,
                     actions: actions
                 )
             } else {
@@ -1876,8 +1939,8 @@ public struct CaptureRootView: View {
                         )
                     }
                     Button("Cancel", role: .cancel) {}
-                } message: { _ in
-                    Text(deletionExplanationText)
+                } message: { pending in
+                    Text(deletionExplanationText(for: pending))
                 }
                 .fileImporter(
                     isPresented: $importingCaptureArchive,
@@ -2642,19 +2705,31 @@ public struct CaptureRootView: View {
     /// Deletion scope (#305): always states what is removed locally;
     /// when finalized data may join device backup it also says a
     /// backup copy is managed by the system.
-    private var deletionExplanationText: String {
+    private func deletionExplanationText(
+        for pending: PendingCaptureDeletion
+    ) -> String {
+        let base: String
         switch appSettings.storagePrivacy.finalizedBackupPolicy {
         case .backupEligible:
-            return String(
+            base = String(
                 localized:
                     "This permanently deletes the finalized capture and any export archive stored for it from this device. A copy already inside a device backup is managed by the system."
             )
         case .excludedFromBackup:
-            return String(
+            base = String(
                 localized:
                     "This permanently deletes the finalized capture and any export archive stored for it from this device. Nothing is uploaded or backed up by this app."
             )
         }
+        // Lineage-aware deletion (issue #396): a revision that still
+        // has descendants naming it parent gets the extra warning.
+        guard pending.descendantCount > 0 else {
+            return base
+        }
+        return base + " " + String(
+            localized:
+                "\(pending.descendantCount) revision(s) declare it as their parent — their lineage link will no longer resolve."
+        )
     }
 
     /// Failed-capture retained-evidence detail (#224), extracted from

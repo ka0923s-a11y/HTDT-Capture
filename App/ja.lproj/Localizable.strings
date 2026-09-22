@@ -1300,6 +1300,7 @@
 "The backup choice applies to finalized captures already on this device and to new ones." = "バックアップの選択は、このデバイス上にある既存の確定済みキャプチャと、今後作成されるものの両方に適用されます。";
 "This permanently deletes the finalized capture and any export archive stored for it from this device. Nothing is uploaded or backed up by this app." = "この操作により、確定済みキャプチャとそれに保存された書き出しアーカイブがこのデバイスから完全に削除されます。このアプリはアップロードもバックアップも行いません。";
 "This permanently deletes the finalized capture and any export archive stored for it from this device. A copy already inside a device backup is managed by the system." = "この操作により、確定済みキャプチャとそれに保存された書き出しアーカイブがこのデバイスから完全に削除されます。すでにデバイスバックアップに含まれたコピーはシステムが管理します。";
+"%lld revision(s) declare it as their parent — their lineage link will no longer resolve." = "この確定済みキャプチャを親として宣言しているリビジョンが %lld 件あります — 系統リンクは解決できなくなります。";
 
 /* Accessibility labels (#342) */
 "Direction coverage grid" = "方向カバレッジグリッド";
