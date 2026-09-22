@@ -979,13 +979,9 @@ public struct CaptureAnnotationWorkspaceView: View {
         case "room_and_listening_position":
             return .roomAndListeningPosition
         case "theater_layout":
-            return .theaterLayout(
-                speakerRoles: [
-                    "L", "C", "R", "SL", "SR", "SBL", "SBR",
-                    "TFL", "TFR", "TML", "TMR",
-                ],
-                subwooferCount: 1
-            )
+            // #426: the same `SpeakerLayoutProfile`-derived preset
+            // Capture setup offers — never a separate literal list.
+            return .theaterLayout
         default:
             return nil
         }

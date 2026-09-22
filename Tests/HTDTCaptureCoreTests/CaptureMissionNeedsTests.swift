@@ -65,6 +65,45 @@ func layoutProfileResolvesRoleNamesThroughVocabulary() {
     #expect(needs.contains { $0.title == "Speaker — Front right" })
 }
 
+// #426: the "Theater layout" preset derives its requirements from a
+// `SpeakerLayoutProfile` vocabulary, so every `speaker_role_<roleID>`
+// identifier names a role ID the `role_binding` picker can select —
+// setup and the annotation workspace share the one token set.
+@Test
+func theaterPresetRequirementsComeFromLayoutProfileVocabulary() {
+    let vocabulary = SpeakerLayoutProfiles.surround7_1_4
+    let profile = CaptureTaskProfile.theaterLayout
+
+    let roleRequirements = profile.requirements.filter {
+        $0.identifier.hasPrefix("speaker_role_")
+    }
+    let expectedRoles = vocabulary.roles.filter { !$0.isSubwoofer }
+    #expect(roleRequirements.count == expectedRoles.count)
+    for requirement in roleRequirements {
+        let roleID = String(
+            requirement.identifier.dropFirst("speaker_role_".count)
+        )
+        #expect(requirement.match.kind == .annotationChannelRole)
+        #expect(requirement.match.value == roleID)
+        #expect(vocabulary.roleDefinition(roleID: roleID) != nil)
+    }
+
+    // The subwoofer requirement follows the profile's sub
+    // cardinality, and the MLP + screen-presence requirements stay.
+    #expect(
+        profile.requirements.contains {
+            $0.identifier == "subwoofers" && $0.minimumCount == 1
+        }
+    )
+    #expect(
+        profile.requirements.contains {
+            $0.identifier == "primary_listening_position"
+        }
+    )
+    #expect(profile.identifier == "theater_layout")
+    #expect(profile.title == "Theater layout")
+}
+
 @Test
 func taskPlanNeedsAggregateCountedRows() throws {
     let plan = try HTDTCaptureTaskPlan(

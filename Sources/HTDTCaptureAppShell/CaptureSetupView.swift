@@ -506,6 +506,7 @@ public struct CaptureSetupView: View {
                 .disabled(
                     presentation.storagePreflight.blocksCaptureStart
                         || presentation.resolvedMode == nil
+                        || cameraPermissionBlocksStart
                 )
                 .accessibilityIdentifier("captureSetup.begin")
 
@@ -610,11 +611,6 @@ public struct CaptureSetupView: View {
                     .foregroundStyle(.red)
             }
 
-            LabeledContent(
-                "Strategy profile",
-                value: strategyLabel(selectedStrategyID)
-            )
-
             Text(
                 ScanMotionGuidanceCopy.safetyDisclaimer()
             )
@@ -624,7 +620,7 @@ public struct CaptureSetupView: View {
             Text("Capture mission")
         } footer: {
             Text(
-                "Mission intent is bound when scanning starts; changing it mid-scan is an explicit recorded action. Capture strategy profiles (#307) plug into this setup in a future update."
+                "Mission intent is bound when scanning starts; changing it mid-scan is an explicit recorded action."
             )
         }
     }
@@ -698,12 +694,10 @@ public struct CaptureSetupView: View {
     }
 
     /// The default theater topology offered by the profile picker —
-    /// matches the annotation workspace preset.
+    /// the same `SpeakerLayoutProfile`-derived preset the annotation
+    /// workspace offers (#426).
     private static var theaterProfile: CaptureTaskProfile {
-        .theaterLayout(
-            speakerRoles: standardSpeakerRoles,
-            subwooferCount: 1
-        )
+        .theaterLayout
     }
 
     private static func profile(
@@ -721,12 +715,6 @@ public struct CaptureSetupView: View {
         }
     }
 
-    private static let standardSpeakerRoles: [String] = [
-        "L", "C", "R", "LS", "RS", "LB", "RB",
-        "LTF", "RTF", "LTB", "RTB",
-    ]
-
-
     private var resolvedMode: CaptureMode? {
         presentation.resolvedMode
     }
@@ -741,6 +729,21 @@ public struct CaptureSetupView: View {
             return .blocked
         case .unknown:
             return .unknown
+        }
+    }
+
+    /// Begin stays disabled while the camera is known-denied,
+    /// restricted, or unavailable (#429): starting would land on a
+    /// guaranteed permission failure, so the permission row's "Open
+    /// Settings" action and explanation remain the single path out.
+    /// A not-determined status may still begin — the system prompt
+    /// runs inside the normal start flow.
+    private var cameraPermissionBlocksStart: Bool {
+        switch presentation.cameraPermission {
+        case .denied, .restricted, .unavailable:
+            return true
+        case .authorized, .notDetermined, nil:
+            return false
         }
     }
 
