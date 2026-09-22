@@ -1694,5 +1694,190 @@ class SchemaEvalTests(unittest.TestCase):
             schema_validate([[1], [1]], schema)
 
 
+class AuthorityDependencyTests(unittest.TestCase):
+    """Issue #337: derived/authority-dependencies.json pins every
+    entity-carried external authority to an exact (id, version, hash)
+    declaration, and embedded copies must resolve inside the bundle."""
+
+    PHASE6 = REPO_ROOT / "samples" / "phase6-integration"
+    SESSION_ID = "10000000-0000-4000-8000-000000000003"
+    ENTITY_ID = "10000000-0000-4000-8000-000000000006"
+    EQUIPMENT_HASH = "cd" * 32
+    PROFILE_HASH = "ef" * 32
+
+    def _dep(self, kind, authority_id, version, sha, **extra):
+        dep = {
+            "kind": kind,
+            "authority_id": authority_id,
+            "authority_version": version,
+            "authority_sha256": sha,
+            "required": True,
+        }
+        dep.update(extra)
+        return dep
+
+    def _bundle(self, td, deps, *, mutate_entity=None):
+        dest = Path(td) / "bundle"
+        shutil.copytree(self.PHASE6, dest)
+
+        entities_path = dest / "annotations" / "entities.json"
+        entities_doc = json.loads(entities_path.read_text("utf-8"))
+        entity = entities_doc["entities"][0]
+        entity["equipment_ref"] = {
+            "equipment_id": "amp-1",
+            "equipment_version": "1.0.0",
+            "equipment_hash": self.EQUIPMENT_HASH,
+            "authority_version": "o100c-equipment-definition-1",
+        }
+        entity["role_binding"] = {
+            "profile_id": "htdt.layout-stereo-2.0",
+            "profile_version": "1.0.0",
+            "role_id": "L",
+        }
+        if mutate_entity:
+            mutate_entity(entity)
+        _rewrite_payload(
+            dest,
+            "annotations/entities.json",
+            canonical_payload_json_bytes(entities_doc),
+        )
+
+        document = {
+            "schema": "htdt.capture.authority-dependencies",
+            "schema_version": "1.0.0",
+            "generated_at": "2026-09-21T00:00:00Z",
+            "dependencies": deps,
+        }
+        data = canonical_payload_json_bytes(document)
+        rel = "derived/authority-dependencies.json"
+        (dest / "derived").mkdir(exist_ok=True)
+        (dest / rel).write_bytes(data)
+
+        def mutate(manifest):
+            manifest["files"].append(
+                {
+                    "path": rel,
+                    "bytes": len(data),
+                    "media_type": "application/json",
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "producer": "capture_app",
+                    "provenance_class": "capture_app_derived",
+                    "role": "derived",
+                    "source_refs": [
+                        f"capture_session:{self.SESSION_ID}"
+                    ],
+                }
+            )
+            manifest["files"].sort(
+                key=lambda entry: entry["path"].encode("utf-8")
+            )
+
+        _rewrite_manifest(dest, mutate)
+        return dest
+
+    def _covering_deps(self):
+        return [
+            self._dep(
+                "equipment_definition",
+                "amp-1",
+                "1.0.0",
+                self.EQUIPMENT_HASH,
+                bound_entity_refs=[self.ENTITY_ID],
+                capability_loss="model_lookup",
+                resolution_context={
+                    "manufacturer": "Acme",
+                    "model": "Monitor X",
+                    "serial_or_asset_tag": None,
+                    "catalog_snapshot_id": "snap-42",
+                    "catalog_content_sha256": "ab" * 32,
+                    "catalog_label": "HQ",
+                },
+            ),
+            self._dep(
+                "layout_profile",
+                "htdt.layout-stereo-2.0",
+                "1.0.0",
+                self.PROFILE_HASH,
+                bound_entity_refs=[self.ENTITY_ID],
+                capability_loss="role_resolution",
+            ),
+        ]
+
+    def test_manifest_covers_entity_external_refs(self):
+        with tempfile.TemporaryDirectory() as td:
+            dest = self._bundle(td, self._covering_deps())
+            result = validate_bundle(dest)
+            self.assertTrue(result["valid"])
+
+    def test_missing_equipment_dependency_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            deps = [self._covering_deps()[1]]
+            dest = self._bundle(td, deps)
+            with self.assertRaisesRegex(
+                ValidationError, "lack equipment_definition"
+            ):
+                validate_bundle(dest)
+
+    def test_equipment_hash_mismatch_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            deps = self._covering_deps()
+            deps[0]["authority_sha256"] = "ab" * 32
+            dest = self._bundle(td, deps)
+            with self.assertRaisesRegex(
+                ValidationError, "authority_sha256 does not match"
+            ):
+                validate_bundle(dest)
+
+    def test_missing_layout_profile_dependency_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            deps = [self._covering_deps()[0]]
+            dest = self._bundle(td, deps)
+            with self.assertRaisesRegex(
+                ValidationError, "lack layout_profile"
+            ):
+                validate_bundle(dest)
+
+    def test_duplicate_dependency_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            deps = self._covering_deps()
+            deps.append(dict(deps[0]))
+            dest = self._bundle(td, deps)
+            with self.assertRaisesRegex(
+                ValidationError, "duplicates dependency"
+            ):
+                validate_bundle(dest)
+
+    def test_dangling_embedded_ref_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            deps = self._covering_deps()
+            deps[0]["embedded_ref"] = "path:derived/missing.json"
+            dest = self._bundle(td, deps)
+            with self.assertRaisesRegex(
+                ValidationError, "embedded_ref"
+            ):
+                validate_bundle(dest)
+
+    def test_embedded_ref_to_declared_payload_passes(self):
+        with tempfile.TemporaryDirectory() as td:
+            deps = self._covering_deps()
+            deps[0]["embedded_ref"] = (
+                "path:annotations/entities.json"
+            )
+            dest = self._bundle(td, deps)
+            self.assertTrue(validate_bundle(dest)["valid"])
+
+    def test_bound_entity_refs_must_name_present_entities(self):
+        with tempfile.TemporaryDirectory() as td:
+            deps = self._covering_deps()
+            deps[0]["bound_entity_refs"] = [
+                "20000000-0000-4000-8000-000000000007"
+            ]
+            dest = self._bundle(td, deps)
+            with self.assertRaisesRegex(
+                ValidationError, "bound_entity_refs names an entity_id"
+            ):
+                validate_bundle(dest)
+
+
 if __name__ == "__main__":
     unittest.main()

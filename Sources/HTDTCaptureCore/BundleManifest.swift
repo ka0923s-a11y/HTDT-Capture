@@ -746,6 +746,12 @@ enum BundleReservedPaths {
         // Advanced workflow payloads (issues #222/#227/#240/#249/#293):
         // reserved-path-bound but not schema-owned, matching the
         // coordinate-space-policy precedent.
+        "derived/authority-dependencies.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_app",
+            provenanceClass: .captureAppDerived,
+            role: .derived
+        ),
         "derived/geometry-candidates.json": Binding(
             mediaType: "application/json",
             producer: "derived_geometry",
