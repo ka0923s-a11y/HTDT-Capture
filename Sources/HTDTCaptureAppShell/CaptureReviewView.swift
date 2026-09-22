@@ -573,10 +573,43 @@ public struct CaptureReviewView: View {
             "Weak regions",
             value: String(summary.weakRegionCount)
         )
+        if let remoteWeak = summary.remoteWeakRegionCount,
+           remoteWeak > 0
+        {
+            // #347: retained weak regions beyond the operator's final
+            // map window stay unresolved and are reported as such.
+            LabeledContent(
+                "Weak beyond map view",
+                value: String(remoteWeak)
+            )
+        }
         LabeledContent(
             "Unobserved display cells",
             value: String(summary.displayUnknownRegionCount)
         )
+        if let evictions = summary.spatialRegionEvictionCount,
+           evictions > 0
+        {
+            // #336: capacity eviction is reported, never silent.
+            LabeledContent(
+                "Dropped for capacity",
+                value: String(
+                    format: String(localized: "%d of %d cells"),
+                    evictions,
+                    summary.spatialMaxRegionCount ?? 0
+                )
+            )
+        }
+        if let directionReference = summary.directionReference {
+            // #343: the convention marker identifies whether labels
+            // were start-relative or bound to a room reference frame.
+            LabeledContent(
+                "Direction reference",
+                value: directionReference == "start_relative"
+                    ? String(localized: "Start direction")
+                    : directionReference
+            )
+        }
         LabeledContent(
             "Geometry evidence",
             value: summary.geometryEvidenceMode
