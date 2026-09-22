@@ -1397,8 +1397,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         authority: AnnotationAuthorityComponents? = nil,
         lifecycle: AnnotationLifecycle? = nil,
         referencePoint: ReferencePointAuthority? = nil,
-        lineage: AnnotationEntityLineage? = nil
-        referencePoint: ReferencePointAuthority? = nil,
+        lineage: AnnotationEntityLineage? = nil,
         authorOperatorID: OperatorProfileID? = nil
     ) throws {
         let normalizedLabel = SchemaOwnedText.nfc(label)
@@ -1596,8 +1595,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
             authority: authority,
             lifecycle: base.revised(at: updatedAtUTC),
             referencePoint: referencePoint,
-            lineage: lineage
-            referencePoint: referencePoint,
+            lineage: lineage,
             authorOperatorID: authorOperatorID
         )
     }
