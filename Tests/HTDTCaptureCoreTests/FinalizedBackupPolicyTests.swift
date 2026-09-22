@@ -33,9 +33,26 @@ private func backupExcluded(_ url: URL) throws -> Bool {
     }
 }
 
+/// Under full-suite parallel load the backup-exclusion xattr write
+/// can take a few milliseconds to become visible to a subsequent
+/// `getxattr`; poll briefly instead of asserting on a single read.
+private func backupExcludedEventually(
+    _ url: URL,
+    _ expected: Bool
+) throws -> Bool {
+    var result = try backupExcluded(url)
+    var attempts = 0
+    while result != expected, attempts < 500 {
+        Thread.sleep(forTimeInterval: 0.002)
+        result = try backupExcluded(url)
+        attempts += 1
+    }
+    return result == expected
+}
+
 // MARK: - #305: finalized backup policy
 
-@Test
+@Test(.serialized)
 func finalizedBackupPolicyMarksRootsAndChildren() throws {
     let root = try makePolicyCaptureRoot()
     defer { try? FileManager.default.removeItem(at: root) }
@@ -74,27 +91,13 @@ func finalizedBackupPolicyMarksRootsAndChildren() throws {
 
     // Directory roots and every artifact inside them carry the
     // policy — including export archives, which are files.
-    #expect(
-        try backupExcluded(
-            captureRoot.appendingPathComponent(
-                "finalized",
-                isDirectory: true
-            )
-        )
-    )
-    #expect(try backupExcluded(finalizedRevision))
-    #expect(
-        try backupExcluded(
-            captureRoot.appendingPathComponent(
-                "exports",
-                isDirectory: true
-            )
-        )
-    )
-    #expect(try backupExcluded(exportArchive))
+    #expect(try backupExcludedEventually(captureRoot.appendingPathComponent("finalized", isDirectory: true), true))
+    #expect(try backupExcludedEventually(finalizedRevision, true))
+    #expect(try backupExcludedEventually(captureRoot.appendingPathComponent("exports", isDirectory: true), true))
+    #expect(try backupExcludedEventually(exportArchive, true))
 }
 
-@Test
+@Test(.serialized)
 func backupEligiblePolicyClearsCarriedOverExclusion() throws {
     // The same-volume rename from working/ into finalized/ preserves
     // the working directory's backup-exclusion flag. The eligible
@@ -120,17 +123,17 @@ func backupEligiblePolicyClearsCarriedOverExclusion() throws {
     try CaptureStoragePolicy.applyWorkingRevisionPolicy(
         revisionRoot: finalizedRevision
     )
-    #expect(try backupExcluded(finalizedRevision))
+    #expect(try backupExcludedEventually(finalizedRevision, true))
 
     let failures = CaptureStoragePolicy.applyFinalizedBackupPolicy(
         captureRoot: captureRoot,
         policy: .backupEligible
     )
     #expect(failures.isEmpty)
-    #expect(try !backupExcluded(finalizedRevision))
+    #expect(try backupExcludedEventually(finalizedRevision, false))
 }
 
-@Test
+@Test(.serialized)
 func finalizedRevisionPolicyMarksSingleDirectory() throws {
     let root = try makePolicyCaptureRoot()
     defer { try? FileManager.default.removeItem(at: root) }
@@ -148,7 +151,7 @@ func finalizedRevisionPolicyMarksSingleDirectory() throws {
         revisionRoot: revision,
         policy: .excludedFromBackup
     )
-    #expect(try backupExcluded(revision))
+    #expect(try backupExcludedEventually(revision, true))
 
     // Switching back restores backup eligibility — the policy is
     // user-selectable, not one-way.
@@ -156,10 +159,10 @@ func finalizedRevisionPolicyMarksSingleDirectory() throws {
         revisionRoot: revision,
         policy: .backupEligible
     )
-    #expect(try !backupExcluded(revision))
+    #expect(try backupExcludedEventually(revision, false))
 }
 
-@Test
+@Test(.serialized)
 func exportArchivePolicyMarksSingleFile() throws {
     let root = try makePolicyCaptureRoot()
     defer { try? FileManager.default.removeItem(at: root) }
@@ -174,16 +177,16 @@ func exportArchivePolicyMarksSingleFile() throws {
         archiveURL: archive,
         policy: .excludedFromBackup
     )
-    #expect(try backupExcluded(archive))
+    #expect(try backupExcludedEventually(archive, true))
 
     try CaptureStoragePolicy.applyExportArchivePolicy(
         archiveURL: archive,
         policy: .backupEligible
     )
-    #expect(try !backupExcluded(archive))
+    #expect(try backupExcludedEventually(archive, false))
 }
 
-@Test
+@Test(.serialized)
 func captureRootPolicyAppliesSelectedFinalizedPolicy() throws {
     let root = try makePolicyCaptureRoot()
     defer { try? FileManager.default.removeItem(at: root) }
@@ -200,34 +203,13 @@ func captureRootPolicyAppliesSelectedFinalizedPolicy() throws {
 
     // Working stays excluded regardless; finalized/exports follow the
     // selected policy.
-    #expect(
-        try backupExcluded(
-            captureRoot.appendingPathComponent(
-                "working",
-                isDirectory: true
-            )
-        )
-    )
-    #expect(
-        try backupExcluded(
-            captureRoot.appendingPathComponent(
-                "finalized",
-                isDirectory: true
-            )
-        )
-    )
-    #expect(
-        try backupExcluded(
-            captureRoot.appendingPathComponent(
-                "exports",
-                isDirectory: true
-            )
-        )
-    )
-    #expect(try !backupExcluded(captureRoot))
+    #expect(try backupExcludedEventually(captureRoot.appendingPathComponent("working", isDirectory: true), true))
+    #expect(try backupExcludedEventually(captureRoot.appendingPathComponent("finalized", isDirectory: true), true))
+    #expect(try backupExcludedEventually(captureRoot.appendingPathComponent("exports", isDirectory: true), true))
+    #expect(try backupExcludedEventually(captureRoot, false))
 }
 
-@Test
+@Test(.serialized)
 func captureRootPolicyDefaultKeepsFinalizedBackupEligible() throws {
     let root = try makePolicyCaptureRoot()
     defer { try? FileManager.default.removeItem(at: root) }
@@ -255,5 +237,5 @@ func captureRootPolicyDefaultKeepsFinalizedBackupEligible() throws {
     let failures = CaptureStoragePolicy
         .applyCaptureRootPolicy(captureRoot: captureRoot)
     #expect(failures.isEmpty)
-    #expect(try !backupExcluded(finalizedRevision))
+    #expect(try backupExcludedEventually(finalizedRevision, false))
 }
