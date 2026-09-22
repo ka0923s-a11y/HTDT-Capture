@@ -573,8 +573,10 @@ struct HTDTFieldReturnWorkspaceView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(entry.title)
-                    .font(.callout)
+                Text(
+                    FieldReturnPresentation.taskTitle(entry)
+                )
+                .font(.callout)
                 Spacer()
                 requirementBadge(entry.requirement)
             }
@@ -866,7 +868,7 @@ struct HTDTFieldReturnWorkspaceView: View {
                     localized:
                         "The task outcome could not be recorded."
                 ),
-                detail: String(describing: error)
+                detail: AnnotationPresentation.errorText(error)
             )
         }
     }
@@ -896,7 +898,7 @@ struct HTDTFieldReturnWorkspaceView: View {
                     localized:
                         "The record could not be saved."
                 ),
-                detail: String(describing: error)
+                detail: AnnotationPresentation.errorText(error)
             )
         }
     }
@@ -1220,7 +1222,7 @@ struct HTDTFieldReturnWorkspaceView: View {
                     localized:
                         "Evidence note could not be saved."
                 ),
-                detail: String(describing: error)
+                detail: AnnotationPresentation.errorText(error)
             )
         }
     }
@@ -1257,7 +1259,7 @@ struct HTDTFieldReturnWorkspaceView: View {
                     ),
                     filename
                 ),
-                detail: String(describing: error)
+                detail: AnnotationPresentation.errorText(error)
             )
         }
     }
@@ -1337,7 +1339,7 @@ struct HTDTFieldReturnWorkspaceView: View {
                     localized:
                         "The selected file could not be attached."
                 ),
-                detail: String(describing: error)
+                detail: AnnotationPresentation.errorText(error)
             )
         }
     }
@@ -1437,7 +1439,7 @@ struct HTDTFieldReturnWorkspaceView: View {
                     localized:
                         "The inventory item could not be saved."
                 ),
-                detail: String(describing: error)
+                detail: AnnotationPresentation.errorText(error)
             )
         }
     }
@@ -1537,7 +1539,7 @@ struct HTDTFieldReturnWorkspaceView: View {
                     localized:
                         "The room state could not be saved."
                 ),
-                detail: String(describing: error)
+                detail: AnnotationPresentation.errorText(error)
             )
         }
     }
@@ -1656,6 +1658,76 @@ extension HTDTFieldReturnTaskLedgerEntry.Outcome:
 /// enums stay serialization tokens — every user-facing name maps
 /// here.
 enum FieldReturnPresentation {
+    /// Display title for a ledger row: the plan seeds `title` from
+    /// issuer display text (a label/hint) or falls back to a typed
+    /// token — `entity_type`, `quantity_type`, `semantic_kind`, or
+    /// the evidence item's `purpose`. Typed tokens map to their
+    /// localized names, and any other lowercase snake_case token
+    /// humanizes to words, so a raw `equipment_label_photo`-style
+    /// token never reaches a row while issuer free text renders
+    /// verbatim.
+    static func taskTitle(
+        _ entry: HTDTFieldReturnTaskLedgerEntry
+    ) -> String {
+        let title = entry.title
+        switch entry.taskKind {
+        case .measurement:
+            return MissionPresentation.quantityTypeName(title)
+        case .entityChecklist:
+            if let type = AnnotationEntityType(rawValue: title) {
+                return AnnotationPresentation.entityTypeName(type)
+            }
+            return humanizedPlanText(title)
+        case .evidenceTask:
+            return evidencePurposeName(title)
+        case .inventoryItem, .routingVerification,
+             .projectorCommissioning, .roomStateObservation,
+             .otherSemantic:
+            if let kind = SemanticTaskKind(rawValue: title) {
+                return TheaterAuthorityPresentation
+                    .semanticTaskKindName(kind)
+            }
+            return humanizedPlanText(title)
+        case .surfaceReview, nil:
+            return humanizedPlanText(title)
+        }
+    }
+
+    /// The evidence-task `purpose` vocabulary is open (schema: free
+    /// string); the documented conventional tokens get localized
+    /// names and anything else humanizes.
+    static func evidencePurposeName(_ purpose: String) -> String {
+        switch purpose {
+        case "equipment_label_photo":
+            return String(localized: "Equipment label photo")
+        case "avr_rack_wiring":
+            return String(localized: "AVR rack wiring")
+        default:
+            return humanizedPlanText(purpose)
+        }
+    }
+
+    /// Issuer display text renders verbatim; a lowercase snake_case
+    /// token humanizes to words so a raw token never reaches a row.
+    private static func humanizedPlanText(
+        _ title: String
+    ) -> String {
+        isPlanToken(title)
+            ? MissionPresentation.tokenText(title) : title
+    }
+
+    /// A `[a-z0-9_]+` token containing at least one underscore — the
+    /// grammar's lowercase-token shape with the multi-word
+    /// constraint that keeps single-word issuer text like "survey"
+    /// verbatim.
+    private static func isPlanToken(_ value: String) -> Bool {
+        value.contains("_") && value.unicodeScalars.allSatisfy {
+            ($0.value >= 0x61 && $0.value <= 0x7A)
+                || ($0.value >= 0x30 && $0.value <= 0x39)
+                || $0.value == 0x5F
+        }
+    }
+
     static func taskKindName(
         _ kind: HTDTFieldTaskKind
     ) -> String {

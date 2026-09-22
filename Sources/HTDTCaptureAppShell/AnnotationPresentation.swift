@@ -457,6 +457,55 @@ enum AnnotationPresentation {
                 break
             }
         }
+        if let error = error as? FieldAuthorityModelError {
+            switch error {
+            case .emptyField(let field):
+                return String(localized:
+                    "Field \(field) is required.")
+            case .invalidBindingRef(let ref):
+                return String(localized:
+                    "Reference \(ref) does not match the binding-ref form.")
+            case .invalidToken(let token):
+                return String(localized:
+                    "Value \(token) is not a valid lowercase token.")
+            case .invalidTimestamp(let value):
+                return String(localized:
+                    "Timestamp \(value) is invalid.")
+            case .invalidCalendarDate(let value):
+                return String(localized:
+                    "Date \(value) is invalid — use YYYY-MM-DD.")
+            case .duplicateRecord(let ref):
+                return String(localized:
+                    "Record \(ref) already exists in this document.")
+            case .unboundReference(let ref):
+                return String(localized:
+                    "Reference \(ref) is not bound to a record in this document.")
+            case .attestationRequired:
+                return String(localized:
+                    "This entry needs at least one physically observed element to be recorded as observed.")
+            case .missingAssetAuthority:
+                return String(localized:
+                    "Attach the evidence asset this record points at.")
+            case .invalidAssetPath(let path):
+                return String(localized:
+                    "Asset path \(path) is invalid — it must stay inside the document.")
+            case .invalidObservedValue:
+                return String(localized:
+                    "The recorded value is not a finite, valid number.")
+            case .invalidCalibrationWindow:
+                return String(localized:
+                    "The instrument's calibration is outside its valid window.")
+            case .unknownInstrumentVersion:
+                return String(localized:
+                    "This instrument version is not in the known profile set.")
+            case .endpointConflict:
+                return String(localized:
+                    "Each endpoint needs a distinct identity — bind it, capture its position, or label it — and endpoints A and B must differ.")
+            case .hiddenPathGuess:
+                return String(localized:
+                    "Hidden path sections are recorded as unknown — remove waypoints or a surface binding from them.")
+            }
+        }
         return String(describing: error)
     }
 

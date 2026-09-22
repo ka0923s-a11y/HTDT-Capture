@@ -1616,6 +1616,9 @@ public struct CaptureRootView: View {
                         crossRevisionRegistrations,
                     missionProgressEvaluations:
                         missionProgressEvaluations,
+                    workingSetStatus: workingSetStatus,
+                    appSettings: appSettings,
+                    equipmentCatalog: equipmentCatalog,
                     actions: actions
                 )
             } else {
