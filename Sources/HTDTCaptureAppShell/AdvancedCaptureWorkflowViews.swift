@@ -254,7 +254,7 @@ public struct AsBuiltVerificationStatusView: View {
                                 item.spec.label
                                     ?? item.spec.plannedEntityID
                             )
-                            Text(item.state.rawValue)
+                            Text(item.state.displayTitle)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -271,6 +271,29 @@ public struct AsBuiltVerificationStatusView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+private extension AsBuiltItemState {
+    /// User-facing verdict label (#356): `indeterminate` is a distinct
+    /// state — deviation plus the observation-uncertainty/alignment
+    /// band overlaps the tolerance boundary, or the policy required
+    /// inputs were never declared.
+    var displayTitle: String {
+        switch self {
+        case .pending:
+            return String(localized: "Pending")
+        case .verified:
+            return String(localized: "Verified")
+        case .deviated:
+            return String(localized: "Out of tolerance")
+        case .captured:
+            return String(localized: "Captured")
+        case .indeterminate:
+            return String(localized: "Indeterminate")
+        case .unavailable:
+            return String(localized: "Unavailable")
         }
     }
 }

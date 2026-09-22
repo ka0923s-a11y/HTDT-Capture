@@ -2,7 +2,6 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://htdt.example/schemas/capture-bundle-v1/advisory-notes.schema.json",
   "title": "HTDT Capture Advisory Notes v1",
-  "description": "Derived advisory provenance payload persisted at advisory/operator-advisories.json. Notes are operator/policy context only; they never assert canonical geometry or evidence authority.",
   "type": "object",
   "additionalProperties": false,
   "required": [

@@ -480,9 +480,17 @@ public enum MeasurementEditSupport {
         sourceValueText: String?,
         evidenceRefs: [String]
     ) throws -> CaptureMeasurement {
-        try CaptureMeasurement(
+        guard let scopedQuantityType =
+            OpenTokenPolicy.scopedForAuthoring(
+                quantityType,
+                vocabulary: .measurementQuantity
+            )
+        else {
+            throw MeasurementModelError.unscopedCustomQuantity
+        }
+        return try CaptureMeasurement(
             measurementID: seed.measurementID,
-            quantityType: quantityType,
+            quantityType: scopedQuantityType,
             value: .scalar(value),
             unit: unit,
             acquisitionMethod: acquisitionMethod,

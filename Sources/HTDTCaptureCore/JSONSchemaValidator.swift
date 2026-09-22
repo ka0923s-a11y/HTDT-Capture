@@ -9,6 +9,14 @@ public enum JSONSchemaError: Error, Sendable, Equatable {
     case unsupportedRef(String)
     case unresolvedRef(String)
     case unknownSchema(String)
+    /// The payload declared a `schema_version` the published support
+    /// matrix does not list for its family (#332) — surfaces an
+    /// explicit version diagnostic instead of silently passing.
+    case unsupportedPayloadVersion(
+        family: String,
+        version: String,
+        supported: [String]
+    )
 }
 
 public struct JSONSchemaViolation: Sendable, Equatable {

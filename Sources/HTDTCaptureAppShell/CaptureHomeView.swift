@@ -401,7 +401,11 @@ public struct CaptureHomeView: View {
                 removeQuarantinedArtifact:
                     actions.removeQuarantinedArtifact,
                 removeWorkingOrphan:
-                    actions.removeWorkingOrphan
+                    actions.removeWorkingOrphan,
+                openRecoveredDraft:
+                    actions.openRecoveredDraft,
+                discardRecoveredDraft:
+                    actions.discardRecoveredDraft
             )
         case .readiness:
             CaptureDeviceReadinessView(
@@ -870,9 +874,79 @@ private struct CaptureLibraryMaintenanceView: View {
         (PersistedCaptureQuarantinedArtifact) -> Void
     let removeWorkingOrphan:
         (PersistedCaptureWorkingOrphan) -> Void
+    let openRecoveredDraft:
+        (RecoverableWorkingRevision) -> Void
+    let discardRecoveredDraft:
+        (RecoverableWorkingRevision) -> Void
+
+    private func localizedRevisionPhase(
+        _ phase: WorkingRevisionPhase
+    ) -> String {
+        switch phase {
+        case .liveScanIncomplete:
+            return String(localized: "Scan interrupted")
+        case .endAccepted:
+            return String(localized: "Ended; ready for review")
+        case .semanticAuthoring:
+            return String(
+                localized: "Ended; annotations in progress"
+            )
+        case .readyToFinalize:
+            return String(localized: "Ready to finalize")
+        }
+    }
 
     var body: some View {
         List {
+            if !inventory.recoverableDrafts.isEmpty {
+                Section("Recoverable drafts") {
+                    ForEach(inventory.recoverableDrafts) { draft in
+                        VStack(alignment: .leading, spacing: 4) {
+                            LabeledContent(
+                                localizedRevisionPhase(draft.phase),
+                                value: draft.url.lastPathComponent
+                            )
+                            LabeledContent(
+                                "Retained bytes",
+                                value: ByteCountFormatter.string(
+                                    fromByteCount: draft.retainedBytes,
+                                    countStyle: .file
+                                )
+                            )
+                            if !draft.unsupportedPaths.isEmpty {
+                                Text(
+                                    String(
+                                        format: String(
+                                            localized:
+                                                "%d unsupported file(s) kept"
+                                        ),
+                                        draft.unsupportedPaths.count
+                                    )
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+                            HStack {
+                                Button("Reopen for review") {
+                                    openRecoveredDraft(draft)
+                                }
+                                Button(
+                                    "Discard draft",
+                                    role: .destructive
+                                ) {
+                                    discardRecoveredDraft(draft)
+                                }
+                            }
+                            .font(.caption)
+                        }
+                    }
+                    Text(
+                        "An Ended capture whose data survived an interruption. Reopening restores Review with spatial capture sealed — you can finish annotations and finalize, but you cannot resume scanning."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
             if !inventory.quarantinedArtifacts.isEmpty {
                 Section("Unreadable artifacts") {
                     ForEach(inventory.quarantinedArtifacts) {

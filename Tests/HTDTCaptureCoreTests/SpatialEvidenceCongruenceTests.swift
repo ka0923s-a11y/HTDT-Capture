@@ -373,7 +373,7 @@ final class SpatialEvidenceCongruenceTests: XCTestCase {
         let good = try MeasurementEvidencePackageBuilder.build(
             measurements: [
                 try CaptureMeasurement(
-                    quantityType: "anchor_point",
+                    quantityType: "x_anchor_point",
                     value: .vector3(1, 2, 3),
                     unit: .meter,
                     coordinateSpaceID: space,
@@ -408,7 +408,7 @@ final class SpatialEvidenceCongruenceTests: XCTestCase {
         let package = try MeasurementEvidencePackageBuilder.build(
             measurements: [
                 try CaptureMeasurement(
-                    quantityType: "anchor_point",
+                    quantityType: "x_anchor_point",
                     value: .vector3(1, 2, 3),
                     unit: .meter,
                     coordinateSpaceID: space,
