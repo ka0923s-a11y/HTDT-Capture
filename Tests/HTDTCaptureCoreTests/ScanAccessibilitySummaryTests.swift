@@ -212,6 +212,7 @@ private func makeRegion(
         limitedTrackingObservationCount: 0,
         lastObservedTimestampSeconds: 0,
         viewAngleBucketMask: 1,
+        elevationBucketMask: 0,
         latestDistanceBucket: distanceBucket,
         depthObservationCount: 0,
         meshSupportCount: 1,
