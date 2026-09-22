@@ -506,7 +506,7 @@ public struct MissionWorkflowsView: View {
                                     )
                             )
                             .font(.caption2)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(CaptureColorRole.attention.color)
                         }
                     }
                     Text(row.task.reason)
@@ -529,7 +529,7 @@ public struct MissionWorkflowsView: View {
                                 )
                             )
                         .font(.caption2)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(CaptureColorRole.success.color)
                     } else {
                         Button("Fix in Capture") {
                             onResolveRepairTask(row)

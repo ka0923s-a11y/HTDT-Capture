@@ -172,7 +172,7 @@ struct EquipmentInventoryView: View {
             if let errorText {
                 Text(errorText)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(CaptureColorRole.blocked.color)
             }
         }
         .searchable(
@@ -308,7 +308,7 @@ struct EquipmentInventoryView: View {
                     String(localized: "Possible duplicates"),
                     value: String(duplicates)
                 )
-                .foregroundStyle(.orange)
+                .foregroundStyle(CaptureColorRole.attention.color)
             }
             Text(
                 String(localized:
@@ -736,7 +736,7 @@ private struct InventoryItemFormSheet: View {
             if let savedNotice {
                 Text(savedNotice)
                     .font(.caption)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(CaptureColorRole.success.color)
             }
             Section(String(localized: "Device")) {
                 Picker(
@@ -951,7 +951,7 @@ private struct InventoryItemFormSheet: View {
             if let errorText {
                 Text(errorText)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(CaptureColorRole.blocked.color)
             }
 
             Section {

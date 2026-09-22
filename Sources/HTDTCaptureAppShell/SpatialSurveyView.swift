@@ -72,10 +72,17 @@ public struct SpatialSurveyView: View {
                 if summary.missionRequiredGapCount > 0 {
                     LabeledContent(
                         "Required gaps",
-                        value:
-                            "\(summary.missionRequiredGapCount) target(s)"
+                        value: captureCountPhrase(
+                            summary.missionRequiredGapCount,
+                            singular: String(
+                                localized: "%lld target"
+                            ),
+                            plural: String(
+                                localized: "%lld targets"
+                            )
+                        )
                     )
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(CaptureColorRole.attention.color)
                 }
                 LabeledContent(
                     "Remaining",
@@ -174,7 +181,7 @@ public struct SpatialSurveyView: View {
             {
                 Text("Required")
                     .font(.caption2)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(CaptureColorRole.attention.color)
             }
         }
     }
@@ -246,7 +253,7 @@ public struct SpatialSurveyTargetView: View {
                                 "exclamationmark.triangle"
                         )
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(CaptureColorRole.attention.color)
                     }
                 }
             }
@@ -292,7 +299,15 @@ public struct SpatialSurveyTargetView: View {
                                     .font(.caption.monospaced())
                                 if !record.evidenceRefs.isEmpty {
                                     Text(
-                                        "\(record.evidenceRefs.count) evidence ref(s)"
+                                        captureCountPhrase(
+                                            record.evidenceRefs.count,
+                                            singular: String(
+                                                localized: "%lld evidence reference"
+                                            ),
+                                            plural: String(
+                                                localized: "%lld evidence references"
+                                            )
+                                        )
                                     )
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)

@@ -202,7 +202,7 @@ public struct SpeakerLayoutFlowView: View {
 
                     if let errorText {
                         Text(errorText)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(CaptureColorRole.blocked.color)
                     }
                 }
 

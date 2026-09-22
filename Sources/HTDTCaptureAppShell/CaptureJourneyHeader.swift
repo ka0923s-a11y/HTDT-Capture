@@ -64,7 +64,7 @@ public struct CaptureJourneyHeader: View {
                         )
                     )
                     .font(CaptureDesign.Typography.secondary)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(CaptureColorRole.blocked.color)
                 }
             }
             if let transient = presentation.transientLabelKey {
