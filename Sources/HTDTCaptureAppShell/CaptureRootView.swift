@@ -1078,24 +1078,7 @@ public struct CaptureRootView: View {
                     }
                 }
 
-                if state == .reviewing
-                    || state == .annotating,
-                    !danglingSpatialIssues.isEmpty
-                {
-                    Section("Evidence issues") {
-                        ForEach(
-                            danglingSpatialIssues,
-                            id: \.ref
-                        ) { issue in
-                            danglingIssueRow(issue)
-                        }
-                        Text(
-                            "Committed annotations or measurements reference evidence that is no longer in the working set. Reopen the annotation authority to repair or remove them."
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                }
+                evidenceIssuesSection
 
                 if state == .reviewing,
                    let qualityReport
@@ -1230,8 +1213,7 @@ public struct CaptureRootView: View {
                             reopenRevisitFlag: actions
                                 .reopenRevisitFlag,
                             markTaskPlanItem: actions
-                                .markTaskPlanItem
-                                .confirmRoomReferenceFrame,
+                                .markTaskPlanItem,
                             confirmFieldDatumFromRoomFrame:
                                 actions
                                     .confirmFieldDatumFromRoomFrame,
@@ -2154,6 +2136,30 @@ public struct CaptureRootView: View {
             )
             .font(.caption)
             .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Dangling-evidence section, extracted from the List body so the
+    /// type-checker stays inside its budget.
+    @ViewBuilder
+    private var evidenceIssuesSection: some View {
+        if state == .reviewing
+            || state == .annotating,
+            !danglingSpatialIssues.isEmpty
+        {
+            Section("Evidence issues") {
+                ForEach(
+                    danglingSpatialIssues,
+                    id: \.ref
+                ) { issue in
+                    danglingIssueRow(issue)
+                }
+                Text(
+                    "Committed annotations or measurements reference evidence that is no longer in the working set. Reopen the annotation authority to repair or remove them."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
         }
     }
 

@@ -85,8 +85,7 @@ public struct CaptureReviewWorkspaceView: View {
             ) -> Void = { _, _, _ in },
         reopenRevisitFlag: @escaping (String) -> Void = { _ in },
         markTaskPlanItem: @escaping
-            (String, TaskPlanItemOutcome) -> Void = { _, _ in }
-        confirmRoomReferenceFrame: @escaping () -> Void = {},
+            (String, TaskPlanItemOutcome) -> Void = { _, _ in },
         confirmFieldDatumFromRoomFrame: @escaping
             () async -> Bool = { false },
         removeRoomFieldDatum: @escaping () async -> Void = {},
