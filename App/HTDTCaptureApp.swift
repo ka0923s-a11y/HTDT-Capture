@@ -216,7 +216,8 @@ private struct HTDTCaptureHostView: View {
                     coordinator.updateRevisitFlagDetails,
                 resolveRevisitFlag: coordinator.resolveRevisitFlag,
                 reopenRevisitFlag: coordinator.reopenRevisitFlag,
-                markTaskPlanItem: coordinator.markTaskPlanItem,
+                markTaskPlanItem:
+                    coordinator.markTaskPlanItem(_:outcome:),
                 importEquipmentCatalog:
                     coordinator.importEquipmentCatalog,
                 selectEquipmentCatalog:
@@ -271,7 +272,6 @@ private struct HTDTCaptureHostView: View {
                     coordinator.exportFailedCaptureDiagnostics,
                 importMissionDocument:
                     coordinator.importMissionDocument,
-                markTaskPlanItem: coordinator.markTaskPlanItem,
                 setConnectedSpaceIntent:
                     coordinator.setConnectedSpaceIntent,
                 beginConnectedSegment:
@@ -7192,57 +7192,62 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// #352 Review-time checklist marks for the bound task plan.
+    /// Also forwards the mark to an imported task plan (#240) — the
+    /// two statuses coexist: `boundTaskPlanStatus` tracks the
+    /// mission-bound plan persisted via the working set, while
+    /// `captureTaskPlanStatus` is the standalone imported plan.
     func markTaskPlanItem(
         _ itemID: String,
         outcome: TaskPlanItemOutcome
     ) {
-        guard var status = boundTaskPlanStatus,
-              let store = workingSetStore,
-              let identity = workingSetIdentity
-        else {
-            return
-        }
-        do {
-            try status.mark(itemID: itemID, as: outcome)
-        } catch {
-            return
-        }
-        boundTaskPlanStatus = status
-        let context = sessionController.context
-        let annotations = reviewWorkspace?.annotations ?? []
-        let measurements = reviewWorkspace?.measurements ?? []
-        let generation = captureGeneration
-        Task { @MainActor [weak self] in
-            guard let self,
-                  self.captureGeneration == generation
-            else {
+        if var status = boundTaskPlanStatus,
+           let store = workingSetStore,
+           let identity = workingSetIdentity
+        {
+            do {
+                try status.mark(itemID: itemID, as: outcome)
+            } catch {
+                markTaskPlanItem(itemID, as: outcome)
                 return
             }
-            guard let data = try? status.statusPackage(
-                captureRevisionID: identity.captureRevisionID,
-                captureSessionID: context.captureSessionID,
-                annotations: annotations,
-                measurements: measurements
-            ) else {
-                return
-            }
-            try? await store.replaceSupplementalDocument(
-                WorkingSetSupplementalDocument(
-                    path: CaptureTaskPlanStatusDocument.path,
-                    data: data,
-                    declaration: BundlePayloadDeclaration(
+            boundTaskPlanStatus = status
+            let context = sessionController.context
+            let annotations = reviewWorkspace?.annotations ?? []
+            let measurements = reviewWorkspace?.measurements ?? []
+            let generation = captureGeneration
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.captureGeneration == generation
+                else {
+                    return
+                }
+                guard let data = try? status.statusPackage(
+                    captureRevisionID: identity.captureRevisionID,
+                    captureSessionID: context.captureSessionID,
+                    annotations: annotations,
+                    measurements: measurements
+                ) else {
+                    return
+                }
+                try? await store.replaceSupplementalDocument(
+                    WorkingSetSupplementalDocument(
                         path: CaptureTaskPlanStatusDocument.path,
-                        mediaType: "application/json",
-                        producer: "capture_session",
-                        provenanceClass: .captureAppDerived,
-                        role: .canonical
-                    ),
-                    coordinateSpaceIDs: [context.coordinateSpaceID],
-                    captureSessionIDs: [context.captureSessionID]
+                        data: data,
+                        declaration: BundlePayloadDeclaration(
+                            path: CaptureTaskPlanStatusDocument.path,
+                            mediaType: "application/json",
+                            producer: "capture_session",
+                            provenanceClass: .captureAppDerived,
+                            role: .canonical
+                        ),
+                        coordinateSpaceIDs: [context.coordinateSpaceID],
+                        captureSessionIDs: [context.captureSessionID]
+                    )
                 )
-            )
-            self.refreshReviewWorkspace()
+                self.refreshReviewWorkspace()
+            }
         }
+        markTaskPlanItem(itemID, as: outcome)
     }
 
     private static func captureRootDirectory() -> URL? {

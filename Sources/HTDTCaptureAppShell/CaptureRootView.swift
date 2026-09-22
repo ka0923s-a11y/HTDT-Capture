@@ -177,8 +177,6 @@ public struct CaptureRootActions {
         () async -> URL?
     /// Mission workflows (#353) + closed-loop repair (#321).
     public let importMissionDocument: (URL) -> Void
-    public let markTaskPlanItem:
-        (String, TaskPlanItemOutcome) -> Void
     public let setConnectedSpaceIntent: (Bool) -> Void
     public let beginConnectedSegment:
         (String, CaptureRegionKind) -> Void
@@ -408,8 +406,6 @@ public struct CaptureRootActions {
             () async -> URL? = { nil },
         importMissionDocument: @escaping (URL) -> Void
             = { _ in },
-        markTaskPlanItem: @escaping
-            (String, TaskPlanItemOutcome) -> Void = { _, _ in },
         setConnectedSpaceIntent: @escaping (Bool) -> Void
             = { _ in },
         beginConnectedSegment: @escaping
@@ -557,7 +553,6 @@ public struct CaptureRootActions {
         self.exportFailedCaptureDiagnostics =
             exportFailedCaptureDiagnostics
         self.importMissionDocument = importMissionDocument
-        self.markTaskPlanItem = markTaskPlanItem
         self.setConnectedSpaceIntent = setConnectedSpaceIntent
         self.beginConnectedSegment = beginConnectedSegment
         self.completeConnectedSegment =
