@@ -1238,6 +1238,10 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
     public let lifecycle: AnnotationLifecycle?
     /// How the reference point itself was authored/confirmed (#291).
     public let referencePoint: ReferencePointAuthority?
+    /// Optional app-local author/operator binding (issue #310):
+    /// `operator_id` from `derived/operator-profiles.json`. Optional
+    /// and explicit — anonymous records remain valid.
+    public let authorOperatorID: OperatorProfileID?
 
     public init(
         entityID: AnnotationEntityID = AnnotationEntityID(),
@@ -1260,7 +1264,8 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         uncertainty: SpatialUncertaintyAuthority? = nil,
         authority: AnnotationAuthorityComponents? = nil,
         lifecycle: AnnotationLifecycle? = nil,
-        referencePoint: ReferencePointAuthority? = nil
+        referencePoint: ReferencePointAuthority? = nil,
+        authorOperatorID: OperatorProfileID? = nil
     ) throws {
         let normalizedLabel = SchemaOwnedText.nfc(label)
         guard !normalizedLabel.isEmpty else {
@@ -1371,6 +1376,38 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         self.authority = authority
         self.lifecycle = lifecycle
         self.referencePoint = referencePoint
+        self.authorOperatorID = authorOperatorID
+    }
+
+    /// A copy of this entity with `author_operator_id` set to
+    /// `operatorID` — the workspace stamps the selected operator
+    /// profile onto newly authored records (issue #310).
+    public func withAuthorOperator(
+        _ operatorID: OperatorProfileID?
+    ) throws -> CaptureAnnotationEntity {
+        try CaptureAnnotationEntity(
+            entityID: entityID,
+            type: type,
+            coordinateSpaceID: coordinateSpaceID,
+            worldFromAnnotation: worldFromAnnotation,
+            referencePointSemantics: referencePointSemantics,
+            label: label,
+            provenanceClass: provenanceClass,
+            verificationState: verificationState,
+            placement: placement,
+            orientation: orientation,
+            channelRole: channelRole,
+            acousticCenter: acousticCenter,
+            equipmentRef: equipmentRef,
+            evidenceRefs: evidenceRefs,
+            physicalEnvelope: physicalEnvelope,
+            listeningRole: listeningRole,
+            uncertainty: uncertainty,
+            authority: authority,
+            lifecycle: lifecycle,
+            referencePoint: referencePoint,
+            authorOperatorID: operatorID
+        )
     }
 
     /// Compatibility between this entity's `equipment_ref` and its
@@ -1435,7 +1472,8 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
             uncertainty: uncertainty,
             authority: authority,
             lifecycle: base.revised(at: updatedAtUTC),
-            referencePoint: referencePoint
+            referencePoint: referencePoint,
+            authorOperatorID: authorOperatorID
         )
     }
 
@@ -1461,6 +1499,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         case authority
         case lifecycle
         case referencePoint = "reference_point"
+        case authorOperatorID = "author_operator_id"
     }
 
     public init(from decoder: Decoder) throws {
@@ -1546,6 +1585,10 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
             referencePoint: container.decodeIfPresent(
                 ReferencePointAuthority.self,
                 forKey: .referencePoint
+            ),
+            authorOperatorID: container.decodeIfPresent(
+                OperatorProfileID.self,
+                forKey: .authorOperatorID
             )
         )
     }

@@ -25,6 +25,11 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
     /// Ordered channel-role plan the speaker-layout flow is running
     /// through, when the operator started one (#278).
     public var speakerLayoutPlan: SpeakerLayoutPlan?
+    /// Staged field-authority state — operator profiles, field
+    /// evidence, instrument profiles, settings observations and
+    /// wiring routes (#300/#301/#310/#314/#324/#331). Optional so
+    /// drafts saved by older versions still decode.
+    public var fieldAuthority: FieldAuthorityWorkspace?
 
     public init(
         captureRevisionID: CaptureRevisionID,
@@ -33,7 +38,8 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         annotations: [CaptureAnnotationEntity] = [],
         measurements: [CaptureMeasurement] = [],
         equipmentIdentityRecords: [EquipmentIdentityRecord] = [],
-        speakerLayoutPlan: SpeakerLayoutPlan? = nil
+        speakerLayoutPlan: SpeakerLayoutPlan? = nil,
+        fieldAuthority: FieldAuthorityWorkspace? = nil
     ) {
         self.schemaName = Self.schema
         self.schemaVersionValue = Self.schemaVersion
@@ -44,6 +50,47 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         self.measurements = measurements
         self.equipmentIdentityRecords = equipmentIdentityRecords
         self.speakerLayoutPlan = speakerLayoutPlan
+        self.fieldAuthority = fieldAuthority
+    }
+
+    /// Older drafts lack `field_authority`; every other required key
+    /// keeps its synthesized-member behavior via this explicit decode.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(
+            keyedBy: CodingKeys.self
+        )
+        schemaName = try container.decode(
+            String.self, forKey: .schemaName
+        )
+        schemaVersionValue = try container.decode(
+            String.self, forKey: .schemaVersionValue
+        )
+        captureRevisionID = try container.decode(
+            CaptureRevisionID.self, forKey: .captureRevisionID
+        )
+        coordinateSpaceID = try container.decode(
+            CoordinateSpaceID.self, forKey: .coordinateSpaceID
+        )
+        savedAtUTC = try container.decode(
+            String.self, forKey: .savedAtUTC
+        )
+        annotations = try container.decode(
+            [CaptureAnnotationEntity].self, forKey: .annotations
+        )
+        measurements = try container.decode(
+            [CaptureMeasurement].self, forKey: .measurements
+        )
+        equipmentIdentityRecords = try container.decode(
+            [EquipmentIdentityRecord].self,
+            forKey: .equipmentIdentityRecords
+        )
+        speakerLayoutPlan = try container.decodeIfPresent(
+            SpeakerLayoutPlan.self, forKey: .speakerLayoutPlan
+        )
+        fieldAuthority = try container.decodeIfPresent(
+            FieldAuthorityWorkspace.self,
+            forKey: .fieldAuthority
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -56,6 +103,7 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         case measurements
         case equipmentIdentityRecords = "equipment_identity_records"
         case speakerLayoutPlan = "speaker_layout_plan"
+        case fieldAuthority = "field_authority"
     }
 }
 
