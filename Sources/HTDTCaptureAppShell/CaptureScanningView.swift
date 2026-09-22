@@ -39,6 +39,18 @@ public struct CaptureScanningView: View {
     public let loopClosureAssessment: LoopClosureAssessment?
     /// Non-visual guidance cue master switch (#252).
     public let guidanceCuesEnabled: Bool
+    /// Unresolved revisit flags dropped during this scan (#325).
+    public let revisitFlagCount: Int
+    /// True when the bounded flag store is full — the flag control
+    /// stays visible but disabled.
+    public let revisitFlagsFull: Bool
+    /// One-tap revisit-flag drop (#325). Returns the new flag id when
+    /// persisted so the view can offer the optional details sheet, nil
+    /// when the flag could not be recorded.
+    public let flagForReview: () -> String?
+    /// Saves the optional flag category/note from the post-flag sheet.
+    public let updateRevisitFlagDetails:
+        (String, ScanRevisitFlagCategory?, String?) -> Void
     public let beginTargetScan: () -> Void
     public let retakeTargetScan: () -> Void
     public let acceptTargetScan: () -> Void
@@ -56,6 +68,10 @@ public struct CaptureScanningView: View {
     @State private var showingSpatialMap = false
     @State private var showingDerivedPreview = false
     @State private var derivedPreviewMode: DerivedPreviewMode = .observation
+    /// #325: the flag whose optional details sheet is open.
+    @State private var flagDetailsID: String?
+    @State private var flagDetailsCategory: ScanRevisitFlagCategory?
+    @State private var flagDetailsNote = ""
 
     public init(
         preview: AnyView,
@@ -77,6 +93,12 @@ public struct CaptureScanningView: View {
         loopClosureCheckActive: Bool = false,
         loopClosureAssessment: LoopClosureAssessment? = nil,
         guidanceCuesEnabled: Bool = true,
+        revisitFlagCount: Int = 0,
+        revisitFlagsFull: Bool = false,
+        flagForReview: @escaping () -> String? = { nil },
+        updateRevisitFlagDetails: @escaping
+            (String, ScanRevisitFlagCategory?, String?) -> Void
+            = { _, _, _ in },
         beginTargetScan: @escaping () -> Void = {},
         retakeTargetScan: @escaping () -> Void = {},
         acceptTargetScan: @escaping () -> Void = {},
@@ -113,6 +135,10 @@ public struct CaptureScanningView: View {
         self.loopClosureCheckActive = loopClosureCheckActive
         self.loopClosureAssessment = loopClosureAssessment
         self.guidanceCuesEnabled = guidanceCuesEnabled
+        self.revisitFlagCount = revisitFlagCount
+        self.revisitFlagsFull = revisitFlagsFull
+        self.flagForReview = flagForReview
+        self.updateRevisitFlagDetails = updateRevisitFlagDetails
         self.beginTargetScan = beginTargetScan
         self.retakeTargetScan = retakeTargetScan
         self.acceptTargetScan = acceptTargetScan
@@ -199,6 +225,107 @@ public struct CaptureScanningView: View {
         .sheet(isPresented: $showingAuthorityHelp) {
             authorityHelpView
                 .presentationDetents([.medium, .large])
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { flagDetailsID != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        flagDetailsID = nil
+                    }
+                }
+            )
+        ) {
+            revisitFlagDetailsSheet
+                .presentationDetents([.medium])
+        }
+    }
+
+    /// #325: the optional post-flag details sheet. Dropping a flag is
+    /// a single tap during scanning; category/note are offered only
+    /// afterwards, when the operator has stopped to interact — and the
+    /// scan keeps running either way.
+    private var revisitFlagDetailsSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Picker(
+                        "What needs review?",
+                        selection: $flagDetailsCategory
+                    ) {
+                        Text("Not set")
+                            .tag(
+                                ScanRevisitFlagCategory?.none
+                            )
+                        ForEach(
+                            ScanRevisitFlagCategory.allCases,
+                            id: \.self
+                        ) { category in
+                            Text(revisitFlagCategoryLabel(category))
+                                .tag(
+                                    ScanRevisitFlagCategory?
+                                        .some(category)
+                                )
+                        }
+                    }
+
+                    TextField(
+                        "Short note (optional)",
+                        text: $flagDetailsNote,
+                        axis: .vertical
+                    )
+                    .lineLimit(2 ... 4)
+                } footer: {
+                    Text(
+                        "The flag is already saved and will be listed in Review. Details are optional and can be added while you stay put."
+                    )
+                }
+            }
+            .navigationTitle("Flag for review")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Skip") {
+                        flagDetailsID = nil
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save details") {
+                        if let flagDetailsID {
+                            updateRevisitFlagDetails(
+                                flagDetailsID,
+                                flagDetailsCategory,
+                                flagDetailsNote.isEmpty
+                                ? nil
+                                : flagDetailsNote
+                            )
+                        }
+                        flagDetailsID = nil
+                    }
+                }
+            }
+        }
+    }
+
+    private func revisitFlagCategoryLabel(
+        _ category: ScanRevisitFlagCategory
+    ) -> String {
+        switch category {
+        case .geometry:
+            return String(localized: "Geometry")
+        case .opening:
+            return String(localized: "Opening")
+        case .reflectiveTransparent:
+            return String(
+                localized: "Reflective / transparent"
+            )
+        case .objectDetail:
+            return String(localized: "Object detail")
+        case .measurement:
+            return String(localized: "Measurement")
+        case .equipment:
+            return String(localized: "Equipment")
+        case .other:
+            return String(localized: "Other")
         }
     }
 
@@ -288,6 +415,22 @@ public struct CaptureScanningView: View {
                     alignment: .leading
                 )
 
+            // #313: translation prompts always carry the safety
+            // qualifier inline; the note reminds the operator the app
+            // cannot verify their path.
+            if let motionGuidance,
+               let note = ScanMotionGuidanceCopy.safetyNote(
+                for: motionGuidance,
+                language: ScanMotionGuidanceCopy.preferredLanguage
+               )
+            {
+                Text(note)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+            }
+
             // #283: the low-light prompt is a distinct surface, not
             // folded into generic tracking wording.
             if lowLightGuidanceActive {
@@ -340,7 +483,8 @@ public struct CaptureScanningView: View {
 
     @ViewBuilder
     private var mobilityControl: some View {
-        if guidanceProgress.movementCapability == .stationaryOnly {
+        switch guidanceProgress.movementCapability {
+        case .stationaryOnly:
             HStack(spacing: 8) {
                 Label(
                     "Scanning from this position",
@@ -358,32 +502,62 @@ public struct CaptureScanningView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
             }
-        } else if motionGuidance.map({
-            requiresPhysicalTranslation($0.action)
-        }) == true {
-            Button {
-                setMovementCapability(.stationaryOnly)
-            } label: {
+        case .safetyConstrained:
+            // #313: movement was marked unsafe — translation prompts
+            // are hidden and the mode is labeled distinctly from a
+            // voluntary stationary scan so Review can tell them apart.
+            HStack(spacing: 8) {
                 Label(
-                    "I cannot move around this area",
-                    systemImage: "figure.stand"
+                    "Movement marked unsafe — staying put",
+                    systemImage: "hand.raised.fill"
                 )
                 .font(.caption.weight(.semibold))
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-        }
-    }
+                .foregroundStyle(.orange)
 
-    private func requiresPhysicalTranslation(
-        _ action: ScanMotionGuidanceAction
-    ) -> Bool {
-        switch action {
-        case .translate, .approach, .retreat, .orbit,
-             .reobserveAnotherAngle:
-            return true
-        case .trackingRecovery, .rotate, .tilt, .holdObserve:
-            return false
+                Spacer(minLength: 6)
+
+                Button("Safe to move") {
+                    setMovementCapability(.unrestricted)
+                }
+                .font(.caption2.weight(.semibold))
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+            }
+        case .unrestricted:
+            // #313: while guidance may instruct movement, both
+            // opt-outs stay immediately visible — "I cannot move"
+            // (operator preference) and "Movement unsafe here"
+            // (environment). Neither is framed as failing the scan.
+            if motionGuidance.map({
+                $0.action.requiresPhysicalTranslation
+            }) == true {
+                HStack(spacing: 8) {
+                    Button {
+                        setMovementCapability(.stationaryOnly)
+                    } label: {
+                        Label(
+                            "I cannot move around this area",
+                            systemImage: "figure.stand"
+                        )
+                        .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    Button {
+                        setMovementCapability(.safetyConstrained)
+                    } label: {
+                        Label(
+                            "Movement unsafe here",
+                            systemImage: "hand.raised"
+                        )
+                        .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.orange)
+                    .controlSize(.small)
+                }
+            }
         }
     }
 
@@ -407,7 +581,47 @@ public struct CaptureScanningView: View {
                 String(localized: "Save evidence frame")
             )
 
-            Spacer(minLength: 64)
+            // #325: one large tap marks the current view for mandatory
+            // Review without interrupting the scan. The optional
+            // details sheet is offered only once the flag persisted.
+            Button {
+                if let flagID = flagForReview() {
+                    flagDetailsID = flagID
+                    flagDetailsCategory = nil
+                    flagDetailsNote = ""
+                }
+            } label: {
+                Label(
+                    revisitFlagsFull
+                        ? "Flags full"
+                        : revisitFlagCount > 0
+                        ? String(
+                            format: String(
+                                localized: "Flag (%d)"
+                            ),
+                            revisitFlagCount
+                        )
+                        : String(localized: "Flag"),
+                    systemImage: "flag.fill"
+                )
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .frame(minHeight: 38)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .disabled(isEndingScan || revisitFlagsFull)
+            .accessibilityLabel(
+                String(localized: "Flag area for review")
+            )
+            .accessibilityHint(
+                String(
+                    localized:
+                        "Marks the current view for mandatory review without interrupting the scan."
+                )
+            )
+
+            Spacer(minLength: 8)
 
             Button(action: requestEndScan) {
                 Label(
@@ -604,6 +818,8 @@ public struct CaptureScanningView: View {
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.cyan)
                         }
+
+                        verticalCoverageStrip
 
                         if spatialCoverage.capacity.evictionCount > 0 {
                             Label(
@@ -890,6 +1106,22 @@ public struct CaptureScanningView: View {
                     Text(
                         "If the room layout prevents you from walking around a target, choose I cannot move around this area. HTDT will stop requiring translation/orbit guidance for this scan; weak and unknown spatial cells remain advisory."
                     )
+                    Text(
+                        ScanMotionGuidanceCopy.safetyDisclaimer(
+                            language:
+                                ScanMotionGuidanceCopy
+                                .preferredLanguage
+                        )
+                    )
+                    Text(
+                        "Movement prompts are advisory: they never claim the path behind you was checked, and they never require walking backward. When movement is not safe, choose Movement unsafe here to hide translation prompts without failing the scan."
+                    )
+                }
+
+                Section("Vertical coverage") {
+                    Text(
+                        "Coverage cells are tracked by height too, so a floor-level observation does not count as covering the ceiling at the same spot. Weak upper or lower bands stay visible in the Details HUD and at the end-of-scan review."
+                    )
                 }
 
                 Section("Spatial observation") {
@@ -1074,6 +1306,83 @@ public struct CaptureScanningView: View {
             format: String(localized: " · %d dropped"),
             spatialCoverage.capacity.evictionCount
         )
+    }
+
+    /// #329: the five display bands of the 3D coverage layer — one
+    /// chip per stratum from lowest to highest, colored by the weakest
+    /// voxel classification in that band so a ceiling gap is visible
+    /// even when the floor cells below it are fully observed.
+    @ViewBuilder
+    private var verticalCoverageStrip: some View {
+        let vertical = spatialCoverage.vertical
+        if vertical.voxelCount > 0 {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Height bands")
+                        .font(.caption2.weight(.semibold))
+                    Spacer()
+                    Text(
+                        String(
+                            format: String(
+                                localized: "%d weak heights"
+                            ),
+                            vertical.weakVoxelCount
+                        )
+                    )
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(
+                        vertical.weakVoxelCount > 0
+                        ? Color.orange
+                        : Color.secondary
+                    )
+                }
+
+                HStack(spacing: 3) {
+                    ForEach(
+                        vertical.displayBands,
+                        id: \.band
+                    ) { bandSummary in
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(
+                                bandColor(bandSummary)
+                            )
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .frame(height: 8)
+
+                HStack {
+                    Text("Floor")
+                    Spacer()
+                    Text("Ceiling")
+                }
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+            }
+            .padding(.top, 2)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                String(
+                    format: String(
+                        localized: "Vertical coverage: %d cells, %d weak"
+                    ),
+                    vertical.voxelCount,
+                    vertical.weakVoxelCount
+                )
+            )
+        }
+    }
+
+    private func bandColor(
+        _ band: SpatialVerticalBandSummary
+    ) -> Color {
+        if band.voxelCount == 0 {
+            return .gray.opacity(0.25)
+        }
+        if band.weakCount > 0 {
+            return .orange.opacity(0.75)
+        }
+        return .green.opacity(0.8)
     }
 
     private var primaryDerivedShapeLabel: String {
@@ -2093,6 +2402,42 @@ private struct ScanCoverageEndReview: View {
                         .foregroundStyle(.orange)
                     }
 
+                    // #329: the vertical layer is listed separately so
+                    // a floor-level "observed" classification can never
+                    // hide an unobserved ceiling at the same X/Z.
+                    if spatialCoverage.vertical.voxelCount > 0 {
+                        LabeledContent(
+                            "Vertical cells",
+                            value: String(
+                                format: String(
+                                    localized: "%d total · %d weak"
+                                ),
+                                spatialCoverage.vertical.voxelCount,
+                                spatialCoverage.vertical
+                                    .weakVoxelCount
+                            )
+                        )
+
+                        ForEach(
+                            spatialCoverage.vertical.displayBands,
+                            id: \.band
+                        ) { band in
+                            if band.voxelCount > 0 {
+                                LabeledContent(
+                                    verticalBandLabel(band.band),
+                                    value: String(
+                                        format: String(
+                                            localized:
+                                                "%d observed · %d weak"
+                                        ),
+                                        band.observedCount,
+                                        band.weakCount
+                                    )
+                                )
+                            }
+                        }
+                    }
+
                     if !weakSpatialLabels.isEmpty {
                         Text(
                             String(
@@ -2416,6 +2761,23 @@ private struct ScanCoverageEndReview: View {
             sectorIndex: sectorIndex,
             sectorCount: coverage.sectorCount
         )
+    }
+
+    private func verticalBandLabel(
+        _ band: SpatialVerticalDisplayBand
+    ) -> String {
+        switch band {
+        case .lowest:
+            return String(localized: "Floor band")
+        case .lower:
+            return String(localized: "Lower band")
+        case .middle:
+            return String(localized: "Middle band")
+        case .upper:
+            return String(localized: "Upper band")
+        case .highest:
+            return String(localized: "Ceiling band")
+        }
     }
 }
 
