@@ -549,6 +549,11 @@ public struct CaptureRootView: View {
     /// The persisted revision an open/delete operation targets, so
     /// the library row itself can show its busy state (#309).
     public let operationTargetRevisionID: CaptureRevisionID?
+    /// Bound space for the annotation workspace (#276): while live
+    /// capture runs it is the active session space; once sealed after
+    /// a committed pass it stays bound so non-spatial corrections can
+    /// reopen the saved authority.
+    public let annotationWorkspaceCoordinateSpaceID: CoordinateSpaceID?
     public let actions: CaptureRootActions
 
     @State private var pendingDeletion:
@@ -579,6 +584,7 @@ public struct CaptureRootView: View {
         validationReport: BundleValidationReport? = nil,
         exportURL: URL? = nil,
         annotationCoordinateSpaceID: CoordinateSpaceID? = nil,
+        annotationWorkspaceCoordinateSpaceID: CoordinateSpaceID? = nil,
         annotationEvidenceRefs: [String] = [],
         annotationRoomPlanSurfaces: [CapturedSurfaceOption] = [],
         annotationMeshAnchors: [CapturedSurfaceOption] = [],
@@ -644,6 +650,8 @@ public struct CaptureRootView: View {
         self.exportURL = exportURL
         self.annotationCoordinateSpaceID =
             annotationCoordinateSpaceID
+        self.annotationWorkspaceCoordinateSpaceID =
+            annotationWorkspaceCoordinateSpaceID
         self.annotationEvidenceRefs = annotationEvidenceRefs
         self.annotationRoomPlanSurfaces =
             annotationRoomPlanSurfaces
@@ -754,7 +762,7 @@ public struct CaptureRootView: View {
                 )
             } else if state == .annotating,
                let coordinateSpaceID =
-                    annotationCoordinateSpaceID,
+                    annotationWorkspaceCoordinateSpaceID,
                let captureRevisionID =
                     workingSetIdentity?.captureRevisionID
             {
@@ -774,11 +782,16 @@ public struct CaptureRootView: View {
                     seed: annotationRevisionSeed,
                     replacesCommittedAuthority:
                         annotationAuthorityCommitted,
+                    spatialCaptureSealed: spatialCaptureSealed,
                     equipmentCatalog: equipmentCatalog,
                     // The same shared AR surface renders inside the
                     // camera capture sheets — no second session
-                    // (#214).
-                    cameraPreview: scanningPreview,
+                    // (#214). Under a finalization seal (#276) the
+                    // session is torn down: passing nil hides every
+                    // raycast/orientation/scan capture affordance in
+                    // the workspace and its sheets.
+                    cameraPreview:
+                        spatialCaptureSealed ? nil : scanningPreview,
                     probePlacementTarget:
                         actions.probePlacementTarget,
                     probeCameraHeading:
@@ -795,7 +808,8 @@ public struct CaptureRootView: View {
                     plausibilityContext:
                         annotationPlausibilityContext,
                     equipmentRecents: equipmentRecents,
-                    speakerLayoutPlans: speakerLayoutPlans,
+                    speakerLayoutPlans:
+                        spatialCaptureSealed ? [] : speakerLayoutPlans,
                     draftStore: annotationDraftStore,
                     draftRevisionID: annotationDraftRevisionID,
                     onImportEquipmentCatalog:

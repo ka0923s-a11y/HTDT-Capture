@@ -37,6 +37,8 @@ private struct HTDTCaptureHostView: View {
             exportURL: coordinator.exportURL,
             annotationCoordinateSpaceID:
                 coordinator.annotationCoordinateSpaceID,
+            annotationWorkspaceCoordinateSpaceID:
+                coordinator.annotationWorkspaceCoordinateSpaceID,
             annotationEvidenceRefs:
                 coordinator.annotationEvidenceRefs,
             annotationRoomPlanSurfaces:
@@ -701,7 +703,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return sessionController.context.coordinateSpaceID
     }
 
-    func beginCapture() {
+    /// Bound space for the annotation workspace. While live capture
+    /// runs this is the active session space; once spatial authority
+    /// is sealed after a committed annotation pass (#276), the same
+    /// working-set space stays the correct binding for non-spatial
+    /// corrections — sealing pauses AR, it does not rebind the
+    /// committed authority.
+    var annotationWorkspaceCoordinateSpaceID: CoordinateSpaceID? {
+        if !spatialAuthoritySealedForFinalization {
+            return annotationCoordinateSpaceID
+        }
+        guard annotationAuthorityCommitted,
+              state == .reviewing || state == .annotating
+        else {
+            return nil
+        }
+        return sessionController.context.coordinateSpaceID
+    }
+
+    func beginCapture() { 
         beginCapture(revisionLineage: nil)
     }
 
@@ -2540,7 +2560,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func capturePointOrientation()
         async throws -> AnnotationOrientationAuthority
     {
-        guard state == .annotating,
+        guard !spatialAuthoritySealedForFinalization,
+              state == .annotating,
               let store = workingSetStore
         else {
             throw PlatformCaptureError.orientationUnavailable
@@ -3157,7 +3178,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     document: try EquipmentIdentityDocument(
                         captureRevisionID: workingRevisionID,
                         coordinateSpaceID:
-                            annotationCoordinateSpaceID,
+                            annotationWorkspaceCoordinateSpaceID,
                         records: identityRecords,
                         entities: annotations
                     )

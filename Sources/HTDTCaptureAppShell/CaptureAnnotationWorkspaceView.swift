@@ -70,6 +70,10 @@ public struct CaptureAnnotationWorkspaceView: View {
     public let meshAnchors: [CapturedSurfaceOption]
     public let statusMessage: String?
     public let replacesCommittedAuthority: Bool
+    /// Spatial authority sealed for finalization (#276): live capture
+    /// affordances stay hidden (cameraPreview is nil) while label,
+    /// role, equipment, and scalar corrections remain editable.
+    public let spatialCaptureSealed: Bool
     /// Shared AR preview for the camera capture sheets (#214).
     public let cameraPreview: AnyView?
     /// Pollable reticle probe (#214/#246).
@@ -184,6 +188,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         statusMessage: String? = nil,
         seed: AnnotationWorkspaceSeed? = nil,
         replacesCommittedAuthority: Bool = false,
+        spatialCaptureSealed: Bool = false,
         equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil,
         cameraPreview: AnyView? = nil,
         probePlacementTarget: @escaping
@@ -245,6 +250,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         self.statusMessage = statusMessage
         self.replacesCommittedAuthority =
             replacesCommittedAuthority
+        self.spatialCaptureSealed = spatialCaptureSealed
         self.cameraPreview = cameraPreview
         self.probePlacementTarget = probePlacementTarget
         self.probeCameraHeading = probeCameraHeading
@@ -306,6 +312,7 @@ public struct CaptureAnnotationWorkspaceView: View {
     public var body: some View {
         List {
             statusSection
+            sealedSpatialNotice
             restoredDraftNotice
             equipmentCatalogSection
             taskProfileSection
@@ -557,6 +564,21 @@ public struct CaptureAnnotationWorkspaceView: View {
             return String(localized: "Unsaved restored draft")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// #276 seal notice: every raycast/orientation/scan affordance is
+    /// already hidden via `cameraPreview == nil`; this names why.
+    @ViewBuilder
+    private var sealedSpatialNotice: some View {
+        if spatialCaptureSealed {
+            Section {
+                Text(
+                    "Live spatial capture is sealed for finalization. Labels, roles, equipment, and scalar values can still be corrected; raycast placement, orientation capture, and additional scanning are unavailable."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
     }
 
     // MARK: Draft autosave (#266)
