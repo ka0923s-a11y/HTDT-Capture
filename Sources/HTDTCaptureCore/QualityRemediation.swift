@@ -261,7 +261,8 @@ extension CaptureTaskCompletenessReport {
                 }
                 switch outcome.requirement.match.kind {
                 case .annotationEntityType,
-                     .annotationChannelRole:
+                     .annotationChannelRole,
+                     .annotationRoleBinding:
                     needsAnnotation = true
                 case .measurementQuantityType,
                      .measurementEndpointPair:
