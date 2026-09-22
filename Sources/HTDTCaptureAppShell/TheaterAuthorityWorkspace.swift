@@ -258,7 +258,7 @@ struct TheaterAuthoritySection: View {
         if let errorText {
             Text(errorText)
                 .font(.caption)
-                .foregroundStyle(.red)
+                .foregroundStyle(CaptureColorRole.blocked.color)
         }
         Text(
             "Authorities are user-attested claims; the app never infers them. Records stay staged until Save."
@@ -843,7 +843,7 @@ struct TheaterAuthoritySection: View {
                     availableEvidenceRefs,
                     id: \.self
                 ) { reference in
-                    Button(reference) {
+                    Button {
                         do {
                             try taskPlanStatus?.wrappedValue
                                 .fulfillEvidence(
@@ -856,6 +856,18 @@ struct TheaterAuthoritySection: View {
                             errorText = String(describing: error)
                         }
                         bindingEvidenceItem = nil
+                    } label: {
+                        VStack(
+                            alignment: .leading,
+                            spacing: 2
+                        ) {
+                            Text(
+                                evidenceBindRefLabel(
+                                    reference
+                                )
+                            )
+                            CaptureTechnicalText(reference)
+                        }
                     }
                 }
             }
@@ -870,6 +882,21 @@ struct TheaterAuthoritySection: View {
                 }
             }
         }
+    }
+
+    /// A persisted evidence ref is `path:<bundle-relative path>`;
+    /// the picker leads with the human filename and keeps the exact
+    /// ref as technical context.
+    private func evidenceBindRefLabel(
+        _ reference: String
+    ) -> String {
+        let path =
+            reference.hasPrefix("path:")
+            ? String(reference.dropFirst(5))
+            : reference
+        let name = (path as NSString).lastPathComponent
+        let stem = (name as NSString).deletingPathExtension
+        return stem.isEmpty ? reference : stem
     }
 
     // MARK: Apply / remove

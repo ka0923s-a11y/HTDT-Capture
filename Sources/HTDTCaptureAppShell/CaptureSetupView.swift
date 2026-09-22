@@ -261,10 +261,13 @@ public struct CaptureSetupView: View {
                             spacing: 4
                         ) {
                             Text(
+                                workingRevisionPhaseName(
+                                    draft.phase
+                                )
+                            )
+                            CaptureTechnicalText(
                                 draft.revisionID.description
                             )
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                             HStack(spacing: 12) {
                                 Button("Resume the draft") {
                                     onResumeDraft(draft)
@@ -276,7 +279,8 @@ public struct CaptureSetupView: View {
                                     pendingDraftDiscard = draft
                                 }
                             }
-                            .font(.callout)
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
                     }
                 } footer: {
@@ -438,8 +442,8 @@ public struct CaptureSetupView: View {
                     )
                     LabeledContent(
                         String(localized: "Alignment"),
-                        value: String(
-                            underlay.alignment.method.rawValue
+                        value: planUnderlayAlignmentMethodName(
+                            underlay.alignment.method
                         )
                     )
                     if let residual =
@@ -722,7 +726,7 @@ public struct CaptureSetupView: View {
             if let error = presentation.taskPlanImportError {
                 Text(error)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(CaptureColorRole.blocked.color)
             }
 
             Text(
@@ -877,7 +881,7 @@ public struct CaptureSetupView: View {
                 "Camera access is off for this app. HTDT Capture needs the camera to record RoomPlan and AR evidence — enable it in iOS Settings, then Begin scanning."
             )
             .font(.caption)
-            .foregroundStyle(.orange)
+            .foregroundStyle(CaptureColorRole.attention.color)
             #if os(iOS)
             Button(
                 String(localized: "Open Settings"),
@@ -894,7 +898,7 @@ public struct CaptureSetupView: View {
                 "Camera access is restricted on this device — for example by Screen Time or a device-management profile — so it cannot be enabled in Settings."
             )
             .font(.caption)
-            .foregroundStyle(.orange)
+            .foregroundStyle(CaptureColorRole.attention.color)
         case .unavailable:
             LabeledContent(
                 "Camera permission",
@@ -904,7 +908,7 @@ public struct CaptureSetupView: View {
                 "The camera is unavailable on this device, so capture cannot start."
             )
             .font(.caption)
-            .foregroundStyle(.orange)
+            .foregroundStyle(CaptureColorRole.attention.color)
         case .authorized, .notDetermined, nil:
             EmptyView()
         }

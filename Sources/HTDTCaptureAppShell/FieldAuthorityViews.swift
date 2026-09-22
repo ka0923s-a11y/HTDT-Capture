@@ -646,7 +646,7 @@ public struct OperatorProfilesView: View {
 
             if let errorText {
                 Section {
-                    Text(errorText).foregroundStyle(.red)
+                    Text(errorText).foregroundStyle(CaptureColorRole.blocked.color)
                 }
             }
         }
@@ -906,7 +906,7 @@ public struct FieldEvidenceFormView: View {
 
             if let errorText {
                 Section {
-                    Text(errorText).foregroundStyle(.red)
+                    Text(errorText).foregroundStyle(CaptureColorRole.blocked.color)
                 }
             }
         }
@@ -1418,7 +1418,7 @@ public struct InstrumentProfileFormView: View {
 
             if let errorText {
                 Section {
-                    Text(errorText).foregroundStyle(.red)
+                    Text(errorText).foregroundStyle(CaptureColorRole.blocked.color)
                 }
             }
         }
@@ -1650,7 +1650,7 @@ public struct SettingsObservationFormView: View {
 
             if let errorText {
                 Section {
-                    Text(errorText).foregroundStyle(.red)
+                    Text(errorText).foregroundStyle(CaptureColorRole.blocked.color)
                 }
             }
         }
@@ -1945,7 +1945,7 @@ struct ObservedSettingFormView: View {
 
             if let errorText {
                 Section {
-                    Text(errorText).foregroundStyle(.red)
+                    Text(errorText).foregroundStyle(CaptureColorRole.blocked.color)
                 }
             }
         }
@@ -2200,7 +2200,7 @@ public struct WiringRouteFormView: View {
 
             if let errorText {
                 Section {
-                    Text(errorText).foregroundStyle(.red)
+                    Text(errorText).foregroundStyle(CaptureColorRole.blocked.color)
                 }
             }
         }
@@ -2445,6 +2445,9 @@ struct SegmentEditor: View {
                 } label: {
                     Image(systemName: "minus.circle")
                 }
+                .accessibilityLabel(
+                    String(localized: "Remove segment")
+                )
             }
             Picker(
                 String(localized: "Observation"),
@@ -2496,6 +2499,14 @@ struct SegmentEditor: View {
                                     "minus.circle"
                             )
                         }
+                        .accessibilityLabel(
+                            String(
+                                format: String(
+                                    localized: "Remove waypoint %lld"
+                                ),
+                                index + 1
+                            )
+                        )
                     }
                 }
                 HStack {
@@ -2535,7 +2546,7 @@ struct SegmentEditor: View {
                 .disabled(capturing)
             }
             if let errorText {
-                Text(errorText).foregroundStyle(.red)
+                Text(errorText).foregroundStyle(CaptureColorRole.blocked.color)
             }
         }
     }

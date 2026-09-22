@@ -2597,11 +2597,14 @@ public struct CaptureRootView: View {
                     if let report = recoveredDraftReport {
                         if !report.unsupportedPaths.isEmpty {
                             Text(
-                                String(
-                                    format: String(
-                                        localized: "%d file(s) kept but unsupported by this app version."
+                                captureCountPhrase(
+                                    report.unsupportedPaths.count,
+                                    singular: String(
+                                        localized: "%lld file kept but unsupported by this app version."
                                     ),
-                                    report.unsupportedPaths.count
+                                    plural: String(
+                                        localized: "%lld files kept but unsupported by this app version."
+                                    )
                                 )
                             )
                             .font(.caption)
@@ -2609,11 +2612,14 @@ public struct CaptureRootView: View {
                         }
                         if !report.supersededPaths.isEmpty {
                             Text(
-                                String(
-                                    format: String(
-                                        localized: "%d stale analysis file(s) will be recomputed."
+                                captureCountPhrase(
+                                    report.supersededPaths.count,
+                                    singular: String(
+                                        localized: "%lld stale analysis file will be recomputed."
                                     ),
-                                    report.supersededPaths.count
+                                    plural: String(
+                                        localized: "%lld stale analysis files will be recomputed."
+                                    )
                                 )
                             )
                             .font(.caption)
@@ -2709,11 +2715,14 @@ public struct CaptureRootView: View {
                         Button("Cancel", role: .cancel) {}
                     } message: {
                         Text(
-                            String(
-                                format: String(
-                                    localized: "The archive packages %lld retained camera frame pixel payload(s) with the capture. Open Visual evidence review first if you need to remove unreferenced frames for privacy."
+                            captureCountPhrase(
+                                retainedVisualEvidenceCount,
+                                singular: String(
+                                    localized: "The archive packages %lld retained camera frame pixel payload with the capture. Open Visual evidence review first if you need to remove unreferenced frames for privacy."
                                 ),
-                                retainedVisualEvidenceCount
+                                plural: String(
+                                    localized: "The archive packages %lld retained camera frame pixel payloads with the capture. Open Visual evidence review first if you need to remove unreferenced frames for privacy."
+                                )
                             )
                         )
                     }
@@ -2742,11 +2751,14 @@ public struct CaptureRootView: View {
                     Button("Cancel", role: .cancel) {}
                 } message: {
                     Text(
-                        String(
-                            format: String(
-                                localized: "The archive packages %lld retained camera frame pixel payload(s) with the capture. Open Visual evidence review first if you need to remove unreferenced frames for privacy."
+                        captureCountPhrase(
+                            retainedVisualEvidenceCount,
+                            singular: String(
+                                localized: "The archive packages %lld retained camera frame pixel payload with the capture. Open Visual evidence review first if you need to remove unreferenced frames for privacy."
                             ),
-                            retainedVisualEvidenceCount
+                            plural: String(
+                                localized: "The archive packages %lld retained camera frame pixel payloads with the capture. Open Visual evidence review first if you need to remove unreferenced frames for privacy."
+                            )
                         )
                     )
                 }
@@ -3336,9 +3348,14 @@ public struct CaptureRootView: View {
         guard pending.descendantCount > 0 else {
             return base
         }
-        return base + " " + String(
-            localized:
-                "\(pending.descendantCount) revision(s) declare it as their parent — their lineage link will no longer resolve."
+        return base + " " + captureCountPhrase(
+            pending.descendantCount,
+            singular: String(
+                localized: "%lld revision declares it as its parent — its lineage link will no longer resolve."
+            ),
+            plural: String(
+                localized: "%lld revisions declare it as their parent — their lineage links will no longer resolve."
+            )
         )
     }
 
@@ -3445,7 +3462,7 @@ public struct CaptureRootView: View {
                     systemImage: "checkmark.circle"
                 )
                 .font(.caption)
-                .foregroundStyle(.green)
+                .foregroundStyle(CaptureColorRole.success.color)
             case .compatibleWithOmissions(let gaps):
                 VStack(alignment: .leading, spacing: 2) {
                     Label(
@@ -3454,7 +3471,7 @@ public struct CaptureRootView: View {
                             "exclamationmark.triangle"
                     )
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(CaptureColorRole.attention.color)
                     ForEach(
                         Array(gaps.enumerated()),
                         id: \.offset
@@ -3471,7 +3488,7 @@ public struct CaptureRootView: View {
                         systemImage: "xmark.octagon"
                     )
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(CaptureColorRole.blocked.color)
                     ForEach(
                         Array(gaps.enumerated()),
                         id: \.offset

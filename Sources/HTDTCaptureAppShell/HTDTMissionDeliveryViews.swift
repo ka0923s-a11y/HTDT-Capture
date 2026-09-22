@@ -28,6 +28,7 @@ struct HTDTMissionInboxView: View {
     @State private var dependencyReport:
         HTDTMissionDependencyReport?
     @State private var dependencyError: String?
+    @State private var confirmingArchive = false
 
     private var grouped:
         [String: [String: [HTDTMissionRecord]]]
@@ -199,13 +200,13 @@ struct HTDTMissionInboxView: View {
                     "Field complete",
                     systemImage: "checkmark.seal"
                 )
-                .foregroundStyle(.green)
+                .foregroundStyle(CaptureColorRole.success.color)
             } else if progress.requiredItemsResolved {
                 Label(
                     "All required resolved — some via waiver",
                     systemImage: "checkmark.circle"
                 )
-                .foregroundStyle(.orange)
+                .foregroundStyle(CaptureColorRole.attention.color)
             }
             ForEach(progress.kinds, id: \.kind) { kind in
                 LabeledContent(
@@ -226,21 +227,25 @@ struct HTDTMissionInboxView: View {
                     systemImage: "exclamationmark.triangle"
                 )
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(CaptureColorRole.attention.color)
             }
             ForEach(
                 progress.items.filter { !$0.resolved },
                 id: \.taskItemID
             ) { item in
                 HStack {
-                    Text(item.taskItemID)
-                        .font(.caption.monospaced())
-                        .lineLimit(1)
+                    Text(
+                        MissionPresentation.taskItemName(
+                            item.taskItemID
+                        )
+                    )
+                    .font(.caption)
+                    .lineLimit(1)
                     Spacer()
                     if item.requirement == .required {
                         Text("required")
                             .font(.caption2)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(CaptureColorRole.attention.color)
                     }
                     Button("Waive") {
                         Task {
@@ -251,7 +256,8 @@ struct HTDTMissionInboxView: View {
                             )
                         }
                     }
-                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
             }
             ForEach(
@@ -259,7 +265,14 @@ struct HTDTMissionInboxView: View {
                 id: \.taskItemID
             ) { item in
                 Label(
-                    "\(item.taskItemID) — waived",
+                    String(
+                        format: String(
+                            localized: "%@ — waived"
+                        ),
+                        MissionPresentation.taskItemName(
+                            item.taskItemID
+                        )
+                    ),
                     systemImage: "flag"
                 )
                 .font(.caption)
@@ -313,20 +326,31 @@ struct HTDTMissionInboxView: View {
                         .isEmpty
                     {
                         Label(
-                                String(
-                                    format: String(
-                                        localized: "%lld capture(s)"
-                                    ),
-                                    record
-                                        .associatedCaptureRevisionIDs
-                                        .count
+                            captureCountPhrase(
+                                record
+                                    .associatedCaptureRevisionIDs
+                                    .count,
+                                singular: String(
+                                    localized: "%lld capture"
                                 ),
-                                systemImage: "cube"
+                                plural: String(
+                                    localized: "%lld captures"
+                                )
+                            ),
+                            systemImage: "cube"
                         )
                     }
                     if !record.fieldReturnIDs.isEmpty {
                         Label(
-                            "\(record.fieldReturnIDs.count) field return(s)",
+                            captureCountPhrase(
+                                record.fieldReturnIDs.count,
+                                singular: String(
+                                    localized: "%lld field return"
+                                ),
+                                plural: String(
+                                    localized: "%lld field returns"
+                                )
+                            ),
                             systemImage:
                                 "checklist.unchecked"
                         )
@@ -399,13 +423,22 @@ struct HTDTMissionInboxView: View {
             Section("Status") {
                 lifecycleBadge(record.lifecycle)
                 if !record.associatedCaptureRevisionIDs.isEmpty {
-                    ForEach(
-                        record.associatedCaptureRevisionIDs,
-                        id: \.self
-                    ) { revisionID in
-                        Text(revisionID)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
+                    DisclosureGroup(
+                        String(
+                            format: String(
+                                localized: "Associated captures (%lld)"
+                            ),
+                            record.associatedCaptureRevisionIDs.count
+                        )
+                    ) {
+                        ForEach(
+                            record.associatedCaptureRevisionIDs,
+                            id: \.self
+                        ) { revisionID in
+                            Text(revisionID)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 if !record.deliveryJobIDs.isEmpty {
@@ -449,13 +482,17 @@ struct HTDTMissionInboxView: View {
                             alignment: .leading,
                             spacing: 2
                         ) {
-                            Text(doc.contributionID.description)
-                                .font(.caption.monospaced())
                             Text(
-                                "Finalized \(doc.finalizedAtUTC)"
+                                CaptureSeriesPresentation.dateLabel(
+                                    for: doc.finalizedAtUTC
+                                ) ?? String(
+                                    localized: "Finalized"
+                                )
                             )
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .font(.subheadline)
+                            CaptureTechnicalText(
+                                doc.contributionID.description
+                            )
                         }
                     }
                 }
@@ -472,7 +509,7 @@ struct HTDTMissionInboxView: View {
                             "All requirements satisfied",
                             systemImage: "checkmark.circle"
                         )
-                        .foregroundStyle(.green)
+                        .foregroundStyle(CaptureColorRole.success.color)
                     }
                 } else {
                     Section("Dependencies") {
@@ -488,26 +525,11 @@ struct HTDTMissionInboxView: View {
                                     "Missing required dependency",
                                     systemImage: "xmark.octagon"
                                 )
-                                .foregroundStyle(.red)
+                                .foregroundStyle(CaptureColorRole.blocked.color)
                                 Text(ref)
                                     .font(.caption2.monospaced())
                                     .foregroundStyle(.secondary)
                             }
-                            Label(
-                                "Required: \(ref)",
-                                systemImage: "xmark.octagon"
-                            )
-                            .foregroundStyle(.red)
-                            Label(
-                                String(
-                                    format: String(
-                                        localized: "Required: %@"
-                                    ),
-                                    ref
-                                ),
-                                systemImage: "xmark.octagon"
-                            )
-                            .foregroundStyle(.red)
                         }
                         ForEach(
                             report.missingOptional,
@@ -522,28 +544,11 @@ struct HTDTMissionInboxView: View {
                                     systemImage:
                                         "exclamationmark.triangle"
                                 )
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(CaptureColorRole.attention.color)
                                 Text(ref)
                                     .font(.caption2.monospaced())
                                     .foregroundStyle(.secondary)
                             }
-                            Label(
-                                "Optional: \(ref)",
-                                systemImage:
-                                    "exclamationmark.triangle"
-                            )
-                            .foregroundStyle(.orange)
-                            Label(
-                                String(
-                                    format: String(
-                                        localized: "Optional: %@"
-                                    ),
-                                    ref
-                                ),
-                                systemImage:
-                                    "exclamationmark.triangle"
-                            )
-                            .foregroundStyle(.orange)
                         }
                         ForEach(
                             report.receiverGaps,
@@ -551,14 +556,14 @@ struct HTDTMissionInboxView: View {
                         ) { gap in
                             Text(gap)
                                 .font(.caption)
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(CaptureColorRole.attention.color)
                         }
                         if !report.catalogRequirement.isSatisfied {
                             Text(
                                 "The plan pins an equipment catalog that is not satisfied by the active catalog."
                             )
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(CaptureColorRole.attention.color)
                         }
                     }
                 }
@@ -606,25 +611,44 @@ struct HTDTMissionInboxView: View {
                         )
                     }
                 }
-                if record.lifecycle != .archived,
-                   record.lifecycle != .superseded
-                {
-                    Button(role: .destructive) {
-                        Task {
-                            await actions.archiveMission(
-                                record.recordID
-                            )
-                        }
-                        selectedRecord = nil
-                    } label: {
-                        Label("Archive", systemImage: "archivebox")
-                    }
-                }
             } footer: {
                 Text(
                     "Starting a mission resumes its workflow record and plan; a live AR session is never resumed — scanning always begins fresh."
                 )
                 .font(.caption)
+            }
+
+            // Destructive: kept in its own section away from the
+            // routine start/deactivate actions, and confirmed (#445).
+            if record.lifecycle != .archived,
+               record.lifecycle != .superseded
+            {
+                Section {
+                    Button(role: .destructive) {
+                        confirmingArchive = true
+                    } label: {
+                        Label("Archive", systemImage: "archivebox")
+                    }
+                    .confirmationDialog(
+                        "Archive this mission?",
+                        isPresented: $confirmingArchive,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Archive", role: .destructive) {
+                            Task {
+                                await actions.archiveMission(
+                                    record.recordID
+                                )
+                            }
+                            selectedRecord = nil
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text(
+                            "The mission leaves the inbox and stays in history. This cannot be undone."
+                        )
+                    }
+                }
             }
         }
         .navigationTitle(record.roomName)
@@ -650,19 +674,15 @@ struct HTDTMissionInboxView: View {
     ) -> Color {
         switch lifecycle {
         case .received, .ready:
-            return .blue
-        case .blockedDependency:
-            return .orange
+            return CaptureColorRole.informational.color
+        case .blockedDependency, .needsFollowUp:
+            return CaptureColorRole.attention.color
         case .inProgress, .fieldCaptureCompleted:
-            return .green
-        case .finalized, .delivered:
-            return .teal
-        case .needsFollowUp:
-            return .purple
-        case .completed:
-            return .green
+            return CaptureColorRole.accent.color
+        case .finalized, .delivered, .completed:
+            return CaptureColorRole.success.color
         case .superseded, .archived:
-            return .secondary
+            return CaptureColorRole.secondary.color
         }
     }
 
@@ -687,19 +707,34 @@ struct HTDTMissionInboxView: View {
             $0 + $1.notes.filter { $0 != "destination_revoked" }.count
         }
         if conflicts + rejected > 0 {
-            missionCheckSummary = String(
-                localized:
-                    "Checked HTDT — \(conflicts + rejected) pending mission(s) could not be staged; receipt ledger has details"
+            missionCheckSummary = captureCountPhrase(
+                conflicts + rejected,
+                singular: String(
+                    localized: "Checked HTDT — %lld pending mission could not be staged; receipt ledger has details"
+                ),
+                plural: String(
+                    localized: "Checked HTDT — %lld pending missions could not be staged; receipt ledger has details"
+                )
             )
         } else if imported + superseded > 0 {
-            missionCheckSummary = String(
-                localized:
-                    "Checked HTDT — \(imported + superseded) new mission(s) received into the inbox"
+            missionCheckSummary = captureCountPhrase(
+                imported + superseded,
+                singular: String(
+                    localized: "Checked HTDT — %lld new mission received into the inbox"
+                ),
+                plural: String(
+                    localized: "Checked HTDT — %lld new missions received into the inbox"
+                )
             )
         } else if pending > 0 {
-            missionCheckSummary = String(
-                localized:
-                    "Checked HTDT — \(pending) mission(s) already staged or pending"
+            missionCheckSummary = captureCountPhrase(
+                pending,
+                singular: String(
+                    localized: "Checked HTDT — %lld mission already staged or pending"
+                ),
+                plural: String(
+                    localized: "Checked HTDT — %lld missions already staged or pending"
+                )
             )
         } else if failures > 0 {
             missionCheckSummary = String(
@@ -729,6 +764,7 @@ struct PairedHTDTDestinationsView: View {
     @State private var pendingPayload:
         HTDTReceiverPairingPayload?
     @State private var pairingError: String?
+    @State private var forgetCandidate: PairedHTDTDestination?
 
     var body: some View {
         List {
@@ -825,7 +861,7 @@ struct PairedHTDTDestinationsView: View {
                     if let pairingError {
                         Text(pairingError)
                             .font(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(CaptureColorRole.blocked.color)
                     }
                     Button("Review pairing") {
                         do {
@@ -867,7 +903,7 @@ struct PairedHTDTDestinationsView: View {
                 if destination.revoked {
                     Text("revoked")
                         .font(.caption2)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(CaptureColorRole.blocked.color)
                 }
             }
             Text(destination.endpointURL)
@@ -894,25 +930,46 @@ struct PairedHTDTDestinationsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
-            HStack {
-                Button("Refresh capabilities") {
-                    Task {
-                        await actions
-                            .refreshEndpointCapabilities(
-                                destination.destinationID
-                            )
-                    }
-                }
-                .font(.caption)
-                Spacer()
-                Button("Forget", role: .destructive) {
-                    Task {
-                        await actions.forgetDestination(
+            Button("Refresh capabilities") {
+                Task {
+                    await actions
+                        .refreshEndpointCapabilities(
                             destination.destinationID
                         )
-                    }
                 }
-                .font(.caption)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            // Destructive: separated from the routine refresh action
+            // and confirmed before the pairing is dropped (#445).
+            Button("Forget", role: .destructive) {
+                forgetCandidate = destination
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .confirmationDialog(
+                "Forget this receiver?",
+                isPresented: Binding(
+                    get: { forgetCandidate != nil },
+                    set: { if !$0 { forgetCandidate = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Forget", role: .destructive) {
+                    if let candidate = forgetCandidate {
+                        Task {
+                            await actions.forgetDestination(
+                                candidate.destinationID
+                            )
+                        }
+                    }
+                    forgetCandidate = nil
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(
+                    "The paired endpoint and its pinned identity are deleted. Re-pair before sending to this receiver again."
+                )
             }
         }
     }
@@ -925,6 +982,13 @@ struct PairedHTDTDestinationsView: View {
 struct HTDTDeliveryQueueView: View {
     let jobs: [HTDTDeliveryJob]
     let actions: CaptureRootActions
+
+    private enum PendingJobAction: Int, Equatable {
+        case cancel
+        case purge
+    }
+    @State private var pendingJobAction:
+        (HTDTDeliveryJob, PendingJobAction)?
 
     private var ordered: [HTDTDeliveryJob] {
         jobs.sorted { $0.createdAtUTC > $1.createdAtUTC }
@@ -969,7 +1033,8 @@ struct HTDTDeliveryQueueView: View {
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(
-                        Color.blue.opacity(0.12),
+                        CaptureColorRole.informational.color
+                            .opacity(0.12),
                         in: Capsule()
                     )
             }
@@ -1008,7 +1073,6 @@ struct HTDTDeliveryQueueView: View {
                             )
                         }
                     }
-                    .font(.caption)
                 }
                 if job.state == .queued
                     || job.state == .retryWait
@@ -1020,7 +1084,6 @@ struct HTDTDeliveryQueueView: View {
                             )
                         }
                     }
-                    .font(.caption)
                 }
                 if job.state == .paused || job.state == .blocked {
                     Button("Resume") {
@@ -1030,27 +1093,61 @@ struct HTDTDeliveryQueueView: View {
                             )
                         }
                     }
-                    .font(.caption)
                 }
                 if !job.isTerminal {
                     Button("Cancel", role: .destructive) {
-                        Task {
-                            await actions.deliveryCancel(
-                                job.deliveryJobID
-                            )
-                        }
+                        pendingJobAction = (job, .cancel)
                     }
-                    .font(.caption)
                 }
                 if job.isTerminal {
                     Button("Free payload") {
-                        Task {
-                            await actions.deliveryPurgePayload(
-                                job.deliveryJobID
-                            )
+                        pendingJobAction = (job, .purge)
+                    }
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .confirmationDialog(
+                pendingJobAction?.1 == .cancel
+                    ? "Cancel this delivery?"
+                    : "Free the staged payload?",
+                isPresented: Binding(
+                    get: { pendingJobAction != nil },
+                    set: { if !$0 { pendingJobAction = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                if let (job, action) = pendingJobAction {
+                    if action == .cancel {
+                        Button("Cancel delivery", role: .destructive) {
+                            Task {
+                                await actions.deliveryCancel(
+                                    job.deliveryJobID
+                                )
+                            }
+                            pendingJobAction = nil
+                        }
+                    } else {
+                        Button("Free payload", role: .destructive) {
+                            Task {
+                                await actions.deliveryPurgePayload(
+                                    job.deliveryJobID
+                                )
+                            }
+                            pendingJobAction = nil
                         }
                     }
-                    .font(.caption)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                if pendingJobAction?.1 == .cancel {
+                    Text(
+                        "The job stops and its payload stays on this device."
+                    )
+                } else {
+                    Text(
+                        "Deletes the staged bytes for this delivery; the job record stays."
+                    )
                 }
             }
         }
@@ -1076,19 +1173,15 @@ struct HTDTDeliveryQueueView: View {
     ) -> Color {
         switch state {
         case .queued, .sending:
-            return .blue
-        case .retryWait:
-            return .orange
-        case .paused:
-            return .secondary
-        case .blocked:
-            return .orange
+            return CaptureColorRole.informational.color
+        case .retryWait, .blocked:
+            return CaptureColorRole.attention.color
+        case .paused, .cancelled:
+            return CaptureColorRole.secondary.color
         case .deliveredStaged:
-            return .green
+            return CaptureColorRole.success.color
         case .rejected, .failed:
-            return .red
-        case .cancelled:
-            return .secondary
+            return CaptureColorRole.blocked.color
         }
     }
 }

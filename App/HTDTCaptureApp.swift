@@ -2062,9 +2062,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         frameSnapshot.sessionTimestampSeconds
                 )
             }
-            var savedStatus = String(
-                format: String(localized: "Scanning; %d evidence frame(s) persisted"),
-                snapshot.evidenceFrameCount
+            var savedStatus = captureCountPhrase(
+                snapshot.evidenceFrameCount,
+                singular: String(
+                    localized: "Scanning; %lld evidence frame persisted"
+                ),
+                plural: String(
+                    localized: "Scanning; %lld evidence frames persisted"
+                )
             )
             if let usability = frameUsability,
                usability.status != .usable
@@ -7993,7 +7998,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.libraryImportPreview = preview
                 self.workingSetStatus =
                     preview.importableCount > 0
-                    ? String(format: String(localized: "Library package ready: %lld revision(s) to import"), preview.importableCount)
+                    ? captureCountPhrase(
+                        preview.importableCount,
+                        singular: String(
+                            localized: "Library package ready: %lld revision to import"
+                        ),
+                        plural: String(
+                            localized: "Library package ready: %lld revisions to import"
+                        )
+                    )
                     : String(localized: "Nothing new to import from this library package")
             } catch {
                 try? FileManager.default.removeItem(
@@ -8040,12 +8053,28 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }.value
                 self.loadPersistedCaptures()
                 self.refreshMissionDeliveryStores()
-                var status = String(format: String(localized: "Imported %lld revision(s)"), result.imported.count)
+                var status = captureCountPhrase(
+                    result.imported.count,
+                    singular: String(
+                        localized: "Imported %lld revision"
+                    ),
+                    plural: String(
+                        localized: "Imported %lld revisions"
+                    )
+                )
                 if !result.failed.isEmpty {
                     status += String(format: String(localized: "; %lld could not be imported and were left untouched"), result.failed.count)
                 }
                 if !result.conflicts.isEmpty {
-                    status += String(format: String(localized: "; %lld conflict(s) skipped"), result.conflicts.count)
+                    status += captureCountPhrase(
+                        result.conflicts.count,
+                        singular: String(
+                            localized: "; %lld conflict skipped"
+                        ),
+                        plural: String(
+                            localized: "; %lld conflicts skipped"
+                        )
+                    )
                 }
                 self.workingSetStatus = status
             } catch {
@@ -8119,9 +8148,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     )
                 }.value
                 self.libraryExportURL = result.packageURL
-                var status = String(format: String(localized: "Library package exported (%lld revision(s))"), result.revisionCount)
+                var status = captureCountPhrase(
+                    result.revisionCount,
+                    singular: String(
+                        localized: "Library package exported (%lld revision)"
+                    ),
+                    plural: String(
+                        localized: "Library package exported (%lld revisions)"
+                    )
+                )
                 if !result.skippedRevisions.isEmpty {
-                    status += String(format: String(localized: "; %lld revision(s) had no exportable evidence"), result.skippedRevisions.count)
+                    status += captureCountPhrase(
+                        result.skippedRevisions.count,
+                        singular: String(
+                            localized: "; %lld revision had no exportable evidence"
+                        ),
+                        plural: String(
+                            localized: "; %lld revisions had no exportable evidence"
+                        )
+                    )
                 }
                 self.workingSetStatus = status
             } catch {
@@ -8232,12 +8277,36 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             }.value
             self.loadPersistedCaptures()
-            var status = String(format: String(localized: "Deleted %lld revision(s)"), result.deleted.count)
+            var status = captureCountPhrase(
+                result.deleted.count,
+                singular: String(
+                    localized: "Deleted %lld revision"
+                ),
+                plural: String(
+                    localized: "Deleted %lld revisions"
+                )
+            )
             if !result.skipped.isEmpty {
-                status += String(format: String(localized: "; %lld blocked revision(s) were kept"), result.skipped.count)
+                status += captureCountPhrase(
+                    result.skipped.count,
+                    singular: String(
+                        localized: "; %lld blocked revision was kept"
+                    ),
+                    plural: String(
+                        localized: "; %lld blocked revisions were kept"
+                    )
+                )
             }
             if !result.remaining.isEmpty {
-                status += String(format: String(localized: "; %lld revision(s) could not be fully removed"), result.remaining.count)
+                status += captureCountPhrase(
+                    result.remaining.count,
+                    singular: String(
+                        localized: "; %lld revision could not be fully removed"
+                    ),
+                    plural: String(
+                        localized: "; %lld revisions could not be fully removed"
+                    )
+                )
             }
             self.workingSetStatus = status
         }
@@ -9413,20 +9482,32 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     "No paired HTDT receivers — pair a receiver or import the mission file"
             )
         } else if imported + superseded > 0 {
-            workingSetStatus = String(
-                localized:
-                    "Checked HTDT — \(imported + superseded) new mission(s) received into the inbox"
-            )
+            workingSetStatus = "Checked HTDT — "
+                + captureCountPhrase(
+                    imported + superseded,
+                    singular: String(
+                        localized: "%lld new mission received into the inbox"
+                    ),
+                    plural: String(
+                        localized: "%lld new missions received into the inbox"
+                    )
+                )
         } else if conflicts > 0 {
             workingSetStatus = String(
                 localized:
                     "Checked HTDT — a pending mission conflicts with a local record; it was not merged"
             )
         } else if enumerated > 0 {
-            workingSetStatus = String(
-                localized:
-                    "Checked HTDT — pending mission(s) could not be staged (see receipt ledger)"
-            )
+            workingSetStatus = "Checked HTDT — "
+                + captureCountPhrase(
+                    enumerated,
+                    singular: String(
+                        localized: "%lld pending mission could not be staged (see receipt ledger)"
+                    ),
+                    plural: String(
+                        localized: "%lld pending missions could not be staged (see receipt ledger)"
+                    )
+                )
         }
         return reports
     }
@@ -11903,9 +11984,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             let errorCount = report.diagnostics.filter {
                 $0.severity == .error
             }.count
-            workingSetStatus = String(
-                format: String(localized: "Reviewing; %d blocking quality diagnostic(s)"),
-                errorCount
+            workingSetStatus = captureCountPhrase(
+                errorCount,
+                singular: String(
+                    localized: "Reviewing; %lld blocking quality diagnostic"
+                ),
+                plural: String(
+                    localized: "Reviewing; %lld blocking quality diagnostics"
+                )
             )
         }
     }

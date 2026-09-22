@@ -485,7 +485,7 @@ public struct CaptureScanningView: View {
                     systemImage: "lightbulb"
                 )
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.yellow)
+                .foregroundStyle(CaptureColorRole.attention.color)
                 .lineLimit(3)
                 .minimumScaleFactor(0.8)
             } else if let statusMessage,
@@ -535,7 +535,7 @@ public struct CaptureScanningView: View {
                     systemImage: "figure.stand"
                 )
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.cyan)
+                .foregroundStyle(CaptureColorRole.informational.color)
 
                 Spacer(minLength: 6)
 
@@ -556,7 +556,7 @@ public struct CaptureScanningView: View {
                     systemImage: "hand.raised.fill"
                 )
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(CaptureColorRole.attention.color)
 
                 Spacer(minLength: 6)
 
@@ -825,7 +825,7 @@ public struct CaptureScanningView: View {
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(
-                Color.orange.opacity(0.16),
+                CaptureColorRole.attention.color.opacity(0.16),
                 in: Capsule()
             )
         }
@@ -888,7 +888,7 @@ public struct CaptureScanningView: View {
                                 systemImage: "viewfinder"
                             )
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.cyan)
+                            .foregroundStyle(CaptureColorRole.informational.color)
                         }
 
                         verticalCoverageStrip
@@ -908,7 +908,7 @@ public struct CaptureScanningView: View {
                                 systemImage: "exclamationmark.triangle"
                             )
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(CaptureColorRole.attention.color)
                         } else if spatialCoverage.capacity.isSaturated {
                             Label(
                                 String(
@@ -922,7 +922,7 @@ public struct CaptureScanningView: View {
                                 systemImage: "exclamationmark.triangle"
                             )
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(CaptureColorRole.attention.color)
                         }
                     }
                     .padding(.top, 6)
@@ -1415,7 +1415,7 @@ public struct CaptureScanningView: View {
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(
                         vertical.weakVoxelCount > 0
-                        ? Color.orange
+                        ? CaptureColorRole.attention.color
                         : Color.secondary
                     )
                 }
@@ -1911,20 +1911,28 @@ public struct CaptureScanningView: View {
                     "Scan guidance complete. You can end now or continue for more detail."
             )
         case .weakRegionRetriesExhausted:
-            return String(
-                format: String(
+            return captureCountPhrase(
+                guidanceProgress.unresolvedWeakRegionCount,
+                singular: String(
                     localized:
-                        "Guidance finished: %d weak area(s) did not improve after repeated attempts. They remain reviewable in spatial coverage."
+                        "Guidance finished: %lld weak area did not improve after repeated attempts. It remains reviewable in spatial coverage."
                 ),
-                guidanceProgress.unresolvedWeakRegionCount
+                plural: String(
+                    localized:
+                        "Guidance finished: %lld weak areas did not improve after repeated attempts. They remain reviewable in spatial coverage."
+                )
             )
         case .attemptBudgetExhausted:
-            return String(
-                format: String(
+            return captureCountPhrase(
+                guidanceProgress.unresolvedWeakRegionCount,
+                singular: String(
                     localized:
-                        "Guidance attempt budget used. %d weak area(s) may remain — review spatial coverage before ending."
+                        "Guidance attempt budget used. %lld weak area may remain — review spatial coverage before ending."
                 ),
-                guidanceProgress.unresolvedWeakRegionCount
+                plural: String(
+                    localized:
+                        "Guidance attempt budget used. %lld weak areas may remain — review spatial coverage before ending."
+                )
             )
         case .movementConstrained:
             return String(
@@ -2689,7 +2697,7 @@ private struct ScanCoverageEndReview: View {
                             "The coverage map reached its live cell budget and dropped the least-observed cells. A dropped cell was observed before; it is not the same as a never-observed unknown cell."
                         )
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(CaptureColorRole.attention.color)
                     }
 
                     // #329: the vertical layer is listed separately so

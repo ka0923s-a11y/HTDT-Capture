@@ -251,7 +251,7 @@ struct EvidenceContactSheetView: View {
                 if item.privacyFlagged {
                     Image(systemName: "eye.slash.fill")
                         .font(.caption2)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(CaptureColorRole.attention.color)
                 }
                 if item.hasUsabilityWarning {
                     Image(
@@ -259,7 +259,7 @@ struct EvidenceContactSheetView: View {
                             "exclamationmark.triangle.fill"
                     )
                     .font(.caption2)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(CaptureColorRole.attention.color)
                 }
             }
             Text(depthSummaryLabel(item.depthSummary))
@@ -397,7 +397,7 @@ struct EvidenceContactSheetView: View {
                                 ) { dependent in
                                     Text(dependent)
                                         .font(.caption2)
-                                        .foregroundStyle(.orange)
+                                        .foregroundStyle(CaptureColorRole.attention.color)
                                 }
                             }
                         }

@@ -489,7 +489,7 @@ public enum FieldNoteBindingResolver {
 
     // MARK: - label fragments
 
-    private static func measurementTitle(_ m: CaptureMeasurement)
+    static func measurementTitle(_ m: CaptureMeasurement)
         -> String
     {
         let quantity = MissionPresentation
@@ -505,7 +505,7 @@ public enum FieldNoteBindingResolver {
         }
     }
 
-    private static func settingsTitle(
+    static func settingsTitle(
         _ obs: InstalledSettingsObservation
     ) -> String {
         guard let first = obs.settings.first else {

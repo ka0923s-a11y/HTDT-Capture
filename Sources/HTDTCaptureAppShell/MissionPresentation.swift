@@ -147,6 +147,19 @@ public enum MissionPresentation {
         token.replacingOccurrences(of: "_", with: " ")
     }
 
+    /// Display name for a mission ledger task item
+    /// (`"measurement:room_width"` → "room width"): the `kind:` prefix
+    /// is provenance, the tail is the operator-facing name (#441).
+    public static func taskItemName(_ taskItemID: String) -> String {
+        let tail = taskItemID.split(
+            separator: ":",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        ).last.map(String.init) ?? taskItemID
+        let humanized = tokenText(tail)
+        return humanized.isEmpty ? taskItemID : humanized
+    }
+
     // MARK: Connected regions
 
     public static func regionKindName(
