@@ -234,6 +234,25 @@ public struct CaptureRootActions {
     public let exportSurveyReport:
         (CaptureRevisionID, SurveyReportSelection)
             async -> DerivedExportOutcome
+    /// Capture-strategy profile selection (#307). Advisory guidance
+    /// and evidence budgets only; a task-plan-pinned strategy cannot
+    /// be changed by the operator.
+    public let selectCaptureStrategy:
+        (CaptureStrategyIdentifier) -> Void
+    /// Plan-reference underlay import (#322): the host reads and
+    /// validates the plan document at the given URL. Underlay
+    /// authority stays reference-only — it never becomes observed
+    /// truth.
+    public let importPlanReference: (URL) -> Void
+    /// Semantic-only child revision (#319): loads the parent context
+    /// and opens the correction sheet.
+    public let beginSemanticCorrection:
+        (PersistedCaptureRecord) -> Void
+    /// Builds the semantic child from the sheet's edits; true on
+    /// success.
+    public let commitSemanticCorrection:
+        (SemanticChildRevisionEdits) async -> Bool
+    public let cancelSemanticCorrection: () -> Void
     /// Reopen an end-accepted working revision that survived a
     /// relaunch (issue #297): the draft comes back as a spatially
     /// sealed Review — semantic work continues, live AR capture never
@@ -460,6 +479,16 @@ public struct CaptureRootActions {
         ) async -> DerivedExportOutcome = { _, _ in
             DerivedExportOutcome(files: [], error: nil)
         },
+        selectCaptureStrategy: @escaping
+            (CaptureStrategyIdentifier) -> Void = { _ in },
+        importPlanReference: @escaping (URL) -> Void = { _ in },
+        beginSemanticCorrection: @escaping
+            (PersistedCaptureRecord) -> Void = { _ in },
+        commitSemanticCorrection: @escaping
+            (SemanticChildRevisionEdits) async -> Bool = {
+                _ in false
+            },
+        cancelSemanticCorrection: @escaping () -> Void = {},
         openRecoveredDraft: @escaping
             (RecoverableWorkingRevision) -> Void = { _ in },
         discardRecoveredDraft: @escaping
@@ -572,6 +601,12 @@ public struct CaptureRootActions {
         self.derivedExportInfo = derivedExportInfo
         self.exportDerived3D = exportDerived3D
         self.exportSurveyReport = exportSurveyReport
+        self.selectCaptureStrategy = selectCaptureStrategy
+        self.importPlanReference = importPlanReference
+        self.beginSemanticCorrection = beginSemanticCorrection
+        self.commitSemanticCorrection =
+            commitSemanticCorrection
+        self.cancelSemanticCorrection = cancelSemanticCorrection
         self.openRecoveredDraft = openRecoveredDraft
         self.discardRecoveredDraft = discardRecoveredDraft
         self.suspendReview = suspendReview
@@ -730,6 +765,22 @@ public struct CaptureRootView: View {
     public let failedInspection: FailedCaptureInspection?
     /// Spatial authority sealed for finalization (#276).
     public let spatialCaptureSealed: Bool
+    /// Live evidence-storage advisory for the scanning HUD (#308).
+    public let evidenceStorageAdvisory:
+        CaptureEvidenceStorageAdvisory?
+    /// Selected capture-strategy profile for setup display (#307);
+    /// pinned means the active task plan fixed it.
+    public let selectedStrategyID: CaptureStrategyIdentifier
+    public let strategyPinnedByTaskPlan: Bool
+    /// App-local acquisition origins keyed by revision (#317).
+    public let captureOrigins:
+        [CaptureRevisionID: CaptureAcquisitionOriginRecord]
+    /// Pending/committed plan-reference underlay (#322).
+    public let planUnderlayDocument: PlanUnderlayDocument?
+    /// Parent context for the in-flight semantic correction (#319);
+    /// nil when no correction sheet is open.
+    public let semanticCorrectionContext:
+        SemanticChildRevisionContext?
     /// Whether the working set's AR coordinate authority is still
     /// live (issue #297). False on a draft recovered after relaunch:
     /// spatial evidence is frozen and live-capture affordances
@@ -764,15 +815,12 @@ public struct CaptureRootView: View {
     @State private var importingCaptureArchive = false
     @State private var confirmingDiscard = false
     @State private var reviewWorkspaceShown = false
-    @State private var persistedViewerShown = false
     @State private var handoffDestinationsShown = false
     @State private var shareArchiveForHandoff = false
     @State private var revisionComparison:
         CaptureRevisionComparison?
     @State private var comparisonLoading = false
-    @State private var metadataEditorTarget:
-        LibraryMetadataEditorTarget?
-    @State private var libraryQuery = ""
+    @State private var importingPlanReference = false
     @State private var confirmingExport = false
     @State private var diagnosticShareURL: URL?
     /// Derived export sheets (#306/#318): which validated finalized
@@ -857,6 +905,15 @@ public struct CaptureRootView: View {
             = CaptureLibraryMetadataDocument(),
         failedInspection: FailedCaptureInspection? = nil,
         spatialCaptureSealed: Bool = false,
+        evidenceStorageAdvisory:
+            CaptureEvidenceStorageAdvisory? = nil,
+        selectedStrategyID: CaptureStrategyIdentifier = .standard,
+        strategyPinnedByTaskPlan: Bool = false,
+        captureOrigins:
+            [CaptureRevisionID: CaptureAcquisitionOriginRecord] = [:],
+        planUnderlayDocument: PlanUnderlayDocument? = nil,
+        semanticCorrectionContext:
+            SemanticChildRevisionContext? = nil,
         liveSpatialAuthority: Bool = true,
         recoveredDraftReport: WorkingRevisionRestoreReport? = nil,
         practiceCaptureActive: Bool = false,
@@ -936,6 +993,13 @@ public struct CaptureRootView: View {
         self.libraryMetadata = libraryMetadata
         self.failedInspection = failedInspection
         self.spatialCaptureSealed = spatialCaptureSealed
+        self.evidenceStorageAdvisory = evidenceStorageAdvisory
+        self.selectedStrategyID = selectedStrategyID
+        self.strategyPinnedByTaskPlan = strategyPinnedByTaskPlan
+        self.captureOrigins = captureOrigins
+        self.planUnderlayDocument = planUnderlayDocument
+        self.semanticCorrectionContext =
+            semanticCorrectionContext
         self.liveSpatialAuthority = liveSpatialAuthority
         self.recoveredDraftReport = recoveredDraftReport
         self.practiceCaptureActive = practiceCaptureActive
@@ -976,6 +1040,7 @@ public struct CaptureRootView: View {
                     isEndingScan: isEndingScan,
                     isCapturingEvidence: isCapturingEvidence,
                     automaticEvidenceCount: automaticEvidenceCount,
+                    evidenceStorageAdvisory: evidenceStorageAdvisory,
                     lowLightGuidanceActive: lowLightGuidanceActive,
                     targetScanStatus: targetScanStatus,
                     declaredRegions: declaredRegions,
@@ -1017,6 +1082,7 @@ public struct CaptureRootView: View {
                     persistedInventory: persistedInventory,
                     libraryMetadata: libraryMetadata,
                     persistedWorkspace: persistedWorkspace,
+                    captureOrigins: captureOrigins,
                     missionRecords: missionRecords,
                     activeMissionRecordID: activeMissionRecordID,
                     pairedDestinations: pairedDestinations,
@@ -1030,6 +1096,15 @@ public struct CaptureRootView: View {
             {
                 CaptureSetupView(
                     presentation: captureSetup,
+                    selectedStrategyID: selectedStrategyID,
+                    strategyPinnedByTaskPlan:
+                        strategyPinnedByTaskPlan,
+                    planUnderlay: planUnderlayDocument,
+                    selectCaptureStrategy:
+                        actions.selectCaptureStrategy,
+                    importPlanReference: {
+                        importingPlanReference = true
+                    },
                     beginScanning: actions.beginScanning,
                     cancel: actions.cancelCaptureSetup,
                     selectTaskProfile: { profile in
@@ -1592,6 +1667,36 @@ public struct CaptureRootView: View {
                 }
             }
                 }
+            }
+        }
+        .fileImporter(
+            isPresented: $importingPlanReference,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false
+        ) { result in
+            guard let urls = try? result.get(),
+                  let url = urls.first
+            else {
+                return
+            }
+            actions.importPlanReference(url)
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { semanticCorrectionContext != nil },
+                set: { presented in
+                    if !presented {
+                        actions.cancelSemanticCorrection()
+                    }
+                }
+            )
+        ) {
+            if let context = semanticCorrectionContext {
+                SemanticCorrectionSheet(
+                    context: context,
+                    commit: actions.commitSemanticCorrection,
+                    cancel: actions.cancelSemanticCorrection
+                )
             }
         }
     }

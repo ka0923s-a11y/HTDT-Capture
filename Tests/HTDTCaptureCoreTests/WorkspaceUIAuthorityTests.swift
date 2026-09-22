@@ -409,6 +409,46 @@ final class WorkspaceUIAuthorityTests: XCTestCase {
         XCTAssertEqual(loaded, draft)
     }
 
+    func testDraftRoundTripPreservesTheaterAuthorities() throws {
+        // #358: staged theater-semantic authorities must survive
+        // autosave/restore like the other staged collections.
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let store = AnnotationWorkspaceDraftStore(directoryURL: dir)
+        let revisionID = CaptureRevisionID()
+        var draft = try makeDraft(
+            revisionID: revisionID, coordinateSpaceID: spaceID)
+        draft.theaterAuthorities = .empty
+
+        try store.save(draft)
+        let loaded = store.load(
+            revisionID: revisionID, coordinateSpaceID: spaceID)
+        XCTAssertEqual(loaded, draft)
+        XCTAssertNotNil(loaded?.theaterAuthorities)
+    }
+
+    func testLegacyDraftWithoutTheaterAuthoritiesDecodes() throws {
+        // Drafts written before #358 carry no `theater_authorities`
+        // key; they must still decode so older autosaves restore.
+        var draft = try makeDraft(
+            revisionID: CaptureRevisionID(), coordinateSpaceID: spaceID)
+        draft.theaterAuthorities = .empty
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(draft)
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data)
+                as? [String: Any]
+        )
+        object.removeValue(forKey: "theater_authorities")
+        let legacyData = try JSONSerialization.data(
+            withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(
+            AnnotationWorkspaceDraft.self, from: legacyData)
+        XCTAssertNil(decoded.theaterAuthorities)
+        XCTAssertEqual(decoded.annotations, draft.annotations)
+    }
+
     func testDraftStaleCoordinateSpaceIsDiscarded() throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
