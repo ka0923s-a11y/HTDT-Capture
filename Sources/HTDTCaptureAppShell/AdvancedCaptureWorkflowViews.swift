@@ -103,7 +103,9 @@ public struct ConnectedSpaceStatusView: View {
                                 ),
                                 regionLabel(portal.regionAID),
                                 regionLabel(portal.regionBID),
-                                portal.kind.rawValue
+                                MissionPresentation.portalKindName(
+                                    portal.kind
+                                )
                             )
                         )
                         .font(.caption)

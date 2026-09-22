@@ -312,19 +312,32 @@ public struct CaptureScanningView: View {
                         "What needs review?",
                         selection: $flagDetailsCategory
                     ) {
-                        Text("Not set")
-                            .tag(
-                                ScanRevisitFlagCategory?.none
-                            )
+                        DescribedPickerOption(
+                            title: String(localized: "Not set"),
+                            detail: String(localized:
+                                "Leave the flag uncategorized — it still appears in Review.")
+                        )
+                        .tag(
+                            ScanRevisitFlagCategory?.none
+                        )
                         ForEach(
                             ScanRevisitFlagCategory.allCases,
                             id: \.self
                         ) { category in
-                            Text(revisitFlagCategoryLabel(category))
-                                .tag(
-                                    ScanRevisitFlagCategory?
-                                        .some(category)
-                                )
+                            DescribedPickerOption(
+                                title: MissionPresentation
+                                    .scanRevisitFlagCategoryName(
+                                        category
+                                    ),
+                                detail: MissionPresentation
+                                    .scanRevisitFlagCategoryDescription(
+                                        category
+                                    )
+                            )
+                            .tag(
+                                ScanRevisitFlagCategory?
+                                    .some(category)
+                            )
                         }
                     }
 
@@ -362,29 +375,6 @@ public struct CaptureScanningView: View {
                     }
                 }
             }
-        }
-    }
-
-    private func revisitFlagCategoryLabel(
-        _ category: ScanRevisitFlagCategory
-    ) -> String {
-        switch category {
-        case .geometry:
-            return String(localized: "Geometry")
-        case .opening:
-            return String(localized: "Opening")
-        case .reflectiveTransparent:
-            return String(
-                localized: "Reflective / transparent"
-            )
-        case .objectDetail:
-            return String(localized: "Object detail")
-        case .measurement:
-            return String(localized: "Measurement")
-        case .equipment:
-            return String(localized: "Equipment")
-        case .other:
-            return String(localized: "Other")
         }
     }
 

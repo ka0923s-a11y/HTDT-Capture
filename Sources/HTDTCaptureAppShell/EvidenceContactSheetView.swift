@@ -98,6 +98,19 @@ struct EvidenceContactSheetView: View {
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, 10)
+
+            Text(
+                sort == .captureTime
+                    ? "Frames appear in the order they were captured."
+                    : sort == .roomDirection
+                        ? "Frames are ordered by the direction they face — a walk around the room."
+                        : sort == .referenceCount
+                            ? "Frames with the most authority bindings come first."
+                            : "Largest frames come first."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
         }
         .padding(.vertical, 8)
         .background(.regularMaterial)
@@ -266,10 +279,13 @@ struct EvidenceContactSheetView: View {
             )
             .font(.caption2)
             .foregroundStyle(.secondary)
-            Text(item.item.retentionReason.rawValue
-                .replacingOccurrences(of: "_", with: " "))
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            Text(
+                MissionPresentation.retentionReasonName(
+                    item.item.retentionReason
+                )
+            )
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
         }
         .padding(6)
         .background(

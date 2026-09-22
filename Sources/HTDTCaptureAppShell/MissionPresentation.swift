@@ -369,6 +369,37 @@ public enum MissionPresentation {
         AnnotationPresentation.channelRoleName(role)
     }
 
+    /// Canonical English display names the built-in layout profiles
+    /// ship — kept for comparing a plan-supplied `displayName` against
+    /// the role's own vocabulary.
+    private static let canonicalRoleEnglishNames: [String: String] = [
+        "L": "Front left", "C": "Center", "R": "Front right",
+        "SL": "Surround left", "SR": "Surround right",
+        "SBL": "Surround back left", "SBR": "Surround back right",
+        "TFL": "Top front left", "TFR": "Top front right",
+        "TML": "Top middle left", "TMR": "Top middle right",
+        "TRL": "Top rear left", "TRR": "Top rear right",
+        "LFE": "Subwoofer",
+        "LFE1": "Subwoofer 1", "LFE2": "Subwoofer 2",
+        "LFE3": "Subwoofer 3", "LFE4": "Subwoofer 4",
+    ]
+
+    /// Localized display name for a speaker-layout role: a genuinely
+    /// custom plan-supplied name is honored, but a `displayName` that
+    /// merely echoes the channel token ("SL") or the built-in English
+    /// name swaps to the localized channel-role vocabulary — raw role
+    /// IDs never surface as UI text.
+    public static func layoutRoleDisplayName(
+        _ role: SpeakerLayoutRole
+    ) -> String {
+        if role.displayName == role.channelRole.rawValue
+            || canonicalRoleEnglishNames[role.channelRole.rawValue]
+                == role.displayName {
+            return channelRoleName(role.channelRole)
+        }
+        return role.displayName
+    }
+
     public static func listeningPositionRoleName(
         _ role: ListeningPositionRole
     ) -> String {
@@ -403,8 +434,58 @@ public enum MissionPresentation {
             return String(localized: "Display center")
         case .seatReferencePoint:
             return String(localized: "Seat reference point")
+        case .userReferencePoint:
+            return String(localized: "User reference point")
+        case .projectorBodyReference:
+            return String(localized: "Projector body reference")
+        case .projectorLensCenter:
+            return String(localized: "Projector lens center")
+        case .microphoneCapsule:
+            return String(localized: "Microphone capsule")
         default:
             return tokenText(semantics.rawValue)
+        }
+    }
+
+    /// Caption describing what each reference-point semantics choice
+    /// anchors the item's semantic position to (#291).
+    public static func referencePointSemanticsDescription(
+        _ semantics: ReferencePointSemantics
+    ) -> String {
+        switch semantics {
+        case .cabinetReferencePoint:
+            return String(localized:
+                "The reference point on the equipment's cabinet or body.")
+        case .acousticCenter:
+            return String(localized:
+                "The driver's acoustic center — the point sound radiates from.")
+        case .earCenter:
+            return String(localized:
+                "The listener's ear position.")
+        case .screenCenter:
+            return String(localized:
+                "The center of the projection surface.")
+        case .displayCenter:
+            return String(localized:
+                "The center of the display surface.")
+        case .seatReferencePoint:
+            return String(localized:
+                "The reference point on the seat.")
+        case .userReferencePoint:
+            return String(localized:
+                "A user-defined reference point on the item.")
+        case .projectorBodyReference:
+            return String(localized:
+                "The projector cabinet's reference point — distinct from the lens center.")
+        case .projectorLensCenter:
+            return String(localized:
+                "The center of the projection lens.")
+        case .microphoneCapsule:
+            return String(localized:
+                "The microphone capsule's pickup position.")
+        default:
+            return String(localized:
+                "A semantics token recorded verbatim.")
         }
     }
 
@@ -432,6 +513,26 @@ public enum MissionPresentation {
         }
     }
 
+    /// Localized name for an evidence frame's retention reason — the
+    /// rawValue tokens ("end_boundary", "linked_to_authority", …) are
+    /// storage identifiers and are never shown verbatim.
+    public static func retentionReasonName(
+        _ reason: EvidenceRetentionReason
+    ) -> String {
+        switch reason {
+        case .endBoundary:
+            return String(localized: "End boundary")
+        case .linkedToAuthority:
+            return String(localized: "Referenced")
+        case .automaticKeyframe:
+            return String(localized: "Auto keyframe")
+        case .operatorSaved:
+            return String(localized: "Operator saved")
+        @unknown default:
+            return String(localized: "Retained")
+        }
+    }
+
     public static func scanRevisitFlagStatusName(
         _ status: ScanRevisitFlagStatus
     ) -> String {
@@ -446,6 +547,94 @@ public enum MissionPresentation {
             return String(localized: "Unavailable")
         @unknown default:
             return String(localized: "Unknown")
+        }
+    }
+
+    /// Caption describing what each region kind means in the survey
+    /// — the option detail under the region-kind picker.
+    public static func regionKindDescription(
+        _ kind: CaptureRegionKind
+    ) -> String {
+        switch kind {
+        case .room:
+            return String(localized:
+                "A distinct enclosed room or compartment.")
+        case .openPlanArea:
+            return String(localized:
+                "One zone of a continuous space not divided by walls.")
+        case .hallway:
+            return String(localized:
+                "A connecting corridor or passage.")
+        case .stairwell:
+            return String(localized:
+                "A stair run and its surrounding volume.")
+        case .alcove:
+            return String(localized:
+                "A small recessed area off a larger space.")
+        case .other:
+            return String(localized:
+                "A region kind not covered above.")
+        @unknown default:
+            return String(localized:
+                "A region kind not covered above.")
+        }
+    }
+
+    /// Localized name for a revisit-flag category — the shared label
+    /// used by both the scanning HUD picker and the review list.
+    public static func scanRevisitFlagCategoryName(
+        _ category: ScanRevisitFlagCategory
+    ) -> String {
+        switch category {
+        case .geometry:
+            return String(localized: "Geometry")
+        case .opening:
+            return String(localized: "Opening")
+        case .reflectiveTransparent:
+            return String(localized: "Reflective / transparent")
+        case .objectDetail:
+            return String(localized: "Object detail")
+        case .measurement:
+            return String(localized: "Measurement")
+        case .equipment:
+            return String(localized: "Equipment")
+        case .other:
+            return String(localized: "Other")
+        @unknown default:
+            return String(localized: "Other")
+        }
+    }
+
+    /// Caption describing which sites belong in each revisit-flag
+    /// category — the option detail under the flag-category picker.
+    public static func scanRevisitFlagCategoryDescription(
+        _ category: ScanRevisitFlagCategory
+    ) -> String {
+        switch category {
+        case .geometry:
+            return String(localized:
+                "A spot where walls or surfaces look wrong or uncertain.")
+        case .opening:
+            return String(localized:
+                "A door, window, or opening whose detection is doubtful.")
+        case .reflectiveTransparent:
+            return String(localized:
+                "Mirrors, glass, or glossy finishes the sensor struggles with.")
+        case .objectDetail:
+            return String(localized:
+                "A spot where furniture or object detail is missing.")
+        case .measurement:
+            return String(localized:
+                "A spot that still needs a manual measurement.")
+        case .equipment:
+            return String(localized:
+                "A spot where equipment must be recorded later.")
+        case .other:
+            return String(localized:
+                "Anything else worth revisiting.")
+        @unknown default:
+            return String(localized:
+                "Anything else worth revisiting.")
         }
     }
 }

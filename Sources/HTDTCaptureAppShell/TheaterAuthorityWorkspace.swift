@@ -1626,11 +1626,18 @@ private struct EntityPicker: View {
             .foregroundStyle(.secondary)
         } else {
             Picker(title, selection: $selection) {
-                Text(String(localized: "None"))
-                    .tag(AnnotationEntityID?.none)
+                DescribedPickerOption(
+                    title: String(localized: "None"),
+                    detail: String(localized:
+                        "Leave this field unbound to an annotation.")
+                )
+                .tag(AnnotationEntityID?.none)
                 ForEach(candidates, id: \.entityID) { entity in
-                    Text(entity.label + " · " + TheaterAuthorityPresentation.entityTypeName(entity.type))
-                        .tag(AnnotationEntityID?.some(entity.entityID))
+                    DescribedPickerOption(
+                        title: entity.label + " · " + TheaterAuthorityPresentation.entityTypeName(entity.type),
+                        detail: AnnotationPresentation.entityTypeDescription(entity.type)
+                    )
+                    .tag(AnnotationEntityID?.some(entity.entityID))
                 }
             }
         }
@@ -1828,11 +1835,19 @@ private struct AuthorityRecordForm: View {
                             "Captured RoomPlan element",
                             selection: $roomPlanPick
                         ) {
-                            Text(String(localized: "None"))
-                                .tag("")
+                            DescribedPickerOption(
+                                title: String(localized: "None"),
+                                detail: String(localized:
+                                    "Do not bind a captured RoomPlan element.")
+                            )
+                            .tag("")
                             ForEach(roomPlanSurfaces) { option in
-                                Text(option.label)
-                                    .tag(option.identifier)
+                                DescribedPickerOption(
+                                    title: option.label,
+                                    detail: String(localized:
+                                        "Bind this captured RoomPlan element.")
+                                )
+                                .tag(option.identifier)
                             }
                         }
                         .onChange(of: roomPlanPick) { _, value in
@@ -1856,11 +1871,19 @@ private struct AuthorityRecordForm: View {
                             "Captured mesh anchor",
                             selection: $meshAnchorPick
                         ) {
-                            Text(String(localized: "None"))
-                                .tag("")
+                            DescribedPickerOption(
+                                title: String(localized: "None"),
+                                detail: String(localized:
+                                    "Do not bind a captured mesh anchor.")
+                            )
+                            .tag("")
                             ForEach(meshAnchors) { option in
-                                Text(option.label)
-                                    .tag(option.identifier)
+                                DescribedPickerOption(
+                                    title: option.label,
+                                    detail: String(localized:
+                                        "Bind this captured mesh anchor.")
+                                )
+                                .tag(option.identifier)
                             }
                         }
                         .onChange(of: meshAnchorPick) { _, value in
@@ -2030,7 +2053,10 @@ private struct AuthorityRecordForm: View {
                         ],
                         id: \.self
                     ) { value in
-                        Text(TheaterAuthorityPresentation.hostClassificationName(value)).tag(value)
+                        DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.hostClassificationName(value),
+                                detail: TheaterAuthorityPresentation.hostClassificationDescription(value)
+                            ).tag(value)
                     }
                 }
                 if hostClassification == .unknown {
@@ -2085,7 +2111,10 @@ private struct AuthorityRecordForm: View {
                     SurfaceConstructionKind.allCases,
                     id: \.self
                 ) { value in
-                    Text(TheaterAuthorityPresentation.constructionKindName(value)).tag(value)
+                    DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.constructionKindName(value),
+                                detail: TheaterAuthorityPresentation.constructionKindDescription(value)
+                            ).tag(value)
                 }
             }
             TextField(
@@ -2097,7 +2126,10 @@ private struct AuthorityRecordForm: View {
                     ConstructionObservationSource.allCases,
                     id: \.self
                 ) { value in
-                    Text(TheaterAuthorityPresentation.constructionSourceName(value)).tag(value)
+                    DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.constructionSourceName(value),
+                                detail: TheaterAuthorityPresentation.constructionSourceDescription(value)
+                            ).tag(value)
                 }
             }
             if constructionSource == .other {
@@ -2118,7 +2150,10 @@ private struct AuthorityRecordForm: View {
                     ProblemSurfaceKind.allCases,
                     id: \.self
                 ) { value in
-                    Text(TheaterAuthorityPresentation.problemSurfaceKindName(value)).tag(value)
+                    DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.problemSurfaceKindName(value),
+                                detail: TheaterAuthorityPresentation.problemSurfaceKindDescription(value)
+                            ).tag(value)
                 }
             }
             TextField(
@@ -2135,7 +2170,10 @@ private struct AuthorityRecordForm: View {
                     ConstructionFeatureKind.allCases,
                     id: \.self
                 ) { value in
-                    Text(TheaterAuthorityPresentation.constructionFeatureKindName(value)).tag(value)
+                    DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.constructionFeatureKindName(value),
+                                detail: TheaterAuthorityPresentation.constructionFeatureKindDescription(value)
+                            ).tag(value)
                 }
             }
             Picker(
@@ -2146,7 +2184,10 @@ private struct AuthorityRecordForm: View {
                     SemanticConfirmationSource.allCases,
                     id: \.self
                 ) { value in
-                    Text(TheaterAuthorityPresentation.confirmationSourceName(value)).tag(value)
+                    DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.confirmationSourceName(value),
+                                detail: TheaterAuthorityPresentation.confirmationSourceDescription(value)
+                            ).tag(value)
                 }
             }
             TextField(
@@ -2164,7 +2205,10 @@ private struct AuthorityRecordForm: View {
                         RoomStateKind.allCases,
                         id: \.self
                     ) { value in
-                        Text(TheaterAuthorityPresentation.roomStateKindName(value)).tag(value)
+                        DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.roomStateKindName(value),
+                                detail: TheaterAuthorityPresentation.roomStateKindDescription(value)
+                            ).tag(value)
                     }
                 }
                 Picker("State", selection: $roomStateValue) {
@@ -2172,7 +2216,10 @@ private struct AuthorityRecordForm: View {
                         RoomStateValue.allCases,
                         id: \.self
                     ) { value in
-                        Text(TheaterAuthorityPresentation.roomStateValueName(value)).tag(value)
+                        DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.roomStateValueName(value),
+                                detail: TheaterAuthorityPresentation.roomStateValueDescription(value)
+                            ).tag(value)
                     }
                 }
                 TextField(
@@ -2191,16 +2238,24 @@ private struct AuthorityRecordForm: View {
                     "Authority record",
                     selection: $targetAuthoritySelection
                 ) {
-                    Text(String(localized: "None"))
-                        .tag(AuthorityRecordID?.none)
+                    DescribedPickerOption(
+                        title: String(localized: "None"),
+                        detail: String(localized:
+                            "Do not link an existing authority record.")
+                    )
+                    .tag(AuthorityRecordID?.none)
                     ForEach(
                         authorityRecordOptions,
                         id: \.id
                     ) { option in
-                        Text(option.label)
-                            .tag(
-                                AuthorityRecordID?.some(option.id)
-                            )
+                        DescribedPickerOption(
+                            title: option.label,
+                            detail: String(localized:
+                                "Link this existing authority record as the target.")
+                        )
+                        .tag(
+                            AuthorityRecordID?.some(option.id)
+                        )
                     }
                 }
             }
@@ -2279,7 +2334,10 @@ private struct AuthorityRecordForm: View {
                         InventoryEquipmentClass.allCases,
                         id: \.self
                     ) { value in
-                        Text(TheaterAuthorityPresentation.inventoryClassName(value)).tag(value)
+                        DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.inventoryClassName(value),
+                                detail: TheaterAuthorityPresentation.inventoryClassDescription(value)
+                            ).tag(value)
                     }
                 }
                 TextField(
@@ -2360,7 +2418,10 @@ private struct AuthorityRecordForm: View {
                         FurnitureCategory.allCases,
                         id: \.self
                     ) { value in
-                        Text(TheaterAuthorityPresentation.furnitureCategoryName(value)).tag(value)
+                        DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.furnitureCategoryName(value),
+                                detail: TheaterAuthorityPresentation.furnitureCategoryDescription(value)
+                            ).tag(value)
                     }
                 }
                 Picker(
@@ -2371,7 +2432,10 @@ private struct AuthorityRecordForm: View {
                         FurnitureRelevance.allCases,
                         id: \.self
                     ) { value in
-                        Text(TheaterAuthorityPresentation.furnitureRelevanceName(value)).tag(value)
+                        DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.furnitureRelevanceName(value),
+                                detail: TheaterAuthorityPresentation.furnitureRelevanceDescription(value)
+                            ).tag(value)
                     }
                 }
                 Picker(
@@ -2382,7 +2446,10 @@ private struct AuthorityRecordForm: View {
                         SemanticConfirmationSource.allCases,
                         id: \.self
                     ) { value in
-                        Text(TheaterAuthorityPresentation.confirmationSourceName(value)).tag(value)
+                        DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.confirmationSourceName(value),
+                                detail: TheaterAuthorityPresentation.confirmationSourceDescription(value)
+                            ).tag(value)
                     }
                 }
             }
@@ -2406,7 +2473,10 @@ private struct AuthorityRecordForm: View {
                         SpeakerMountingMode.allCases,
                         id: \.self
                     ) { value in
-                        Text(TheaterAuthorityPresentation.mountingModeName(value)).tag(value)
+                        DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.mountingModeName(value),
+                                detail: TheaterAuthorityPresentation.mountingModeDescription(value)
+                            ).tag(value)
                     }
                 }
                 TextField(
@@ -2442,7 +2512,10 @@ private struct AuthorityRecordForm: View {
                         AcousticTransparencyState.allCases,
                         id: \.self
                     ) { value in
-                        Text(TheaterAuthorityPresentation.transparencyName(value)).tag(value)
+                        DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.transparencyName(value),
+                                detail: TheaterAuthorityPresentation.transparencyDescription(value)
+                            ).tag(value)
                     }
                 }
                 if transparency != .unknown {
@@ -2455,7 +2528,10 @@ private struct AuthorityRecordForm: View {
                                 .allCases,
                             id: \.self
                         ) { value in
-                            Text(TheaterAuthorityPresentation.transparencySourceName(value)).tag(value)
+                            DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.transparencySourceName(value),
+                                detail: TheaterAuthorityPresentation.transparencySourceDescription(value)
+                            ).tag(value)
                         }
                     }
                 }
@@ -2483,8 +2559,12 @@ private struct AuthorityRecordForm: View {
                     "Masking observation",
                     selection: $maskingObservationSelection
                 ) {
-                    Text(String(localized: "None"))
-                        .tag(RoomStateObservationID?.none)
+                    DescribedPickerOption(
+                        title: String(localized: "None"),
+                        detail: String(localized:
+                            "Do not link a screen-masking observation.")
+                    )
+                    .tag(RoomStateObservationID?.none)
                     ForEach(
                         authorities.roomStateObservations
                             .filter {
@@ -2492,11 +2572,14 @@ private struct AuthorityRecordForm: View {
                             },
                         id: \.observationID
                     ) { observation in
-                        Text(TheaterAuthorityPresentation.roomStateValueName(observation.state))
-                            .tag(
-                                RoomStateObservationID?
-                                    .some(observation.observationID)
-                            )
+                        DescribedPickerOption(
+                            title: TheaterAuthorityPresentation.roomStateValueName(observation.state),
+                            detail: TheaterAuthorityPresentation.roomStateValueDescription(observation.state)
+                        )
+                        .tag(
+                            RoomStateObservationID?
+                                .some(observation.observationID)
+                        )
                     }
                 }
                 ForEach(
@@ -2523,7 +2606,11 @@ private struct AuthorityRecordForm: View {
                             }
                         )
                     ) {
-                        Text(entity.label)
+                        DescribedPickerOption(
+                            title: entity.label,
+                            detail: String(localized:
+                                "Mark this speaker as mounted behind an acoustically transparent screen.")
+                        )
                     }
                 }
                 Text(
@@ -2556,16 +2643,24 @@ private struct AuthorityRecordForm: View {
                     "Riser feature",
                     selection: $riserSelection
                 ) {
-                    Text(String(localized: "None"))
-                        .tag(AuthorityRecordID?.none)
+                    DescribedPickerOption(
+                        title: String(localized: "None"),
+                        detail: String(localized:
+                            "Do not link a riser feature record.")
+                    )
+                    .tag(AuthorityRecordID?.none)
                     ForEach(
                         riserOptions,
                         id: \.id
                     ) { option in
-                        Text(option.label)
-                            .tag(
-                                AuthorityRecordID?.some(option.id)
-                            )
+                        DescribedPickerOption(
+                            title: option.label,
+                            detail: String(localized:
+                                "Link this riser feature to the seat layout.")
+                        )
+                        .tag(
+                            AuthorityRecordID?.some(option.id)
+                        )
                     }
                 }
             }
@@ -2621,8 +2716,12 @@ private struct AuthorityRecordForm: View {
                     "Source unit",
                     selection: $sourceItemSelection
                 ) {
-                    Text(String(localized: "None"))
-                        .tag(AuthorityRecordID?.none)
+                    DescribedPickerOption(
+                        title: String(localized: "None"),
+                        detail: String(localized:
+                            "Do not link a source inventory unit.")
+                    )
+                    .tag(AuthorityRecordID?.none)
                     ForEach(
                         authorities.inventoryItems.filter {
                             [
@@ -2638,10 +2737,14 @@ private struct AuthorityRecordForm: View {
                         },
                         id: \.id
                     ) { option in
-                        Text(option.label)
-                            .tag(
-                                AuthorityRecordID?.some(option.id)
-                            )
+                        DescribedPickerOption(
+                            title: option.label,
+                            detail: String(localized:
+                                "Use this inventory item as the signal source.")
+                        )
+                        .tag(
+                            AuthorityRecordID?.some(option.id)
+                        )
                     }
                 }
                 TextField(
@@ -2694,7 +2797,10 @@ private struct AuthorityRecordForm: View {
                         RoutingVerificationState.allCases,
                         id: \.self
                     ) { value in
-                        Text(TheaterAuthorityPresentation.routingStateName(value)).tag(value)
+                        DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.routingStateName(value),
+                                detail: TheaterAuthorityPresentation.routingStateDescription(value)
+                            ).tag(value)
                     }
                 }
                 if routingState == .unknown {
@@ -2711,7 +2817,10 @@ private struct AuthorityRecordForm: View {
                             RoutingVerificationMethod.allCases,
                             id: \.self
                         ) { value in
-                            Text(TheaterAuthorityPresentation.routingMethodName(value)).tag(value)
+                            DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.routingMethodName(value),
+                                detail: TheaterAuthorityPresentation.routingMethodDescription(value)
+                            ).tag(value)
                         }
                     }
                     if routingState == .verified,
@@ -2729,7 +2838,10 @@ private struct AuthorityRecordForm: View {
                         RoutingBandScope.allCases,
                         id: \.self
                     ) { value in
-                        Text(TheaterAuthorityPresentation.bandScopeName(value)).tag(value)
+                        DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.bandScopeName(value),
+                                detail: TheaterAuthorityPresentation.bandScopeDescription(value)
+                            ).tag(value)
                     }
                 }
             }
@@ -2738,8 +2850,12 @@ private struct AuthorityRecordForm: View {
                     "Supersedes",
                     selection: $supersedesSelection
                 ) {
-                    Text(String(localized: "None"))
-                        .tag(AuthorityRecordID?.none)
+                    DescribedPickerOption(
+                        title: String(localized: "None"),
+                        detail: String(localized:
+                            "This record does not replace an earlier verification.")
+                    )
+                    .tag(AuthorityRecordID?.none)
                     ForEach(
                         authorities.routingVerifications.filter {
                             $0.authorityID != editing?.recordID
@@ -2753,10 +2869,14 @@ private struct AuthorityRecordForm: View {
                         },
                         id: \.id
                     ) { option in
-                        Text(option.label)
-                            .tag(
-                                AuthorityRecordID?.some(option.id)
-                            )
+                        DescribedPickerOption(
+                            title: option.label,
+                            detail: String(localized:
+                                "The new verification replaces this earlier record.")
+                        )
+                        .tag(
+                            AuthorityRecordID?.some(option.id)
+                        )
                     }
                 }
                 TextField("Notes (optional)", text: $notes)
@@ -2787,13 +2907,20 @@ private struct AuthorityRecordForm: View {
                     "Mount orientation",
                     selection: $mountOrientationChoice
                 ) {
-                    Text(String(localized: "Not recorded"))
-                        .tag("not_recorded")
+                    DescribedPickerOption(
+                        title: String(localized: "Not recorded"),
+                        detail: String(localized:
+                            "No mount orientation is recorded for this projector.")
+                    )
+                    .tag("not_recorded")
                     ForEach(
                         ProjectorMountOrientation.allCases,
                         id: \.self
                     ) { value in
-                        Text(TheaterAuthorityPresentation.mountOrientationName(value)).tag(value.rawValue)
+                        DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.mountOrientationName(value),
+                                detail: TheaterAuthorityPresentation.mountOrientationDescription(value)
+                            ).tag(value.rawValue)
                     }
                 }
             }
@@ -2835,13 +2962,20 @@ private struct AuthorityRecordForm: View {
                     "Focus",
                     selection: $focusStateChoice
                 ) {
-                    Text(String(localized: "Not recorded"))
-                        .tag("not_recorded")
+                    DescribedPickerOption(
+                        title: String(localized: "Not recorded"),
+                        detail: String(localized:
+                            "No focus state is recorded for this projector.")
+                    )
+                    .tag("not_recorded")
                     ForEach(
                         ProjectorFocusState.allCases,
                         id: \.self
                     ) { value in
-                        Text(TheaterAuthorityPresentation.focusStateName(value)).tag(value.rawValue)
+                        DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.focusStateName(value),
+                                detail: TheaterAuthorityPresentation.focusStateDescription(value)
+                            ).tag(value.rawValue)
                     }
                 }
                 TextField(
@@ -2862,8 +2996,12 @@ private struct AuthorityRecordForm: View {
                     "Screen semantics record",
                     selection: $screenAuthoritySelection
                 ) {
-                    Text(String(localized: "None"))
-                        .tag(AuthorityRecordID?.none)
+                    DescribedPickerOption(
+                        title: String(localized: "None"),
+                        detail: String(localized:
+                            "Do not link a screen semantics record.")
+                    )
+                    .tag(AuthorityRecordID?.none)
                     ForEach(
                         authorities.screenSemantics.map {
                             (
@@ -2873,10 +3011,14 @@ private struct AuthorityRecordForm: View {
                         },
                         id: \.id
                     ) { option in
-                        Text(option.label)
-                            .tag(
-                                AuthorityRecordID?.some(option.id)
-                            )
+                        DescribedPickerOption(
+                            title: option.label,
+                            detail: String(localized:
+                                "Link this screen semantics record.")
+                        )
+                        .tag(
+                            AuthorityRecordID?.some(option.id)
+                        )
                     }
                 }
                 TextField(
@@ -2901,15 +3043,21 @@ private struct AuthorityRecordForm: View {
                         "Planned target",
                         selection: $alignmentTargetID
                     ) {
-                        Text(String(localized: "None")).tag("")
+                        DescribedPickerOption(
+                            title: String(localized: "None"),
+                            detail: String(localized:
+                                "This alignment does not target a planned entity.")
+                        )
+                        .tag("")
                         ForEach(
                             plannedTargets,
                             id: \.plannedEntityID
                         ) { spec in
-                            Text(
-                                (spec.label
+                            DescribedPickerOption(
+                                title: (spec.label
                                     ?? spec.plannedEntityID)
-                                    + " · " + TheaterAuthorityPresentation.entityTypeName(spec.entityType)
+                                    + " · " + TheaterAuthorityPresentation.entityTypeName(spec.entityType),
+                                detail: AnnotationPresentation.entityTypeDescription(spec.entityType)
                             )
                             .tag(spec.plannedEntityID)
                         }
@@ -2934,7 +3082,10 @@ private struct AuthorityRecordForm: View {
                         AnnotationEntityType.allCases,
                         id: \.self
                     ) { value in
-                        Text(TheaterAuthorityPresentation.entityTypeName(value)).tag(value)
+                        DescribedPickerOption(
+                            title: TheaterAuthorityPresentation.entityTypeName(value),
+                            detail: AnnotationPresentation.entityTypeDescription(value)
+                        ).tag(value)
                     }
                 }
                 EntityPicker(
@@ -2961,7 +3112,10 @@ private struct AuthorityRecordForm: View {
                         AlignmentGuidanceMode.allCases,
                         id: \.self
                     ) { value in
-                        Text(TheaterAuthorityPresentation.guidanceModeName(value)).tag(value)
+                        DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.guidanceModeName(value),
+                                detail: TheaterAuthorityPresentation.guidanceModeDescription(value)
+                            ).tag(value)
                     }
                 }
                 if guidanceMode == .spatialDelta {
@@ -2995,7 +3149,10 @@ private struct AuthorityRecordForm: View {
                                 ],
                                 id: \.self
                             ) { value in
-                                Text(TheaterAuthorityPresentation.alignmentMechanismName(value)).tag(value)
+                                DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.alignmentMechanismName(value),
+                                detail: TheaterAuthorityPresentation.alignmentMechanismDescription(value)
+                            ).tag(value)
                             }
                         }
                         TextField(
@@ -3035,7 +3192,10 @@ private struct AuthorityRecordForm: View {
                         PrecisionSufficiency.allCases,
                         id: \.self
                     ) { value in
-                        Text(TheaterAuthorityPresentation.precisionName(value)).tag(value)
+                        DescribedPickerOption(
+                                title: TheaterAuthorityPresentation.precisionName(value),
+                                detail: TheaterAuthorityPresentation.precisionDescription(value)
+                            ).tag(value)
                     }
                 }
             }
@@ -4121,12 +4281,24 @@ private struct AttestedSettingEditor: View {
 
     var body: some View {
         Picker(title, selection: $entry.state) {
-            Text(String(localized: "Not recorded"))
-                .tag(SettingEntry.State.notRecorded)
-            Text(String(localized: "Attested"))
-                .tag(SettingEntry.State.attested)
-            Text(String(localized: "Unknown"))
-                .tag(SettingEntry.State.unknown)
+            DescribedPickerOption(
+                title: String(localized: "Not recorded"),
+                detail: String(localized:
+                    "This setting was never observed on the device.")
+            )
+            .tag(SettingEntry.State.notRecorded)
+            DescribedPickerOption(
+                title: String(localized: "Attested"),
+                detail: String(localized:
+                    "The operator states this value — no instrument evidence required.")
+            )
+            .tag(SettingEntry.State.attested)
+            DescribedPickerOption(
+                title: String(localized: "Unknown"),
+                detail: String(localized:
+                    "The setting's state could not be determined.")
+            )
+            .tag(SettingEntry.State.unknown)
         }
         if entry.state == .attested {
             TextField(

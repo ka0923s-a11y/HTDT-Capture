@@ -551,11 +551,19 @@ struct EquipmentInventoryView: View {
                 String(localized: "Rack"),
                 selection: $rackFilter
             ) {
-                Text(String(localized: "All locations"))
-                    .tag(AnnotationEntityID?.none)
+                DescribedPickerOption(
+                    title: String(localized: "All locations"),
+                    detail: String(localized:
+                        "Show equipment everywhere — racks and room equipment together.")
+                )
+                .tag(AnnotationEntityID?.none)
                 ForEach(rackEntities, id: \.entityID) { rack in
-                    Text(rack.label)
-                        .tag(AnnotationEntityID?.some(rack.entityID))
+                    DescribedPickerOption(
+                        title: rack.label,
+                        detail: String(localized:
+                            "Show only equipment mounted in this rack.")
+                    )
+                    .tag(AnnotationEntityID?.some(rack.entityID))
                 }
             }
             .disabled(roomOnlyFilter)
@@ -567,15 +575,21 @@ struct EquipmentInventoryView: View {
                 String(localized: "Class"),
                 selection: $classFilter
             ) {
-                Text(String(localized: "All classes"))
-                    .tag(InventoryEquipmentClass?.none)
+                DescribedPickerOption(
+                    title: String(localized: "All classes"),
+                    detail: String(localized:
+                        "Show every equipment class, unfiltered.")
+                )
+                .tag(InventoryEquipmentClass?.none)
                 ForEach(
                     InventoryEquipmentClass.allCases,
                     id: \.self
                 ) { value in
-                    Text(
-                        TheaterAuthorityPresentation
-                            .inventoryClassName(value)
+                    DescribedPickerOption(
+                        title: TheaterAuthorityPresentation
+                            .inventoryClassName(value),
+                        detail: TheaterAuthorityPresentation
+                            .inventoryClassDescription(value)
                     )
                     .tag(InventoryEquipmentClass?.some(value))
                 }
@@ -617,7 +631,7 @@ struct EquipmentInventoryView: View {
                     .foregroundStyle(.secondary)
                 }
                 ForEach(candidates, id: \.itemID) { item in
-                    Button(itemDisplayName(item)) {
+                    Button {
                         markResult {
                             try taskPlanStatus?.wrappedValue.fulfill(
                                 itemID: task.itemID,
@@ -626,6 +640,14 @@ struct EquipmentInventoryView: View {
                             )
                         }
                         linkingItem = nil
+                    } label: {
+                        DescribedPickerOption(
+                            title: itemDisplayName(item),
+                            detail: TheaterAuthorityPresentation
+                                .inventoryClassName(
+                                    item.equipmentClass
+                                )
+                        )
                     }
                 }
             }
@@ -725,9 +747,11 @@ private struct InventoryItemFormSheet: View {
                         InventoryEquipmentClass.allCases,
                         id: \.self
                     ) { value in
-                        Text(
-                            TheaterAuthorityPresentation
-                                .inventoryClassName(value)
+                        DescribedPickerOption(
+                            title: TheaterAuthorityPresentation
+                                .inventoryClassName(value),
+                            detail: TheaterAuthorityPresentation
+                                .inventoryClassDescription(value)
                         )
                         .tag(value)
                     }
@@ -814,11 +838,19 @@ private struct InventoryItemFormSheet: View {
                     String(localized: "Rack"),
                     selection: $hostRackSelection
                 ) {
-                    Text(String(localized: "No rack / room equipment"))
-                        .tag(AnnotationEntityID?.none)
+                    DescribedPickerOption(
+                        title: String(localized: "No rack / room equipment"),
+                        detail: String(localized:
+                            "The item stands in the room — not mounted in a rack.")
+                    )
+                    .tag(AnnotationEntityID?.none)
                     ForEach(rackEntities, id: \.entityID) { rack in
-                        Text(rack.label)
-                            .tag(AnnotationEntityID?.some(rack.entityID))
+                        DescribedPickerOption(
+                            title: rack.label,
+                            detail: String(localized:
+                                "Mount the item in this rack.")
+                        )
+                        .tag(AnnotationEntityID?.some(rack.entityID))
                     }
                 }
                 if hostRackSelection != nil {
@@ -837,15 +869,21 @@ private struct InventoryItemFormSheet: View {
                         String(localized: "Facing (optional)"),
                         selection: $facing
                     ) {
-                        Text(String(localized: "Not recorded"))
-                            .tag(RackFacing?.none)
+                        DescribedPickerOption(
+                            title: String(localized: "Not recorded"),
+                            detail: String(localized:
+                                "The unit's facing in the rack was not recorded.")
+                        )
+                        .tag(RackFacing?.none)
                         ForEach(
                             RackFacing.allCases,
                             id: \.self
                         ) { value in
-                            Text(
-                                TheaterAuthorityPresentation
-                                    .rackFacingName(value)
+                            DescribedPickerOption(
+                                title: TheaterAuthorityPresentation
+                                    .rackFacingName(value),
+                                detail: TheaterAuthorityPresentation
+                                    .rackFacingDescription(value)
                             )
                             .tag(RackFacing?.some(value))
                         }

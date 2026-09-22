@@ -254,7 +254,12 @@ public enum CaptureMissionNeeds {
         case .annotationRoleBinding:
             // Resolve through the built-in profile vocabulary when
             // the role ID is known there; otherwise humanize the
-            // token — never the raw role_id (#315).
+            // token — never the raw role_id (#315). A role that only
+            // echoes its channel token ("L", "LFE") keeps that letter
+            // — installers read it — while an authored display name
+            // ("Front left") goes through the localized channel-role
+            // vocabulary instead of staying development-language
+            // English.
             let roleID = match.value
             if let profile = match.profileID.flatMap({ id in
                 SpeakerLayoutProfiles.all.first {
@@ -263,9 +268,18 @@ public enum CaptureMissionNeeds {
             }), let definition = profile.roleDefinition(
                 roleID: roleID
             ) {
+                if definition.displayName
+                    != definition.channelRole.rawValue {
+                    return String(
+                        format: String(localized: "Speaker — %@"),
+                        channelRoleTitle(
+                            definition.channelRole.rawValue
+                        )
+                    )
+                }
                 return String(
                     format: String(localized: "Speaker — %@"),
-                    definition.displayName
+                    humanizedToken(roleID)
                 )
             }
             return String(
@@ -309,6 +323,121 @@ public enum CaptureMissionNeeds {
             return String(localized: "Measurement point")
         case .custom:
             return String(localized: "Custom item")
+        }
+    }
+
+    /// Human name for a channel-role token (#364 family): the label
+    /// a checklist row or picker shows, never the raw `SL`/`LFE1`
+    /// token. Built-in vocabulary maps to a localized name; custom
+    /// equipment tokens humanize so they read as words, not code.
+    public static func channelRoleTitle(_ token: String) -> String {
+        switch token {
+        case "L":
+            return String(localized: "Front left")
+        case "C":
+            return String(localized: "Center")
+        case "R":
+            return String(localized: "Front right")
+        case "SL":
+            return String(localized: "Surround left")
+        case "SR":
+            return String(localized: "Surround right")
+        case "SBL":
+            return String(localized: "Surround back left")
+        case "SBR":
+            return String(localized: "Surround back right")
+        case "TFL":
+            return String(localized: "Top front left")
+        case "TFR":
+            return String(localized: "Top front right")
+        case "TML":
+            return String(localized: "Top middle left")
+        case "TMR":
+            return String(localized: "Top middle right")
+        case "TRL":
+            return String(localized: "Top rear left")
+        case "TRR":
+            return String(localized: "Top rear right")
+        case "LFE":
+            return String(localized: "Subwoofer (LFE)")
+        case "LFE1":
+            return String(localized: "Subwoofer 1")
+        case "LFE2":
+            return String(localized: "Subwoofer 2")
+        case "LFE3":
+            return String(localized: "Subwoofer 3")
+        case "LFE4":
+            return String(localized: "Subwoofer 4")
+        default:
+            return humanizedToken(token)
+        }
+    }
+
+    /// Operator-facing name for one task requirement — derives the
+    /// localized phrase from the requirement's match clause so raw
+    /// identifiers like `speaker_role_SL` never reach the UI. The
+    /// stored identifier stays available as a technical detail via
+    /// `requirement.identifier`.
+    public static func requirementName(
+        _ requirement: CaptureTaskRequirement
+    ) -> String {
+        title(for: requirement.match)
+            ?? humanizedToken(requirement.identifier)
+    }
+
+    /// Localized display name for a task profile. Built-in profile
+    /// `title`s are development-language strings, so the stable
+    /// identifier maps to the operator-facing name; custom host
+    /// profiles keep their own title.
+    public static func taskProfileName(
+        _ profile: CaptureTaskProfile
+    ) -> String {
+        taskProfileName(
+            identifier: profile.identifier,
+            fallbackTitle: profile.title
+        )
+    }
+
+    public static func taskProfileName(
+        identifier: String,
+        fallbackTitle: String? = nil
+    ) -> String {
+        switch identifier {
+        case "geometry_only":
+            return String(localized: "Geometry only")
+        case "room_and_listening_position":
+            return String(
+                localized: "Room + listening position"
+            )
+        case "theater_layout":
+            return String(localized: "Theater layout")
+        default:
+            return fallbackTitle ?? humanizedToken(identifier)
+        }
+    }
+
+    /// One-line explanation of what a task profile requires — the
+    /// option caption under each task-profile picker choice.
+    public static func taskProfileDescription(
+        identifier: String
+    ) -> String {
+        switch identifier {
+        case "geometry_only":
+            return String(
+                localized: "Captures room geometry only; no task requirements are checked."
+            )
+        case "room_and_listening_position":
+            return String(
+                localized: "Requires the room shape plus one primary listening position (MLP)."
+            )
+        case "theater_layout":
+            return String(
+                localized: "Home-theater capture: requires a listening position, a screen or display, and each speaker role in the plan."
+            )
+        default:
+            return String(
+                localized: "Custom task profile supplied by the host app."
+            )
         }
     }
 

@@ -122,7 +122,7 @@ enum AnnotationPresentation {
         case .lfe4:
             return String(localized: "Subwoofer 4 (LFE4)")
         default:
-            return role.rawValue
+            return MissionPresentation.tokenText(role.rawValue)
         }
     }
 
@@ -270,6 +270,41 @@ enum AnnotationPresentation {
             return String(localized: "Imported reference")
         case .other:
             return String(localized: "Other")
+        }
+    }
+
+    /// Localized name for a measurement's provenance class — never
+    /// the raw `user_annotation`/`capture_app_derived` token.
+    static func provenanceClassName(
+        _ value: AnnotationProvenanceClass
+    ) -> String {
+        switch value {
+        case .userAnnotation:
+            return String(localized: "User recorded")
+        case .importedReference:
+            return String(localized: "Imported reference")
+        case .captureAppDerived:
+            return String(localized: "App derived")
+        }
+    }
+
+    /// Localized name for a measurement record's provenance class —
+    /// distinct enum from the annotation one, same rule (no raw
+    /// `user_attested_measurement`/… tokens).
+    static func provenanceClassName(
+        _ value: MeasurementProvenanceClass
+    ) -> String {
+        switch value {
+        case .userAttestedMeasurement:
+            return String(localized: "User measured")
+        case .appleRoomPlanInference:
+            return String(localized: "RoomPlan inferred")
+        case .arkitMeshReconstruction:
+            return String(localized: "ARKit reconstructed")
+        case .importedReference:
+            return String(localized: "Imported reference")
+        case .captureAppDerived:
+            return String(localized: "App derived")
         }
     }
 
@@ -423,6 +458,240 @@ enum AnnotationPresentation {
             }
         }
         return String(describing: error)
+    }
+
+    // MARK: Option descriptions
+    //
+    // One-line explanations rendered as the caption under each
+    // selectable option — a picker never shows a bare label.
+
+    static func entityTypeDescription(
+        _ type: AnnotationEntityType
+    ) -> String {
+        switch type {
+        case .listeningPosition:
+            return String(localized:
+                "Where a listener sits (MLP); the reference point for distances and angles.")
+        case .speaker:
+            return String(localized:
+                "An individual loudspeaker; carries a channel role and facing direction.")
+        case .subwoofer:
+            return String(localized:
+                "A low-frequency loudspeaker; assigned an LFE role.")
+        case .display:
+            return String(localized:
+                "A TV or monitor — the watched video surface.")
+        case .projectionScreen:
+            return String(localized:
+                "The projection surface a projector throws onto.")
+        case .projector:
+            return String(localized:
+                "A video projection unit; mount and focus details matter.")
+        case .seat:
+            return String(localized:
+                "A seat or furniture position other than the MLP.")
+        case .acousticTreatment:
+            return String(localized:
+                "Absorptive or diffusive acoustic treatment on a surface.")
+        case .equipmentRack:
+            return String(localized:
+                "A rack or shelf holding equipment.")
+        case .referencePoint:
+            return String(localized:
+                "An arbitrary point used as a measurement/alignment reference.")
+        case .measurementPoint:
+            return String(localized:
+                "A point where a microphone or instrument takes readings.")
+        case .custom:
+            return String(localized:
+                "Anything not covered above; give it a free-form label.")
+        }
+    }
+
+    static func channelRoleDescription(
+        _ role: ChannelRole
+    ) -> String {
+        switch role {
+        case .left:
+            return String(localized:
+                "Main front-left loudspeaker position.")
+        case .center:
+            return String(localized:
+                "Center speaker anchored to the screen.")
+        case .right:
+            return String(localized:
+                "Main front-right loudspeaker position.")
+        case .surroundLeft:
+            return String(localized:
+                "Side/rear-left surround speaker position.")
+        case .surroundRight:
+            return String(localized:
+                "Side/rear-right surround speaker position.")
+        case .surroundBackLeft:
+            return String(localized:
+                "Rear-left surround-back speaker position.")
+        case .surroundBackRight:
+            return String(localized:
+                "Rear-right surround-back speaker position.")
+        case .topFrontLeft:
+            return String(localized:
+                "Height speaker, front-left (overhead layer).")
+        case .topFrontRight:
+            return String(localized:
+                "Height speaker, front-right (overhead layer).")
+        case .topMiddleLeft:
+            return String(localized:
+                "Height speaker, middle-left (overhead layer).")
+        case .topMiddleRight:
+            return String(localized:
+                "Height speaker, middle-right (overhead layer).")
+        case .topRearLeft:
+            return String(localized:
+                "Height speaker, rear-left (overhead layer).")
+        case .topRearRight:
+            return String(localized:
+                "Height speaker, rear-right (overhead layer).")
+        case .lfe:
+            return String(localized:
+                "Low-frequency effects channel — use when subs are not numbered.")
+        case .lfe1, .lfe2, .lfe3, .lfe4:
+            return String(localized:
+                "Numbered subwoofer role — distinguishes each sub in a multi-sub layout.")
+        default:
+            return String(localized:
+                "Custom channel token recorded verbatim for equipment-specific wiring.")
+        }
+    }
+
+    static func listeningRoleDescription(
+        _ role: ListeningPositionRole
+    ) -> String {
+        switch role {
+        case .primary:
+            return String(localized:
+                "Main listening position (MLP) — one per layout; all references anchor here.")
+        case .secondary:
+            return String(localized:
+                "Additional listener position (second row, alternate seat, …).")
+        case .measurementReference:
+            return String(localized:
+                "Position used only as a measurement reference, not a seat.")
+        }
+    }
+
+    static func verificationStateDescription(
+        _ state: AnnotationVerificationState
+    ) -> String {
+        switch state {
+        case .unverified:
+            return String(localized:
+                "Recorded but not yet backed by confirmation or evidence.")
+        case .userAttested:
+            return String(localized:
+                "The operator confirms this correction is correct.")
+        case .evidenceLinked:
+            return String(localized:
+                "Backed by linked evidence such as a photo or scan frame.")
+        }
+    }
+
+    static func measurementUnitDescription(
+        _ unit: MeasurementUnit
+    ) -> String {
+        switch unit {
+        case .meter:
+            return String(localized:
+                "Lengths, distances, and coordinates.")
+        case .radian:
+            return String(localized:
+                "Angles — headings, elevations, and subtends.")
+        case .dimensionless:
+            return String(localized:
+                "Ratios and counts with no physical unit.")
+        case .second:
+            return String(localized:
+                "Time values such as delay and decay time.")
+        case .degreeCelsius:
+            return String(localized: "Temperature.")
+        case .percent:
+            return String(localized:
+                "Fractions such as gain and humidity.")
+        }
+    }
+
+    static func acquisitionMethodDescription(
+        _ method: MeasurementAcquisitionMethod
+    ) -> String {
+        switch method {
+        case .tapeMeasure:
+            return String(localized:
+                "Read directly off a tape measure on site.")
+        case .laserDistanceMeter:
+            return String(localized:
+                "Point-to-point distance from a laser rangefinder.")
+        case .manufacturerSpecification:
+            return String(localized:
+                "Value taken from the manufacturer's published spec or drawing.")
+        case .lidarDerived:
+            return String(localized:
+                "Computed from the LiDAR scan geometry.")
+        case .roomPlanDerived:
+            return String(localized:
+                "Computed from RoomPlan's detected room structure.")
+        case .externalInstrument:
+            return String(localized:
+                "Reading or file taken from a measurement instrument.")
+        case .other:
+            return String(localized:
+                "Another method — describe it in the note field.")
+        }
+    }
+
+    static func constructionDescription(
+        _ construction: ReferencePointConstruction
+    ) -> String {
+        switch construction {
+        case .surfaceHitConfirmed:
+            return String(localized:
+                "The camera surface hit itself is the semantic point.")
+        case .offsetFromSurface:
+            return String(localized:
+                "The point is a fixed offset away from a captured surface hit (e.g. ear center above the seat).")
+        case .directPlacement:
+            return String(localized:
+                "The point is placed directly by coordinates or object binding — no surface capture.")
+        case .importedReference:
+            return String(localized:
+                "The point arrives from an imported reference authority.")
+        }
+    }
+
+    /// Caption under each measurement-template option — what the
+    /// template actually measures.
+    static func measurementTemplateDescription(
+        id: String
+    ) -> String {
+        switch id {
+        case "room_width":
+            return String(localized: "Width of the room.")
+        case "room_length":
+            return String(localized: "Depth (front-to-back) of the room.")
+        case "room_height":
+            return String(localized: "Floor-to-ceiling height.")
+        case "screen_width":
+            return String(localized: "Width of the screen or display surface.")
+        case "screen_height":
+            return String(localized: "Height of the screen or display surface.")
+        case "speaker_to_mlp":
+            return String(localized:
+                "Distance from a speaker to the listening position.")
+        case "speaker_spacing":
+            return String(localized:
+                "Distance between the left and right speakers.")
+        default:
+            return String(localized:
+                "A measurement not covered by the templates; name it yourself.")
+        }
     }
 }
 

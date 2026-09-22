@@ -310,13 +310,23 @@ public struct SemanticCorrectionSheet: View {
                         }
                     )
                 ) {
-                    Text(String(localized: "None")).tag("")
+                    DescribedPickerOption(
+                        title: String(localized: "None"),
+                        detail: String(localized:
+                            "Leave this item without a channel role.")
+                    )
+                    .tag("")
                     ForEach(
                         Self.commonChannelRoles,
                         id: \.self
                     ) { role in
-                        Text(MissionPresentation.channelRoleName(role))
-                            .tag(role.rawValue)
+                        DescribedPickerOption(
+                            title: MissionPresentation
+                                .channelRoleName(role),
+                            detail: AnnotationPresentation
+                                .channelRoleDescription(role)
+                        )
+                        .tag(role.rawValue)
                     }
                 }
             }
@@ -340,11 +350,13 @@ public struct SemanticCorrectionSheet: View {
                         ListeningPositionRole.allCases,
                         id: \.self
                     ) { role in
-                        Text(
-                            MissionPresentation.listeningPositionRoleName(
-                                role
-                            )
-                        ).tag(role)
+                        DescribedPickerOption(
+                            title: MissionPresentation
+                                .listeningPositionRoleName(role),
+                            detail: AnnotationPresentation
+                                .listeningRoleDescription(role)
+                        )
+                        .tag(role)
                     }
                 }
             }
@@ -360,15 +372,30 @@ public struct SemanticCorrectionSheet: View {
                     }
                 )
             ) {
-                Text(
-                    String(localized: "Unverified")
-                ).tag(AnnotationVerificationState.unverified)
-                Text(
-                    String(localized: "User attested")
-                ).tag(AnnotationVerificationState.userAttested)
-                Text(
-                    String(localized: "Evidence linked")
-                ).tag(AnnotationVerificationState.evidenceLinked)
+                DescribedPickerOption(
+                    title: String(localized: "Unverified"),
+                    detail: AnnotationPresentation
+                        .verificationStateDescription(
+                            .unverified
+                        )
+                )
+                .tag(AnnotationVerificationState.unverified)
+                DescribedPickerOption(
+                    title: String(localized: "User attested"),
+                    detail: AnnotationPresentation
+                        .verificationStateDescription(
+                            .userAttested
+                        )
+                )
+                .tag(AnnotationVerificationState.userAttested)
+                DescribedPickerOption(
+                    title: String(localized: "Evidence linked"),
+                    detail: AnnotationPresentation
+                        .verificationStateDescription(
+                            .evidenceLinked
+                        )
+                )
+                .tag(AnnotationVerificationState.evidenceLinked)
             }
         }
     }
@@ -388,8 +415,13 @@ public struct SemanticCorrectionSheet: View {
         let measurement = measurements[index]
         VStack(alignment: .leading, spacing: 4) {
             Text(
-                measurement.quantityType
-                    + " · " + measurement.unit.rawValue
+                AnnotationPresentation.measurementTitle(
+                    forQuantityType: measurement.quantityType
+                )
+                    + " · "
+                    + MissionPresentation.measurementUnitSymbol(
+                        measurement.unit
+                    )
             )
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -514,18 +546,35 @@ public struct SemanticCorrectionSheet: View {
                     set: { applyOpeningEdit(at: index, disposition: $0) }
                 )
             ) {
-                Text(
-                    String(localized: "Unreviewed")
-                ).tag(RoomOpeningDisposition.unreviewed)
-                Text(
-                    String(localized: "Confirmed")
-                ).tag(RoomOpeningDisposition.confirmed)
-                Text(
-                    String(localized: "Needs more scanning")
-                ).tag(RoomOpeningDisposition.needsMoreScanning)
-                Text(
-                    String(localized: "Intentionally ignored")
-                ).tag(RoomOpeningDisposition.intentionallyIgnored)
+                DescribedPickerOption(
+                    title: String(localized: "Unreviewed"),
+                    detail: TheaterAuthorityPresentation
+                        .openingDispositionDescription(.unreviewed)
+                )
+                .tag(RoomOpeningDisposition.unreviewed)
+                DescribedPickerOption(
+                    title: String(localized: "Confirmed"),
+                    detail: TheaterAuthorityPresentation
+                        .openingDispositionDescription(.confirmed)
+                )
+                .tag(RoomOpeningDisposition.confirmed)
+                DescribedPickerOption(
+                    title: String(localized: "Needs more scanning"),
+                    detail: TheaterAuthorityPresentation
+                        .openingDispositionDescription(
+                            .needsMoreScanning
+                        )
+                )
+                .tag(RoomOpeningDisposition.needsMoreScanning)
+                DescribedPickerOption(
+                    title: String(localized:
+                        "Intentionally ignored"),
+                    detail: TheaterAuthorityPresentation
+                        .openingDispositionDescription(
+                            .intentionallyIgnored
+                        )
+                )
+                .tag(RoomOpeningDisposition.intentionallyIgnored)
             }
             .labelsHidden()
         }

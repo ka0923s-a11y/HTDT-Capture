@@ -71,8 +71,8 @@ public enum HTDTDeliverableKind: String, Codable, Sendable {
     /// Human artifact type for queue rows.
     public var displayName: String {
         switch self {
-        case .captureBundle: return "Capture"
-        case .fieldReturn: return "Field return"
+        case .captureBundle: return String(localized: "Capture")
+        case .fieldReturn: return String(localized: "Field return")
         }
     }
 }

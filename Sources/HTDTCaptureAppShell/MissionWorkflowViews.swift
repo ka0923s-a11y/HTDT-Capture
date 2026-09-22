@@ -284,8 +284,11 @@ public struct MissionWorkflowsView: View {
                         ],
                         id: \.self
                     ) { kind in
-                        Text(
-                            MissionPresentation.regionKindName(kind)
+                        DescribedPickerOption(
+                            title: MissionPresentation
+                                .regionKindName(kind),
+                            detail: MissionPresentation
+                                .regionKindDescription(kind)
                         )
                         .tag(kind)
                     }
@@ -402,16 +405,24 @@ public struct MissionWorkflowsView: View {
                             for: item.spec.plannedEntityID
                         )
                     ) {
-                        Text("Choose entity")
-                            .tag(AnnotationEntityID?.none)
+                        DescribedPickerOption(
+                            title: String(localized: "Choose entity"),
+                            detail: String(localized:
+                                "Pick the captured entity that matches this planned target.")
+                        )
+                        .tag(AnnotationEntityID?.none)
                         ForEach(
                             asBuiltActualCandidates,
                             id: \.entityID
                         ) { entity in
-                            Text(entity.label)
-                                .tag(
-                                    Optional(entity.entityID)
-                                )
+                            DescribedPickerOption(
+                                title: entity.label,
+                                detail: AnnotationPresentation
+                                    .entityTypeName(entity.type)
+                            )
+                            .tag(
+                                Optional(entity.entityID)
+                            )
                         }
                     }
                     .labelsHidden()

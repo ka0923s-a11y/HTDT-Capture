@@ -212,6 +212,296 @@ public enum FieldAuthorityPresentation {
         }
     }
 
+    // MARK: Option descriptions
+    //
+    // One-line explanations rendered as the caption under each
+    // selectable option — a picker never shows a bare label.
+
+    /// Friendly name for an imported file's media type — the stored
+    /// MIME token ("image/jpeg") never reaches the UI.
+    public static func mediaTypeName(
+        _ type: FieldEvidenceMediaType
+    ) -> String {
+        switch type {
+        case .heic:
+            return String(localized: "HEIC photo")
+        case .jpeg:
+            return String(localized: "JPEG photo")
+        case .png:
+            return String(localized: "PNG image")
+        case .pdf:
+            return String(localized: "PDF document")
+        case .binary:
+            return String(localized: "Binary file")
+        @unknown default:
+            return String(localized: "File")
+        }
+    }
+
+    public static func evidenceKindDescription(
+        _ kind: FieldEvidenceKind
+    ) -> String {
+        switch kind {
+        case .installationPhoto:
+            return String(localized:
+                "Photo of equipment, panels, or wiring as actually installed — proof of installation.")
+        case .dimensionVerification:
+            return String(localized:
+                "Record showing on-site measured dimensions match the plan.")
+        case .equipmentIdentity:
+            return String(localized:
+                "Record identifying a unit by make, model, and serial (nameplate shot or catalog link).")
+        case .routingVerification:
+            return String(localized:
+                "Record showing cable runs and terminations follow the design.")
+        case .microphoneSetup:
+            return String(localized:
+                "Record of measurement-mic placement, orientation, and height.")
+        case .treatmentInstallation:
+            return String(localized:
+                "Record that absorptive/diffusive treatment was installed.")
+        case .generalNote:
+            return String(localized:
+                "Free-form note for evidence no other kind covers.")
+        case .externalDocument:
+            return String(localized:
+                "An externally authored file — spec sheet, drawing, report.")
+        }
+    }
+
+    public static func instrumentClassDescription(
+        _ instrumentClass: MeasurementInstrumentClass
+    ) -> String {
+        switch instrumentClass {
+        case .tapeMeasure:
+            return String(localized:
+                "Hand-read tape measure — the basic distance tool.")
+        case .laserDistanceMeter:
+            return String(localized:
+                "Laser point-to-point distance meter; transcribe its display.")
+        case .measurementMicrophone:
+            return String(localized:
+                "Calibrated measurement microphone for SPL and response.")
+        case .splMeter:
+            return String(localized:
+                "Dedicated sound-pressure-level meter (dB SPL).")
+        case .microphoneCalibrator:
+            return String(localized:
+                "Reference source that sets microphone sensitivity.")
+        case .audioAnalyzer:
+            return String(localized:
+                "Instrument analyzing frequency response, distortion, impulse.")
+        case .thermometer:
+            return String(localized:
+                "Air-temperature reading — part of the measurement conditions.")
+        case .hygrometer:
+            return String(localized:
+                "Relative-humidity reading — part of the measurement conditions.")
+        case .levelInstrument:
+            return String(localized:
+                "Level tool checking horizontal/vertical alignment.")
+        case .scale:
+            return String(localized: "Weight measurement.")
+        case .other:
+            return String(localized:
+                "An instrument not listed — name it in the note.")
+        }
+    }
+
+    public static func calibrationStateDescription(
+        _ state: InstrumentCalibrationState
+    ) -> String {
+        switch state {
+        case .calibrated:
+            return String(localized:
+                "Calibration is current; readings trace to a reference.")
+        case .uncalibrated:
+            return String(localized:
+                "No calibration on file, or never confirmed.")
+        case .expired:
+            return String(localized:
+                "Calibration validity has lapsed — treat readings as indicative.")
+        case .notApplicable:
+            return String(localized:
+                "Calibration does not apply to this tool (e.g. a tape).")
+        case .unknown:
+            return String(localized:
+                "Calibration status could not be confirmed.")
+        }
+    }
+
+    public static func calibrationEvidenceKindDescription(
+        _ kind: CalibrationEvidenceKind
+    ) -> String {
+        switch kind {
+        case .calibrationCertificate:
+            return String(localized:
+                "Formal certificate issued by a calibration lab.")
+        case .microphoneCalibrationFile:
+            return String(localized:
+                "Manufacturer-issued calibration data file for the microphone.")
+        case .manufacturerRecord:
+            return String(localized:
+                "Factory calibration record supplied by the manufacturer.")
+        case .userAttestation:
+            return String(localized:
+                "The operator attests the instrument is calibrated.")
+        case .other:
+            return String(localized:
+                "Other calibration basis — describe it in the note.")
+        }
+    }
+
+    public static func settingParameterDescription(
+        _ parameter: ObservedSettingParameter
+    ) -> String {
+        switch parameter {
+        case .channelGain:
+            return String(localized:
+                "Per-channel output level trim.")
+        case .channelDelay:
+            return String(localized:
+                "Per-channel delay time setting.")
+        case .channelDistance:
+            return String(localized:
+                "Speaker distances registered on the processor.")
+        case .crossoverFrequency:
+            return String(localized:
+                "Frequency where bass hands off to the subwoofer.")
+        case .polarity:
+            return String(localized:
+                "Signal polarity setting (normal/inverted).")
+        case .speakerSize:
+            return String(localized:
+                "Large/small speaker setting used by bass management.")
+        case .bassManagement:
+            return String(localized:
+                "How low frequencies split between speakers and subs.")
+        case .peqBandFrequency:
+            return String(localized:
+                "Center frequency of a parametric-EQ band.")
+        case .peqBandGain:
+            return String(localized:
+                "Boost/cut amount of a parametric-EQ band.")
+        case .peqBandQ:
+            return String(localized:
+                "Width (Q) of a parametric-EQ band.")
+        case .peqEnabled:
+            return String(localized:
+                "Whether the parametric EQ is on.")
+        case .dspPreset:
+            return String(localized:
+                "Named DSP processing/sound-field preset.")
+        case .dspMode:
+            return String(localized:
+                "DSP operating mode (direct, processed, …).")
+        case .processorPreset:
+            return String(localized:
+                "Saved preset on the AV processor/receiver.")
+        case .processorMode:
+            return String(localized:
+                "Operating mode of the AV processor.")
+        case .subwooferGain:
+            return String(localized: "Subwoofer output level.")
+        case .subwooferPhase:
+            return String(localized:
+                "Subwoofer phase angle setting.")
+        case .subwooferCrossover:
+            return String(localized:
+                "Low-pass frequency set on the subwoofer itself.")
+        case .subwooferPolarity:
+            return String(localized:
+                "Subwoofer output polarity.")
+        case .other:
+            return String(localized:
+                "A setting not listed — enter its token below.")
+        }
+    }
+
+    public static func settingStateDescription(
+        _ state: ObservedSettingState
+    ) -> String {
+        switch state {
+        case .observed:
+            return String(localized:
+                "The value was read on the actual unit and recorded.")
+        case .unknown:
+            return String(localized:
+                "The value could not be checked.")
+        case .notApplicable:
+            return String(localized:
+                "This parameter does not exist on this equipment.")
+        }
+    }
+
+    public static func terminationKindDescription(
+        _ kind: WiringTerminationKind
+    ) -> String {
+        switch kind {
+        case .speaker:
+            return String(localized: "Termination at a loudspeaker.")
+        case .subwoofer:
+            return String(localized: "Termination at a subwoofer.")
+        case .avReceiver:
+            return String(localized:
+                "Termination at the AV receiver/amplifier.")
+        case .processor:
+            return String(localized:
+                "Termination at the AV processor.")
+        case .amplifier:
+            return String(localized:
+                "Termination at a power amplifier.")
+        case .projector:
+            return String(localized: "Termination at the projector.")
+        case .display:
+            return String(localized: "Termination at the display.")
+        case .rack:
+            return String(localized:
+                "A junction point inside the equipment rack.")
+        case .wallPlate:
+            return String(localized:
+                "Wall plate / terminal panel in the wall.")
+        case .servicePoint:
+            return String(localized:
+                "A left-in junction point for service or future runs.")
+        case .other:
+            return String(localized:
+                "A termination kind not listed.")
+        }
+    }
+
+    public static func segmentObservationDescription(
+        _ observation: WiringSegmentObservation
+    ) -> String {
+        switch observation {
+        case .observed:
+            return String(localized:
+                "This stretch was seen and confirmed directly.")
+        case .estimated:
+            return String(localized:
+                "This stretch is inferred from structure, not seen.")
+        case .hiddenUnknown:
+            return String(localized:
+                "This stretch is hidden (in-wall/ceiling) and unverifiable.")
+        }
+    }
+
+    public static func routeStateDescription(
+        _ state: WiringRouteState
+    ) -> String {
+        switch state {
+        case .planned:
+            return String(localized:
+                "The designed route — not yet confirmed in place.")
+        case .estimated:
+            return String(localized:
+                "Route combining partial confirmation with inference.")
+        case .observedAsBuilt:
+            return String(localized:
+                "The finished route as actually observed.")
+        }
+    }
+
     public static func targetRefLabel(
         _ ref: String,
         annotations: [CaptureAnnotationEntity],
@@ -273,13 +563,25 @@ public struct OperatorProfilesView: View {
                     String(localized: "Author as"),
                     selection: $selectedOperatorID
                 ) {
-                    Text(String(localized: "Anonymous"))
-                        .tag(OperatorProfileID?.none)
+                    DescribedPickerOption(
+                        title: String(localized: "Anonymous"),
+                        detail: String(localized:
+                            "Save records without naming an operator.")
+                    )
+                    .tag(OperatorProfileID?.none)
                     ForEach(operators, id: \.operatorID) { profile in
-                        Text(profile.displayName)
-                            .tag(OperatorProfileID?.some(
-                                profile.operatorID
-                            ))
+                        DescribedPickerOption(
+                            title: profile.displayName,
+                            detail: [
+                                profile.organization,
+                                profile.role,
+                            ]
+                            .compactMap { $0 }
+                            .joined(separator: " · ")
+                        )
+                        .tag(OperatorProfileID?.some(
+                            profile.operatorID
+                        ))
                     }
                 }
                 .onChange(of: selectedOperatorID) { _, _ in
@@ -463,9 +765,11 @@ public struct FieldEvidenceFormView: View {
                         FieldEvidenceKind.allCases,
                         id: \.self
                     ) { value in
-                        Text(
-                            FieldAuthorityPresentation
-                                .evidenceKindName(value)
+                        DescribedPickerOption(
+                            title: FieldAuthorityPresentation
+                                .evidenceKindName(value),
+                            detail: FieldAuthorityPresentation
+                                .evidenceKindDescription(value)
                         )
                         .tag(value)
                     }
@@ -510,21 +814,32 @@ public struct FieldEvidenceFormView: View {
                     String(localized: "Asset"),
                     selection: $assetChoice
                 ) {
-                    Text(String(localized: "No asset"))
-                        .tag(0)
-                    Text(
-                        String(localized:
-                            "Capture close-up photo")
+                    DescribedPickerOption(
+                        title: String(localized: "No asset"),
+                        detail: String(localized:
+                            "Text-only evidence; no binary asset is stored.")
+                    )
+                    .tag(0)
+                    DescribedPickerOption(
+                        title: String(localized:
+                            "Capture close-up photo"),
+                        detail: String(localized:
+                            "Shoot a close-up photo with the camera as the evidence asset.")
                     )
                     .tag(1)
-                    Text(
-                        String(localized: "Import document")
+                    DescribedPickerOption(
+                        title: String(localized:
+                            "Import document"),
+                        detail: String(localized:
+                            "Import an existing document or photo file as the evidence asset.")
                     )
                     .tag(2)
                     if !evidenceFrames.isEmpty {
-                        Text(
-                            String(localized:
-                                "Link existing scan frame")
+                        DescribedPickerOption(
+                            title: String(localized:
+                                "Link existing scan frame"),
+                            detail: String(localized:
+                                "Reference an already-recorded scan frame — its bytes are shared, not duplicated.")
                         )
                         .tag(3)
                     }
@@ -571,10 +886,13 @@ public struct FieldEvidenceFormView: View {
                         ],
                             id: \.self
                         ) { unit in
-                            Text(
-                                MissionPresentation.measurementUnitSymbol(
-                                    unit
-                                )
+                            DescribedPickerOption(
+                                title: MissionPresentation
+                                    .measurementUnitSymbol(unit),
+                                detail: AnnotationPresentation
+                                    .measurementUnitDescription(
+                                        unit
+                                    )
                             ).tag(unit)
                         }
                     }
@@ -675,9 +993,10 @@ public struct FieldEvidenceFormView: View {
     }
 
     private var importedSummary: String {
-        importedName + " · " + importedMediaType.rawValue
+        importedName + " · "
+            + FieldAuthorityPresentation.mediaTypeName(importedMediaType)
             + " · " + String(importedData?.count ?? 0)
-            + " bytes"
+            + " " + String(localized: "bytes")
     }
 
     @ViewBuilder
@@ -705,10 +1024,19 @@ public struct FieldEvidenceFormView: View {
             String(localized: "Scan frame"),
             selection: $linkedFrameRef
         ) {
-            Text(String(localized: "Select a frame"))
-                .tag("")
+            DescribedPickerOption(
+                title: String(localized: "Select a frame"),
+                detail: String(localized:
+                    "Pick the recorded scan frame to link as evidence.")
+            )
+            .tag("")
             ForEach(evidenceFrames, id: \.reference) { frame in
-                Text(frame.reference).tag(frame.reference)
+                DescribedPickerOption(
+                    title: frame.reference,
+                    detail: String(localized:
+                        "Link this recorded frame as the evidence asset.")
+                )
+                .tag(frame.reference)
             }
         }
         Text(
@@ -974,9 +1302,11 @@ public struct InstrumentProfileFormView: View {
                         MeasurementInstrumentClass.allCases,
                         id: \.self
                     ) { value in
-                        Text(
-                            FieldAuthorityPresentation
-                                .instrumentClassName(value)
+                        DescribedPickerOption(
+                            title: FieldAuthorityPresentation
+                                .instrumentClassName(value),
+                            detail: FieldAuthorityPresentation
+                                .instrumentClassDescription(value)
                         )
                         .tag(value)
                     }
@@ -1012,9 +1342,13 @@ public struct InstrumentProfileFormView: View {
                             .allCases,
                         id: \.self
                     ) { state in
-                        Text(
-                            FieldAuthorityPresentation
-                                .calibrationStateName(state)
+                        DescribedPickerOption(
+                            title: FieldAuthorityPresentation
+                                .calibrationStateName(state),
+                            detail: FieldAuthorityPresentation
+                                .calibrationStateDescription(
+                                    state
+                                )
                         )
                         .tag(state)
                     }
@@ -1037,9 +1371,13 @@ public struct InstrumentProfileFormView: View {
                         CalibrationEvidenceKind.allCases,
                         id: \.self
                     ) { value in
-                        Text(
-                            FieldAuthorityPresentation
+                        DescribedPickerOption(
+                            title: FieldAuthorityPresentation
                                 .calibrationEvidenceKindName(
+                                    value
+                                ),
+                            detail: FieldAuthorityPresentation
+                                .calibrationEvidenceKindDescription(
                                     value
                                 )
                         )
@@ -1212,10 +1550,19 @@ public struct SettingsObservationFormView: View {
                     String(localized: "Target"),
                     selection: $targetRef
                 ) {
-                    Text(String(localized: "Select target"))
-                        .tag("")
+                    DescribedPickerOption(
+                        title: String(localized: "Select target"),
+                        detail: String(localized:
+                            "Pick the inventory item or annotated entity whose settings were observed.")
+                    )
+                    .tag("")
                     ForEach(targetOptions, id: \.ref) { option in
-                        Text(option.label).tag(option.ref)
+                        DescribedPickerOption(
+                            title: option.label,
+                            detail: String(localized:
+                                "Record observed settings for this target.")
+                        )
+                        .tag(option.ref)
                     }
                 }
             }
@@ -1455,9 +1802,13 @@ struct ObservedSettingFormView: View {
                         ObservedSettingParameter.allCases,
                         id: \.self
                     ) { parameter in
-                        Text(
-                            FieldAuthorityPresentation
+                        DescribedPickerOption(
+                            title: FieldAuthorityPresentation
                                 .settingParameterName(
+                                    parameter
+                                ),
+                            detail: FieldAuthorityPresentation
+                                .settingParameterDescription(
                                     parameter
                                 )
                         )
@@ -1490,9 +1841,11 @@ struct ObservedSettingFormView: View {
                         ],
                         id: \.self
                     ) { state in
-                        Text(
-                            FieldAuthorityPresentation
-                                .settingStateName(state)
+                        DescribedPickerOption(
+                            title: FieldAuthorityPresentation
+                                .settingStateName(state),
+                            detail: FieldAuthorityPresentation
+                                .settingStateDescription(state)
                         )
                         .tag(state)
                     }
@@ -1717,9 +2070,11 @@ public struct WiringRouteFormView: View {
                         WiringRouteState.allCases,
                         id: \.self
                     ) { value in
-                        Text(
-                            FieldAuthorityPresentation
-                                .routeStateName(value)
+                        DescribedPickerOption(
+                            title: FieldAuthorityPresentation
+                                .routeStateName(value),
+                            detail: FieldAuthorityPresentation
+                                .routeStateDescription(value)
                         )
                         .tag(value)
                     }
@@ -1878,9 +2233,11 @@ public struct WiringRouteFormView: View {
                     WiringTerminationKind.allCases,
                     id: \.self
                 ) { kind in
-                    Text(
-                        FieldAuthorityPresentation
-                            .terminationKindName(kind)
+                    DescribedPickerOption(
+                        title: FieldAuthorityPresentation
+                            .terminationKindName(kind),
+                        detail: FieldAuthorityPresentation
+                            .terminationKindDescription(kind)
                     )
                     .tag(kind)
                 }
@@ -1893,9 +2250,19 @@ public struct WiringRouteFormView: View {
                 String(localized: "Bound authority (optional)"),
                 selection: draft.bindingRef
             ) {
-                Text(String(localized: "None")).tag("")
+                DescribedPickerOption(
+                    title: String(localized: "None"),
+                    detail: String(localized:
+                        "Do not bind this endpoint to a recorded authority.")
+                )
+                .tag("")
                 ForEach(bindingOptions, id: \.ref) { option in
-                    Text(option.label).tag(option.ref)
+                    DescribedPickerOption(
+                        title: option.label,
+                        detail: String(localized:
+                            "Bind this endpoint to the selected authority.")
+                    )
+                    .tag(option.ref)
                 }
             }
             TextField(
@@ -2091,9 +2458,13 @@ struct SegmentEditor: View {
                     ],
                     id: \.self
                 ) { observation in
-                    Text(
-                        FieldAuthorityPresentation
+                    DescribedPickerOption(
+                        title: FieldAuthorityPresentation
                             .segmentObservationName(
+                                observation
+                            ),
+                        detail: FieldAuthorityPresentation
+                            .segmentObservationDescription(
                                 observation
                             )
                     )
