@@ -136,6 +136,36 @@ public struct HTDTTaskPlanEntityItem: Codable, Sendable, Equatable {
     }
 }
 
+/// How a requested measurement may be acquired (issue #418): the
+/// plan producer — never a `quantityType`/endpoint free-text
+/// heuristic — states whether the task needs a fresh spatial point
+/// observation in this capture's coordinate space, whether an exact
+/// supplied endpoint reference suffices, whether the measurement is
+/// inherently non-spatial, or whether an external instrument produces
+/// the value. Plans authored before the field existed carry nil and
+/// evaluate conservatively as spatial-required.
+public enum MeasurementAcquisitionRequirement:
+    String, Codable, Sendable, CaseIterable
+{
+    /// A physical 3D endpoint must be observed in the capture
+    /// coordinate space — requires spatial capture.
+    case spatialPointRequired = "spatial_point_required"
+    /// The endpoint is already supplied/referenced; only the measured
+    /// quantity/evidence must be collected.
+    case importedEndpointReferenceSufficient =
+        "imported_endpoint_reference_sufficient"
+    /// Inherently non-spatial field measurement.
+    case nonSpatial = "non_spatial"
+    /// Value comes from an external instrument reading, bound to a
+    /// typed instrument profile — no spatial placement evidence.
+    case externalInstrumentOnly = "external_instrument_only"
+
+    /// Whether a Field Return (non-spatial) workflow can execute it.
+    public var requiresSpatialAcquisition: Bool {
+        self == .spatialPointRequired
+    }
+}
+
 /// One measurement the plan requests, with the endpoint semantics the
 /// plan intends ("wall_width", "floor_to_ceiling", ...).
 public struct HTDTTaskPlanMeasurementItem: Codable, Sendable, Equatable {
@@ -144,13 +174,17 @@ public struct HTDTTaskPlanMeasurementItem: Codable, Sendable, Equatable {
     public let requirement: TaskPlanRequirement
     public let endpointSemantics: String?
     public let expectedUnit: MeasurementUnit?
+    /// Typed acquisition capability (issue #418). nil on plans issued
+    /// before the field existed — those stay conservatively spatial.
+    public let acquisitionRequirement: MeasurementAcquisitionRequirement?
 
     public init(
         itemID: String,
         quantityType: String,
         requirement: TaskPlanRequirement,
         endpointSemantics: String? = nil,
-        expectedUnit: MeasurementUnit? = nil
+        expectedUnit: MeasurementUnit? = nil,
+        acquisitionRequirement: MeasurementAcquisitionRequirement? = nil
     ) throws {
         let normalizedID = SchemaOwnedText.nfc(itemID)
         let normalizedType = SchemaOwnedText.nfc(quantityType)
@@ -162,6 +196,7 @@ public struct HTDTTaskPlanMeasurementItem: Codable, Sendable, Equatable {
         self.requirement = requirement
         self.endpointSemantics = SchemaOwnedText.nfc(endpointSemantics)
         self.expectedUnit = expectedUnit
+        self.acquisitionRequirement = acquisitionRequirement
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -170,6 +205,7 @@ public struct HTDTTaskPlanMeasurementItem: Codable, Sendable, Equatable {
         case requirement
         case endpointSemantics = "endpoint_semantics"
         case expectedUnit = "expected_unit"
+        case acquisitionRequirement = "acquisition_requirement"
     }
 
     public init(from decoder: Decoder) throws {
@@ -191,6 +227,10 @@ public struct HTDTTaskPlanMeasurementItem: Codable, Sendable, Equatable {
             expectedUnit: container.decodeIfPresent(
                 MeasurementUnit.self,
                 forKey: .expectedUnit
+            ),
+            acquisitionRequirement: container.decodeIfPresent(
+                MeasurementAcquisitionRequirement.self,
+                forKey: .acquisitionRequirement
             )
         )
     }

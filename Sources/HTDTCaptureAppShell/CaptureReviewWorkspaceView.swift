@@ -922,9 +922,14 @@ public struct CaptureReviewWorkspaceView: View {
             }
         }
         .sheet(item: $supersedingFieldNote) { note in
+            // Supersession lineage (#420): the correction preloads
+            // the original category and bindings so a small fix
+            // does not silently drop the subject.
             FieldNoteComposeSheet(
                 allowsEvidenceAttachment: false,
-                bindingCandidates: fieldNoteBindingCandidates
+                bindingCandidates: fieldNoteBindingCandidates,
+                preselectedCategory: note.category,
+                preselectedBindingRefs: note.bindingRefs
             ) { draft in
                 supersedeFieldNote(
                     note.noteID,
@@ -1086,6 +1091,12 @@ public struct CaptureReviewWorkspaceView: View {
         }
     }
 
+    /// Resolved labels for this workspace's authority refs — the
+    /// shared resolver every note surface uses (issue #420).
+    private var fieldNoteResolverCandidates:
+        [FieldNoteBindingCandidate]
+    { fieldNoteBindingCandidates }
+
     @ViewBuilder
     private func fieldNoteRow(
         _ note: CaptureFieldNote
@@ -1093,11 +1104,9 @@ public struct CaptureReviewWorkspaceView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(
-                    note.category.rawValue
-                        .replacingOccurrences(
-                            of: "_",
-                            with: " "
-                        ).capitalized
+                    FieldNoteBindingResolver.categoryName(
+                        note.category
+                    )
                 )
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
@@ -1114,32 +1123,152 @@ public struct CaptureReviewWorkspaceView: View {
                         CaptureColorRole.attention.color
                     )
                 }
-                Spacer()
-                Text(note.status.rawValue)
+                if let position = note.spatialPosition {
+                    Label(
+                        FieldNoteBindingResolver.anchorName(
+                            position.anchorKind
+                        ),
+                        systemImage: position.anchorKind
+                            == .subjectPoint
+                            ? "mappin.circle"
+                            : "location.circle"
+                    )
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
+                    if position.anchorKind == .subjectPoint,
+                       let noteMarker = marker(
+                           forFieldNoteID: note.noteID
+                       )
+                    {
+                        Button("Show on plan") {
+                            planSelection = noteMarker
+                            planFocusToken += 1
+                        }
+                        .font(.caption2)
+                        .accessibilityLabel(
+                            String(
+                                localized:
+                                    "Show note location on plan"
+                            )
+                        )
+                    }
+                }
+                Spacer()
+                Text(
+                    FieldNoteBindingResolver.statusName(
+                        note.status
+                    )
+                )
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
             }
             Text(note.text)
                 .font(.callout)
-            Text(
-                [
-                    note.createdAtUTC,
-                    note.authoringMethod.rawValue,
-                    note.bindingRefs.isEmpty
-                        ? "unbound"
-                        : "\(note.bindingRefs.count) binding(s)",
-                ].joined(separator: " · ")
-            )
-            .font(.caption2)
-            .foregroundStyle(.secondary)
+            if note.bindingRefs.isEmpty {
+                Text("Not linked to a specific item")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(
+                        note.bindingRefs,
+                        id: \.self
+                    ) { ref in
+                        let candidate = FieldNoteBindingResolver
+                            .resolve(
+                                ref: ref,
+                                in: fieldNoteResolverCandidates
+                            )
+                        Text(candidate.title)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel(
+                                String(
+                                    format: String(
+                                        localized:
+                                            "Bound to %@"
+                                    ),
+                                    candidate.title
+                                )
+                            )
+                    }
+                }
+            }
             if !note.evidenceRefs.isEmpty {
-                Text(
-                    "Evidence: "
-                        + note.evidenceRefs
-                            .joined(separator: ", ")
-                )
-                .font(.caption2.monospaced())
-                .foregroundStyle(.tertiary)
+                // Evidence summaries resolve to record titles when
+                // the ref names a committed record; an unresolvable
+                // ref stays honest rather than vanishing (issue
+                // #420).
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(
+                        note.evidenceRefs,
+                        id: \.self
+                    ) { ref in
+                        if let evidence = model.fieldEvidence
+                            .first(where: {
+                                "field_evidence:"
+                                    + $0.evidenceID.description
+                                    == ref
+                            }) {
+                            Text(evidence.title)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        } else {
+                            Text(
+                                "Linked evidence unavailable"
+                            )
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+            }
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 2) {
+                    LabeledContent(
+                        "Recorded",
+                        value: note.createdAtUTC
+                    )
+                    LabeledContent(
+                        "Authored",
+                        value: FieldNoteBindingResolver
+                            .authoringMethodName(
+                                note.authoringMethod
+                            )
+                    )
+                    if let position = note.spatialPosition {
+                        LabeledContent(
+                            "Anchor",
+                            value: FieldNoteBindingResolver
+                                .anchorName(
+                                    position.anchorKind
+                                )
+                        )
+                        Text(
+                            "x "
+                                + position.pointMeters.x.formatted()
+                                + ", y "
+                                + position.pointMeters.y.formatted()
+                                + ", z "
+                                + position.pointMeters.z.formatted()
+                        )
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                    }
+                    ForEach(
+                        note.bindingRefs
+                            + note.evidenceRefs,
+                        id: \.self
+                    ) { ref in
+                        Text(ref)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            } label: {
+                Text("Details")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             if !model.readOnly, note.status == .active {
                 HStack(spacing: 12) {
@@ -1167,22 +1296,60 @@ public struct CaptureReviewWorkspaceView: View {
 
     /// #375: binds an unbound note by superseding it with the same
     /// text + the chosen ref — the stored lineage shows the intent.
+    /// #420: candidates group by authority kind under localized
+    /// section headers, lead with the human label, and keep the
+    /// exact ref as secondary context.
     @ViewBuilder
     private func fieldNoteBindingSheet(
         _ note: CaptureFieldNote
     ) -> some View {
         NavigationStack {
             List {
-                Section("Bind note to") {
-                    ForEach(
-                        fieldNoteBindingCandidates,
-                        id: \.self
-                    ) { ref in
-                        Button(ref) {
-                            bindFieldNote(note.noteID, ref)
-                            bindingFieldNote = nil
+                ForEach(
+                    FieldNoteBindingCandidate.Kind.allCases,
+                    id: \.self
+                ) { kind in
+                    let group = fieldNoteBindingCandidates
+                        .filter { $0.kind == kind }
+                    if !group.isEmpty {
+                        Section(kind.sectionTitle) {
+                            ForEach(group) { candidate in
+                                Button {
+                                    bindFieldNote(
+                                        note.noteID,
+                                        candidate.ref
+                                    )
+                                    bindingFieldNote = nil
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(
+                                            systemName:
+                                                candidate
+                                                    .systemImage
+                                        )
+                                        VStack(alignment: .leading) {
+                                            Text(candidate.title)
+                                            if let subtitle =
+                                                candidate.subtitle {
+                                                Text(subtitle)
+                                                    .font(.caption2)
+                                                    .foregroundStyle(
+                                                        .secondary
+                                                    )
+                                            }
+                                            Text(candidate.ref)
+                                                .font(
+                                                    .caption2
+                                                        .monospaced()
+                                                )
+                                                .foregroundStyle(
+                                                    .tertiary
+                                                )
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        .font(.caption.monospaced())
                     }
                 }
             }
@@ -1197,32 +1364,20 @@ public struct CaptureReviewWorkspaceView: View {
         }
     }
 
-    /// Binding refs the grammar accepts, drawn from this revision's
-    /// committed authority + evidence.
-    private var fieldNoteBindingCandidates: [String] {
-        var refs: [String] = []
-        refs += model.annotations.map {
-            "entity:" + $0.entityID.description
-        }
-        refs += model.measurements.map {
-            "measurement:" + $0.measurementID.description
-        }
-        refs += model.fieldEvidence.map {
-            "field_evidence:" + $0.evidenceID.description
-        }
-        refs += model.instruments.map {
-            "instrument:" + $0.instrumentID.description
-        }
-        refs += model.operatorProfiles.map {
-            "operator:" + $0.operatorID.description
-        }
-        refs += model.settingsObservations.map {
-            "settings_observation:" + $0.observationID.description
-        }
-        refs += model.wiringRoutes.map {
-            "wiring_route:" + $0.routeID.description
-        }
-        return refs
+    /// Binding candidates drawn from this revision's committed
+    /// authority + evidence, resolved to human labels (issue #420).
+    private var fieldNoteBindingCandidates:
+        [FieldNoteBindingCandidate]
+    {
+        FieldNoteBindingResolver.candidates(
+            annotations: model.annotations,
+            measurements: model.measurements,
+            fieldEvidence: model.fieldEvidence,
+            instruments: model.instruments,
+            operatorProfiles: model.operatorProfiles,
+            settingsObservations: model.settingsObservations,
+            wiringRoutes: model.wiringRoutes
+        )
     }
 
     /// #325: every unresolved flag dropped during scanning is listed
@@ -1642,6 +1797,15 @@ public struct CaptureReviewWorkspaceView: View {
         guard let plan = model.planPreview else { return nil }
         return planMarkers(plan).first {
             $0.identifier == "entity:\(id.description)"
+        }
+    }
+
+    private func marker(
+        forFieldNoteID id: CaptureFieldNoteID
+    ) -> RoomPlanPreviewModel.PlanMarker? {
+        guard let plan = model.planPreview else { return nil }
+        return planMarkers(plan).first {
+            $0.identifier == "field_note:\(id)"
         }
     }
 

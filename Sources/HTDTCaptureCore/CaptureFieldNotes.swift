@@ -150,6 +150,37 @@ public enum CaptureFieldNoteStatus: String, Codable, Sendable {
     case superseded
 }
 
+/// What a note's spatial anchor means (issue #421): `subject_point`
+/// is the exact location the note refers to (validated raycast/3D
+/// pick); `viewpoint` is only where the device stood when the note
+/// was recorded — it must never be presented as the subject's
+/// location. Points authored before the field existed decode as
+/// `subject_point` — every pre-#421 point came from a raycast
+/// placement, never a camera pose.
+public enum CaptureFieldNoteAnchorKind:
+    String, Codable, Sendable, CaseIterable
+{
+    case subjectPoint = "subject_point"
+    case viewpoint
+}
+
+/// The operator's spatial-authoring intent for a scan-time field
+/// note (issue #421). The host maps the request onto the live AR
+/// session; an unavailable anchor degrades to `spatialPosition = nil`
+/// rather than fabricating a point.
+public enum CaptureFieldNoteAnchorRequest:
+    String, Codable, Sendable, CaseIterable
+{
+    /// No spatial anchor — the note applies to the capture generally.
+    case none
+    /// Validated center raycast against live geometry — the point the
+    /// note is about.
+    case subjectPoint = "subject_point"
+    /// The device position at authoring time — "recorded from here",
+    /// never the subject's location.
+    case viewpoint
+}
+
 /// The optional spatial anchor of a field note (issue #375). A point
 /// is only meaningful in a named coordinate space; when the recording
 /// device cannot produce one the position is absent rather than
@@ -159,21 +190,55 @@ public struct CaptureFieldNoteSpatialPosition:
 {
     public let coordinateSpaceID: CoordinateSpaceID
     public let pointMeters: WorldPoint3D
+    /// What the point semantically is (issue #421). Absent on notes
+    /// authored before the kind existed — those decode as
+    /// `subject_point` because every legacy point came from a
+    /// raycast placement.
+    public let anchorKind: CaptureFieldNoteAnchorKind
 
     public init(
         coordinateSpaceID: CoordinateSpaceID,
-        pointMeters: WorldPoint3D
+        pointMeters: WorldPoint3D,
+        anchorKind: CaptureFieldNoteAnchorKind = .subjectPoint
     ) throws {
         guard pointMeters.isFinite else {
             throw CaptureFieldNoteError.invalidSpatialPosition
         }
         self.coordinateSpaceID = coordinateSpaceID
         self.pointMeters = pointMeters
+        self.anchorKind = anchorKind
     }
 
     private enum CodingKeys: String, CodingKey {
         case coordinateSpaceID = "coordinate_space_id"
         case pointMeters = "point_meters"
+        case anchorKind = "anchor_kind"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(
+            keyedBy: CodingKeys.self
+        )
+        self.coordinateSpaceID = try container.decode(
+            CoordinateSpaceID.self,
+            forKey: .coordinateSpaceID
+        )
+        self.pointMeters = try container.decode(
+            WorldPoint3D.self,
+            forKey: .pointMeters
+        )
+        guard pointMeters.isFinite else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .pointMeters,
+                in: container,
+                debugDescription:
+                    "field note spatial point must be finite"
+            )
+        }
+        self.anchorKind = try container.decodeIfPresent(
+            CaptureFieldNoteAnchorKind.self,
+            forKey: .anchorKind
+        ) ?? .subjectPoint
     }
 }
 

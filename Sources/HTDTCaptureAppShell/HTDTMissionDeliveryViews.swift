@@ -271,7 +271,18 @@ struct HTDTMissionInboxView: View {
     private func kindLabel(
         _ kind: MissionLedgerTaskKind
     ) -> String {
-        kind.rawValue.replacingOccurrences(of: "_", with: " ")
+        switch kind {
+        case .entityChecklist:
+            String(localized: "Entity checklist")
+        case .measurementRequest:
+            String(localized: "Measurement request")
+        case .surfaceReview:
+            String(localized: "Surface review")
+        case .semanticTask:
+            String(localized: "Semantic task")
+        case .evidenceTask:
+            String(localized: "Evidence task")
+        }
     }
 
     @ViewBuilder

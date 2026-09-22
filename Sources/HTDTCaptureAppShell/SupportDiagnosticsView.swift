@@ -8,12 +8,21 @@ import HTDTCaptureCore
 /// capture-system health — exported as bounded JSON/text. No
 /// telemetry and no capture evidence: the privacy-category preview
 /// shows exactly which sections leave the device before export.
+/// Category labels and summaries are localized in the app layer
+/// (issue #417); the persisted manifest keeps its English text.
 struct SupportDiagnosticsView: View {
     let actions: CaptureRootActions
 
+    /// Bounded operator-facing error with the technical detail kept
+    /// under a disclosure (issue #417).
+    private struct StatusNotice {
+        let message: String
+        let detail: String
+    }
+
     @State private var collecting = false
     @State private var package: SupportDiagnosticsPackage?
-    @State private var errorText: String?
+    @State private var notice: StatusNotice?
     @State private var shareItems: [Any]?
 
     var body: some View {
@@ -29,14 +38,21 @@ struct SupportDiagnosticsView: View {
             Section {
                 Button {
                     collecting = true
-                    errorText = nil
+                    notice = nil
                     Task {
                         do {
                             package = try await actions
                                 .collectSupportDiagnostics()
                         } catch {
-                            errorText =
-                                String(describing: error)
+                            notice = StatusNotice(
+                                message: String(
+                                    localized:
+                                        "Diagnostics could not be collected."
+                                ),
+                                detail: String(
+                                    describing: error
+                                )
+                            )
                         }
                         collecting = false
                     }
@@ -103,18 +119,22 @@ struct SupportDiagnosticsView: View {
                                 spacing: 2
                             ) {
                                 Text(
-                                    row.category.rawValue
-                                        .replacingOccurrences(
-                                            of: "_",
-                                            with: " "
-                                        ).capitalized
+                                    DiagnosticsPresentation
+                                        .categoryName(
+                                            row.category
+                                        )
                                 )
                                 .font(.callout.weight(.medium))
-                                Text(row.contentsSummary)
-                                    .font(.caption)
-                                    .foregroundStyle(
-                                        .secondary
-                                    )
+                                Text(
+                                    DiagnosticsPresentation
+                                        .contentsSummary(
+                                            row.category
+                                        )
+                                )
+                                .font(.caption)
+                                .foregroundStyle(
+                                    .secondary
+                                )
                                 if let reason =
                                     row.exclusionReason
                                 {
@@ -126,6 +146,7 @@ struct SupportDiagnosticsView: View {
                                 }
                             }
                         }
+                        .accessibilityElement(children: .combine)
                     }
                     Text(
                         "Excluded by default: capture images, depth, mesh, annotations, serials, project names, secrets, file paths. A separate capture-diagnostic attachment can be produced from a failed capture's inspection screen (issue #224) — it is never bundled here."
@@ -161,11 +182,17 @@ struct SupportDiagnosticsView: View {
                 }
             }
 
-            if let errorText {
+            if let notice {
                 Section("Error") {
-                    Text(errorText)
+                    Text(notice.message)
                         .font(.caption)
                         .foregroundStyle(.red)
+                    DisclosureGroup(
+                        String(localized: "Details")
+                    ) {
+                        Text(notice.detail)
+                            .font(.caption2.monospaced())
+                    }
                 }
             }
         }
@@ -208,7 +235,67 @@ struct SupportDiagnosticsView: View {
             try data.write(to: url, options: .atomic)
             shareItems = [url]
         } catch {
-            errorText = String(describing: error)
+            notice = StatusNotice(
+                message: String(
+                    localized:
+                        "Diagnostic export could not be prepared."
+                ),
+                detail: String(describing: error)
+            )
+        }
+    }
+}
+
+/// Localized labels for diagnostics privacy categories (issue
+/// #417): the enum's raw tokens and English manifest summaries
+/// stay in Core — every operator-facing name maps here.
+enum DiagnosticsPresentation {
+    static func categoryName(
+        _ category: SupportDiagnosticsPrivacyCategory
+    ) -> String {
+        switch category {
+        case .appBuild:
+            String(localized: "App build")
+        case .deviceSummary:
+            String(localized: "Device summary")
+        case .capabilitySummary:
+            String(localized: "Capability summary")
+        case .captureHealth:
+            String(localized: "Capture health")
+        case .endpointReachability:
+            String(localized: "Endpoint reachability")
+        }
+    }
+
+    static func contentsSummary(
+        _ category: SupportDiagnosticsPrivacyCategory
+    ) -> String {
+        switch category {
+        case .appBuild:
+            String(
+                localized:
+                    "App name, version, build number, and emitted schema versions"
+            )
+        case .deviceSummary:
+            String(
+                localized:
+                    "Device model family and OS version only — no serial numbers or identifiers"
+            )
+        case .capabilitySummary:
+            String(
+                localized:
+                    "Sensor and feature capability flags (RoomPlan, LiDAR depth, mesh anchoring)"
+            )
+        case .captureHealth:
+            String(
+                localized:
+                    "Counts of resource warnings, thermal stops, storage preflight verdict, quarantined/orphaned payload counts, last validation failure class"
+            )
+        case .endpointReachability:
+            String(
+                localized:
+                    "Whether the configured receiver answered a capability preflight — never its URL or token"
+            )
         }
     }
 }

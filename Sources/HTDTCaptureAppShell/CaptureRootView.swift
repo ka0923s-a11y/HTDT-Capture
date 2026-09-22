@@ -360,7 +360,8 @@ public struct CaptureRootActions {
     /// dictated), resolve one, supersede one with corrected text, or
     /// bind an unbound note to an authority/evidence ref.
     public let recordFieldNote:
-        (String, CaptureFieldNoteCategory, Bool, Bool, Bool) -> Void
+        (String, CaptureFieldNoteCategory, Bool, Bool, Bool,
+         CaptureFieldNoteAnchorRequest) -> Void
     public let recordReviewFieldNote:
         (String, CaptureFieldNoteCategory, Bool, [String]) -> Void
     public let resolveFieldNote: (CaptureFieldNoteID) -> Void
@@ -664,8 +665,9 @@ public struct CaptureRootActions {
             (String, String, String?) async -> Void
                 = { _, _, _ in },
         recordFieldNote: @escaping
-            (String, CaptureFieldNoteCategory, Bool, Bool, Bool)
-                -> Void = { _, _, _, _, _ in },
+            (String, CaptureFieldNoteCategory, Bool, Bool, Bool,
+             CaptureFieldNoteAnchorRequest) -> Void
+                = { _, _, _, _, _, _ in },
         recordReviewFieldNote: @escaping
             (String, CaptureFieldNoteCategory, Bool, [String])
                 -> Void = { _, _, _, _ in },

@@ -166,6 +166,28 @@ public enum ReviewPlanPresentation {
             }
         }
 
+        // Subject-point field-note anchors (issue #421): a
+        // restrained marker per anchored note — viewpoint anchors
+        // never render, and one note contributes exactly one pin.
+        for note in model.fieldNotes {
+            guard let position = note.spatialPosition,
+                  position.anchorKind == .subjectPoint
+            else { continue }
+            markers.append(
+                .init(
+                    kind: .revisitFlag,
+                    x: position.pointMeters.x,
+                    z: position.pointMeters.z,
+                    label: String(note.text.prefix(24)),
+                    identifier: "field_note:\(note.noteID)",
+                    linkedItemID: note.noteID.description,
+                    selectable: true,
+                    reviewStatus: note.needsAttention
+                        ? .needsAttention : .nominal
+                )
+            )
+        }
+
         if let frame = model.roomReferenceFrame {
             markers.append(
                 .init(

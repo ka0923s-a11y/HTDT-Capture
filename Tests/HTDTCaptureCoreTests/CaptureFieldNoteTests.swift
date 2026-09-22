@@ -335,3 +335,122 @@ final class CaptureFieldNoteTests: XCTestCase {
         )
     }
 }
+
+// MARK: - #421 spatial-anchor compat
+
+extension CaptureFieldNoteTests {
+    /// Legacy notes carry no `anchor_kind` — every point written
+    /// before the kind existed came from a raycast, so decoding must
+    /// default to `subject_point` (issue #421 compat rule).
+    func testSpatialPositionWithoutAnchorKindDecodesAsSubjectPoint()
+        throws
+    {
+        let json = """
+            {
+              "coordinate_space_id": "5f7d4f02-aaaa-4bbb-8ccc-111111111111",
+              "point_meters": {"x": 1.0, "y": 0.5, "z": -2.25}
+            }
+            """
+        let position = try JSONDecoder().decode(
+            CaptureFieldNoteSpatialPosition.self,
+            from: Data(json.utf8)
+        )
+        XCTAssertEqual(position.anchorKind, .subjectPoint)
+        XCTAssertEqual(
+            position.coordinateSpaceID.description,
+            "5f7d4f02-aaaa-4bbb-8ccc-111111111111"
+        )
+    }
+
+    /// Encode/decode preserves the exact coordinate-space id and the
+    /// declared anchor kind — the space is carried, never
+    /// reinterpreted (issue #421).
+    func testSpatialPositionRoundTripPreservesSpaceAndKind() throws {
+        let spaceID = CoordinateSpaceID()
+        for kind in [CaptureFieldNoteAnchorKind.subjectPoint,
+                     .viewpoint] {
+            let original = try CaptureFieldNoteSpatialPosition(
+                coordinateSpaceID: spaceID,
+                pointMeters: WorldPoint3D(
+                    x: 0.25, y: -1.5, z: 3.75
+                ),
+                anchorKind: kind
+            )
+            let data = try FieldAuthorityCoding.encoder()
+                .encode(original)
+            let decoded = try JSONDecoder().decode(
+                CaptureFieldNoteSpatialPosition.self,
+                from: data
+            )
+            XCTAssertEqual(decoded, original)
+            XCTAssertEqual(
+                decoded.coordinateSpaceID, spaceID
+            )
+        }
+    }
+
+    /// A non-finite point can never be stored — unavailable anchors
+    /// degrade to `nil`, never to a fabricated position (#421).
+    func testNonFiniteSpatialPointIsRejected() {
+        XCTAssertThrowsError(
+            try CaptureFieldNoteSpatialPosition(
+                coordinateSpaceID: CoordinateSpaceID(),
+                pointMeters: WorldPoint3D(
+                    x: .nan, y: 0, z: 0
+                ),
+                anchorKind: .subjectPoint
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? CaptureFieldNoteError,
+                .invalidSpatialPosition
+            )
+        }
+    }
+
+    /// A superseding note does not inherit the anchor — the child
+    /// carries whatever anchor (or none) it was authored with, and
+    /// the parent's position is never rebound (#421 lineage rule).
+    func testSupersedingNoteKeepsItsOwnAnchor() async throws {
+        let (root, store) = try await makeStore()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let revision = await store.identity.captureRevisionID
+
+        let position = try CaptureFieldNoteSpatialPosition(
+            coordinateSpaceID: CoordinateSpaceID(),
+            pointMeters: WorldPoint3D(x: 1, y: 0, z: 2),
+            anchorKind: .subjectPoint
+        )
+        let parent = try CaptureFieldNote(
+            captureRevisionID: revision,
+            createdAtUTC: "2026-09-22T00:00:01Z",
+            category: .init(rawValue: "room_condition"),
+            text: "original",
+            spatialPosition: position
+        )
+        try await store.recordFieldNote(parent)
+        let child = try CaptureFieldNote(
+            captureRevisionID: revision,
+            createdAtUTC: "2026-09-22T00:00:05Z",
+            category: .init(rawValue: "room_condition"),
+            text: "corrected",
+            supersedesNoteID: parent.noteID
+        )
+        try await store.supersedeFieldNote(
+            parent.noteID, replacement: child
+        )
+        let snapshot = await store.snapshot()
+        let storedParent = snapshot.fieldNotes.first {
+            $0.noteID == parent.noteID
+        }
+        let storedChild = snapshot.fieldNotes.first {
+            $0.noteID == child.noteID
+        }
+        XCTAssertEqual(storedParent?.spatialPosition, position)
+        XCTAssertEqual(
+            storedParent?.spatialPosition?.coordinateSpaceID,
+            position.coordinateSpaceID
+        )
+        XCTAssertNil(storedChild?.spatialPosition)
+    }
+}

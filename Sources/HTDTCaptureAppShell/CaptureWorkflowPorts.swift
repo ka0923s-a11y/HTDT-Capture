@@ -49,7 +49,7 @@ public struct SpatialCaptureActions {
     public let recordConnectedPortal: (CaptureRegionID) -> Void
     public let revisitConnectedRegion: (CaptureRegionID) -> Void
     public let selectCaptureStrategy: (CaptureStrategyIdentifier) -> Void
-    public let recordFieldNote: (String, CaptureFieldNoteCategory, Bool, Bool, Bool) -> Void
+    public let recordFieldNote: (String, CaptureFieldNoteCategory, Bool, Bool, Bool, CaptureFieldNoteAnchorRequest) -> Void
 
     public init(from actions: CaptureRootActions) {
         self.beginCapture = actions.beginCapture

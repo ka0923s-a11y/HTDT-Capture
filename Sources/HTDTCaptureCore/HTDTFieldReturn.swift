@@ -32,6 +32,32 @@ public enum HTDTFieldReturnError: Error, Sendable, Equatable {
     case fileOpenFailed(String)
     case atomicPublishFailed
     case destinationAlreadyExists
+    /// `fulfilled` (or a claim of partial fulfillment) recorded
+    /// without any fulfillment ref — an outcome is only a claim until
+    /// an exact authority/evidence ref backs it (issue #418).
+    case missingFulfillmentBasis(String)
+    /// `declined`/`notApplicable` recorded without an operator or
+    /// preflight reason (issue #418).
+    case missingOutcomeReason(String)
+    /// A fulfillment ref is grammar-valid but names no record this
+    /// contribution contains, and is not an explicitly permitted
+    /// external reference (issue #418).
+    case unresolvedFulfillmentRef(String)
+    /// A fulfillment ref resolves but its record type is not
+    /// compatible with the task kind (issue #418).
+    case incompatibleFulfillmentRef(String)
+    /// An embedded authority document's `contribution_ref` disagrees
+    /// with the root document's (issue #419).
+    case conflictingContributionRef(String)
+    /// An embedded document's schema does not match this container's
+    /// binding-scope generation (issue #419).
+    case incompatibleAuthoritySchema(String)
+    /// A record carries a second owner binding inside a doc-level
+    /// contribution envelope (issue #419).
+    case dualOwnerRecord(String)
+    /// The embedded doc's declared schema is not a field-authority
+    /// family this container can carry.
+    case unknownAuthoritySchema(String)
 }
 
 /// A mission contribution (issue #400/#397): either a spatial capture
@@ -156,6 +182,136 @@ extension SemanticTaskKind {
     }
 }
 
+/// The field-authoring kind of one plan task (issue #418): which
+/// typed authoring workflow — and therefore which authority record
+/// families — a plan item maps to. The evaluator derives it from the
+/// item's type/kind; the ledger copies it so fulfillment-type
+/// compatibility can be checked without re-reading the plan.
+public enum HTDTFieldTaskKind:
+    String, Codable, Sendable, CaseIterable
+{
+    /// Entity placement/identity from `entity_checklist`.
+    case entityChecklist = "entity_checklist"
+    /// A requested measurement from `measurement_requests`.
+    case measurement
+    /// A surface/opening review item.
+    case surfaceReview = "surface_review"
+    /// Inventory identity — `inventory_item` semantic tasks.
+    case inventoryItem = "inventory_item"
+    /// Cable/routing verification.
+    case routingVerification = "routing_verification"
+    /// Settings/commissioning values on installed equipment.
+    case projectorCommissioning = "projector_commissioning"
+    /// Bounded room-state observation.
+    case roomStateObservation = "room_state_observation"
+    /// An evidence/photo deliverable.
+    case evidenceTask = "evidence_task"
+    /// Any other semantic task kind (spatial or unclassified field
+    /// work) — the conservative bucket.
+    case otherSemantic = "other_semantic"
+
+    /// Ref namespaces whose records can fulfill the task. Only
+    /// contribution-local authority families are listed — the
+    /// validator additionally permits references to external
+    /// authorities the mission itself named (plan equipment/task
+    /// refs) but never lets them stand alone against a
+    /// typed-authority task kind.
+    public var fulfillmentNamespaces: Set<String> {
+        switch self {
+        case .inventoryItem:
+            return [
+                "inventory_item", "equipment", "field_evidence",
+                "task_item",
+            ]
+        case .routingVerification:
+            return [
+                "wiring_route", "inventory_item", "equipment",
+                "entity", "field_evidence", "task_item",
+            ]
+        case .projectorCommissioning:
+            return [
+                "settings_observation", "inventory_item", "equipment",
+                "instrument", "field_evidence", "task_item",
+            ]
+        case .roomStateObservation:
+            return [
+                "room_state", "settings_observation",
+                "field_evidence", "task_item",
+            ]
+        case .evidenceTask:
+            return ["field_evidence", "task_item"]
+        case .measurement:
+            return [
+                "field_evidence", "instrument", "measurement",
+                "task_item",
+            ]
+        case .entityChecklist:
+            return [
+                "entity", "inventory_item", "equipment",
+                "field_evidence", "task_item",
+            ]
+        case .surfaceReview:
+            return ["surface", "field_evidence", "task_item"]
+        case .otherSemantic:
+            return [
+                "field_evidence", "settings_observation",
+                "wiring_route", "inventory_item", "room_state",
+                "instrument", "entity", "measurement", "equipment",
+                "task_item",
+            ]
+        }
+    }
+
+    /// Whether this kind requires at least one contribution-local
+    /// typed authority record for `fulfilled` — generic note/file
+    /// evidence is not a substitute when the mission explicitly asks
+    /// for typed inventory/settings/wiring data (issue #418 §11).
+    public var requiresTypedFulfillment: Bool {
+        switch self {
+        case .inventoryItem:
+            return true
+        case .routingVerification:
+            return true
+        case .projectorCommissioning:
+            return true
+        case .roomStateObservation:
+            return true
+        case .evidenceTask, .measurement, .entityChecklist,
+             .surfaceReview, .otherSemantic:
+            return false
+        }
+    }
+
+    /// The typed namespaces that satisfy `requiresTypedFulfillment`.
+    public var typedNamespaces: Set<String> {
+        switch self {
+        case .inventoryItem:
+            return ["inventory_item"]
+        case .routingVerification:
+            return ["wiring_route"]
+        case .projectorCommissioning:
+            return ["settings_observation"]
+        case .roomStateObservation:
+            return ["room_state"]
+        default:
+            return fulfillmentNamespaces
+        }
+    }
+}
+
+extension HTDTTaskPlanSemanticItem {
+    /// The field-authoring kind a semantic task maps to (issue #418).
+    public var fieldTaskKind: HTDTFieldTaskKind {
+        switch semanticKind {
+        case .inventoryItem: return .inventoryItem
+        case .routingVerification: return .routingVerification
+        case .projectorCommissioning: return .projectorCommissioning
+        case .roomStateObservation: return .roomStateObservation
+        default: return .otherSemantic
+        }
+    }
+}
+
 /// One task-preflight row (issue #400): every plan item gets an
 /// enabled/disabled verdict plus the human-readable reason when the
 /// device's capabilities leave it unworkable. The row never hides the
@@ -166,6 +322,8 @@ public struct HTDTFieldTaskPreflight: Sendable, Equatable, Identifiable {
     public let title: String
     public let requirement: TaskPlanRequirement
     public let spatialRequirement: HTDTTaskSpatialRequirement
+    /// Which typed authoring workflow the task maps to (issue #418).
+    public let taskKind: HTDTFieldTaskKind
     public let enabled: Bool
     /// Human-readable reason when `enabled == false`; nil otherwise.
     public let disabledReason: String?
@@ -175,6 +333,7 @@ public struct HTDTFieldTaskPreflight: Sendable, Equatable, Identifiable {
         title: String,
         requirement: TaskPlanRequirement,
         spatialRequirement: HTDTTaskSpatialRequirement,
+        taskKind: HTDTFieldTaskKind,
         enabled: Bool,
         disabledReason: String? = nil
     ) {
@@ -182,6 +341,7 @@ public struct HTDTFieldTaskPreflight: Sendable, Equatable, Identifiable {
         self.title = title
         self.requirement = requirement
         self.spatialRequirement = spatialRequirement
+        self.taskKind = taskKind
         self.enabled = enabled
         self.disabledReason = disabledReason
     }
@@ -211,7 +371,8 @@ public enum HTDTFieldTaskPreflightEvaluator {
             itemID: String,
             title: String,
             requirement: TaskPlanRequirement,
-            spatial: HTDTTaskSpatialRequirement
+            spatial: HTDTTaskSpatialRequirement,
+            taskKind: HTDTFieldTaskKind
         ) -> HTDTFieldTaskPreflight {
             let enabled =
                 spatialAvailable || spatial == .nonSpatial
@@ -220,6 +381,7 @@ public enum HTDTFieldTaskPreflightEvaluator {
                 title: title,
                 requirement: requirement,
                 spatialRequirement: spatial,
+                taskKind: taskKind,
                 enabled: enabled,
                 disabledReason: enabled
                     ? nil : spatialUnavailableReason
@@ -232,7 +394,8 @@ public enum HTDTFieldTaskPreflightEvaluator {
                     title: item.labelHint
                         ?? item.entityType.rawValue,
                     requirement: item.requirement,
-                    spatial: .spatial
+                    spatial: .spatial,
+                    taskKind: .entityChecklist
                 )
             )
         }
@@ -242,7 +405,16 @@ public enum HTDTFieldTaskPreflightEvaluator {
                     itemID: item.itemID,
                     title: item.quantityType,
                     requirement: item.requirement,
-                    spatial: .spatial
+                    // The plan's typed acquisition requirement —
+                    // never inferred from `quantityType`/endpoint
+                    // strings (issue #418). Plans without the field
+                    // fail conservatively as spatial.
+                    spatial: (
+                        item.acquisitionRequirement
+                            ?? .spatialPointRequired
+                    ).requiresSpatialAcquisition
+                        ? .spatial : .nonSpatial,
+                    taskKind: .measurement
                 )
             )
         }
@@ -252,7 +424,8 @@ public enum HTDTFieldTaskPreflightEvaluator {
                     itemID: item.itemID,
                     title: item.surfaceKind,
                     requirement: item.requirement,
-                    spatial: .spatial
+                    spatial: .spatial,
+                    taskKind: .surfaceReview
                 )
             )
         }
@@ -262,7 +435,8 @@ public enum HTDTFieldTaskPreflightEvaluator {
                     itemID: item.itemID,
                     title: item.label ?? item.semanticKind.rawValue,
                     requirement: item.requirement,
-                    spatial: item.semanticKind.spatialRequirement
+                    spatial: item.semanticKind.spatialRequirement,
+                    taskKind: item.fieldTaskKind
                 )
             )
         }
@@ -272,7 +446,8 @@ public enum HTDTFieldTaskPreflightEvaluator {
                     itemID: item.itemID,
                     title: item.purpose,
                     requirement: item.requirement,
-                    spatial: .nonSpatial
+                    spatial: .nonSpatial,
+                    taskKind: .evidenceTask
                 )
             )
         }
@@ -300,6 +475,15 @@ public struct HTDTFieldReturnTaskLedgerEntry:
     public let itemRef: String
     public let title: String
     public let requirement: TaskPlanRequirement
+    /// Which typed authoring workflow the item maps to (issue #418).
+    /// nil on ledger rows written before the field existed — those
+    /// evaluate through `.otherSemantic`'s permissive namespace set.
+    public let taskKind: HTDTFieldTaskKind?
+    /// Ref namespaces whose records may fulfill this item, captured
+    /// from the kind at seed time so the validator need not re-derive
+    /// it (issue #418). nil on legacy rows — interpreted through
+    /// `taskKind`.
+    public let fulfillmentNamespaces: Set<String>?
     public var outcome: Outcome
     /// Authority refs fulfilling the item —
     /// `field_evidence:`/`settings_observation:`/`wiring_route:`/
@@ -308,13 +492,33 @@ public struct HTDTFieldReturnTaskLedgerEntry:
     /// Optional operator note (e.g. why declined).
     public var note: String?
 
+    /// The effective fulfillment-namespace contract — explicit when
+    /// persisted, derived from the kind otherwise.
+    public var permittedFulfillmentNamespaces: Set<String> {
+        fulfillmentNamespaces
+            ?? (taskKind ?? .otherSemantic).fulfillmentNamespaces
+    }
+
+    /// Whether `fulfilled` requires a contribution-local typed
+    /// record (issue #418 §11).
+    public var requiresTypedFulfillment: Bool {
+        (taskKind ?? .otherSemantic).requiresTypedFulfillment
+    }
+
+    /// The typed namespaces that count for `requiresTypedFulfillment`.
+    public var typedFulfillmentNamespaces: Set<String> {
+        (taskKind ?? .otherSemantic).typedNamespaces
+    }
+
     public init(
         itemRef: String,
         title: String,
         requirement: TaskPlanRequirement,
         outcome: Outcome,
         fulfilledByRefs: [String] = [],
-        note: String? = nil
+        note: String? = nil,
+        taskKind: HTDTFieldTaskKind? = nil,
+        fulfillmentNamespaces: Set<String>? = nil
     ) throws {
         guard FieldAuthorityGrammar.isBindingRef(itemRef)
                 || itemRef.hasPrefix("task_item:")
@@ -338,6 +542,8 @@ public struct HTDTFieldReturnTaskLedgerEntry:
         self.outcome = outcome
         self.fulfilledByRefs = fulfilledByRefs
         self.note = SchemaOwnedText.nfc(note)
+        self.taskKind = taskKind
+        self.fulfillmentNamespaces = fulfillmentNamespaces
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -347,6 +553,39 @@ public struct HTDTFieldReturnTaskLedgerEntry:
         case outcome
         case fulfilledByRefs = "fulfilled_by_refs"
         case note
+        case taskKind = "task_kind"
+        case fulfillmentNamespaces = "fulfillment_namespaces"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(
+            keyedBy: CodingKeys.self
+        )
+        try self.init(
+            itemRef: container.decode(String.self, forKey: .itemRef),
+            title: container.decode(String.self, forKey: .title),
+            requirement: container.decode(
+                TaskPlanRequirement.self,
+                forKey: .requirement
+            ),
+            outcome: container.decode(Outcome.self, forKey: .outcome),
+            fulfilledByRefs: container.decodeIfPresent(
+                [String].self,
+                forKey: .fulfilledByRefs
+            ) ?? [],
+            note: container.decodeIfPresent(
+                String.self,
+                forKey: .note
+            ),
+            taskKind: container.decodeIfPresent(
+                HTDTFieldTaskKind.self,
+                forKey: .taskKind
+            ),
+            fulfillmentNamespaces: container.decodeIfPresent(
+                Set<String>.self,
+                forKey: .fulfillmentNamespaces
+            )
+        )
     }
 }
 
@@ -404,28 +643,47 @@ public struct HTDTFieldReturnDocumentRef:
 }
 
 /// The root document inside a `.htdtfieldreturn` container (issue
-/// #400): the versioned `htdt.field_return` contract. Embedded typed
-/// authority documents reuse the capture bundle's field-authority
-/// models; their `capture_revision_id` slot carries this
-/// contribution's id — `authority_binding_scope` states that
-/// explicitly so no reader mistakes it for a capture revision.
+/// #400): the versioned `htdt.field_return` contract. Schema
+/// version 2.0.0 (issue #419) binds every embedded typed authority
+/// document through an explicit `contribution_ref` envelope —
+/// documents no longer stuff the contribution id into a
+/// `capture_revision_id` slot. Version 1.0.0 documents declared
+/// `authority_binding_scope = contribution_id` and carried the
+/// contribution id in that slot; the decoder normalizes them in
+/// memory while `HTDTFieldReturnDocument.schemaVersion` retains the
+/// original raw version for provenance.
 public struct HTDTFieldReturnDocument:
     Codable, Sendable, Equatable
 {
     public static let schemaName = "htdt.field_return"
-    public static let schemaVersionValue = "1.0.0"
+    /// The generation this build emits. 2.0.0 embeds
+    /// `htdt.field_return.*` contribution-ref envelopes.
+    public static let schemaVersionValue = "2.0.0"
+    /// The 1.0.0 generation (capture_revision_id binding).
+    public static let schemaVersionV1 = "1.0.0"
     public static let path = "field-return.json"
-    /// Value of `authority_binding_scope` — documents inside this
-    /// container bind the contribution id in their
-    /// `capture_revision_id` slots.
-    public static let bindingScope = "contribution_id"
+    /// v2 `authority_binding_scope` — documents bind a typed
+    /// `contribution_ref` at the document level.
+    public static let bindingScope = "contribution_ref"
+    /// v1 `authority_binding_scope` — documents bound the
+    /// contribution id in their `capture_revision_id` slots.
+    public static let bindingScopeV1 = "contribution_id"
 
     public let schema: String
     public let schemaVersion: String
-    /// States how embedded typed docs are bound — always
-    /// `contribution_id` for this artifact.
+    /// States how embedded typed docs are bound — `contribution_ref`
+    /// for v2, `contribution_id` for v1.
     public let authorityBindingScope: String
     public let contributionID: HTDTFieldReturnID
+    /// The typed owner binding of every embedded authority document
+    /// (issue #419). v1 documents have no `contribution_ref` field —
+    /// decoding synthesizes `.fieldReturn(contributionID)` under the
+    /// declared `contribution_id` scope.
+    public let contributionRef: HTDTMissionContribution
+    /// The finalized contribution this return supersedes, when it is
+    /// a follow-up/correction (issue #418 refinement) — lineage
+    /// only; the superseded artifact's bytes stay immutable.
+    public let supersedesContributionRef: HTDTMissionContribution?
     /// Mission identity the return was issued under, when bound.
     public let missionID: String?
     public let planID: String?
@@ -444,10 +702,19 @@ public struct HTDTFieldReturnDocument:
     public let authorityDocuments: [HTDTFieldReturnDocumentRef]
     /// `evidence/**` binary payloads inside the container.
     public let evidenceAssets: [HTDTFieldReturnDocumentRef]
-    /// Semantic hash over the canonical artifact content — identity,
-    /// ledger, document refs and asset digests — excluding this
-    /// field itself.
+    /// Semantic root-document digest (issue #419): v2 is a SHA-256
+    /// over the canonical encoding of this document minus the
+    /// `content_digest` field itself — no hand-maintained field list
+    /// can silently omit a new field. v1 artifacts keep their
+    /// published line-hash algorithm; `HTDTFieldReturnDigest.verify`
+    /// dispatches on `schema_version`.
     public let contentDigest: EvidenceSHA256
+
+    /// True when the decoded document came from a v1 container.
+    public var isV1Layout: Bool {
+        schemaVersion == Self.schemaVersionV1
+            || authorityBindingScope == Self.bindingScopeV1
+    }
 
     public init(
         contributionID: HTDTFieldReturnID,
@@ -462,6 +729,7 @@ public struct HTDTFieldReturnDocument:
         taskFulfillmentLedger: [HTDTFieldReturnTaskLedgerEntry],
         authorityDocuments: [HTDTFieldReturnDocumentRef],
         evidenceAssets: [HTDTFieldReturnDocumentRef],
+        supersedesContributionRef: HTDTMissionContribution? = nil,
         contentDigest: EvidenceSHA256
     ) throws {
         guard SchemaTimestampText.isUTCTimestamp(createdAtUTC),
@@ -475,6 +743,8 @@ public struct HTDTFieldReturnDocument:
         self.schemaVersion = Self.schemaVersionValue
         self.authorityBindingScope = Self.bindingScope
         self.contributionID = contributionID
+        self.contributionRef = .fieldReturn(contributionID)
+        self.supersedesContributionRef = supersedesContributionRef
         self.missionID = missionID
         self.planID = planID
         self.planVersion = planVersion
@@ -494,6 +764,9 @@ public struct HTDTFieldReturnDocument:
         case schemaVersion = "schema_version"
         case authorityBindingScope = "authority_binding_scope"
         case contributionID = "contribution_id"
+        case contributionRef = "contribution_ref"
+        case supersedesContributionRef =
+            "supersedes_contribution_ref"
         case missionID = "mission_id"
         case planID = "plan_id"
         case planVersion = "plan_version"
@@ -507,6 +780,113 @@ public struct HTDTFieldReturnDocument:
         case authorityDocuments = "authority_documents"
         case evidenceAssets = "evidence_assets"
         case contentDigest = "content_digest"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.schema = try container.decode(
+            String.self, forKey: .schema
+        )
+        self.schemaVersion = try container.decode(
+            String.self, forKey: .schemaVersion
+        )
+        self.authorityBindingScope = try container.decode(
+            String.self, forKey: .authorityBindingScope
+        )
+        self.contributionID = try container.decode(
+            HTDTFieldReturnID.self, forKey: .contributionID
+        )
+        // v1 containers declared `contribution_id` scope and no
+        // contribution_ref — normalize to the typed ref under that
+        // declared scope, never by UUID inference.
+        self.contributionRef = try container.decodeIfPresent(
+            HTDTMissionContribution.self,
+            forKey: .contributionRef
+        ) ?? .fieldReturn(contributionID)
+        self.supersedesContributionRef = try container
+            .decodeIfPresent(
+                HTDTMissionContribution.self,
+                forKey: .supersedesContributionRef
+            )
+        self.missionID = try container.decodeIfPresent(
+            String.self, forKey: .missionID
+        )
+        self.planID = try container.decodeIfPresent(
+            String.self, forKey: .planID
+        )
+        self.planVersion = try container.decodeIfPresent(
+            String.self, forKey: .planVersion
+        )
+        self.planSHA256 = try container.decodeIfPresent(
+            String.self, forKey: .planSHA256
+        )
+        self.createdAtUTC = try container.decode(
+            String.self, forKey: .createdAtUTC
+        )
+        self.finalizedAtUTC = try container.decode(
+            String.self, forKey: .finalizedAtUTC
+        )
+        self.provenance = try container.decode(
+            HTDTFieldReturnProvenance.self, forKey: .provenance
+        )
+        self.relatedCaptureRevisionIDs = try container
+            .decodeIfPresent(
+                [CaptureRevisionID].self,
+                forKey: .relatedCaptureRevisionIDs
+            ) ?? []
+        self.taskFulfillmentLedger = try container.decode(
+            [HTDTFieldReturnTaskLedgerEntry].self,
+            forKey: .taskFulfillmentLedger
+        )
+        self.authorityDocuments = try container.decode(
+            [HTDTFieldReturnDocumentRef].self,
+            forKey: .authorityDocuments
+        )
+        self.evidenceAssets = try container.decode(
+            [HTDTFieldReturnDocumentRef].self,
+            forKey: .evidenceAssets
+        )
+        self.contentDigest = try container.decode(
+            EvidenceSHA256.self, forKey: .contentDigest
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schema, forKey: .schema)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(
+            authorityBindingScope,
+            forKey: .authorityBindingScope
+        )
+        try container.encode(contributionID, forKey: .contributionID)
+        try container.encode(contributionRef, forKey: .contributionRef)
+        try container.encodeIfPresent(
+            supersedesContributionRef,
+            forKey: .supersedesContributionRef
+        )
+        try container.encodeIfPresent(missionID, forKey: .missionID)
+        try container.encodeIfPresent(planID, forKey: .planID)
+        try container.encodeIfPresent(
+            planVersion, forKey: .planVersion
+        )
+        try container.encodeIfPresent(planSHA256, forKey: .planSHA256)
+        try container.encode(createdAtUTC, forKey: .createdAtUTC)
+        try container.encode(finalizedAtUTC, forKey: .finalizedAtUTC)
+        try container.encode(provenance, forKey: .provenance)
+        try container.encode(
+            relatedCaptureRevisionIDs,
+            forKey: .relatedCaptureRevisionIDs
+        )
+        try container.encode(
+            taskFulfillmentLedger,
+            forKey: .taskFulfillmentLedger
+        )
+        try container.encode(
+            authorityDocuments, forKey: .authorityDocuments
+        )
+        try container.encode(evidenceAssets, forKey: .evidenceAssets)
+        try container.encode(contentDigest, forKey: .contentDigest)
     }
 }
 
@@ -558,7 +938,18 @@ public struct HTDTFieldReturnWorkspace:
     public var planSHA256: String?
     /// Sibling capture revisions for aggregate fulfillment (#397).
     public var relatedCaptureRevisionIDs: [CaptureRevisionID]
+    /// The finalized contribution this workspace supersedes — set
+    /// when the operator starts a follow-up/correction against an
+    /// already-finalized return (issue #418 refinement).
+    public var supersedesContributionID: HTDTFieldReturnID?
     public var authority: FieldAuthorityWorkspace
+    /// Inventory identity authored in this return (issue #418):
+    /// canonical `SystemInventoryItem` records — never freeform
+    /// field-evidence titles.
+    public var inventoryItems: [SystemInventoryItem]
+    /// Bounded room-state observations authored without spatial
+    /// scene authority (issue #418).
+    public var roomStateObservations: [RoomStateObservation]
     public var taskLedger: [HTDTFieldReturnTaskLedgerEntry]
     public var createdAtUTC: String
     /// Archive digest once finalized — an already-finalized workspace
@@ -574,6 +965,7 @@ public struct HTDTFieldReturnWorkspace:
         planVersion: String? = nil,
         planSHA256: String? = nil,
         relatedCaptureRevisionIDs: [CaptureRevisionID] = [],
+        supersedesContributionID: HTDTFieldReturnID? = nil,
         taskLedger: [HTDTFieldReturnTaskLedgerEntry] = [],
         createdAtUTC: String = BundleTimestamp.utcString(
             from: Date()
@@ -586,7 +978,10 @@ public struct HTDTFieldReturnWorkspace:
         self.planVersion = planVersion
         self.planSHA256 = planSHA256
         self.relatedCaptureRevisionIDs = relatedCaptureRevisionIDs
+        self.supersedesContributionID = supersedesContributionID
         self.authority = FieldAuthorityWorkspace()
+        self.inventoryItems = []
+        self.roomStateObservations = []
         self.taskLedger = taskLedger
         self.createdAtUTC = createdAtUTC
         self.finalizedAtUTC = nil
@@ -595,17 +990,29 @@ public struct HTDTFieldReturnWorkspace:
 
     public var isFinalized: Bool { finalizedAtUTC != nil }
 
-    /// The capture-revision-typed identifier embedded authority docs
-    /// bind — the contribution id occupies the `capture_revision_id`
-    /// slot for typed-model reuse (see
-    /// `HTDTFieldReturnDocument.authority_binding_scope`).
-    public var bindingRevisionID: CaptureRevisionID {
+    /// The typed owner of this contribution (issue #419) — a field
+    /// return, never a capture revision.
+    public var contributionRef: HTDTMissionContribution {
+        .fieldReturn(contributionID)
+    }
+
+    /// Internal v1-compat carrier: the `CaptureRevisionID`-typed
+    /// value the shared record models (`FieldEvidenceRecord`,
+    /// `InstalledSettingsObservation`, `AsBuiltWiringRoute`) require
+    /// in their `capture_revision_id` slot while the record lives in
+    /// memory. It is a record-carrier only — no capture revision
+    /// exists. The container emits `contribution_ref` envelopes and
+    /// strips this slot on the wire (issue #419); the value never
+    /// escapes into domain APIs or persisted v2 documents.
+    public var recordCarrierID: CaptureRevisionID {
         CaptureRevisionID(rawValue: contributionID.rawValue)
     }
 
     /// Seeds the task ledger from a preflighted plan — one row per
     /// plan item, `unfulfilled`/`notApplicable` defaulting by whether
-    /// the item is enabled on this device.
+    /// the item is enabled on this device. Disabled rows carry the
+    /// preflight reason as their outcome note so `notApplicable`
+    /// always has a basis (issue #418).
     public mutating func seedTaskLedger(
         preflight: [HTDTFieldTaskPreflight]
     ) throws {
@@ -618,12 +1025,68 @@ public struct HTDTFieldReturnWorkspace:
                 title: row.title,
                 requirement: row.requirement,
                 outcome: row.enabled
-                    ? .unfulfilled : .notApplicable
+                    ? .unfulfilled : .notApplicable,
+                note: row.enabled ? nil : row.disabledReason,
+                taskKind: row.taskKind,
+                fulfillmentNamespaces:
+                    row.taskKind.fulfillmentNamespaces
             )
         }
     }
 
-    /// Records a task outcome plus the authority refs that fulfill it.
+    /// Validates outcome semantics (issue #418) without touching the
+    /// workspace — shared by `recordTaskOutcome` and the finalize
+    /// validator.
+    static func checkOutcomeSemantics(
+        itemRef: String,
+        outcome: HTDTFieldReturnTaskLedgerEntry.Outcome,
+        fulfilledByRefs: [String],
+        note: String?,
+        permittedNamespaces: Set<String>
+    ) throws {
+        let hasReason = !(note ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+        switch outcome {
+        case .fulfilled:
+            guard !fulfilledByRefs.isEmpty else {
+                throw HTDTFieldReturnError
+                    .missingFulfillmentBasis(itemRef)
+            }
+        case .partiallyFulfilled:
+            guard !fulfilledByRefs.isEmpty || hasReason else {
+                throw HTDTFieldReturnError
+                    .missingFulfillmentBasis(itemRef)
+            }
+        case .declined, .notApplicable:
+            guard hasReason else {
+                throw HTDTFieldReturnError
+                    .missingOutcomeReason(itemRef)
+            }
+        case .unfulfilled:
+            break
+        }
+        for ref in fulfilledByRefs {
+            guard FieldAuthorityGrammar.isBindingRef(ref) else {
+                throw HTDTFieldReturnError.invalidBindingRef(ref)
+            }
+            let namespace = ref.prefix {
+                $0 != ":"
+            }
+            guard permittedNamespaces.contains(
+                String(namespace)
+            ) else {
+                throw HTDTFieldReturnError
+                    .incompatibleFulfillmentRef(ref)
+            }
+        }
+    }
+
+    /// Records a task outcome plus the authority refs that fulfill
+    /// it. Outcome semantics (issue #418): `fulfilled` requires a
+    /// resolvable basis ref, `partiallyFulfilled` a ref or a reason,
+    /// `declined`/`notApplicable` a reason; every ref must be
+    /// grammar-valid and type-compatible with the task kind.
     /// An unknown item ref is a typed rejection.
     public mutating func recordTaskOutcome(
         itemRef: String,
@@ -639,14 +1102,106 @@ public struct HTDTFieldReturnWorkspace:
         }) else {
             throw HTDTFieldReturnError.invalidBindingRef(itemRef)
         }
-        for ref in fulfilledByRefs {
-            guard FieldAuthorityGrammar.isBindingRef(ref) else {
-                throw HTDTFieldReturnError.invalidBindingRef(ref)
-            }
-        }
+        let entry = taskLedger[index]
+        try Self.checkOutcomeSemantics(
+            itemRef: itemRef,
+            outcome: outcome,
+            fulfilledByRefs: fulfilledByRefs,
+            note: note,
+            permittedNamespaces:
+                entry.permittedFulfillmentNamespaces
+        )
         taskLedger[index].outcome = outcome
         taskLedger[index].fulfilledByRefs = fulfilledByRefs
         taskLedger[index].note = SchemaOwnedText.nfc(note)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case contributionID = "contribution_id"
+        case missionRecordID = "mission_record_id"
+        case missionID = "mission_id"
+        case planID = "plan_id"
+        case planVersion = "plan_version"
+        case planSHA256 = "plan_sha256"
+        case relatedCaptureRevisionIDs =
+            "related_capture_revision_ids"
+        case supersedesContributionID =
+            "supersedes_contribution_id"
+        case authority
+        case inventoryItems = "inventory_items"
+        case roomStateObservations = "room_state_observations"
+        case taskLedger = "task_ledger"
+        case createdAtUTC = "created_at"
+        case finalizedAtUTC = "finalized_at"
+        case finalizedDigest = "finalized_digest"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(
+            keyedBy: CodingKeys.self
+        )
+        self.contributionID = try container.decode(
+            HTDTFieldReturnID.self,
+            forKey: .contributionID
+        )
+        self.missionRecordID = try container.decodeIfPresent(
+            String.self,
+            forKey: .missionRecordID
+        )
+        self.missionID = try container.decodeIfPresent(
+            String.self,
+            forKey: .missionID
+        )
+        self.planID = try container.decodeIfPresent(
+            String.self,
+            forKey: .planID
+        )
+        self.planVersion = try container.decodeIfPresent(
+            String.self,
+            forKey: .planVersion
+        )
+        self.planSHA256 = try container.decodeIfPresent(
+            String.self,
+            forKey: .planSHA256
+        )
+        self.relatedCaptureRevisionIDs = try container
+            .decodeIfPresent(
+                [CaptureRevisionID].self,
+                forKey: .relatedCaptureRevisionIDs
+            ) ?? []
+        self.supersedesContributionID = try container
+            .decodeIfPresent(
+                HTDTFieldReturnID.self,
+                forKey: .supersedesContributionID
+            )
+        self.authority = try container.decode(
+            FieldAuthorityWorkspace.self,
+            forKey: .authority
+        )
+        self.inventoryItems = try container.decodeIfPresent(
+            [SystemInventoryItem].self,
+            forKey: .inventoryItems
+        ) ?? []
+        self.roomStateObservations = try container.decodeIfPresent(
+            [RoomStateObservation].self,
+            forKey: .roomStateObservations
+        ) ?? []
+        self.taskLedger = try container.decode(
+            [HTDTFieldReturnTaskLedgerEntry].self,
+            forKey: .taskLedger
+        )
+        self.createdAtUTC = try container.decode(
+            String.self,
+            forKey: .createdAtUTC
+        )
+        self.finalizedAtUTC = try container.decodeIfPresent(
+            String.self,
+            forKey: .finalizedAtUTC
+        )
+        self.finalizedDigest = try container.decodeIfPresent(
+            String.self,
+            forKey: .finalizedDigest
+        )
     }
 }
 
@@ -656,6 +1211,10 @@ public struct HTDTFieldReturnWorkspace:
 /// `field-return.json`, then the container manifest. The builder
 /// performs every validation the typed documents enforce — records
 /// bound to another contribution id are rejected, not rebound.
+/// Issue #418/#419: the finalize path runs the fulfillment-ledger
+/// validator first, then emits `htdt.field_return.*`
+/// contribution-ref envelopes so no synthetic CaptureRevisionID
+/// reaches the wire.
 public enum HTDTFieldReturnAssembler {
     /// Canonical document ordering inside the container.
     public static let authorityPathPrefix = "authority/"
@@ -670,22 +1229,25 @@ public enum HTDTFieldReturnAssembler {
         guard !workspace.isFinalized else {
             throw HTDTFieldReturnError.artifactAlreadyFinalized
         }
-        let binding = workspace.bindingRevisionID
+        // Fulfillment contract first: a `fulfilled` claim without a
+        // resolvable compatible basis never reaches the artifact.
+        try HTDTFieldReturnValidator.validate(workspace: workspace)
+        let carrier = workspace.recordCarrierID
+        let contributionRef = workspace.contributionRef
         var entries: [HTDTFieldReturnArtifact.Entry] = []
         var documentRefs: [HTDTFieldReturnDocumentRef] = []
         var assetRefs: [HTDTFieldReturnDocumentRef] = []
 
         func addDocument(
-            name: String,
-            schema: String,
+            family: FieldContributionDocs.Family,
             data: Data
         ) throws {
-            let path = authorityPathPrefix + name
+            let path = authorityPathPrefix + family.fileName
             entries.append(.init(path: path, data: data))
             documentRefs.append(
                 .init(
                     path: path,
-                    schema: schema,
+                    schema: family.rawValue,
                     sha256: EvidenceIntegrity.sha256(of: data),
                     bytes: data.count
                 )
@@ -693,84 +1255,103 @@ public enum HTDTFieldReturnAssembler {
         }
 
         let authority = workspace.authority
-        // Operator/instrument profiles carry no per-record
-        // revision binding — document-level `capture_revision_id`
-        // covers them.
         if !authority.operatorProfiles.isEmpty {
-            let doc = try OperatorProfileDocument(
-                captureRevisionID: binding,
-                operators: authority.operatorProfiles
-            )
             try addDocument(
-                name: "operator-profiles.json",
-                schema: OperatorProfileDocument.schema,
-                data: try FieldAuthorityCoding.encoder().encode(doc)
+                family: .operatorProfiles,
+                data: FieldContributionDocs.encode(
+                    family: .operatorProfiles,
+                    contributionRef: contributionRef,
+                    recordedAtUTC: finalizedAtUTC,
+                    records: authority.operatorProfiles
+                )
             )
         }
         if !authority.instruments.isEmpty {
-            let doc = try InstrumentProfileDocument(
-                captureRevisionID: binding,
-                instruments: authority.instruments
-            )
             try addDocument(
-                name: "instrument-profiles.json",
-                schema: InstrumentProfileDocument.schema,
-                data: try FieldAuthorityCoding.encoder().encode(doc)
+                family: .instrumentProfiles,
+                data: FieldContributionDocs.encode(
+                    family: .instrumentProfiles,
+                    contributionRef: contributionRef,
+                    recordedAtUTC: finalizedAtUTC,
+                    records: authority.instruments
+                )
             )
         }
         if !authority.fieldEvidence.isEmpty {
             for record in authority.fieldEvidence {
                 try requireBinding(
                     record.captureRevisionID,
-                    binding: binding,
+                    carrier: carrier,
                     ref: "field_evidence:\(record.evidenceID)"
                 )
             }
-            let doc = try FieldEvidenceDocument(
-                captureRevisionID: binding,
-                records: authority.fieldEvidence
-            )
             try addDocument(
-                name: "field-evidence.json",
-                schema: FieldEvidenceDocument.schema,
-                data: try FieldAuthorityCoding.encoder().encode(doc)
+                family: .fieldEvidence,
+                data: FieldContributionDocs.encode(
+                    family: .fieldEvidence,
+                    contributionRef: contributionRef,
+                    recordedAtUTC: finalizedAtUTC,
+                    records: authority.fieldEvidence
+                )
             )
         }
         if !authority.settingsObservations.isEmpty {
             for observation in authority.settingsObservations {
                 try requireBinding(
                     observation.captureRevisionID,
-                    binding: binding,
+                    carrier: carrier,
                     ref: "settings_observation:"
                         + observation.observationID.description
                 )
             }
-            let doc = try InstalledSettingsDocument(
-                captureRevisionID: binding,
-                observations: authority.settingsObservations
-            )
             try addDocument(
-                name: "settings-observations.json",
-                schema: InstalledSettingsDocument.schema,
-                data: try FieldAuthorityCoding.encoder().encode(doc)
+                family: .settingsObservations,
+                data: FieldContributionDocs.encode(
+                    family: .settingsObservations,
+                    contributionRef: contributionRef,
+                    recordedAtUTC: finalizedAtUTC,
+                    records: authority.settingsObservations
+                )
             )
         }
         if !authority.wiringRoutes.isEmpty {
             for route in authority.wiringRoutes {
                 try requireBinding(
                     route.captureRevisionID,
-                    binding: binding,
+                    carrier: carrier,
                     ref: "wiring_route:\(route.routeID)"
                 )
             }
-            let doc = try AsBuiltWiringDocument(
-                captureRevisionID: binding,
-                routes: authority.wiringRoutes
-            )
             try addDocument(
-                name: "wiring-routes.json",
-                schema: AsBuiltWiringDocument.schema,
-                data: try FieldAuthorityCoding.encoder().encode(doc)
+                family: .wiringRoutes,
+                data: FieldContributionDocs.encode(
+                    family: .wiringRoutes,
+                    contributionRef: contributionRef,
+                    recordedAtUTC: finalizedAtUTC,
+                    records: authority.wiringRoutes
+                )
+            )
+        }
+        if !workspace.inventoryItems.isEmpty {
+            try addDocument(
+                family: .inventoryItems,
+                data: FieldContributionDocs.encode(
+                    family: .inventoryItems,
+                    contributionRef: contributionRef,
+                    recordedAtUTC: finalizedAtUTC,
+                    records: workspace.inventoryItems
+                )
+            )
+        }
+        if !workspace.roomStateObservations.isEmpty {
+            try addDocument(
+                family: .roomStateObservations,
+                data: FieldContributionDocs.encode(
+                    family: .roomStateObservations,
+                    contributionRef: contributionRef,
+                    recordedAtUTC: finalizedAtUTC,
+                    records: workspace.roomStateObservations
+                )
             )
         }
 
@@ -792,37 +1373,39 @@ public enum HTDTFieldReturnAssembler {
             )
         }
 
-        // Semantic hash over the artifact's canonical content — the
-        // identity fields, ledger, and per-entry digests — independent
-        // of ZIP container details.
-        var hasher = SHA256()
-        func hashLine(_ line: String) {
-            hasher.update(data: Data(line.utf8))
-            hasher.update(data: Data([0x0A]))
-        }
-        hashLine(HTDTFieldReturnDocument.schemaName)
-        hashLine(HTDTFieldReturnDocument.schemaVersionValue)
-        hashLine(workspace.contributionID.description)
-        hashLine(workspace.missionID ?? "")
-        hashLine(workspace.planID ?? "")
-        hashLine(workspace.createdAtUTC)
-        hashLine(finalizedAtUTC)
-        for entry in workspace.taskLedger {
-            hashLine(
-                entry.itemRef + "|" + entry.outcome.rawValue
-                    + "|" + entry.fulfilledByRefs.joined(
-                        separator: ","
-                    )
+        // v2 semantic digest (issue #419 refinement): SHA-256 over
+        // the canonical encoding of the root document with its own
+        // `content_digest` field removed — every other root field
+        // (planVersion, provenance, ledger notes, related revision
+        // ids, entry digests) is covered by construction, and new
+        // fields can never be silently omitted. The v1 line-hash is
+        // retained for replay under `HTDTFieldReturnDigest`.
+        let placeholder = try EvidenceSHA256(
+            String(repeating: "0", count: 64)
+        )
+        let provisional = try HTDTFieldReturnDocument(
+            contributionID: workspace.contributionID,
+            missionID: workspace.missionID,
+            planID: workspace.planID,
+            planVersion: workspace.planVersion,
+            planSHA256: workspace.planSHA256,
+            createdAtUTC: workspace.createdAtUTC,
+            finalizedAtUTC: finalizedAtUTC,
+            provenance: provenance,
+            relatedCaptureRevisionIDs:
+                workspace.relatedCaptureRevisionIDs,
+            taskFulfillmentLedger: workspace.taskLedger,
+            authorityDocuments: documentRefs,
+            evidenceAssets: assetRefs,
+            supersedesContributionRef:
+                workspace.supersedesContributionID
+                    .map { .fieldReturn($0) },
+            contentDigest: placeholder
+        )
+        let contentDigest =
+            try HTDTFieldReturnDigest.semanticDigest(
+                of: provisional
             )
-        }
-        for ref in documentRefs + assetRefs {
-            hashLine(ref.path + "|" + ref.sha256.value)
-        }
-        let digestHex = hasher.finalize().map {
-            String(format: "%02x", $0)
-        }.joined()
-        let contentDigest = try EvidenceSHA256(digestHex)
-
         let document = try HTDTFieldReturnDocument(
             contributionID: workspace.contributionID,
             missionID: workspace.missionID,
@@ -837,6 +1420,9 @@ public enum HTDTFieldReturnAssembler {
             taskFulfillmentLedger: workspace.taskLedger,
             authorityDocuments: documentRefs,
             evidenceAssets: assetRefs,
+            supersedesContributionRef:
+                workspace.supersedesContributionID
+                    .map { .fieldReturn($0) },
             contentDigest: contentDigest
         )
         let docEncoder = JSONEncoder()
@@ -858,11 +1444,348 @@ public enum HTDTFieldReturnAssembler {
 
     private static func requireBinding(
         _ recordRevision: CaptureRevisionID,
-        binding: CaptureRevisionID,
+        carrier: CaptureRevisionID,
         ref: String
     ) throws {
-        guard recordRevision == binding else {
+        guard recordRevision == carrier else {
             throw HTDTFieldReturnError.authorityBindingMismatch(ref)
+        }
+    }
+}
+
+/// The field return's digest contract (issue #419 refinement). Two
+/// algorithms exist and each artifact names its own:
+///
+/// - **v2 semantic digest** — SHA-256 over the canonical encoding of
+///   the root document minus `content_digest`, computed by encoding
+///   the document and re-serializing the JSON object with the key
+///   removed. It covers every root field by construction.
+/// - **v1 line hash** — the published 1.0.0 algorithm: newline-
+///   separated identity/ledger/entry lines. Kept verbatim so any v1
+///   artifact's digest replays byte-for-byte.
+///
+/// The ZIP/container manifest separately covers exact entry bytes —
+/// it is the transport-integrity digest, not this semantic one.
+public enum HTDTFieldReturnDigest {
+    /// v2: semantic digest of the root document. The digest covers
+    /// every field of the document except `content_digest` itself —
+    /// provenance, plan identity, ledger notes, supersession lineage
+    /// and entry digests all contribute.
+    public static func semanticDigest(
+        of document: HTDTFieldReturnDocument
+    ) throws -> EvidenceSHA256 {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [
+            .sortedKeys, .withoutEscapingSlashes,
+        ]
+        let encoded = try encoder.encode(document)
+        guard var object = try JSONSerialization
+            .jsonObject(with: encoded) as? [String: Any]
+        else {
+            throw HTDTFieldReturnError
+                .incompatibleAuthoritySchema("field-return.json")
+        }
+        object.removeValue(forKey: "content_digest")
+        let canonical = try JSONSerialization.data(
+            withJSONObject: object,
+            options: [.sortedKeys]
+        )
+        let hash = SHA256.hash(data: canonical).map {
+            String(format: "%02x", $0)
+        }.joined()
+        return try EvidenceSHA256(hash)
+    }
+
+    /// v1 replay: the published 1.0.0 line-hash algorithm over the
+    /// fields that version covered — retained verbatim so existing
+    /// `.htdtfieldreturn` v1 artifacts verify identically. Newer
+    /// fields are deliberately not hashed; v1 semantics are frozen.
+    public static func legacyDigest(
+        of document: HTDTFieldReturnDocument
+    ) throws -> EvidenceSHA256 {
+        var hasher = SHA256()
+        func hashLine(_ line: String) {
+            hasher.update(data: Data(line.utf8))
+            hasher.update(data: Data([0x0A]))
+        }
+        hashLine(HTDTFieldReturnDocument.schemaName)
+        hashLine(HTDTFieldReturnDocument.schemaVersionV1)
+        hashLine(document.contributionID.description)
+        hashLine(document.missionID ?? "")
+        hashLine(document.planID ?? "")
+        hashLine(document.createdAtUTC)
+        hashLine(document.finalizedAtUTC)
+        for entry in document.taskFulfillmentLedger {
+            hashLine(
+                entry.itemRef + "|" + entry.outcome.rawValue
+                    + "|" + entry.fulfilledByRefs.joined(
+                        separator: ","
+                    )
+            )
+        }
+        for ref in document.authorityDocuments
+            + document.evidenceAssets {
+            hashLine(ref.path + "|" + ref.sha256.value)
+        }
+        let digestHex = hasher.finalize().map {
+            String(format: "%02x", $0)
+        }.joined()
+        return try EvidenceSHA256(digestHex)
+    }
+
+    /// Recomputes the digest the document's own schema version
+    /// declares and reports whether it matches `content_digest`.
+    /// v1 documents replay the frozen v1 algorithm; v2 documents use
+    /// the canonical-minus-digest algorithm. An unknown version is a
+    /// typed rejection, never silently accepted.
+    public static func verify(
+        _ document: HTDTFieldReturnDocument
+    ) throws -> Bool {
+        let recomputed: EvidenceSHA256
+        switch document.schemaVersion {
+        case HTDTFieldReturnDocument.schemaVersionV1:
+            recomputed = try legacyDigest(of: document)
+        case HTDTFieldReturnDocument.schemaVersionValue:
+            recomputed = try semanticDigest(of: document)
+        default:
+            throw HTDTFieldReturnError
+                .incompatibleAuthoritySchema(
+                    "htdt.field_return/"
+                        + document.schemaVersion
+                )
+        }
+        return recomputed == document.contentDigest
+    }
+}
+
+/// The finalize/read-side contract of a field return (issue #418):
+/// task outcomes must carry their required basis, every fulfillment
+/// ref must be grammar-valid, type-compatible with the task kind and
+/// resolvable to an exact record of this contribution (or an
+/// explicitly permitted external reference), and typed-authority
+/// tasks require a contribution-local typed record — a generic
+/// note/file is not a substitute.
+public enum HTDTFieldReturnValidator {
+    /// Namespaces whose refs resolve *inside* this contribution —
+    /// the validator checks exact membership against the workspace's
+    /// typed records.
+    private static let contributionNamespaces: Set<String> = [
+        "field_evidence", "settings_observation", "wiring_route",
+        "inventory_item", "room_state", "instrument", "operator",
+    ]
+
+    /// Validates one ledger entry's outcome semantics and ref
+    /// compatibility (issue #418). Used by `recordTaskOutcome` for
+    /// edit-time checks and again at finalize so a draft authored
+    /// under an older build still fails honestly.
+    public static func validate(
+        workspace: HTDTFieldReturnWorkspace
+    ) throws {
+        for entry in workspace.taskLedger {
+            try HTDTFieldReturnWorkspace.checkOutcomeSemantics(
+                itemRef: entry.itemRef,
+                outcome: entry.outcome,
+                fulfilledByRefs: entry.fulfilledByRefs,
+                note: entry.note,
+                permittedNamespaces:
+                    entry.permittedFulfillmentNamespaces
+            )
+            guard entry.outcome == .fulfilled
+                    || entry.outcome == .partiallyFulfilled
+            else { continue }
+            for ref in entry.fulfilledByRefs {
+                try validateFulfillmentRef(ref, in: workspace)
+            }
+            // Typed-authority tasks: at least one contribution-local
+            // record of the required family must exist — a generic
+            // note/file is not typed inventory/settings/wiring data.
+            if entry.outcome == .fulfilled
+                && entry.requiresTypedFulfillment {
+                let typed = entry.fulfilledByRefs.contains { ref in
+                    let ns = String(ref.prefix { $0 != ":" })
+                    guard entry.typedFulfillmentNamespaces
+                        .contains(ns)
+                    else { return false }
+                    return (try? resolves(ref, in: workspace))
+                        == true
+                }
+                guard typed else {
+                    throw HTDTFieldReturnError
+                        .incompatibleFulfillmentRef(entry.itemRef)
+                }
+            }
+        }
+    }
+
+    /// Whether `ref` names a record inside this workspace's typed
+    /// authority collections (for contribution-local namespaces).
+    public static func resolves(
+        _ ref: String,
+        in workspace: HTDTFieldReturnWorkspace
+    ) throws -> Bool {
+        guard let colon = ref.firstIndex(of: ":") else {
+            return false
+        }
+        let namespace = String(ref[..<colon])
+        let identifier = String(ref[ref.index(after: colon)...])
+        guard let uuid = UUID(canonicalUUIDv4Text: identifier)
+        else { return false }
+        let authority = workspace.authority
+        switch namespace {
+        case "field_evidence":
+            return authority.fieldEvidence.contains {
+                $0.evidenceID.rawValue == uuid
+            }
+        case "settings_observation":
+            return authority.settingsObservations.contains {
+                $0.observationID.rawValue == uuid
+            }
+        case "wiring_route":
+            return authority.wiringRoutes.contains {
+                $0.routeID.rawValue == uuid
+            }
+        case "inventory_item":
+            return workspace.inventoryItems.contains {
+                $0.itemID.rawValue == uuid
+            }
+        case "room_state":
+            return workspace.roomStateObservations.contains {
+                $0.observationID.rawValue == uuid
+            }
+        case "instrument":
+            return authority.instruments.contains {
+                $0.instrumentID.rawValue == uuid
+            }
+        case "operator":
+            return authority.operatorProfiles.contains {
+                $0.operatorID.rawValue == uuid
+            }
+        default:
+            return false
+        }
+    }
+
+    /// One fulfillment ref: grammar → namespace compatibility →
+    /// resolution. Contribution-local namespaces must resolve to an
+    /// exact record; other namespaces are explicitly permitted
+    /// external/imported references (plan equipment refs, capture
+    /// entities) the contribution cannot contain.
+    private static func validateFulfillmentRef(
+        _ ref: String,
+        in workspace: HTDTFieldReturnWorkspace
+    ) throws {
+        guard let colon = ref.firstIndex(of: ":") else {
+            throw HTDTFieldReturnError.invalidBindingRef(ref)
+        }
+        let namespace = String(ref[..<colon])
+        if contributionNamespaces.contains(namespace) {
+            guard try resolves(ref, in: workspace) else {
+                throw HTDTFieldReturnError
+                    .unresolvedFulfillmentRef(ref)
+            }
+        }
+    }
+
+    /// Read-side validation of an opened artifact (issue #419):
+    /// every embedded `authority/*.json` document is checked against
+    /// the binding scope the root declares —
+    ///
+    /// - **v2** (`contribution_ref` scope): each document must be an
+    ///   `htdt.field_return.*` envelope whose `contribution_ref`
+    ///   equals the root's exactly; a record still carrying
+    ///   `capture_revision_id` is a dual-owner rejection.
+    /// - **v1** (`contribution_id` scope): each document must be a
+    ///   published `htdt.capture.*` doc whose document-level
+    ///   `capture_revision_id` equals the contribution id, and any
+    ///   record-level `capture_revision_id` must equal it too —
+    ///   legacy records never name a second owner.
+    ///
+    /// The root's own `contribution_ref` must equal its
+    /// `contribution_id` (conflicting root identities reject), and a
+    /// `.fieldReturn` kind is required — a Field Return never claims
+    /// a capture-revision owner.
+    public static func validateArtifact(
+        document: HTDTFieldReturnDocument,
+        entries: [HTDTFieldReturnArtifact.Entry]
+    ) throws {
+        guard document.contributionRef
+            == .fieldReturn(document.contributionID)
+        else {
+            throw HTDTFieldReturnError
+                .conflictingContributionRef(
+                    HTDTFieldReturnDocument.path
+                )
+        }
+        let carrier = CaptureRevisionID(
+            rawValue: document.contributionID.rawValue
+        )
+        let carrierText = carrier.rawValue.uuidString.lowercased()
+        let declaredPaths = Set(
+            document.authorityDocuments.map(\.path)
+        )
+        for entry in entries {
+            guard entry.path.hasPrefix("authority/"),
+                  entry.path.hasSuffix(".json")
+            else { continue }
+            guard declaredPaths.contains(entry.path) else {
+                throw HTDTFieldReturnError
+                    .conflictingContributionRef(entry.path)
+            }
+            if document.isV1Layout {
+                try validateLegacyDoc(
+                    data: entry.data,
+                    path: entry.path,
+                    carrierText: carrierText
+                )
+            } else {
+                _ = try FieldContributionDocs.parse(
+                    data: entry.data,
+                    path: entry.path,
+                    expectedContribution:
+                        document.contributionRef
+                )
+            }
+        }
+    }
+
+    /// v1 embedded doc check: schema is a known `htdt.capture.*`
+    /// family, doc-level `capture_revision_id` equals the
+    /// contribution carrier, and no record-level
+    /// `capture_revision_id` names a different owner.
+    private static func validateLegacyDoc(
+        data: Data,
+        path: String,
+        carrierText: String
+    ) throws {
+        guard let object = try JSONSerialization
+            .jsonObject(with: data) as? [String: Any],
+              let schema = object["schema"] as? String,
+              schema.hasPrefix("htdt.capture.")
+        else {
+            throw HTDTFieldReturnError
+                .unknownAuthoritySchema(path)
+        }
+        if let docCarrier = object["capture_revision_id"]
+            as? String {
+            guard docCarrier == carrierText else {
+                throw HTDTFieldReturnError
+                    .conflictingContributionRef(path)
+            }
+        }
+        // Any record-level carrier must equal the contribution too —
+        // a record naming a different owner is a conflict, never a
+        // silent rebind.
+        for value in object.values {
+            guard let records = value as? [[String: Any]]
+            else { continue }
+            for record in records {
+                if let recordCarrier =
+                    record["capture_revision_id"] as? String,
+                    recordCarrier != carrierText {
+                    throw HTDTFieldReturnError
+                        .conflictingContributionRef(path)
+                }
+            }
         }
     }
 }
@@ -1179,6 +2102,15 @@ public enum HTDTFieldReturnArchiveReader {
                 )
             }
             .sorted { $0.path < $1.path }
+        // Contribution-binding validation (issue #419): embedded
+        // authority docs must agree with the root's declared binding
+        // scope — v1 `capture_revision_id` carriers and v2
+        // `contribution_ref` envelopes are each checked on their own
+        // terms; mismatches are typed rejections, never repaired.
+        try HTDTFieldReturnValidator.validateArtifact(
+            document: document,
+            entries: artifactEntries
+        )
         return HTDTFieldReturnArtifact(
             document: document,
             entries: artifactEntries
