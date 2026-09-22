@@ -138,7 +138,12 @@ public struct CaptureStateMachine: Sendable, Equatable {
              (.reviewing, .abortCapture), (.annotating, .abortCapture):
             state = .idle
             lastFailure = nil
-        case (.setup, .reset), (.failed, .reset),
+        // #295: the pre-capture prerequisite states are cancellable —
+        // camera denial is a recovery workflow, not a failed capture,
+        // so the operator may leave `.permissions` back to idle without
+        // fabricating a working revision or a failed capture record.
+        case (.setup, .reset), (.capabilityCheck, .reset),
+             (.permissions, .reset), (.failed, .reset),
              (.finalized, .reset), (.exported, .reset):
             state = .idle
             lastFailure = nil

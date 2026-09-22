@@ -38,8 +38,17 @@ public struct ScanGuidanceProgress: Sendable, Equatable {
     public let movementCapability: ScanMovementCapability
     public let completedSpatialGuidanceAttemptCount: Int
     public let maximumSpatialGuidanceAttempts: Int
+    /// Retained weak regions still eligible for guidance, counted
+    /// across the whole retained map — not just the live display
+    /// window (#347). A weak region the operator walked away from
+    /// stays unresolved here until it is re-observed or its guidance
+    /// attempt budget is exhausted.
     public let actionableWeakRegionCount: Int
     public let saturatedWeakRegionCount: Int
+    /// Weak, undeclared retained regions outside the current display
+    /// viewport (#347). Nonzero means unresolved coverage exists
+    /// beyond what the operator is looking at right now.
+    public let remoteWeakRegionCount: Int
     public let directionCoverageFraction: Double
     public let isComplete: Bool
 
@@ -49,6 +58,7 @@ public struct ScanGuidanceProgress: Sendable, Equatable {
         maximumSpatialGuidanceAttempts: Int,
         actionableWeakRegionCount: Int,
         saturatedWeakRegionCount: Int,
+        remoteWeakRegionCount: Int = 0,
         directionCoverageFraction: Double,
         isComplete: Bool
     ) {
@@ -59,6 +69,7 @@ public struct ScanGuidanceProgress: Sendable, Equatable {
             maximumSpatialGuidanceAttempts
         self.actionableWeakRegionCount = actionableWeakRegionCount
         self.saturatedWeakRegionCount = saturatedWeakRegionCount
+        self.remoteWeakRegionCount = remoteWeakRegionCount
         self.directionCoverageFraction = directionCoverageFraction
         self.isComplete = isComplete
     }
@@ -69,6 +80,7 @@ public struct ScanGuidanceProgress: Sendable, Equatable {
         maximumSpatialGuidanceAttempts: 0,
         actionableWeakRegionCount: 0,
         saturatedWeakRegionCount: 0,
+        remoteWeakRegionCount: 0,
         directionCoverageFraction: 0,
         isComplete: false
     )
@@ -505,19 +517,27 @@ public struct ScanMotionGuidanceTracker: Sendable {
         coverage: ScanCoverageSummary,
         spatialCoverage: SpatialScanCoverageSummary
     ) -> ScanGuidanceProgress {
+        // Weak-region accounting is global (#347): the live display
+        // window is a presentation bound, not a completeness bound,
+        // so walking away from a weak region must never drop it from
+        // the unresolved count or complete the spatial dimension.
         let actionable = spatialCoverage.regions.filter {
             $0.classification == .weak
                 && !declaredRegionKeys.contains($0.key)
                 && (weakGuidanceAttempts[$0.key] ?? 0)
                     < configuration.maximumWeakRegionGuidanceAttempts
-                && (spatialCoverage.displayBounds?
-                    .contains($0.key) ?? true)
         }.count
         let saturated = spatialCoverage.regions.filter {
             $0.classification == .weak
                 && !declaredRegionKeys.contains($0.key)
                 && (weakGuidanceAttempts[$0.key] ?? 0)
                     >= configuration.maximumWeakRegionGuidanceAttempts
+        }.count
+        let remote = spatialCoverage.regions.filter {
+            $0.classification == .weak
+                && !declaredRegionKeys.contains($0.key)
+                && !(spatialCoverage.displayBounds?
+                    .contains($0.key) ?? false)
         }.count
         let directionReady =
             coverage.coverageFraction
@@ -542,6 +562,7 @@ public struct ScanMotionGuidanceTracker: Sendable {
                 configuration.maximumSpatialGuidanceAttempts,
             actionableWeakRegionCount: actionable,
             saturatedWeakRegionCount: saturated,
+            remoteWeakRegionCount: remote,
             directionCoverageFraction: coverage.coverageFraction,
             isComplete: directionReady && spatialComplete
         )
@@ -906,21 +927,36 @@ public struct ScanMotionGuidanceTracker: Sendable {
         )
     }
 
+    /// Local-first weak-region targeting (#347): regions inside the
+    /// live display window are preferred so the operator finishes
+    /// nearby unresolved cells first; when none remain actionable
+    /// locally, the nearest remote unresolved region becomes the
+    /// target so retained weak regions beyond the viewport are never
+    /// silently ignored.
     private func preferredWeakRegion(
         _ spatialCoverage: SpatialScanCoverageSummary
     ) -> SpatialCoverageRegion? {
         let camera = spatialCoverage.currentCameraPosition
 
-        return spatialCoverage.regions
+        let actionable = spatialCoverage.regions
             .filter {
                 $0.classification == .weak
                     && !declaredRegionKeys.contains($0.key)
                     && (weakGuidanceAttempts[$0.key] ?? 0)
                         < configuration
                             .maximumWeakRegionGuidanceAttempts
-                    && (spatialCoverage.displayBounds?
-                        .contains($0.key) ?? true)
             }
+        let local: [SpatialCoverageRegion]
+        if let displayBounds = spatialCoverage.displayBounds {
+            local = actionable.filter {
+                displayBounds.contains($0.key)
+            }
+        } else {
+            local = actionable
+        }
+        let candidates = local.isEmpty ? actionable : local
+
+        return candidates
             .min { lhs, rhs in
                 let lhsDistance = squaredDistance(
                     from: camera,
