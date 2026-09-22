@@ -163,6 +163,10 @@ private struct HTDTCaptureHostView: View {
                     coordinator.captureTargetedPlacement,
                 captureIdentityPhoto:
                     coordinator.captureIdentityPhoto,
+                captureFieldEvidencePhoto:
+                    coordinator.captureFieldEvidencePhoto,
+                commitFieldAuthority:
+                    coordinator.commitFieldAuthority,
                 commitAnnotationAuthority:
                     coordinator.commitAnnotationAuthority,
                 cancelAnnotation: coordinator.cancelAnnotation,
@@ -458,6 +462,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// record set on the next revision commit discards byte-identical
     /// rather than leaving a stale attestation (#239).
     private var committedIdentityDocData: Data?
+    /// Field-authority workspace staged by the annotation editor,
+    /// consumed inside `commitAnnotationAuthority` (#300/#301/#310/
+    /// #314/#324/#331).
+    private var pendingFieldAuthority = FieldAuthorityWorkspace()
     private var annotationRoomPlanObjectsLoaded = false
 
     private var stateMachine = CaptureStateMachine()
@@ -876,6 +884,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         activeRevisionLineage = revisionLineage
         workingSetIdentity = nil
         annotationRevisionSeed = nil
+        pendingFieldAuthority = FieldAuthorityWorkspace()
         annotationEditIsRevision = false
         qualityReport = nil
         validationReport = nil
@@ -2415,7 +2424,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     equipmentIdentityRecords:
                         draft.equipmentIdentityRecords,
                     speakerLayoutPlan: draft.speakerLayoutPlan,
-                    isRestoredDraft: true
+                    isRestoredDraft: true,
+                    fieldAuthority: draft.fieldAuthority
+                        ?? FieldAuthorityWorkspace()
                 )
             }
         }
@@ -2489,12 +2500,39 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             TheaterAuthorityCollection.self,
             at: TheaterAuthorityPackage.path
         )
+        // Committed field-authority documents (#300/#301/#310/#314/
+        // #324/#331) seed the editor as the effective state; asset
+        // payloads stay on disk (write-once), so only newly captured
+        // assets re-enter the staged-asset list.
+        let fieldAuthority = FieldAuthorityWorkspace(
+            operatorProfiles: try loadCollection(
+                OperatorProfileDocument.self,
+                at: OperatorProfilePackage.path
+            )?.operators ?? [],
+            fieldEvidence: try loadCollection(
+                FieldEvidenceDocument.self,
+                at: FieldEvidencePackage.path
+            )?.records ?? [],
+            instruments: try loadCollection(
+                InstrumentProfileDocument.self,
+                at: InstrumentProfilePackage.path
+            )?.instruments ?? [],
+            settingsObservations: try loadCollection(
+                InstalledSettingsDocument.self,
+                at: InstalledSettingsPackage.path
+            )?.observations ?? [],
+            wiringRoutes: try loadCollection(
+                AsBuiltWiringDocument.self,
+                at: AsBuiltWiringPackage.path
+            )?.routes ?? []
+        )
         return (
             AnnotationWorkspaceSeed(
                 annotations: annotations,
                 measurements: measurements,
                 equipmentIdentityRecords: identityRecords ?? [],
-                authorities: authorities
+                authorities: authorities,
+                fieldAuthority: fieldAuthority
             ),
             identityData
         )
@@ -2936,6 +2974,51 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// frame during annotation editing and returns its canonical
     /// `path:` ref so the form can bind it as identity evidence —
     /// distinct from spatial placement authority.
+    /// Captures a dedicated close-up photo for a field-evidence
+    /// record (#314): a fresh AR frame is materialized and its
+    /// high-resolution HEIC rendering is returned as image bytes. No
+    /// frame descriptor or spatial metadata is persisted, so a
+    /// close-up can never impersonate canonical frame authority.
+    func captureFieldEvidencePhoto() async throws
+        -> CapturedFieldPhoto
+    {
+        guard state == .annotating else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+        let generation = captureGeneration
+        let snapshot =
+            try sessionController.snapshotFrameEvidenceCapture(
+                depthSelection: .none
+            )
+        let artifacts =
+            try await ARFrameArtifactAdapter.materialize(snapshot)
+        guard captureGeneration == generation,
+              state == .annotating
+        else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+        guard let preview = artifacts.previewPayload else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+        return CapturedFieldPhoto(
+            data: preview,
+            mediaType: .heic,
+            pixelWidth: artifacts.descriptor.imageWidth,
+            pixelHeight: artifacts.descriptor.imageHeight
+        )
+    }
+
+    /// Stashes the field-authority workspace staged in the annotation
+    /// editor; `commitAnnotationAuthority` persists it inside the same
+    /// commit pass so the derived documents land atomically with the
+    /// canonical collections they reference (#300/#301/#310/#314/
+    /// #324/#331).
+    func commitFieldAuthority(
+        _ workspace: FieldAuthorityWorkspace
+    ) {
+        pendingFieldAuthority = workspace
+    }
+
     func captureIdentityPhoto() async throws -> String {
         guard state == .annotating,
               let store = workingSetStore
@@ -2977,6 +3060,74 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             "機器識別の証拠写真を保存しました"
         )
         return evidenceRef
+    }
+
+    /// Builds the field-authority bundle from the staged workspace —
+    /// one derived package per non-empty document family plus staged
+    /// asset writes/removals (#300/#301/#310/#314/#324/#331).
+    private func buildFieldAuthorityBundle(
+        _ workspace: FieldAuthorityWorkspace,
+        revisionID: CaptureRevisionID
+    ) throws -> FieldAuthorityBundle {
+        try FieldAuthorityBundle(
+            operators: workspace.operatorProfiles.isEmpty
+                ? nil
+                : OperatorProfilePackage(
+                    document: OperatorProfileDocument(
+                        captureRevisionID: revisionID,
+                        operators: workspace.operatorProfiles
+                    )
+                ),
+            fieldEvidence: workspace.fieldEvidence.isEmpty
+                ? nil
+                : FieldEvidencePackage(
+                    document: FieldEvidenceDocument(
+                        captureRevisionID: revisionID,
+                        records: workspace.fieldEvidence
+                    )
+                ),
+            instruments: workspace.instruments.isEmpty
+                ? nil
+                : InstrumentProfilePackage(
+                    document: InstrumentProfileDocument(
+                        captureRevisionID: revisionID,
+                        instruments: workspace.instruments
+                    )
+                ),
+            settings: workspace.settingsObservations.isEmpty
+                ? nil
+                : InstalledSettingsPackage(
+                    document: InstalledSettingsDocument(
+                        captureRevisionID: revisionID,
+                        observations:
+                            workspace.settingsObservations
+                    )
+                ),
+            wiring: workspace.wiringRoutes.isEmpty
+                ? nil
+                : AsBuiltWiringPackage(
+                    document: AsBuiltWiringDocument(
+                        captureRevisionID: revisionID,
+                        routes: workspace.wiringRoutes
+                    )
+                ),
+            assetWrites: workspace.fieldEvidenceAssets
+                .filter { !$0.removal }
+                .map {
+                    try FieldEvidenceAssetPayload(
+                        path: $0.path,
+                        data: $0.data
+                    )
+                },
+            assetRemovals: workspace.fieldEvidenceAssets
+                .filter { $0.removal }
+                .map {
+                    try FieldEvidenceAssetPayload(
+                        path: $0.path,
+                        data: $0.data
+                    )
+                }
+        )
     }
 
     private static func placementMethod(
@@ -3209,6 +3360,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             try transition(.beginReview)
             annotationRevisionSeed = nil
+            pendingFieldAuthority = FieldAuthorityWorkspace()
             annotationEditIsRevision = false
             workingSetStatus = HostLocalization.text(
                 "Annotation editing cancelled; staged records not written",
@@ -3358,12 +3510,35 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
 
+                // Field-authority family (#300/#301/#310/#314/#324/
+                // #331): the staged derived documents are validated
+                // against the just-committed canonical collections —
+                // the canonical write happens first so entity,
+                // measurement and inventory bindings resolve.
+                let fieldAuthority = self.pendingFieldAuthority
+                if fieldAuthority.hasContent {
+                    let bundle = try self.buildFieldAuthorityBundle(
+                        fieldAuthority,
+                        revisionID: workingRevisionID
+                    )
+                    if !bundle.isEmpty {
+                        try await store
+                            .persistFieldAuthorityBundle(bundle)
+                    }
+                }
+                guard self.captureGeneration == generation,
+                      self.state == .annotating
+                else {
+                    return
+                }
+
                 // Commit consumed the draft (#266).
                 self.discardAnnotationDraft()
                 self.annotationAuthorityCommitted = true
                 self.annotationCommitInFlight = false
                 self.annotationEditIsRevision = false
                 self.annotationRevisionSeed = nil
+                self.pendingFieldAuthority = FieldAuthorityWorkspace()
                 try self.transition(.beginReview)
                 await self.refreshQuality(
                     store: store,
@@ -3841,6 +4016,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         activeRevisionLineage = nil
         workingSetIdentity = nil
         annotationRevisionSeed = nil
+        pendingFieldAuthority = FieldAuthorityWorkspace()
         annotationEditIsRevision = false
         captureStartTimingCorrelation = nil
         acceptedRoomPlanRawSHA256 = nil
@@ -4024,6 +4200,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         activeRevisionLineage = nil
         workingSetIdentity = nil
         annotationRevisionSeed = nil
+        pendingFieldAuthority = FieldAuthorityWorkspace()
         annotationEditIsRevision = false
         captureStartTimingCorrelation = nil
         acceptedRoomPlanRawSHA256 = nil

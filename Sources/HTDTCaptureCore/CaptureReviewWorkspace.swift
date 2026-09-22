@@ -184,6 +184,18 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
     public let evidenceItems: [ReviewEvidenceItem]
     public let annotations: [CaptureAnnotationEntity]
     public let measurements: [CaptureMeasurement]
+    /// Committed operator profiles (#310); Review shows the recorded
+    /// author identity before export.
+    public let operatorProfiles: [OperatorProfile]
+    /// Committed field-evidence records (#300/#314).
+    public let fieldEvidence: [FieldEvidenceRecord]
+    /// Committed instrument profile versions (#331).
+    public let instruments: [MeasurementInstrumentProfile]
+    /// Committed installed-settings observations (#301).
+    public let settingsObservations:
+        [InstalledSettingsObservation]
+    /// Committed as-built wiring routes (#324).
+    public let wiringRoutes: [AsBuiltWiringRoute]
     public let openingReview: OpeningReviewDocument?
     public let roomReferenceFrame: RoomReferenceFrameDocument?
     public let qualityReport: CaptureQualityReport?
@@ -216,6 +228,12 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
         evidenceItems: [ReviewEvidenceItem],
         annotations: [CaptureAnnotationEntity],
         measurements: [CaptureMeasurement],
+        operatorProfiles: [OperatorProfile] = [],
+        fieldEvidence: [FieldEvidenceRecord] = [],
+        instruments: [MeasurementInstrumentProfile] = [],
+        settingsObservations:
+            [InstalledSettingsObservation] = [],
+        wiringRoutes: [AsBuiltWiringRoute] = [],
         openingReview: OpeningReviewDocument?,
         roomReferenceFrame: RoomReferenceFrameDocument?,
         qualityReport: CaptureQualityReport?,
@@ -233,6 +251,11 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
         self.evidenceItems = evidenceItems
         self.annotations = annotations
         self.measurements = measurements
+        self.operatorProfiles = operatorProfiles
+        self.fieldEvidence = fieldEvidence
+        self.instruments = instruments
+        self.settingsObservations = settingsObservations
+        self.wiringRoutes = wiringRoutes
         self.openingReview = openingReview
         self.roomReferenceFrame = roomReferenceFrame
         self.qualityReport = qualityReport
@@ -357,6 +380,26 @@ public enum CaptureReviewWorkspaceLoader {
             CaptureQualityReport.self,
             "quality/capture-quality.json"
         )
+        let operators = decodeIfDeclared(
+            OperatorProfileDocument.self,
+            OperatorProfilePackage.path
+        )
+        let fieldEvidenceDoc = decodeIfDeclared(
+            FieldEvidenceDocument.self,
+            FieldEvidencePackage.path
+        )
+        let instruments = decodeIfDeclared(
+            InstrumentProfileDocument.self,
+            InstrumentProfilePackage.path
+        )
+        let settingsDoc = decodeIfDeclared(
+            InstalledSettingsDocument.self,
+            InstalledSettingsPackage.path
+        )
+        let wiringDoc = decodeIfDeclared(
+            AsBuiltWiringDocument.self,
+            AsBuiltWiringPackage.path
+        )
         let policy = decodeIfDeclared(
             CoordinateSpacePolicyDocument.self,
             CoordinateSpacePolicyPackage.path
@@ -407,6 +450,7 @@ public enum CaptureReviewWorkspaceLoader {
                     annotationCollection?.entities ?? [],
                 measurements:
                     measurementCollection?.measurements ?? [],
+                fieldEvidence: fieldEvidenceDoc?.records ?? [],
                 openings: openingReview?.openings ?? [],
                 roomReferenceFrame: roomReferenceFrame,
                 endBoundaryFrameIDs: endBoundaryFrameIDs,
@@ -428,6 +472,12 @@ public enum CaptureReviewWorkspaceLoader {
             annotations: annotationCollection?.entities ?? [],
             measurements:
                 measurementCollection?.measurements ?? [],
+            operatorProfiles: operators?.operators ?? [],
+            fieldEvidence: fieldEvidenceDoc?.records ?? [],
+            instruments: instruments?.instruments ?? [],
+            settingsObservations:
+                settingsDoc?.observations ?? [],
+            wiringRoutes: wiringDoc?.routes ?? [],
             openingReview: openingReview,
             roomReferenceFrame: roomReferenceFrame,
             qualityReport: quality,
@@ -450,6 +500,7 @@ public enum CaptureReviewWorkspaceLoader {
         declaredPaths: Set<String>,
         annotations: [CaptureAnnotationEntity],
         measurements: [CaptureMeasurement],
+        fieldEvidence: [FieldEvidenceRecord],
         openings: [RoomOpeningCandidate],
         roomReferenceFrame: RoomReferenceFrameDocument?,
         endBoundaryFrameIDs: Set<EvidenceFrameID>,
@@ -506,6 +557,18 @@ public enum CaptureReviewWorkspaceLoader {
         ) {
             referencedBy.append(
                 "opening:" + opening.sourceRef
+            )
+        }
+        // A field-evidence record bound to this frame (#300/#314)
+        // retains it — the canonical frame is linked, never copied.
+        for record in fieldEvidence {
+            guard record.asset?.kind == .canonicalFrame,
+                  let ref = record.asset?.frameRef,
+                  frameTokens.contains(ref)
+            else { continue }
+            referencedBy.append(
+                "field_evidence:"
+                    + record.evidenceID.description
             )
         }
         if let frame = roomReferenceFrame,
