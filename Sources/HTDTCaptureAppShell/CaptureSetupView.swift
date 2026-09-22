@@ -233,40 +233,17 @@ public struct CaptureSetupView: View {
                 }
             }
 
+            // #364 §4: actionable readiness summary first; the
+            // capability diagnostics behind it are evidence, not
+            // tasks, so they live in a collapsed device-details
+            // disclosure instead of competing with the Begin path.
             Section("Device readiness") {
                 LabeledContent(
                     "Scanning mode",
                     value: resolvedModeLabel
                 )
-                CaptureStatusContent(
-                    "RoomPlan + mesh",
-                    status: presentation.capabilities
-                        .roomPlanMeshEligible
-                        ? .ready : .unavailable
-                )
-                CaptureStatusContent(
-                    "Scene depth",
-                    status: presentation.capabilities
-                        .sceneDepthSupported
-                        ? .ready : .unavailable
-                )
                 LabeledContent("Storage") {
                     CaptureStatusView(storageStatus)
-                }
-                if let bytes = presentation.storagePreflight
-                    .availableBytes
-                {
-                    Text(
-                        ByteCountFormatter.string(
-                            fromByteCount: Int64(
-                                clamping: bytes
-                            ),
-                            countStyle: .file
-                        ) + " "
-                            + String(localized: "free")
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 }
                 if let readiness = presentation.deviceReadiness {
                     if let battery = readiness.batteryLevel {
@@ -282,6 +259,33 @@ public struct CaptureSetupView: View {
                         CaptureStatusContent(
                             "Device readiness",
                             status: .ready
+                        )
+                    }
+                }
+                DisclosureGroup("Device details") {
+                    CaptureStatusContent(
+                        "RoomPlan + mesh",
+                        status: presentation.capabilities
+                            .roomPlanMeshEligible
+                            ? .ready : .unavailable
+                    )
+                    CaptureStatusContent(
+                        "Scene depth",
+                        status: presentation.capabilities
+                            .sceneDepthSupported
+                            ? .ready : .unavailable
+                    )
+                    if let bytes = presentation.storagePreflight
+                        .availableBytes
+                    {
+                        LabeledContent(
+                            "Free storage",
+                            value: ByteCountFormatter.string(
+                                fromByteCount: Int64(
+                                    clamping: bytes
+                                ),
+                                countStyle: .file
+                            )
                         )
                     }
                 }
@@ -319,6 +323,12 @@ public struct CaptureSetupView: View {
                     )
                     .listRowSeparator(.hidden)
                 }
+            }
+
+            // #364 §4: strategy choice is a setup control in its own
+            // right — it must render for every readiness state, not
+            // only when storage is critical.
+            Section("Capture strategy") {
                 Picker(
                     String(localized: "Capture strategy"),
                     selection: Binding(
@@ -399,7 +409,39 @@ public struct CaptureSetupView: View {
                 cameraPermissionRows
             }
 
+            // #364 §4: prep items read as a checklist with a
+            // single "Why?" disclosure; privacy disclosures stay
+            // separate so they are never mistaken for technique.
             Section("Room preparation") {
+                Label(
+                    "Pause people and pets moving through the room during the scan.",
+                    systemImage: "figure.2"
+                )
+                Label(
+                    "Note mirrors, glass, and other reflective or transparent surfaces and observe them from several angles.",
+                    systemImage: "rectangle.dashed"
+                )
+                Label(
+                    "Move slowly, keep the phone steady, and overlap each view with the previous one. Stay within a few meters of walls and furniture.",
+                    systemImage: "figure.walk.motion"
+                )
+                Label(
+                    "Where practical, plan a path that returns to where you started so the scan can close the loop.",
+                    systemImage: "arrow.uturn.left.circle"
+                )
+                Label(
+                    "Turn on normal room lighting for the scan if you can — visual tracking and evidence frames still need light even though depth works in the dark. You can dim the room again afterward.",
+                    systemImage: "lightbulb"
+                )
+                DisclosureGroup("Why are these recommended?") {
+                    Text(
+                        "Moving objects and reflective surfaces can confuse tracking or leave gaps in the room model. Slow, overlapping movement with a loop-closing path gives the reconstruction redundant views to check itself against."
+                    )
+                    .font(.callout)
+                }
+            }
+
+            Section("Privacy") {
                 Text(
                     "Everything stays on this device until you choose to share the .htdtcapture archive."
                 )
@@ -409,21 +451,6 @@ public struct CaptureSetupView: View {
                 Text(finalizedDisclosureText)
                 Text(
                     "Sharing or sending to HTDT is always an explicit action you choose — device backup never sends data to HTDT."
-                )
-                Text(
-                    "Pause people and pets moving through the room during the scan."
-                )
-                Text(
-                    "Note mirrors, glass, and other reflective or transparent surfaces and observe them from several angles."
-                )
-                Text(
-                    "Move slowly, keep the phone steady, and overlap each view with the previous one. Stay within a few meters of walls and furniture."
-                )
-                Text(
-                    "Where practical, plan a path that returns to where you started so the scan can close the loop."
-                )
-                Text(
-                    "Turn on normal room lighting for the scan if you can — visual tracking and evidence frames still need light even though depth works in the dark. You can dim the room again afterward."
                 )
             }
 
@@ -522,6 +549,8 @@ public struct CaptureSetupView: View {
             Text(presentation.missionStatement)
                 .font(.callout)
 
+            missionNeedsRows
+
             // `CaptureTaskProfile` isn't Hashable — the picker keys on
             // the stable identifier string instead.
             Picker(
@@ -583,7 +612,7 @@ public struct CaptureSetupView: View {
 
             LabeledContent(
                 "Strategy profile",
-                value: String(localized: "Standard")
+                value: strategyLabel(selectedStrategyID)
             )
 
             Text(
@@ -597,6 +626,74 @@ public struct CaptureSetupView: View {
             Text(
                 "Mission intent is bound when scanning starts; changing it mid-scan is an explicit recorded action. Capture strategy profiles (#307) plug into this setup in a future update."
             )
+        }
+    }
+
+    /// "This capture needs" (#364 §4): the mission's itemized needs
+    /// in operator vocabulary — counts and optional flags, never
+    /// schema identifiers. Shown for every mission kind; a general
+    /// capture lists only the baseline room-geometry need.
+    @ViewBuilder
+    private var missionNeedsRows: some View {
+        let needs = missionNeeds
+        if !needs.isEmpty {
+            Text("This capture needs")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            ForEach(needs, id: \.self) { need in
+                HStack {
+                    Label(
+                        need.title,
+                        systemImage: missionNeedIcon(need.kind)
+                    )
+                    Spacer()
+                    if need.isOptional {
+                        Text("Optional")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if need.count > 1 {
+                        Text(String(format: "%d×", need.count))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private var missionNeeds: [CaptureMissionNeed] {
+        switch presentation.missionKind {
+        case .htdtTaskPlan:
+            if let plan = presentation.importedTaskPlan {
+                return CaptureMissionNeeds.needs(for: plan)
+            }
+            return []
+        case .taskProfile:
+            if let profile = presentation.taskProfile {
+                return CaptureMissionNeeds.needs(for: profile)
+            }
+            return []
+        case .generalCapture:
+            return [CaptureMissionNeeds.roomGeometry]
+        }
+    }
+
+    private func missionNeedIcon(
+        _ kind: CaptureMissionNeed.Kind
+    ) -> String {
+        switch kind {
+        case .roomGeometry:
+            return "cube"
+        case .annotationEntity:
+            return "mappin.and.ellipse"
+        case .speakerRole:
+            return "speaker.wave.2"
+        case .measurement:
+            return "ruler"
+        case .semanticTask:
+            return "tag"
+        case .surfaceReview:
+            return "rectangle.checkered"
         }
     }
 
