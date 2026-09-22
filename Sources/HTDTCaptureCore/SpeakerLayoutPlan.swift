@@ -49,12 +49,20 @@ public struct SpeakerLayoutPlan: Codable, Sendable, Equatable {
     public let schemaVersionValue: String
     /// Plan label, e.g. the preset name or a task-plan identifier.
     public let planName: String
+    /// Exact layout profile this plan's role order comes from (#315);
+    /// nil on plans written before profile authority existed.
+    public let profileIdentity: SpeakerLayoutProfileReference?
     public var roles: [SpeakerLayoutRole]
 
-    public init(planName: String, roles: [SpeakerLayoutRole]) {
+    public init(
+        planName: String,
+        roles: [SpeakerLayoutRole],
+        profileIdentity: SpeakerLayoutProfileReference? = nil
+    ) {
         self.schemaName = Self.schema
         self.schemaVersionValue = Self.schemaVersion
         self.planName = planName
+        self.profileIdentity = profileIdentity
         self.roles = roles
     }
 
@@ -62,6 +70,7 @@ public struct SpeakerLayoutPlan: Codable, Sendable, Equatable {
         case schemaName = "schema"
         case schemaVersionValue = "schema_version"
         case planName = "plan_name"
+        case profileIdentity = "profile_identity"
         case roles
     }
 }
@@ -71,88 +80,24 @@ public struct SpeakerLayoutPlan: Codable, Sendable, Equatable {
 /// plan lists every role it will ask for, and the operator can still
 /// add/remove roles or skip them inside the flow.
 public enum SpeakerLayoutPresets {
+    /// Each preset plan is derived from its exact `SpeakerLayoutProfile`
+    /// (#315): the role order is the profile's declaration order and the
+    /// plan carries the profile identity so entities authored through
+    /// the flow can record a `role_binding` against it.
     public static var stereo: SpeakerLayoutPlan {
-        SpeakerLayoutPlan(
-            planName: "2.0 stereo",
-            roles: [
-                SpeakerLayoutRole(roleID: "L", channelRole: .left),
-                SpeakerLayoutRole(roleID: "R", channelRole: .right),
-            ]
-        )
+        SpeakerLayoutProfiles.stereo.makePlan()
     }
 
     public static var surround5_1: SpeakerLayoutPlan {
-        SpeakerLayoutPlan(
-            planName: "5.1",
-            roles: [
-                SpeakerLayoutRole(roleID: "L", channelRole: .left),
-                SpeakerLayoutRole(roleID: "C", channelRole: .center),
-                SpeakerLayoutRole(roleID: "R", channelRole: .right),
-                SpeakerLayoutRole(roleID: "SL", channelRole: .surroundLeft),
-                SpeakerLayoutRole(roleID: "SR", channelRole: .surroundRight),
-                SpeakerLayoutRole(
-                    roleID: "LFE",
-                    channelRole: .lfe,
-                    isSubwoofer: true
-                ),
-            ]
-        )
+        SpeakerLayoutProfiles.surround5_1.makePlan()
     }
 
     public static var surround7_1: SpeakerLayoutPlan {
-        SpeakerLayoutPlan(
-            planName: "7.1",
-            roles: [
-                SpeakerLayoutRole(roleID: "L", channelRole: .left),
-                SpeakerLayoutRole(roleID: "C", channelRole: .center),
-                SpeakerLayoutRole(roleID: "R", channelRole: .right),
-                SpeakerLayoutRole(roleID: "SL", channelRole: .surroundLeft),
-                SpeakerLayoutRole(roleID: "SR", channelRole: .surroundRight),
-                SpeakerLayoutRole(
-                    roleID: "SBL",
-                    channelRole: .surroundBackLeft
-                ),
-                SpeakerLayoutRole(
-                    roleID: "SBR",
-                    channelRole: .surroundBackRight
-                ),
-                SpeakerLayoutRole(
-                    roleID: "LFE",
-                    channelRole: .lfe,
-                    isSubwoofer: true
-                ),
-            ]
-        )
+        SpeakerLayoutProfiles.surround7_1.makePlan()
     }
 
     public static var surround7_1_4: SpeakerLayoutPlan {
-        SpeakerLayoutPlan(
-            planName: "7.1.4",
-            roles: [
-                SpeakerLayoutRole(roleID: "L", channelRole: .left),
-                SpeakerLayoutRole(roleID: "C", channelRole: .center),
-                SpeakerLayoutRole(roleID: "R", channelRole: .right),
-                SpeakerLayoutRole(roleID: "SL", channelRole: .surroundLeft),
-                SpeakerLayoutRole(roleID: "SR", channelRole: .surroundRight),
-                SpeakerLayoutRole(
-                    roleID: "SBL",
-                    channelRole: .surroundBackLeft
-                ),
-                SpeakerLayoutRole(
-                    roleID: "SBR",
-                    channelRole: .surroundBackRight
-                ),
-                SpeakerLayoutRole(
-                    roleID: "LFE",
-                    channelRole: .lfe,
-                    isSubwoofer: true
-                ),
-                SpeakerLayoutRole(roleID: "TFL", channelRole: .topFrontLeft),
-                SpeakerLayoutRole(roleID: "TFR", channelRole: .topFrontRight),
-                SpeakerLayoutRole(roleID: "TRL", channelRole: .topRearLeft),
-                SpeakerLayoutRole(roleID: "TRR", channelRole: .topRearRight),
-            ]
-        )
+        SpeakerLayoutProfiles.surround7_1_4.makePlan()
     }
 
     public static var all: [SpeakerLayoutPlan] {
