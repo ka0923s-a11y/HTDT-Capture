@@ -6705,9 +6705,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             } catch {
                 refreshMissionDeliveryStores()
-                workingSetStatus = HostLocalization.text(
-                    "Mission cannot start: \(error)",
-                    "ミッションを開始できません: \(error)"
+                workingSetStatus = String(
+                    format: String(
+                        localized: "Mission cannot start: %@"
+                    ),
+                    String(describing: error)
                 )
                 return
             }
@@ -6715,15 +6717,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 missionRecordID: recordID
             )
             refreshMissionDeliveryStores()
-            workingSetStatus = HostLocalization.text(
-                "Mission activated — its tasks need no spatial capture; continue in Field return",
-                "ミッションを有効化しました — 空間キャプチャは不要です。フィールドリターンで続けてください"
+            workingSetStatus = String(
+                localized:
+                    "Mission activated — its tasks need no spatial capture; continue in Field return"
             )
             return
         case .artifactReview:
-            workingSetStatus = HostLocalization.text(
-                "Mission is past field work — its captures are reviewable from the inbox",
-                "ミッションはフィールド作業を終えています — キャプチャはインボックスから確認できます"
+            workingSetStatus = String(
+                localized:
+                    "Mission is past field work — its captures are reviewable from the inbox"
             )
             return
         case .unsupported(let reason):
@@ -6782,19 +6784,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     ) -> String {
         switch reason {
         case .spatialCaptureUnavailable:
-            return HostLocalization.text(
-                "Mission requires spatial capture, which is unavailable on this device",
-                "このミッションには空間キャプチャが必要ですが、このデバイスでは利用できません"
+            return String(
+                localized:
+                    "Mission requires spatial capture, which is unavailable on this device"
             )
         case .planUnavailable:
-            return HostLocalization.text(
-                "Mission cannot start: its task plan could not be read",
-                "ミッションを開始できません: タスクプランを読み取れませんでした"
+            return String(
+                localized:
+                    "Mission cannot start: its task plan could not be read"
             )
         case .noExecutableTasks:
-            return HostLocalization.text(
-                "Mission has no tasks this device can execute",
-                "このミッションにはこのデバイスで実行できるタスクがありません"
+            return String(
+                localized:
+                    "Mission has no tasks this device can execute"
             )
         }
     }
