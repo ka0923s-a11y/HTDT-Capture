@@ -7,6 +7,16 @@ import HTDTCapturePlatform
 import UIKit
 #endif
 
+/// Library filter for acquisition origin (#317): imported/received
+/// captures are always visually distinct from device-created ones, so
+/// the filter narrows on that axis rather than on file presence.
+private enum CaptureOriginFilter: String, CaseIterable, Identifiable {
+    case all
+    case device
+    case external
+    var id: String { rawValue }
+}
+
 /// Sidebar/detail selection for the capture-first home (#360/#362).
 /// A `NavigationSplitView` drives both layouts: collapsed on compact
 /// width it behaves as the normal push stack; on regular width the
@@ -140,8 +150,24 @@ public struct CaptureHomeView: View {
     public let persistedInventory: PersistedCaptureInventoryResult
     /// App-local capture names/notes/series metadata (#219).
     public let libraryMetadata: CaptureLibraryMetadataDocument
+    /// #390: notice when a durable document was preserved instead of
+    /// upgraded — its bytes are kept, never silently emptied.
+    public let localStateUpgradeNotice: String?
+    /// #378: staged library-package import preview awaiting confirm.
+    public let libraryImportPreview:
+        CaptureLibraryImportPreview?
+    /// #378: the `.htdtcapturelibrary` the host last wrote.
+    public let libraryExportURL: URL?
     /// Read-only workspace for the persisted viewer (#294).
     public let persistedWorkspace: CaptureReviewWorkspaceModel?
+    /// Handoff receipts (#225) — the historical send record the
+    /// retention previews cite (#394).
+    public let handoffReceipts: [HTDTHandoffReceipt]
+    /// App-local acquisition provenance per revision (#317):
+    /// imported or received captures read differently from
+    /// device-created ones everywhere the library surfaces them.
+    public let captureOrigins:
+        [CaptureRevisionID: CaptureAcquisitionOriginRecord]
     /// Mission inbox records (#386) and the active record id.
     public let missionRecords: [HTDTMissionRecord]
     public let activeMissionRecordID: String?
@@ -153,11 +179,23 @@ public struct CaptureHomeView: View {
 
     @State private var selection: CaptureHomeSelection?
     @State private var libraryQuery = ""
+    @State private var libraryOriginFilter: CaptureOriginFilter = .all
     @State private var importingCaptureArchive = false
     @State private var metadataEditorTarget:
         LibraryMetadataEditorTarget?
     @State private var pendingDeletion: PendingCaptureDeletion?
     @State private var persistedViewerShown = false
+    /// Series whose retention preview sheet is open (#394).
+    @State private var retentionSeriesID: CaptureSeriesID?
+    /// Series whose whole-series delete preview is open (#394).
+    @State private var pendingSeriesDeletion:
+        CaptureSeriesID?
+    /// The explicit protected-marks override for a series delete
+    /// (#394): armable only when the preview reports marked
+    /// revisions.
+    @State private var deleteSeriesIncludeProtected = false
+    @State private var derived3DTarget: DerivedExportTarget?
+    @State private var surveyReportTarget: DerivedExportTarget?
 
     public init(
         capabilities: CaptureCapabilityMatrix,
@@ -167,7 +205,14 @@ public struct CaptureHomeView: View {
                 = PersistedCaptureInventoryResult(),
         libraryMetadata: CaptureLibraryMetadataDocument
             = CaptureLibraryMetadataDocument(),
+        localStateUpgradeNotice: String? = nil,
+        libraryImportPreview:
+            CaptureLibraryImportPreview? = nil,
+        libraryExportURL: URL? = nil,
         persistedWorkspace: CaptureReviewWorkspaceModel? = nil,
+        handoffReceipts: [HTDTHandoffReceipt] = [],
+        captureOrigins:
+            [CaptureRevisionID: CaptureAcquisitionOriginRecord] = [:],
         missionRecords: [HTDTMissionRecord] = [],
         activeMissionRecordID: String? = nil,
         pairedDestinations: [PairedHTDTDestination] = [],
@@ -178,7 +223,12 @@ public struct CaptureHomeView: View {
         self.cameraPermission = cameraPermission
         self.persistedInventory = persistedInventory
         self.libraryMetadata = libraryMetadata
+        self.localStateUpgradeNotice = localStateUpgradeNotice
+        self.libraryImportPreview = libraryImportPreview
+        self.libraryExportURL = libraryExportURL
         self.persistedWorkspace = persistedWorkspace
+        self.handoffReceipts = handoffReceipts
+        self.captureOrigins = captureOrigins
         self.missionRecords = missionRecords
         self.activeMissionRecordID = activeMissionRecordID
         self.pairedDestinations = pairedDestinations
@@ -195,7 +245,9 @@ public struct CaptureHomeView: View {
         }
         .fileImporter(
             isPresented: $importingCaptureArchive,
-            allowedContentTypes: [.htdtCapture],
+            allowedContentTypes: [
+                .htdtCapture, .htdtCaptureLibrary,
+            ],
             allowsMultipleSelection: false
         ) { result in
             guard let urls = try? result.get(),
@@ -203,7 +255,9 @@ public struct CaptureHomeView: View {
             else {
                 return
             }
-            actions.importCaptureArchive(url)
+            // #393: the home importer uses the same inbound boundary
+            // as onOpenURL — the router identifies the kind.
+            actions.importInboundDocument(url)
         }
         .sheet(item: $metadataEditorTarget) { target in
             LibraryMetadataEditor(
@@ -212,6 +266,79 @@ public struct CaptureHomeView: View {
                 document: libraryMetadata,
                 onSave: actions.updateLibraryEntry
             )
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { libraryImportPreview != nil },
+                set: { presented in
+                    if !presented {
+                        actions.dismissLibraryImport()
+                    }
+                }
+            )
+        ) {
+            if let preview = libraryImportPreview {
+                CaptureLibraryImportPreviewView(
+                    preview: preview,
+                    onConfirm: actions.confirmLibraryImport,
+                    onDismiss: actions.dismissLibraryImport
+                )
+            }
+        }
+        .sheet(item: $retentionSeriesID) { seriesID in
+            if let group = libraryGroups.first(where: {
+                $0.captureSeriesID == seriesID
+            }) {
+                CaptureSeriesRetentionView(
+                    group: group,
+                    allRecords: persistedInventory.captures,
+                    libraryMetadata: libraryMetadata,
+                    deliveryJobs: deliveryJobs,
+                    missionRecords: missionRecords,
+                    handoffReceipts: handoffReceipts,
+                    actions: actions,
+                    onDeleteSeries: {
+                        retentionSeriesID = nil
+                        pendingSeriesDeletion = seriesID
+                    }
+                )
+            }
+        }
+        .sheet(item: $pendingSeriesDeletion) { seriesID in
+            let records = persistedInventory.captures.filter {
+                $0.captureSeriesID == seriesID
+            }
+            let preview =
+                CaptureLibraryRetentionPlanner.deletionPreview(
+                    records: records,
+                    allRecords: persistedInventory.captures,
+                    metadata: libraryMetadata,
+                    deliveryJobs: deliveryJobs,
+                    missionRecords: missionRecords,
+                    receipts: handoffReceipts
+                )
+            CaptureSeriesDeleteSheet(
+                seriesID: seriesID,
+                preview: preview,
+                includeProtected:
+                    $deleteSeriesIncludeProtected,
+                onDelete: {
+                    actions.deleteSeries(
+                        seriesID,
+                        deleteSeriesIncludeProtected
+                    )
+                    deleteSeriesIncludeProtected = false
+                },
+                onCancel: {
+                    deleteSeriesIncludeProtected = false
+                }
+            )
+        }
+        .sheet(item: $derived3DTarget) { target in
+            Derived3DExportSheet(target: target, actions: actions)
+        }
+        .sheet(item: $surveyReportTarget) { target in
+            SurveyReportExportSheet(target: target, actions: actions)
         }
         .confirmationDialog(
             "Delete local capture?",
@@ -267,12 +394,36 @@ public struct CaptureHomeView: View {
                     importingCaptureArchive = true
                 } label: {
                     Label(
-                        "Import .htdtcapture",
+                        "Import bundle or library",
                         systemImage: "square.and.arrow.down"
                     )
                     .frame(maxWidth: .infinity)
                 }
                 .captureSecondaryAction()
+                // #378: one-tap whole-library package export; the
+                // written `.htdtcapturelibrary` shares via the same
+                // affordance once the host publishes it.
+                Button {
+                    actions.exportLibraryPackage()
+                } label: {
+                    Label(
+                        "Export library package",
+                        systemImage:
+                            "square.and.arrow.up.on.square"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .captureSecondaryAction()
+                if let libraryExportURL {
+                    ShareLink(item: libraryExportURL) {
+                        Label(
+                            "Share library package",
+                            systemImage: "square.and.arrow.up"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                    .captureSecondaryAction()
+                }
             }
             .listRowSeparator(.hidden)
             .listRowInsets(
@@ -291,6 +442,26 @@ public struct CaptureHomeView: View {
                         id: \.offset
                     ) { _, notice in
                         noticeRow(notice)
+                    }
+                }
+            }
+
+            // #390: a durable document preserved instead of upgraded
+            // is surfaced once, plainly — its bytes were kept, never
+            // silently emptied.
+            if let localStateUpgradeNotice {
+                Section {
+                    Label {
+                        Text(localStateUpgradeNotice)
+                            .font(.caption)
+                    } icon: {
+                        Image(
+                            systemName:
+                                "exclamationmark.triangle"
+                        )
+                        .foregroundStyle(
+                            CaptureColorRole.attention.color
+                        )
                     }
                 }
             }
@@ -332,11 +503,13 @@ public struct CaptureHomeView: View {
             }
 
             Section {
-                if libraryGroups.isEmpty {
+                if activeLibraryGroups.isEmpty
+                    && archivedLibraryGroups.isEmpty
+                {
                     Text("No captures yet")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(filteredLibraryGroups) { group in
+                    ForEach(activeLibraryGroups) { group in
                         NavigationLink(
                             value: CaptureHomeSelection.series(
                                 group.captureSeriesID
@@ -349,6 +522,37 @@ public struct CaptureHomeView: View {
             } header: {
                 HStack {
                     Text("Captures")
+                    Menu {
+                        Picker(
+                            String(localized: "Capture origin"),
+                            selection: $libraryOriginFilter
+                        ) {
+                            Text(String(localized: "All"))
+                                .tag(CaptureOriginFilter.all)
+                            Text(
+                                String(localized: "This device")
+                            )
+                            .tag(CaptureOriginFilter.device)
+                            Text(
+                                String(
+                                    localized: "Imported or received"
+                                )
+                            )
+                            .tag(CaptureOriginFilter.external)
+                        }
+                    } label: {
+                        Image(
+                            systemName:
+                                libraryOriginFilter == .all
+                                    ? "line.3.horizontal.decrease.circle"
+                                    : "line.3.horizontal.decrease.circle.fill"
+                        )
+                        .accessibilityLabel(
+                            String(localized: "Capture origin")
+                        )
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
                     Spacer()
                     if persistedInventory.totalRetainedBytes > 0 {
                         Text(
@@ -362,6 +566,23 @@ public struct CaptureHomeView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .textCase(.none)
+                    }
+                }
+            }
+
+            // #394: archived series leave the default view but keep
+            // every revision, receipt and mission link — searchable
+            // under their own section.
+            if !archivedLibraryGroups.isEmpty {
+                Section("Archived") {
+                    ForEach(archivedLibraryGroups) { group in
+                        NavigationLink(
+                            value: CaptureHomeSelection.series(
+                                group.captureSeriesID
+                            )
+                        ) {
+                            seriesRow(group)
+                        }
                     }
                 }
             }
@@ -516,9 +737,18 @@ public struct CaptureHomeView: View {
                     group: group,
                     libraryMetadata: libraryMetadata,
                     persistedWorkspace: persistedWorkspace,
+                    allRecords: persistedInventory.captures,
+                    deliveryJobs: deliveryJobs,
+                    missionRecords: missionRecords,
+                    handoffReceipts: handoffReceipts,
                     persistedViewerShown: $persistedViewerShown,
                     metadataEditorTarget: $metadataEditorTarget,
                     pendingDeletion: $pendingDeletion,
+                    retentionSeriesID: $retentionSeriesID,
+                    pendingSeriesDeletion: $pendingSeriesDeletion,
+                    derived3DTarget: $derived3DTarget,
+                    surveyReportTarget: $surveyReportTarget,
+                    captureOrigins: captureOrigins,
                     actions: actions
                 )
             } else {
@@ -714,6 +944,51 @@ public struct CaptureHomeView: View {
                 revisionNotes: libraryMetadata.revisions,
                 query: libraryQuery
             )
+        }.filter { group in
+            group.revisions.contains(where: matchesOriginFilter)
+        }
+    }
+
+    /// Whether a library record matches the selected origin filter
+    /// (#317). Records with no origin entry count as device-created
+    /// under `.all`/`.device` — pre-tracking captures surface as
+    /// "origin unknown" rather than silently claiming local
+    /// provenance.
+    private func matchesOriginFilter(
+        _ record: PersistedCaptureRecord
+    ) -> Bool {
+        let kind =
+            captureOrigins[record.captureRevisionID]?.kind
+                ?? .legacyUnknown
+        switch libraryOriginFilter {
+        case .all:
+            return true
+        case .device:
+            return kind == .createdOnThisDevice
+                || kind == .legacyUnknown
+        case .external:
+            return kind == .importedFile
+                || kind == .receivedFromHTDT
+                || kind == .sharedOther
+        }
+    }
+
+    /// #394: archived series are filtered out of the default list
+    /// into their own section; archiving never changes which
+    /// revisions exist, only where they are listed.
+    private var activeLibraryGroups: [CaptureSeriesGroup] {
+        filteredLibraryGroups.filter {
+            !libraryMetadata.seriesState(
+                for: $0.captureSeriesID
+            ).archived
+        }
+    }
+
+    private var archivedLibraryGroups: [CaptureSeriesGroup] {
+        filteredLibraryGroups.filter {
+            libraryMetadata.seriesState(
+                for: $0.captureSeriesID
+            ).archived
         }
     }
 
@@ -769,11 +1044,29 @@ private struct CaptureSeriesDetailView: View {
     let group: CaptureSeriesGroup
     let libraryMetadata: CaptureLibraryMetadataDocument
     let persistedWorkspace: CaptureReviewWorkspaceModel?
+    /// Every persisted record — the retention previews read
+    /// cross-series lineage (parents) from it (#394).
+    let allRecords: [PersistedCaptureRecord]
+    let deliveryJobs: [HTDTDeliveryJob]
+    let missionRecords: [HTDTMissionRecord]
+    let handoffReceipts: [HTDTHandoffReceipt]
     @Binding var persistedViewerShown: Bool
     @Binding var metadataEditorTarget:
         LibraryMetadataEditorTarget?
     @Binding var pendingDeletion: PendingCaptureDeletion?
+    @Binding var retentionSeriesID: CaptureSeriesID?
+    @Binding var pendingSeriesDeletion: CaptureSeriesID?
+    @Binding var derived3DTarget: DerivedExportTarget?
+    @Binding var surveyReportTarget: DerivedExportTarget?
+    let captureOrigins:
+        [CaptureRevisionID: CaptureAcquisitionOriginRecord]
     let actions: CaptureRootActions
+
+    private var seriesArchived: Bool {
+        libraryMetadata.seriesState(
+            for: group.captureSeriesID
+        ).archived
+    }
 
     var body: some View {
         List {
@@ -814,6 +1107,12 @@ private struct CaptureSeriesDetailView: View {
                     "Series ID",
                     value: group.captureSeriesID.description
                 )
+                if seriesArchived {
+                    CaptureTechnicalDetail(
+                        "Lifecycle",
+                        value: String(localized: "Archived")
+                    )
+                }
             }
         }
         .navigationTitle(seriesTitle)
@@ -827,6 +1126,36 @@ private struct CaptureSeriesDetailView: View {
                                 revisionID: nil,
                                 seriesID: group.captureSeriesID
                             )
+                    }
+                    // #394: archive removes the series from the
+                    // default library without touching a single
+                    // bundle byte; unarchive restores it.
+                    if seriesArchived {
+                        Button("Unarchive series") {
+                            actions.setSeriesArchived(
+                                group.captureSeriesID,
+                                false
+                            )
+                        }
+                    } else {
+                        Button("Archive series") {
+                            actions.setSeriesArchived(
+                                group.captureSeriesID,
+                                true
+                            )
+                        }
+                    }
+                    // #394: the retention preview — bytes,
+                    // recommendations, blockers — before any delete
+                    // affordance exists.
+                    Button("Review storage…") {
+                        retentionSeriesID =
+                            group.captureSeriesID
+                    }
+                    Divider()
+                    Button("Delete series…", role: .destructive) {
+                        pendingSeriesDeletion =
+                            group.captureSeriesID
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -912,6 +1241,13 @@ private struct CaptureSeriesDetailView: View {
                         )
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        Text(originLabel(for: record))
+                            .font(.caption)
+                            .foregroundStyle(
+                                isExternalOrigin(record)
+                                    ? CaptureColorRole.accent.color
+                                    : .secondary
+                            )
                     }
                     if let note = entry?.note, !note.isEmpty {
                         Text(note)
@@ -963,6 +1299,125 @@ private struct CaptureSeriesDetailView: View {
         }
     }
 
+    /// #394: the revision's importance marks — milestone,
+    /// keep-local, favorite, pinned. Toggles write through the
+    /// metadata store; a marked revision is skipped by any delete
+    /// unless the operator explicitly overrides.
+    @ViewBuilder
+    private func revisionMarksMenu(
+        _ record: PersistedCaptureRecord
+    ) -> some View {
+        let mark = libraryMetadata.revisionMark(
+            for: record.captureRevisionID
+        )
+        Menu {
+            Toggle(
+                "Milestone",
+                isOn: Binding(
+                    get: { mark.milestone },
+                    set: { value in
+                        var updated = mark
+                        updated.milestone = value
+                        actions.updateRevisionMark(
+                            record.captureRevisionID,
+                            updated
+                        )
+                    }
+                )
+            )
+            Toggle(
+                "Keep on this device",
+                isOn: Binding(
+                    get: { mark.keepLocal },
+                    set: { value in
+                        var updated = mark
+                        updated.keepLocal = value
+                        actions.updateRevisionMark(
+                            record.captureRevisionID,
+                            updated
+                        )
+                    }
+                )
+            )
+            Toggle(
+                "Favorite",
+                isOn: Binding(
+                    get: { mark.favorite },
+                    set: { value in
+                        var updated = mark
+                        updated.favorite = value
+                        actions.updateRevisionMark(
+                            record.captureRevisionID,
+                            updated
+                        )
+                    }
+                )
+            )
+            Toggle(
+                "Pinned",
+                isOn: Binding(
+                    get: { mark.pinned },
+                    set: { value in
+                        var updated = mark
+                        updated.pinned = value
+                        actions.updateRevisionMark(
+                            record.captureRevisionID,
+                            updated
+                        )
+                    }
+                )
+            )
+        } label: {
+            Label(
+                mark.isProtected ? "Marks (protected)" : "Marks…",
+                systemImage: mark.isProtected
+                    ? "bookmark.fill" : "bookmark"
+            )
+        }
+    }
+
+    /// Acquisition-provenance badge for a row (#317): device
+    /// captures carry their ordinary label; anything imported or
+    /// received is additionally color-distinguished so external
+    /// bundles never read as device-created.
+    private func originLabel(
+        for record: PersistedCaptureRecord
+    ) -> String {
+        switch
+        captureOrigins[record.captureRevisionID]?.kind
+            ?? .legacyUnknown
+        {
+        case .createdOnThisDevice:
+            return String(
+                localized: "Created on this device"
+            )
+        case .importedFile:
+            return String(localized: "Imported file")
+        case .receivedFromHTDT:
+            return String(
+                localized: "Received from HTDT"
+            )
+        case .sharedOther:
+            return String(localized: "Shared")
+        case .legacyUnknown:
+            return String(localized: "Origin unknown")
+        }
+    }
+
+    private func isExternalOrigin(
+        _ record: PersistedCaptureRecord
+    ) -> Bool {
+        switch
+        captureOrigins[record.captureRevisionID]?.kind
+            ?? .legacyUnknown
+        {
+        case .importedFile, .receivedFromHTDT, .sharedOther:
+            return true
+        case .createdOnThisDevice, .legacyUnknown:
+            return false
+        }
+    }
+
     /// Secondary/destructive revision actions — present but visually
     /// subordinate until invoked (#360 §3.3).
     @ViewBuilder
@@ -985,12 +1440,48 @@ private struct CaptureSeriesDetailView: View {
                 actions.revisePersistedCapture(record)
             }
         }
+        if record.canOpen {
+            Button("Correct metadata…") {
+                actions.beginSemanticCorrection(record)
+            }
+            .accessibilityIdentifier(
+                "library.correctMetadata"
+            )
+        }
         Button("Rename…") {
             metadataEditorTarget =
                 LibraryMetadataEditorTarget(
                     revisionID: record.captureRevisionID,
                     seriesID: nil
                 )
+        }
+        // #394: importance marks protect the revision in retention
+        // previews and block delete unless the operator arms the
+        // explicit override.
+        revisionMarksMenu(record)
+        if record.canOpen {
+            Menu("Export…") {
+                Button("Derived 3D model…") {
+                    derived3DTarget = DerivedExportTarget(
+                        revisionID: record.captureRevisionID,
+                        displayName:
+                            libraryMetadata.revisions[
+                                record.captureRevisionID
+                                    .description
+                            ]?.displayName
+                    )
+                }
+                Button("Survey report…") {
+                    surveyReportTarget = DerivedExportTarget(
+                        revisionID: record.captureRevisionID,
+                        displayName:
+                            libraryMetadata.revisions[
+                                record.captureRevisionID
+                                    .description
+                            ]?.displayName
+                    )
+                }
+            }
         }
         Divider()
         if record.exportArchive != nil,
@@ -1268,6 +1759,589 @@ private struct CaptureDeviceReadinessView: View {
             return .blocked
         case .notDetermined:
             return .unknown
+        }
+    }
+}
+
+/// The staged `.htdtcapturelibrary` import preview (issue #378):
+/// every manifest entry with its disposition — new, duplicate,
+/// conflict, or invalid — plus the metadata-merge and receipt
+/// counts the commit would apply. Commit is explicit; nothing here
+/// has touched the capture root yet.
+private struct CaptureLibraryImportPreviewView: View {
+    let preview: CaptureLibraryImportPreview
+    let onConfirm: () -> Void
+    let onDismiss: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    private func dispositionLabel(
+        _ disposition: CaptureLibraryImportDisposition
+    ) -> String {
+        switch disposition {
+        case .newSeries:
+            return String(localized: "New series")
+        case .newRevisionInKnownSeries:
+            return String(localized: "New revision")
+        case .duplicate:
+            return String(localized: "Duplicate")
+        case .conflict:
+            return String(localized: "Conflict — kept local")
+        case .invalid:
+            return String(localized: "Invalid")
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    LabeledContent(
+                        "Revisions to import",
+                        value: String(preview.importableCount)
+                    )
+                    LabeledContent(
+                        "Metadata entries adopted",
+                        value: String(
+                            preview.metadataAdoptions
+                        )
+                    )
+                    LabeledContent(
+                        "Receipts to append",
+                        value: String(
+                            preview.receiptsToAppend
+                        )
+                    )
+                    Text(
+                        "Exact archive bytes are installed verbatim; conflicting local revisions are never overwritten."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                Section("Revisions") {
+                    ForEach(
+                        preview.entries,
+                        id: \.captureRevisionID
+                    ) { entry in
+                        VStack(
+                            alignment: .leading,
+                            spacing: 2
+                        ) {
+                            HStack {
+                                Text(
+                                    entry.captureRevisionID
+                                        .description
+                                )
+                                .font(.caption.monospaced())
+                                .lineLimit(1)
+                                Spacer()
+                                Text(
+                                    dispositionLabel(
+                                        entry.disposition
+                                    )
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+                            if let detail = entry.detail {
+                                Text(detail)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                if !preview.metadataConflicts.isEmpty {
+                    Section("Metadata kept local") {
+                        ForEach(
+                            preview.metadataConflicts
+                        ) { conflict in
+                            VStack(
+                                alignment: .leading,
+                                spacing: 2
+                            ) {
+                                Text(conflict.identity)
+                                    .font(.caption.monospaced())
+                                Text(
+                                    "Local values were kept; the package values were not imported."
+                                )
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Import library package")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(
+                        preview.importableCount > 0
+                            ? "Import \(preview.importableCount) revision(s)"
+                            : "Done"
+                    ) {
+                        if preview.importableCount > 0 {
+                            onConfirm()
+                        } else {
+                            onDismiss()
+                        }
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        onDismiss()
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Per-revision retention preview for one series (issue #394):
+/// latest + marked revisions recommend keep, every byte class is
+/// listed separately, blockers and warnings are named before any
+/// delete action exists — the derived-archives-only cleanup is
+/// always the safest first suggestion.
+private struct CaptureSeriesRetentionView: View {
+    let group: CaptureSeriesGroup
+    let allRecords: [PersistedCaptureRecord]
+    let libraryMetadata: CaptureLibraryMetadataDocument
+    let deliveryJobs: [HTDTDeliveryJob]
+    let missionRecords: [HTDTMissionRecord]
+    let handoffReceipts: [HTDTHandoffReceipt]
+    let actions: CaptureRootActions
+    let onDeleteSeries: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    private var preview: CaptureSeriesRetentionPreview {
+        CaptureLibraryRetentionPlanner.seriesPreview(
+            seriesID: group.captureSeriesID,
+            records: group.revisions,
+            allRecords: allRecords,
+            metadata: libraryMetadata,
+            deliveryJobs: deliveryJobs,
+            missionRecords: missionRecords,
+            receipts: handoffReceipts
+        )
+    }
+
+    private func blockerLabel(
+        _ blocker: CaptureRetentionBlocker
+    ) -> String {
+        switch blocker {
+        case .pendingDeliveryJob(let jobID):
+            return String(
+                format: String(
+                    localized:
+                        "Pending delivery job %@"
+                ),
+                jobID
+            )
+        case .protectedMark:
+            return String(
+                localized: "Protected mark"
+            )
+        }
+    }
+
+    private func warningLabel(
+        _ warning: CaptureRetentionWarning
+    ) -> String {
+        switch warning {
+        case .parentOfRevisions(let count):
+            return String(
+                format: String(
+                    localized:
+                        "Parent of %d revision(s) on this device"
+                ),
+                count
+            )
+        case .handoffReceipts(let count):
+            return String(
+                format: String(
+                    localized:
+                        "%d handoff receipt(s) remain as history; the bytes will no longer be inspectable"
+                ),
+                count
+            )
+        case .linkedToMission(let recordID):
+            return String(
+                format: String(
+                    localized: "Linked to mission %@"
+                ),
+                recordID
+            )
+        case .onlyLocalCopy:
+            return String(
+                localized:
+                    "No delivered receipt — this is the only local copy"
+            )
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    LabeledContent(
+                        "Revisions",
+                        value: String(
+                            preview.revisionCount
+                        )
+                    )
+                    LabeledContent(
+                        "Finalized bytes",
+                        value: ByteCountFormatter.string(
+                            fromByteCount:
+                                preview.totalFinalizedBytes,
+                            countStyle: .file
+                        )
+                    )
+                    LabeledContent(
+                        "Derived archive bytes",
+                        value: ByteCountFormatter.string(
+                            fromByteCount:
+                                preview
+                                    .totalDerivedArchiveBytes,
+                            countStyle: .file
+                        )
+                    )
+                    if preview.blockedCount > 0 {
+                        Text(
+                            String(
+                                format: String(
+                                    localized:
+                                        "%d revision(s) are protected or blocked"
+                                ),
+                                preview.blockedCount
+                            )
+                        )
+                        .font(.caption)
+                        .foregroundStyle(
+                            CaptureColorRole.attention.color
+                        )
+                    }
+                }
+                Section("Revisions") {
+                    ForEach(preview.rows) { row in
+                        VStack(
+                            alignment: .leading,
+                            spacing: 4
+                        ) {
+                            HStack {
+                                Text(
+                                    row.isLatest
+                                        ? "Latest"
+                                        : row.recommendation
+                                            == .keep
+                                            ? "Keep"
+                                            : "Delete candidate"
+                                )
+                                .font(.caption.bold())
+                                .foregroundStyle(
+                                    row.recommendation == .keep
+                                        ? .primary
+                                        : CaptureColorRole
+                                            .attention.color
+                                )
+                                Spacer()
+                                Text(
+                                    ByteCountFormatter.string(
+                                        fromByteCount:
+                                            row
+                                                .finalizedByteCount
+                                                + row
+                                                    .archiveByteCount,
+                                        countStyle: .file
+                                    )
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+                            Text(
+                                row.captureRevisionID
+                                    .description
+                            )
+                            .font(.caption2.monospaced())
+                            if row.mark.isProtected {
+                                Text(
+                                    "Marked: milestone/keep/favorite/pinned — delete needs the explicit override"
+                                )
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            }
+                            if row.archiveByteCount > 0 {
+                                Text(
+                                    ByteCountFormatter.string(
+                                        fromByteCount:
+                                            row.archiveByteCount,
+                                        countStyle: .file
+                                    ) + " derived archive"
+                                )
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            }
+                            ForEach(
+                                row.blockers,
+                                id: \.self
+                            ) { blocker in
+                                Label(
+                                    blockerLabel(blocker),
+                                    systemImage:
+                                        "exclamationmark.triangle"
+                                )
+                                .font(.caption2)
+                                .foregroundStyle(
+                                    CaptureColorRole
+                                        .attention.color
+                                )
+                            }
+                            ForEach(
+                                row.warnings,
+                                id: \.self
+                            ) { warning in
+                                Text(warningLabel(warning))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+                Section {
+                    // The safest first suggestion (#394): derived
+                    // archive copies leave nothing unrecoverable —
+                    // the canonical finalized bundles stay.
+                    Button("Delete derived archives only") {
+                        for record in group.revisions
+                        where record.exportArchive != nil
+                            && record.finalizedDirectory != nil
+                        {
+                            actions.deleteExportArchive(record)
+                        }
+                    }
+                    .disabled(
+                        preview.totalDerivedArchiveBytes == 0
+                    )
+                    Button(
+                        "Delete series…",
+                        role: .destructive
+                    ) {
+                        dismiss()
+                        onDeleteSeries()
+                    }
+                }
+            }
+            .navigationTitle("Storage review")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+/// The whole-series delete preview (issue #394): revision count,
+/// finalized + derived bytes, per-revision blockers, and the
+/// protected-marks override — explicit and dependency-aware before
+/// anything leaves the device.
+private struct CaptureSeriesDeleteSheet: View {
+    let seriesID: CaptureSeriesID
+    let preview: CaptureLibraryDeletionPreview
+    @Binding var includeProtected: Bool
+    let onDelete: () -> Void
+    let onCancel: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    private var protectedCount: Int {
+        preview.outcomes.filter {
+            $0.blockers.contains(.protectedMark)
+        }.count
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    LabeledContent(
+                        "Revisions",
+                        value: String(
+                            preview.revisionCount
+                        )
+                    )
+                    LabeledContent(
+                        "Finalized bytes",
+                        value: ByteCountFormatter.string(
+                            fromByteCount:
+                                preview.finalizedByteCount,
+                            countStyle: .file
+                        )
+                    )
+                    LabeledContent(
+                        "Derived archive bytes",
+                        value: ByteCountFormatter.string(
+                            fromByteCount:
+                                preview
+                                    .derivedArchiveByteCount,
+                            countStyle: .file
+                        )
+                    )
+                    if preview.blockedCount > 0 {
+                        LabeledContent(
+                            "Blocked",
+                            value: String(
+                                preview.blockedCount
+                            )
+                        )
+                    }
+                    if preview.containsExportOnlyRecords {
+                        Text(
+                            "Some revisions were imported as archives — their local finalized bytes were already absent."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                if protectedCount > 0 {
+                    Section {
+                        Toggle(
+                            "Delete protected revisions too",
+                            isOn: $includeProtected
+                        )
+                        Text(
+                            "\(protectedCount) revision(s) carry an importance mark. Leave this off to keep them."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                Section("Per revision") {
+                    ForEach(preview.outcomes) { outcome in
+                        VStack(
+                            alignment: .leading,
+                            spacing: 2
+                        ) {
+                            Text(
+                                outcome.captureRevisionID
+                                    .description
+                            )
+                            .font(.caption.monospaced())
+                            ForEach(
+                                outcome.blockers,
+                                id: \.self
+                            ) { blocker in
+                                Text(
+                                    blockerSummary(blocker)
+                                )
+                                .font(.caption2)
+                                .foregroundStyle(
+                                    CaptureColorRole
+                                        .attention.color
+                                )
+                            }
+                            ForEach(
+                                outcome.warnings,
+                                id: \.self
+                            ) { warning in
+                                Text(
+                                    warningSummary(warning)
+                                )
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Delete series?")
+            .toolbar {
+                ToolbarItem(
+                    placement: .destructiveAction
+                ) {
+                    Button(
+                        "Delete \(deletableCount) revision(s)",
+                        role: .destructive
+                    ) {
+                        dismiss()
+                        onDelete()
+                    }
+                    .disabled(deletableCount == 0)
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                        onCancel()
+                    }
+                }
+            }
+        }
+    }
+
+    private var deletableCount: Int {
+        preview.outcomes.filter {
+            $0.canDelete || includeProtected
+                && $0.blockers.allSatisfy {
+                    $0 == .protectedMark
+                }
+        }.count
+    }
+
+    private func blockerSummary(
+        _ blocker: CaptureRetentionBlocker
+    ) -> String {
+        switch blocker {
+        case .pendingDeliveryJob(let jobID):
+            return String(
+                format: String(
+                    localized:
+                        "Blocked by pending delivery job %@"
+                ),
+                jobID
+            )
+        case .protectedMark:
+            return String(
+                localized: "Protected — kept unless overridden"
+            )
+        }
+    }
+
+    private func warningSummary(
+        _ warning: CaptureRetentionWarning
+    ) -> String {
+        switch warning {
+        case .parentOfRevisions(let count):
+            return String(
+                format: String(
+                    localized:
+                        "Parent of %d local revision(s); they will show an absent predecessor"
+                ),
+                count
+            )
+        case .handoffReceipts(let count):
+            return String(
+                format: String(
+                    localized:
+                        "%d receipt(s) stay as history; the bytes will no longer be inspectable"
+                ),
+                count
+            )
+        case .linkedToMission(let recordID):
+            return String(
+                format: String(
+                    localized: "Linked to mission %@"
+                ),
+                recordID
+            )
+        case .onlyLocalCopy:
+            return String(
+                localized:
+                    "Only local copy — nothing proves it exists elsewhere"
+            )
         }
     }
 }

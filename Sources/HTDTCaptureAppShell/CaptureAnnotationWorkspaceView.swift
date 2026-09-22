@@ -159,6 +159,9 @@ public struct CaptureAnnotationWorkspaceView: View {
         (() async throws -> EquipmentLabelScanResult)?
     /// Current capture-task profile (#217); nil means geometry-only.
     public let taskProfile: CaptureTaskProfile?
+    /// Presentation-only length unit for rendering canonical meter
+    /// values (#338); the persisted bytes always stay canonical.
+    public let lengthDisplayUnit: LengthDisplayUnit
     public let onSelectTaskProfile:
         (CaptureTaskProfile?, Set<String>) -> Void
     /// True while the host is committing the staged authority
@@ -306,6 +309,7 @@ public struct CaptureAnnotationWorkspaceView: View {
             TheaterAuthorityCollection
         ) -> Void,
         taskProfile: CaptureTaskProfile? = nil,
+        lengthDisplayUnit: LengthDisplayUnit = .meter,
         onSelectTaskProfile: @escaping
             (CaptureTaskProfile?, Set<String>) -> Void = { _, _ in },
         onCancel: @escaping () -> Void,
@@ -348,6 +352,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         self.taskPlan = taskPlan
         self.scanEquipmentLabel = scanEquipmentLabel
         self.taskProfile = taskProfile
+        self.lengthDisplayUnit = lengthDisplayUnit
         self.onSelectTaskProfile = onSelectTaskProfile
         self.onCommit = onCommit
         self.onCancel = onCancel
@@ -791,6 +796,7 @@ public struct CaptureAnnotationWorkspaceView: View {
             measurements: measurements,
             equipmentIdentityRecords: identityRecords,
             speakerLayoutPlan: speakerLayoutPlan,
+            theaterAuthorities: authorities,
             authorities: authorities,
             fieldAuthority: fieldAuthority
         )
@@ -1919,11 +1925,31 @@ public struct CaptureAnnotationWorkspaceView: View {
         var detail: String
         switch measurement.value {
         case let .scalar(value):
-            detail = String(value) + " "
-                + measurement.unit.rawValue
+            // Canonical meter values render in the operator's display
+            // unit (#338); the stored value and unit never change.
+            if measurement.unit == .meter {
+                detail = lengthDisplayUnit.format(
+                    lengthMeters: value
+                )
+            } else {
+                detail = String(value) + " "
+                    + measurement.unit.rawValue
+            }
         case let .vector3(x, y, z):
-            detail = "[\(x), \(y), \(z)] "
-                + measurement.unit.rawValue
+            if measurement.unit == .meter {
+                detail = "["
+                    + [x, y, z]
+                        .map {
+                            lengthDisplayUnit.formatValue(
+                                lengthMeters: $0
+                            )
+                        }
+                        .joined(separator: ", ")
+                    + "] " + lengthDisplayUnit.rawValue
+            } else {
+                detail = "[\(x), \(y), \(z)] "
+                    + measurement.unit.rawValue
+            }
         }
         if let sourceValueText = measurement.sourceValueText,
            sourceValueText != detail

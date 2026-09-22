@@ -114,6 +114,17 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
             case annotation
             case roomFrameOrigin
             case roomFrameFront
+            // Committed spatial-authority entities (issue #367): the
+            // glyph grammar distinguishes equipment classes instead of
+            // one generic object dot.
+            case speaker
+            case seat
+            case screen
+            case projector
+            case display
+            case measurement
+            case referencePoint
+            case genericEntity
             /// An unresolved operator revisit flag (#325).
             case revisitFlag
         }
@@ -124,7 +135,21 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
         /// Optional facing direction (unit vector on the plan).
         public let dirX: Double?
         public let dirZ: Double?
+        /// Human name — never a raw identifier/UUID.
         public let label: String?
+        /// Stable machine ref used for selection linking
+        /// (`entity:<id>`, `opening:<id>`, `roomplan:<kind>:<token>`).
+        /// Presentation-only; it is not an authority identifier.
+        public let identifier: String?
+        /// The workspace record this marker links back to (the entity
+        /// or opening the list rows name), when one exists.
+        public let linkedItemID: String?
+        /// Whether the review surface offers the marker for selection.
+        public let selectable: Bool
+        /// Review/task state carried by the marker (issue #367): glyph
+        /// shape stays the category, this status drives only the
+        /// badge/attention overlay.
+        public let reviewStatus: PlanMarkerReviewStatus
 
         public init(
             kind: Kind,
@@ -132,7 +157,11 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
             z: Double,
             dirX: Double? = nil,
             dirZ: Double? = nil,
-            label: String? = nil
+            label: String? = nil,
+            identifier: String? = nil,
+            linkedItemID: String? = nil,
+            selectable: Bool = false,
+            reviewStatus: PlanMarkerReviewStatus = .nominal
         ) {
             self.kind = kind
             self.x = x
@@ -140,6 +169,10 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
             self.dirX = dirX
             self.dirZ = dirZ
             self.label = label
+            self.identifier = identifier
+            self.linkedItemID = linkedItemID
+            self.selectable = selectable
+            self.reviewStatus = reviewStatus
         }
     }
 
@@ -875,6 +908,10 @@ public struct PersistedCaptureContents: Sendable, Equatable {
     /// Decoded payloads that were declared but unreadable — surfaced so
     /// the viewer degrades to text instead of hiding the gap.
     public let issues: [String]
+    /// The revision's declared intent (`revision/intent.json`) — the
+    /// machine-readable added/changed/superseded/reused record diff
+    /// for child revisions (#319/#155). Nil on root revisions.
+    public let revisionIntent: CaptureRevisionIntentDocument?
 
     public init(
         manifest: BundleManifest,
@@ -892,7 +929,8 @@ public struct PersistedCaptureContents: Sendable, Equatable {
         fieldNotes: [CaptureFieldNote] = [],
         roomPlanPayload: Data? = nil,
         frameDescriptors: [FrameEvidenceDescriptor],
-        issues: [String]
+        issues: [String],
+        revisionIntent: CaptureRevisionIntentDocument? = nil
     ) {
         self.manifest = manifest
         self.qualityReport = qualityReport
@@ -910,6 +948,7 @@ public struct PersistedCaptureContents: Sendable, Equatable {
         self.roomPlanPayload = roomPlanPayload
         self.frameDescriptors = frameDescriptors
         self.issues = issues
+        self.revisionIntent = revisionIntent
     }
 
     /// The revision's reference universe for field-datum staleness
@@ -1095,7 +1134,11 @@ public enum PersistedCaptureContentsLoader {
                     : nil
             ),
             frameDescriptors: descriptors,
-            issues: issues
+            issues: issues,
+            revisionIntent: decodeIfDeclared(
+                CaptureRevisionIntentDocument.self,
+                CaptureRevisionIntentPackage.path
+            )
         )
     }
 }
@@ -1363,6 +1406,62 @@ public enum CaptureRevisionComparator {
                 child: str(noteDiff.resolved.count)
             )
         )
+
+        // Exact semantic diff (#319): when the child declared a
+        // semantic_correction intent, surface the revision kind, the
+        // operator's correction note, and the per-record
+        // added/changed/superseded/reused accounting — never averaged
+        // into the field-level rows above.
+        if let intent = child.revisionIntent,
+           intent.revisionKind == .semanticCorrection
+        {
+            fields.append(
+                RevisionFieldComparison(
+                    field: "revision_kind",
+                    parent: "—",
+                    child: intent.revisionKind.rawValue
+                )
+            )
+            if let note = intent.correctionNote {
+                fields.append(
+                    RevisionFieldComparison(
+                        field: "correction_note",
+                        parent: "—",
+                        child: note
+                    )
+                )
+            }
+            func recordFields(
+                _ refs: [CaptureRevisionRecordRef],
+                _ state: String
+            ) {
+                for ref in refs {
+                    fields.append(
+                        RevisionFieldComparison(
+                            field: ref.payloadPath
+                                + " / " + ref.recordID,
+                            parent: "—",
+                            child: state
+                        )
+                    )
+                }
+            }
+            recordFields(intent.addedRecordRefs, "added")
+            recordFields(intent.changedRecordRefs, "changed")
+            recordFields(
+                intent.supersededRecordRefs,
+                "superseded"
+            )
+            fields.append(
+                RevisionFieldComparison(
+                    field: "reused_evidence_refs",
+                    parent: "—",
+                    child: String(
+                        intent.reusedEvidenceRefs.count
+                    )
+                )
+            )
+        }
         return CaptureRevisionComparison(
             parentRevisionID: parent.manifest.captureRevisionID,
             childRevisionID: child.manifest.captureRevisionID,

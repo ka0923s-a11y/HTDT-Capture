@@ -46,6 +46,10 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     /// A task profile failed validation (empty identity, empty
     /// requirement identifier, or invalid counts) (#259).
     case invalidTaskProfile
+    /// A capture-strategy payload failed validation — an unknown
+    /// `strategy_id`, a policy echo that does not match the published
+    /// profile, or an invalid `selected_at` timestamp (#307).
+    case invalidCaptureStrategy
     /// `session/revision-state.json` decoded but with a schema or
     /// version this build does not own (issue #297).
     case unsupportedRevisionStateSchema
@@ -115,6 +119,10 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
     /// Frame ids committed by the accepted End boundary (issue #241);
     /// these are the non-removable closing observations of the scan.
     public let endBoundaryFrameIDs: [EvidenceFrameID]
+    /// Committed capture-strategy document (issue #307), if any.
+    public let captureStrategy: CaptureStrategyDocument?
+    /// Committed plan-reference underlay document (issue #322), if any.
+    public let planUnderlay: PlanUnderlayDocument?
     /// Durable lifecycle phase mirrored to
     /// `session/revision-state.json` (issue #297).
     public let revisionPhase: WorkingRevisionPhase?
@@ -160,6 +168,10 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         endBoundaryFrameIDs: [EvidenceFrameID] = [],
         fieldNotes: [CaptureFieldNote] = [],
         latestEvidenceDescriptorPath: String? = nil
+        endBoundaryFrameIDs: [EvidenceFrameID] = []
+        endBoundaryFrameIDs: [EvidenceFrameID] = [],
+        captureStrategy: CaptureStrategyDocument? = nil,
+        planUnderlay: PlanUnderlayDocument? = nil
     ) {
         self.identity = identity
         self.rootDirectory = rootDirectory
@@ -187,6 +199,8 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         self.fieldNotes = fieldNotes
         self.latestEvidenceDescriptorPath =
             latestEvidenceDescriptorPath
+        self.captureStrategy = captureStrategy
+        self.planUnderlay = planUnderlay
     }
 }
 
@@ -515,6 +529,10 @@ public actor CaptureWorkingSetStore {
     private var roomPlanGuidanceAvailable = false
     private var taskProfile: CaptureTaskProfile?
     private var skippedTaskRequirementIDs: Set<String> = []
+    /// The persisted `session/capture-strategy.json` document, iff the
+    /// host committed a strategy selection for this revision (#307).
+    private var captureStrategyDocument: CaptureStrategyDocument?
+    private var planUnderlayDocument: PlanUnderlayDocument?
     private var benchmarkRefs: [String] = []
     /// Advisory provenance notes recorded by the operator or capture
     /// policies; persisted at `advisory/operator-advisories.json` and
@@ -4693,6 +4711,93 @@ public actor CaptureWorkingSetStore {
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
+    /// Persists the operator/plan capture-strategy selection as the
+    /// `session/capture-strategy.json` payload (#307). The strategy is
+    /// advisory provenance: it records which published guidance and
+    /// evidence budgets steered this revision and never feeds
+    /// `ready_for_htdt_ingestion`. Idempotent on an identical
+    /// re-commit; a conflicting second selection fails closed like
+    /// every other canonical payload.
+    public func persistCaptureStrategy(
+        _ package: CaptureStrategyPackage
+    ) async throws {
+        try requireMutable()
+        guard let catalogID = CaptureStrategyCatalog.identifier(
+            forPersistedValue: package.document.strategyID
+        ) else {
+            throw CaptureWorkingSetError.invalidCaptureStrategy
+        }
+        let publishedProfile = CaptureStrategyCatalog.profile(
+            for: catalogID
+        )
+        guard package.document.policyVersion
+                == publishedProfile.policyVersion,
+              package.document.resolvedPolicy
+                == CaptureStrategyPolicyEcho(
+                    profile: publishedProfile
+                ),
+              package.document.reviewExpectation
+                == publishedProfile.reviewExpectation,
+              package.document.promptsComplexObjectReview
+                == publishedProfile.promptsComplexObjectReview,
+              package.document.promptsLoopClosureCheck
+                == publishedProfile.promptsLoopClosureCheck
+        else {
+            throw CaptureWorkingSetError.invalidCaptureStrategy
+        }
+        guard package.document.captureRevisionID
+                == identity.captureRevisionID
+        else {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        try await persistSupplementalDocument(
+            WorkingSetSupplementalDocument(
+                path: CaptureStrategyPackage.path,
+                data: package.data,
+                declaration: package.payloadDeclaration,
+                coordinateSpaceIDs: [
+                    package.document.coordinateSpaceID
+                ],
+                captureSessionIDs: [
+                    package.document.captureSessionID
+                ]
+            )
+        )
+        captureStrategyDocument = package.document
+    }
+
+    /// Persists the floor-plan reference underlay as the
+    /// `reference/plan-underlay.json` payload (#322). The underlay is
+    /// `.importedReference` provenance — a declared reference for
+    /// guidance/coverage comparison only; it is never merged into
+    /// observed geometry, never feeds `ready_for_htdt_ingestion`, and
+    /// its residual stays visible on the document. The alignment
+    /// method must be one of the explicit published authorities —
+    /// scale inference from image metadata is rejected by
+    /// construction (the document carries no DPI/pixel fields at all).
+    public func persistPlanUnderlay(
+        _ package: PlanUnderlayPackage
+    ) async throws {
+        try requireMutable()
+        guard package.document.captureRevisionID
+                == identity.captureRevisionID
+        else {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        try await persistSupplementalDocument(
+            WorkingSetSupplementalDocument(
+                path: PlanUnderlayPackage.path,
+                data: package.data,
+                declaration: package.payloadDeclaration,
+                coordinateSpaceIDs: [
+                    package.document.coordinateSpaceID
+                ],
+                captureSessionIDs: []
+            )
+        )
+        planUnderlayDocument = package.document
+    }
+
     /// Binds benchmark references into the quality report (#285). Only
     /// immutable/versioned `slug@semver` refs pass validation; anything
     /// else fails closed.
@@ -5523,6 +5628,41 @@ public actor CaptureWorkingSetStore {
                         + $0.frameID.description
                         + ".json"
                 }
+            }
+            },
+            captureStrategy: captureStrategyDocument,
+            planUnderlay: planUnderlayDocument
+        )
+    }
+
+    /// Byte accounting of the live working revision for the active-
+    /// capture storage UX (issue #308). Scans the same directory the
+    /// manifest would be built from, so the operator-visible totals
+    /// equal the retained bytes of the bundle that would finalize.
+    /// Advisory only — never persisted, never a quality input.
+    public func storageProfile() throws
+        -> CaptureWorkingSetStorageProfile
+    {
+        let scanned = try BundleDirectoryScanner.scan(
+            root: rootDirectory
+        )
+        var accumulator = CaptureWorkingSetStorageProfile
+            .Accumulator()
+        for file in scanned {
+            CaptureWorkingSetStorageProfile.accumulate(
+                path: file.path,
+                bytes: file.bytes,
+                into: &accumulator
+            )
+        }
+        return CaptureWorkingSetStorageProfile(
+            framePixelBytes: accumulator.framePixelBytes,
+            depthConfidenceBytes: accumulator.depthConfidenceBytes,
+            meshBytes: accumulator.meshBytes,
+            roomPlanBytes: accumulator.roomPlanBytes,
+            previewAndDerivedBytes: accumulator
+                .previewAndDerivedBytes,
+            documentBytes: accumulator.documentBytes
         )
     }
 

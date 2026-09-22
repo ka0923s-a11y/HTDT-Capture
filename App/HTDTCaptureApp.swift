@@ -54,6 +54,7 @@ private struct HTDTCaptureHostView: View {
             equipmentCatalogLibrary:
                 coordinator.equipmentCatalogLibrary,
             taskPlan: coordinator.taskPlan,
+            taskPlanMission: coordinator.taskPlanMission,
             workingSetIdentity:
                 coordinator.workingSetIdentity,
             annotationEvidenceFrames:
@@ -129,10 +130,43 @@ private struct HTDTCaptureHostView: View {
                 coordinator.pairedDestinations,
             deliveryJobs: coordinator.deliveryJobs,
             libraryMetadata: coordinator.libraryMetadata,
+            localStateUpgradeNotice:
+                coordinator.localStateUpgradeNotice,
+            libraryImportPreview:
+                coordinator.libraryImportPreview,
+            libraryExportURL: coordinator.libraryExportURL,
             failedInspection: coordinator.failedInspection,
             spatialCaptureSealed:
                 coordinator.annotationCoordinateSpaceID == nil
                     && coordinator.annotationAuthorityCommitted,
+            appSettings: coordinator.appSettings,
+            missionEntries: coordinator.missionEntries,
+            missionTaskPlan: coordinator.captureTaskPlan,
+            missionTaskPlanOutcomes:
+                coordinator.missionTaskPlanOutcomes,
+            connectedSpaceIntent:
+                coordinator.connectedSpaceIntent,
+            connectedTracker: coordinator.connectedSpaceTracker,
+            asBuiltPlanLoaded: coordinator.asBuiltPlan != nil,
+            asBuiltItems: coordinator.asBuiltItems,
+            asBuiltGhostOverlayEnabled:
+                coordinator.asBuiltGhostOverlayEnabled,
+            asBuiltAlignmentInstalled:
+                coordinator.asBuiltAlignmentInstalled,
+            asBuiltActualCandidates:
+                coordinator.asBuiltActualCandidates,
+            roomFrameAvailable: coordinator.roomFrameAvailable,
+            repairTaskRows: coordinator.repairTaskRows,
+            evidenceStorageAdvisory:
+                coordinator.evidenceStorageAdvisory,
+            selectedStrategyID: coordinator.selectedStrategyID,
+            strategyPinnedByTaskPlan:
+                coordinator.strategyPinnedByTaskPlan,
+            captureOrigins: coordinator.captureOrigins,
+            planUnderlayDocument:
+                coordinator.planUnderlayDocument,
+            semanticCorrectionContext:
+                coordinator.semanticCorrectionContext,
             liveSpatialAuthority:
                 coordinator.workingSetSpatialAuthorityLive,
             recoveredDraftReport:
@@ -199,7 +233,8 @@ private struct HTDTCaptureHostView: View {
                     coordinator.updateRevisitFlagDetails,
                 resolveRevisitFlag: coordinator.resolveRevisitFlag,
                 reopenRevisitFlag: coordinator.reopenRevisitFlag,
-                markTaskPlanItem: coordinator.markTaskPlanItem,
+                markTaskPlanItem:
+                    coordinator.markTaskPlanItem(_:outcome:),
                 importEquipmentCatalog:
                     coordinator.importEquipmentCatalog,
                 selectEquipmentCatalog:
@@ -252,6 +287,26 @@ private struct HTDTCaptureHostView: View {
                     coordinator.inspectFailedCapture,
                 exportFailedCaptureDiagnostics:
                     coordinator.exportFailedCaptureDiagnostics,
+                importMissionDocument:
+                    coordinator.importMissionDocument,
+                setConnectedSpaceIntent:
+                    coordinator.setConnectedSpaceIntent,
+                beginConnectedSegment:
+                    coordinator.beginConnectedSegment,
+                completeConnectedSegment:
+                    coordinator.completeConnectedSegment,
+                recordConnectedPortal:
+                    coordinator.recordConnectedPortal,
+                revisitConnectedRegion:
+                    coordinator.revisitConnectedRegion,
+                asBuiltMarkUnavailable:
+                    coordinator.asBuiltMarkUnavailable,
+                asBuiltEstablishAlignment:
+                    coordinator.asBuiltEstablishAlignment,
+                asBuiltRecordActual:
+                    coordinator.asBuiltRecordActual,
+                resolveRepairTask:
+                    coordinator.resolveRepairTask,
                 sendCaptureToHTDT:
                     coordinator.sendCaptureToHTDT,
                 importMissionPackage:
@@ -284,6 +339,39 @@ private struct HTDTCaptureHostView: View {
                     coordinator.deleteExportArchive,
                 updateLibraryEntry:
                     coordinator.updateLibraryEntry,
+                importInboundDocument:
+                    coordinator.importInboundDocument,
+                confirmLibraryImport:
+                    coordinator.confirmLibraryImport,
+                dismissLibraryImport:
+                    coordinator.dismissLibraryImport,
+                exportLibraryPackage:
+                    coordinator.exportLibraryPackage,
+                setSeriesArchived:
+                    coordinator.setSeriesArchived,
+                updateRevisionMark:
+                    coordinator.updateRevisionMark,
+                deleteSeries: coordinator.deleteSeries,
+                derivedExportInfo:
+                    coordinator.derivedExportInfo,
+                exportDerived3D:
+                    coordinator.exportDerived3D,
+                exportSurveyReport:
+                    coordinator.exportSurveyReport,
+                updateAppSettings:
+                    coordinator.updateAppSettings,
+                clearEquipmentCatalogCache:
+                    coordinator.clearEquipmentCatalogCache,
+                selectCaptureStrategy:
+                    coordinator.selectCaptureStrategy,
+                importPlanReference:
+                    coordinator.importPlanReference,
+                beginSemanticCorrection:
+                    coordinator.beginSemanticCorrection,
+                commitSemanticCorrection:
+                    coordinator.commitSemanticCorrection,
+                cancelSemanticCorrection:
+                    coordinator.cancelSemanticCorrection,
                 openRecoveredDraft:
                     coordinator.openRecoveredDraft,
                 discardRecoveredDraft:
@@ -335,7 +423,10 @@ private struct HTDTCaptureHostView: View {
             )
         )
         .onOpenURL { url in
-            coordinator.importCaptureArchive(from: url)
+            // #393: every external document enters through the
+            // inbound router — the kind is identified, gated by
+            // capture state, then handed to its owning importer.
+            coordinator.importInboundDocument(from: url)
         }
         // Foregrounding is when an iOS-Settings permission change
         // takes effect (#295).
@@ -455,8 +546,51 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set)
     var deviceReadiness: CaptureDeviceReadiness?
     /// Whether haptic/announcement guidance cues play (#252). Mirrors
-    /// the operator toggle; default on.
+    /// the persisted presentation preference (#338); default on.
     @Published var guidanceCuesEnabled = true
+    /// Versioned app-local settings (#338): presentation preferences,
+    /// device-local workflow defaults, and the storage/privacy policy
+    /// — never capture authority.
+    @Published private(set)
+    var appSettings = CaptureAppSettings()
+    /// Durable store for `appSettings` under the app-private capture
+    /// root — outside `finalized/`, `exports/` and `working/` so it is
+    /// never part of a bundle or the persisted inventory.
+    private lazy var appSettingsStore: CaptureAppSettingsStore? =
+        Self.captureRootDirectory().map {
+            CaptureAppSettingsStore(captureRoot: $0)
+        }
+    /// Operator-selected capture strategy for the next scan (#307).
+    /// Drives advisory guidance/evidence budgets only — the canonical
+    /// quality rule set never reads it.
+    @Published private(set)
+    var selectedStrategyID: CaptureStrategyIdentifier = .standard
+    /// True when an imported task plan pins the strategy (#307/#240):
+    /// the picker stays visible read-only and `selectCaptureStrategy`
+    /// becomes a no-op until a new scan resets the pin.
+    @Published private(set)
+    var strategyPinnedByTaskPlan = false
+    /// Live storage accounting for the active capture (#308):
+    /// working-revision bytes by category, evidence counts, device free
+    /// space and the automatic-keyframe budget. Advisory only.
+    @Published private(set)
+    var evidenceStorageAdvisory: CaptureEvidenceStorageAdvisory?
+    /// Acquisition provenance for the library (#317), joined to
+    /// persisted captures by capture_revision_id.
+    @Published private(set)
+    var captureOrigins:
+        [CaptureRevisionID: CaptureAcquisitionOriginRecord] = [:]
+    /// Imported plan-reference underlay for the next/active capture
+    /// (#322). Shown in setup; rebound to the live revision's identity
+    /// at session-foundation and persisted as `reference/plan-
+    /// underlay.json`. Reference-only — never observed truth.
+    @Published private(set)
+    var planUnderlayDocument: PlanUnderlayDocument?
+    /// Decoded parent context for an in-flight semantic correction
+    /// (#319); non-nil while the correction sheet is open.
+    @Published private(set)
+    var semanticCorrectionContext:
+        SemanticChildRevisionContext?
     @Published private(set)
     var persistedInventory = PersistedCaptureInventoryResult()
     /// Identity of the live working revision; carries the
@@ -468,6 +602,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// openings, room frame) for the post-End states (#213/#241).
     @Published private(set)
     var reviewWorkspace: CaptureReviewWorkspaceModel?
+    /// Required-task progress for the journey header (#372):
+    /// evaluated from the active task plan plus the committed
+    /// records — distinct from technical readiness.
+    @Published private(set)
+    var taskPlanMission: CaptureJourneyMissionSummary?
     /// Read-only workspace model for a persisted capture opened from
     /// the library (#294). Independent of the live-capture workspace.
     @Published private(set)
@@ -508,10 +647,30 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// SHA of the plan bytes bound to `taskPlan` (#386): the mission's
     /// embedded plan import carries its own content digest.
     private var taskPlanSHA256: EvidenceSHA256?
-    /// Operator-facing library metadata (names, notes) layered over the
-    /// persisted inventory (issue #219).
+    /// Operator-facing library metadata (names, notes, series
+    /// lifecycle state, revision marks) layered over the persisted
+    /// inventory (issues #219/#394).
     @Published private(set)
     var libraryMetadata = CaptureLibraryMetadataDocument()
+    /// #390: one-line operator notice when an app-local durable
+    /// document was written by a different app version and could not
+    /// be upgraded — its bytes are preserved and journaled instead
+    /// of silently emptied. nil when everything migrated or nothing
+    /// was preserved.
+    @Published private(set)
+    var localStateUpgradeNotice: String?
+    /// #378: staged library-package import preview awaiting the
+    /// operator's confirm — the owning importer has already
+    /// validated the manifest, every archive, and the merge.
+    @Published private(set)
+    var libraryImportPreview: CaptureLibraryImportPreview?
+    /// Staging directory backing `libraryImportPreview`; discarded
+    /// on confirm or dismiss.
+    private var libraryImportStagingDirectory: URL?
+    /// #378: the most recently written `.htdtcapturelibrary`
+    /// package, offered to the ShareLink row on the home surface.
+    @Published private(set)
+    var libraryExportURL: URL?
     /// Inspection of the retained working set of the current failed
     /// capture (issue #224); populated on demand.
     @Published private(set)
@@ -597,6 +756,59 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// #314/#324/#331).
     private var pendingFieldAuthority = FieldAuthorityWorkspace()
     private var annotationRoomPlanObjectsLoaded = false
+
+    // MARK: Mission workflow state (#353/#240/#222/#293/#321)
+
+    /// Imported capture task plan + per-item outcomes (#240); the
+    /// plan payload persists verbatim in the working revision.
+    @Published private(set)
+    var captureTaskPlan: HTDTCaptureTaskPlan?
+    private var captureTaskPlanImport: CaptureTaskPlanImport?
+    private var captureTaskPlanStatus: CaptureTaskPlanStatus?
+    @Published private(set)
+    var missionTaskPlanOutcomes:
+        [CaptureTaskPlanStatusDocument.ItemOutcome] = []
+    /// Operator's multi-region intent declared at setup or in the
+    /// mission sheet (#353); keeps connected-space controls hidden
+    /// from simple captures.
+    @Published private(set)
+    var connectedSpaceIntent = false
+    @Published private(set)
+    var connectedSpaceTracker: ConnectedSpaceTracker?
+    /// Imported as-built plan (#293) + verification session bound to
+    /// the live coordinate space.
+    @Published private(set)
+    var asBuiltPlan: HTDTAsBuiltPlan?
+    private var asBuiltPlanImport: HTDTAsBuiltPlanImport?
+    private var asBuiltSession: AsBuiltVerificationSession?
+    @Published private(set)
+    var asBuiltItems: [AsBuiltVerificationItem] = []
+    @Published private(set)
+    var asBuiltAlignmentInstalled = false
+    /// Committed annotation entities offered as actual observations
+    /// for as-built items.
+    @Published private(set)
+    var asBuiltActualCandidates: [CaptureAnnotationEntity] = []
+    /// A committed room reference frame exists in the working set —
+    /// the as-built plan alignment authority anchor (#293).
+    @Published private(set)
+    var roomFrameAvailable = false
+    /// HTDT repair tasks returned by ingestion (#321), across all
+    /// received plans; unresolved rows are surfaced as actionable.
+    @Published private(set)
+    var repairTaskRows: [HTDTRepairTaskRow] = []
+    /// The revision a repair link was persisted into — resolution
+    /// is only credited when THAT revision promotes (#321).
+    private var persistedRepairLinkRevisionID: CaptureRevisionID?
+    /// Row currently routed by "Fix in Capture"; resolved by the
+    /// promoted repair revision (fresh rescan) or by the next
+    /// annotation authority commit (in-place repairs).
+    private var activeRepairRow: HTDTRepairTaskRow?
+    /// App-local repair-plan ledger under the capture root (#321).
+    private lazy var repairPlanStore: HTDTRepairPlanStore? =
+        Self.captureRootDirectory().map {
+            HTDTRepairPlanStore(captureRoot: $0)
+        }
 
     private var stateMachine = CaptureStateMachine()
     private var sessionController = SharedARSessionController()
@@ -772,6 +984,29 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// estimator's own bound so a stored overrun still stops the
     /// selector (#216).
     private var automaticKeyframePersistedBytes = 0
+    /// Task-plan strategy override resolved at scan start (#307/#240):
+    /// a pinned recommendation wins over the operator selection until
+    /// the next `beginCapture` resets it.
+    private var taskPlanStrategyOverride:
+        (identifier: CaptureStrategyIdentifier, pinned: Bool)?
+    /// The strategy actually used for the active scan — resolved at
+    /// `beginCapture` so mid-scan setup edits cannot change budgets.
+    private var activeCaptureStrategy: CaptureStrategyProfile =
+        .standard
+    /// The source under which `activeCaptureStrategy` was resolved —
+    /// echoed into `session/capture-strategy.json` (#307).
+    private var pendingStrategySource: CaptureStrategySource =
+        .operatorSelected
+    /// App-local acquisition-provenance store (#317): lives outside the
+    /// immutable bundle under the capture root, keyed by
+    /// capture_revision_id.
+    private var captureOriginStore: CaptureAcquisitionOriginStore?
+    /// Periodic storage sampler for the #308 advisory surface; runs at
+    /// the resource-monitor cadence while `.scanning`.
+    private var storageSampleTask: Task<Void, Never>?
+    /// Parent record the semantic-correction sheet is editing (#319).
+    private var semanticCorrectionParent: PersistedCaptureRecord?
+    private var semanticCorrectionInFlight = false
     /// Whether the display idle-timer override is currently held for
     /// this capture (#272). Restored on every transition out of
     /// `.scanning`, so failure/End/reset paths cannot leak it.
@@ -805,6 +1040,54 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         capabilities = PlatformCapabilityProbe.current()
         cameraPermission = CameraPermissionController.currentStatus()
         persistedStore = Self.makePersistedStore()
+        captureOriginStore = Self.captureRootDirectory().map {
+            CaptureAcquisitionOriginStore(captureRoot: $0)
+        }
+
+        // #390: every registered app-local durable document upgrades
+        // before any store reads it — only through a verified
+        // version step, preserving bytes + a journal entry whenever
+        // the stored version is newer, unreadable, or has no
+        // migration path.
+        if let captureRoot = Self.captureRootDirectory() {
+            let runtime = PlatformRuntimeProvenance.current()
+            let report = LocalStateMigrator.migrate(
+                captureRoot: captureRoot,
+                appVersion: runtime.appVersion,
+                appBuild: runtime.appBuild
+            )
+            let preserved = report.events.filter {
+                $0.outcome != .migrated
+            }
+            if !preserved.isEmpty {
+                localStateUpgradeNotice = HostLocalization.text(
+                    "Some saved app data was written by a different app version and was kept unchanged so nothing was lost",
+                    "異なるバージョンのアプリで保存されたデータは失われないよう変更せずに保持しました"
+                )
+            }
+        }
+
+        // #338: load the versioned app-local settings before any
+        // policy application so the at-rest backup policy below
+        // matches the operator's stored choice. A corrupt settings
+        // file fails closed like the library metadata store — the
+        // app runs on defaults and the status line says why rather
+        // than silently discarding the operator's intent.
+        if let appSettingsStore {
+            do {
+                appSettings = try appSettingsStore.load()
+            } catch {
+                workingSetStatus = HostLocalization.text(
+                    "Device settings could not be read; defaults are in use",
+                    "デバイス設定を読み取れなかったため、既定値を使用しています"
+                )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+            }
+        }
+        guidanceCuesEnabled =
+            appSettings.presentation.guidanceCuesEnabled
 
         // #320: the first-launch practice prompt is suppressed only by
         // an explicit permanent dismissal; "Not now" hides it for this
@@ -820,7 +1103,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         if let captureRoot = Self.captureRootDirectory() {
             let policyFailures =
                 CaptureStoragePolicy.applyCaptureRootPolicy(
-                    captureRoot: captureRoot
+                    captureRoot: captureRoot,
+                    finalizedBackupPolicy: appSettings
+                        .storagePrivacy.finalizedBackupPolicy
                 )
             if !policyFailures.isEmpty {
                 workingSetStatus =
@@ -835,6 +1120,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         loadPersistedCaptures()
+        refreshRepairTaskRows()
 
         // #386/#379/#387: surface the mission inbox, paired
         // receivers and delivery ledger immediately, then reconcile
@@ -1118,11 +1404,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         handoffDestinations = []
         handoffReceipts = []
         reviewWorkspace = nil
+        taskPlanMission = nil
         persistedWorkspace = nil
         roomFrameOriginPending = nil
         openingCenterPending = nil
         danglingSpatialIssues = []
         failedInspection = nil
+        // Per-capture mission runtime resets; imported mission
+        // inputs (plans, staged payloads, the active repair row)
+        // carry into this new revision on purpose (#353/#321).
+        connectedSpaceIntent = false
+        connectedSpaceTracker = nil
+        asBuiltSession = nil
+        asBuiltItems = []
+        asBuiltAlignmentInstalled = false
+        asBuiltActualCandidates = []
+        roomFrameAvailable = false
+        missionTaskPlanOutcomes = []
+        persistedRepairLinkRevisionID = nil
         observationStabilityTracker =
             ObservationStabilityTracker()
         observationStability =
@@ -1130,7 +1429,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverageAggregator =
             SpatialScanCoverageAggregator()
         spatialCoverage = .empty
-        motionGuidanceTracker = ScanMotionGuidanceTracker()
+        // Resolve the capture strategy for this scan (#307): a pinned
+        // task-plan recommendation wins, then a plan recommendation,
+        // then the operator pick. The resolved profile configures the
+        // advisory trackers only — canonical quality rules never read
+        // it — and is persisted into session/capture-strategy.json at
+        // session-foundation time.
+        let (strategyProfile, strategySource) =
+            resolvedCaptureStrategy()
+        activeCaptureStrategy = strategyProfile
+        pendingStrategySource = strategySource
+        motionGuidanceTracker = ScanMotionGuidanceTracker(
+            configuration: strategyProfile.motionGuidance
+        )
         motionGuidance = nil
         scanGuidanceProgress = .empty
         derivedObjectFusionTracker =
@@ -1171,16 +1482,31 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         endScanPreflightBlocked = false
         scanTrackingTransitionGate.reset()
         scanGuidanceCuePolicy.reset()
-        automaticKeyframeTracker = AutomaticKeyframeTracker()
+        automaticKeyframeTracker = AutomaticKeyframeTracker(
+            configuration: strategyProfile.automaticKeyframes
+        )
         automaticKeyframePersistedBytes = 0
         automaticEvidenceFrameCount = 0
         automaticFrameSaveTask?.cancel()
         automaticFrameSaveTask = nil
+        storageSampleTask?.cancel()
+        storageSampleTask = nil
+        evidenceStorageAdvisory = nil
+        semanticCorrectionContext = nil
+        semanticCorrectionParent = nil
         scanLightingStatus = .unknown
         lowLightGuidanceActive = false
         endTargetScan()
         operatorRegionDeclarations = OperatorRegionDeclarations()
         declaredRegionList = []
+        // Device-local workflow defaults seed each capture (#338):
+        // the stored default task profile initializes unset task
+        // state, but the project/task plan — the workspace's
+        // explicit selection — stays the override authority.
+        taskProfile = appSettings.captureDefaults.defaultTaskProfile
+        skippedTaskRequirementIDs = []
+        loopClosureCheckActive =
+            appSettings.captureDefaults.returnToStartCheckEnabled
         revisitFlagStore = CaptureRevisitFlagStore()
         revisitFlags = []
         pendingTaskPlanImport = nil
@@ -1259,6 +1585,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             resolvedMode: capabilities.roomPlanMeshEligible
                 ? .roomPlanMesh
                 : nil,
+            finalizedBackupPolicy: appSettings.storagePrivacy
+                .finalizedBackupPolicy,
             taskProfile: taskProfile,
             importedTaskPlan: pendingTaskPlanImport?.plan,
             taskPlanImportError: pendingTaskPlanImportError,
@@ -1997,6 +2325,109 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         if !enabled {
             scanGuidanceCuePolicy.reset()
         }
+        // The toggle is a presentation preference (#338): persist it
+        // so the choice survives relaunch; it never enters capture
+        // authority.
+        var copy = appSettings
+        copy.presentation.guidanceCuesEnabled = enabled
+        updateAppSettings(copy)
+    }
+
+    // MARK: - App-local settings (#338)
+
+    /// Persists a new settings document and applies its side effects.
+    /// Presentation choices take effect at once; the finalized backup
+    /// policy is re-applied to `finalized/`/`exports/` and every
+    /// artifact already inside them so existing captures get the
+    /// operator's current policy — never a reinterpretation of their
+    /// recorded content.
+    func updateAppSettings(_ newSettings: CaptureAppSettings) {
+        let previousPolicy =
+            appSettings.storagePrivacy.finalizedBackupPolicy
+        appSettings = newSettings
+        guidanceCuesEnabled =
+            newSettings.presentation.guidanceCuesEnabled
+
+        if let appSettingsStore {
+            do {
+                try appSettingsStore.save(newSettings)
+            } catch {
+                workingSetStatus = HostLocalization.text(
+                    "Device settings could not be saved",
+                    "デバイス設定を保存できませんでした"
+                )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+            }
+        }
+
+        if newSettings.storagePrivacy.finalizedBackupPolicy
+            != previousPolicy,
+           let captureRoot = Self.captureRootDirectory()
+        {
+            let failures = CaptureStoragePolicy
+                .applyFinalizedBackupPolicy(
+                    captureRoot: captureRoot,
+                    policy: newSettings.storagePrivacy
+                        .finalizedBackupPolicy
+                )
+            if !failures.isEmpty {
+                workingSetStatus = HostLocalization.text(
+                    "The backup policy could not be applied to every stored capture",
+                    "バックアップ方針をすべての保存済みキャプチャに適用できませんでした"
+                )
+                    + " ["
+                    + failures.joined(separator: "; ")
+                    + "]"
+            }
+        }
+
+        if state == .setup {
+            refreshCaptureSetupPresentation()
+        }
+    }
+
+    /// Clears the durable equipment-catalog cache (#338): the import
+    /// mirror is removed and the reference context resets for the
+    /// next import. Committed captures keep the exact equipment
+    /// tuples they recorded — the cache is convenience, never
+    /// authority.
+    func clearEquipmentCatalogCache() {
+        if let equipmentCatalogStore {
+            for stored in equipmentCatalogStore.list() {
+                try? equipmentCatalogStore.remove(
+                    contentKey: stored.contentKey
+                )
+            }
+            if let legacyFileURL = equipmentCatalogStore.legacyFileURL {
+                try? FileManager.default.removeItem(at: legacyFileURL)
+            }
+        }
+        equipmentCatalog = nil
+        equipmentCatalogLibrary = []
+    }
+
+    /// Applies the stored backup policy to a share archive (#305);
+    /// export archives are app-owned transport output and follow the
+    /// same policy as finalized data. A flag failure is surfaced,
+    /// never fatal to the archive already produced.
+    private func applyExportArchiveBackupPolicy(to archive: URL) {
+        do {
+            try CaptureStoragePolicy.applyExportArchivePolicy(
+                archiveURL: archive,
+                policy: appSettings.storagePrivacy
+                    .finalizedBackupPolicy
+            )
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The backup policy could not be applied to the export archive",
+                "書き出しアーカイブにバックアップ方針を適用できませんでした"
+            )
+                + " ["
+                + Self.persistenceDiagnostic(error)
+                + "]"
+        }
     }
 
     /// Emit one admitted cue: haptic + VoiceOver announcement. Haptics
@@ -2635,7 +3066,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         draft.equipmentIdentityRecords,
                     speakerLayoutPlan: draft.speakerLayoutPlan,
                     isRestoredDraft: true,
-                    authorities: draft.authorities,
+                    authorities: draft.authorities
+                        ?? draft.theaterAuthorities,
                     fieldAuthority: draft.fieldAuthority
                         ?? FieldAuthorityWorkspace()
                 )
@@ -3782,8 +4214,27 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.annotationCommitInFlight = false
                 self.annotationEditIsRevision = false
                 self.annotationRevisionSeed = nil
+
+                // #321: in-place repair kinds resolve on the
+                // annotation authority commit inside the same
+                // revision.
+                if let row = self.activeRepairRow,
+                   row.task.kind != .freshRescan
+                {
+                    try? self.repairPlanStore?.markTaskResolved(
+                        planKey: row.planKey,
+                        taskID: row.task.taskID,
+                        resolvedBy: workingRevisionID,
+                        at: BundleTimestamp.utcString(from: Date())
+                    )
+                    self.activeRepairRow = nil
+                    self.refreshRepairTaskRows()
+                }
+                Task { await self.refreshMissionOutcomes() }
+
                 self.pendingFieldAuthority = FieldAuthorityWorkspace()
                 try self.transition(.beginReview)
+                self.refreshReviewWorkspace()
                 await self.refreshQuality(
                     store: store,
                     generation: generation
@@ -4227,6 +4678,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     ) == .recoverValidated {
                         self.exportURL = destination
                         try self.transition(.export)
+                        self.applyExportArchiveBackupPolicy(
+                            to: destination
+                        )
                         self.workingSetStatus = HostLocalization.text(
                             "Existing validated archive recovered and is ready to share",
                             "既存の検証済みアーカイブを復旧し、共有できる状態にしました"
@@ -4283,6 +4737,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
                 self.exportURL = result.archiveURL
                 try self.transition(.export)
+                self.applyExportArchiveBackupPolicy(
+                    to: result.archiveURL
+                )
                 self.workingSetStatus = HostLocalization.text(
                     "Validated share-ready archive created",
                     "検証済みの共有用アーカイブを作成しました"
@@ -4347,6 +4804,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialPlausibilityFindings = nil
         annotationRetentionKinds = [:]
         committedIdentityDocData = nil
+        // Terminal reset also drops imported mission inputs; the
+        // active repair row survives because the repair loop spans
+        // reset → new capture → finalize (#321).
+        captureTaskPlan = nil
+        captureTaskPlanImport = nil
+        captureTaskPlanStatus = nil
+        asBuiltPlan = nil
+        asBuiltPlanImport = nil
         // A failed/finalized revision's drafts are bound to it
         // forever; purge them (#266).
         annotationDraftStore?.discardAll()
@@ -4364,6 +4829,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewOperationInFlight = false
         exportOperationInFlight = false
         spatialAuthoritySealedForFinalization = false
+        planUnderlayDocument = nil
+        semanticCorrectionContext = nil
+        semanticCorrectionParent = nil
         workingSetSpatialAuthorityLive = true
         recoveredDraftReport = nil
         practiceCaptureActive = false
@@ -4376,11 +4844,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         handoffDestinations = []
         handoffReceipts = []
         reviewWorkspace = nil
+        taskPlanMission = nil
         persistedWorkspace = nil
         roomFrameOriginPending = nil
         openingCenterPending = nil
         danglingSpatialIssues = []
         failedInspection = nil
+        connectedSpaceIntent = false
+        connectedSpaceTracker = nil
+        asBuiltSession = nil
+        asBuiltItems = []
+        asBuiltAlignmentInstalled = false
+        asBuiltActualCandidates = []
+        roomFrameAvailable = false
+        missionTaskPlanOutcomes = []
+        persistedRepairLinkRevisionID = nil
         observationStabilityTracker =
             ObservationStabilityTracker()
         observationStability =
@@ -4449,6 +4927,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         deviceReadiness = nil
         stopDeviceReadinessObserving()
         reviewWorkspace = nil
+        taskPlanMission = nil
         persistedWorkspace = nil
         roomFrameOriginPending = nil
         openingCenterPending = nil
@@ -4554,6 +5033,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewOperationInFlight = false
         exportOperationInFlight = false
         spatialAuthoritySealedForFinalization = false
+        planUnderlayDocument = nil
+        semanticCorrectionContext = nil
+        semanticCorrectionParent = nil
         workingSetSpatialAuthorityLive = true
         recoveredDraftReport = nil
         practiceCaptureActive = false
@@ -4575,6 +5057,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         endScanGuidance = nil
         endScanPreflightBlocked = false
         reviewWorkspace = nil
+        taskPlanMission = nil
         persistedWorkspace = nil
         roomFrameOriginPending = nil
         openingCenterPending = nil
@@ -5011,6 +5494,33 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
             #endif
             self.reviewWorkspace = model
+            // Required-task mission progress (#372): evaluated from
+            // the committed records against the active plan — kept
+            // separate from technical readiness.
+            if let taskPlan {
+                let authoritiesURL = snapshot.rootDirectory
+                    .appendingPathComponent(
+                        TheaterAuthorityPackage.path,
+                        isDirectory: false
+                    )
+                let authorities = (try? Data(contentsOf: authoritiesURL))
+                    .flatMap {
+                        try? JSONDecoder().decode(
+                            TheaterAuthorityCollection.self,
+                            from: $0
+                        )
+                    } ?? .empty
+                self.taskPlanMission = CaptureJourneyPresentation
+                    .missionSummary(
+                        plan: taskPlan,
+                        annotations: model.annotations,
+                        measurements: model.measurements,
+                        authorities: authorities,
+                        committedEvidenceRefs: annotationEvidenceRefs
+                    )
+            } else {
+                self.taskPlanMission = nil
+            }
         }
     }
 
@@ -5109,11 +5619,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
                 self.roomFrameOriginPending = nil
+                self.roomFrameAvailable = true
                 self.workingSetStatus = HostLocalization.text(
                     "Room reference frame confirmed and saved",
                     "部屋の基準フレームを確定して保存しました"
                 )
                 self.refreshReviewWorkspace()
+                Task { await self.refreshMissionOutcomes() }
             } catch {
                 guard self.captureGeneration == generation else {
                     return
@@ -5561,6 +6073,334 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
+    // MARK: derived export (issues #306 / #318)
+
+    /// Where a finalized revision's directory, digest, manifest and
+    /// display name come from for a derived export — the currently
+    /// adopted revision when it matches, otherwise the validated
+    /// library record for the revision.
+    private struct DerivedExportContext {
+        let directory: URL
+        let bundleDigest: EvidenceSHA256
+        let manifest: BundleManifest
+        let displayName: String?
+    }
+
+    private func derivedExportContext(
+        _ revisionID: CaptureRevisionID
+    ) async -> DerivedExportContext? {
+        if let finalizedRevision,
+           finalizedRevision.captureRevisionID == revisionID,
+           let manifest = validationReport?.manifest
+        {
+            return DerivedExportContext(
+                directory: finalizedRevision.directory,
+                bundleDigest: finalizedRevision.bundleDigest,
+                manifest: manifest,
+                displayName:
+                    libraryMetadata.revisions[
+                        revisionID.description
+                    ]?.displayName
+            )
+        }
+        guard let store = persistedStore else { return nil }
+        let record = await Task.detached(
+            priority: .userInitiated
+        ) {
+            store.validatedRecord(captureRevisionID: revisionID)
+        }.value
+        guard let directory = record?.finalizedDirectory,
+              let validation = record?.finalizedValidation
+        else {
+            return nil
+        }
+        return DerivedExportContext(
+            directory: directory,
+            bundleDigest: validation.bundleDigest,
+            manifest: validation.manifest,
+            displayName:
+                libraryMetadata.revisions[
+                    revisionID.description
+                ]?.displayName
+        )
+    }
+
+    /// Availability probe for the derived-export sheets (issue #306):
+    /// which geometry sources the finalized bundle carries, plus the
+    /// preview-bearing evidence frames the report may offer for
+    /// explicit opt-in.
+    func derivedExportInfo(
+        _ revisionID: CaptureRevisionID
+    ) async -> DerivedExportInfo? {
+        guard let context = await derivedExportContext(revisionID)
+        else { return nil }
+        return await Task.detached(
+            priority: .userInitiated
+        ) { () -> DerivedExportInfo in
+            let manifest = context.manifest
+            let declared = Set(manifest.files.map(\.path))
+            var anchorCount = 0
+            if declared.contains(MeshEvidencePackage.indexPath),
+               let data = try? Data(
+                   contentsOf: context.directory
+                       .appendingPathComponent(
+                           MeshEvidencePackage.indexPath,
+                           isDirectory: false
+                       )
+               ),
+               let index = try? JSONDecoder().decode(
+                   MeshAnchorEvidenceIndex.self,
+                   from: data
+               )
+            {
+                anchorCount = index.anchors.count
+            }
+            var roomPlanAvailable = false
+            var usdzAvailable = false
+            #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
+            roomPlanAvailable =
+                DerivedRoomPlanExportSupport.isAvailable(
+                    manifest: manifest,
+                    bundleDirectory: context.directory
+                )
+            usdzAvailable = roomPlanAvailable
+            #endif
+            let evidenceOptions =
+                SurveyReportEvidenceEnumerator.options(
+                    bundleDirectory: context.directory,
+                    manifest: manifest
+                )
+            return DerivedExportInfo(
+                roomPlanProcessedAvailable: roomPlanAvailable,
+                usdzAvailable: usdzAvailable,
+                arMeshAvailable: anchorCount > 0,
+                arMeshAnchorCount: anchorCount,
+                evidenceOptions: evidenceOptions
+            )
+        }.value
+    }
+
+    /// Runs a derived 3D export for a finalized capture (issue #306).
+    /// The result is written under `<captureRoot>/derived-exports/` —
+    /// never inside the canonical `finalized/` or `exports/` roots.
+    func exportDerived3D(
+        _ revisionID: CaptureRevisionID,
+        _ selection: Derived3DExportSelection
+    ) async -> DerivedExportOutcome {
+        guard let context =
+            await derivedExportContext(revisionID),
+              let captureRoot = Self.captureRootDirectory()
+        else {
+            return DerivedExportOutcome(
+                files: [],
+                error: HostLocalization.text(
+                    "The finalized capture is no longer available",
+                    "ファイナライズ済みキャプチャはもう利用できません"
+                )
+            )
+        }
+        return await Task.detached(
+            priority: .userInitiated
+        ) { () -> DerivedExportOutcome in
+            do {
+                let result: Derived3DExportResult
+                switch selection.source {
+                case .arMeshAnchors:
+                    result = try DerivedExportRunner.exportMesh(
+                        bundleDirectory: context.directory,
+                        bundleDigest: context.bundleDigest,
+                        captureRoot: captureRoot,
+                        format: selection.format,
+                        source: .arMeshAnchors
+                    )
+                case .roomPlanProcessed:
+                    if selection.format == .usdz {
+                        #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
+                        if #available(iOS 17.0, *) {
+                            result =
+                                try DerivedExportRunner.exportUSDZ(
+                                    bundleDirectory:
+                                        context.directory,
+                                    bundleDigest:
+                                        context.bundleDigest,
+                                    captureRoot: captureRoot
+                                ) { destination in
+                                    try DerivedRoomPlanExportSupport
+                                        .writeUSDZ(
+                                            bundleDirectory:
+                                                context.directory,
+                                            manifest:
+                                                context.manifest,
+                                            to: destination
+                                        )
+                                }
+                        } else {
+                            throw DerivedExportError
+                                .unsupportedCombination(
+                                    reason:
+                                        "USDZ export requires iOS 17 RoomPlan"
+                                )
+                        }
+                        #else
+                        throw DerivedExportError
+                            .unsupportedCombination(
+                                reason:
+                                    "USDZ export requires RoomPlan on iOS"
+                            )
+                        #endif
+                    } else {
+                        #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
+                        if #available(iOS 17.0, *) {
+                            let objects =
+                                try DerivedRoomPlanExportSupport
+                                    .bindableObjects(
+                                        bundleDirectory:
+                                            context.directory,
+                                        manifest: context.manifest
+                                    )
+                            result =
+                                try DerivedExportRunner.exportMesh(
+                                    bundleDirectory:
+                                        context.directory,
+                                    bundleDigest:
+                                        context.bundleDigest,
+                                    captureRoot: captureRoot,
+                                    format: selection.format,
+                                    source: .roomPlanProcessed,
+                                    roomPlanObjects: objects
+                                )
+                        } else {
+                            throw DerivedExportError
+                                .unsupportedCombination(
+                                    reason:
+                                        "RoomPlan-derived exports require iOS 17 RoomPlan"
+                                )
+                        }
+                        #else
+                        throw DerivedExportError
+                            .unsupportedCombination(
+                                reason:
+                                    "RoomPlan-derived exports require RoomPlan on iOS"
+                            )
+                        #endif
+                    }
+                }
+                return DerivedExportOutcome(
+                    files: [
+                        result.primaryFileURL,
+                        result.provenanceFileURL,
+                    ],
+                    error: nil
+                )
+            } catch let error as DerivedExportError {
+                return DerivedExportOutcome(
+                    files: [],
+                    error: error.reason
+                )
+            } catch {
+                return DerivedExportOutcome(
+                    files: [],
+                    error: error.localizedDescription
+                )
+            }
+        }.value
+    }
+
+    /// Runs the field-survey report export (issue #318). Only the
+    /// preview frames the operator explicitly selected are embedded;
+    /// the canonical bundle is never modified.
+    func exportSurveyReport(
+        _ revisionID: CaptureRevisionID,
+        _ selection: SurveyReportSelection
+    ) async -> DerivedExportOutcome {
+        guard let context =
+            await derivedExportContext(revisionID),
+              let captureRoot = Self.captureRootDirectory()
+        else {
+            return DerivedExportOutcome(
+                files: [],
+                error: HostLocalization.text(
+                    "The finalized capture is no longer available",
+                    "ファイナライズ済みキャプチャはもう利用できません"
+                )
+            )
+        }
+        return await Task.detached(
+            priority: .userInitiated
+        ) { () -> DerivedExportOutcome in
+            var plan: RoomPlanPreviewModel? = nil
+            #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
+            if #available(iOS 17.0, *) {
+                if let data = try? DerivedRoomPlanExportSupport
+                    .processedRoomData(
+                        bundleDirectory: context.directory,
+                        manifest: context.manifest
+                    )
+                {
+                    plan = try? RoomPlanReviewDeriver
+                        .planPreview(processedPayload: data)
+                }
+            }
+            #endif
+
+            let options =
+                SurveyReportEvidenceEnumerator.options(
+                    bundleDirectory: context.directory,
+                    manifest: context.manifest
+                )
+            var images: [SurveyReportEvidenceImage] = []
+            for option in options
+            where selection.evidenceFrameIDs.contains(option.id)
+            {
+                guard let jpeg =
+                    SurveyReportImageConverter.jpegData(
+                        from: option.previewFileURL
+                    )
+                else { continue }
+                images.append(
+                    SurveyReportEvidenceImage(
+                        frameID: option.frameID,
+                        caption:
+                            option.frameID.description
+                                + "  t="
+                                + String(
+                                    format: "%.1f",
+                                    option.sessionTimestampSeconds
+                                )
+                                + "s",
+                        jpegData: jpeg
+                    )
+                )
+            }
+
+            do {
+                let result = try SurveyReportRunner.export(
+                    bundleDirectory: context.directory,
+                    bundleDigest: context.bundleDigest,
+                    captureRoot: captureRoot,
+                    displayName: context.displayName,
+                    planPreview: plan,
+                    evidenceImages: images,
+                    language: selection.language
+                )
+                return DerivedExportOutcome(
+                    files: result.files,
+                    error: nil
+                )
+            } catch let error as DerivedExportError {
+                return DerivedExportOutcome(
+                    files: [],
+                    error: error.reason
+                )
+            } catch {
+                return DerivedExportOutcome(
+                    files: [],
+                    error: error.localizedDescription
+                )
+            }
+        }.value
+    }
+
     /// Loads the handoff destinations for `sendCaptureToHTDT`
     /// (#225): the system file/share destination plus any
     /// operator-configured ingestion endpoints from
@@ -5738,7 +6578,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     )
                 }
                 let jobs = await queue.processDueJobs(
-                    receiptStore: receiptStore
+                    receiptStore: receiptStore,
+                    onRepairPlan: { plan, receiptID in
+                        Task { @MainActor in
+                            self.recordRepairTaskPlan(
+                                plan,
+                                receiptID: receiptID ?? ""
+                            )
+                        }
+                    }
                 )
                 deliveryJobs = jobs
                 let updated = jobs.first {
@@ -6317,6 +7165,44 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             {
                 self.libraryMetadata = document
             }
+            // Acquisition provenance join (#317): every validated
+            // bundle gets a declared origin — explicit records stay
+            // authoritative; entries that predate the provenance store
+            // backfill as `legacy_unknown` rather than being silently
+            // treated as device-created.
+            if let originStore = self.captureOriginStore {
+                let backfill = await Task.detached(
+                    priority: .utility
+                ) { () -> CaptureAcquisitionOriginDocument? in
+                    let unknowns = inventory.captures.compactMap {
+                        record -> CaptureAcquisitionOriginRecord? in
+                        guard record.finalizedValidation != nil
+                                || record.exportValidation != nil
+                        else {
+                            return nil
+                        }
+                        return try? CaptureAcquisitionOriginRecord(
+                            captureRevisionID:
+                                record.captureRevisionID,
+                            kind: .legacyUnknown,
+                            transport: .unknown,
+                            acquiredAtUTC:
+                                record.finalizedAtUTC
+                        )
+                    }
+                    try? originStore.recordIfAbsent(unknowns)
+                    return try? originStore.load()
+                }.value
+                if let backfill {
+                    var joined:
+                        [CaptureRevisionID:
+                            CaptureAcquisitionOriginRecord] = [:]
+                    for entry in backfill.entries {
+                        joined[entry.captureRevisionID] = entry
+                    }
+                    self.captureOrigins = joined
+                }
+            }
         }
     }
 
@@ -6694,6 +7580,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     priority: .userInitiated
                 ) { () throws -> (
                     revisionID: CaptureRevisionID,
+                    bundleDigest: EvidenceSHA256,
                     promoted: Bool,
                     archiveStored: Bool
                 ) in
@@ -6712,7 +7599,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     guard !FileManager.default.fileExists(
                         atPath: destination.path
                     ) else {
-                        return (revisionID, false, false)
+                        return (
+                            revisionID, report.bundleDigest, false,
+                            false
+                        )
                     }
 
                     _ = try StoredCaptureBundleArchiveImporter
@@ -6740,11 +7630,39 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     } else {
                         archiveStored = true
                     }
-                    return (revisionID, true, archiveStored)
+                    return (
+                        revisionID, report.bundleDigest, true,
+                        archiveStored
+                    )
                 }.value
 
                 guard self.state == .idle else {
                     return
+                }
+                // Acquisition provenance (#317): the imported bundle
+                // carries `imported_file` — never silently grouped
+                // with device-created captures. A digest-pinned
+                // re-import of identical bytes stays a no-op; a
+                // conflicting record for the same revision ID leaves
+                // the first provenance authoritative.
+                if let originStore = self.captureOriginStore,
+                   let originRecord =
+                    try? CaptureAcquisitionOriginRecord(
+                        captureRevisionID: imported.revisionID,
+                        kind: .importedFile,
+                        transport: .fileImport,
+                        acquiredAtUTC:
+                            BundleTimestamp.utcString(
+                                from: Date()
+                            ),
+                        originalFilename: url.lastPathComponent,
+                        bundleDigestSHA256:
+                            imported.bundleDigest.value
+                    )
+                {
+                    try? originStore.record(originRecord)
+                    self.captureOrigins[imported.revisionID] =
+                        originRecord
                 }
                 self.loadPersistedCaptures()
                 self.workingSetStatus = imported.promoted
@@ -6780,6 +7698,476 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     + Self.persistenceDiagnostic(error)
                     + "]"
             }
+        }
+    }
+
+    /// The single validated file-entry boundary (issue #393):
+    /// identify the document kind, hold its security-scoped access
+    /// for the whole async import, gate by capture state, then hand
+    /// to the owning importer — which remains authoritative for its
+    /// own schema.
+    func importInboundDocument(from url: URL) {
+        let classification =
+            InboundDocumentRouter.classify(url: url)
+        let availability = InboundDocumentRouter.availability(
+            kind: classification.kind,
+            captureState: state
+        )
+        switch availability {
+        case .idleOnly:
+            workingSetStatus = HostLocalization.text(
+                "This document can only be imported while no capture is active",
+                "キャプチャ実行中はこのドキュメントを読み込めません"
+            )
+            return
+        case .unsupported:
+            workingSetStatus = HostLocalization.text(
+                "The selected file is not a recognized HTDT document",
+                "選択したファイルは認識できるHTDTドキュメントではありません"
+            )
+            return
+        case .allowed, .storableDuringActiveCapture:
+            break
+        }
+        switch classification.kind {
+        case .captureBundle:
+            importCaptureArchive(from: url)
+        case .captureLibraryPackage:
+            importLibraryPackage(from: url)
+        case .captureMission:
+            Task { @MainActor [weak self] in
+                await self?.importMissionPackage(url)
+            }
+        case .equipmentCatalog:
+            importEquipmentCatalogDocument(from: url)
+        case .unsupported:
+            break
+        }
+    }
+
+    /// Catalogs arriving via the shared boundary (#393): stored
+    /// without activation while a capture is active — explicit
+    /// adoption stays an operator action on the catalog picker;
+    /// adopted immediately while idle.
+    private func importEquipmentCatalogDocument(
+        from url: URL
+    ) {
+        let access = SecurityScopedAccess(url: url)
+        defer { access.finish() }
+        guard let data = try? Data(contentsOf: url) else {
+            workingSetStatus = HostLocalization.text(
+                "The equipment catalog could not be read",
+                "機器カタログを読み込めませんでした"
+            )
+            return
+        }
+        do {
+            // Decode through the validating snapshot type so the
+            // stored bytes are exactly the validated document.
+            let snapshot = try JSONDecoder().decode(
+                HTDTEquipmentCatalogSnapshot.self,
+                from: data
+            )
+            let encoded = try JSONEncoder().encode(snapshot)
+            if state == .idle {
+                _ = try equipmentCatalogStore?
+                    .storeAndActivate(encoded)
+                equipmentCatalog = snapshot
+                workingSetStatus = HostLocalization.text(
+                    "Equipment catalog imported",
+                    "機器カタログを読み込みました"
+                )
+            } else {
+                _ = try equipmentCatalogStore?.store(encoded)
+                workingSetStatus = HostLocalization.text(
+                    "Equipment catalog stored; activate it from the catalog picker",
+                    "機器カタログを保存しました。カタログピッカーから有効化してください"
+                )
+            }
+            equipmentCatalogLibrary =
+                equipmentCatalogStore?.list()
+                    ?? equipmentCatalogLibrary
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The equipment catalog could not be imported",
+                "機器カタログを読み込めませんでした"
+            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
+    /// #378: validates a `.htdtcapturelibrary` package and stages an
+    /// import preview — manifest → per-archive validation → dedup /
+    /// conflict classification → merge counts. Nothing is imported
+    /// until `confirmLibraryImport`.
+    func importLibraryPackage(from url: URL) {
+        guard state == .idle else {
+            workingSetStatus = HostLocalization.text(
+                "A library package can only be imported while no capture is active",
+                "キャプチャ実行中はライブラリパッケージを読み込めません"
+            )
+            return
+        }
+        guard !importOperationInFlight,
+              !persistedAdoptionInFlight,
+              !persistedDeletionInFlight,
+              persistedStore != nil,
+              let captureRoot = Self.captureRootDirectory()
+        else {
+            return
+        }
+        let access = SecurityScopedAccess(url: url)
+        importOperationInFlight = true
+        workingSetStatus = HostLocalization.text(
+            "Validating the library package",
+            "ライブラリパッケージを検証しています"
+        )
+        let localRecords = persistedInventory.captures
+        Task { @MainActor [weak self] in
+            guard let self else {
+                access.finish()
+                return
+            }
+            defer {
+                access.finish()
+                self.importOperationInFlight = false
+            }
+            let staging = captureRoot
+                .appendingPathComponent(
+                    "library-import-staging",
+                    isDirectory: true
+                )
+                .appendingPathComponent(
+                    UUID().uuidString,
+                    isDirectory: true
+                )
+            do {
+                let preview = try await Task.detached(
+                    priority: .userInitiated
+                ) {
+                    try CaptureLibraryImporter.preview(
+                        package: url,
+                        captureRoot: captureRoot,
+                        localRecords: localRecords,
+                        stagingDirectory: staging
+                    )
+                }.value
+                guard self.state == .idle else {
+                    try? CaptureLibraryImporter.discard(
+                        preview: preview
+                    )
+                    return
+                }
+                self.libraryImportStagingDirectory = staging
+                self.libraryImportPreview = preview
+                self.workingSetStatus =
+                    preview.importableCount > 0
+                    ? HostLocalization.text(
+                        "Library package ready: \(preview.importableCount) revision(s) to import",
+                        "ライブラリパッケージを読み込めます: \(preview.importableCount) リビジョン"
+                    )
+                    : HostLocalization.text(
+                        "Nothing new to import from this library package",
+                        "このライブラリパッケージから読み込む新しいリビジョンはありません"
+                    )
+            } catch {
+                try? FileManager.default.removeItem(
+                    at: staging
+                )
+                guard self.state == .idle else { return }
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "The library package failed validation; nothing was imported",
+                        "ライブラリパッケージの検証に失敗したため何も読み込まれませんでした"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+            }
+        }
+    }
+
+    /// #378: commits the staged library import — each new revision's
+    /// archive bytes are installed verbatim, filtered metadata merges
+    /// with adopt-empty / retain-local-conflict, receipts append
+    /// deduped.
+    func confirmLibraryImport() {
+        guard let preview = libraryImportPreview,
+              !importOperationInFlight,
+              let captureRoot = Self.captureRootDirectory()
+        else {
+            return
+        }
+        importOperationInFlight = true
+        workingSetStatus = HostLocalization.text(
+            "Importing the library package",
+            "ライブラリパッケージを読み込んでいます"
+        )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.importOperationInFlight = false
+                self.libraryImportPreview = nil
+                self.libraryImportStagingDirectory = nil
+            }
+            do {
+                let result = try await Task.detached(
+                    priority: .userInitiated
+                ) {
+                    try CaptureLibraryImporter.commit(
+                        preview: preview,
+                        captureRoot: captureRoot
+                    )
+                }.value
+                self.loadPersistedCaptures()
+                self.refreshMissionDeliveryStores()
+                var status = HostLocalization.text(
+                    "Imported \(result.imported.count) revision(s)",
+                    "\(result.imported.count) リビジョンを読み込みました"
+                )
+                if !result.failed.isEmpty {
+                    status += HostLocalization.text(
+                        "; \(result.failed.count) could not be imported and were left untouched",
+                        "。\(result.failed.count) 件は読み込めず変更されていません"
+                    )
+                }
+                if !result.conflicts.isEmpty {
+                    status += HostLocalization.text(
+                        "; \(result.conflicts.count) conflict(s) skipped",
+                        "。\(result.conflicts.count) 件の競合をスキップしました"
+                    )
+                }
+                self.workingSetStatus = status
+            } catch {
+                self.loadPersistedCaptures()
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "The library package import did not complete",
+                        "ライブラリパッケージの読み込みが完了しませんでした"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+            }
+        }
+    }
+
+    /// Dismisses the staged library preview and removes its staging
+    /// directory (#378).
+    func dismissLibraryImport() {
+        if let preview = libraryImportPreview {
+            try? CaptureLibraryImporter.discard(preview: preview)
+        }
+        libraryImportPreview = nil
+        libraryImportStagingDirectory = nil
+    }
+
+    /// #378: exports every persisted capture — active and archived —
+    /// plus filtered metadata and receipts as one
+    /// `.htdtcapturelibrary` package under `exports/` for sharing.
+    func exportLibraryPackage() {
+        guard let captureRoot = Self.captureRootDirectory(),
+              persistedStore != nil,
+              !exportOperationInFlight
+        else {
+            return
+        }
+        exportOperationInFlight = true
+        workingSetStatus = HostLocalization.text(
+            "Exporting the capture library",
+            "キャプチャライブラリを書き出しています"
+        )
+        let records = persistedInventory.captures
+        let metadata = libraryMetadata
+        let receipts = handoffReceipts
+        let destination = captureRoot
+            .appendingPathComponent(
+                "exports",
+                isDirectory: true
+            )
+            .appendingPathComponent(
+                "htdt-library-"
+                    + BundleTimestamp.utcString(from: Date())
+                    .replacingOccurrences(of: ":", with: "-")
+                    + "."
+                    + HTDTCaptureLibraryFileType.filenameExtension,
+                isDirectory: false
+            )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.exportOperationInFlight = false }
+            let runtime = PlatformRuntimeProvenance.current()
+            do {
+                let result = try await Task.detached(
+                    priority: .userInitiated
+                ) {
+                    try CaptureLibraryPackageExporter.export(
+                        records: records,
+                        scope: .all,
+                        metadata: metadata,
+                        receipts: receipts,
+                        destination: destination,
+                        appVersion: runtime.appVersion,
+                        appBuild: runtime.appBuild,
+                        nowUTC: BundleTimestamp.utcString(
+                            from: Date()
+                        )
+                    )
+                }.value
+                self.libraryExportURL = result.packageURL
+                var status = HostLocalization.text(
+                    "Library package exported (\(result.revisionCount) revision(s))",
+                    "ライブラリパッケージを書き出しました（\(result.revisionCount) リビジョン）"
+                )
+                if !result.skippedRevisions.isEmpty {
+                    status += HostLocalization.text(
+                        "; \(result.skippedRevisions.count) revision(s) had no exportable evidence",
+                        "。\(result.skippedRevisions.count) リビジョンには書き出せるエビデンスがありませんでした"
+                    )
+                }
+                self.workingSetStatus = status
+            } catch {
+                self.workingSetStatus =
+                    HostLocalization.text(
+                        "The library package could not be exported",
+                        "ライブラリパッケージを書き出せませんでした"
+                    )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+            }
+        }
+    }
+
+    /// #394: archives or restores a series — the lifecycle state is
+    /// app-local metadata; the canonical bundles and receipts are
+    /// untouched.
+    func setSeriesArchived(
+        _ seriesID: CaptureSeriesID,
+        archived: Bool
+    ) {
+        guard let captureRoot = Self.captureRootDirectory()
+        else {
+            return
+        }
+        let store = CaptureLibraryMetadataStore(
+            captureRoot: captureRoot
+        )
+        do {
+            try store.setSeriesState(
+                seriesID,
+                archived: archived,
+                archivedAtUTC: archived
+                    ? BundleTimestamp.utcString(from: Date())
+                    : nil
+            )
+            libraryMetadata = try store.load()
+            workingSetStatus = archived
+                ? HostLocalization.text(
+                    "Series archived; its captures and history are unchanged",
+                    "シリーズをアーカイブしました。キャプチャと履歴は変更されていません"
+                )
+                : HostLocalization.text(
+                    "Series restored to the active library",
+                    "シリーズをアクティブなライブラリに戻しました"
+                )
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The series state could not be saved",
+                "シリーズの状態を保存できませんでした"
+            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
+    /// #394: sets/clears a revision's importance marks — milestone,
+    /// keep local, favorite, pinned.
+    func updateRevisionMark(
+        _ revisionID: CaptureRevisionID,
+        mark: CaptureRevisionMark
+    ) {
+        guard let captureRoot = Self.captureRootDirectory()
+        else {
+            return
+        }
+        let store = CaptureLibraryMetadataStore(
+            captureRoot: captureRoot
+        )
+        do {
+            try store.updateRevisionMark(
+                revisionID,
+                mark: mark
+            )
+            libraryMetadata = try store.load()
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The revision mark could not be saved",
+                "リビジョンのマークを保存できませんでした"
+            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
+    /// #394: dependency-aware series delete — the preview's blockers
+    /// (pending delivery jobs, importance marks without the explicit
+    /// override) skip revisions instead of deleting them, and the
+    /// result names exactly what left the device.
+    func deleteSeries(
+        _ seriesID: CaptureSeriesID,
+        includeProtected: Bool
+    ) {
+        guard let store = persistedStore,
+              let captureRoot = Self.captureRootDirectory(),
+              !persistedDeletionInFlight
+        else {
+            return
+        }
+        persistedDeletionInFlight = true
+        let records = persistedInventory.captures
+        let jobs = deliveryJobs
+        let missions = missionRecords
+        let receipts = handoffReceipts
+        workingSetStatus = HostLocalization.text(
+            "Deleting the series",
+            "シリーズを削除しています"
+        )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.persistedDeletionInFlight = false }
+            let result = await Task.detached(
+                priority: .userInitiated
+            ) {
+                CaptureLibraryRetentionPlanner.deleteSeries(
+                    seriesID: seriesID,
+                    records: records.filter {
+                        $0.captureSeriesID == seriesID
+                    },
+                    allRecords: records,
+                    inventory: store,
+                    metadataStore: CaptureLibraryMetadataStore(
+                        captureRoot: captureRoot
+                    ),
+                    deliveryJobs: jobs,
+                    missionRecords: missions,
+                    receipts: receipts,
+                    includeProtected: includeProtected
+                )
+            }.value
+            self.loadPersistedCaptures()
+            var status = HostLocalization.text(
+                "Deleted \(result.deleted.count) revision(s)",
+                "\(result.deleted.count) リビジョンを削除しました"
+            )
+            if !result.skipped.isEmpty {
+                status += HostLocalization.text(
+                    "; \(result.skipped.count) blocked revision(s) were kept",
+                    "。\(result.skipped.count) 件はブロックされ残っています"
+                )
+            }
+            if !result.remaining.isEmpty {
+                status += HostLocalization.text(
+                    "; \(result.remaining.count) revision(s) could not be fully removed",
+                    "。\(result.remaining.count) 件は完全に削除できませんでした"
+                )
+            }
+            self.workingSetStatus = status
         }
     }
 
@@ -7095,56 +8483,217 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// #352 Review-time checklist marks for the bound task plan.
+    /// Also forwards the mark to an imported task plan (#240) — the
+    /// two statuses coexist: `boundTaskPlanStatus` tracks the
+    /// mission-bound plan persisted via the working set, while
+    /// `captureTaskPlanStatus` is the standalone imported plan.
     func markTaskPlanItem(
         _ itemID: String,
         outcome: TaskPlanItemOutcome
     ) {
-        guard var status = boundTaskPlanStatus,
-              let store = workingSetStore,
-              let identity = workingSetIdentity
+        if var status = boundTaskPlanStatus,
+           let store = workingSetStore,
+           let identity = workingSetIdentity
+        {
+            do {
+                try status.mark(itemID: itemID, as: outcome)
+            } catch {
+                markTaskPlanItem(itemID, as: outcome)
+                return
+            }
+            boundTaskPlanStatus = status
+            let context = sessionController.context
+            let annotations = reviewWorkspace?.annotations ?? []
+            let measurements = reviewWorkspace?.measurements ?? []
+            let generation = captureGeneration
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.captureGeneration == generation
+                else {
+                    return
+                }
+                guard let data = try? status.statusPackage(
+                    captureRevisionID: identity.captureRevisionID,
+                    captureSessionID: context.captureSessionID,
+                    annotations: annotations,
+                    measurements: measurements
+                ) else {
+                    return
+                }
+                try? await store.replaceSupplementalDocument(
+                    WorkingSetSupplementalDocument(
+                        path: CaptureTaskPlanStatusDocument.path,
+                        data: data,
+                        declaration: BundlePayloadDeclaration(
+                            path: CaptureTaskPlanStatusDocument.path,
+                            mediaType: "application/json",
+                            producer: "capture_session",
+                            provenanceClass: .captureAppDerived,
+                            role: .canonical
+                        ),
+                        coordinateSpaceIDs: [context.coordinateSpaceID],
+                        captureSessionIDs: [context.captureSessionID]
+                    )
+                )
+                self.refreshReviewWorkspace()
+            }
+        }
+        markTaskPlanItem(itemID, as: outcome)
+    }
+
+    /// Operator capture-strategy selection (#307). Advisory only —
+    /// ignored when a pinned task-plan recommendation is in force, and
+    /// applied only at the next `beginCapture`, never retroactively to
+    /// a running scan.
+    func selectCaptureStrategy(
+        _ identifier: CaptureStrategyIdentifier
+    ) {
+        guard !strategyPinnedByTaskPlan else {
+            return
+        }
+        selectedStrategyID = identifier
+    }
+
+    /// Applies a task plan's strategy recommendation (#307/#240).
+    /// `recommended_capture_strategy` adopts the profile as a soft
+    /// recommendation; `capture_strategy_pinned` locks the picker
+    /// until the plan is cleared. Unknown ids are ignored — plan
+    /// validation already rejects them.
+    func applyTaskPlanStrategy(_ plan: HTDTCaptureTaskPlan) {
+        guard let rawID = plan.recommendedCaptureStrategy,
+              let identifier =
+                CaptureStrategyCatalog.identifier(
+                    forPersistedValue: rawID
+                )
+        else {
+            taskPlanStrategyOverride = nil
+            strategyPinnedByTaskPlan = false
+            return
+        }
+        let pinned = plan.captureStrategyPinned
+        taskPlanStrategyOverride = (identifier, pinned)
+        selectedStrategyID = identifier
+        strategyPinnedByTaskPlan = pinned
+    }
+
+    /// Clears any task-plan strategy override, returning the picker to
+    /// the operator's explicit selection (#307).
+    func clearTaskPlanStrategyOverride() {
+        taskPlanStrategyOverride = nil
+        strategyPinnedByTaskPlan = false
+    }
+
+    /// Resolves which published profile steers the next scan and under
+    /// what source that choice is recorded (#307).
+    private func resolvedCaptureStrategy()
+        -> (CaptureStrategyProfile, CaptureStrategySource)
+    {
+        if let override = taskPlanStrategyOverride {
+            let profile = CaptureStrategyCatalog.profile(
+                for: override.identifier
+            )
+            return (
+                profile,
+                override.pinned
+                    ? .taskPlanPinned
+                    : .taskPlanRecommended
+            )
+        }
+        return (
+            CaptureStrategyCatalog.profile(
+                for: selectedStrategyID
+            ),
+            .operatorSelected
+        )
+    }
+
+    /// Imports a plan-reference underlay document (#322). The JSON
+    /// must carry its own explicit scale/alignment authority — this
+    /// path never infers scale. When a working set is already live the
+    /// document is rebound to the active revision and persisted
+    /// immediately; during setup it is held pending until session
+    /// foundation assigns capture/coordinate-space identity.
+    func importPlanReference(from url: URL) {
+        let accessing =
+            url.startAccessingSecurityScopedResource()
+        defer {
+            if accessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        let imported: PlanUnderlayDocument
+        do {
+            let data = try Data(contentsOf: url)
+            imported = try JSONDecoder().decode(
+                PlanUnderlayDocument.self,
+                from: data
+            )
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The selected plan reference could not be read",
+                "選択されたプラン参照を読み込めませんでした"
+            ) + " [\(Self.persistenceDiagnostic(error))]"
+            return
+        }
+        planUnderlayDocument = imported
+        if workingSetStore != nil {
+            Task { @MainActor [weak self] in
+                await self?.persistPendingPlanUnderlay()
+            }
+        }
+        workingSetStatus = HostLocalization.text(
+            "Plan reference registered; it will guide capture as reference only",
+            "プラン参照を登録しました。参照としてのみキャプチャをガイドします"
+        )
+    }
+
+    /// Rebinds the pending underlay to the live revision's identity
+    /// and writes `reference/plan-underlay.json` (#322). A failure is
+    /// recorded as a warning — the underlay stays operator-visible
+    /// in memory and never blocks scanning.
+    private func persistPendingPlanUnderlay() async {
+        guard let pending = planUnderlayDocument,
+              let store = workingSetStore
         else {
             return
         }
-        do {
-            try status.mark(itemID: itemID, as: outcome)
-        } catch {
+        let snapshot = await store.snapshot()
+        guard let coordinateSpaceID =
+            snapshot.coordinateSpaceIDs.first
+        else {
             return
         }
-        boundTaskPlanStatus = status
-        let context = sessionController.context
-        let annotations = reviewWorkspace?.annotations ?? []
-        let measurements = reviewWorkspace?.measurements ?? []
-        let generation = captureGeneration
-        Task { @MainActor [weak self] in
-            guard let self,
-                  self.captureGeneration == generation
-            else {
-                return
-            }
-            guard let data = try? status.statusPackage(
-                captureRevisionID: identity.captureRevisionID,
-                captureSessionID: context.captureSessionID,
-                annotations: annotations,
-                measurements: measurements
-            ) else {
-                return
-            }
-            try? await store.replaceSupplementalDocument(
-                WorkingSetSupplementalDocument(
-                    path: CaptureTaskPlanStatusDocument.path,
-                    data: data,
-                    declaration: BundlePayloadDeclaration(
-                        path: CaptureTaskPlanStatusDocument.path,
-                        mediaType: "application/json",
-                        producer: "capture_session",
-                        provenanceClass: .captureAppDerived,
-                        role: .canonical
-                    ),
-                    coordinateSpaceIDs: [context.coordinateSpaceID],
-                    captureSessionIDs: [context.captureSessionID]
+        let rebound: PlanUnderlayDocument
+        do {
+            rebound = try PlanUnderlayDocument(
+                captureRevisionID:
+                    snapshot.identity.captureRevisionID,
+                coordinateSpaceID: coordinateSpaceID,
+                sourceKind: pending.sourceKind,
+                sourceFilename: pending.sourceFilename,
+                sourceMediaType: pending.sourceMediaType,
+                sourceSHA256: pending.sourceSHA256,
+                htdtReferenceID: pending.htdtReferenceID,
+                alignment: pending.alignment,
+                importedAtUTC: BundleTimestamp.utcString(
+                    from: Date()
                 )
             )
-            self.refreshReviewWorkspace()
+            let package = try PlanUnderlayPackageBuilder.build(
+                document: rebound
+            )
+            try await store.persistPlanUnderlay(package)
+            planUnderlayDocument = rebound
+        } catch {
+            try? await store.recordResourceEvent(
+                CaptureResourceEvent(
+                    kind: .persistenceFailure,
+                    severity: .warning,
+                    detail:
+                        "plan underlay could not be persisted: "
+                        + Self.persistenceDiagnostic(error)
+                )
+            )
         }
     }
 
@@ -7725,6 +9274,135 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
+    /// Opens the semantic-correction sheet (#319): the selected
+    /// library record's finalized bundle is validated and its semantic
+    /// records decoded as the correction's starting point. The parent
+    /// stays untouched — edits produce a new child revision only on
+    /// explicit commit.
+    func beginSemanticCorrection(
+        _ record: PersistedCaptureRecord
+    ) {
+        guard let directory = record.finalizedDirectory else {
+            return
+        }
+        semanticCorrectionParent = record
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            let context = await Task.detached(
+                priority: .userInitiated
+            ) {
+                try? SemanticChildRevisionBuilder.loadContext(
+                    parentDirectory: directory
+                )
+            }.value
+            guard let context,
+                  self.semanticCorrectionParent?
+                        .captureRevisionID
+                        == record.captureRevisionID
+            else {
+                if self.semanticCorrectionParent?
+                        .captureRevisionID
+                        == record.captureRevisionID
+                {
+                    self.workingSetStatus = HostLocalization.text(
+                        "The selected capture could not be opened for correction",
+                        "選択されたキャプチャを補正のために開けませんでした"
+                    )
+                    self.semanticCorrectionParent = nil
+                }
+                return
+            }
+            self.semanticCorrectionContext = context
+        }
+    }
+
+    /// Builds the semantic child revision (#319): metadata edits only —
+    /// the parent's sensor evidence is carried over byte-for-byte and
+    /// the child gets its own lifecycle timestamps plus the exact
+    /// semantic diff in `revision/intent.json`.
+    func commitSemanticCorrection(
+        _ edits: SemanticChildRevisionEdits
+    ) async -> Bool {
+        guard !semanticCorrectionInFlight,
+              let context = semanticCorrectionContext,
+              semanticCorrectionParent != nil,
+              let captureRoot = Self.captureRootDirectory()
+        else {
+            return false
+        }
+        semanticCorrectionInFlight = true
+        defer {
+            semanticCorrectionInFlight = false
+        }
+        let childRevisionID = CaptureRevisionID(rawValue: UUID())
+        let stagingDirectory = captureRoot
+            .appendingPathComponent("working", isDirectory: true)
+            .appendingPathComponent(
+                childRevisionID.description,
+                isDirectory: true
+            )
+        let destinationDirectory = captureRoot
+            .appendingPathComponent("finalized", isDirectory: true)
+            .appendingPathComponent(
+                childRevisionID.description,
+                isDirectory: true
+            )
+        let runtime = PlatformRuntimeProvenance.current()
+        do {
+            let built = try await SemanticChildRevisionBuilder.build(
+                context: context,
+                childRevisionID: childRevisionID,
+                edits: edits,
+                stagingDirectory: stagingDirectory,
+                destinationDirectory: destinationDirectory,
+                app: BundleAppIdentity(
+                    version: runtime.appVersion,
+                    build: runtime.appBuild
+                )
+            )
+            try? CaptureStoragePolicy.applyFileProtection(
+                to: built.bundleDirectory
+            )
+            if let originStore = captureOriginStore,
+               let originRecord =
+                   try? CaptureAcquisitionOriginRecord(
+                    captureRevisionID: childRevisionID,
+                    kind: .createdOnThisDevice,
+                    transport: .localCapture,
+                    acquiredAtUTC: BundleTimestamp.utcString(
+                        from: Date()
+                    ),
+                    bundleDigestSHA256:
+                        built.bundleDigestSHA256.value
+                   )
+            {
+                try? originStore.record(originRecord)
+                captureOrigins[childRevisionID] = originRecord
+            }
+            semanticCorrectionContext = nil
+            semanticCorrectionParent = nil
+            workingSetStatus = HostLocalization.text(
+                "Created a corrected revision that reuses the original scan evidence",
+                "元のスキャン証跡を再利用した補正済みリビジョンを作成しました"
+            )
+            loadPersistedCaptures()
+            return true
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The corrected revision could not be created",
+                "補正済みリビジョンを作成できませんでした"
+            ) + " [\(Self.persistenceDiagnostic(error))]"
+            return false
+        }
+    }
+
+    func cancelSemanticCorrection() {
+        semanticCorrectionContext = nil
+        semanticCorrectionParent = nil
+    }
+
     private static func captureRootDirectory() -> URL? {
         FileManager.default.urls(
             for: .applicationSupportDirectory,
@@ -7966,6 +9644,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let generation = prepared.generation
         let store = prepared.store
 
+        // Mission payloads imported before the working set existed
+        // persist into this revision now (#353); a pending repair
+        // link binds it to the task it answers (#321).
+        await activateStagedMissionState(store: store)
+
         // #352: bind the mission configured on the setup screen to the
         // new working revision before any scan sample lands — plan
         // identity+version are recorded verbatim; the mission is
@@ -7975,7 +9658,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             revisionID: prepared.identity.captureRevisionID,
             context: context
         )
-
         sessionController.setRoomPlanCompletionHandler {
             [weak self] data, error in
             guard let self,
@@ -8214,6 +9896,48 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        // Strategy provenance (#307): record which published
+        // guidance/evidence policy steers this scan so a consumer can
+        // read exactly what the advisory budgets were. Advisory
+        // provenance only — a write failure degrades to a status note,
+        // never a session abort, and the payload never feeds
+        // `ready_for_htdt_ingestion`.
+        if let strategyPackage = try? CaptureStrategyPackageBuilder
+            .build(
+                document: try CaptureStrategyDocument(
+                    captureRevisionID:
+                        prepared.identity.captureRevisionID,
+                    captureSessionID:
+                        foundation.session.captureSessionID,
+                    coordinateSpaceID:
+                        foundation.session.coordinateSpaceID,
+                    profile: activeCaptureStrategy,
+                    source: pendingStrategySource,
+                    selectedAtUTC: startedAtUTC
+                )
+            )
+        {
+            if (try? await store.persistCaptureStrategy(
+                strategyPackage
+            )) == nil {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "capture strategy document could not be persisted; advisory provenance only"
+                    )
+                )
+            }
+        }
+
+        // Plan-reference underlay (#322): an operator import held
+        // during setup is rebound to the live revision and persisted
+        // now that capture/coordinate-space identity exists.
+        if planUnderlayDocument != nil {
+            await persistPendingPlanUnderlay()
+        }
+
         guard state == .scanning,
               captureGeneration == generation
         else {
@@ -8223,10 +9947,102 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         startScanCoverageSampling(
             generation: generation
         )
+        startStorageSampling(
+            store: store,
+            generation: generation
+        )
         workingSetStatus = HostLocalization.text(
             "Scanning; live RoomPlan camera and active AR configuration are ready",
             "スキャン中：ライブカメラと実行中の AR 設定を確認しました"
         )
+    }
+
+    /// Periodic storage accounting for the #308 advisory surface. Runs
+    /// at the resource-monitor cadence while `.scanning`; each sample
+    /// recomputes the working revision's retained bytes by category,
+    /// the measured device free space against the warning/critical
+    /// thresholds, and the automatic-keyframe budget usage. Advisory
+    /// only — a failed sample degrades to `unknown`, never a gate.
+    private func startStorageSampling(
+        store: CaptureWorkingSetStore,
+        generation: UUID
+    ) {
+        storageSampleTask?.cancel()
+        let policy = CaptureResourceMonitorPolicy()
+        storageSampleTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            while !Task.isCancelled {
+                guard self.captureGeneration == generation,
+                      self.state == .scanning
+                else {
+                    return
+                }
+                let profile = await Task.detached(
+                    priority: .utility
+                ) {
+                    try? await store.storageProfile()
+                }.value
+                let availableBytes =
+                    Self.measuredAvailableStorageBytes()
+                let band: CaptureStoragePressureBand
+                if let availableBytes {
+                    if availableBytes <= policy.storageCriticalBytes {
+                        band = .critical
+                    } else if availableBytes
+                        <= policy.storageWarningBytes
+                    {
+                        band = .warning
+                    } else {
+                        band = .nominal
+                    }
+                } else {
+                    band = .unknown
+                }
+                self.evidenceStorageAdvisory =
+                    CaptureEvidenceStorageAdvisory(
+                        profile:
+                            profile
+                                ?? CaptureWorkingSetStorageProfile(),
+                        evidenceFrameCount:
+                            self.scanEvidenceFrameCount,
+                        depthEvidenceCount:
+                            self.scanDepthEvidenceCount,
+                        deviceAvailableBytes: availableBytes,
+                        pressureBand: band,
+                        storageWarningBytes:
+                            policy.storageWarningBytes,
+                        storageCriticalBytes:
+                            policy.storageCriticalBytes,
+                        keyframeBudget:
+                            AutomaticKeyframeBudgetStatus(
+                                tracker:
+                                    self.automaticKeyframeTracker
+                            )
+                    )
+                try? await Task.sleep(
+                    for: policy.storageSampleInterval,
+                    clock: .continuous
+                )
+            }
+        }
+    }
+
+    /// Measured device free capacity for important usage (#308):
+    /// nil when the platform cannot report a value — the UI then
+    /// shows "unknown" rather than a fabricated number.
+    private static func measuredAvailableStorageBytes() -> Int64? {
+        guard let root = captureRootDirectory(),
+              let value = try? root.resourceValues(
+                forKeys: [
+                    .volumeAvailableCapacityForImportantUsageKey
+                ]
+              ).volumeAvailableCapacityForImportantUsage
+        else {
+            return nil
+        }
+        return Int64(max(0, value))
     }
 
     /// Re-check camera authorization while the permission gate is
@@ -9349,7 +11165,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             spatialCoverageAggregator =
                 SpatialScanCoverageAggregator()
             spatialCoverage = .empty
-            motionGuidanceTracker = ScanMotionGuidanceTracker()
+            // Mid-scan tracker reset keeps the strategy resolved at
+            // Begin (#307): the budgets persist for the whole
+            // revision, not per sampling restart.
+            motionGuidanceTracker = ScanMotionGuidanceTracker(
+                configuration:
+                    activeCaptureStrategy.motionGuidance
+            )
             motionGuidance = nil
             scanGuidanceProgress = .empty
             scanTrackingTransitionGate.reset()
@@ -9881,6 +11703,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             try await store.persistQualityReport(quality)
 
+            // #353/#240/#222/#293: mission-derived payloads are part
+            // of the bundle — persist before the seal freezes the
+            // working set.
+            try await persistMissionDerivedDocuments(store: store)
+
             // CONTRACT (#180): the sibling store agent adds
             // sealForFinalization()/unseal() on CaptureWorkingSetStore.
             // The seal drains in-flight writes, then rejects further
@@ -9960,6 +11787,27 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             } catch {
                 protectionWarning =
                     Self.persistenceDiagnostic(error)
+            }
+
+            // #305: a same-volume rename carries the working
+            // directory's backup-exclusion flag into finalized/;
+            // write the selected policy explicitly so finalized
+            // data honors it (default: backup-eligible per
+            // ADR-0004). Like the protection class above, a
+            // failure is surfaced, never fatal to the promoted
+            // bundle.
+            do {
+                try CaptureStoragePolicy
+                    .applyFinalizedRevisionPolicy(
+                        revisionRoot: finalized.directory,
+                        policy: appSettings.storagePrivacy
+                            .finalizedBackupPolicy
+                    )
+            } catch {
+                let warning = Self.persistenceDiagnostic(error)
+                protectionWarning =
+                    protectionWarning.map { $0 + "; " + warning }
+                    ?? warning
             }
         } catch {
             // Errors here are strictly pre-commit: promotion never
@@ -10166,7 +12014,26 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         finalizedRevision = finalized
         exportURL = nil
         reviewWorkspace = nil
+        taskPlanMission = nil
         danglingSpatialIssues = []
+
+        // Acquisition provenance (#317): a bundle produced by this
+        // device's capture flow records `created_on_this_device`.
+        // Failure here never disturbs the committed revision — it is
+        // app-local metadata, not bundle authority.
+        if let originStore = captureOriginStore,
+           let originRecord = try? CaptureAcquisitionOriginRecord(
+            captureRevisionID: finalized.captureRevisionID,
+            kind: .createdOnThisDevice,
+            transport: .localCapture,
+            acquiredAtUTC: BundleTimestamp.utcString(from: Date()),
+            bundleDigestSHA256: finalized.bundleDigest.value
+           )
+        {
+            try? originStore.record(originRecord)
+            captureOrigins[finalized.captureRevisionID] = originRecord
+        }
+
         // #386: a finalized capture under an active mission joins
         // that mission's associations — the mission record, never
         // the bundle, carries the intent.
@@ -10178,6 +12045,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             refreshMissionDeliveryStores()
         }
+
         refreshHandoffDestinations()
         if let captureRoot = Self.captureRootDirectory() {
             handoffReceipts =
@@ -10187,6 +12055,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     for: finalized.captureRevisionID
                 )) ?? []
         }
+
+        // #321: a promoted revision carrying a persisted repair link
+        // resolves the fresh-rescan task it answers.
+        if let row = activeRepairRow,
+           persistedRepairLinkRevisionID
+            == finalized.captureRevisionID
+        {
+            try? repairPlanStore?.markTaskResolved(
+                planKey: row.planKey,
+                taskID: row.task.taskID,
+                resolvedBy: finalized.captureRevisionID,
+                at: BundleTimestamp.utcString(from: Date())
+            )
+            activeRepairRow = nil
+            persistedRepairLinkRevisionID = nil
+        }
+        refreshRepairTaskRows()
+        clearCaptureMissionInputs()
 
         if let validation,
            validation.bundleDigest == finalized.bundleDigest
@@ -10826,6 +12712,687 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         } catch {
             state = .failed
             lastFailure = .unknown
+        }
+    }
+
+    // MARK: - Mission workflows (issues #353, #240, #222, #293, #321)
+
+    /// Schema probe for the unified mission-document importer (#353):
+    /// the `schema` field alone decides which importer owns the file.
+    private struct MissionSchemaProbe: Decodable {
+        let schema: String?
+    }
+
+    /// Reachable mission surfaces for the current context — the
+    /// production entry list the root view renders (#353).
+    var missionEntries: [MissionWorkflowEntry] {
+        let captureInProgress =
+            state == .scanning || state == .paused
+            || state == .reviewing || state == .annotating
+        return MissionWorkflowRouter.entries(
+            for: MissionWorkflowContext(
+                taskPlanLoaded: captureTaskPlan != nil,
+                connectedSpaceIntent: connectedSpaceIntent,
+                connectedSpaceActive: connectedSpaceTracker != nil,
+                asBuiltPlanLoaded: asBuiltPlan != nil,
+                spatialAuthorityLive: captureInProgress
+                    && !spatialAuthoritySealedForFinalization,
+                captureInProgress: captureInProgress,
+                annotationWorkspaceEnterable:
+                    state == .reviewing
+                    && !isEndingScan
+                    && !reviewOperationInFlight
+                    && (!spatialAuthoritySealedForFinalization
+                        || annotationAuthorityCommitted),
+                unresolvedRepairTasks: repairTaskRows.filter {
+                    !$0.resolved
+                }.count
+            )
+        )
+    }
+
+    var asBuiltGhostOverlayEnabled: Bool {
+        asBuiltSession?.ghostOverlayEnabled ?? false
+    }
+
+    func setConnectedSpaceIntent(_ intent: Bool) {
+        connectedSpaceIntent = intent
+    }
+
+    /// Unified mission-document importer (#353). Allowed while the
+    /// capture is idle, in setup, or in progress — imported payloads
+    /// persist as supplemental documents once a working set exists,
+    /// so a plan can be staged before the scan or added mid-capture.
+    func importMissionDocument(_ url: URL) {
+        guard state == .idle || state == .setup
+            || state == .scanning || state == .paused
+            || state == .reviewing || state == .annotating
+        else {
+            workingSetStatus = HostLocalization.text(
+                "Mission documents can only be imported while idle, in setup, or during a capture",
+                "ミッション文書は待機・セットアップ・キャプチャ中のみ読み込めます"
+            )
+            return
+        }
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The mission document could not be read",
+                "ミッション文書を読み込めませんでした"
+            )
+            return
+        }
+        do {
+            try activateMissionDocument(data)
+        } catch {
+            workingSetStatus =
+                HostLocalization.text(
+                    "Mission document rejected",
+                    "ミッション文書は拒否されました"
+                )
+                + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
+    /// Schema-sniffed dispatch (#353). Task plans and as-built plans
+    /// persist verbatim as imported-reference supplemental documents;
+    /// repair plans enter the app-local ledger (#321).
+    private func activateMissionDocument(_ data: Data) throws {
+        let schema = try? JSONDecoder().decode(
+            MissionSchemaProbe.self,
+            from: data
+        ).schema
+        switch schema {
+        case HTDTCaptureTaskPlan.schema:
+            let planImport = try CaptureTaskPlanImport(data: data)
+            captureTaskPlanImport = planImport
+            captureTaskPlan = planImport.plan
+            captureTaskPlanStatus =
+                CaptureTaskPlanStatus(planImport: planImport)
+            Task {
+                await persistMissionImportDocuments()
+                await refreshMissionOutcomes()
+            }
+            workingSetStatus = HostLocalization.text(
+                "Task plan imported",
+                "タスクプランを読み込みました"
+            ) + " — " + planImport.plan.planID
+        case HTDTAsBuiltPlan.schema:
+            let planImport = try HTDTAsBuiltPlanImport(data: data)
+            asBuiltPlanImport = planImport
+            asBuiltPlan = planImport.plan
+            configureAsBuiltSession()
+            Task { await persistMissionImportDocuments() }
+            workingSetStatus = HostLocalization.text(
+                "As-built plan imported",
+                "アズビルトプランを読み込みました"
+            ) + " — " + planImport.plan.planID
+        case HTDTRepairTaskPlan.schema:
+            let planImport = try HTDTRepairTaskPlanImport(data: data)
+            guard let repairPlanStore else {
+                throw RepairTaskError.unreadableDocument
+            }
+            let stored = try repairPlanStore.record(
+                planImport,
+                receivedAtUTC: BundleTimestamp.utcString(from: Date())
+            )
+            refreshRepairTaskRows()
+            workingSetStatus = HostLocalization.text(
+                "Repair plan recorded",
+                "修復プランを記録しました"
+            ) + " — " + stored.plan.planID
+        default:
+            throw RepairTaskError.unsupportedSchema
+        }
+    }
+
+    /// Creates the as-built verification session against the live
+    /// coordinate authority (#293). Deferred when no spatial
+    /// authority is bound yet — `activateStagedMissionState` retries
+    /// once the working set exists.
+    private func configureAsBuiltSession() {
+        guard let planImport = asBuiltPlanImport else {
+            return
+        }
+        do {
+            asBuiltSession = try AsBuiltVerificationSession(
+                planID: planImport.plan.planID,
+                planVersion: planImport.plan.planVersion,
+                planSHA256: planImport.planSHA256,
+                tolerancePolicyRef:
+                    planImport.plan.tolerancePolicyRef,
+                coordinateSpaceID:
+                    sessionController.context.coordinateSpaceID,
+                specs: planImport.plan.specs
+            )
+            asBuiltAlignmentInstalled = false
+            asBuiltItems = (try? asBuiltSession?.items()) ?? []
+        } catch {
+            asBuiltSession = nil
+            asBuiltItems = []
+        }
+    }
+
+    /// Working set just bound: build the as-built session on the live
+    /// space and persist staged mission payloads plus the repair link
+    /// into this revision (#353/#321).
+    private func activateStagedMissionState(
+        store: CaptureWorkingSetStore
+    ) async {
+        if asBuiltPlanImport != nil, asBuiltSession == nil {
+            configureAsBuiltSession()
+        }
+        await persistMissionImportDocuments()
+        await refreshMissionOutcomes()
+    }
+
+    /// Persists the verbatim mission payloads and a pending repair
+    /// link as supplemental documents. The store treats an identical
+    /// replay as a no-op, so repeated calls are idempotent.
+    private func persistMissionImportDocuments() async {
+        guard let store = workingSetStore else {
+            return
+        }
+        do {
+            if let planImport = captureTaskPlanImport {
+                try await store.persistSupplementalDocument(
+                    try supplementalDocument(
+                        path: CaptureTaskPlanImport.path,
+                        data: planImport.data,
+                        producer: "htdt_plan",
+                        provenanceClass: .importedReference
+                    )
+                )
+            }
+            if let planImport = asBuiltPlanImport {
+                try await store.persistSupplementalDocument(
+                    try supplementalDocument(
+                        path: HTDTAsBuiltPlanImport.path,
+                        data: planImport.data,
+                        producer: "htdt_plan",
+                        provenanceClass: .importedReference
+                    )
+                )
+            }
+            if let link = makeRepairLink() {
+                try await store.persistSupplementalDocument(
+                    try supplementalDocument(
+                        path: HTDTRepairTaskLink.path,
+                        data: link.package(),
+                        producer: "capture_session",
+                        provenanceClass: .captureAppDerived,
+                        bindContext: true
+                    )
+                )
+                persistedRepairLinkRevisionID =
+                    link.captureRevisionID
+            }
+        } catch {
+            workingSetStatus += " ["
+                + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
+    /// Mission-derived payloads packaged at finalization (#353):
+    /// task-plan status, connected-space map, as-built verdicts — all
+    /// captureAppDerived and bound to this revision's authority.
+    private func persistMissionDerivedDocuments(
+        store: CaptureWorkingSetStore
+    ) async throws {
+        guard let revisionID =
+            workingSetIdentity?.captureRevisionID
+        else {
+            return
+        }
+        let context = sessionController.context
+        let seed = (try? Self.committedAnnotationSeed(
+            rootDirectory: await store.rootDirectory
+        ).0) ?? AnnotationWorkspaceSeed()
+        if let status = captureTaskPlanStatus {
+            try await store.replaceSupplementalDocument(
+                try supplementalDocument(
+                    path: CaptureTaskPlanStatusDocument.path,
+                    data: status.statusPackage(
+                        captureRevisionID: revisionID,
+                        captureSessionID: context.captureSessionID,
+                        annotations: seed.annotations,
+                        measurements: seed.measurements
+                    ),
+                    producer: "capture_session",
+                    provenanceClass: .captureAppDerived,
+                    bindContext: true
+                )
+            )
+        }
+        if let tracker = connectedSpaceTracker {
+            try await store.replaceSupplementalDocument(
+                try supplementalDocument(
+                    path: ConnectedSpaceDocument.path,
+                    data: tracker.package(
+                        captureRevisionID: revisionID
+                    ),
+                    producer: "capture_session",
+                    provenanceClass: .captureAppDerived,
+                    bindContext: true
+                )
+            )
+        }
+        if let session = asBuiltSession {
+            try await store.replaceSupplementalDocument(
+                try supplementalDocument(
+                    path: AsBuiltVerificationDocument.path,
+                    data: session.package(
+                        captureRevisionID: revisionID,
+                        captureSessionID: context.captureSessionID
+                    ),
+                    producer: "asbuilt_verification",
+                    provenanceClass: .captureAppDerived,
+                    bindContext: true
+                )
+            )
+        }
+    }
+
+    private func supplementalDocument(
+        path: String,
+        data: Data,
+        producer: String,
+        provenanceClass: BundleProvenanceClass,
+        bindContext: Bool = false
+    ) throws -> WorkingSetSupplementalDocument {
+        try WorkingSetSupplementalDocument(
+            path: path,
+            data: data,
+            declaration: BundlePayloadDeclaration(
+                path: path,
+                mediaType: "application/json",
+                producer: producer,
+                provenanceClass: provenanceClass,
+                role: .canonical
+            ),
+            coordinateSpaceIDs: bindContext
+                ? [sessionController.context.coordinateSpaceID] : [],
+            captureSessionIDs: bindContext
+                ? [sessionController.context.captureSessionID] : []
+        )
+    }
+
+    /// The link document binding this new revision back to the repair
+    /// task it answers (#321). Only built when this capture is a
+    /// revision OF the task's pinned source revision — an unrelated
+    /// capture must never claim the repair.
+    private func makeRepairLink() -> HTDTRepairTaskLink? {
+        guard let row = activeRepairRow,
+              let revisionID = workingSetIdentity?.captureRevisionID,
+              let stored = storedRepairPlan(for: row),
+              let sourceID = CaptureRevisionID(
+                  canonicalString: stored.plan.sourceCaptureRevisionID
+              ),
+              activeRevisionLineage?.parentRevisionID == sourceID,
+              let planSHA = try? EvidenceSHA256(stored.planSHA256)
+        else {
+            return nil
+        }
+        return try? HTDTRepairTaskLink(
+            captureRevisionID: revisionID,
+            captureSessionID: sessionController.context.captureSessionID,
+            repairPlanID: row.planID,
+            repairPlanVersion: row.planVersion,
+            repairPlanSHA256: planSHA,
+            repairTaskID: row.task.taskID,
+            sourceCaptureRevisionID: sourceID,
+            ingestionReceiptRef: stored.plan.ingestionReceiptRef
+        )
+    }
+
+    private func storedRepairPlan(
+        for row: HTDTRepairTaskRow
+    ) -> HTDTRepairPlanStore.StoredPlan? {
+        try? repairPlanStore?.load().plans.first {
+            $0.planKey == row.planKey
+        }
+    }
+
+    /// Clears mission inputs whose payloads are now inside the
+    /// finalized bundle (called after adoption and on terminal reset).
+    private func clearCaptureMissionInputs() {
+        captureTaskPlan = nil
+        captureTaskPlanImport = nil
+        captureTaskPlanStatus = nil
+        missionTaskPlanOutcomes = []
+        asBuiltPlan = nil
+        asBuiltPlanImport = nil
+        asBuiltSession = nil
+        asBuiltItems = []
+        asBuiltAlignmentInstalled = false
+        asBuiltActualCandidates = []
+        roomFrameAvailable = false
+        connectedSpaceIntent = false
+        connectedSpaceTracker = nil
+    }
+
+    /// Operator mark on a task-plan item (#240). Completion of
+    /// entity/measurement items stays computed from committed
+    /// evidence — explicit marks only assert non-evidence outcomes.
+    func markTaskPlanItem(
+        _ itemID: String,
+        as outcome: TaskPlanItemOutcome
+    ) {
+        do {
+            try captureTaskPlanStatus?.mark(
+                itemID: itemID,
+                as: outcome
+            )
+            Task { await refreshMissionOutcomes() }
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "That task plan item cannot be marked",
+                "そのタスク項目はマークできません"
+            )
+        }
+    }
+
+    /// Connected-space ops (#222): the tracker binds to the live
+    /// coordinate authority lazily on first use.
+    private func withConnectedTracker(
+        _ statusOnFailure: String,
+        _ op: (inout ConnectedSpaceTracker) throws -> Void
+    ) {
+        guard state == .scanning || state == .paused
+            || state == .reviewing || state == .annotating
+        else {
+            workingSetStatus = HostLocalization.text(
+                "Connected-space tracking needs a capture in progress",
+                "接続領域トラッキングにはキャプチャの進行が必要です"
+            )
+            return
+        }
+        if connectedSpaceTracker == nil {
+            connectedSpaceTracker = ConnectedSpaceTracker(
+                coordinateSpaceID:
+                    sessionController.context.coordinateSpaceID,
+                captureSessionID:
+                    sessionController.context.captureSessionID
+            )
+        }
+        do {
+            try op(&connectedSpaceTracker!)
+            connectedSpaceIntent = true
+        } catch {
+            workingSetStatus = statusOnFailure + " ["
+                + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
+    func beginConnectedSegment(
+        label: String,
+        kind: CaptureRegionKind
+    ) {
+        withConnectedTracker(
+            HostLocalization.text(
+                "Could not begin the region",
+                "領域を開始できませんでした"
+            )
+        ) { tracker in
+            try tracker.beginSegment(label: label, kind: kind)
+        }
+    }
+
+    func completeConnectedSegment() {
+        withConnectedTracker(
+            HostLocalization.text(
+                "Could not complete the region",
+                "領域を完了できませんでした"
+            )
+        ) { tracker in
+            try tracker.completeActiveSegment()
+        }
+    }
+
+    func recordConnectedPortal(_ regionID: CaptureRegionID) {
+        withConnectedTracker(
+            HostLocalization.text(
+                "Could not record the portal",
+                "ポータルを記録できませんでした"
+            )
+        ) { tracker in
+            try tracker.recordPortal(
+                toRegionID: regionID,
+                kind: .doorway
+            )
+        }
+    }
+
+    func revisitConnectedRegion(_ regionID: CaptureRegionID) {
+        withConnectedTracker(
+            HostLocalization.text(
+                "Could not revisit the region",
+                "領域を再訪できませんでした"
+            )
+        ) { tracker in
+            try tracker.revisitRegion(regionID)
+        }
+    }
+
+    func asBuiltMarkUnavailable(_ plannedEntityID: String) {
+        do {
+            try asBuiltSession?.markUnavailable(plannedEntityID)
+            asBuiltItems = (try? asBuiltSession?.items()) ?? []
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "Could not mark the planned item",
+                "計画項目をマークできませんでした"
+            )
+        }
+    }
+
+    /// Establishes plan→capture alignment from the committed room
+    /// reference frame (#293): scene axes are origin O, front F, up U
+    /// — the columns of `worldFromScene` are [U×F, U, F, O], so
+    /// `sceneFromCapture = inverse(worldFromScene)` is exact rigid
+    /// math rather than a guess.
+    func asBuiltEstablishAlignment() {
+        guard asBuiltSession != nil else {
+            return
+        }
+        Task { @MainActor in
+            guard let store = workingSetStore,
+                  let snapshot = try? await store.snapshot(),
+                  let frame = snapshot.roomReferenceFrame
+            else {
+                workingSetStatus = HostLocalization.text(
+                    "Plan alignment requires a committed room reference frame",
+                    "プラン位置合わせには確定済みのルーム基準フレームが必要です"
+                )
+                return
+            }
+            let up = Float3(0, 1, 0)
+            let front = Float3(
+                Float(frame.frontDirection.x),
+                Float(frame.frontDirection.y),
+                Float(frame.frontDirection.z)
+            )
+            let right = up.cross(front)
+            let origin = Float3(
+                Float(frame.originMeters.x),
+                Float(frame.originMeters.y),
+                Float(frame.originMeters.z)
+            )
+            do {
+                let worldFromScene = try Matrix4x4F(values: [
+                    right.x, right.y, right.z, 0,
+                    up.x, up.y, up.z, 0,
+                    front.x, front.y, front.z, 0,
+                    origin.x, origin.y, origin.z, 1,
+                ])
+                let authority = try PlanAlignmentAuthority(
+                    mechanism: .roomReferenceFrame,
+                    sceneFromCapture: worldFromScene.invertedRigid(),
+                    authorityRef: RoomReferenceFramePackage.path,
+                    evidenceRefs: frame.evidenceRefs,
+                    establishedAtUTC: BundleTimestamp.utcString(
+                        from: Date()
+                    )
+                )
+                asBuiltSession?.installAlignment(authority)
+                asBuiltAlignmentInstalled = true
+                asBuiltItems = (try? asBuiltSession?.items()) ?? []
+            } catch {
+                workingSetStatus = HostLocalization.text(
+                    "Plan alignment could not be established",
+                    "プラン位置合わせを確立できませんでした"
+                ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            }
+        }
+    }
+
+    /// Records a committed annotation entity as the actual position
+    /// for one planned item (#293) — the observation keeps the
+    /// entity's exact world transform and placement provenance, never
+    /// retyped numbers.
+    func asBuiltRecordActual(
+        _ plannedEntityID: String,
+        entityID: AnnotationEntityID
+    ) {
+        guard let entity = asBuiltActualCandidates.first(where: {
+            $0.entityID == entityID
+        }) else {
+            return
+        }
+        do {
+            let position = entity.worldFromAnnotation.translationWorld
+            try asBuiltSession?.recordActual(
+                AsBuiltObservation(
+                    plannedEntityID: plannedEntityID,
+                    positionWorld: SpatialVector3F(
+                        position.x, position.y, position.z
+                    ),
+                    orientationWorld: entity.orientation,
+                    coordinateSpaceID:
+                        sessionController.context.coordinateSpaceID,
+                    placement: entity.placement,
+                    observedAtUTC: BundleTimestamp.utcString(
+                        from: Date()
+                    ),
+                    evidenceRefs: [
+                        "annotation:" + entity.entityID.description
+                    ]
+                )
+            )
+            asBuiltItems = (try? asBuiltSession?.items()) ?? []
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The actual observation could not be recorded",
+                "実測値を記録できませんでした"
+            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
+    /// Routes an unresolved repair task into its remediation path
+    /// (#321). Fresh-rescan tasks revise the pinned source revision so
+    /// the new capture's coordinate authority is clean; in-place
+    /// kinds enter the annotation workspace of the live revision.
+    /// The source revision is never opened for mutation.
+    func resolveRepairTask(_ row: HTDTRepairTaskRow) {
+        guard !row.resolved else {
+            return
+        }
+        activeRepairRow = row
+        if row.task.kind == .freshRescan {
+            guard let record = persistedInventory.captures
+                .first(where: {
+                    $0.captureRevisionID.description
+                        == storedRepairPlan(for: row)?.plan
+                            .sourceCaptureRevisionID
+                })
+            else {
+                workingSetStatus = HostLocalization.text(
+                    "The source capture for this repair is not on this device — start a fresh capture to answer it",
+                    "この修復の元キャプチャはこのデバイスにありません — 新規キャプチャで応答してください"
+                )
+                return
+            }
+            if state == .idle {
+                revisePersistedCapture(record)
+            } else {
+                workingSetStatus = HostLocalization.text(
+                    "Repair task armed — it binds to the next finalized revision of the source",
+                    "修復タスクを設定しました — 元リビジョンの次回確定リビジョンに紐付けられます"
+                )
+            }
+        } else {
+            if state == .reviewing {
+                beginAnnotation()
+            } else {
+                workingSetStatus = HostLocalization.text(
+                    "Repair task armed — open the annotation workspace on the review surface to correct it in place",
+                    "修復タスクを設定しました — レビュー画面の注釈ワークスペースで修正してください"
+                )
+            }
+        }
+    }
+
+    /// Records an HTDT-returned repair plan into the app-local ledger
+    /// (#321). The canonical re-encode pins the plan digest that the
+    /// repair link cites.
+    private func recordRepairTaskPlan(
+        _ plan: HTDTRepairTaskPlan,
+        receiptID: String
+    ) {
+        guard let repairPlanStore,
+              let planImport = try? HTDTRepairTaskPlanImport(
+                  plan: plan
+              )
+        else {
+            return
+        }
+        _ = try? repairPlanStore.record(
+            planImport,
+            receivedAtUTC: BundleTimestamp.utcString(from: Date())
+        )
+        refreshRepairTaskRows()
+        workingSetStatus += HostLocalization.text(
+            "; HTDT returned a repair task plan",
+            "；HTDT から修復タスクプランを受領しました"
+        )
+    }
+
+    private func refreshRepairTaskRows() {
+        repairTaskRows =
+            (try? repairPlanStore?.unresolvedTaskRows()) ?? []
+    }
+
+    /// Recomputes mission checklist state from committed evidence —
+    /// task-plan outcomes, as-built candidates/items, and whether a
+    /// room frame exists to anchor plan alignment.
+    private func refreshMissionOutcomes() async {
+        guard let store = workingSetStore else {
+            missionTaskPlanOutcomes = []
+            asBuiltActualCandidates = []
+            roomFrameAvailable = false
+            return
+        }
+        let seed = (try? Self.committedAnnotationSeed(
+            rootDirectory: await store.rootDirectory
+        ).0) ?? AnnotationWorkspaceSeed()
+        missionTaskPlanOutcomes =
+            captureTaskPlanStatus?.itemOutcomes(
+                annotations: seed.annotations,
+                measurements: seed.measurements
+            ) ?? []
+        asBuiltActualCandidates = seed.annotations
+        roomFrameAvailable =
+            (try? await store.snapshot().roomReferenceFrame) != nil
+        if let asBuiltSession {
+            asBuiltItems = (try? asBuiltSession.items()) ?? []
         }
     }
 }

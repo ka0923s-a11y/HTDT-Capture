@@ -779,6 +779,33 @@ enum BundleReservedPaths {
             provenanceClass: .importedReference,
             role: .canonical
         ),
+        // Capture-strategy selection (issue #307): persisted
+        // provenance of which published advisory policy steered the
+        // revision; canonical session metadata, never a quality gate.
+        "session/capture-strategy.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_session",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
+        // Semantic-revision intent record (issue #319): declares the
+        // child revision's kind and which parent bundle it derives
+        // from; canonical revision metadata.
+        "revision/intent.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_session",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
+        // Floor-plan reference underlay (issue #322): imported
+        // reference geometry used only as capture-time guidance —
+        // never observed truth.
+        "reference/plan-underlay.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_app",
+            provenanceClass: .importedReference,
+            role: .canonical
+        ),
         "session/connected-spaces.json": Binding(
             mediaType: "application/json",
             producer: "capture_session",

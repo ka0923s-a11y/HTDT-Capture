@@ -79,6 +79,11 @@ public struct CaptureReviewWorkspaceView: View {
     @State private var composingFieldNote = false
     @State private var supersedingFieldNote: CaptureFieldNote?
     @State private var bindingFieldNote: CaptureFieldNote?
+    /// Plan selection is UI state only — it never persists (#367).
+    @State private var planSelection:
+        RoomPlanPreviewModel.PlanMarker?
+    @State private var planFocusToken = 0
+    @State private var planLabelMode: ReviewPlanLabelMode = .off
 
     public init(
         model: CaptureReviewWorkspaceModel,
@@ -176,26 +181,27 @@ public struct CaptureReviewWorkspaceView: View {
             }
 
             Section("Plan preview") {
+            Section("Plan preview") {
+            Section("Plan") {
                 if let plan = model.planPreview {
-                    RoomPlanPreviewCanvas(model: plan)
-                        .frame(
-                            minHeight: 220,
-                            idealHeight: 300
+                    ReviewPlanSurface(
+                        model: plan,
+                        markers: planMarkers(plan),
+                        selection: $planSelection,
+                        focusToken: $planFocusToken,
+                        labelMode: $planLabelMode
+                    )
+                    .listRowInsets(
+                        EdgeInsets(
+                            top: 8,
+                            leading: 0,
+                            bottom: 8,
+                            trailing: 0
                         )
-                        .accessibilityLabel(
-                            "Room plan preview"
-                        )
-                        .listRowInsets(
-                            EdgeInsets(
-                                top: 8,
-                                leading: 0,
-                                bottom: 8,
-                                trailing: 0
-                            )
-                        )
+                    )
                 } else {
                     Text(
-                        "Plan preview unavailable on this platform or payload"
+                        "No room plan is stored in this capture"
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -280,19 +286,34 @@ public struct CaptureReviewWorkspaceView: View {
                         model.annotations,
                         id: \.entityID
                     ) { entity in
-                        let entityType = entity.type.rawValue
-                        let entityID =
-                            entity.entityID.description
+                        let entityMarker = marker(
+                            forEntityID: entity.entityID
+                        )
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(entity.label)
-                                .font(.headline)
+                            HStack {
+                                Text(entity.label)
+                                    .font(.headline)
+                                Spacer()
+                                if let entityMarker {
+                                    Button("Show on plan") {
+                                        planSelection = entityMarker
+                                        planFocusToken += 1
+                                    }
+                                    .font(.caption)
+                                }
+                            }
                             Text(
-                                entityType + " · " + entityID
+                                TheaterAuthorityPresentation
+                                    .entityTypeName(entity.type)
                                     + operatorSuffix(
                                         entity.authorOperatorID
                                     )
                             )
-                            .font(.caption.monospaced())
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            CaptureTechnicalText(
+                                entity.entityID.description
+                            )
                         }
                     }
                 }
@@ -394,7 +415,10 @@ public struct CaptureReviewWorkspaceView: View {
                                         .evidenceKindName(
                                             record.kind
                                         ),
-                                    record.acquisition.rawValue,
+                                    TheaterAuthorityPresentation
+                                        .fieldEvidenceAcquisitionName(
+                                            record.acquisition
+                                        ),
                                     record.asset?.assetPath
                                         ?? record.asset?.frameRef,
                                 ]
@@ -578,7 +602,11 @@ public struct CaptureReviewWorkspaceView: View {
                                 RoomOpeningKind.allCases,
                                 id: \.self
                             ) { kind in
-                                Text(kind.rawValue).tag(kind)
+                                Text(
+                                    TheaterAuthorityPresentation
+                                        .openingKindName(kind)
+                                )
+                                .tag(kind)
                             }
                         }
                         .pickerStyle(.menu)
@@ -590,7 +618,11 @@ public struct CaptureReviewWorkspaceView: View {
                                 RoomOpeningState.allCases,
                                 id: \.self
                             ) { state in
-                                Text(state.rawValue).tag(state)
+                                Text(
+                                    TheaterAuthorityPresentation
+                                        .openingStateName(state)
+                                )
+                                .tag(state)
                             }
                         }
                         .pickerStyle(.segmented)
@@ -685,16 +717,24 @@ public struct CaptureReviewWorkspaceView: View {
                 if let datum = model.roomFieldDatum {
                     LabeledContent(
                         "Origin",
-                        value: datum.origin.kind.rawValue
+                        value: TheaterAuthorityPresentation
+                            .datumOriginKindName(
+                                datum.origin.kind
+                            )
                     )
                     LabeledContent(
                         "Axis",
-                        value: datum.axis.kind.rawValue
+                        value: TheaterAuthorityPresentation
+                            .datumAxisKindName(
+                                datum.axis.kind
+                            )
                     )
                     LabeledContent(
                         "Vertical datum",
-                        value: datum.verticalDatum.kind
-                            .rawValue
+                        value: TheaterAuthorityPresentation
+                            .datumVerticalKindName(
+                                datum.verticalDatum.kind
+                            )
                     )
                     LabeledContent(
                         "Origin (m)",
@@ -837,6 +877,11 @@ public struct CaptureReviewWorkspaceView: View {
         }
     }
 
+    /// Preview-first evidence row (issue #367): thumbnail, human
+    /// retention label, linked subjects, status symbols. Exact refs —
+    /// frame ID, byte count, source paths — stay one disclosure away,
+    /// and removal lives in the context menu, never in the primary
+    /// row.
     /// #352: the mission bound before acquisition. Mission
     /// completeness is displayed against committed outcomes and stays
     /// distinct from the technical `ready_for_htdt_ingestion` verdict.
@@ -1290,42 +1335,78 @@ public struct CaptureReviewWorkspaceView: View {
         _ item: ReviewEvidenceItem
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            CaptureTechnicalText(item.frameID.description)
-            LabeledContent(
-                "Bytes",
-                value: ByteCountFormatter.string(
-                    fromByteCount: item.byteCount,
-                    countStyle: .file
+            HStack(
+                alignment: .top,
+                spacing: CaptureDesign.Spacing.group
+            ) {
+                #if os(iOS)
+                AsyncPreviewImage(
+                    url: item.previewFileURL
                 )
-            )
-            LabeledContent(
-                "Kept because",
-                value: retentionLabel(item.retentionReason)
-            )
-            if !item.referencedBy.isEmpty {
-                Text(
-                    "Referenced by "
-                        + item.referencedBy.joined(
-                            separator: ", "
+                .frame(width: 72, height: 54)
+                .clipShape(
+                    RoundedRectangle(cornerRadius: 6)
+                )
+                #endif
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(
+                        TheaterAuthorityPresentation
+                            .retentionReasonName(
+                                item.retentionReason
+                            )
+                    )
+                    .font(CaptureDesign.Typography.body)
+                    if !item.referencedBy.isEmpty {
+                        Text(
+                            referencedSubjects(item.referencedBy)
                         )
-                )
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                        .font(CaptureDesign.Typography.secondary)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
             }
-            #if os(iOS)
-            if let url = item.previewFileURL {
-                AsyncPreviewImage(url: url)
-                    .frame(height: 140)
+            DisclosureGroup("Details") {
+                VStack(alignment: .leading, spacing: 2) {
+                    CaptureTechnicalDetail(
+                        "Frame",
+                        value: item.frameID.description
+                    )
+                    LabeledContent(
+                        "Bytes",
+                        value: ByteCountFormatter.string(
+                            fromByteCount: item.byteCount,
+                            countStyle: .file
+                        )
+                    )
+                    .font(.caption)
+                }
             }
-            #endif
+            .font(.caption)
+        }
+        .padding(.vertical, 4)
+        .contextMenu {
             if item.removable {
                 Button("Remove frame", role: .destructive) {
                     confirmingFrameRemoval = item.frameID
                 }
-                .font(.caption)
             }
         }
-        .padding(.vertical, 4)
+    }
+
+    /// "Referenced by" names in human terms (issue #367): entity
+    /// labels, measurement types, opening kinds — never the raw
+    /// `entity:<id>` / `measurement:<id>` tokens.
+    private func referencedSubjects(
+        _ refs: [String]
+    ) -> String {
+        refs.map { ref in
+            TheaterAuthorityPresentation.referencedSubjectLabel(
+                forRef: ref,
+                in: model
+            )
+        }
+        .joined(separator: ", ")
     }
 
     @ViewBuilder
@@ -1334,12 +1415,28 @@ public struct CaptureReviewWorkspaceView: View {
         interactive: Bool
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            LabeledContent(
-                opening.kind.rawValue,
-                value: opening.disposition.rawValue
-                    + " · "
-                    + opening.openState.rawValue
-            )
+            HStack {
+                LabeledContent(
+                    TheaterAuthorityPresentation
+                        .openingKindName(opening.kind),
+                    value: TheaterAuthorityPresentation
+                        .openingDispositionName(
+                            opening.disposition
+                        )
+                        + " · "
+                        + TheaterAuthorityPresentation
+                            .openingStateName(
+                                opening.openState
+                            )
+                )
+                if let marker = marker(forOpening: opening) {
+                    Button("Show on plan") {
+                        planSelection = marker
+                        planFocusToken += 1
+                    }
+                    .font(.caption)
+                }
+            }
             Text(opening.sourceRef)
                 .font(.caption2.monospaced())
             if interactive {
@@ -1437,6 +1534,38 @@ public struct CaptureReviewWorkspaceView: View {
         openings = current
     }
 
+    /// The composed plan markers — base RoomPlan geometry overlaid
+    /// with the workspace's review items (issue #367). A reviewed
+    /// opening replaces its raw candidate dot via the shared
+    /// `roomplan:<token>:<uuid>` identifier.
+    private func planMarkers(
+        _ plan: RoomPlanPreviewModel
+    ) -> [RoomPlanPreviewModel.PlanMarker] {
+        ReviewPlanPresentation.composedMarkers(
+            base: plan.markers,
+            overlay: ReviewPlanPresentation
+                .overlayMarkers(for: model)
+        )
+    }
+
+    private func marker(
+        forEntityID id: AnnotationEntityID
+    ) -> RoomPlanPreviewModel.PlanMarker? {
+        guard let plan = model.planPreview else { return nil }
+        return planMarkers(plan).first {
+            $0.identifier == "entity:\(id.description)"
+        }
+    }
+
+    private func marker(
+        forOpening opening: RoomOpeningCandidate
+    ) -> RoomPlanPreviewModel.PlanMarker? {
+        guard let plan = model.planPreview else { return nil }
+        return planMarkers(plan).first {
+            $0.identifier == opening.sourceRef
+        }
+    }
+
     private func operatorName(
         _ id: OperatorProfileID
     ) -> String {
@@ -1452,120 +1581,9 @@ public struct CaptureReviewWorkspaceView: View {
         return " · author: " + operatorName(id)
     }
 
-    private func retentionLabel(
-        _ reason: EvidenceRetentionReason
-    ) -> String {
-        switch reason {
-        case .endBoundary:
-            return "Closing evidence"
-        case .linkedToAuthority:
-            return "Referenced evidence"
-        case .automaticKeyframe:
-            return "Automatic keyframe"
-        case .operatorSaved:
-            return "Optional visual frame"
-        }
-    }
 }
 
-/// The plan-projection canvas for the Review workspace (issue #213):
-/// walls as segments, openings/objects as markers, drawn from the
-/// platform-independent `RoomPlanPreviewModel`.
-public struct RoomPlanPreviewCanvas: View {
-    public let model: RoomPlanPreviewModel
 
-    public init(model: RoomPlanPreviewModel) {
-        self.model = model
-    }
-
-    public var body: some View {
-        Canvas { context, size in
-            let spanX = max(model.maxX - model.minX, 0.01)
-            let spanZ = max(model.maxZ - model.minZ, 0.01)
-            let scale = min(
-                Double(size.width) / spanX,
-                Double(size.height) / spanZ
-            ) * 0.9
-            let offsetX =
-                (Double(size.width) - spanX * scale) / 2
-            let offsetY =
-                (Double(size.height) - spanZ * scale) / 2
-
-            func point(_ x: Double, _ z: Double) -> CGPoint {
-                CGPoint(
-                    x: offsetX
-                        + (x - model.minX) * scale,
-                    y: offsetY
-                        + (z - model.minZ) * scale
-                )
-            }
-
-            for wall in model.walls {
-                var path = Path()
-                path.move(
-                    to: point(wall.startX, wall.startZ)
-                )
-                path.addLine(
-                    to: point(wall.endX, wall.endZ)
-                )
-                context.stroke(
-                    path,
-                    with: .color(.primary),
-                    lineWidth: 2
-                )
-            }
-
-            for marker in model.markers {
-                let p = point(marker.x, marker.z)
-                let color: Color =
-                    switch marker.kind {
-                    case .door: .green
-                    case .window: .blue
-                    case .opening: .teal
-                    case .object: .gray
-                    case .annotation: .orange
-                    case .roomFrameOrigin: .red
-                    case .roomFrameFront: .purple
-                    case .revisitFlag: .pink
-                    }
-                let rect = CGRect(
-                    x: p.x - 4,
-                    y: p.y - 4,
-                    width: 8,
-                    height: 8
-                )
-                context.fill(
-                    Path(ellipseIn: rect),
-                    with: .color(color)
-                )
-                if let dirX = marker.dirX,
-                   let dirZ = marker.dirZ
-                {
-                    let len = max(
-                        (dirX * dirX + dirZ * dirZ)
-                            .squareRoot(),
-                        0.001
-                    )
-                    var arrow = Path()
-                    arrow.move(to: p)
-                    arrow.addLine(
-                        to: CGPoint(
-                            x: p.x + dirX / len * 14,
-                            y: p.y + dirZ / len * 14
-                        )
-                    )
-                    context.stroke(
-                        arrow,
-                        with: .color(color),
-                        lineWidth: 1
-                    )
-                }
-            }
-        }
-        .background(.quaternary)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-}
 
 #if os(iOS)
 /// Loads a preview HEIC lazily for the evidence gallery. Previews are
@@ -1573,19 +1591,31 @@ public struct RoomPlanPreviewCanvas: View {
 /// to a placeholder, never to a hidden failure.
 struct AsyncPreviewImage: View {
     let url: URL
+/// to a placeholder, never to a hidden failure.
+private struct AsyncPreviewImage: View {
+    let url: URL
+/// to a stable placeholder — never a hidden failure and never a row
+/// jump (issue #367).
+private struct AsyncPreviewImage: View {
+    let url: URL?
 
     var body: some View {
-        if let data = try? Data(contentsOf: url),
-           let image = UIImage(data: data)
-        {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-        } else {
-            Text("Preview unavailable")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        ZStack {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(.quaternary)
+            if let url,
+               let data = try? Data(contentsOf: url),
+               let image = UIImage(data: data)
+            {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "photo")
+                    .foregroundStyle(.tertiary)
+            }
         }
+        .clipped()
     }
 }
 #endif
