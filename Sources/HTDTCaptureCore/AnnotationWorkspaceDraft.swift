@@ -28,6 +28,10 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
     /// Staged theater-semantic authorities (#350); nil in drafts
     /// written before this field existed.
     public var theaterAuthorities: TheaterAuthorityCollection?
+    /// Staged theater-semantic authority records (#357): edits,
+    /// deletes, and newly authored records survive interruption just
+    /// like annotations; only Save writes the canonical package.
+    public var authorities: TheaterAuthorityCollection?
     /// Staged field-authority state — operator profiles, field
     /// evidence, instrument profiles, settings observations and
     /// wiring routes (#300/#301/#310/#314/#324/#331). Optional so
@@ -43,6 +47,7 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         equipmentIdentityRecords: [EquipmentIdentityRecord] = [],
         speakerLayoutPlan: SpeakerLayoutPlan? = nil,
         theaterAuthorities: TheaterAuthorityCollection? = nil,
+        authorities: TheaterAuthorityCollection? = nil,
         fieldAuthority: FieldAuthorityWorkspace? = nil
     ) {
         self.schemaName = Self.schema
@@ -55,6 +60,7 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         self.equipmentIdentityRecords = equipmentIdentityRecords
         self.speakerLayoutPlan = speakerLayoutPlan
         self.theaterAuthorities = theaterAuthorities
+        self.authorities = authorities
         self.fieldAuthority = fieldAuthority
     }
 
@@ -100,6 +106,10 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
             FieldAuthorityWorkspace.self,
             forKey: .fieldAuthority
         )
+        authorities = try container.decodeIfPresent(
+            TheaterAuthorityCollection.self,
+            forKey: .authorities
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -113,6 +123,7 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         case equipmentIdentityRecords = "equipment_identity_records"
         case speakerLayoutPlan = "speaker_layout_plan"
         case theaterAuthorities = "theater_authorities"
+        case authorities
         case fieldAuthority = "field_authority"
     }
 }

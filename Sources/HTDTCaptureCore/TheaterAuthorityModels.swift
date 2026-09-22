@@ -1458,6 +1458,12 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
     public let speakerInstallations: [SpeakerInstallationAuthority]
     public let screenSemantics: [ProjectionScreenSemantics]
     public let seatLayouts: [SeatLayoutAuthority]
+    /// Observed output->speaker routing claims (#316).
+    public let routingVerifications: [RoutingVerificationAuthority]
+    /// Field-commissioned projector lens/optics state (#335).
+    public let projectorCommissionings: [ProjectorCommissioningAuthority]
+    /// Attested installation-alignment assist outcomes (#346).
+    public let installationAlignments: [InstallationAlignmentRecord]
 
     /// An authority file with no records; the validating init cannot
     /// fail on empty sections.
@@ -1475,6 +1481,9 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
             && speakerInstallations.isEmpty
             && screenSemantics.isEmpty
             && seatLayouts.isEmpty
+            && routingVerifications.isEmpty
+            && projectorCommissionings.isEmpty
+            && installationAlignments.isEmpty
     }
 
     public init(
@@ -1488,7 +1497,10 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
         furnitureSemantics: [FurnitureSemanticConfirmation] = [],
         speakerInstallations: [SpeakerInstallationAuthority] = [],
         screenSemantics: [ProjectionScreenSemantics] = [],
-        seatLayouts: [SeatLayoutAuthority] = []
+        seatLayouts: [SeatLayoutAuthority] = [],
+        routingVerifications: [RoutingVerificationAuthority] = [],
+        projectorCommissionings: [ProjectorCommissioningAuthority] = [],
+        installationAlignments: [InstallationAlignmentRecord] = []
     ) throws {
         // Record identifiers share one namespace and must be unique
         // across every section.
@@ -1502,6 +1514,9 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
             + speakerInstallations.map(\.authorityID)
             + screenSemantics.map(\.authorityID)
             + seatLayouts.map(\.authorityID)
+            + routingVerifications.map(\.authorityID)
+            + projectorCommissionings.map(\.authorityID)
+            + installationAlignments.map(\.authorityID)
         {
             guard ids.insert(id).inserted else {
                 throw TheaterAuthorityError.duplicateAuthorityRecordID
@@ -1561,6 +1576,33 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
                 }
             }
         }
+        let routingIDs = Set(routingVerifications.map(\.authorityID))
+        for routing in routingVerifications {
+            if let source = routing.sourceInventoryItemID {
+                guard inventoryItems.contains(where: {
+                    $0.itemID == source
+                }) else {
+                    throw TheaterAuthorityError
+                        .unresolvedFeatureReference
+                }
+            }
+            if let supersedes = routing.supersedesRecordID {
+                guard routingIDs.contains(supersedes) else {
+                    throw TheaterAuthorityError
+                        .unresolvedFeatureReference
+                }
+            }
+        }
+        for commissioning in projectorCommissionings {
+            if let screen = commissioning.screenSemanticsAuthorityID {
+                guard screenSemantics.contains(where: {
+                    $0.authorityID == screen
+                }) else {
+                    throw TheaterAuthorityError
+                        .unresolvedFeatureReference
+                }
+            }
+        }
 
         self.schema = Self.expectedSchema
         self.schemaVersion = Self.expectedSchemaVersion
@@ -1575,6 +1617,9 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
         self.speakerInstallations = speakerInstallations
         self.screenSemantics = screenSemantics
         self.seatLayouts = seatLayouts
+        self.routingVerifications = routingVerifications
+        self.projectorCommissionings = projectorCommissionings
+        self.installationAlignments = installationAlignments
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -1591,6 +1636,9 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
         case speakerInstallations = "speaker_installations"
         case screenSemantics = "screen_semantics"
         case seatLayouts = "seat_layouts"
+        case routingVerifications = "routing_verifications"
+        case projectorCommissionings = "projector_commissionings"
+        case installationAlignments = "installation_alignments"
     }
 
     public init(from decoder: Decoder) throws {
@@ -1654,6 +1702,18 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
             seatLayouts: container.decodeIfPresent(
                 [SeatLayoutAuthority].self,
                 forKey: .seatLayouts
+            ) ?? [],
+            routingVerifications: container.decodeIfPresent(
+                [RoutingVerificationAuthority].self,
+                forKey: .routingVerifications
+            ) ?? [],
+            projectorCommissionings: container.decodeIfPresent(
+                [ProjectorCommissioningAuthority].self,
+                forKey: .projectorCommissionings
+            ) ?? [],
+            installationAlignments: container.decodeIfPresent(
+                [InstallationAlignmentRecord].self,
+                forKey: .installationAlignments
             ) ?? []
         )
     }

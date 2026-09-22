@@ -2377,6 +2377,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     speakerLayoutPlan: draft.speakerLayoutPlan,
                     isRestoredDraft: true,
                     authorities: draft.theaterAuthorities,
+                    authorities: draft.authorities,
                     fieldAuthority: draft.fieldAuthority
                         ?? FieldAuthorityWorkspace()
                 )

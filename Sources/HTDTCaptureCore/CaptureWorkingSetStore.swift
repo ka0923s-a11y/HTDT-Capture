@@ -2347,6 +2347,45 @@ public actor CaptureWorkingSetStore {
                 }
             }
         }
+        for record in collection.routingVerifications {
+            if let space = record.coordinateSpaceID {
+                spaces.insert(space)
+                for ref in record.evidenceRefs {
+                    try requireSpatialEvidenceLinkCongruence(
+                        ref,
+                        coordinateSpaceID: space
+                    )
+                }
+            }
+        }
+        for record in collection.projectorCommissionings {
+            if let space = record.coordinateSpaceID {
+                spaces.insert(space)
+                for ref in record.evidenceRefs {
+                    try requireSpatialEvidenceLinkCongruence(
+                        ref,
+                        coordinateSpaceID: space
+                    )
+                }
+            }
+        }
+        for record in collection.installationAlignments {
+            spaces.insert(record.coordinateSpaceID)
+            for ref in record.evidenceRefs {
+                try requireSpatialEvidenceLinkCongruence(
+                    ref,
+                    coordinateSpaceID: record.coordinateSpaceID
+                )
+            }
+            if let alignment = record.alignment {
+                for ref in alignment.evidenceRefs {
+                    try requireSpatialEvidenceLinkCongruence(
+                        ref,
+                        coordinateSpaceID: record.coordinateSpaceID
+                    )
+                }
+            }
+        }
         guard spaces.count <= 1 else {
             throw CaptureWorkingSetError.authorityMismatch
         }
@@ -2445,6 +2484,40 @@ public actor CaptureWorkingSetStore {
                 record.eyeReferenceEntityID,
                 types: [.referencePoint],
                 field: "eye_reference_entity_id"
+            )
+        }
+        for record in collection.routingVerifications {
+            for id in record.speakerEntityIDs {
+                try requireEntity(
+                    id,
+                    types: [.speaker, .subwoofer],
+                    field: "speaker_entity_ids"
+                )
+            }
+        }
+        for record in collection.projectorCommissionings {
+            try requireEntity(
+                record.projectorEntityID,
+                types: [.projector],
+                field: "projector_entity_id"
+            )
+            try requireEntity(
+                record.lensCenterEntityID,
+                types: [.projector, .referencePoint, .custom],
+                field: "lens_center_entity_id"
+            )
+        }
+        for record in collection.installationAlignments {
+            try requireEntity(
+                record.finalEntityID,
+                types: [],
+                field: "final_entity_id"
+            )
+            try requireEntity(
+                record.aimAtEntityID,
+                types: [.listeningPosition, .referencePoint, .seat,
+                        .measurementPoint],
+                field: "aim_at_entity_id"
             )
         }
     }
