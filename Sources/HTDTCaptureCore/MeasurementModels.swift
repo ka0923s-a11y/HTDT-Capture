@@ -92,6 +92,19 @@ public enum MeasurementModelError: Error, Sendable, Equatable {
     case nonDerivedDerivation
     case derivedProvenanceMismatch
     case missingDerivationAuthority
+    /// An unregistered `quantity_type` token lacks the reserved `x_`
+    /// custom namespace prefix on a v1.1.0+ payload (#344).
+    case unscopedCustomQuantity
+    /// The value lies outside the quantity's physical domain (#334).
+    case valueOutsideQuantityDomain
+    /// Structured uncertainty fields are contradictory or malformed
+    /// (#334).
+    case invalidUncertainty
+    /// Lineage fields are contradictory or malformed (#304).
+    case invalidMeasurementLineage
+    /// The document claims a schema_version this contract does not
+    /// support (#332).
+    case unsupportedSchemaVersion
 }
 
 public enum MeasurementValue: Codable, Sendable, Equatable {
@@ -151,6 +164,286 @@ public enum MeasurementValue: Codable, Sendable, Equatable {
         case let .vector3(x, y, z):
             return x.isFinite && y.isFinite && z.isFinite
         }
+    }
+}
+
+/// What the stated `value` number means (#334). The kind never
+/// conflates measurement uncertainty with an installation
+/// tolerance or a fit residual — those live on their own records.
+public enum MeasurementUncertaintyKind: String, Codable, Sendable {
+    /// Hard bound: |error| <= value.
+    case absoluteBound = "absolute_bound"
+    /// Manufacturer-specified instrument accuracy.
+    case manufacturerAccuracy = "manufacturer_accuracy"
+    /// One standard deviation of the observation distribution.
+    case standardUncertainty = "standard_uncertainty"
+    /// Expanded uncertainty: value = k * u, `coverage_factor`
+    /// records k.
+    case expandedUncertainty = "expanded_uncertainty"
+    /// Instrument display/reading resolution.
+    case resolution
+    /// Spread estimated from repeated observations.
+    case repeatabilityEstimate = "repeatability_estimate"
+    /// A bare number whose semantics the author did not declare —
+    /// the explicit marker, not an omission.
+    case unknownStated = "unknown_stated"
+}
+
+/// Typed uncertainty authority for a measurement record (#334).
+/// Replaces the semantics-free `stated_uncertainty` scalar with a
+/// declared kind, declared unit (or same-as-quantity), optional
+/// coverage metadata, and a provenance basis. `coverage_factor` and
+/// `confidence_level` are never fabricated — they are recorded
+/// only when the author supplied them.
+public struct MeasurementUncertainty: Codable, Sendable, Equatable {
+    /// The uncertainty magnitude; non-negative, finite.
+    public let value: Double
+    /// The unit `value` is expressed in; nil means the
+    /// measurement's own unit (`same_as_quantity`).
+    public let unit: MeasurementUnit?
+    public let kind: MeasurementUncertaintyKind
+    /// Coverage factor k for `expanded_uncertainty` — the only
+    /// kind it may accompany.
+    public let coverageFactor: Double?
+    /// Declared confidence level in (0, 1]; only meaningful with a
+    /// declared statistical kind (standard/expanded).
+    public let confidenceLevel: Double?
+    /// Where the number came from — user/instrument-stated,
+    /// app-estimated, or other.
+    public let source: SpatialUncertaintyBasis
+    /// Evidence backing the stated value (datasheet, calibration
+    /// certificate, repeatability series).
+    public let evidenceRefs: [String]
+
+    public init(
+        value: Double,
+        unit: MeasurementUnit? = nil,
+        kind: MeasurementUncertaintyKind,
+        coverageFactor: Double? = nil,
+        confidenceLevel: Double? = nil,
+        source: SpatialUncertaintyBasis,
+        evidenceRefs: [String] = []
+    ) throws {
+        guard value.isFinite, value >= 0 else {
+            throw MeasurementModelError.invalidUncertainty
+        }
+        if let coverageFactor {
+            guard kind == .expandedUncertainty,
+                  coverageFactor.isFinite,
+                  coverageFactor > 0
+            else {
+                throw MeasurementModelError.invalidUncertainty
+            }
+        }
+        if let confidenceLevel {
+            guard kind == .expandedUncertainty
+                    || kind == .standardUncertainty,
+                  confidenceLevel.isFinite,
+                  confidenceLevel > 0,
+                  confidenceLevel <= 1
+            else {
+                throw MeasurementModelError.invalidUncertainty
+            }
+        }
+        let normalizedEvidence = SchemaOwnedText.nfc(evidenceRefs)
+        guard normalizedEvidence.allSatisfy({ !$0.isEmpty })
+        else {
+            throw MeasurementModelError.emptyEvidenceReference
+        }
+        self.value = value
+        self.unit = unit
+        self.kind = kind
+        self.coverageFactor = coverageFactor
+        self.confidenceLevel = confidenceLevel
+        self.source = source
+        self.evidenceRefs = normalizedEvidence
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case value
+        case unit
+        case kind
+        case coverageFactor = "coverage_factor"
+        case confidenceLevel = "confidence_level"
+        case source
+        case evidenceRefs = "evidence_refs"
+    }
+}
+
+/// A pointer to a measurement record in this or an earlier
+/// capture revision (#304). `capture_revision_id` nil means the
+/// same revision — same-session retakes never need to know the
+/// revision id at authoring time.
+public struct MeasurementLineageReference:
+    Codable, Sendable, Equatable
+{
+    public let captureRevisionID: CaptureRevisionID?
+    public let measurementID: MeasurementID
+
+    public init(
+        captureRevisionID: CaptureRevisionID? = nil,
+        measurementID: MeasurementID
+    ) {
+        self.captureRevisionID = captureRevisionID
+        self.measurementID = measurementID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case captureRevisionID = "capture_revision_id"
+        case measurementID = "measurement_id"
+    }
+}
+
+/// How a measurement observation relates to a prior record
+/// (#304). Repeat vs retake is a semantic distinction the wire
+/// must carry — it is not derivable from equal type/unit.
+public enum MeasurementLineageRelation: String, Codable, Sendable {
+    /// An independent repeated observation of the same quantity —
+    /// retained alongside the parent as corroborating evidence.
+    case independentRepeat = "independent_repeat"
+    /// A re-observation replacing a flawed attempt of the same
+    /// observation identity.
+    case retakeOf = "retake_of"
+    /// This record supersedes the parent's claim.
+    case supersedes
+    /// This record verifies the parent's value (e.g. an as-built
+    /// check against a nominal).
+    case verificationOf = "verification_of"
+}
+
+/// Disposition of a measurement record inside the working set
+/// (#304). `superseded` is a declared state, never deletion: prior
+/// evidence is never removed or rewritten.
+public enum MeasurementDisposition: String, Codable, Sendable {
+    /// Authoritative current value.
+    case active
+    /// A later record supersedes this one; retained as evidence.
+    case superseded
+    /// Rejected at authoring; `disposition_reason` carries why.
+    case rejectedWithReason = "rejected_with_reason"
+    /// Retained as an independent repeat corroborating record.
+    case retainedRepeat = "retained_repeat"
+}
+
+/// Typed binding from a measurement to the task-plan item it was
+/// captured to satisfy (#354) — the stronger endpoint contract that
+/// replaces generic type/unit matching when a plan item declares
+/// `endpoint_semantics`.
+public struct MeasurementTaskRef: Codable, Sendable, Equatable {
+    public let planID: String
+    public let itemID: String
+
+    public init(planID: String, itemID: String) throws {
+        let normalizedPlan = SchemaOwnedText.nfc(planID)
+        let normalizedItem = SchemaOwnedText.nfc(itemID)
+        guard !normalizedPlan.isEmpty, !normalizedItem.isEmpty
+        else {
+            throw MeasurementModelError.invalidMeasurementLineage
+        }
+        self.planID = normalizedPlan
+        self.itemID = normalizedItem
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case planID = "plan_id"
+        case itemID = "item_id"
+    }
+}
+
+/// Measurement observation lineage (#304): requested-observation
+/// identity, prior-record relation, and disposition. Nil on a
+/// legacy record means lineage was never asserted — the record is
+/// treated as an active independent observation.
+public struct MeasurementLineage: Codable, Sendable, Equatable {
+    /// Relation to a prior observation; absent means this is an
+    /// independent observation (no parent).
+    public let relation: MeasurementLineageRelation?
+    /// The parent observation for retake/supersedes/verification
+    /// relations; required exactly when `relation` claims one.
+    public let parentMeasurementRef: MeasurementLineageReference?
+    public let disposition: MeasurementDisposition
+    /// Required iff `disposition == .rejectedWithReason`.
+    public let dispositionReason: String?
+    /// The task-plan item this observation was requested to
+    /// satisfy (#354).
+    public let taskRef: MeasurementTaskRef?
+
+    public init(
+        relation: MeasurementLineageRelation? = nil,
+        parentMeasurementRef: MeasurementLineageReference? = nil,
+        disposition: MeasurementDisposition = .active,
+        dispositionReason: String? = nil,
+        taskRef: MeasurementTaskRef? = nil
+    ) throws {
+        switch relation {
+        case .retakeOf, .supersedes, .verificationOf:
+            guard parentMeasurementRef != nil else {
+                throw MeasurementModelError
+                    .invalidMeasurementLineage
+            }
+        case .independentRepeat, nil:
+            guard parentMeasurementRef == nil else {
+                throw MeasurementModelError
+                    .invalidMeasurementLineage
+            }
+        }
+        let normalizedReason =
+            SchemaOwnedText.nfc(dispositionReason)
+        switch disposition {
+        case .rejectedWithReason:
+            guard let normalizedReason,
+                  !normalizedReason.isEmpty
+            else {
+                throw MeasurementModelError
+                    .invalidMeasurementLineage
+            }
+        case .active, .superseded, .retainedRepeat:
+            guard normalizedReason == nil else {
+                throw MeasurementModelError
+                    .invalidMeasurementLineage
+            }
+        }
+        self.relation = relation
+        self.parentMeasurementRef = parentMeasurementRef
+        self.disposition = disposition
+        self.dispositionReason = normalizedReason
+        self.taskRef = taskRef
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case relation
+        case parentMeasurementRef = "parent_measurement_ref"
+        case disposition
+        case dispositionReason = "disposition_reason"
+        case taskRef = "task_ref"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(
+            keyedBy: CodingKeys.self
+        )
+        try self.init(
+            relation: container.decodeIfPresent(
+                MeasurementLineageRelation.self,
+                forKey: .relation
+            ),
+            parentMeasurementRef: container.decodeIfPresent(
+                MeasurementLineageReference.self,
+                forKey: .parentMeasurementRef
+            ),
+            disposition: container.decodeIfPresent(
+                MeasurementDisposition.self,
+                forKey: .disposition
+            ) ?? .active,
+            dispositionReason: container.decodeIfPresent(
+                String.self,
+                forKey: .dispositionReason
+            ),
+            taskRef: container.decodeIfPresent(
+                MeasurementTaskRef.self,
+                forKey: .taskRef
+            )
+        )
     }
 }
 
@@ -356,6 +649,16 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
     /// Algorithmic lineage for derived/app-computed values
     /// (issue #286). Never present on raw user-entered values.
     public let derivation: MeasurementDerivation?
+    /// Typed uncertainty authority (#334); supersedes the bare
+    /// `stated_uncertainty` scalar on v1.1.0 payloads. When both are
+    /// present `stated_uncertainty` must equal `uncertainty.value` —
+    /// the legacy field only mirrors the structured record.
+    public let uncertainty: MeasurementUncertainty?
+    /// Observation lineage (#304): repeat/retake/supersession
+    /// relation to a prior record, disposition, and optional
+    /// task-plan binding (#354). Nil on legacy records = independent
+    /// observation, lineage unknown.
+    public let lineage: MeasurementLineage?
     /// Exact instrument profile version this value relied on
     /// (issue #331). When present it is the instrument authority; the
     /// legacy free-text `instrument` field stays populated for
@@ -383,6 +686,8 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
         sourceValueText: String? = nil,
         sourceAuthority: MeasurementSourceAuthority? = nil,
         derivation: MeasurementDerivation? = nil,
+        uncertainty: MeasurementUncertainty? = nil,
+        lineage: MeasurementLineage? = nil,
         instrumentAuthority: MeasurementInstrumentReference? = nil,
         authorOperatorID: OperatorProfileID? = nil,
         evidenceRefs: [String] = []
@@ -415,6 +720,22 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
                   statedUncertainty >= 0
             else {
                 throw MeasurementModelError.negativeUncertainty
+            }
+        }
+        // The structured uncertainty record is dimensionally coherent
+        // with the measurement and, when the legacy mirror is also
+        // present, identical to it (#334).
+        if let uncertainty {
+            if let uncertaintyUnit = uncertainty.unit {
+                guard uncertaintyUnit.dimension == unit.dimension
+                else {
+                    throw MeasurementModelError.invalidUncertainty
+                }
+            }
+            if let statedUncertainty {
+                guard statedUncertainty == uncertainty.value else {
+                    throw MeasurementModelError.invalidUncertainty
+                }
             }
         }
         // `observed_at` is `date-time` authority: canonical UTC RFC3339
@@ -523,6 +844,8 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
         self.sourceValueText = SchemaOwnedText.nfc(sourceValueText)
         self.sourceAuthority = sourceAuthority
         self.derivation = derivation
+        self.uncertainty = uncertainty
+        self.lineage = lineage
         self.instrumentAuthority = instrumentAuthority
         self.authorOperatorID = authorOperatorID
         self.evidenceRefs = normalizedEvidence
@@ -600,6 +923,8 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
         case sourceValueText = "source_value_text"
         case sourceAuthority = "source_authority"
         case derivation
+        case uncertainty
+        case lineage
         case instrumentAuthority = "instrument_authority"
         case authorOperatorID = "author_operator_id"
         case evidenceRefs = "evidence_refs"
@@ -662,6 +987,14 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
                 MeasurementDerivation.self,
                 forKey: .derivation
             ),
+            uncertainty: container.decodeIfPresent(
+                MeasurementUncertainty.self,
+                forKey: .uncertainty
+            ),
+            lineage: container.decodeIfPresent(
+                MeasurementLineage.self,
+                forKey: .lineage
+            ),
             instrumentAuthority: container.decodeIfPresent(
                 MeasurementInstrumentReference.self,
                 forKey: .instrumentAuthority
@@ -680,20 +1013,68 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
 
 public struct CaptureMeasurementCollection: Codable, Sendable, Equatable {
     public static let expectedSchema = "htdt.capture.measurements"
-    public static let expectedSchemaVersion = "1.0.0"
+    /// The payload version this build emits (#332). v1.1.0 adds
+    /// structured uncertainty (#334), observation lineage/disposition
+    /// (#304), and the open-token namespace policy for `quantity_type`
+    /// (#344).
+    public static let expectedSchemaVersion = "1.1.0"
+    /// Every payload version this build can decode (#332).
+    public static let supportedSchemaVersions: [String] = [
+        "1.0.0", "1.1.0",
+    ]
 
     public let schema: String
     public let schemaVersion: String
     public let measurements: [CaptureMeasurement]
 
     public init(measurements: [CaptureMeasurement]) throws {
+        try self.init(
+            measurements: measurements,
+            declaredSchemaVersion: Self.expectedSchemaVersion
+        )
+    }
+
+    /// Validates a collection under the contract pinned to
+    /// `declaredSchemaVersion`. v1.1.0 payloads enforce the quantity
+    /// registry in full — canonical unit/shape/endpoint semantics,
+    /// physical value domain (#334), and the `x_` custom-token
+    /// namespace policy (#344). v1.0.0 payloads stay readable with
+    /// unscoped custom quantities and unrestricted values.
+    init(
+        measurements: [CaptureMeasurement],
+        declaredSchemaVersion: String
+    ) throws {
         let ids = measurements.map(\.measurementID)
         guard Set(ids).count == ids.count else {
             throw MeasurementModelError.duplicateMeasurementID
         }
+        if declaredSchemaVersion != "1.0.0" {
+            for measurement in measurements {
+                try MeasurementQuantityRegistry.validate(
+                    quantityType: measurement.quantityType,
+                    value: measurement.value,
+                    unit: measurement.unit,
+                    endpointCount: measurement.endpointRefs.count
+                )
+            }
+        }
         self.schema = Self.expectedSchema
-        self.schemaVersion = Self.expectedSchemaVersion
+        self.schemaVersion = declaredSchemaVersion
         self.measurements = measurements
+    }
+
+    /// Records carrying unscoped custom `quantity_type` tokens —
+    /// only possible on legacy v1.0.0 payloads; they classify
+    /// `legacy_custom_unscoped` (#344) and are surfaced for Review
+    /// rather than silently reinterpreted.
+    public var legacyUnscopedQuantityMeasurements: [CaptureMeasurement]
+    {
+        measurements.filter {
+            OpenTokenPolicy.classify(
+                $0.quantityType,
+                vocabulary: .measurementQuantity
+            ) == .legacyCustomUnscoped
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -709,20 +1090,23 @@ public struct CaptureMeasurementCollection: Codable, Sendable, Equatable {
             String.self,
             forKey: .schemaVersion
         )
-        guard schema == Self.expectedSchema,
-              schemaVersion == Self.expectedSchemaVersion
-        else {
+        guard schema == Self.expectedSchema else {
             throw DecodingError.dataCorruptedError(
                 forKey: .schema,
                 in: container,
                 debugDescription: "Unsupported measurement collection schema"
             )
         }
+        guard Self.supportedSchemaVersions.contains(schemaVersion)
+        else {
+            throw MeasurementModelError.unsupportedSchemaVersion
+        }
         try self.init(
             measurements: container.decode(
                 [CaptureMeasurement].self,
                 forKey: .measurements
-            )
+            ),
+            declaredSchemaVersion: schemaVersion
         )
     }
 }

@@ -210,6 +210,15 @@ public struct ReferencePointSemantics: RawRepresentable, Codable, Hashable,
         Self(rawValue: "projector_lens_center")!
     public static let microphoneCapsule =
         Self(rawValue: "microphone_capsule")!
+
+    /// The standard tokens defined by this contract version — the
+    /// namespace-policy authority for #344.
+    public static let standardSet: Set<String> = [
+        "cabinet_reference_point", "acoustic_center", "ear_center",
+        "screen_center", "display_center", "seat_reference_point",
+        "user_reference_point", "projector_body_reference",
+        "projector_lens_center", "microphone_capsule",
+    ]
 }
 
 public struct HTDTEquipmentReference: Codable, Sendable, Equatable {
@@ -303,6 +312,17 @@ public enum AnnotationModelError: Error, Sendable, Equatable {
     case incompatibleEquipmentReference
     case unknownEquipmentAuthority
     case invalidReferencePointSemantics
+    /// Lineage fields are contradictory or malformed (#303).
+    case invalidEntityLineage
+    /// An open-vocabulary token is neither standard nor custom-scoped
+    /// (#344) — rejected on v1.1.0+ payloads.
+    case unscopedCustomToken
+    /// The document claims a schema_version this contract does not
+    /// support (#332).
+    case unsupportedSchemaVersion
+    /// A semantic relation record violates the shared graph invariants
+    /// (#333).
+    case invalidSemanticRelation
 }
 
 public struct SpatialVector3F: Codable, Sendable, Equatable {
@@ -666,6 +686,14 @@ public struct ChannelRole: RawRepresentable, Codable, Hashable, Sendable,
     public static let lfe2 = Self(rawValue: "LFE2")!
     public static let lfe3 = Self(rawValue: "LFE3")!
     public static let lfe4 = Self(rawValue: "LFE4")!
+
+    /// The standard tokens defined by this contract version — the
+    /// namespace-policy authority for #344.
+    public static let standardSet: Set<String> = [
+        "L", "C", "R", "SL", "SR", "SBL", "SBR", "LFE",
+        "TFL", "TFR", "TML", "TMR", "TRL", "TRR",
+        "LFE1", "LFE2", "LFE3", "LFE4",
+    ]
 }
 
 /// Typed listening-position role (#243). A `listening_position`
@@ -1186,6 +1214,113 @@ public struct AnnotationLifecycle: Codable, Sendable, Equatable {
     }
 }
 
+/// A pointer to an entity record committed in an earlier capture
+/// revision of the same capture series (#303). Cross-revision lineage
+/// never inlines the parent's pose or evidence — it is identity
+/// linkage only.
+public struct EntityLineageReference: Codable, Sendable, Equatable {
+    public let captureRevisionID: CaptureRevisionID
+    public let entityID: AnnotationEntityID
+
+    public init(
+        captureRevisionID: CaptureRevisionID,
+        entityID: AnnotationEntityID
+    ) {
+        self.captureRevisionID = captureRevisionID
+        self.entityID = entityID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case captureRevisionID = "capture_revision_id"
+        case entityID = "entity_id"
+    }
+}
+
+/// How this entity record relates to the parent revision's record
+/// (#303).
+public enum EntityLineageRelation: String, Codable, Sendable {
+    /// The same physical object re-observed — e.g. the same loudspeaker
+    /// re-measured in a later revision.
+    case samePhysicalEntity = "same_physical_entity"
+    /// A different physical object replaced the parent's (equipment
+    /// swap) — the new record deliberately carries a distinct physical
+    /// identity.
+    case replacedEntity = "replaced_entity"
+    /// A new entity with no parent-revision counterpart.
+    case newEntity = "new_entity"
+    /// Linkage was requested but the original correspondence cannot be
+    /// proven — legacy revisions decode here.
+    case relationUnknown = "relation_unknown"
+}
+
+/// Cross-revision entity lineage (#303). Every record is revision-
+/// local; `lineage` links it back to the record it carries forward
+/// without copying pose or evidence from the parent revision.
+public struct AnnotationEntityLineage: Codable, Sendable, Equatable {
+    /// Optional stable physical-identity token scoped to the capture
+    /// series — two records sharing a `stable_entity_id` claim the
+    /// same physical object across revisions. Not an `entity_id`:
+    /// `entity_id` is always revision-local.
+    public let stableEntityID: String?
+    /// The relation claim. `same_physical_entity` and
+    /// `replaced_entity` require `parent_entity_ref`; `new_entity` and
+    /// `relation_unknown` forbid it.
+    public let relation: EntityLineageRelation
+    /// The parent revision's record this one supersedes or continues,
+    /// as required by `relation`.
+    public let parentEntityRef: EntityLineageReference?
+
+    public init(
+        stableEntityID: String? = nil,
+        relation: EntityLineageRelation,
+        parentEntityRef: EntityLineageReference? = nil
+    ) throws {
+        let normalized = SchemaOwnedText.nfc(stableEntityID)
+        if let normalized {
+            guard !normalized.isEmpty else {
+                throw AnnotationModelError.invalidEntityLineage
+            }
+        }
+        switch relation {
+        case .samePhysicalEntity, .replacedEntity:
+            guard parentEntityRef != nil else {
+                throw AnnotationModelError.invalidEntityLineage
+            }
+        case .newEntity, .relationUnknown:
+            guard parentEntityRef == nil else {
+                throw AnnotationModelError.invalidEntityLineage
+            }
+        }
+        self.stableEntityID = normalized
+        self.relation = relation
+        self.parentEntityRef = parentEntityRef
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case stableEntityID = "stable_entity_id"
+        case relation
+        case parentEntityRef = "parent_entity_ref"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            stableEntityID: container.decodeIfPresent(
+                String.self,
+                forKey: .stableEntityID
+            ),
+            relation: container.decode(
+                EntityLineageRelation.self,
+                forKey: .relation
+            ),
+            parentEntityRef: container.decodeIfPresent(
+                EntityLineageReference.self,
+                forKey: .parentEntityRef
+            )
+        )
+    }
+}
+
 /// How an entity's `equipment_ref` relates to the annotation type
 /// (#237). The check is driven by the versioned catalog taxonomy, not
 /// by label text.
@@ -1238,6 +1373,10 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
     public let lifecycle: AnnotationLifecycle?
     /// How the reference point itself was authored/confirmed (#291).
     public let referencePoint: ReferencePointAuthority?
+    /// Optional cross-revision identity/lineage linkage (#303). Nil on
+    /// legacy records means the lineage was never asserted — consumers
+    /// read it as `relation_unknown`, never as `same_physical_entity`.
+    public let lineage: AnnotationEntityLineage?
     /// Optional app-local author/operator binding (issue #310):
     /// `operator_id` from `derived/operator-profiles.json`. Optional
     /// and explicit — anonymous records remain valid.
@@ -1265,6 +1404,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         authority: AnnotationAuthorityComponents? = nil,
         lifecycle: AnnotationLifecycle? = nil,
         referencePoint: ReferencePointAuthority? = nil,
+        lineage: AnnotationEntityLineage? = nil,
         authorOperatorID: OperatorProfileID? = nil
     ) throws {
         let normalizedLabel = SchemaOwnedText.nfc(label)
@@ -1376,6 +1516,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         self.authority = authority
         self.lifecycle = lifecycle
         self.referencePoint = referencePoint
+        self.lineage = lineage
         self.authorOperatorID = authorOperatorID
     }
 
@@ -1473,6 +1614,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
             authority: authority,
             lifecycle: base.revised(at: updatedAtUTC),
             referencePoint: referencePoint,
+            lineage: lineage,
             authorOperatorID: authorOperatorID
         )
     }
@@ -1499,6 +1641,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         case authority
         case lifecycle
         case referencePoint = "reference_point"
+        case lineage
         case authorOperatorID = "author_operator_id"
     }
 
@@ -1586,6 +1729,10 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
                 ReferencePointAuthority.self,
                 forKey: .referencePoint
             ),
+            lineage: container.decodeIfPresent(
+                AnnotationEntityLineage.self,
+                forKey: .lineage
+            ),
             authorOperatorID: container.decodeIfPresent(
                 OperatorProfileID.self,
                 forKey: .authorOperatorID
@@ -1636,6 +1783,12 @@ public struct AnnotationContractFinding:
         /// existed — surfaces as a warning.
         case unverifiedReferencePointSemantics =
             "unverified_reference_point_semantics"
+        /// An open-vocabulary token is neither standard nor
+        /// custom-scoped — a custom token authored before the #344
+        /// namespace policy whose original meaning cannot be proven
+        /// from the pinned vocabulary. Never an error: the record is
+        /// readable; the token can never silently become standard.
+        case legacyCustomUnscopedToken = "legacy_custom_unscoped"
     }
 
     public let entityID: AnnotationEntityID
@@ -1735,6 +1888,44 @@ public enum AnnotationContractReview {
                 rolesByTypeAndRole[key, default: []].append(entity)
             }
 
+            // #344 namespace policy: an unscoped token that is not in
+            // the pinned standard vocabulary is a legacy custom — it
+            // remains readable but can never be interpreted as a
+            // standard token.
+            if let role = entity.channelRole,
+               OpenTokenPolicy.classify(
+                   role.rawValue,
+                   vocabulary: .channelRole
+               ) == .legacyCustomUnscoped
+            {
+                findings.append(
+                    AnnotationContractFinding(
+                        entityID: entity.entityID,
+                        code: .legacyCustomUnscopedToken,
+                        severity: .info,
+                        detail: "channel_role \(role.rawValue) is an "
+                            + "unscoped custom token; meaning is "
+                            + "deployment-defined"
+                    )
+                )
+            }
+            if OpenTokenPolicy.classify(
+                entity.referencePointSemantics.rawValue,
+                vocabulary: .referencePointSemantics
+            ) == .legacyCustomUnscoped {
+                findings.append(
+                    AnnotationContractFinding(
+                        entityID: entity.entityID,
+                        code: .legacyCustomUnscopedToken,
+                        severity: .info,
+                        detail: "reference_point_semantics "
+                            + entity.referencePointSemantics.rawValue
+                            + " is an unscoped custom token; meaning "
+                            + "is deployment-defined"
+                    )
+                )
+            }
+
             // A surface-derived placement without a construction
             // record means the semantic reference point was never
             // explicitly confirmed (#291).
@@ -1790,33 +1981,175 @@ public enum AnnotationContractReview {
 
 public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
     public static let expectedSchema = "htdt.capture.entities"
-    public static let expectedSchemaVersion = "1.0.0"
+    /// The payload version this build emits (#332). v1.1.0 adds the
+    /// shared typed relation graph (#333), entity lineage (#303), and
+    /// the open-token namespace policy (#344).
+    public static let expectedSchemaVersion = "1.1.0"
+    /// Every payload version this build can decode (#332): 1.0.0
+    /// records are legacy — lineage is unknown and unscoped tokens
+    /// classify `legacy_custom_unscoped`.
+    public static let supportedSchemaVersions: [String] = [
+        "1.0.0", "1.1.0",
+    ]
 
     public let schema: String
     public let schemaVersion: String
     public let entities: [CaptureAnnotationEntity]
+    /// Typed semantic relations between entities in this revision
+    /// (#333). Always emitted on v1.1.0 (possibly empty); absent on
+    /// v1.0.0 payloads.
+    public let relations: [CaptureSemanticRelation]
 
-    public init(entities: [CaptureAnnotationEntity]) throws {
+    public init(
+        entities: [CaptureAnnotationEntity],
+        relations: [CaptureSemanticRelation] = []
+    ) throws {
+        try self.init(
+            entities: entities,
+            relations: relations,
+            declaredSchemaVersion: Self.expectedSchemaVersion
+        )
+    }
+
+    /// Validates a collection under the contract pinned to
+    /// `declaredSchemaVersion`: the open-token namespace policy applies
+    /// to every version after 1.0.0; v1.0.0 payloads keep legacy
+    /// unscoped tokens readable.
+    init(
+        entities: [CaptureAnnotationEntity],
+        relations: [CaptureSemanticRelation],
+        declaredSchemaVersion: String
+    ) throws {
         let ids = entities.map(\.entityID)
         guard Set(ids).count == ids.count else {
             throw AnnotationModelError.duplicateEntityID
         }
+        try Self.validateRelationGraph(
+            entities: entities,
+            relations: relations
+        )
+        if declaredSchemaVersion != "1.0.0" {
+            try Self.validateTokenNamespaces(
+                entities: entities,
+                relations: relations
+            )
+        }
         self.schema = Self.expectedSchema
-        self.schemaVersion = Self.expectedSchemaVersion
+        self.schemaVersion = declaredSchemaVersion
         self.entities = entities
+        self.relations = relations
     }
 
     /// Semantic contract findings across the committed collection —
     /// duplicate roles, incompatible equipment references, unproven
-    /// reference-point semantics (#237, #243, #244, #291).
+    /// reference-point semantics, unscoped legacy tokens
+    /// (#237, #243, #244, #291, #344).
     public func contractFindings() -> [AnnotationContractFinding] {
         AnnotationContractReview.findings(in: entities)
+    }
+
+    /// Relations whose subject or object endpoint references
+    /// `entityID` — surfaced before deleting or editing a staged
+    /// entity so dependent relations are never silently orphaned
+    /// (#333).
+    public func relationsTouching(
+        entityID: AnnotationEntityID
+    ) -> [CaptureSemanticRelation] {
+        relations.filter { $0.references(entityID: entityID) }
+    }
+
+    /// Open-token namespace policy (#344): standard tokens or
+    /// custom-scoped tokens only. Unscoped non-standard tokens are
+    /// legacy and never appear on wire-legal v1.1.0 payloads.
+    private static func validateTokenNamespaces(
+        entities: [CaptureAnnotationEntity],
+        relations: [CaptureSemanticRelation]
+    ) throws {
+        for entity in entities {
+            if let role = entity.channelRole,
+               !OpenTokenPolicy.isWireLegal(
+                   role.rawValue,
+                   vocabulary: .channelRole
+               )
+            {
+                throw AnnotationModelError.unscopedCustomToken
+            }
+            if !OpenTokenPolicy.isWireLegal(
+                entity.referencePointSemantics.rawValue,
+                vocabulary: .referencePointSemantics
+            ) {
+                throw AnnotationModelError.unscopedCustomToken
+            }
+        }
+        for relation in relations
+        where !OpenTokenPolicy.isWireLegal(
+            relation.relationType.rawValue,
+            vocabulary: .relationType
+        ) {
+            throw AnnotationModelError.unscopedCustomToken
+        }
+    }
+
+    /// Shared relation-graph invariants (#333): unique ids, no
+    /// duplicate (type, subject, object) tuples, entity endpoints
+    /// resolve inside the same revision, external endpoints are
+    /// explicitly namespaced, and the endpoint-type policy holds.
+    private static func validateRelationGraph(
+        entities: [CaptureAnnotationEntity],
+        relations: [CaptureSemanticRelation]
+    ) throws {
+        let entityTypes = Dictionary(
+            uniqueKeysWithValues: entities.map {
+                ($0.entityID, $0.type)
+            }
+        )
+        var seenIDs = Set<SemanticRelationID>()
+        var seenTuples = Set<String>()
+        for relation in relations {
+            guard seenIDs.insert(relation.relationID).inserted else {
+                throw SemanticRelationGraphError.duplicateRelationID
+            }
+            let endpoints = [relation.subjectRef]
+                + relation.objectRefs
+            for endpoint in endpoints {
+                if let entityID = endpoint.entityID {
+                    guard entityTypes[entityID] != nil else {
+                        throw SemanticRelationGraphError
+                            .danglingEntityReference
+                    }
+                } else if endpoint.externalRef == nil {
+                    throw SemanticRelationGraphError.danglingEntityReference
+                }
+            }
+            let subjectType = relation.subjectRef.entityID
+                .flatMap { entityTypes[$0] }
+            for objectRef in relation.objectRefs {
+                let objectType = objectRef.entityID
+                    .flatMap { entityTypes[$0] }
+                guard SemanticRelationPolicy.allows(
+                    relation.relationType,
+                    subjectType: subjectType,
+                    objectType: objectType
+                )
+                else {
+                    throw SemanticRelationGraphError
+                        .disallowedEndpointCombination
+                }
+                let tuple = relation.relationType.rawValue
+                    + "\u{0}" + relation.subjectRef.rawValue
+                    + "\u{0}" + objectRef.rawValue
+                guard seenTuples.insert(tuple).inserted else {
+                    throw SemanticRelationGraphError.duplicateRelation
+                }
+            }
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
         case schema
         case schemaVersion = "schema_version"
         case entities
+        case relations
     }
 
     public init(from decoder: Decoder) throws {
@@ -1826,20 +2159,27 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
             String.self,
             forKey: .schemaVersion
         )
-        guard schema == Self.expectedSchema,
-              schemaVersion == Self.expectedSchemaVersion
-        else {
+        guard schema == Self.expectedSchema else {
             throw DecodingError.dataCorruptedError(
                 forKey: .schema,
                 in: container,
                 debugDescription: "Unsupported annotation collection schema"
             )
         }
+        guard Self.supportedSchemaVersions.contains(schemaVersion)
+        else {
+            throw AnnotationModelError.unsupportedSchemaVersion
+        }
         try self.init(
             entities: container.decode(
                 [CaptureAnnotationEntity].self,
                 forKey: .entities
-            )
+            ),
+            relations: container.decodeIfPresent(
+                [CaptureSemanticRelation].self,
+                forKey: .relations
+            ) ?? [],
+            declaredSchemaVersion: schemaVersion
         )
     }
 }
