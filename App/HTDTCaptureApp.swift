@@ -450,17 +450,6 @@ private struct HTDTCaptureHostView: View {
     }
 }
 
-private enum HostLocalization {
-    static var isJapanese: Bool {
-        Locale.preferredLanguages.first?
-            .lowercased()
-            .hasPrefix("ja") == true
-    }
-
-    static func text(_ english: String, _ japanese: String) -> String {
-        isJapanese ? japanese : english
-    }
-}
 
 @MainActor
 private final class HTDTCaptureHostCoordinator: ObservableObject {
@@ -469,7 +458,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set) var cameraPermission: CameraPermissionStatus
     @Published private(set) var lastFailure: CaptureFailureCode?
     @Published private(set) var workingSetStatus =
-        HostLocalization.text("Not prepared", "未準備")
+        String(localized: "Not prepared")
     @Published private(set) var qualityReport: CaptureQualityReport?
     @Published private(set) var advisoryReport: CaptureAdvisoryReport?
     /// Operator-selected capture-task profile (#217/#259). Nil means the
@@ -1083,10 +1072,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 $0.outcome != .migrated
             }
             if !preserved.isEmpty {
-                localStateUpgradeNotice = HostLocalization.text(
-                    "Some saved app data was written by a different app version and was kept unchanged so nothing was lost",
-                    "異なるバージョンのアプリで保存されたデータは失われないよう変更せずに保持しました"
-                )
+                localStateUpgradeNotice = String(localized: "Some saved app data was written by a different app version and was kept unchanged so nothing was lost")
             }
         }
 
@@ -1100,10 +1086,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             do {
                 appSettings = try appSettingsStore.load()
             } catch {
-                workingSetStatus = HostLocalization.text(
-                    "Device settings could not be read; defaults are in use",
-                    "デバイス設定を読み取れなかったため、既定値を使用しています"
-                )
+                workingSetStatus = String(localized: "Device settings could not be read; defaults are in use")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -1132,10 +1115,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             if !policyFailures.isEmpty {
                 workingSetStatus =
-                    HostLocalization.text(
-                        "Storage protection policy was not fully applied to the capture roots",
-                        "キャプチャの保存先への保護属性を完全に適用できませんでした"
-                    )
+                    String(localized: "Storage protection policy was not fully applied to the capture roots")
                     + " ["
                     + policyFailures.joined(separator: "; ")
                     + "]"
@@ -1299,10 +1279,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         persistedAdoptionInFlight = true
         operationTargetRevisionID = record.captureRevisionID
-        workingSetStatus = HostLocalization.text(
-            "Revalidating the parent revision",
-            "親リビジョンを再検証しています"
-        )
+        workingSetStatus = String(localized: "Revalidating the parent revision")
 
         Task { @MainActor [weak self] in
             guard let self else {
@@ -1347,10 +1324,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
             guard let lineage else {
                 self.loadPersistedCaptures()
-                self.workingSetStatus = HostLocalization.text(
-                    "The parent capture could not be revalidated; the on-disk inventory was refreshed",
-                    "親キャプチャを再検証できませんでした。ディスク上の一覧を更新しました"
-                )
+                self.workingSetStatus = String(localized: "The parent capture could not be revalidated; the on-disk inventory was refreshed")
                 return
             }
             self.beginCapture(revisionLineage: lineage)
@@ -1590,10 +1564,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         captureSetup = nil
         stopDeviceReadinessObserving()
-        workingSetStatus = HostLocalization.text(
-            "Ready",
-            "開始可能です"
-        )
+        workingSetStatus = String(localized: "Ready")
     }
 
     /// Rebuild the setup-screen model with a fresh storage preflight
@@ -1640,10 +1611,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             pendingTaskPlanImportError = nil
         } catch {
             pendingTaskPlanImport = nil
-            pendingTaskPlanImportError = HostLocalization.text(
-                "The selected file is not a valid HTDT task plan",
-                "選択したファイルは有効な HTDT タスク計画ではありません"
-            )
+            pendingTaskPlanImportError = String(localized: "The selected file is not a valid HTDT task plan")
         }
         refreshCaptureSetupPresentation()
     }
@@ -1785,10 +1753,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // is critical; never a canonical quality rule and never a
         // failure path.
         if readiness.hasLowBattery {
-            workingSetStatus = HostLocalization.text(
-                "Battery is low; consider ending soon or connecting power",
-                "バッテリー残量が少なくなっています。まもなく終了するか、充電してください"
-            )
+            workingSetStatus = String(localized: "Battery is low; consider ending soon or connecting power")
         }
     }
 
@@ -1850,22 +1815,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
         } catch PlatformCaptureError.currentFrameUnavailable {
             isCapturingEvidenceFrame = false
-            workingSetStatus = HostLocalization.text(
-                "Evidence frame was not captured because the current AR frame is temporarily unavailable; this scan is still active",
-                "現在の AR フレームを一時的に取得できないため証拠フレームを保存しませんでした。現在のスキャンは継続中です"
-            )
-            endScanGuidance = HostLocalization.text(
-                "Hold the phone steady on previously scanned features until tracking is normal, then retry Evidence Save or continue scanning.",
-                "既に撮影した特徴へ向けて iPhone を静止し、トラッキングが正常になってから「証拠保存」を再試行するか、そのままスキャンを続けてください。"
-            )
+            workingSetStatus = String(localized: "Evidence frame was not captured because the current AR frame is temporarily unavailable; this scan is still active")
+            endScanGuidance = String(localized: "Hold the phone steady on previously scanned features until tracking is normal, then retry Evidence Save or continue scanning.")
             return
         } catch {
             isCapturingEvidenceFrame = false
             workingSetStatus =
-                HostLocalization.text(
-                    "Evidence frame could not be prepared; this scan is still active",
-                    "証拠フレームを準備できませんでしたが、現在のスキャンは継続中です"
-                )
+                String(localized: "Evidence frame could not be prepared; this scan is still active")
                 + " ["
                 + Self.persistenceDiagnostic(error)
                 + "]"
@@ -1914,10 +1870,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "Evidence frame could not be prepared; this scan is still active",
-                        "証拠フレームを準備できませんでしたが、現在のスキャンは継続中です"
-                    )
+                    String(localized: "Evidence frame could not be prepared; this scan is still active")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -1944,10 +1897,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "Evidence frame package could not be built; this scan is still active",
-                        "証拠フレームのパッケージを作成できませんでしたが、現在のスキャンは継続中です"
-                    )
+                    String(localized: "Evidence frame package could not be built; this scan is still active")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -1971,10 +1921,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     // End is draining this save: End cannot proceed on a
                     // corrupted working set either.
                     self.workingSetStatus =
-                        HostLocalization.text(
-                            "Evidence-frame persistence hit a capture-authority conflict and cannot continue safely",
-                            "証拠フレームの保存でキャプチャ authority の競合が発生し、安全に継続できません"
-                        )
+                        String(localized: "Evidence-frame persistence hit a capture-authority conflict and cannot continue safely")
                         + " ["
                         + diagnostic
                         + "]"
@@ -1990,10 +1937,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     )
                 } catch {
                     self.workingSetStatus =
-                        HostLocalization.text(
-                            "Evidence-frame persistence failed and partial canonical files could not be rolled back safely",
-                            "証拠フレームの保存に失敗し、部分保存された正規データを安全に取り消せませんでした"
-                        )
+                        String(localized: "Evidence-frame persistence failed and partial canonical files could not be rolled back safely")
                         + " ["
                         + diagnostic
                         + "]"
@@ -2023,17 +1967,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "Evidence frame was not committed; this scan is still active",
-                        "証拠フレームは確定されませんでしたが、現在のスキャンは継続中です"
-                    )
+                    String(localized: "Evidence frame was not committed; this scan is still active")
                     + " ["
                     + diagnostic
                     + "]"
-                self.endScanGuidance = HostLocalization.text(
-                    "Continue scanning or retry Evidence Save. End remains available after the required end evidence can be persisted.",
-                    "スキャンを続けるか「証拠保存」を再試行してください。終了時に必要な証拠データを保存できれば、そのまま「終了」できます。"
-                )
+                self.endScanGuidance = String(localized: "Continue scanning or retry Evidence Save. End remains available after the required end evidence can be persisted.")
                 return
             }
 
@@ -2079,21 +2017,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         frameSnapshot.sessionTimestampSeconds
                 )
             }
-            var savedStatus =
-                HostLocalization.isJapanese
-                ? "スキャン中：証拠フレームを "
-                    + String(snapshot.evidenceFrameCount)
-                    + " 件保存しました"
-                : "Scanning; "
-                    + String(snapshot.evidenceFrameCount)
-                    + " evidence frame(s) persisted"
+            var savedStatus = String(
+                format: String(localized: "Scanning; %d evidence frame(s) persisted"),
+                snapshot.evidenceFrameCount
+            )
             if let usability = frameUsability,
                usability.status != .usable
             {
-                savedStatus += HostLocalization.text(
-                    " — the saved frame may be unusable (dark, blurred or overexposed); consider a retake",
-                    " — 保存したフレームは使い物にならない可能性があります（暗い・ぶれ・露出オーバー）。撮り直しを検討してください"
-                )
+                savedStatus += String(localized: " — the saved frame may be unusable (dark, blurred or overexposed); consider a retake")
             }
             self.workingSetStatus = savedStatus
         }
@@ -2132,15 +2063,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 outOfRange: false,
                 guidance: .hold
             )
-            workingSetStatus = HostLocalization.text(
-                "Object pass started; keep the aimed object centered and move around it",
-                "対象パスを開始しました。対象を画面中央に保ちながら周囲を移動してください"
-            )
+            workingSetStatus = String(localized: "Object pass started; keep the aimed object centered and move around it")
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "No surface was detected at the aim point; aim at the object and try again",
-                "照準位置で面を検出できませんでした。対象を画面中央に向けて再度お試しください"
-            )
+            workingSetStatus = String(localized: "No surface was detected at the aim point; aim at the object and try again")
         }
     }
 
@@ -2178,10 +2103,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             )
         }
-        workingSetStatus = HostLocalization.text(
-            "Object pass recorded",
-            "対象パスを記録しました"
-        )
+        workingSetStatus = String(localized: "Object pass recorded")
         if guidanceCuesEnabled,
            let timestamp = latestScanTimestampSeconds
         {
@@ -2252,10 +2174,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
         guard let camera = spatialCoverage.currentCameraPosition else {
-            workingSetStatus = HostLocalization.text(
-                "No camera position yet; move a little and try again",
-                "カメラ位置がまだありません。少し移動してから再度お試しください"
-            )
+            workingSetStatus = String(localized: "No camera position yet; move a little and try again")
             return
         }
         let cellSize = spatialCoverage.cellSizeMeters
@@ -2277,17 +2196,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return ax * ax + az * az < bx * bx + bz * bz
             }
         guard let candidate else {
-            workingSetStatus = HostLocalization.text(
-                "No unresolved coverage region found near the camera",
-                "カメラの近くに未解決のカバレッジ領域はありません"
-            )
+            workingSetStatus = String(localized: "No unresolved coverage region found near the camera")
             return
         }
         declareOperatorRegion(candidate.key, reason: reason)
-        workingSetStatus = HostLocalization.text(
-            "Region marked; it stays unresolved but guidance will not request it",
-            "領域を記録しました。未解決のまま残りますが、ガイドは要求しません"
-        )
+        workingSetStatus = String(localized: "Region marked; it stays unresolved but guidance will not request it")
     }
 
     /// Reverse a declaration before finalization; the region returns to
@@ -2375,10 +2288,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             do {
                 try appSettingsStore.save(newSettings)
             } catch {
-                workingSetStatus = HostLocalization.text(
-                    "Device settings could not be saved",
-                    "デバイス設定を保存できませんでした"
-                )
+                workingSetStatus = String(localized: "Device settings could not be saved")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -2396,10 +2306,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         .finalizedBackupPolicy
                 )
             if !failures.isEmpty {
-                workingSetStatus = HostLocalization.text(
-                    "The backup policy could not be applied to every stored capture",
-                    "バックアップ方針をすべての保存済みキャプチャに適用できませんでした"
-                )
+                workingSetStatus = String(localized: "The backup policy could not be applied to every stored capture")
                     + " ["
                     + failures.joined(separator: "; ")
                     + "]"
@@ -2443,10 +2350,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     .finalizedBackupPolicy
             )
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The backup policy could not be applied to the export archive",
-                "書き出しアーカイブにバックアップ方針を適用できませんでした"
-            )
+            workingSetStatus = String(localized: "The backup policy could not be applied to the export archive")
                 + " ["
                 + Self.persistenceDiagnostic(error)
                 + "]"
@@ -2515,63 +2419,33 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private func cueAnnouncement(_ cue: ScanGuidanceCue) -> String {
         switch cue {
         case .trackingLost:
-            return HostLocalization.text(
-                "Tracking lost",
-                "トラッキングが失われました"
-            )
+            return String(localized: "Tracking lost")
         case .trackingRecovered:
-            return HostLocalization.text(
-                "Tracking recovered",
-                "トラッキングが回復しました"
-            )
+            return String(localized: "Tracking recovered")
         case .moveLeft:
-            return HostLocalization.text("Move left", "左へ移動")
+            return String(localized: "Move left")
         case .moveRight:
-            return HostLocalization.text("Move right", "右へ移動")
+            return String(localized: "Move right")
         case .moveForward:
-            return HostLocalization.text("Move forward", "前へ移動")
+            return String(localized: "Move forward")
         case .moveBack:
-            return HostLocalization.text("Move back", "後ろへ移動")
+            return String(localized: "Move back")
         case .holdSteady:
-            return HostLocalization.text(
-                "Hold steady",
-                "そのまま静止してください"
-            )
+            return String(localized: "Hold steady")
         case .orbitLeft:
-            return HostLocalization.text(
-                "Orbit left",
-                "左へ回り込んでください"
-            )
+            return String(localized: "Orbit left")
         case .orbitRight:
-            return HostLocalization.text(
-                "Orbit right",
-                "右へ回り込んでください"
-            )
+            return String(localized: "Orbit right")
         case .targetObserved:
-            return HostLocalization.text(
-                "Target area observed",
-                "対象領域を観測しました"
-            )
+            return String(localized: "Target area observed")
         case .guidanceComplete:
-            return HostLocalization.text(
-                "Scan guidance complete",
-                "スキャンガイドが完了しました"
-            )
+            return String(localized: "Scan guidance complete")
         case .endAvailable:
-            return HostLocalization.text(
-                "Ending the scan is now reasonable",
-                "スキャンを終了できる状態です"
-            )
+            return String(localized: "Ending the scan is now reasonable")
         case .evidenceSaved:
-            return HostLocalization.text(
-                "Evidence frame saved",
-                "証拠フレームを保存しました"
-            )
+            return String(localized: "Evidence frame saved")
         case .revisitFlagSaved:
-            return HostLocalization.text(
-                "Review flag saved",
-                "レビューフラグを保存しました"
-            )
+            return String(localized: "Review flag saved")
         }
     }
 
@@ -2902,10 +2776,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewOperationInFlight = true
         let generation = captureGeneration
         let removeOwnedMesh = acceptedEndMeshWasPersisted
-        workingSetStatus = HostLocalization.text(
-            "Reopening this capture for additional scanning",
-            "このキャプチャを追加スキャンのために再開しています"
-        )
+        workingSetStatus = String(localized: "Reopening this capture for additional scanning")
 
         Task { @MainActor [weak self] in
             guard let self,
@@ -2920,10 +2791,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             } catch {
                 self.reviewOperationInFlight = false
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "RoomPlan could not resume additional scanning. The accepted Review evidence was kept intact; you can retry Continue scanning or finalize this capture.",
-                        "RoomPlan で追加スキャンを再開できませんでした。受理済みの確認データはそのまま保持しています。「スキャンを続ける」を再試行するか、このキャプチャを確定できます。"
-                    )
+                    String(localized: "RoomPlan could not resume additional scanning. The accepted Review evidence was kept intact; you can retry Continue scanning or finalize this capture.")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -2936,10 +2804,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             } catch {
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "RoomPlan restarted, but the accepted Review boundary could not be rolled back safely",
-                        "RoomPlan は再開しましたが、受理済みの確認境界を安全に取り消せませんでした"
-                    )
+                    String(localized: "RoomPlan restarted, but the accepted Review boundary could not be rolled back safely")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -2969,19 +2834,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             self.roomPlanCompletionInFlight = false
             self.isEndingScan = false
             self.endScanPreflightBlocked = false
-            self.endScanGuidance = HostLocalization.text(
-                "Continue scanning the weak or missing areas, then press End again. Previously saved frame/depth evidence is retained.",
-                "不足している場所を追加スキャンしてから、もう一度「終了」を押してください。以前に保存したフレーム／深度証拠は保持されています。"
-            )
+            self.endScanGuidance = String(localized: "Continue scanning the weak or missing areas, then press End again. Previously saved frame/depth evidence is retained.")
             self.startScanCoverageSampling(
                 generation: generation,
                 resetTrackers: false
             )
             self.workingSetStatus =
-                HostLocalization.text(
-                    "Scanning resumed in the same AR coordinate space",
-                    "同じ AR 座標空間でスキャンを再開しました"
-                )
+                String(localized: "Scanning resumed in the same AR coordinate space")
         }
     }
 
@@ -3043,10 +2902,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.reviewOperationInFlight = false
 
                 guard let loaded else {
-                    self.workingSetStatus = HostLocalization.text(
-                        "The saved annotation authority could not be reloaded for editing; the committed files are unchanged",
-                        "保存済みの注釈データを編集用に読み込めませんでした。確定済みのファイルは変更されていません"
-                    )
+                    self.workingSetStatus = String(localized: "The saved annotation authority could not be reloaded for editing; the committed files are unchanged")
                     return
                 }
 
@@ -3055,10 +2911,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.annotationEditIsRevision = true
                 do {
                     try self.transition(.beginAnnotation)
-                    self.workingSetStatus = HostLocalization.text(
-                        "Correcting the saved annotations and measurements",
-                        "保存済みの注釈と計測値を修正中"
-                    )
+                    self.workingSetStatus = String(localized: "Correcting the saved annotations and measurements")
                 } catch {
                     self.fail(.unknown)
                 }
@@ -3100,14 +2953,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         annotationEditIsRevision = false
         do {
             try transition(.beginAnnotation)
-            workingSetStatus = HostLocalization.text(
-                draftSeed == nil
-                    ? "Editing annotations and measurements"
-                    : "Editing annotations and measurements — unsaved draft restored",
-                draftSeed == nil
-                    ? "注釈と計測値を編集中"
-                    : "注釈と計測値を編集中 — 未保存の下書きを復元"
-            )
+            workingSetStatus = draftSeed == nil
+                ? String(localized: "Editing annotations and measurements")
+                : String(localized: "Editing annotations and measurements — unsaved draft restored")
         } catch {
             fail(.unknown)
         }
@@ -3336,10 +3184,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         refreshAnnotationEvidenceFrames(
             rootDirectory: await store.rootDirectory
         )
-        workingSetStatus = HostLocalization.text(
-            "Evidence-linked speaker heading captured",
-            "証拠フレームに紐付いたスピーカー向きを取得しました"
-        )
+        workingSetStatus = String(localized: "Evidence-linked speaker heading captured")
 
         return authority
     }
@@ -3405,10 +3250,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         annotationEvidenceRefs =
             workingSnapshot.evidenceFrameRefs
-        workingSetStatus = HostLocalization.text(
-            "Evidence-linked point direction captured",
-            "証拠フレームに紐付いた計測点の向きを取得しました"
-        )
+        workingSetStatus = String(localized: "Evidence-linked point direction captured")
 
         return authority
     }
@@ -3503,10 +3345,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         refreshAnnotationEvidenceFrames(
             rootDirectory: await store.rootDirectory
         )
-        workingSetStatus = HostLocalization.text(
-            "Evidence-linked raycast placement captured",
-            "証拠フレームに紐付いたレイキャスト位置を取得しました"
-        )
+        workingSetStatus = String(localized: "Evidence-linked raycast placement captured")
 
         return authority
     }
@@ -3629,10 +3468,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         refreshAnnotationEvidenceFrames(
             rootDirectory: await store.rootDirectory
         )
-        workingSetStatus = HostLocalization.text(
-            "Evidence-linked placement captured",
-            "証拠フレームに紐付いた配置を取得しました"
-        )
+        workingSetStatus = String(localized: "Evidence-linked placement captured")
         return authority
     }
 
@@ -3721,10 +3557,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         refreshAnnotationEvidenceFrames(
             rootDirectory: await store.rootDirectory
         )
-        workingSetStatus = HostLocalization.text(
-            "Identity evidence photo captured",
-            "機器識別の証拠写真を保存しました"
-        )
+        workingSetStatus = String(localized: "Identity evidence photo captured")
         return evidenceRef
     }
 
@@ -4013,10 +3846,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
         guard !annotationCommitInFlight else {
-            workingSetStatus = HostLocalization.text(
-                "Annotation authority is currently being saved. Wait for the save result before cancelling.",
-                "注釈 authority を保存中です。保存結果が出るまで待ってからキャンセルしてください。"
-            )
+            workingSetStatus = String(localized: "Annotation authority is currently being saved. Wait for the save result before cancelling.")
             return
         }
         // Cancel is an explicit draft-discard signal (#266): the
@@ -4028,10 +3858,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             annotationRevisionSeed = nil
             pendingFieldAuthority = FieldAuthorityWorkspace()
             annotationEditIsRevision = false
-            workingSetStatus = HostLocalization.text(
-                "Annotation editing cancelled; staged records not written",
-                "注釈編集をキャンセルしました。未保存の項目は書き込まれていません"
-            )
+            workingSetStatus = String(localized: "Annotation editing cancelled; staged records not written")
         } catch {
             fail(.unknown)
         }
@@ -4105,10 +3932,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         } catch {
             annotationCommitInFlight = false
             workingSetStatus =
-                HostLocalization.text(
-                    "Annotation or measurement authority is not internally valid; nothing was committed",
-                    "注釈または計測 authority の内部検証に通りませんでした。データは確定されていません"
-                )
+                String(localized: "Annotation or measurement authority is not internally valid; nothing was committed")
                 + " ["
                 + Self.persistenceDiagnostic(error)
                 + "]"
@@ -4116,10 +3940,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         let generation = captureGeneration
-        workingSetStatus = HostLocalization.text(
-            "Persisting annotation and measurement authority",
-            "注釈と計測値を保存中"
-        )
+        workingSetStatus = String(localized: "Persisting annotation and measurement authority")
 
         Task { @MainActor [weak self] in
             guard let self,
@@ -4288,20 +4109,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         // open; cancelling keeps the prior save (#163).
                         self.annotationCommitInFlight = false
                         self.workingSetStatus =
-                            HostLocalization.text(
-                                "The replacement could not be committed safely; the previously saved annotation and measurement collections remain. Cancel keeps the prior save.",
-                                "置き換えを安全に確定できませんでした。以前に保存した注釈と計測値は保持されています。キャンセルすると以前の保存が保持されます。"
-                            )
+                            String(localized: "The replacement could not be committed safely; the previously saved annotation and measurement collections remain. Cancel keeps the prior save.")
                             + " ["
                             + diagnostic
                             + "]"
                         return
                     }
                     self.workingSetStatus =
-                        HostLocalization.text(
-                            "Annotation authority could not be committed safely",
-                            "注釈 authority を安全に確定できませんでした"
-                        )
+                        String(localized: "Annotation authority could not be committed safely")
                         + " ["
                         + diagnostic
                         + "]"
@@ -4325,10 +4140,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
                 self.annotationCommitInFlight = false
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "Annotation changes were not committed; editing remains open and Save can be retried",
-                        "注釈の変更は確定されていません。編集画面は保持されているため、保存を再試行できます"
-                    )
+                    String(localized: "Annotation changes were not committed; editing remains open and Save can be retried")
                     + " ["
                     + diagnostic
                     + "]"
@@ -4436,10 +4248,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             from: observations,
             catalog: equipmentCatalog?.definitions ?? []
         )
-        workingSetStatus = HostLocalization.text(
-            "Label scanned — review the suggestions",
-            "ラベルをスキャンしました。候補を確認してください"
-        )
+        workingSetStatus = String(localized: "Label scanned — review the suggestions")
         return EquipmentLabelScanResult(
             algorithm: EquipmentLabelScanMatcher.algorithm,
             algorithmVersion:
@@ -4514,10 +4323,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     generation: generation
                 )
                 self.reviewOperationInFlight = false
-                self.workingSetStatus = HostLocalization.text(
-                    "Finalization is deferred while the device is critically hot. Let it cool, then retry.",
-                    "端末温度が危険な間は確定を延期します。端末を冷ましてから再試行してください。"
-                )
+                self.workingSetStatus = String(localized: "Finalization is deferred while the device is critically hot. Let it cool, then retry.")
                 return
             }
 
@@ -4556,10 +4362,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         generation: generation
                     )
                     self.reviewOperationInFlight = false
-                    self.workingSetStatus = HostLocalization.text(
-                        "Finalization is deferred because storage is critically low. Free storage, then retry.",
-                        "空き容量が危険域のため確定を延期します。空き容量を増やしてから再試行してください。"
-                    )
+                    self.workingSetStatus = String(localized: "Finalization is deferred because storage is critically low. Free storage, then retry.")
                     return
                 }
 
@@ -4579,10 +4382,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                   quality.integrityStatus == .pass
             else {
                 self.reviewOperationInFlight = false
-                self.workingSetStatus = HostLocalization.text(
-                    "Review quality changed before finalization; resolve the diagnostics and retry",
-                    "確定直前に品質状態が変化しました。診断内容を確認して解消し、再試行してください"
-                )
+                self.workingSetStatus = String(localized: "Review quality changed before finalization; resolve the diagnostics and retry")
                 return
             }
 
@@ -4599,10 +4399,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             self.reviewOperationInFlight = false
-            self.workingSetStatus = HostLocalization.text(
-                "Persisting quality and finalizing revision",
-                "品質情報を保存し、リビジョンを確定中"
-            )
+            self.workingSetStatus = String(localized: "Persisting quality and finalizing revision")
 
             await self.performFinalization(
                 store: store,
@@ -4625,10 +4422,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         exportOperationInFlight = true
-        workingSetStatus = HostLocalization.text(
-            "Creating validated .htdtcapture archive",
-            "検証済み .htdtcapture アーカイブを作成中"
-        )
+        workingSetStatus = String(localized: "Creating validated .htdtcapture archive")
         let generation = captureGeneration
 
         Task { @MainActor [weak self] in
@@ -4653,10 +4447,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "Archive destination could not be prepared. The finalized revision is preserved and export can be retried.",
-                        "アーカイブの保存先を準備できませんでした。確定済みリビジョンは保持されているため、書き出しを再試行できます。"
-                    )
+                    String(localized: "Archive destination could not be prepared. The finalized revision is preserved and export can be retried.")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -4704,10 +4495,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         self.applyExportArchiveBackupPolicy(
                             to: destination
                         )
-                        self.workingSetStatus = HostLocalization.text(
-                            "Existing validated archive recovered and is ready to share",
-                            "既存の検証済みアーカイブを復旧し、共有できる状態にしました"
-                        )
+                        self.workingSetStatus = String(localized: "Existing validated archive recovered and is ready to share")
                         self.loadPersistedCaptures()
                         return
                     }
@@ -4722,10 +4510,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         )
                     } catch {
                         self.workingSetStatus =
-                            HostLocalization.text(
-                                "A stale export archive blocks rebuilding and could not be removed. The finalized revision is unchanged.",
-                                "古い書き出しアーカイブが再作成を妨げていますが、削除できませんでした。確定済みリビジョン自体は変更されていません。"
-                            )
+                            String(localized: "A stale export archive blocks rebuilding and could not be removed. The finalized revision is unchanged.")
                             + " ["
                             + Self.persistenceDiagnostic(error)
                             + "]"
@@ -4763,10 +4548,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.applyExportArchiveBackupPolicy(
                     to: result.archiveURL
                 )
-                self.workingSetStatus = HostLocalization.text(
-                    "Validated share-ready archive created",
-                    "検証済みの共有用アーカイブを作成しました"
-                )
+                self.workingSetStatus = String(localized: "Validated share-ready archive created")
                 self.loadPersistedCaptures()
             } catch {
                 guard self.captureGeneration == generation,
@@ -4776,10 +4558,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
 
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "Archive export failed. The finalized revision is preserved; retry export when ready.",
-                        "アーカイブの書き出しに失敗しました。確定済みリビジョンは保持されているため、準備ができたら再試行してください。"
-                    )
+                    String(localized: "Archive export failed. The finalized revision is preserved; retry export when ready.")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -4960,14 +4739,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         resourceMonitor = nil
         workingSetStatus =
             state == .idle
-            ? HostLocalization.text(
-                "Ready for a new capture",
-                "新しいキャプチャを開始できます"
-            )
-            : HostLocalization.text(
-                "Capture reset",
-                "キャプチャをリセットしました"
-            )
+            ? String(localized: "Ready for a new capture")
+            : String(localized: "Capture reset")
         isEndingScan = false
         isCapturingEvidenceFrame = false
         evidenceFrameSaveTask = nil
@@ -4987,10 +4760,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     else {
                         return
                     }
-                    self.workingSetStatus = HostLocalization.text(
-                        "Ready; prior incomplete revision cleanup failed",
-                        "開始可能ですが、以前の未完了データを削除できませんでした"
-                    )
+                    self.workingSetStatus = String(localized: "Ready; prior incomplete revision cleanup failed")
                 }
             }
         }
@@ -5092,26 +4862,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         isEndingScan = false
         isCapturingEvidenceFrame = false
         evidenceFrameSaveTask = nil
-        workingSetStatus = HostLocalization.text(
-            "Discarding the working revision",
-            "作業中のリビジョンを破棄しています"
-        )
+        workingSetStatus = String(localized: "Discarding the working revision")
 
         Task { @MainActor [weak self] in
             do {
                 try await discardedStore.discardIncompleteRevision()
                 guard let self, self.state == .idle else { return }
-                self.workingSetStatus = HostLocalization.text(
-                    "Capture discarded; working revision removed",
-                    "キャプチャを破棄しました。作業中のリビジョンを削除しました"
-                )
+                self.workingSetStatus = String(localized: "Capture discarded; working revision removed")
                 self.loadPersistedCaptures()
             } catch {
                 guard let self, self.state == .idle else { return }
-                self.workingSetStatus = HostLocalization.text(
-                    "The capture was stopped but its working data could not be fully removed; it is listed under abandoned working data",
-                    "キャプチャは停止しましたが、作業データを完全に削除できませんでした。放棄された作業データとして一覧に表示されます"
-                ) + " [" + Self.persistenceDiagnostic(error) + "]"
+                self.workingSetStatus = String(localized: "The capture was stopped but its working data could not be fully removed; it is listed under abandoned working data") + " [" + Self.persistenceDiagnostic(error) + "]"
                 self.loadPersistedCaptures()
             }
         }
@@ -5133,10 +4894,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         persistedAdoptionInFlight = true
-        workingSetStatus = HostLocalization.text(
-            "Reopening the saved draft",
-            "保存済みの下書きを再開しています"
-        )
+        workingSetStatus = String(localized: "Reopening the saved draft")
 
         Task { @MainActor [weak self] in
             guard let self else {
@@ -5189,10 +4947,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
                 self.persistedAdoptionInFlight = false
-                self.workingSetStatus = HostLocalization.text(
-                    "Draft reopened for review; spatial capture is sealed",
-                    "下書きを確認用に再開しました。空間キャプチャは封印されています"
-                )
+                self.workingSetStatus = String(localized: "Draft reopened for review; spatial capture is sealed")
                 let generation = self.captureGeneration
                 await self.refreshQuality(
                     store: store,
@@ -5201,10 +4956,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.refreshReviewWorkspace()
             } catch {
                 self.persistedAdoptionInFlight = false
-                self.workingSetStatus = HostLocalization.text(
-                    "The recoverable draft could not be reopened; it stays listed",
-                    "復旧可能な下書きを再開できませんでした。一覧には残っています"
-                )
+                self.workingSetStatus = String(localized: "The recoverable draft could not be reopened; it stays listed")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -5308,10 +5060,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         isEndingScan = false
         isCapturingEvidenceFrame = false
         evidenceFrameSaveTask = nil
-        workingSetStatus = HostLocalization.text(
-            "Draft saved; reopen it any time from Recoverable drafts",
-            "下書きを保存しました。「復旧可能な下書き」からいつでも再開できます"
-        )
+        workingSetStatus = String(localized: "Draft saved; reopen it any time from Recoverable drafts")
         loadPersistedCaptures()
     }
 
@@ -5354,18 +5103,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 guard self.state == .idle else {
                     return
                 }
-                self.workingSetStatus = HostLocalization.text(
-                    "Draft deleted",
-                    "下書きを削除しました"
-                )
+                self.workingSetStatus = String(localized: "Draft deleted")
             } catch {
                 guard self.state == .idle else {
                     return
                 }
-                self.workingSetStatus = HostLocalization.text(
-                    "The draft could not be deleted; it stays listed for retry",
-                    "下書きを削除できませんでした。一覧に残っているので再試行できます"
-                ) + " [" + Self.persistenceDiagnostic(error) + "]"
+                self.workingSetStatus = String(localized: "The draft could not be deleted; it stays listed for retry") + " [" + Self.persistenceDiagnostic(error) + "]"
             }
         }
     }
@@ -5566,15 +5309,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 y: position.y,
                 z: position.z
             )
-            workingSetStatus = HostLocalization.text(
-                "Room origin captured; now point along the room front and confirm the second point",
-                "部屋の原点を記録しました。次に部屋の正面方向を指して2点目を確定してください"
-            )
+            workingSetStatus = String(localized: "Room origin captured; now point along the room front and confirm the second point")
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "Camera position unavailable for the room frame",
-                "部屋フレーム用のカメラ位置を取得できません"
-            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            workingSetStatus = String(localized: "Camera position unavailable for the room frame") + " [" + Self.persistenceDiagnostic(error) + "]"
         }
     }
 
@@ -5643,20 +5380,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
                 self.roomFrameOriginPending = nil
                 self.roomFrameAvailable = true
-                self.workingSetStatus = HostLocalization.text(
-                    "Room reference frame confirmed and saved",
-                    "部屋の基準フレームを確定して保存しました"
-                )
+                self.workingSetStatus = String(localized: "Room reference frame confirmed and saved")
                 self.refreshReviewWorkspace()
                 Task { await self.refreshMissionOutcomes() }
             } catch {
                 guard self.captureGeneration == generation else {
                     return
                 }
-                self.workingSetStatus = HostLocalization.text(
-                    "The room reference frame could not be saved",
-                    "部屋の基準フレームを保存できませんでした"
-                ) + " [" + Self.persistenceDiagnostic(error) + "]"
+                self.workingSetStatus = String(localized: "The room reference frame could not be saved") + " [" + Self.persistenceDiagnostic(error) + "]"
             }
         }
     }
@@ -5680,15 +5411,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 y: position.y,
                 z: position.z
             )
-            workingSetStatus = HostLocalization.text(
-                "Opening center captured",
-                "開口部の中心を記録しました"
-            )
+            workingSetStatus = String(localized: "Opening center captured")
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "Camera position unavailable for the opening",
-                "開口部用のカメラ位置を取得できません"
-            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            workingSetStatus = String(localized: "Camera position unavailable for the opening") + " [" + Self.persistenceDiagnostic(error) + "]"
         }
     }
 
@@ -5713,10 +5438,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         let snapshot = await store.snapshot()
         guard let frame = snapshot.roomReferenceFrame else {
-            workingSetStatus = HostLocalization.text(
-                "Confirm a room reference frame first",
-                "先に部屋の基準フレームを確定してください"
-            )
+            workingSetStatus = String(localized: "Confirm a room reference frame first")
             return false
         }
         var floorY: Double?
@@ -5736,10 +5458,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             #endif
         }
         guard let zeroElevation = floorY else {
-            workingSetStatus = HostLocalization.text(
-                "No finished floor in the RoomPlan payload; field datum needs a floor level",
-                "RoomPlanペイロードに仕上げ床がありません。フィールド原点には床レベルが必要です"
-            )
+            workingSetStatus = String(localized: "No finished floor in the RoomPlan payload; field datum needs a floor level")
             return false
         }
         do {
@@ -5786,16 +5505,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             try await store.commitRoomFieldDatum(package)
             refreshReviewWorkspace()
-            workingSetStatus = HostLocalization.text(
-                "Field datum confirmed and saved",
-                "フィールド原点を確定して保存しました"
-            )
+            workingSetStatus = String(localized: "Field datum confirmed and saved")
             return true
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The field datum could not be saved",
-                "フィールド原点を保存できませんでした"
-            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            workingSetStatus = String(localized: "The field datum could not be saved") + " [" + Self.persistenceDiagnostic(error) + "]"
             return false
         }
     }
@@ -5806,15 +5519,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             try await store.removeRoomFieldDatum()
             refreshReviewWorkspace()
-            workingSetStatus = HostLocalization.text(
-                "Field datum removed",
-                "フィールド原点を削除しました"
-            )
+            workingSetStatus = String(localized: "Field datum removed")
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The field datum could not be removed",
-                "フィールド原点を削除できませんでした"
-            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            workingSetStatus = String(localized: "The field datum could not be removed") + " [" + Self.persistenceDiagnostic(error) + "]"
         }
     }
 
@@ -5877,10 +5584,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             refreshReviewWorkspace()
             return true
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The opening review could not be saved",
-                "開口部レビューを保存できませんでした"
-            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            workingSetStatus = String(localized: "The opening review could not be saved") + " [" + Self.persistenceDiagnostic(error) + "]"
             return false
         }
     }
@@ -5900,15 +5604,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 generation: captureGeneration
             )
             refreshReviewWorkspace()
-            workingSetStatus = HostLocalization.text(
-                "Evidence frame removed",
-                "証拠フレームを削除しました"
-            )
+            workingSetStatus = String(localized: "Evidence frame removed")
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "This frame is retained: it is closing or referenced evidence",
-                "このフレームは保持されます。終了境界または参照されている証拠です"
-            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            workingSetStatus = String(localized: "This frame is retained: it is closing or referenced evidence") + " [" + Self.persistenceDiagnostic(error) + "]"
         }
     }
 
@@ -5949,10 +5647,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }.value
             self.persistedWorkspace = model
             if model == nil {
-                self.workingSetStatus = HostLocalization.text(
-                    "The persisted capture could not be opened read-only",
-                    "保存済みキャプチャを読み取り専用で開けませんでした"
-                )
+                self.workingSetStatus = String(localized: "The persisted capture could not be opened read-only")
             }
         }
     }
@@ -6088,10 +5783,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 stem: stem
             )
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The diagnostic package could not be written",
-                "診断パッケージを書き出せませんでした"
-            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            workingSetStatus = String(localized: "The diagnostic package could not be written") + " [" + Self.persistenceDiagnostic(error) + "]"
             return nil
         }
     }
@@ -6216,10 +5908,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         else {
             return DerivedExportOutcome(
                 files: [],
-                error: HostLocalization.text(
-                    "The finalized capture is no longer available",
-                    "ファイナライズ済みキャプチャはもう利用できません"
-                )
+                error: String(localized: "The finalized capture is no longer available")
             )
         }
         return await Task.detached(
@@ -6342,10 +6031,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         else {
             return DerivedExportOutcome(
                 files: [],
-                error: HostLocalization.text(
-                    "The finalized capture is no longer available",
-                    "ファイナライズ済みキャプチャはもう利用できません"
-                )
+                error: String(localized: "The finalized capture is no longer available")
             )
         }
         return await Task.detached(
@@ -6431,10 +6117,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func refreshHandoffDestinations() {
         var destinations = [
             HTDTHandoffDestination(
-                name: HostLocalization.text(
-                    "Share archive file",
-                    "アーカイブファイルを共有"
-                ),
+                name: String(localized: "Share archive file"),
                 kind: .shareSheet
             )
         ]
@@ -6483,10 +6166,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
               let manifest = validationReport?.manifest,
               let finalizedRevision
         else {
-            workingSetStatus = HostLocalization.text(
-                "Prepare the validated archive first, then send it",
-                "先に検証済みアーカイブを準備してから送信してください"
-            )
+            workingSetStatus = String(localized: "Prepare the validated archive first, then send it")
             return
         }
         guard let captureRoot = Self.captureRootDirectory()
@@ -6507,10 +6187,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             archiveSHA = EvidenceIntegrity.sha256(of: data)
             archiveBytes = Int64(data.count)
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The export archive could not be read for handoff",
-                "送信する書き出しアーカイブを読み込めませんでした"
-            )
+            workingSetStatus = String(localized: "The export archive could not be read for handoff")
             return
         }
 
@@ -6536,18 +6213,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             do {
                 try receiptStore.append(receipt)
             } catch {
-                workingSetStatus = HostLocalization.text(
-                    "The handoff completed but its receipt could not be saved",
-                    "送信は完了しましたが、受領記録を保存できませんでした"
-                )
+                workingSetStatus = String(localized: "The handoff completed but its receipt could not be saved")
             }
             handoffReceipts = (try? receiptStore.receipts(
                 for: manifest.captureRevisionID
             )) ?? [receipt]
-            workingSetStatus = HostLocalization.text(
-                "Capture handed off to HTDT; receipt saved",
-                "HTDT に送信しました。受領記録を保存しました"
-            )
+            workingSetStatus = String(localized: "Capture handed off to HTDT; receipt saved")
 
         case .endpoint:
             // #387: endpoint sends are durable jobs — recorded before
@@ -6557,10 +6228,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             guard let urlString = destination.url,
                   URL(string: urlString) != nil
             else {
-                workingSetStatus = HostLocalization.text(
-                    "The destination has no valid HTTPS endpoint",
-                    "送信先に有効な HTTPS エンドポイントがありません"
-                )
+                workingSetStatus = String(localized: "The destination has no valid HTTPS endpoint")
                 return
             }
             let queue = HTDTDeliveryQueue(
@@ -6620,32 +6288,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )) ?? handoffReceipts
                 switch updated?.state {
                 case .deliveredStaged:
-                    workingSetStatus = HostLocalization.text(
-                        "Capture delivered and staged at the receiver; receipt saved",
-                        "受信側に送信され、ステージされました。受領記録を保存しました"
-                    )
+                    workingSetStatus = String(localized: "Capture delivered and staged at the receiver; receipt saved")
                 case .rejected:
-                    workingSetStatus = HostLocalization.text(
-                        "The receiver rejected the bundle semantically; it will not be retried",
-                        "受信側がバンドルを拒否しました。再送されません"
-                    )
+                    workingSetStatus = String(localized: "The receiver rejected the bundle semantically; it will not be retried")
                 case .blocked:
-                    workingSetStatus = HostLocalization.text(
-                        "Delivery is blocked and needs an operator decision (see Deliveries)",
-                        "送信がブロックされています。配信画面で対応が必要です"
-                    )
+                    workingSetStatus = String(localized: "Delivery is blocked and needs an operator decision (see Deliveries)")
                 default:
-                    workingSetStatus = HostLocalization.text(
-                        "Delivery queued; it will retry under the queue's policy (see Deliveries)",
-                        "送信をキューに登録しました。配信ポリシーで再試行されます"
-                    )
+                    workingSetStatus = String(localized: "Delivery queued; it will retry under the queue's policy (see Deliveries)")
                 }
                 refreshMissionDeliveryStores()
             } catch {
-                workingSetStatus = HostLocalization.text(
-                    "The delivery could not be queued",
-                    "送信をキューに登録できませんでした"
-                )
+                workingSetStatus = String(localized: "The delivery could not be queued")
             }
         }
     }
@@ -6757,10 +6410,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
             libraryMetadata = try store.load()
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The preferred head could not be saved",
-                "優先ヘッドを保存できませんでした"
-            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            workingSetStatus = String(localized: "The preferred head could not be saved") + " [" + Self.persistenceDiagnostic(error) + "]"
         }
     }
 
@@ -6962,10 +6612,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             refreshMissionDeliveryStores()
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The mission waiver could not be recorded",
-                "ミッション免除を記録できませんでした"
-            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            workingSetStatus = String(localized: "The mission waiver could not be recorded") + " [" + Self.persistenceDiagnostic(error) + "]"
         }
     }
 
@@ -6982,10 +6629,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard let store = missionInboxStore,
               let data = try? Data(contentsOf: url)
         else {
-            workingSetStatus = HostLocalization.text(
-                "The mission package could not be read",
-                "ミッションパッケージを読み込めませんでした"
-            )
+            workingSetStatus = String(localized: "The mission package could not be read")
             return
         }
         do {
@@ -6993,25 +6637,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             refreshMissionDeliveryStores()
             switch outcome {
             case .imported:
-                workingSetStatus = HostLocalization.text(
-                    "Mission imported",
-                    "ミッションを読み込みました"
-                )
+                workingSetStatus = String(localized: "Mission imported")
             case .duplicate:
-                workingSetStatus = HostLocalization.text(
-                    "This mission is already in the inbox",
-                    "このミッションは既にインボックスにあります"
-                )
+                workingSetStatus = String(localized: "This mission is already in the inbox")
             case .superseding:
-                workingSetStatus = HostLocalization.text(
-                    "Mission imported; the replaced mission is marked superseded",
-                    "ミッションを読み込みました。置き換えられたミッションは superseded になりました"
-                )
+                workingSetStatus = String(localized: "Mission imported; the replaced mission is marked superseded")
             }
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "Mission import failed: \(error)",
-                "ミッションの読み込みに失敗しました: \(error)"
+            workingSetStatus = String(
+                format: String(localized: "Mission import failed: %@"),
+                String(describing: error)
             )
         }
     }
@@ -7034,9 +6669,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             beginCapture()
         } catch {
             refreshMissionDeliveryStores()
-            workingSetStatus = HostLocalization.text(
-                "Mission cannot start: \(error)",
-                "ミッションを開始できません: \(error)"
+            workingSetStatus = String(
+                format: String(localized: "Mission cannot start: %@"),
+                String(describing: error)
             )
         }
     }
@@ -7145,10 +6780,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             refreshMissionDeliveryStores()
             refreshHandoffDestinations()
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "Pairing could not be stored",
-                "ペアリングを保存できませんでした"
-            )
+            workingSetStatus = String(localized: "Pairing could not be stored")
         }
     }
 
@@ -7368,19 +7000,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     )
                 }.value
                 self.workingSetStatus = removed
-                    ? HostLocalization.text(
-                        "Export archive deleted; the finalized capture is unchanged",
-                        "書き出しアーカイブを削除しました。確定済みキャプチャは変更されていません"
-                    )
-                    : HostLocalization.text(
-                        "No export archive existed to delete",
-                        "削除対象の書き出しアーカイブは存在しませんでした"
-                    )
+                    ? String(localized: "Export archive deleted; the finalized capture is unchanged")
+                    : String(localized: "No export archive existed to delete")
             } catch {
-                self.workingSetStatus = HostLocalization.text(
-                    "The export archive could not be deleted",
-                    "書き出しアーカイブを削除できませんでした"
-                ) + " [" + Self.persistenceDiagnostic(error) + "]"
+                self.workingSetStatus = String(localized: "The export archive could not be deleted") + " [" + Self.persistenceDiagnostic(error) + "]"
             }
             self.loadPersistedCaptures()
         }
@@ -7418,10 +7041,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
             libraryMetadata = try store.load()
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "Library metadata could not be saved",
-                "ライブラリメタデータを保存できませんでした"
-            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            workingSetStatus = String(localized: "Library metadata could not be saved") + " [" + Self.persistenceDiagnostic(error) + "]"
         }
     }
 
@@ -7525,10 +7145,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         persistedAdoptionInFlight = true
         operationTargetRevisionID = captureRevisionID
-        workingSetStatus = HostLocalization.text(
-            "Revalidating the persisted capture",
-            "保存済みキャプチャを再検証しています"
-        )
+        workingSetStatus = String(localized: "Revalidating the persisted capture")
 
         Task { @MainActor [weak self] in
             guard let self else {
@@ -7551,10 +7168,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                   let validation = record.finalizedValidation
             else {
                 self.loadPersistedCaptures()
-                self.workingSetStatus = HostLocalization.text(
-                    "The persisted capture could not be revalidated; the on-disk inventory was refreshed",
-                    "保存済みキャプチャを再検証できませんでした。ディスク上の一覧を更新しました"
-                )
+                self.workingSetStatus = String(localized: "The persisted capture could not be revalidated; the on-disk inventory was refreshed")
                 return
             }
 
@@ -7605,22 +7219,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.qualityReport = nil
                 self.advisoryReport = nil
                 self.exportURL = nil
-                self.workingSetStatus = HostLocalization.text(
-                    "The persisted capture could not be opened",
-                    "保存済みキャプチャを開けませんでした"
-                )
+                self.workingSetStatus = String(localized: "The persisted capture could not be opened")
                 return
             }
 
             self.workingSetStatus = record.exportArchive != nil
-                ? HostLocalization.text(
-                    "Opened the persisted capture; its validated archive is ready to share",
-                    "保存済みキャプチャを開きました。検証済みアーカイブを共有できます"
-                )
-                : HostLocalization.text(
-                    "Opened the persisted finalized capture; export can be prepared",
-                    "保存済みの確定キャプチャを開きました。書き出しを作成できます"
-                )
+                ? String(localized: "Opened the persisted capture; its validated archive is ready to share")
+                : String(localized: "Opened the persisted finalized capture; export can be prepared")
         }
     }
 
@@ -7656,10 +7261,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         persistedDeletionInFlight = true
         operationTargetRevisionID = captureRevisionID
-        workingSetStatus = HostLocalization.text(
-            "Deleting local capture data",
-            "ローカルのキャプチャデータを削除しています"
-        )
+        workingSetStatus = String(localized: "Deleting local capture data")
 
         Task { @MainActor [weak self] in
             guard let self else {
@@ -7689,10 +7291,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             self.loadPersistedCaptures()
 
             if result.succeeded {
-                self.workingSetStatus = HostLocalization.text(
-                    "Local capture data was deleted",
-                    "ローカルのキャプチャデータを削除しました"
-                )
+                self.workingSetStatus = String(localized: "Local capture data was deleted")
             } else {
                 let detail = result.remaining
                     .map {
@@ -7703,10 +7302,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     }
                     .joined(separator: "; ")
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "Some local capture data could not be deleted; the remaining artifacts stay listed for retry",
-                        "一部のキャプチャデータを削除できませんでした。残ったデータは一覧に保持され、再試行できます"
-                    )
+                    String(localized: "Some local capture data could not be deleted; the remaining artifacts stay listed for retry")
                     + " ["
                     + detail
                     + "]"
@@ -7738,19 +7334,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 ) {
                     try store.removeArtifact(artifact)
                 }.value
-                self.workingSetStatus = HostLocalization.text(
-                    "Unreadable artifact removed",
-                    "読み取れないデータを削除しました"
-                )
+                self.workingSetStatus = String(localized: "Unreadable artifact removed")
             } catch {
                 guard self.state == .idle else {
                     return
                 }
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "The artifact could not be removed",
-                        "そのデータを削除できませんでした"
-                    )
+                    String(localized: "The artifact could not be removed")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -7795,19 +7385,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 guard self.state == .idle else {
                     return
                 }
-                self.workingSetStatus = HostLocalization.text(
-                    "Abandoned working data was deleted",
-                    "中断された作業データを削除しました"
-                )
+                self.workingSetStatus = String(localized: "Abandoned working data was deleted")
             } catch {
                 guard self.state == .idle else {
                     return
                 }
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "The abandoned working data could not be deleted; it stays listed for retry",
-                        "中断された作業データを削除できませんでした。一覧に保持されているため再試行できます"
-                    )
+                    String(localized: "The abandoned working data could not be deleted; it stays listed for retry")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -7827,10 +7411,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// revise-existing action stays explicit (#155).
     func importCaptureArchive(from url: URL) {
         guard state == .idle else {
-            workingSetStatus = HostLocalization.text(
-                "An external capture archive can only be imported while no capture is active",
-                "キャプチャ実行中は外部アーカイブを読み込めません"
-            )
+            workingSetStatus = String(localized: "An external capture archive can only be imported while no capture is active")
             return
         }
         guard !importOperationInFlight,
@@ -7843,10 +7424,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard url.pathExtension
                 == HTDTCaptureFileType.filenameExtension
         else {
-            workingSetStatus = HostLocalization.text(
-                "The selected file is not an .htdtcapture archive",
-                "選択されたファイルは .htdtcapture アーカイブではありません"
-            )
+            workingSetStatus = String(localized: "The selected file is not an .htdtcapture archive")
             return
         }
 
@@ -7857,10 +7435,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             url.startAccessingSecurityScopedResource()
 
         importOperationInFlight = true
-        workingSetStatus = HostLocalization.text(
-            "Validating the incoming .htdtcapture archive",
-            "受信した .htdtcapture アーカイブを検証しています"
-        )
+        workingSetStatus = String(localized: "Validating the incoming .htdtcapture archive")
 
         Task { @MainActor [weak self] in
             guard let self else {
@@ -7967,20 +7542,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
                 self.loadPersistedCaptures()
                 self.workingSetStatus = imported.promoted
-                    ? HostLocalization.text(
-                        "Validated capture archive imported",
-                        "検証済みキャプチャアーカイブを読み込みました"
-                    )
-                    : HostLocalization.text(
-                        "This capture revision is already stored locally",
-                        "このキャプチャリビジョンはすでにローカルに保存されています"
-                    )
+                    ? String(localized: "Validated capture archive imported")
+                    : String(localized: "This capture revision is already stored locally")
                 if imported.promoted && !imported.archiveStored {
                     self.workingSetStatus +=
-                        HostLocalization.text(
-                            " (archive copy was not retained in exports)",
-                            "（書き出しスロットへアーカイブを保持できませんでした）"
-                        )
+                        String(localized: " (archive copy was not retained in exports)")
                 }
                 self.openPersistedCapture(
                     imported.revisionID
@@ -7991,10 +7557,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
                 self.loadPersistedCaptures()
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "The .htdtcapture archive failed validation and was not imported; nothing was promoted",
-                        ".htdtcapture アーカイブの検証に失敗したため読み込まれませんでした。データは昇格されていません"
-                    )
+                    String(localized: "The .htdtcapture archive failed validation and was not imported; nothing was promoted")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -8016,16 +7579,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
         switch availability {
         case .idleOnly:
-            workingSetStatus = HostLocalization.text(
-                "This document can only be imported while no capture is active",
-                "キャプチャ実行中はこのドキュメントを読み込めません"
-            )
+            workingSetStatus = String(localized: "This document can only be imported while no capture is active")
             return
         case .unsupported:
-            workingSetStatus = HostLocalization.text(
-                "The selected file is not a recognized HTDT document",
-                "選択したファイルは認識できるHTDTドキュメントではありません"
-            )
+            workingSetStatus = String(localized: "The selected file is not a recognized HTDT document")
             return
         case .allowed, .storableDuringActiveCapture:
             break
@@ -8056,10 +7613,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let access = SecurityScopedAccess(url: url)
         defer { access.finish() }
         guard let data = try? Data(contentsOf: url) else {
-            workingSetStatus = HostLocalization.text(
-                "The equipment catalog could not be read",
-                "機器カタログを読み込めませんでした"
-            )
+            workingSetStatus = String(localized: "The equipment catalog could not be read")
             return
         }
         do {
@@ -8074,25 +7628,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 _ = try equipmentCatalogStore?
                     .storeAndActivate(encoded)
                 equipmentCatalog = snapshot
-                workingSetStatus = HostLocalization.text(
-                    "Equipment catalog imported",
-                    "機器カタログを読み込みました"
-                )
+                workingSetStatus = String(localized: "Equipment catalog imported")
             } else {
                 _ = try equipmentCatalogStore?.store(encoded)
-                workingSetStatus = HostLocalization.text(
-                    "Equipment catalog stored; activate it from the catalog picker",
-                    "機器カタログを保存しました。カタログピッカーから有効化してください"
-                )
+                workingSetStatus = String(localized: "Equipment catalog stored; activate it from the catalog picker")
             }
             equipmentCatalogLibrary =
                 equipmentCatalogStore?.list()
                     ?? equipmentCatalogLibrary
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The equipment catalog could not be imported",
-                "機器カタログを読み込めませんでした"
-            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            workingSetStatus = String(localized: "The equipment catalog could not be imported") + " [" + Self.persistenceDiagnostic(error) + "]"
         }
     }
 
@@ -8102,10 +7647,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// until `confirmLibraryImport`.
     func importLibraryPackage(from url: URL) {
         guard state == .idle else {
-            workingSetStatus = HostLocalization.text(
-                "A library package can only be imported while no capture is active",
-                "キャプチャ実行中はライブラリパッケージを読み込めません"
-            )
+            workingSetStatus = String(localized: "A library package can only be imported while no capture is active")
             return
         }
         guard !importOperationInFlight,
@@ -8118,10 +7660,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         let access = SecurityScopedAccess(url: url)
         importOperationInFlight = true
-        workingSetStatus = HostLocalization.text(
-            "Validating the library package",
-            "ライブラリパッケージを検証しています"
-        )
+        workingSetStatus = String(localized: "Validating the library package")
         let localRecords = persistedInventory.captures
         Task { @MainActor [weak self] in
             guard let self else {
@@ -8162,24 +7701,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.libraryImportPreview = preview
                 self.workingSetStatus =
                     preview.importableCount > 0
-                    ? HostLocalization.text(
-                        "Library package ready: \(preview.importableCount) revision(s) to import",
-                        "ライブラリパッケージを読み込めます: \(preview.importableCount) リビジョン"
-                    )
-                    : HostLocalization.text(
-                        "Nothing new to import from this library package",
-                        "このライブラリパッケージから読み込む新しいリビジョンはありません"
-                    )
+                    ? String(format: String(localized: "Library package ready: %lld revision(s) to import"), preview.importableCount)
+                    : String(localized: "Nothing new to import from this library package")
             } catch {
                 try? FileManager.default.removeItem(
                     at: staging
                 )
                 guard self.state == .idle else { return }
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "The library package failed validation; nothing was imported",
-                        "ライブラリパッケージの検証に失敗したため何も読み込まれませんでした"
-                    )
+                    String(localized: "The library package failed validation; nothing was imported")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -8199,10 +7729,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
         importOperationInFlight = true
-        workingSetStatus = HostLocalization.text(
-            "Importing the library package",
-            "ライブラリパッケージを読み込んでいます"
-        )
+        workingSetStatus = String(localized: "Importing the library package")
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
@@ -8221,30 +7748,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }.value
                 self.loadPersistedCaptures()
                 self.refreshMissionDeliveryStores()
-                var status = HostLocalization.text(
-                    "Imported \(result.imported.count) revision(s)",
-                    "\(result.imported.count) リビジョンを読み込みました"
-                )
+                var status = String(format: String(localized: "Imported %lld revision(s)"), result.imported.count)
                 if !result.failed.isEmpty {
-                    status += HostLocalization.text(
-                        "; \(result.failed.count) could not be imported and were left untouched",
-                        "。\(result.failed.count) 件は読み込めず変更されていません"
-                    )
+                    status += String(format: String(localized: "; %lld could not be imported and were left untouched"), result.failed.count)
                 }
                 if !result.conflicts.isEmpty {
-                    status += HostLocalization.text(
-                        "; \(result.conflicts.count) conflict(s) skipped",
-                        "。\(result.conflicts.count) 件の競合をスキップしました"
-                    )
+                    status += String(format: String(localized: "; %lld conflict(s) skipped"), result.conflicts.count)
                 }
                 self.workingSetStatus = status
             } catch {
                 self.loadPersistedCaptures()
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "The library package import did not complete",
-                        "ライブラリパッケージの読み込みが完了しませんでした"
-                    )
+                    String(localized: "The library package import did not complete")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -8273,10 +7788,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
         exportOperationInFlight = true
-        workingSetStatus = HostLocalization.text(
-            "Exporting the capture library",
-            "キャプチャライブラリを書き出しています"
-        )
+        workingSetStatus = String(localized: "Exporting the capture library")
         let records = persistedInventory.captures
         let metadata = libraryMetadata
         let receipts = handoffReceipts
@@ -8315,23 +7827,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     )
                 }.value
                 self.libraryExportURL = result.packageURL
-                var status = HostLocalization.text(
-                    "Library package exported (\(result.revisionCount) revision(s))",
-                    "ライブラリパッケージを書き出しました（\(result.revisionCount) リビジョン）"
-                )
+                var status = String(format: String(localized: "Library package exported (%lld revision(s))"), result.revisionCount)
                 if !result.skippedRevisions.isEmpty {
-                    status += HostLocalization.text(
-                        "; \(result.skippedRevisions.count) revision(s) had no exportable evidence",
-                        "。\(result.skippedRevisions.count) リビジョンには書き出せるエビデンスがありませんでした"
-                    )
+                    status += String(format: String(localized: "; %lld revision(s) had no exportable evidence"), result.skippedRevisions.count)
                 }
                 self.workingSetStatus = status
             } catch {
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "The library package could not be exported",
-                        "ライブラリパッケージを書き出せませんでした"
-                    )
+                    String(localized: "The library package could not be exported")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -8363,19 +7866,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             libraryMetadata = try store.load()
             workingSetStatus = archived
-                ? HostLocalization.text(
-                    "Series archived; its captures and history are unchanged",
-                    "シリーズをアーカイブしました。キャプチャと履歴は変更されていません"
-                )
-                : HostLocalization.text(
-                    "Series restored to the active library",
-                    "シリーズをアクティブなライブラリに戻しました"
-                )
+                ? String(localized: "Series archived; its captures and history are unchanged")
+                : String(localized: "Series restored to the active library")
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The series state could not be saved",
-                "シリーズの状態を保存できませんでした"
-            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            workingSetStatus = String(localized: "The series state could not be saved") + " [" + Self.persistenceDiagnostic(error) + "]"
         }
     }
 
@@ -8399,10 +7893,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             libraryMetadata = try store.load()
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The revision mark could not be saved",
-                "リビジョンのマークを保存できませんでした"
-            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            workingSetStatus = String(localized: "The revision mark could not be saved") + " [" + Self.persistenceDiagnostic(error) + "]"
         }
     }
 
@@ -8425,10 +7916,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let jobs = deliveryJobs
         let missions = missionRecords
         let receipts = handoffReceipts
-        workingSetStatus = HostLocalization.text(
-            "Deleting the series",
-            "シリーズを削除しています"
-        )
+        workingSetStatus = String(localized: "Deleting the series")
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.persistedDeletionInFlight = false }
@@ -8452,21 +7940,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             }.value
             self.loadPersistedCaptures()
-            var status = HostLocalization.text(
-                "Deleted \(result.deleted.count) revision(s)",
-                "\(result.deleted.count) リビジョンを削除しました"
-            )
+            var status = String(format: String(localized: "Deleted %lld revision(s)"), result.deleted.count)
             if !result.skipped.isEmpty {
-                status += HostLocalization.text(
-                    "; \(result.skipped.count) blocked revision(s) were kept",
-                    "。\(result.skipped.count) 件はブロックされ残っています"
-                )
+                status += String(format: String(localized: "; %lld blocked revision(s) were kept"), result.skipped.count)
             }
             if !result.remaining.isEmpty {
-                status += HostLocalization.text(
-                    "; \(result.remaining.count) revision(s) could not be fully removed",
-                    "。\(result.remaining.count) 件は完全に削除できませんでした"
-                )
+                status += String(format: String(localized: "; %lld revision(s) could not be fully removed"), result.remaining.count)
             }
             self.workingSetStatus = status
         }
@@ -8774,10 +8253,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     )
                 )
             } catch {
-                self.workingSetStatus = HostLocalization.text(
-                    "Review flag could not be saved",
-                    "レビューフラグを保存できませんでした"
-                ) + " ["
+                self.workingSetStatus = String(localized: "Review flag could not be saved") + " ["
                     + Self.persistenceDiagnostic(error) + "]"
             }
         }
@@ -8930,10 +8406,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 from: data
             )
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The selected plan reference could not be read",
-                "選択されたプラン参照を読み込めませんでした"
-            ) + " [\(Self.persistenceDiagnostic(error))]"
+            workingSetStatus = String(localized: "The selected plan reference could not be read") + " [\(Self.persistenceDiagnostic(error))]"
             return
         }
         planUnderlayDocument = imported
@@ -8942,10 +8415,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 await self?.persistPendingPlanUnderlay()
             }
         }
-        workingSetStatus = HostLocalization.text(
-            "Plan reference registered; it will guide capture as reference only",
-            "プラン参照を登録しました。参照としてのみキャプチャをガイドします"
-        )
+        workingSetStatus = String(localized: "Plan reference registered; it will guide capture as reference only")
     }
 
     /// Rebinds the pending underlay to the live revision's identity
@@ -9054,10 +8524,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 try await store.recordFieldNote(note)
                 self.refreshReviewWorkspace()
             } catch {
-                self.workingSetStatus = HostLocalization.text(
-                    "Note could not be saved",
-                    "ノートを保存できませんでした"
-                ) + " ["
+                self.workingSetStatus = String(localized: "Note could not be saved") + " ["
                     + Self.persistenceDiagnostic(error) + "]"
             }
         }
@@ -9073,10 +8540,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 try await store.resolveFieldNote(noteID)
                 self.refreshReviewWorkspace()
             } catch {
-                self.workingSetStatus = HostLocalization.text(
-                    "Note could not be resolved",
-                    "ノートを解決できませんでした"
-                ) + " ["
+                self.workingSetStatus = String(localized: "Note could not be resolved") + " ["
                     + Self.persistenceDiagnostic(error) + "]"
             }
         }
@@ -9124,10 +8588,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
                 self.refreshReviewWorkspace()
             } catch {
-                self.workingSetStatus = HostLocalization.text(
-                    "Note could not be corrected",
-                    "ノートを修正できませんでした"
-                ) + " ["
+                self.workingSetStatus = String(localized: "Note could not be corrected") + " ["
                     + Self.persistenceDiagnostic(error) + "]"
             }
         }
@@ -9200,10 +8661,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
                 self.refreshReviewWorkspace()
             } catch {
-                self.workingSetStatus = HostLocalization.text(
-                    "Note could not be bound",
-                    "ノートを関連付けできませんでした"
-                ) + " ["
+                self.workingSetStatus = String(localized: "Note could not be bound") + " ["
                     + Self.persistenceDiagnostic(error) + "]"
             }
         }
@@ -9230,10 +8688,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
                 self.refreshReviewWorkspace()
             } catch {
-                self.workingSetStatus = HostLocalization.text(
-                    "Privacy flag could not be saved",
-                    "プライバシーフラグを保存できませんでした"
-                ) + " ["
+                self.workingSetStatus = String(localized: "Privacy flag could not be saved") + " ["
                     + Self.persistenceDiagnostic(error) + "]"
             }
         }
@@ -9488,10 +8943,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             let data = try encoder.encode(workspace)
             try data.write(to: draftURL, options: .atomic)
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "Field return draft could not be saved",
-                "フィールドリターンの下書きを保存できませんでした"
-            ) + " ["
+            workingSetStatus = String(localized: "Field return draft could not be saved") + " ["
                 + Self.persistenceDiagnostic(error) + "]"
         }
     }
@@ -9566,10 +9018,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             refreshMissionDeliveryStores()
             return destination
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "Field return could not be finalized",
-                "フィールドリターンを確定できませんでした"
-            ) + " ["
+            workingSetStatus = String(localized: "Field return could not be finalized") + " ["
                 + Self.persistenceDiagnostic(error) + "]"
             return nil
         }
@@ -9607,10 +9056,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         .captureRevisionID
                         == record.captureRevisionID
                 {
-                    self.workingSetStatus = HostLocalization.text(
-                        "The selected capture could not be opened for correction",
-                        "選択されたキャプチャを補正のために開けませんでした"
-                    )
+                    self.workingSetStatus = String(localized: "The selected capture could not be opened for correction")
                     self.semanticCorrectionParent = nil
                 }
                 return
@@ -9684,17 +9130,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
             semanticCorrectionContext = nil
             semanticCorrectionParent = nil
-            workingSetStatus = HostLocalization.text(
-                "Created a corrected revision that reuses the original scan evidence",
-                "元のスキャン証跡を再利用した補正済みリビジョンを作成しました"
-            )
+            workingSetStatus = String(localized: "Created a corrected revision that reuses the original scan evidence")
             loadPersistedCaptures()
             return true
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The corrected revision could not be created",
-                "補正済みリビジョンを作成できませんでした"
-            ) + " [\(Self.persistenceDiagnostic(error))]"
+            workingSetStatus = String(localized: "The corrected revision could not be created") + " [\(Self.persistenceDiagnostic(error))]"
             return false
         }
     }
@@ -9802,10 +9242,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
         } catch {
             boundTaskPlanStatus = nil
-            workingSetStatus += HostLocalization.text(
-                " (mission binding failed)",
-                "（ミッションの紐付けに失敗しました）"
-            )
+            workingSetStatus += String(localized: " (mission binding failed)")
         }
     }
 
@@ -9872,10 +9309,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // `.permissions` so the operator can open iOS Settings or
             // retry; no working revision is created for a pre-capture
             // permission failure.
-            workingSetStatus = HostLocalization.text(
-                "Camera permission is required before capture can start",
-                "カメラへのアクセスを許可しないとキャプチャを開始できません"
-            )
+            workingSetStatus = String(localized: "Camera permission is required before capture can start")
             return
         }
 
@@ -9911,12 +9345,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         workingSetStore = prepared.store
         workingSetIdentity = prepared.identity
         captureGeneration = prepared.generation
-        workingSetStatus =
-            HostLocalization.isJapanese
-            ? "リビジョンを準備しました: "
-                + prepared.identity.captureRevisionID.description
-            : "Prepared revision "
-                + prepared.identity.captureRevisionID.description
+        workingSetStatus = String(
+            format: String(localized: "Prepared revision %@"),
+            prepared.identity.captureRevisionID.description
+        )
 
         // Backup-exclusion / Data Protection failures never silently
         // pass: they enter the revision's own resource-event record and
@@ -9934,10 +9366,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             }
             workingSetStatus +=
-                HostLocalization.text(
-                    " (storage protection policy incomplete)",
-                    "（保存先の保護属性が未適用です）"
-                )
+                String(localized: " (storage protection policy incomplete)")
         }
 
         let context = sessionController.context
@@ -10090,10 +9519,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        workingSetStatus = HostLocalization.text(
-            "Presenting the live RoomPlan camera…",
-            "RoomPlan のライブカメラを表示中…"
-        )
+        workingSetStatus = String(localized: "Presenting the live RoomPlan camera…")
 
         let liveViewReady =
             await sessionController
@@ -10106,10 +9532,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         guard liveViewReady else {
-            workingSetStatus = HostLocalization.text(
-                "The live RoomPlan camera view did not attach in time",
-                "RoomPlan のライブカメラ画面を時間内に表示できませんでした"
-            )
+            workingSetStatus = String(localized: "The live RoomPlan camera view did not attach in time")
             fail(.roomPlanFailure)
             return
         }
@@ -10121,10 +9544,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             try sessionController.startRoomPlan()
         } catch {
             await store.recordRoomPlanGuidanceUnavailable()
-            workingSetStatus = HostLocalization.text(
-                "RoomPlan could not start after the live camera view was presented",
-                "ライブカメラ表示後に RoomPlan を開始できませんでした"
-            )
+            workingSetStatus = String(localized: "RoomPlan could not start after the live camera view was presented")
             fail(.roomPlanFailure)
             return
         }
@@ -10142,10 +9562,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             captureStartTimingCorrelation =
                 try await waitForInitialTimingCorrelation()
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "AR tracking did not produce an initial frame in time",
-                "AR トラッキングの初期フレームを時間内に取得できませんでした"
-            )
+            workingSetStatus = String(localized: "AR tracking did not produce an initial frame in time")
             fail(.trackingUnavailable)
             return
         }
@@ -10161,10 +9578,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             activeConfiguration =
                 try await waitForActiveConfiguration()
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "RoomPlan started, but the active AR configuration was not available in time",
-                "RoomPlan は開始しましたが、実行中の AR 設定を時間内に取得できませんでした"
-            )
+            workingSetStatus = String(localized: "RoomPlan started, but the active AR configuration was not available in time")
             fail(.roomPlanFailure)
             return
         }
@@ -10189,10 +9603,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             try await store.persistSessionFoundation(foundation)
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "Capture session metadata could not be persisted",
-                "キャプチャのセッション情報を保存できませんでした"
-            )
+            workingSetStatus = String(localized: "Capture session metadata could not be persisted")
             fail(.persistenceFailure)
             return
         }
@@ -10252,10 +9663,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             store: store,
             generation: generation
         )
-        workingSetStatus = HostLocalization.text(
-            "Scanning; live RoomPlan camera and active AR configuration are ready",
-            "スキャン中：ライブカメラと実行中の AR 設定を確認しました"
-        )
+        workingSetStatus = String(localized: "Scanning; live RoomPlan camera and active AR configuration are ready")
     }
 
     /// Periodic storage accounting for the #308 advisory surface. Runs
@@ -10408,10 +9816,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             fail(.unknown)
             return
         }
-        workingSetStatus = HostLocalization.text(
-            "Ready",
-            "開始可能です"
-        )
+        workingSetStatus = String(localized: "Ready")
     }
 
     private func continueAfterPermissionIfAuthorized() {
@@ -10453,10 +9858,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         if scanCoverage.latestTrackingState == .unavailable {
-            endScanGuidance = HostLocalization.text(
-                "Before ending: hold the phone steady and point it at previously scanned room features until tracking recovers.",
-                "終了前：iPhone を安定させ、すでに撮影した壁・角・家具へ向けてトラッキングが回復するまで待ってください。"
-            )
+            endScanGuidance = String(localized: "Before ending: hold the phone steady and point it at previously scanned room features until tracking recovers.")
             return
         }
 
@@ -10470,10 +9872,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
            !hasLiveDepth,
            !hasMesh
         {
-            endScanGuidance = HostLocalization.text(
-                "Before ending: no usable depth or mesh evidence is available. Keep the target in view and move slowly until Scene Depth observation appears.",
-                "終了前：利用できる深度／メッシュ証拠がありません。対象を画面内に保ち、ゆっくり動かして「シーン深度による観測」が有効になるまで待ってください。"
-            )
+            endScanGuidance = String(localized: "Before ending: no usable depth or mesh evidence is available. Keep the target in view and move slowly until Scene Depth observation appears.")
             return
         }
 
@@ -10514,18 +9913,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         guard let store = workingSetStore else {
-            endScanGuidance = HostLocalization.text(
-                "Cannot end yet: capture working data is unavailable. Start a fresh capture.",
-                "まだ終了できません：キャプチャ作業データを利用できません。新しいキャプチャを開始してください。"
-            )
+            endScanGuidance = String(localized: "Cannot end yet: capture working data is unavailable. Start a fresh capture.")
             return nil
         }
 
         guard let startTiming = captureStartTimingCorrelation else {
-            endScanGuidance = HostLocalization.text(
-                "Cannot end yet: capture timing has not initialized. Keep the phone steady for a moment; if this does not clear, restart the capture.",
-                "まだ終了できません：キャプチャ時刻が初期化されていません。iPhone を少し静止し、解消しない場合はキャプチャをやり直してください。"
-            )
+            endScanGuidance = String(localized: "Cannot end yet: capture timing has not initialized. Keep the phone steady for a moment; if this does not clear, restart the capture.")
             return nil
         }
 
@@ -10546,10 +9939,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             {
                 let policy = CaptureResourceMonitorPolicy()
                 if available < policy.storageCriticalBytes {
-                    endScanGuidance = HostLocalization.text(
-                        "Cannot end safely: device storage is below the capture safety threshold. Free storage, then try End again.",
-                        "安全に終了できません：端末の空き容量がキャプチャ安全閾値を下回っています。空き容量を増やしてから、もう一度「終了」を押してください。"
-                    )
+                    endScanGuidance = String(localized: "Cannot end safely: device storage is below the capture safety threshold. Free storage, then try End again.")
                     return nil
                 }
             }
@@ -10569,24 +9959,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 depthSelection: .discrete
             )
         } catch PlatformCaptureError.currentFrameUnavailable {
-            endScanGuidance = HostLocalization.text(
-                "Cannot end yet: there is no current AR frame. Hold the phone steady and point it at previously scanned features until tracking is normal, then try End again.",
-                "まだ終了できません：現在の AR フレームを取得できません。iPhone を静止して既に撮影した特徴へ向け、トラッキングが正常になってからもう一度「終了」を押してください。"
-            )
+            endScanGuidance = String(localized: "Cannot end yet: there is no current AR frame. Hold the phone steady and point it at previously scanned features until tracking is normal, then try End again.")
             return nil
         } catch {
-            endScanGuidance = HostLocalization.text(
-                "Cannot end yet: the selected camera/depth frame could not be prepared. Hold the phone steady on the target for 1–2 seconds, then try End again.",
-                "まだ終了できません：終了用のカメラ／深度フレームを準備できません。対象へ向けたまま 1〜2 秒静止してから、もう一度「終了」を押してください。"
-            )
+            endScanGuidance = String(localized: "Cannot end yet: the selected camera/depth frame could not be prepared. Hold the phone steady on the target for 1–2 seconds, then try End again.")
             return nil
         }
 
         if evidence.trackingQualityEvent.state == .unavailable {
-            endScanGuidance = HostLocalization.text(
-                "Cannot end yet: AR tracking is unavailable in the frame that would be saved. Hold the phone steady on previously scanned room features until tracking returns to normal, then try End again.",
-                "まだ終了できません：終了時に保存されるフレームで AR トラッキングが利用不可です。既に撮影した壁・角・家具へ向けて静止し、トラッキングが正常に戻ってからもう一度「終了」を押してください。"
-            )
+            endScanGuidance = String(localized: "Cannot end yet: AR tracking is unavailable in the frame that would be saved. Hold the phone steady on previously scanned room features until tracking returns to normal, then try End again.")
             return nil
         }
 
@@ -10597,10 +9978,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     boundary: .sessionEnd
                 )
         } catch {
-            endScanGuidance = HostLocalization.text(
-                "Cannot end yet: the current AR frame cannot be correlated to capture time. Keep the phone steady until tracking recovers, then try End again.",
-                "まだ終了できません：現在の AR フレームとキャプチャ時刻を対応付けできません。トラッキングが回復するまで静止してから、もう一度「終了」を押してください。"
-            )
+            endScanGuidance = String(localized: "Cannot end yet: the current AR frame cannot be correlated to capture time. Keep the phone steady until tracking recovers, then try End again.")
             return nil
         }
 
@@ -10613,10 +9991,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             endFrameArtifacts = try await ARFrameArtifactAdapter
                 .materialize(evidence.frameArtifacts)
         } catch {
-            endScanGuidance = HostLocalization.text(
-                "Cannot end yet: the selected camera/depth frame could not be prepared. Hold the phone steady on the target for 1–2 seconds, then try End again.",
-                "まだ終了できません：終了用のカメラ／深度フレームを準備できません。対象へ向けたまま 1〜2 秒静止してから、もう一度「終了」を押してください。"
-            )
+            endScanGuidance = String(localized: "Cannot end yet: the selected camera/depth frame could not be prepared. Hold the phone steady on the target for 1–2 seconds, then try End again.")
             return nil
         }
 
@@ -10643,10 +10018,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 end: endTiming
             )
         } catch {
-            endScanGuidance = HostLocalization.text(
-                "Cannot end yet: the final evidence package is not internally valid. Keep the phone steady and try End again; if it repeats, save one evidence frame before ending.",
-                "まだ終了できません：終了用の証拠パッケージが内部検証に通りません。iPhone を静止して再度「終了」を押し、繰り返す場合は終了前に「証拠保存」を1回実行してください。"
-            )
+            endScanGuidance = String(localized: "Cannot end yet: the final evidence package is not internally valid. Keep the phone steady and try End again; if it repeats, save one evidence frame before ending.")
             return nil
         }
 
@@ -10658,10 +10030,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             && !evidence.meshAnchors.isEmpty
 
         if !hasDepth && !hasMesh {
-            endScanGuidance = HostLocalization.text(
-                "Cannot end yet: this capture has no retained depth evidence and no mesh anchors. Keep a nearby surface in view and move slowly until Scene Depth observation appears, then try End again.",
-                "まだ終了できません：このキャプチャには保存済み深度証拠もメッシュアンカーもありません。近くの面を画面内に保ってゆっくり動かし、「シーン深度による観測」が有効になってからもう一度「終了」を押してください。"
-            )
+            endScanGuidance = String(localized: "Cannot end yet: this capture has no retained depth evidence and no mesh anchors. Keep a nearby surface in view and move slowly until Scene Depth observation appears, then try End again.")
             return nil
         }
 
@@ -10684,10 +10053,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         if !hasDepth,
            meshPackage == nil
         {
-            endScanGuidance = HostLocalization.text(
-                "Cannot end yet: AR mesh anchors were observed, but they could not be converted into valid retained mesh evidence and no Scene Depth fallback exists. Keep scanning a nearby surface until depth evidence is retained, then try End again.",
-                "まだ終了できません：AR メッシュアンカーは観測されていますが、有効な保存用メッシュ証拠へ変換できず、Scene Depth の代替証拠もありません。近くの面を追加スキャンして深度証拠が保存されてから、もう一度「終了」を押してください。"
-            )
+            endScanGuidance = String(localized: "Cannot end yet: AR mesh anchors were observed, but they could not be converted into valid retained mesh evidence and no Scene Depth fallback exists. Keep scanning a nearby surface until depth evidence is retained, then try End again.")
             return nil
         }
 
@@ -10722,20 +10088,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         // Persist the append-only frame/depth evidence first while RoomPlan
         // and the shared ARSession are still live.
-        workingSetStatus = HostLocalization.text(
-            "Checking that selected frame and depth evidence can be saved before ending",
-            "終了前に選択フレームと深度証拠を安全に保存できるか確認中"
-        )
+        workingSetStatus = String(localized: "Checking that selected frame and depth evidence can be saved before ending")
 
         do {
             try await store.persistFramePackage(
                 prepared.framePackage
             )
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "Retrying selected frame/depth evidence save before ending",
-                "終了前の選択フレーム／深度証拠保存を再試行中"
-            )
+            workingSetStatus = String(localized: "Retrying selected frame/depth evidence save before ending")
             try? await Task.sleep(for: .milliseconds(120))
 
             guard captureGeneration == generation,
@@ -10754,10 +10114,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
                 if error is CaptureWorkingSetError {
                     workingSetStatus =
-                        HostLocalization.text(
-                            "End-frame persistence hit a capture-authority conflict and cannot continue safely",
-                            "終了用フレームの保存でキャプチャ権限データの競合が発生し、安全に継続できません"
-                        )
+                        String(localized: "End-frame persistence hit a capture-authority conflict and cannot continue safely")
                         + " ["
                         + diagnostic
                         + "]"
@@ -10771,10 +10128,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     )
                 } catch {
                     workingSetStatus =
-                        HostLocalization.text(
-                            "End-frame persistence failed and its partial files could not be rolled back safely",
-                            "終了用フレームの保存に失敗し、部分保存データを安全に取り消せませんでした"
-                        )
+                        String(localized: "End-frame persistence failed and its partial files could not be rolled back safely")
                         + " ["
                         + diagnostic
                         + "]"
@@ -10803,17 +10157,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
                 workingSetStatus =
-                    HostLocalization.text(
-                        "End was not committed because the selected frame/depth evidence could not be saved; this scan is still active",
-                        "選択フレーム／深度証拠を保存できなかったため終了していません。現在のスキャンは継続中です"
-                    )
+                    String(localized: "End was not committed because the selected frame/depth evidence could not be saved; this scan is still active")
                     + " ["
                     + diagnostic
                     + "]"
-                endScanGuidance = HostLocalization.text(
-                    "This scan is still active. Check device storage, keep scanning or save another evidence frame if useful, then try End again.",
-                    "このキャプチャはまだ継続中です。空き容量を確認し、必要なら追加スキャンや「証拠保存」を行ってから、もう一度「終了」を押してください。"
-                )
+                endScanGuidance = String(localized: "This scan is still active. Check device storage, keep scanning or save another evidence frame if useful, then try End again.")
                 endScanPreflightBlocked = true
                 return
             }
@@ -10852,14 +10200,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
         } catch {
             workingSetStatus =
-                HostLocalization.text(
-                    "End timing could not be prepared; this scan is still active",
-                    "終了時刻を準備できなかったため終了していません。現在のスキャンは継続中です"
-                )
-            endScanGuidance = HostLocalization.text(
-                "This scan is still active. Hold the phone steady until tracking is normal, then try End again.",
-                "このキャプチャはまだ継続中です。トラッキングが正常になるまで iPhone を静止してから、もう一度「終了」を押してください。"
-            )
+                String(localized: "End timing could not be prepared; this scan is still active")
+            endScanGuidance = String(localized: "This scan is still active. Hold the phone steady until tracking is normal, then try End again.")
             endScanPreflightBlocked = true
             return
         }
@@ -10872,10 +10214,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         var meshSnapshotUnavailable =
             prepared.meshSnapshotUnavailable
         if let meshPackage = prepared.meshPackage {
-            workingSetStatus = HostLocalization.text(
-                "Saving available mesh evidence before ending",
-                "終了前に利用可能なメッシュ証拠を保存中"
-            )
+            workingSetStatus = String(localized: "Saving available mesh evidence before ending")
             do {
                 try await store.persistMeshPackage(meshPackage)
             } catch {
@@ -10886,10 +10225,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     || error is CaptureFileWriterError
                 {
                     workingSetStatus =
-                        HostLocalization.text(
-                            "Mesh persistence hit a canonical capture-authority conflict and cannot fall back safely",
-                            "メッシュ保存で正規キャプチャ authority の競合が発生し、安全に代替処理へ進めません"
-                        )
+                        String(localized: "Mesh persistence hit a canonical capture-authority conflict and cannot fall back safely")
                         + " ["
                         + diagnostic
                         + "]"
@@ -10917,17 +10253,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
                 if frameSnapshot.depthEvidenceCount == 0 {
                     workingSetStatus =
-                        HostLocalization.text(
-                            "End was not committed because mesh evidence could not be saved and no retained Scene Depth fallback exists",
-                            "メッシュ証拠を保存できず、保存済み Scene Depth の代替証拠もないため終了していません"
-                        )
+                        String(localized: "End was not committed because mesh evidence could not be saved and no retained Scene Depth fallback exists")
                         + " ["
                         + diagnostic
                         + "]"
-                    endScanGuidance = HostLocalization.text(
-                        "This scan is still active. Keep a nearby surface in view until depth evidence is retained, then try End again.",
-                        "このキャプチャはまだ継続中です。近くの面を画面内に保ち、深度証拠が保存されてからもう一度「終了」を押してください。"
-                    )
+                    endScanGuidance = String(localized: "This scan is still active. Keep a nearby surface in view until depth evidence is retained, then try End again.")
                     endScanPreflightBlocked = true
                     return
                 }
@@ -10957,14 +10287,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
         pendingEndAttempt = attempt
         roomPlanCompletionInFlight = false
-        endScanGuidance = HostLocalization.text(
-            "Finishing RoomPlan. Keep the phone steady; the capture will stay recoverable until the final RoomPlan result is accepted.",
-            "RoomPlan の終了処理中です。iPhone を静止してください。最終 RoomPlan 結果を受理できるまでは、このキャプチャを復旧可能な状態で保持します。"
-        )
-        workingSetStatus = HostLocalization.text(
-            "Waiting for final RoomPlan result",
-            "RoomPlan の最終結果を待機中"
-        )
+        endScanGuidance = String(localized: "Finishing RoomPlan. Keep the phone steady; the capture will stay recoverable until the final RoomPlan result is accepted.")
+        workingSetStatus = String(localized: "Waiting for final RoomPlan result")
 
         // Persist the bounded End-boundary advisory coverage/task
         // context while the tracker state is still live (#223, #217).
@@ -11119,14 +10443,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // callback from this unresolved stop be consumed by a later End
             // attempt. Keep waiting briefly, but never leave the operator in
             // an unbounded pseudo-scanning state (#96).
-            self.workingSetStatus = HostLocalization.text(
-                "RoomPlan is still producing the final result",
-                "RoomPlan の最終結果を引き続き生成中です"
-            )
-            self.endScanGuidance = HostLocalization.text(
-                "Final RoomPlan processing is taking longer than usual. Keep the app in the foreground; HTDT will stop this unresolved attempt if RoomPlan does not complete.",
-                "RoomPlan の終了処理に通常より時間がかかっています。アプリを前面にしたまま待ってください。完了しない場合は、この未解決の終了処理を HTDT が停止します。"
-            )
+            self.workingSetStatus = String(localized: "RoomPlan is still producing the final result")
+            self.endScanGuidance = String(localized: "Final RoomPlan processing is taking longer than usual. Keep the app in the foreground; HTDT will stop this unresolved attempt if RoomPlan does not complete.")
 
             try? await Task.sleep(
                 for: timeoutPolicy.unresolvedGracePeriod
@@ -11158,10 +10476,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            self.workingSetStatus = HostLocalization.text(
-                "RoomPlan did not return a final result within the safe End window; retained evidence remains on disk",
-                "RoomPlan が安全な終了待機時間内に最終結果を返しませんでした。保存済みの証拠データは端末上に保持されています"
-            )
+            self.workingSetStatus = String(localized: "RoomPlan did not return a final result within the safe End window; retained evidence remains on disk")
             self.endScanGuidance = nil
             self.fail(.roomPlanFailure)
         }
@@ -11332,15 +10647,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             if meshSnapshotUnavailable {
-                self.workingSetStatus = HostLocalization.text(
-                    "Reviewing; frame/depth evidence was retained, but the mesh snapshot was unavailable",
-                    "確認中：フレーム／深度証拠は保存しましたが、メッシュスナップショットは取得できませんでした"
-                )
+                self.workingSetStatus = String(localized: "Reviewing; frame/depth evidence was retained, but the mesh snapshot was unavailable")
             } else {
-                self.workingSetStatus = HostLocalization.text(
-                    "Reviewing; required end evidence and RoomPlan result were saved",
-                    "確認中：終了に必要な証拠データと RoomPlan 結果を保存しました"
-                )
+                self.workingSetStatus = String(localized: "Reviewing; required end evidence and RoomPlan result were saved")
             }
         }
     }
@@ -11370,10 +10679,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             } catch {
                 isEndingScan = false
                 workingSetStatus =
-                    HostLocalization.text(
-                        "The rejected End mesh snapshot could not be rolled back safely",
-                        "受理されなかった終了処理のメッシュスナップショットを安全に取り消せませんでした"
-                    )
+                    String(localized: "The rejected End mesh snapshot could not be rolled back safely")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -11411,10 +10717,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         } catch {
             isEndingScan = false
             workingSetStatus =
-                HostLocalization.text(
-                    "RoomPlan end failed and scanning could not be restarted",
-                    "RoomPlan の終了処理に失敗し、スキャンも再開できませんでした"
-                )
+                String(localized: "RoomPlan end failed and scanning could not be restarted")
                 + " ["
                 + diagnostic
                 + "]"
@@ -11437,17 +10740,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         isEndingScan = false
         endScanPreflightBlocked = true
         workingSetStatus =
-            HostLocalization.text(
-                "The final RoomPlan result was not accepted; the same HTDT capture is still active",
-                "最終 RoomPlan 結果を受理できませんでしたが、同じ HTDT キャプチャは継続中です"
-            )
+            String(localized: "The final RoomPlan result was not accepted; the same HTDT capture is still active")
             + " ["
             + diagnostic
             + "]"
-        endScanGuidance = HostLocalization.text(
-            "RoomPlan scanning restarted in the same AR coordinate space. Revisit important walls/furniture, continue scanning as needed, then press End again.",
-            "同じ AR 座標空間のまま RoomPlan スキャンを再開しました。重要な壁や家具をもう一度映し、必要なだけ追加スキャンしてから、再度「終了」を押してください。"
-        )
+        endScanGuidance = String(localized: "RoomPlan scanning restarted in the same AR coordinate space. Revisit important walls/furniture, continue scanning as needed, then press End again.")
     }
 
     private func startScanCoverageSampling(
@@ -11964,26 +11261,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         if report.readyForHTDTIngestion {
-            workingSetStatus =
-                HostLocalization.isJapanese
-                ? "確定可能："
-                    + String(snapshot.payloadDeclarations.count)
-                    + " 件の証拠データが事前確認に合格しました"
-                : "Ready to finalize; "
-                    + String(snapshot.payloadDeclarations.count)
-                    + " evidence payloads passed preflight"
+            workingSetStatus = String(
+                format: String(localized: "Ready to finalize; %d evidence payloads passed preflight"),
+                snapshot.payloadDeclarations.count
+            )
         } else {
             let errorCount = report.diagnostics.filter {
                 $0.severity == .error
             }.count
-            workingSetStatus =
-                HostLocalization.isJapanese
-                ? "確認中："
-                    + String(errorCount)
-                    + " 件の品質エラーがあります"
-                : "Reviewing; "
-                    + String(errorCount)
-                    + " blocking quality diagnostic(s)"
+            workingSetStatus = String(
+                format: String(localized: "Reviewing; %d blocking quality diagnostic(s)"),
+                errorCount
+            )
         }
     }
 
@@ -12172,10 +11461,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         } catch {
             workingSetStatus =
-                HostLocalization.text(
-                    "Finalization failed and the staged quality record could not be rolled back safely",
-                    "確定処理に失敗し、途中保存された品質情報を安全に取り消せませんでした"
-                )
+                String(localized: "Finalization failed and the staged quality record could not be rolled back safely")
                 + " ["
                 + (diagnostic ?? Self.persistenceDiagnostic(error))
                 + "]"
@@ -12247,10 +11533,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         if let diagnostic {
             workingSetStatus =
-                HostLocalization.text(
-                    "Finalization was not committed. The capture remains in Review and can be retried.",
-                    "確定処理はコミットされませんでした。キャプチャは確認画面に保持されており、再試行できます。"
-                )
+                String(localized: "Finalization was not committed. The capture remains in Review and can be retried.")
                 + " ["
                 + diagnostic
                 + "]"
@@ -12287,13 +11570,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         let fencedNote: String
         if let fencedFailure {
-            fencedNote = HostLocalization.text(
-                "; a "
-                    + fencedFailure.rawValue
-                    + " lifecycle event arrived during the commit window and was surfaced after adoption",
-                "；コミット中に "
-                    + fencedFailure.rawValue
-                    + " ライフサイクルイベントを検出したため、確定後の状態として記録しました"
+            fencedNote = String(
+                format: String(localized: "; a %@ lifecycle event arrived during the commit window and was surfaced after adoption"),
+                fencedFailure.rawValue
             )
         } else {
             fencedNote = ""
@@ -12301,10 +11580,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         let protectionNote: String
         if let protectionWarning {
-            protectionNote = HostLocalization.text(
-                " (file protection reapply failed)",
-                "（保護属性の再適用に失敗）"
-            ) + " [" + protectionWarning + "]"
+            protectionNote = String(localized: " (file protection reapply failed)") + " [" + protectionWarning + "]"
         } else {
             protectionNote = ""
         }
@@ -12401,20 +11677,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 // bytes remain recoverable through the persisted
                 // inventory instead of being misclassified as a
                 // failed working set.
-                workingSetStatus = HostLocalization.text(
-                    "The revision was committed but the host could not reflect finalized state; it stays discoverable in the persisted-capture inventory",
-                    "リビジョンはコミットされましたが、確定状態を反映できませんでした。保存済みキャプチャ一覧から確認できます"
-                )
+                workingSetStatus = String(localized: "The revision was committed but the host could not reflect finalized state; it stays discoverable in the persisted-capture inventory")
                 self.loadPersistedCaptures()
                 return
             }
             workingSetStatus =
-                (
-                    HostLocalization.isJapanese
-                    ? "リビジョンを確定しました。バンドルダイジェスト: "
-                        + validation.bundleDigest.description
-                    : "Finalized revision; bundle digest "
-                        + validation.bundleDigest.description
+                String(
+                    format: String(localized: "Finalized revision; bundle digest %@"),
+                    validation.bundleDigest.description
                 ) + fencedNote + protectionNote
             self.loadPersistedCaptures()
             return
@@ -12435,18 +11705,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             try transition(.adoptFinalized)
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The revision was committed but the host could not reflect finalized state; it stays discoverable in the persisted-capture inventory",
-                "リビジョンはコミットされましたが、確定状態を反映できませんでした。保存済みキャプチャ一覧から確認できます"
-            )
+            workingSetStatus = String(localized: "The revision was committed but the host could not reflect finalized state; it stays discoverable in the persisted-capture inventory")
             self.loadPersistedCaptures()
             return
         }
         workingSetStatus =
-            HostLocalization.text(
-                "The revision was committed to finalized storage, but post-promotion validation could not prove it; the committed bytes are preserved and stay discoverable through the persisted-capture inventory",
-                "リビジョンは確定済み領域にコミットされましたが、昇格後の検証で証明できませんでした。コミット済みデータは保持され、保存済みキャプチャ一覧から確認できます"
-            )
+            String(localized: "The revision was committed to finalized storage, but post-promotion validation could not prove it; the committed bytes are preserved and stay discoverable through the persisted-capture inventory")
             + " ["
             + unverifiedDiagnostic
             + "]"
@@ -12627,16 +11891,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 {
                     if discardedUnsavedAnnotationEdits {
                         self.workingSetStatus =
-                            HostLocalization.text(
-                                "Review retained after the resource/lifecycle interruption. Unsaved annotation edits were discarded; accepted capture evidence can still be finalized or retried.",
-                                "リソース／ライフサイクル中断後も確認データを保持しました。未保存の注釈編集は破棄されましたが、受理済みキャプチャ証拠は確定または再試行できます。"
-                            )
+                            String(localized: "Review retained after the resource/lifecycle interruption. Unsaved annotation edits were discarded; accepted capture evidence can still be finalized or retried.")
                     } else {
                         self.workingSetStatus =
-                            HostLocalization.text(
-                                "Review retained; additional scanning/annotation is sealed by the current resource/lifecycle condition, while accepted evidence remains available for finalization or retry",
-                                "確認データを保持しました。現在のリソース／ライフサイクル状態により追加スキャン／注釈は封印されていますが、受理済み証拠は確定または再試行に利用できます"
-                            )
+                            String(localized: "Review retained; additional scanning/annotation is sealed by the current resource/lifecycle condition, while accepted evidence remains available for finalization or retry")
                     }
                 }
             }
@@ -12976,10 +12234,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
               state != .exported
         else {
             workingSetStatus =
-                HostLocalization.text(
-                    "A post-finalization operation failed, but the finalized revision remains intact",
-                    "確定後の処理でエラーが発生しましたが、確定済みリビジョンは保持されています"
-                )
+                String(localized: "A post-finalization operation failed, but the finalized revision remains intact")
             return
         }
 
@@ -13002,20 +12257,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         captureGeneration = UUID()
 
         if code == .interrupted {
-            workingSetStatus = HostLocalization.text(
-                "Capture stopped because the app left the foreground",
-                "アプリがバックグラウンドに移動したためキャプチャを停止しました"
-            )
+            workingSetStatus = String(localized: "Capture stopped because the app left the foreground")
         } else if code == .thermalPressure {
-            workingSetStatus = HostLocalization.text(
-                "Capture stopped because the device reached a critical thermal state",
-                "端末温度が危険な状態になったためキャプチャを停止しました"
-            )
+            workingSetStatus = String(localized: "Capture stopped because the device reached a critical thermal state")
         } else if code == .storagePressure {
-            workingSetStatus = HostLocalization.text(
-                "Capture stopped because available storage fell below the safe threshold",
-                "安全に保存できる空き容量を下回ったためキャプチャを停止しました"
-            )
+            workingSetStatus = String(localized: "Capture stopped because available storage fell below the safe threshold")
         }
 
         // A terminal failure must not leave a hidden RoomPlan / AR session
@@ -13083,10 +12329,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             || state == .scanning || state == .paused
             || state == .reviewing || state == .annotating
         else {
-            workingSetStatus = HostLocalization.text(
-                "Mission documents can only be imported while idle, in setup, or during a capture",
-                "ミッション文書は待機・セットアップ・キャプチャ中のみ読み込めます"
-            )
+            workingSetStatus = String(localized: "Mission documents can only be imported while idle, in setup, or during a capture")
             return
         }
         let accessing = url.startAccessingSecurityScopedResource()
@@ -13099,20 +12342,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             data = try Data(contentsOf: url)
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The mission document could not be read",
-                "ミッション文書を読み込めませんでした"
-            )
+            workingSetStatus = String(localized: "The mission document could not be read")
             return
         }
         do {
             try activateMissionDocument(data)
         } catch {
             workingSetStatus =
-                HostLocalization.text(
-                    "Mission document rejected",
-                    "ミッション文書は拒否されました"
-                )
+                String(localized: "Mission document rejected")
                 + " [" + Self.persistenceDiagnostic(error) + "]"
         }
     }
@@ -13136,20 +12373,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 await persistMissionImportDocuments()
                 await refreshMissionOutcomes()
             }
-            workingSetStatus = HostLocalization.text(
-                "Task plan imported",
-                "タスクプランを読み込みました"
-            ) + " — " + planImport.plan.planID
+            workingSetStatus = String(localized: "Task plan imported") + " — " + planImport.plan.planID
         case HTDTAsBuiltPlan.schema:
             let planImport = try HTDTAsBuiltPlanImport(data: data)
             asBuiltPlanImport = planImport
             asBuiltPlan = planImport.plan
             configureAsBuiltSession()
             Task { await persistMissionImportDocuments() }
-            workingSetStatus = HostLocalization.text(
-                "As-built plan imported",
-                "アズビルトプランを読み込みました"
-            ) + " — " + planImport.plan.planID
+            workingSetStatus = String(localized: "As-built plan imported") + " — " + planImport.plan.planID
         case HTDTRepairTaskPlan.schema:
             let planImport = try HTDTRepairTaskPlanImport(data: data)
             guard let repairPlanStore else {
@@ -13160,10 +12391,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 receivedAtUTC: BundleTimestamp.utcString(from: Date())
             )
             refreshRepairTaskRows()
-            workingSetStatus = HostLocalization.text(
-                "Repair plan recorded",
-                "修復プランを記録しました"
-            ) + " — " + stored.plan.planID
+            workingSetStatus = String(localized: "Repair plan recorded") + " — " + stored.plan.planID
         default:
             throw RepairTaskError.unsupportedSchema
         }
@@ -13408,10 +12636,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             Task { await refreshMissionOutcomes() }
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "That task plan item cannot be marked",
-                "そのタスク項目はマークできません"
-            )
+            workingSetStatus = String(localized: "That task plan item cannot be marked")
         }
     }
 
@@ -13424,10 +12649,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard state == .scanning || state == .paused
             || state == .reviewing || state == .annotating
         else {
-            workingSetStatus = HostLocalization.text(
-                "Connected-space tracking needs a capture in progress",
-                "接続領域トラッキングにはキャプチャの進行が必要です"
-            )
+            workingSetStatus = String(localized: "Connected-space tracking needs a capture in progress")
             return
         }
         if connectedSpaceTracker == nil {
@@ -13452,10 +12674,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         kind: CaptureRegionKind
     ) {
         withConnectedTracker(
-            HostLocalization.text(
-                "Could not begin the region",
-                "領域を開始できませんでした"
-            )
+            String(localized: "Could not begin the region")
         ) { tracker in
             try tracker.beginSegment(label: label, kind: kind)
         }
@@ -13463,10 +12682,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     func completeConnectedSegment() {
         withConnectedTracker(
-            HostLocalization.text(
-                "Could not complete the region",
-                "領域を完了できませんでした"
-            )
+            String(localized: "Could not complete the region")
         ) { tracker in
             try tracker.completeActiveSegment()
         }
@@ -13474,10 +12690,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     func recordConnectedPortal(_ regionID: CaptureRegionID) {
         withConnectedTracker(
-            HostLocalization.text(
-                "Could not record the portal",
-                "ポータルを記録できませんでした"
-            )
+            String(localized: "Could not record the portal")
         ) { tracker in
             try tracker.recordPortal(
                 toRegionID: regionID,
@@ -13488,10 +12701,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     func revisitConnectedRegion(_ regionID: CaptureRegionID) {
         withConnectedTracker(
-            HostLocalization.text(
-                "Could not revisit the region",
-                "領域を再訪できませんでした"
-            )
+            String(localized: "Could not revisit the region")
         ) { tracker in
             try tracker.revisitRegion(regionID)
         }
@@ -13502,10 +12712,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             try asBuiltSession?.markUnavailable(plannedEntityID)
             asBuiltItems = (try? asBuiltSession?.items()) ?? []
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "Could not mark the planned item",
-                "計画項目をマークできませんでした"
-            )
+            workingSetStatus = String(localized: "Could not mark the planned item")
         }
     }
 
@@ -13523,10 +12730,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                   let snapshot = try? await store.snapshot(),
                   let frame = snapshot.roomReferenceFrame
             else {
-                workingSetStatus = HostLocalization.text(
-                    "Plan alignment requires a committed room reference frame",
-                    "プラン位置合わせには確定済みのルーム基準フレームが必要です"
-                )
+                workingSetStatus = String(localized: "Plan alignment requires a committed room reference frame")
                 return
             }
             let up = Float3(0, 1, 0)
@@ -13561,10 +12765,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 asBuiltAlignmentInstalled = true
                 asBuiltItems = (try? asBuiltSession?.items()) ?? []
             } catch {
-                workingSetStatus = HostLocalization.text(
-                    "Plan alignment could not be established",
-                    "プラン位置合わせを確立できませんでした"
-                ) + " [" + Self.persistenceDiagnostic(error) + "]"
+                workingSetStatus = String(localized: "Plan alignment could not be established") + " [" + Self.persistenceDiagnostic(error) + "]"
             }
         }
     }
@@ -13604,10 +12805,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             asBuiltItems = (try? asBuiltSession?.items()) ?? []
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The actual observation could not be recorded",
-                "実測値を記録できませんでした"
-            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            workingSetStatus = String(localized: "The actual observation could not be recorded") + " [" + Self.persistenceDiagnostic(error) + "]"
         }
     }
 
@@ -13629,28 +12827,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             .sourceCaptureRevisionID
                 })
             else {
-                workingSetStatus = HostLocalization.text(
-                    "The source capture for this repair is not on this device — start a fresh capture to answer it",
-                    "この修復の元キャプチャはこのデバイスにありません — 新規キャプチャで応答してください"
-                )
+                workingSetStatus = String(localized: "The source capture for this repair is not on this device — start a fresh capture to answer it")
                 return
             }
             if state == .idle {
                 revisePersistedCapture(record)
             } else {
-                workingSetStatus = HostLocalization.text(
-                    "Repair task armed — it binds to the next finalized revision of the source",
-                    "修復タスクを設定しました — 元リビジョンの次回確定リビジョンに紐付けられます"
-                )
+                workingSetStatus = String(localized: "Repair task armed — it binds to the next finalized revision of the source")
             }
         } else {
             if state == .reviewing {
                 beginAnnotation()
             } else {
-                workingSetStatus = HostLocalization.text(
-                    "Repair task armed — open the annotation workspace on the review surface to correct it in place",
-                    "修復タスクを設定しました — レビュー画面の注釈ワークスペースで修正してください"
-                )
+                workingSetStatus = String(localized: "Repair task armed — open the annotation workspace on the review surface to correct it in place")
             }
         }
     }
@@ -13674,10 +12863,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             receivedAtUTC: BundleTimestamp.utcString(from: Date())
         )
         refreshRepairTaskRows()
-        workingSetStatus += HostLocalization.text(
-            "; HTDT returned a repair task plan",
-            "；HTDT から修復タスクプランを受領しました"
-        )
+        workingSetStatus += String(localized: "; HTDT returned a repair task plan")
     }
 
     private func refreshRepairTaskRows() {

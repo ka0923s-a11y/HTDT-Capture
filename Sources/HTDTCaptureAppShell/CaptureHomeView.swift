@@ -1353,7 +1353,7 @@ private struct CaptureSeriesDetailView: View {
                     )
                     .font(CaptureDesign.Typography.sectionHeading)
                     Text(
-                        "\(mechanismLabel(registration.mechanism)) · RMS \(metersLabel(registration.rmsMeters)) · max \(metersLabel(registration.maxResidualMeters)) · \(registration.scalePolicy == .rigidOnly ? "rigid" : "scale \(scaleLabel(registration.uniformScale))")"
+                        "\(mechanismLabel(registration.mechanism)) · RMS \(metersLabel(registration.rmsMeters)) · max \(metersLabel(registration.maxResidualMeters)) · \(scalePolicyLabel(registration))"
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1635,6 +1635,14 @@ private struct CaptureSeriesDetailView: View {
         case .manualPoint:
             return String(localized: "manual points")
         }
+    }
+
+    private func scalePolicyLabel(
+        _ registration: CrossRevisionRegistration
+    ) -> String {
+        registration.scalePolicy == .rigidOnly
+            ? String(localized: "rigid")
+            : "scale \(scaleLabel(registration.uniformScale))"
     }
 
     /// One revision row: human identity + concise status + storage,

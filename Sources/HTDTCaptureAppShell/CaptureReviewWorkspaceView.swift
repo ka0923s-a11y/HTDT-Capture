@@ -499,9 +499,14 @@ public struct CaptureReviewWorkspaceView: View {
                             Text(observation.targetRef)
                                 .font(.caption.monospaced())
                             Text(
-                                "\(observation.settings.count) setting(s) · "
-                                    + observation.recordedAtUTC
-                            )
+                                    String(
+                                        format: String(
+                                            localized: "%lld setting(s) · %@"
+                                        ),
+                                        observation.settings.count,
+                                        observation.recordedAtUTC
+                                    )
+                                )
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         }
@@ -542,7 +547,12 @@ public struct CaptureReviewWorkspaceView: View {
             Section("Opening review") {
                 if let review = model.openingReview {
                     Text(
-                        "\(review.openings.count) candidate(s) recorded"
+                        String(
+                            format: String(
+                                localized: "%lld candidate(s) recorded"
+                            ),
+                            review.openings.count
+                        )
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)

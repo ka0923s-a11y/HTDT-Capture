@@ -341,8 +341,8 @@ public struct MissionWorkflowsView: View {
                     } footer: {
                         Text(
                             roomFrameAvailable
-                                ? "Uses the committed room reference frame to anchor the plan to this capture's coordinate authority."
-                                : "Requires a committed room reference frame. Confirm the room frame in the review workspace, then return."
+                                ? String(localized: "Uses the committed room reference frame to anchor the plan to this capture's coordinate authority.")
+                                : String(localized: "Requires a committed room reference frame. Confirm the room frame in the review workspace, then return.")
                         )
                     }
                 }
@@ -510,8 +510,13 @@ public struct MissionWorkflowsView: View {
                     .foregroundStyle(.tertiary)
                     if let resolvedBy = row.resolvedByRevisionID {
                         Text(
-                            "Resolved — revision \(resolvedBy.description)"
-                        )
+                                String(
+                                    format: String(
+                                        localized: "Resolved — revision %@"
+                                    ),
+                                    resolvedBy.description
+                                )
+                            )
                         .font(.caption2)
                         .foregroundStyle(.green)
                     } else {

@@ -214,6 +214,22 @@ public enum TheaterAuthorityPresentation {
         }
     }
 
+    /// Rack-facing labels for placement observations (#402).
+    public static func rackFacingName(
+        _ value: RackFacing
+    ) -> String {
+        switch value {
+        case .front:
+            return String(localized: "Front")
+        case .rear:
+            return String(localized: "Rear")
+        case .side:
+            return String(localized: "Side")
+        case .unknown:
+            return String(localized: "Unknown")
+        }
+    }
+
     public static func furnitureCategoryName(
         _ value: FurnitureCategory
     ) -> String {

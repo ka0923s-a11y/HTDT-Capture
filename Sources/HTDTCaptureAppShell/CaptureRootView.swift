@@ -2523,7 +2523,12 @@ public struct CaptureRootView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text(
-                    "The archive packages \(retainedVisualEvidenceCount) retained camera frame pixel payload(s) with the capture. Open Visual evidence review first if you need to remove unreferenced frames for privacy."
+                    String(
+                        format: String(
+                            localized: "The archive packages %lld retained camera frame pixel payload(s) with the capture. Open Visual evidence review first if you need to remove unreferenced frames for privacy."
+                        ),
+                        retainedVisualEvidenceCount
+                    )
                 )
             }
             if activeOperations.contains(.prepareExport) {

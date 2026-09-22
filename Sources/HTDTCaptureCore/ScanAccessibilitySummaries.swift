@@ -51,30 +51,16 @@ public enum ScanDirectionOctant:
         ScanDirectionOctant.allCases.firstIndex(of: self) ?? 0
     }
 
-    public func name(language: ScanMotionGuidanceLanguage) -> String {
-        switch language {
-        case .english:
-            switch self {
-            case .front: return "front"
-            case .frontRight: return "front right"
-            case .right: return "right"
-            case .rearRight: return "rear right"
-            case .rear: return "rear"
-            case .rearLeft: return "rear left"
-            case .left: return "left"
-            case .frontLeft: return "front left"
-            }
-        case .japanese:
-            switch self {
-            case .front: return "前方"
-            case .frontRight: return "右前方"
-            case .right: return "右"
-            case .rearRight: return "右後方"
-            case .rear: return "後方"
-            case .rearLeft: return "左後方"
-            case .left: return "左"
-            case .frontLeft: return "左前方"
-            }
+    public var name: String {
+        switch self {
+        case .front: return String(localized: "front")
+        case .frontRight: return String(localized: "front right")
+        case .right: return String(localized: "right")
+        case .rearRight: return String(localized: "rear right")
+        case .rear: return String(localized: "rear")
+        case .rearLeft: return String(localized: "rear left")
+        case .left: return String(localized: "left")
+        case .frontLeft: return String(localized: "front left")
         }
     }
 }
@@ -289,175 +275,145 @@ public struct SpatialCoverageAccessibilitySummary:
     }
 }
 
-/// Deterministic en/ja spoken text for the coverage summaries
-/// (issue #342). Shares `ScanMotionGuidanceLanguage` so announcements
-/// and on-screen values come from one vocabulary.
+/// Spoken text for the coverage summaries (issue #342). All copy
+/// resolves through `Localizable.strings` (#399) — VoiceOver uses the
+/// same authority as the rest of the app.
 public enum ScanAccessibilityText {
     public static func directionCoverage(
-        _ summary: DirectionCoverageAccessibilitySummary,
-        language: ScanMotionGuidanceLanguage
+        _ summary: DirectionCoverageAccessibilitySummary
     ) -> String {
-        switch language {
-        case .english:
-            var parts = [
-                "Direction coverage \(summary.coveragePercent) percent."
-            ]
-            for missing in summary.missingBands {
-                let names = missing.octants
-                    .map { $0.name(language: language) }
-                    .joined(separator: ", ")
-                parts.append(
-                    "\(pitchBandName(missing.band, language: language)) missing: \(names)."
+        var parts = [
+            String(
+                format: String(
+                    localized: "Direction coverage %d percent."
+                ),
+                summary.coveragePercent
+            )
+        ]
+        for missing in summary.missingBands {
+            let names = missing.octants
+                .map(\.name)
+                .joined(separator: String(localized: ", "))
+            parts.append(
+                String(
+                    format: String(localized: "%@ missing: %@."),
+                    pitchBandName(missing.band),
+                    names
                 )
-            }
-            if let octant = summary.nextTargetOctant,
-               let gap = summary.nextTarget
-            {
-                parts.append(
-                    "Next target: \(octant.name(language: language)), \(pitchBandName(gap.pitchBand, language: language))."
-                )
-            }
-            return parts.joined(separator: " ")
-        case .japanese:
-            var parts = [
-                "方向カバレッジ \(summary.coveragePercent)%。"
-            ]
-            for missing in summary.missingBands {
-                let names = missing.octants
-                    .map { $0.name(language: language) }
-                    .joined(separator: "、")
-                parts.append(
-                    "\(pitchBandName(missing.band, language: language))が未走査：\(names)。"
-                )
-            }
-            if let octant = summary.nextTargetOctant,
-               let gap = summary.nextTarget
-            {
-                parts.append(
-                    "次の目標：\(octant.name(language: language))（\(pitchBandName(gap.pitchBand, language: language))）。"
-                )
-            }
-            return parts.joined(separator: " ")
+            )
         }
+        if let octant = summary.nextTargetOctant,
+           let gap = summary.nextTarget
+        {
+            parts.append(
+                String(
+                    format: String(localized: "Next target: %@, %@."),
+                    octant.name,
+                    pitchBandName(gap.pitchBand)
+                )
+            )
+        }
+        return parts.joined(separator: " ")
     }
 
     public static func spatialCoverage(
-        _ summary: SpatialCoverageAccessibilitySummary,
-        language: ScanMotionGuidanceLanguage
+        _ summary: SpatialCoverageAccessibilitySummary
     ) -> String {
-        switch language {
-        case .english:
-            guard summary.hasAnyObservation else {
-                return "No spatial regions observed yet."
-            }
-            var parts = [
-                "Spatial coverage: \(summary.observedRegionCount) observed, \(summary.weakRegionCount) weak, \(summary.unknownRegionCount) unknown."
-            ]
-            if summary.declaredRegionCount > 0 {
-                parts.append(
-                    "\(summary.declaredRegionCount) marked intentional."
-                )
-            }
-            if !summary.priorityWeakRegions.isEmpty {
-                let labels = summary.priorityWeakRegions
-                    .map { regionLabel($0, language: language) }
-                    .joined(separator: ", ")
-                parts.append("Weakest regions: \(labels).")
-            }
-            if summary.usesDepthFallback {
-                parts.append(
-                    "Observations are depth-only until mesh or room-model data resumes."
-                )
-            }
-            if let camera = summary.cameraRegion {
-                var cameraText =
-                    "Camera at \(camera.octant.name(language: language)) \(camera.distanceBucket.name(language: language))"
-                if let heading = summary.cameraHeadingOctant {
-                    cameraText +=
-                        ", facing \(heading.name(language: language))"
-                }
-                parts.append(cameraText + ".")
-            }
-            return parts.joined(separator: " ")
-        case .japanese:
-            guard summary.hasAnyObservation else {
-                return "まだ空間領域は観測されていません。"
-            }
-            var parts = [
-                "空間カバレッジ：観測済み\(summary.observedRegionCount)、弱い領域\(summary.weakRegionCount)、未観測\(summary.unknownRegionCount)。"
-            ]
-            if summary.declaredRegionCount > 0 {
-                parts.append(
-                    "意図的として宣言済み\(summary.declaredRegionCount)。"
-                )
-            }
-            if !summary.priorityWeakRegions.isEmpty {
-                let labels = summary.priorityWeakRegions
-                    .map { regionLabel($0, language: language) }
-                    .joined(separator: "、")
-                parts.append("最も弱い領域：\(labels)。")
-            }
-            if summary.usesDepthFallback {
-                parts.append(
-                    "メッシュまたはルームモデルが再開するまでは深度のみの観測です。"
-                )
-            }
-            if let camera = summary.cameraRegion {
-                var cameraText =
-                    "現在位置：\(camera.octant.name(language: language))（\(camera.distanceBucket.name(language: language))）"
-                if let heading = summary.cameraHeadingOctant {
-                    cameraText +=
-                        "、向き：\(heading.name(language: language))"
-                }
-                parts.append(cameraText + "。")
-            }
-            return parts.joined(separator: " ")
+        guard summary.hasAnyObservation else {
+            return String(
+                localized: "No spatial regions observed yet."
+            )
         }
+        var parts = [
+            String(
+                format: String(
+                    localized: "Spatial coverage: %d observed, %d weak, %d unknown."
+                ),
+                summary.observedRegionCount,
+                summary.weakRegionCount,
+                summary.unknownRegionCount
+            )
+        ]
+        if summary.declaredRegionCount > 0 {
+            parts.append(
+                String(
+                    format: String(
+                        localized: "%d marked intentional."
+                    ),
+                    summary.declaredRegionCount
+                )
+            )
+        }
+        if !summary.priorityWeakRegions.isEmpty {
+            let labels = summary.priorityWeakRegions
+                .map(regionLabel(_:))
+                .joined(separator: String(localized: ", "))
+            parts.append(
+                String(
+                    format: String(localized: "Weakest regions: %@."),
+                    labels
+                )
+            )
+        }
+        if summary.usesDepthFallback {
+            parts.append(
+                String(
+                    localized: "Observations are depth-only until mesh or room-model data resumes."
+                )
+            )
+        }
+        if let camera = summary.cameraRegion {
+            let headingText = summary.cameraHeadingOctant.map {
+                String(
+                    format: String(localized: ", facing %@"),
+                    $0.name
+                )
+            } ?? ""
+            parts.append(
+                String(
+                    format: String(
+                        localized: "Camera at %1$@ %2$@%3$@."
+                    ),
+                    camera.octant.name,
+                    camera.distanceBucket.name,
+                    headingText
+                )
+            )
+        }
+        return parts.joined(separator: " ")
     }
 
     /// Short bounded label for one region: direction + distance
     /// ("front left near").
     public static func regionLabel(
         _ descriptor:
-            SpatialCoverageAccessibilitySummary.RegionDescriptor,
-        language: ScanMotionGuidanceLanguage
+            SpatialCoverageAccessibilitySummary.RegionDescriptor
     ) -> String {
-        let direction = descriptor.octant.name(language: language)
-        let distance = descriptor.distanceBucket
-            .name(language: language)
-        switch language {
-        case .english:
-            return "\(direction) \(distance)"
-        case .japanese:
-            return "\(direction)（\(distance)）"
-        }
+        String(
+            format: String(localized: "%1$@ %2$@"),
+            descriptor.octant.name,
+            descriptor.distanceBucket.name
+        )
     }
 
     /// Band names matching the review sheet's deterministic vocabulary.
     public static func pitchBandName(
-        _ band: ScanCoveragePitchBand,
-        language: ScanMotionGuidanceLanguage
+        _ band: ScanCoveragePitchBand
     ) -> String {
-        switch (language, band) {
-        case (.english, .low): return "lower room"
-        case (.english, .level): return "level view"
-        case (.english, .high): return "upper room"
-        case (.japanese, .low): return "下部"
-        case (.japanese, .level): return "水平"
-        case (.japanese, .high): return "上部"
+        switch band {
+        case .low: return String(localized: "lower room")
+        case .level: return String(localized: "level view")
+        case .high: return String(localized: "upper room")
         }
     }
 }
 
 private extension SpatialCoverageDistanceBucket {
-    func name(language: ScanMotionGuidanceLanguage) -> String {
-        switch (language, self) {
-        case (.english, .near): return "near"
-        case (.english, .medium): return "medium distance"
-        case (.english, .far): return "far"
-        case (.japanese, .near): return "近距離"
-        case (.japanese, .medium): return "中距離"
-        case (.japanese, .far): return "遠距離"
+    var name: String {
+        switch self {
+        case .near: return String(localized: "near")
+        case .medium: return String(localized: "medium distance")
+        case .far: return String(localized: "far")
         }
     }
 }

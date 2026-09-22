@@ -253,8 +253,11 @@ public struct HTDTTaskPlanSurfaceItem: Codable, Sendable, Equatable {
 /// single vague record cannot silently satisfy unrelated tasks. The
 /// operator fulfills it by binding an exact authority record via
 /// `CaptureTaskPlanStatus.fulfill`.
-public struct HTDTTaskPlanSemanticItem: Codable, Sendable, Equatable {
+public struct HTDTTaskPlanSemanticItem: Codable, Sendable, Equatable,
+    Identifiable
+{
     public let itemID: String
+    public var id: String { itemID }
     public let requirement: TaskPlanRequirement
     /// The authority record kind that satisfies this item.
     public let semanticKind: SemanticTaskKind

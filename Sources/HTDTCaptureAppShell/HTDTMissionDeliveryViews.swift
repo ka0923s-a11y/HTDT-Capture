@@ -76,7 +76,15 @@ struct HTDTMissionInboxView: View {
                         grouped[project]!.keys.sorted(),
                         id: \.self
                     ) { room in
-                        Section("\(project) — \(room)") {
+                        Section(
+                            String(
+                                format: String(
+                                    localized: "%@ — %@"
+                                ),
+                                project,
+                                room
+                            )
+                        ) {
                             ForEach(
                                 grouped[project]![room]!
                             ) { record in
@@ -177,8 +185,10 @@ struct HTDTMissionInboxView: View {
                 .font(.caption)
             }
             if !progress.contestedItemIDs.isEmpty {
+                let contestedItems = progress.contestedItemIDs
+                    .joined(separator: ", ")
                 Label(
-                    "Contested: \(progress.contestedItemIDs.joined(separator: ", "))",
+                    "Contested: \(contestedItems)",
                     systemImage: "exclamationmark.triangle"
                 )
                 .font(.caption)
@@ -258,8 +268,15 @@ struct HTDTMissionInboxView: View {
                         .isEmpty
                     {
                         Label(
-                            "\(record.associatedCaptureRevisionIDs.count) capture(s)",
-                            systemImage: "cube"
+                                String(
+                                    format: String(
+                                        localized: "%lld capture(s)"
+                                    ),
+                                    record
+                                        .associatedCaptureRevisionIDs
+                                        .count
+                                ),
+                                systemImage: "cube"
                         )
                     }
                     if !record.fieldReturnIDs.isEmpty {
@@ -431,6 +448,21 @@ struct HTDTMissionInboxView: View {
                                     .font(.caption2.monospaced())
                                     .foregroundStyle(.secondary)
                             }
+                            Label(
+                                "Required: \(ref)",
+                                systemImage: "xmark.octagon"
+                            )
+                            .foregroundStyle(.red)
+                            Label(
+                                String(
+                                    format: String(
+                                        localized: "Required: %@"
+                                    ),
+                                    ref
+                                ),
+                                systemImage: "xmark.octagon"
+                            )
+                            .foregroundStyle(.red)
                         }
                         ForEach(
                             report.missingOptional,
@@ -450,6 +482,23 @@ struct HTDTMissionInboxView: View {
                                     .font(.caption2.monospaced())
                                     .foregroundStyle(.secondary)
                             }
+                            Label(
+                                "Optional: \(ref)",
+                                systemImage:
+                                    "exclamationmark.triangle"
+                            )
+                            .foregroundStyle(.orange)
+                            Label(
+                                String(
+                                    format: String(
+                                        localized: "Optional: %@"
+                                    ),
+                                    ref
+                                ),
+                                systemImage:
+                                    "exclamationmark.triangle"
+                            )
+                            .foregroundStyle(.orange)
                         }
                         ForEach(
                             report.receiverGaps,

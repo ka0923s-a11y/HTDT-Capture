@@ -289,138 +289,73 @@ public struct ScanMotionGuidance: Sendable, Equatable {
     }
 }
 
-public enum ScanMotionGuidanceLanguage: Sendable, Equatable {
-    case english
-    case japanese
-}
-
+/// Copy authority for scan-guidance prompts (#399): every string
+/// resolves through `Localizable.strings` (English source strings are
+/// the keys), so the scan UI, VoiceOver readouts, and the rest of the
+/// app share one Apple-native localization mechanism. No language
+/// signal is consulted here — `String(localized:)` follows the
+/// resolved app localization.
 public enum ScanMotionGuidanceCopy {
-    public static var preferredLanguage: ScanMotionGuidanceLanguage {
-        Locale.preferredLanguages.first?
-            .lowercased()
-            .hasPrefix("ja") == true
-            ? .japanese
-            : .english
-    }
-
     public static func prompt(
-        for guidance: ScanMotionGuidance,
-        language: ScanMotionGuidanceLanguage
+        for guidance: ScanMotionGuidance
     ) -> String {
-        switch (language, guidance.action) {
-        case (.japanese, .trackingRecovery):
-            return "端末を安定させ、見覚えのある場所を映してください"
-        case (.english, .trackingRecovery):
-            return "Hold the phone steady and show previously seen room features."
-
-        case (.japanese, .rotate):
+        switch guidance.action {
+        case .trackingRecovery:
+            return String(localized: "Hold the phone steady and show previously seen room features.")
+        case .rotate:
             return guidance.horizontalDirection == .left
-                ? "その場で左を向いてください"
-                : "その場で右を向いてください"
-        case (.english, .rotate):
-            return guidance.horizontalDirection == .left
-                ? "Turn left in place."
-                : "Turn right in place."
-
-        case (.japanese, .tilt):
+                ? String(localized: "Turn left in place.")
+                : String(localized: "Turn right in place.")
+        case .tilt:
             return guidance.verticalDirection == .down
-                ? "下側を映してください"
-                : "上側を映してください"
-        case (.english, .tilt):
-            return guidance.verticalDirection == .down
-                ? "Capture the lower area."
-                : "Capture the upper area."
+                ? String(localized: "Capture the lower area.")
+                : String(localized: "Capture the upper area.")
 
         // #313: every movement prompt is qualified with an explicit
         // path-check precondition. Guidance is advisory — the app does
         // not know the operator's path is safe — so wording must never
         // present walking backward or orbiting as a required or
         // sensor-verified-safe action.
-        case (.japanese, .translate):
+        case .translate:
             switch guidance.translationDirection ?? .right {
             case .left:
-                return "進路が安全なら、少し左へ移動してください"
+                return String(localized: "If the path is clear, step slightly left.")
             case .right:
-                return "進路が安全なら、少し右へ移動してください"
+                return String(localized: "If the path is clear, step slightly right.")
             case .forward:
-                return "進路が安全なら、少し前へ進んでください"
+                return String(localized: "If the path is clear, step slightly forward.")
             case .backward:
-                return "後方が安全なら、少し下がってください"
+                return String(localized: "If the path behind you is clear, step slightly back.")
             }
-        case (.english, .translate):
-            switch guidance.translationDirection ?? .right {
-            case .left:
-                return "If the path is clear, step slightly left."
-            case .right:
-                return "If the path is clear, step slightly right."
-            case .forward:
-                return "If the path is clear, step slightly forward."
-            case .backward:
-                return "If the path behind you is clear, step slightly back."
-            }
-
-        case (.japanese, .approach):
-            return "安全なら、少し近づいてください"
-        case (.english, .approach):
-            return "If safe, move slightly closer."
-
-        case (.japanese, .retreat):
-            return "後方が安全なら、少し下がってください"
-        case (.english, .retreat):
-            return "If the path behind you is clear, step slightly back."
-
-        case (.japanese, .orbit):
-            return "安全なら、この領域を別の角度から映してください"
-        case (.english, .orbit):
-            return "If safe, view this region from another angle."
-
-        case (.japanese, .reobserveAnotherAngle):
-            return "安全なら、別の角度から映してください"
-        case (.english, .reobserveAnotherAngle):
-            return "If safe, show this region from another angle."
-
-        case (.japanese, .holdObserve):
-            return "この方向をゆっくり映してください"
-        case (.english, .holdObserve):
-            return "Slowly scan this direction."
+        case .approach:
+            return String(localized: "If safe, move slightly closer.")
+        case .retreat:
+            return String(localized: "If the path behind you is clear, step slightly back.")
+        case .orbit:
+            return String(localized: "If safe, view this region from another angle.")
+        case .reobserveAnotherAngle:
+            return String(localized: "If safe, show this region from another angle.")
+        case .holdObserve:
+            return String(localized: "Slowly scan this direction.")
         }
     }
 
     public static func category(
-        for action: ScanMotionGuidanceAction,
-        language: ScanMotionGuidanceLanguage
+        for action: ScanMotionGuidanceAction
     ) -> String {
-        switch (language, action) {
-        case (.japanese, .trackingRecovery):
-            return "トラッキング回復"
-        case (.english, .trackingRecovery):
-            return "Tracking recovery"
-        case (.japanese, .rotate):
-            return "回頭"
-        case (.english, .rotate):
-            return "Turn in place"
-        case (.japanese, .tilt):
-            return "上下"
-        case (.english, .tilt):
-            return "Tilt"
-        case (.japanese, .translate),
-             (.japanese, .approach),
-             (.japanese, .retreat):
-            return "移動"
-        case (.english, .translate),
-             (.english, .approach),
-             (.english, .retreat):
-            return "Move"
-        case (.japanese, .orbit),
-             (.japanese, .reobserveAnotherAngle):
-            return "再観測"
-        case (.english, .orbit),
-             (.english, .reobserveAnotherAngle):
-            return "Reobserve"
-        case (.japanese, .holdObserve):
-            return "観測"
-        case (.english, .holdObserve):
-            return "Observe"
+        switch action {
+        case .trackingRecovery:
+            return String(localized: "Tracking recovery")
+        case .rotate:
+            return String(localized: "Turn in place")
+        case .tilt:
+            return String(localized: "Tilt")
+        case .translate, .approach, .retreat:
+            return String(localized: "Move")
+        case .orbit, .reobserveAnotherAngle:
+            return String(localized: "Reobserve")
+        case .holdObserve:
+            return String(localized: "Observe")
         }
     }
 
@@ -428,18 +363,12 @@ public enum ScanMotionGuidanceCopy {
     /// translation (#313). Returns nil for in-place actions, which
     /// need no movement-safety qualifier.
     public static func safetyNote(
-        for guidance: ScanMotionGuidance,
-        language: ScanMotionGuidanceLanguage
+        for guidance: ScanMotionGuidance
     ) -> String? {
         guard guidance.action.requiresPhysicalTranslation else {
             return nil
         }
-        switch language {
-        case .japanese:
-            return "進路は自己判断です。画面を見る前に立ち止まってください"
-        case .english:
-            return "Your path is your call — stop walking before reading this."
-        }
+        return String(localized: "Your path is your call — stop walking before reading this.")
     }
 
     /// First-use safety statement shown before scanning starts and kept
@@ -447,15 +376,8 @@ public enum ScanMotionGuidanceCopy {
     /// before interacting, never walk backward following the screen.
     /// The app does not detect obstacles — this text never claims it
     /// does.
-    public static func safetyDisclaimer(
-        language: ScanMotionGuidanceLanguage
-    ) -> String {
-        switch language {
-        case .japanese:
-            return "周囲に注意してください。画面を読んだり操作したりする前に立ち止まり、画面の指示に従って後ろ向きに歩かないでください。案内は助言であり、障害物を検知するものではありません。"
-        case .english:
-            return "Stay aware of your surroundings. Stop walking before reading or interacting with the screen, and never walk backward following on-screen guidance. Guidance is advisory only — it does not detect obstacles."
-        }
+    public static func safetyDisclaimer() -> String {
+        String(localized: "Stay aware of your surroundings. Stop walking before reading or interacting with the screen, and never walk backward following on-screen guidance. Guidance is advisory only — it does not detect obstacles.")
     }
 }
 
