@@ -463,7 +463,7 @@ final class StragglerWorkflowTests: XCTestCase {
             coordinateSpaceID: spaceID,
             worldFromAnnotation: .identity,
             referencePointSemantics: ReferencePointSemantics(
-                rawValue: "equipment_origin"
+                rawValue: "x_equipment_origin"
             )!,
             label: "Old label",
             provenanceClass: .userAnnotation,

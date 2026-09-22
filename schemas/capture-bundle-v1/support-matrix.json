@@ -338,7 +338,7 @@
       "documents": {},
       "emitted": null,
       "read": [],
-      "description": "Opaque Apple RoomPlan authority payloads \u2014 governed by media type, canonical-bytes and raw-lineage binding, not a project-owned schema."
+      "description": "Opaque Apple RoomPlan authority payloads — governed by media type, canonical-bytes and raw-lineage binding, not a project-owned schema."
     },
     "authority-dependencies": {
       "schema_id": "htdt.capture.authority-dependencies",
@@ -347,6 +347,45 @@
       ],
       "documents": {
         "1.0.0": "authority-dependencies"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "capture-strategy": {
+      "schema_id": "htdt.capture.strategy",
+      "paths": [
+        "session/capture-strategy.json"
+      ],
+      "documents": {
+        "1.0.0": "capture-strategy"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "revision-intent": {
+      "schema_id": "htdt.capture.revision-intent",
+      "paths": [
+        "revision/intent.json"
+      ],
+      "documents": {
+        "1.0.0": "revision-intent"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "plan-underlay": {
+      "schema_id": "htdt.capture.plan-underlay",
+      "paths": [
+        "reference/plan-underlay.json"
+      ],
+      "documents": {
+        "1.0.0": "plan-underlay"
       },
       "emitted": "1.0.0",
       "read": [

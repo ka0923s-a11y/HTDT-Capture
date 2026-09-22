@@ -1091,6 +1091,7 @@
 "Device context (preset/config ref)" = "機器コンテキスト（プリセット/設定参照）";
 "Driven speakers" = "駆動するスピーカー";
 "Add speaker/subwoofer annotations first." = "先にスピーカー/サブウーファーのアノテーションを追加してください。";
+"Verification" = "検証";
 "Method" = "方法";
 "Band scope" = "帯域スコープ";
 "A printed cable label never verifies the live signal path." = "印字済みケーブルラベルは実際の信号経路を検証しません。";
@@ -1152,6 +1153,7 @@
 "Draft" = "下書き";
 "Imported" = "取り込み済み";
 "Derived" = "派生";
+"Verified" = "検証済み";
 
 "HTDT Capture" = "HTDT Capture";
 "Capture a room for Home Theater Digital Twin." = "Home Theater Digital Twin 用に部屋をキャプチャします。";
