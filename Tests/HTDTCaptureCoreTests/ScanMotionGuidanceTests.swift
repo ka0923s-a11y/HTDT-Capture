@@ -856,12 +856,12 @@ final class ScanMotionGuidanceTests: XCTestCase {
         XCTAssertTrue(japanese.contains("その場で左を向いてください"))
         XCTAssertTrue(japanese.contains("上側を映してください"))
         XCTAssertTrue(japanese.contains("下側を映してください"))
-        XCTAssertTrue(japanese.contains("少し右へ移動してください"))
-        XCTAssertTrue(japanese.contains("少し左へ移動してください"))
-        XCTAssertTrue(japanese.contains("少し前へ進んでください"))
-        XCTAssertTrue(japanese.contains("少し下がってください"))
-        XCTAssertTrue(japanese.contains("別角度から映してください"))
-        XCTAssertTrue(japanese.contains("この領域の反対側へ回り込んでください"))
+        XCTAssertTrue(japanese.contains("進路が安全なら、少し右へ移動してください"))
+        XCTAssertTrue(japanese.contains("進路が安全なら、少し左へ移動してください"))
+        XCTAssertTrue(japanese.contains("進路が安全なら、少し前へ進んでください"))
+        XCTAssertTrue(japanese.contains("後方が安全なら、少し下がってください"))
+        XCTAssertTrue(japanese.contains("安全なら、別の角度から映してください"))
+        XCTAssertTrue(japanese.contains("安全なら、この領域を別の角度から映してください"))
         XCTAssertTrue(japanese.contains("この方向をゆっくり映してください"))
 
         for prompt in japanese {
@@ -879,7 +879,12 @@ final class ScanMotionGuidanceTests: XCTestCase {
                 for: sample,
                 language: .english
             )
-            XCTAssertFalse(english.lowercased().contains("step"))
+            // #313: movement prompts are safety-qualified, never
+            // mandatory; no numeric step counts anywhere.
+            if sample.action.requiresPhysicalTranslation {
+                XCTAssertTrue(english.hasPrefix("If"))
+            }
+            XCTAssertFalse(english.lowercased().contains("must"))
             XCTAssertNil(
                 english.range(
                     of: #"[0-9]"#,
@@ -972,6 +977,7 @@ final class ScanMotionGuidanceTests: XCTestCase {
             limitedTrackingObservationCount: 0,
             lastObservedTimestampSeconds: Double(observations),
             viewAngleBucketMask: mask,
+            elevationBucketMask: 0,
             latestDistanceBucket: distance,
             depthObservationCount: observations,
             meshSupportCount: observations,

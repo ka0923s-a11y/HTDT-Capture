@@ -29,9 +29,41 @@ public enum ScanTranslationDirection: String, Sendable, Equatable, CaseIterable 
     case backward
 }
 
+public extension ScanMotionGuidanceAction {
+    /// Whether the action asks the operator to physically move (walk).
+    /// In-place actions — rotate, tilt, hold, tracking recovery — never
+    /// carry movement-safety wording (#313).
+    var requiresPhysicalTranslation: Bool {
+        switch self {
+        case .translate, .approach, .retreat, .orbit,
+             .reobserveAnotherAngle:
+            return true
+        case .trackingRecovery, .rotate, .tilt, .holdObserve:
+            return false
+        }
+    }
+}
+
+/// How much physical translation the operator can currently make
+/// (#257 stationary-only, #313 safety-constrained). Anything but
+/// `unrestricted` suppresses movement guidance: the app never claims to
+/// know the operator's path is safe, so a constrained mode removes
+/// translation prompts entirely rather than coaching risky movement.
 public enum ScanMovementCapability: String, Sendable, Equatable {
     case unrestricted
     case stationaryOnly = "stationary_only"
+    /// The operator can move, but the current surroundings make guided
+    /// translation unsafe or unwanted right now (e.g. narrow corridor,
+    /// obstacles, other people). Same guidance semantics as
+    /// `stationaryOnly`; persisted separately so Review can distinguish
+    /// "operator chose to stay" from "movement was unsafe".
+    case safetyConstrained = "safety_constrained"
+
+    /// Whether guidance may ask for physical translation. Only the
+    /// unrestricted capability allows move/orbit prompts.
+    public var canGuideTranslation: Bool {
+        self == .unrestricted
+    }
 }
 
 /// Why guidance reported `isComplete` (issue #296). The boolean alone
@@ -299,48 +331,53 @@ public enum ScanMotionGuidanceCopy {
                 ? "Capture the lower area."
                 : "Capture the upper area."
 
+        // #313: every movement prompt is qualified with an explicit
+        // path-check precondition. Guidance is advisory — the app does
+        // not know the operator's path is safe — so wording must never
+        // present walking backward or orbiting as a required or
+        // sensor-verified-safe action.
         case (.japanese, .translate):
             switch guidance.translationDirection ?? .right {
             case .left:
-                return "少し左へ移動してください"
+                return "進路が安全なら、少し左へ移動してください"
             case .right:
-                return "少し右へ移動してください"
+                return "進路が安全なら、少し右へ移動してください"
             case .forward:
-                return "少し前へ進んでください"
+                return "進路が安全なら、少し前へ進んでください"
             case .backward:
-                return "少し下がってください"
+                return "後方が安全なら、少し下がってください"
             }
         case (.english, .translate):
             switch guidance.translationDirection ?? .right {
             case .left:
-                return "Move slightly to the left."
+                return "If the path is clear, step slightly left."
             case .right:
-                return "Move slightly to the right."
+                return "If the path is clear, step slightly right."
             case .forward:
-                return "Move slightly forward."
+                return "If the path is clear, step slightly forward."
             case .backward:
-                return "Move slightly back."
+                return "If the path behind you is clear, step slightly back."
             }
 
         case (.japanese, .approach):
-            return "少し近づいてください"
+            return "安全なら、少し近づいてください"
         case (.english, .approach):
-            return "Move slightly closer."
+            return "If safe, move slightly closer."
 
         case (.japanese, .retreat):
-            return "少し離れてください"
+            return "後方が安全なら、少し下がってください"
         case (.english, .retreat):
-            return "Move slightly farther away."
+            return "If the path behind you is clear, step slightly back."
 
         case (.japanese, .orbit):
-            return "この領域の反対側へ回り込んでください"
+            return "安全なら、この領域を別の角度から映してください"
         case (.english, .orbit):
-            return "Move around to the other side of this region."
+            return "If safe, view this region from another angle."
 
         case (.japanese, .reobserveAnotherAngle):
-            return "別角度から映してください"
+            return "安全なら、別の角度から映してください"
         case (.english, .reobserveAnotherAngle):
-            return "Show this region from another angle."
+            return "If safe, show this region from another angle."
 
         case (.japanese, .holdObserve):
             return "この方向をゆっくり映してください"
@@ -384,6 +421,40 @@ public enum ScanMotionGuidanceCopy {
             return "観測"
         case (.english, .holdObserve):
             return "Observe"
+        }
+    }
+
+    /// Short reminder shown while a prompt asks for physical
+    /// translation (#313). Returns nil for in-place actions, which
+    /// need no movement-safety qualifier.
+    public static func safetyNote(
+        for guidance: ScanMotionGuidance,
+        language: ScanMotionGuidanceLanguage
+    ) -> String? {
+        guard guidance.action.requiresPhysicalTranslation else {
+            return nil
+        }
+        switch language {
+        case .japanese:
+            return "進路は自己判断です。画面を見る前に立ち止まってください"
+        case .english:
+            return "Your path is your call — stop walking before reading this."
+        }
+    }
+
+    /// First-use safety statement shown before scanning starts and kept
+    /// in the guidance help (#313). Deliberately plain: awareness, stop
+    /// before interacting, never walk backward following the screen.
+    /// The app does not detect obstacles — this text never claims it
+    /// does.
+    public static func safetyDisclaimer(
+        language: ScanMotionGuidanceLanguage
+    ) -> String {
+        switch language {
+        case .japanese:
+            return "周囲に注意してください。画面を読んだり操作したりする前に立ち止まり、画面の指示に従って後ろ向きに歩かないでください。案内は助言であり、障害物を検知するものではありません。"
+        case .english:
+            return "Stay aware of your surroundings. Stop walking before reading or interacting with the screen, and never walk backward following on-screen guidance. Guidance is advisory only — it does not detect obstacles."
         }
     }
 }
@@ -548,9 +619,9 @@ public struct ScanMotionGuidanceTracker: Sendable {
     ) {
         movementCapability = capability
 
-        if capability == .stationaryOnly,
+        if !capability.canGuideTranslation,
            let currentGuidance,
-           requiresPhysicalTranslation(currentGuidance.action)
+           currentGuidance.action.requiresPhysicalTranslation
         {
             self.currentGuidance = nil
             currentSelectedAtSeconds = nil
@@ -594,7 +665,7 @@ public struct ScanMotionGuidanceTracker: Sendable {
             completedSpatialGuidanceAttemptCount
                 >= configuration.maximumSpatialGuidanceAttempts
         let spatialComplete =
-            movementCapability == .stationaryOnly
+            !movementCapability.canGuideTranslation
             || spatialBudgetExhausted
             || (
                 spatialCoverage.knownRegionCount > 0
@@ -770,7 +841,7 @@ public struct ScanMotionGuidanceTracker: Sendable {
            coverage.coverageFraction
                 >= configuration.completionDirectionCoverageFraction,
            (
-                movementCapability == .stationaryOnly
+                !movementCapability.canGuideTranslation
                 || spatialGuidanceBudgetExhausted
                 || (
                     spatialCoverage.knownRegionCount > 0
@@ -902,9 +973,9 @@ public struct ScanMotionGuidanceTracker: Sendable {
         if observation.recheckSuggested {
             return ScanMotionGuidance(
                 action:
-                    movementCapability == .stationaryOnly
-                    ? .holdObserve
-                    : .reobserveAnotherAngle
+                    movementCapability.canGuideTranslation
+                    ? .reobserveAnotherAngle
+                    : .holdObserve
             )
         }
 
@@ -1332,17 +1403,6 @@ public struct ScanMotionGuidanceTracker: Sendable {
         }
     }
 
-    private func requiresPhysicalTranslation(
-        _ action: ScanMotionGuidanceAction
-    ) -> Bool {
-        switch action {
-        case .translate, .approach, .retreat, .orbit,
-             .reobserveAnotherAngle:
-            return true
-        case .trackingRecovery, .rotate, .tilt, .holdObserve:
-            return false
-        }
-    }
 
     private func targetRegionCompleted(
         _ key: SpatialCoverageCellKey?,
