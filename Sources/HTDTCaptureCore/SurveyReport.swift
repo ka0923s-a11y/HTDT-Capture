@@ -174,7 +174,9 @@ public enum SurveyPlanCompositor {
                     switch candidate.kind {
                     case .door: .door
                     case .window: .window
-                    case .opening, .other: .opening
+                    case .opening, .hvacGrille, .transferGrille,
+                         .doorUndercut, .servicePenetration, .other:
+                        .opening
                     }
                 markers.append(
                     .init(
