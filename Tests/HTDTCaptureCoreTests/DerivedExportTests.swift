@@ -660,7 +660,8 @@ func surveyPlanRendererProducesStandaloneSVG() throws {
 private func makeContents(
     entries: [BundleFileEntry] = [],
     entities: [CaptureAnnotationEntity] = [],
-    measurements: [CaptureMeasurement] = []
+    measurements: [CaptureMeasurement] = [],
+    fieldNotes: [CaptureFieldNote] = []
 ) throws -> PersistedCaptureContents {
     PersistedCaptureContents(
         manifest: try makeManifest(entries: entries),
@@ -672,6 +673,7 @@ private func makeContents(
         measurements: measurements,
         openingReview: nil,
         roomReferenceFrame: nil,
+        fieldNotes: fieldNotes,
         frameDescriptors: [],
         issues: []
     )
@@ -710,6 +712,76 @@ func reportBuilderProducesSelfContainedBilingualHTML() throws {
     )
     let jaHTML = SurveyReportBuilder.html(input: jaInput)
     #expect(jaHTML.contains("フィールド調査レポート"))
+}
+
+/// #459: the operator's field notes reach the exported report —
+/// they were persisted in the bundle but never rendered before.
+@Test
+func reportBuilderRendersFieldNotes() throws {
+    let revisionID = CaptureRevisionID()
+    let contents = try makeContents(
+        fieldNotes: [
+            try CaptureFieldNote(
+                captureRevisionID: revisionID,
+                createdAtUTC: "2026-09-21T00:05:00Z",
+                category: .roomCondition,
+                text: "Rack hums on idle <loud>",
+                severity: .concern,
+                needsAttention: true
+            ),
+        ]
+    )
+    let input = SurveyReportInput(
+        contents: contents,
+        advisoryReport: nil,
+        planPreview: nil,
+        displayName: nil,
+        bundleDigest: EvidenceIntegrity.sha256(of: Data()),
+        evidenceImages: [],
+        language: .english,
+        generatedAtUTC: "2026-09-21T00:00:00Z"
+    )
+    let html = SurveyReportBuilder.html(input: input)
+    #expect(html.contains("Field notes"))
+    // Note text is HTML-escaped like every other rendered string.
+    #expect(html.contains("Rack hums on idle &lt;loud&gt;"))
+    #expect(html.contains("room condition"))
+    #expect(html.contains("active"))
+    #expect(html.contains("concern"))
+    #expect(html.contains("needs attention"))
+    #expect(html.contains("2026-09-21T00:05:00Z"))
+
+    let jaInput = SurveyReportInput(
+        contents: contents,
+        advisoryReport: nil,
+        planPreview: nil,
+        displayName: nil,
+        bundleDigest: EvidenceIntegrity.sha256(of: Data()),
+        evidenceImages: [],
+        language: .japanese,
+        generatedAtUTC: "2026-09-21T00:00:00Z"
+    )
+    let jaHTML = SurveyReportBuilder.html(input: jaInput)
+    #expect(jaHTML.contains("フィールドメモ"))
+    #expect(jaHTML.contains("部屋の状況"))
+
+    // An empty collection renders the honest empty state.
+    let empty = SurveyReportInput(
+        contents: try makeContents(),
+        advisoryReport: nil,
+        planPreview: nil,
+        displayName: nil,
+        bundleDigest: EvidenceIntegrity.sha256(of: Data()),
+        evidenceImages: [],
+        language: .english,
+        generatedAtUTC: "2026-09-21T00:00:00Z"
+    )
+    let emptyHTML = SurveyReportBuilder.html(input: empty)
+    #expect(
+        emptyHTML.contains(
+            "No field notes were recorded during this capture."
+        )
+    )
 }
 
 @Test

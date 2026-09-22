@@ -537,6 +537,14 @@ public struct OperatorProfilesView: View {
     @Binding public var operators: [OperatorProfile]
     @Binding public var selectedOperatorID: OperatorProfileID?
     public let onChange: () -> Void
+    /// #458: the app-local roster — profiles saved on this device,
+    /// reused across captures instead of being re-typed.
+    public let roster: [OperatorProfile]
+    /// #458: remember a profile app-wide (upsert by operator_id).
+    public let onSaveToRoster: (OperatorProfile) -> Void
+    /// #458: forget a roster profile; in-capture records keep the
+    /// copy they already committed.
+    public let onRemoveFromRoster: (OperatorProfileID) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var displayName = ""
@@ -547,11 +555,27 @@ public struct OperatorProfilesView: View {
     public init(
         operators: Binding<[OperatorProfile]>,
         selectedOperatorID: Binding<OperatorProfileID?>,
-        onChange: @escaping () -> Void = {}
+        onChange: @escaping () -> Void = {},
+        roster: [OperatorProfile] = [],
+        onSaveToRoster: @escaping (OperatorProfile) -> Void = { _ in },
+        onRemoveFromRoster: @escaping (OperatorProfileID) -> Void
+            = { _ in }
     ) {
         self._operators = operators
         self._selectedOperatorID = selectedOperatorID
         self.onChange = onChange
+        self.roster = roster
+        self.onSaveToRoster = onSaveToRoster
+        self.onRemoveFromRoster = onRemoveFromRoster
+    }
+
+    /// Roster profiles not yet committed to this capture.
+    private var rosterOnlyProfiles: [OperatorProfile] {
+        roster.filter { profile in
+            !operators.contains {
+                $0.operatorID == profile.operatorID
+            }
+        }
     }
 
     public var body: some View {
@@ -620,6 +644,56 @@ public struct OperatorProfilesView: View {
                 }
             }
 
+            if !rosterOnlyProfiles.isEmpty {
+                Section(
+                    String(localized: "Saved on this device")
+                ) {
+                    ForEach(
+                        rosterOnlyProfiles,
+                        id: \.operatorID
+                    ) { profile in
+                        HStack {
+                            VStack(
+                                alignment: .leading,
+                                spacing: 2
+                            ) {
+                                Text(profile.displayName)
+                                Text(
+                                    [
+                                        profile.organization,
+                                        profile.role,
+                                    ]
+                                    .compactMap { $0 }
+                                    .joined(separator: " · ")
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button(
+                                String(localized: "Add to capture")
+                            ) {
+                                operators.append(profile)
+                                selectedOperatorID =
+                                    profile.operatorID
+                                onChange()
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                        .swipeActions(edge: .trailing) {
+                            Button(
+                                String(localized: "Forget"),
+                                role: .destructive
+                            ) {
+                                onRemoveFromRoster(
+                                    profile.operatorID
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             Section(String(localized: "Add operator")) {
                 TextField(
                     String(localized: "Display name"),
@@ -668,6 +742,9 @@ public struct OperatorProfilesView: View {
             )
             operators.append(profile)
             selectedOperatorID = profile.operatorID
+            // #458: remember the profile app-wide so the next
+            // capture offers it in "Saved on this device".
+            onSaveToRoster(profile)
             displayName = ""
             organization = ""
             role = ""

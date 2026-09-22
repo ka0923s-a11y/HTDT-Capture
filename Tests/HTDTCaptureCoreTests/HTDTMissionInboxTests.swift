@@ -47,6 +47,7 @@ final class HTDTMissionInboxTests: XCTestCase {
         missionID: String,
         planID: String,
         supersedesMissionID: String? = nil,
+        followUpOfMissionID: String? = nil,
         dependencies: String = "[]",
         receiverRequirement: String? = nil,
         missionKind: String = "initial_survey"
@@ -64,6 +65,10 @@ final class HTDTMissionInboxTests: XCTestCase {
         if let supersedesMissionID {
             fields += ",\n  \"supersedes_mission_id\": "
                 + "\"\(supersedesMissionID)\""
+        }
+        if let followUpOfMissionID {
+            fields += ",\n  \"follow_up_of_mission_id\": "
+                + "\"\(followUpOfMissionID)\""
         }
         if let receiverRequirement {
             fields += ",\n  \"receiver_requirement\": "
@@ -301,11 +306,12 @@ final class HTDTMissionInboxTests: XCTestCase {
         _ = try store.startMission(recordID: record.recordID)
         try store.pauseActiveMission()
         XCTAssertNil(try store.activeMissionRecord())
-        // Pausing clears the active pointer only — the record's
-        // lifecycle and its capture associations are untouched.
+        // Pausing clears the active pointer and returns an
+        // in-progress record to `ready` so Start/Resume can pick
+        // it up again — its capture associations are untouched.
         XCTAssertEqual(
             try store.record(id: record.recordID)?.lifecycle,
-            .inProgress
+            .ready
         )
         try store.setLifecycle(
             recordID: record.recordID,
@@ -316,6 +322,163 @@ final class HTDTMissionInboxTests: XCTestCase {
                 $0.recordID == record.recordID
             }
         )
+    }
+
+    // MARK: - Post-field lifecycle (#456)
+
+    func testFieldCaptureCompletionAdvancesOnlyInProgress() throws {
+        let root = try makeRoot()
+        let store = HTDTMissionInboxStore(captureRoot: root)
+        guard case .imported(let record) = try store.importMission(
+            data: missionData(missionID: "m-1", planID: "plan-1")
+        ) else {
+            XCTFail()
+            return
+        }
+        // Received missions are untouched — field completion only
+        // fires once work actually began.
+        try store.noteFieldCaptureCompleted(
+            recordID: record.recordID
+        )
+        XCTAssertEqual(
+            try store.record(id: record.recordID)?.lifecycle,
+            .received
+        )
+        _ = try store.startMission(recordID: record.recordID)
+        try store.noteFieldCaptureCompleted(
+            recordID: record.recordID
+        )
+        XCTAssertEqual(
+            try store.record(id: record.recordID)?.lifecycle,
+            .fieldCaptureCompleted
+        )
+    }
+
+    func testCompleteMissionGatesOnPostFieldStates() throws {
+        let root = try makeRoot()
+        let store = HTDTMissionInboxStore(captureRoot: root)
+        guard case .imported(let record) = try store.importMission(
+            data: missionData(missionID: "m-1", planID: "plan-1")
+        ) else {
+            XCTFail()
+            return
+        }
+        // A mission whose field work never started cannot be
+        // completed — `received` and `in_progress` are pre-field.
+        XCTAssertThrowsError(
+            try store.completeMission(recordID: record.recordID)
+        )
+        _ = try store.startMission(recordID: record.recordID)
+        XCTAssertThrowsError(
+            try store.completeMission(recordID: record.recordID)
+        )
+        try store.noteFieldCaptureCompleted(
+            recordID: record.recordID
+        )
+        try store.completeMission(recordID: record.recordID)
+        XCTAssertEqual(
+            try store.record(id: record.recordID)?.lifecycle,
+            .completed
+        )
+    }
+
+    func testReconcileDerivesFinalizedAndDelivered() throws {
+        let root = try makeRoot()
+        let store = HTDTMissionInboxStore(captureRoot: root)
+        guard case .imported(let record) = try store.importMission(
+            data: missionData(missionID: "m-1", planID: "plan-1")
+        ) else {
+            XCTFail()
+            return
+        }
+        _ = try store.startMission(recordID: record.recordID)
+        // A committed field return lands the record at `finalized`.
+        try store.associateFieldReturn(
+            recordID: record.recordID,
+            contributionID: HTDTFieldReturnID()
+        )
+        _ = try store.reconcileLifecycles()
+        XCTAssertEqual(
+            try store.record(id: record.recordID)?.lifecycle,
+            .finalized
+        )
+        // A delivered staged job on the same record then advances
+        // it to `delivered`.
+        try store.associateDeliveryJob(
+            recordID: record.recordID,
+            deliveryJobID: "job-1"
+        )
+        let queue = HTDTDeliveryQueue(captureRoot: root)
+        let job = HTDTDeliveryJob(
+            deliveryJobID: "job-1",
+            archiveSHA256: "aa",
+            archiveByteCount: 1,
+            payloadRelativePath: "delivery-queue/payloads/job-1",
+            destination: HTDTHandoffDestination(
+                name: "HTDT Mac",
+                kind: .endpoint,
+                url: "https://receiver.local"
+            ),
+            missionRecordID: record.recordID,
+            createdAtUTC: "2026-09-21T00:00:00Z",
+            state: .deliveredStaged
+        )
+        let document = HTDTDeliveryQueue.Document(jobs: [job])
+        try JSONEncoder().encode(document).write(
+            to: queue.fileURL,
+            options: .atomic
+        )
+        _ = try store.reconcileLifecycles(deliveryQueue: queue)
+        XCTAssertEqual(
+            try store.record(id: record.recordID)?.lifecycle,
+            .delivered
+        )
+    }
+
+    func testFollowUpImportMarksEarlierMission() throws {
+        let root = try makeRoot()
+        let store = HTDTMissionInboxStore(captureRoot: root)
+        guard case .imported(let first) = try store.importMission(
+            data: missionData(missionID: "m-1", planID: "plan-1")
+        ) else {
+            XCTFail()
+            return
+        }
+        // A mission that names an earlier one via
+        // `follow_up_of_mission_id` marks that record
+        // `needs_follow_up` so the operator sees the story.
+        _ = try store.importMission(
+            data: missionData(
+                missionID: "m-2",
+                planID: "plan-2",
+                followUpOfMissionID: "m-1"
+            )
+        )
+        XCTAssertEqual(
+            try store.record(id: first.recordID)?.lifecycle,
+            .needsFollowUp
+        )
+    }
+
+    func testUserNoteSetTrimAndClear() throws {
+        let root = try makeRoot()
+        let store = HTDTMissionInboxStore(captureRoot: root)
+        guard case .imported(let record) = try store.importMission(
+            data: missionData(missionID: "m-1", planID: "plan-1")
+        ) else {
+            XCTFail()
+            return
+        }
+        try store.setUserNote(
+            recordID: record.recordID,
+            "  rack hums on idle  "
+        )
+        XCTAssertEqual(
+            try store.record(id: record.recordID)?.userNote,
+            "rack hums on idle"
+        )
+        try store.setUserNote(recordID: record.recordID, "   ")
+        XCTAssertNil(try store.record(id: record.recordID)?.userNote)
     }
 
     func testGroupedByProjectAndRoom() throws {

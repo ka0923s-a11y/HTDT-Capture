@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 import HTDTCaptureCore
+import HTDTCapturePlatform
 
 /// Mission inbox detail/list surface (issue #386): missions grouped
 /// project → room, each record showing lifecycle, plan identity,
@@ -28,6 +29,9 @@ struct HTDTMissionInboxView: View {
     @State private var dependencyReport:
         HTDTMissionDependencyReport?
     @State private var dependencyError: String?
+    /// Operator note draft for the detail sheet (#463) — seeded
+    /// from the record when the sheet opens.
+    @State private var userNoteDraft = ""
 
     private var grouped:
         [String: [String: [HTDTMissionRecord]]]
@@ -138,7 +142,9 @@ struct HTDTMissionInboxView: View {
         }
         .fileImporter(
             isPresented: $importingMission,
-            allowedContentTypes: [.json],
+            // #457: the dedicated `.htdtmission` package type is
+            // pickable alongside plain JSON payloads.
+            allowedContentTypes: [.json, .htdtMission],
             allowsMultipleSelection: false
         ) { result in
             guard let urls = try? result.get(),
@@ -155,6 +161,9 @@ struct HTDTMissionInboxView: View {
                 missionDetail(record)
             }
             .presentationDetents([.medium, .large])
+            .onAppear {
+                userNoteDraft = record.userNote ?? ""
+            }
         }
         .sheet(item: $fieldReturnRecord) { record in
             NavigationStack {
@@ -403,9 +412,27 @@ struct HTDTMissionInboxView: View {
                         record.associatedCaptureRevisionIDs,
                         id: \.self
                     ) { revisionID in
-                        Text(revisionID)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
+                        // #461: the revision row opens its persisted
+                        // capture — never a dead text id.
+                        if let parsed = CaptureRevisionID(
+                            canonicalString: revisionID
+                        ) {
+                            Button {
+                                selectedRecord = nil
+                                actions.openPersistedCapture(parsed)
+                            } label: {
+                                Label(
+                                    revisionID,
+                                    systemImage:
+                                        "arrow.up.forward.square"
+                                )
+                                .font(.caption.monospaced())
+                            }
+                        } else {
+                            Text(revisionID)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 if !record.deliveryJobIDs.isEmpty {
@@ -413,6 +440,33 @@ struct HTDTMissionInboxView: View {
                         "Delivery jobs",
                         value: String(record.deliveryJobIDs.count)
                     )
+                }
+            }
+
+            // #463: the record's operator annotation — editable,
+            // never issuer truth.
+            Section("Mission note") {
+                TextField(
+                    String(localized: "Operator note"),
+                    text: $userNoteDraft,
+                    axis: .vertical
+                )
+                .lineLimit(2...4)
+                if userNoteDraft != (record.userNote ?? "") {
+                    Button {
+                        Task {
+                            await actions.updateMissionUserNote(
+                                record.recordID,
+                                userNoteDraft
+                            )
+                        }
+                    } label: {
+                        Label(
+                            "Save note",
+                            systemImage: "checkmark.circle"
+                        )
+                    }
+                    .captureSecondaryAction()
                 }
             }
 
@@ -603,6 +657,23 @@ struct HTDTMissionInboxView: View {
                         Label(
                             "Deactivate",
                             systemImage: "pause.fill"
+                        )
+                    }
+                }
+                // #456: explicit close once field work or delivery
+                // landed — missions otherwise stay open forever.
+                if record.lifecycle.canMarkCompleted {
+                    Button {
+                        Task {
+                            await actions.completeMission(
+                                record.recordID
+                            )
+                        }
+                        selectedRecord = nil
+                    } label: {
+                        Label(
+                            "Mark completed",
+                            systemImage: "checkmark.seal"
                         )
                     }
                 }
@@ -926,8 +997,32 @@ struct HTDTDeliveryQueueView: View {
     let jobs: [HTDTDeliveryJob]
     let actions: CaptureRootActions
 
+    /// #462: queue filters + text search — the queue only grows, so
+    /// the view needs the same triage affordances the evidence
+    /// contact sheet already has.
+    @State private var filter: HTDTDeliveryQueueFilter = .all
+    @State private var searchText = ""
+
     private var ordered: [HTDTDeliveryJob] {
-        jobs.sorted { $0.createdAtUTC > $1.createdAtUTC }
+        jobs.filter { filter.matches($0) }
+            .filter { job in
+                let query = searchText.trimmingCharacters(
+                    in: .whitespaces
+                )
+                guard !query.isEmpty else { return true }
+                return job.displayTitle.localizedCaseInsensitiveContains(
+                    query
+                )
+                || job.displaySubtitle.localizedCaseInsensitiveContains(
+                    query
+                )
+                || job.artifactIDText.localizedCaseInsensitiveContains(
+                    query
+                )
+                || job.destination.name
+                    .localizedCaseInsensitiveContains(query)
+            }
+            .sorted { $0.createdAtUTC > $1.createdAtUTC }
     }
 
     var body: some View {
@@ -935,7 +1030,9 @@ struct HTDTDeliveryQueueView: View {
             if ordered.isEmpty {
                 Section {
                     Text(
-                        "No deliveries queued. Endpoint sends are recorded here before any bytes move and survive app restarts."
+                        jobs.isEmpty
+                            ? "No deliveries queued. Endpoint sends are recorded here before any bytes move and survive app restarts."
+                            : "No deliveries match this filter."
                     )
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -945,6 +1042,28 @@ struct HTDTDeliveryQueueView: View {
                     jobRow(job)
                 }
             }
+        }
+        .searchable(
+            text: $searchText,
+            prompt: Text("Search deliveries")
+        )
+        .safeAreaInset(edge: .top) {
+            Picker("Filter", selection: $filter) {
+                ForEach(
+                    HTDTDeliveryQueueFilter.allCases,
+                    id: \.self
+                ) { value in
+                    Text(
+                        MissionPresentation
+                            .deliveryQueueFilterName(value)
+                    )
+                    .tag(value)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+            .background(.regularMaterial)
         }
         .navigationTitle("Deliveries")
     }
@@ -988,6 +1107,17 @@ struct HTDTDeliveryQueueView: View {
             if let staged = job.serverStagingRef {
                 LabeledContent("Staged as", value: staged)
                     .font(.caption)
+            }
+            LabeledContent(
+                "Destination",
+                value: job.destination.name
+            )
+            .font(.caption)
+            if let endpoint = job.destination.url {
+                Text(endpoint)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+                    .textSelection(.enabled)
             }
             if let detail = job.lastErrorDetail {
                 Text(detail)
@@ -1049,6 +1179,39 @@ struct HTDTDeliveryQueueView: View {
                                 job.deliveryJobID
                             )
                         }
+                    }
+                    .font(.caption)
+                }
+            }
+            // #462: reach the artifact the job transports — a queued
+            // capture opens its Library record; a field return
+            // offers its finalized container via ShareLink.
+            HStack {
+                if job.artifactKind == .captureBundle,
+                   let revisionID = job.captureRevisionID
+                {
+                    Button {
+                        actions.openPersistedCapture(revisionID)
+                    } label: {
+                        Label(
+                            "Open capture",
+                            systemImage: "arrow.up.forward.square"
+                        )
+                    }
+                    .font(.caption)
+                }
+                if job.artifactKind == .fieldReturn,
+                   let returnID = HTDTFieldReturnID(
+                    canonicalString: job.artifactIDText
+                   ),
+                   let artifactURL = actions
+                    .fieldReturnArtifactURL(returnID)
+                {
+                    ShareLink(item: artifactURL) {
+                        Label(
+                            "Field return artifact",
+                            systemImage: "square.and.arrow.up"
+                        )
                     }
                     .font(.caption)
                 }

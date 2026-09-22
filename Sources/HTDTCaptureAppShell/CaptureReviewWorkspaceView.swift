@@ -67,6 +67,10 @@ public struct CaptureReviewWorkspaceView: View {
     /// #376: advisory privacy flag on an evidence frame.
     public let flagEvidenceFrameForPrivacy:
         (EvidenceFrameID) -> Void
+    /// #460: clears a frame's privacy flag — the paired action of
+    /// `flagEvidenceFrameForPrivacy`.
+    public let unflagEvidenceFrameForPrivacy:
+        (EvidenceFrameID) -> Void
     /// #408/#409: the accepted RoomPlan bindable objects (loaded by
     /// the host from `roomplan/captured-room.json`) — they drive
     /// both the 3D scene's surface elements and the survey's
@@ -131,6 +135,8 @@ public struct CaptureReviewWorkspaceView: View {
             (CaptureFieldNoteID, String) -> Void = { _, _ in },
         flagEvidenceFrameForPrivacy: @escaping
             (EvidenceFrameID) -> Void = { _ in },
+        unflagEvidenceFrameForPrivacy: @escaping
+            (EvidenceFrameID) -> Void = { _ in },
         roomPlanObjects: [RoomPlanBindableObject] = []
     ) {
         self.model = model
@@ -156,6 +162,8 @@ public struct CaptureReviewWorkspaceView: View {
         self.bindFieldNote = bindFieldNote
         self.flagEvidenceFrameForPrivacy =
             flagEvidenceFrameForPrivacy
+        self.unflagEvidenceFrameForPrivacy =
+            unflagEvidenceFrameForPrivacy
     }
 
     public var body: some View {
@@ -319,7 +327,9 @@ public struct CaptureReviewWorkspaceView: View {
                             removeEvidenceFrame:
                                 removeEvidenceFrame,
                             flagForPrivacy:
-                                flagEvidenceFrameForPrivacy
+                                flagEvidenceFrameForPrivacy,
+                            unflagForPrivacy:
+                                unflagEvidenceFrameForPrivacy
                         )
                     } label: {
                         Label(
