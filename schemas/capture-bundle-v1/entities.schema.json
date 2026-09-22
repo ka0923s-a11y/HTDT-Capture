@@ -580,6 +580,16 @@
           ],
           "pattern": "^[A-Z0-9_]+$"
         },
+        "role_binding": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/roleBinding"
+            }
+          ]
+        },
         "acoustic_center": {
           "oneOf": [
             {
@@ -730,6 +740,29 @@
             "string",
             "null"
           ],
+          "minLength": 1
+        }
+      }
+    },
+    "roleBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile_id",
+        "profile_version",
+        "role_id"
+      ],
+      "properties": {
+        "profile_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profile_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role_id": {
+          "type": "string",
           "minLength": 1
         }
       }
