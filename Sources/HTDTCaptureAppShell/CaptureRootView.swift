@@ -175,6 +175,19 @@ public struct CaptureRootActions {
     public let inspectFailedCapture: () -> Void
     public let exportFailedCaptureDiagnostics:
         () async -> URL?
+    /// Mission workflows (#353) + closed-loop repair (#321).
+    public let importMissionDocument: (URL) -> Void
+    public let setConnectedSpaceIntent: (Bool) -> Void
+    public let beginConnectedSegment:
+        (String, CaptureRegionKind) -> Void
+    public let completeConnectedSegment: () -> Void
+    public let recordConnectedPortal: (CaptureRegionID) -> Void
+    public let revisitConnectedRegion: (CaptureRegionID) -> Void
+    public let asBuiltMarkUnavailable: (String) -> Void
+    public let asBuiltEstablishAlignment: () -> Void
+    public let asBuiltRecordActual:
+        (String, AnnotationEntityID) -> Void
+    public let resolveRepairTask: (HTDTRepairTaskRow) -> Void
     /// Explicit Send-to-HTDT handoff (#225).
     public let sendCaptureToHTDT:
         (HTDTHandoffDestination) async -> Void
@@ -246,6 +259,25 @@ public struct CaptureRootActions {
     /// explicit protected-marks override.
     public let deleteSeries:
         (CaptureSeriesID, Bool) -> Void
+    /// Capture-strategy profile selection (#307). Advisory guidance
+    /// and evidence budgets only; a task-plan-pinned strategy cannot
+    /// be changed by the operator.
+    public let selectCaptureStrategy:
+        (CaptureStrategyIdentifier) -> Void
+    /// Plan-reference underlay import (#322): the host reads and
+    /// validates the plan document at the given URL. Underlay
+    /// authority stays reference-only — it never becomes observed
+    /// truth.
+    public let importPlanReference: (URL) -> Void
+    /// Semantic-only child revision (#319): loads the parent context
+    /// and opens the correction sheet.
+    public let beginSemanticCorrection:
+        (PersistedCaptureRecord) -> Void
+    /// Builds the semantic child from the sheet's edits; true on
+    /// success.
+    public let commitSemanticCorrection:
+        (SemanticChildRevisionEdits) async -> Bool
+    public let cancelSemanticCorrection: () -> Void
     /// Reopen an end-accepted working revision that survived a
     /// relaunch (issue #297): the draft comes back as a spatially
     /// sealed Review — semantic work continues, live AR capture never
@@ -414,6 +446,24 @@ public struct CaptureRootActions {
         inspectFailedCapture: @escaping () -> Void = {},
         exportFailedCaptureDiagnostics: @escaping
             () async -> URL? = { nil },
+        importMissionDocument: @escaping (URL) -> Void
+            = { _ in },
+        setConnectedSpaceIntent: @escaping (Bool) -> Void
+            = { _ in },
+        beginConnectedSegment: @escaping
+            (String, CaptureRegionKind) -> Void = { _, _ in },
+        completeConnectedSegment: @escaping () -> Void = {},
+        recordConnectedPortal: @escaping
+            (CaptureRegionID) -> Void = { _ in },
+        revisitConnectedRegion: @escaping
+            (CaptureRegionID) -> Void = { _ in },
+        asBuiltMarkUnavailable: @escaping (String) -> Void
+            = { _ in },
+        asBuiltEstablishAlignment: @escaping () -> Void = {},
+        asBuiltRecordActual: @escaping
+            (String, AnnotationEntityID) -> Void = { _, _ in },
+        resolveRepairTask: @escaping
+            (HTDTRepairTaskRow) -> Void = { _ in },
         sendCaptureToHTDT: @escaping
             (HTDTHandoffDestination) async -> Void = { _ in },
         importMissionPackage: @escaping (URL) async -> Void
@@ -467,6 +517,16 @@ public struct CaptureRootActions {
                 = { _, _ in },
         deleteSeries: @escaping
             (CaptureSeriesID, Bool) -> Void = { _, _ in },
+        selectCaptureStrategy: @escaping
+            (CaptureStrategyIdentifier) -> Void = { _ in },
+        importPlanReference: @escaping (URL) -> Void = { _ in },
+        beginSemanticCorrection: @escaping
+            (PersistedCaptureRecord) -> Void = { _ in },
+        commitSemanticCorrection: @escaping
+            (SemanticChildRevisionEdits) async -> Bool = {
+                _ in false
+            },
+        cancelSemanticCorrection: @escaping () -> Void = {},
         openRecoveredDraft: @escaping
             (RecoverableWorkingRevision) -> Void = { _ in },
         discardRecoveredDraft: @escaping
@@ -555,6 +615,18 @@ public struct CaptureRootActions {
         self.inspectFailedCapture = inspectFailedCapture
         self.exportFailedCaptureDiagnostics =
             exportFailedCaptureDiagnostics
+        self.importMissionDocument = importMissionDocument
+        self.setConnectedSpaceIntent = setConnectedSpaceIntent
+        self.beginConnectedSegment = beginConnectedSegment
+        self.completeConnectedSegment =
+            completeConnectedSegment
+        self.recordConnectedPortal = recordConnectedPortal
+        self.revisitConnectedRegion = revisitConnectedRegion
+        self.asBuiltMarkUnavailable = asBuiltMarkUnavailable
+        self.asBuiltEstablishAlignment =
+            asBuiltEstablishAlignment
+        self.asBuiltRecordActual = asBuiltRecordActual
+        self.resolveRepairTask = resolveRepairTask
         self.sendCaptureToHTDT = sendCaptureToHTDT
         self.importMissionPackage = importMissionPackage
         self.startMission = startMission
@@ -583,6 +655,12 @@ public struct CaptureRootActions {
         self.setSeriesArchived = setSeriesArchived
         self.updateRevisionMark = updateRevisionMark
         self.deleteSeries = deleteSeries
+        self.selectCaptureStrategy = selectCaptureStrategy
+        self.importPlanReference = importPlanReference
+        self.beginSemanticCorrection = beginSemanticCorrection
+        self.commitSemanticCorrection =
+            commitSemanticCorrection
+        self.cancelSemanticCorrection = cancelSemanticCorrection
         self.openRecoveredDraft = openRecoveredDraft
         self.discardRecoveredDraft = discardRecoveredDraft
         self.suspendReview = suspendReview
@@ -748,8 +826,41 @@ public struct CaptureRootView: View {
     public let libraryExportURL: URL?
     /// Retained-evidence inspection for a failed capture (#224).
     public let failedInspection: FailedCaptureInspection?
+    /// Required-task mission progress shown in the journey header
+    /// (#372); nil when no plan is active.
+    public let taskPlanMission: CaptureJourneyMissionSummary?
     /// Spatial authority sealed for finalization (#276).
     public let spatialCaptureSealed: Bool
+    /// Mission workflow state surfaced on the root (#353/#321).
+    public let missionEntries: [MissionWorkflowEntry]
+    public let missionTaskPlan: HTDTCaptureTaskPlan?
+    public let missionTaskPlanOutcomes:
+        [CaptureTaskPlanStatusDocument.ItemOutcome]
+    public let connectedSpaceIntent: Bool
+    public let connectedTracker: ConnectedSpaceTracker?
+    public let asBuiltPlanLoaded: Bool
+    public let asBuiltItems: [AsBuiltVerificationItem]
+    public let asBuiltGhostOverlayEnabled: Bool
+    public let asBuiltAlignmentInstalled: Bool
+    public let asBuiltActualCandidates: [CaptureAnnotationEntity]
+    public let roomFrameAvailable: Bool
+    public let repairTaskRows: [HTDTRepairTaskRow]
+    /// Live evidence-storage advisory for the scanning HUD (#308).
+    public let evidenceStorageAdvisory:
+        CaptureEvidenceStorageAdvisory?
+    /// Selected capture-strategy profile for setup display (#307);
+    /// pinned means the active task plan fixed it.
+    public let selectedStrategyID: CaptureStrategyIdentifier
+    public let strategyPinnedByTaskPlan: Bool
+    /// App-local acquisition origins keyed by revision (#317).
+    public let captureOrigins:
+        [CaptureRevisionID: CaptureAcquisitionOriginRecord]
+    /// Pending/committed plan-reference underlay (#322).
+    public let planUnderlayDocument: PlanUnderlayDocument?
+    /// Parent context for the in-flight semantic correction (#319);
+    /// nil when no correction sheet is open.
+    public let semanticCorrectionContext:
+        SemanticChildRevisionContext?
     /// Whether the working set's AR coordinate authority is still
     /// live (issue #297). False on a draft recovered after relaunch:
     /// spatial evidence is frozen and live-capture affordances
@@ -784,17 +895,16 @@ public struct CaptureRootView: View {
     @State private var importingCaptureArchive = false
     @State private var confirmingDiscard = false
     @State private var reviewWorkspaceShown = false
-    @State private var persistedViewerShown = false
     @State private var handoffDestinationsShown = false
     @State private var shareArchiveForHandoff = false
     @State private var revisionComparison:
         CaptureRevisionComparison?
     @State private var comparisonLoading = false
-    @State private var metadataEditorTarget:
-        LibraryMetadataEditorTarget?
-    @State private var libraryQuery = ""
+    @State private var importingPlanReference = false
     @State private var confirmingExport = false
     @State private var diagnosticShareURL: URL?
+    @State private var missionWorkflowsShown = false
+    @State private var importingMissionDocument = false
     /// Per-destination endpoint preflight results keyed by
     /// destination id (#374).
     @State private var preflightVerdicts:
@@ -823,6 +933,10 @@ public struct CaptureRootView: View {
         equipmentCatalogLibrary:
             [HTDTEquipmentCatalogLibrary.StoredCatalog] = [],
         taskPlan: HTDTCaptureTaskPlan? = nil,
+        /// Required-task progress for the journey header (#372):
+        /// evaluated by the host from the plan plus the committed
+        /// records — nil when no plan is active or none are required.
+        taskPlanMission: CaptureJourneyMissionSummary? = nil,
         workingSetIdentity: CaptureWorkingSetIdentity? = nil,
         annotationEvidenceFrames: [EvidenceFramePresentation] = [],
         annotationRoomPlanObjects: [RoomPlanBindableObject] = [],
@@ -877,6 +991,28 @@ public struct CaptureRootView: View {
         libraryExportURL: URL? = nil,
         failedInspection: FailedCaptureInspection? = nil,
         spatialCaptureSealed: Bool = false,
+        missionEntries: [MissionWorkflowEntry] = [],
+        missionTaskPlan: HTDTCaptureTaskPlan? = nil,
+        missionTaskPlanOutcomes:
+            [CaptureTaskPlanStatusDocument.ItemOutcome] = [],
+        connectedSpaceIntent: Bool = false,
+        connectedTracker: ConnectedSpaceTracker? = nil,
+        asBuiltPlanLoaded: Bool = false,
+        asBuiltItems: [AsBuiltVerificationItem] = [],
+        asBuiltGhostOverlayEnabled: Bool = false,
+        asBuiltAlignmentInstalled: Bool = false,
+        asBuiltActualCandidates: [CaptureAnnotationEntity] = [],
+        roomFrameAvailable: Bool = false,
+        repairTaskRows: [HTDTRepairTaskRow] = [],
+        evidenceStorageAdvisory:
+            CaptureEvidenceStorageAdvisory? = nil,
+        selectedStrategyID: CaptureStrategyIdentifier = .standard,
+        strategyPinnedByTaskPlan: Bool = false,
+        captureOrigins:
+            [CaptureRevisionID: CaptureAcquisitionOriginRecord] = [:],
+        planUnderlayDocument: PlanUnderlayDocument? = nil,
+        semanticCorrectionContext:
+            SemanticChildRevisionContext? = nil,
         liveSpatialAuthority: Bool = true,
         recoveredDraftReport: WorkingRevisionRestoreReport? = nil,
         practiceCaptureActive: Bool = false,
@@ -909,6 +1045,7 @@ public struct CaptureRootView: View {
         self.equipmentCatalog = equipmentCatalog
         self.equipmentCatalogLibrary = equipmentCatalogLibrary
         self.taskPlan = taskPlan
+        self.taskPlanMission = taskPlanMission
         self.workingSetIdentity = workingSetIdentity
         self.annotationEvidenceFrames = annotationEvidenceFrames
         self.annotationRoomPlanObjects = annotationRoomPlanObjects
@@ -959,6 +1096,26 @@ public struct CaptureRootView: View {
         self.libraryExportURL = libraryExportURL
         self.failedInspection = failedInspection
         self.spatialCaptureSealed = spatialCaptureSealed
+        self.missionEntries = missionEntries
+        self.missionTaskPlan = missionTaskPlan
+        self.missionTaskPlanOutcomes = missionTaskPlanOutcomes
+        self.connectedSpaceIntent = connectedSpaceIntent
+        self.connectedTracker = connectedTracker
+        self.asBuiltPlanLoaded = asBuiltPlanLoaded
+        self.asBuiltItems = asBuiltItems
+        self.asBuiltGhostOverlayEnabled =
+            asBuiltGhostOverlayEnabled
+        self.asBuiltAlignmentInstalled = asBuiltAlignmentInstalled
+        self.asBuiltActualCandidates = asBuiltActualCandidates
+        self.roomFrameAvailable = roomFrameAvailable
+        self.repairTaskRows = repairTaskRows
+        self.evidenceStorageAdvisory = evidenceStorageAdvisory
+        self.selectedStrategyID = selectedStrategyID
+        self.strategyPinnedByTaskPlan = strategyPinnedByTaskPlan
+        self.captureOrigins = captureOrigins
+        self.planUnderlayDocument = planUnderlayDocument
+        self.semanticCorrectionContext =
+            semanticCorrectionContext
         self.liveSpatialAuthority = liveSpatialAuthority
         self.recoveredDraftReport = recoveredDraftReport
         self.practiceCaptureActive = practiceCaptureActive
@@ -999,6 +1156,7 @@ public struct CaptureRootView: View {
                     isEndingScan: isEndingScan,
                     isCapturingEvidence: isCapturingEvidence,
                     automaticEvidenceCount: automaticEvidenceCount,
+                    evidenceStorageAdvisory: evidenceStorageAdvisory,
                     lowLightGuidanceActive: lowLightGuidanceActive,
                     targetScanStatus: targetScanStatus,
                     declaredRegions: declaredRegions,
@@ -1045,6 +1203,7 @@ public struct CaptureRootView: View {
                     libraryExportURL: libraryExportURL,
                     persistedWorkspace: persistedWorkspace,
                     handoffReceipts: handoffReceipts,
+                    captureOrigins: captureOrigins,
                     missionRecords: missionRecords,
                     activeMissionRecordID: activeMissionRecordID,
                     pairedDestinations: pairedDestinations,
@@ -1058,6 +1217,24 @@ public struct CaptureRootView: View {
             {
                 CaptureSetupView(
                     presentation: captureSetup,
+                    connectedSpaceIntent: Binding(
+                        get: { connectedSpaceIntent },
+                        set: {
+                            actions.setConnectedSpaceIntent($0)
+                        }
+                    ),
+                    onImportMissionDocument: {
+                        importingMissionDocument = true
+                    },
+                    selectedStrategyID: selectedStrategyID,
+                    strategyPinnedByTaskPlan:
+                        strategyPinnedByTaskPlan,
+                    planUnderlay: planUnderlayDocument,
+                    selectCaptureStrategy:
+                        actions.selectCaptureStrategy,
+                    importPlanReference: {
+                        importingPlanReference = true
+                    },
                     beginScanning: actions.beginScanning,
                     cancel: actions.cancelCaptureSetup,
                     selectTaskProfile: { profile in
@@ -1142,14 +1319,20 @@ public struct CaptureRootView: View {
                         confirmingDiscard = true
                     }
                 )
-                .navigationTitle("Capture authority")
+                .navigationTitle(
+                    LocalizedStringKey(
+                        CaptureJourneyStage.details.pageTitleKey
+                    )
+                )
             } else {
                 List {
                 Section {
-                    CaptureTaskHeader(
-                        LocalizedStringKey(localizedState(state)),
-                        status: captureStateStatus(state)
-                    )
+                    // The loop-aware journey header (#372) replaces
+                    // the bare state banner: current stage, truthful
+                    // per-stage statuses, mission progress and
+                    // technical readiness — all derived, never
+                    // persisted.
+                    CaptureJourneyHeader(presentation: journey)
                     if let workingSetStatus {
                         Text(workingSetStatus)
                             .font(
@@ -1211,6 +1394,30 @@ public struct CaptureRootView: View {
 
                 Section("Controls") {
                     controls
+                }
+
+                // #353: mission workflows reachable from production
+                // root; entries appear only when a mission requires
+                // them. #321: unresolved repair tasks surface here.
+                Section("Mission workflows") {
+                    Button("Mission workflows…") {
+                        missionWorkflowsShown = true
+                    }
+                    Button("Import mission document (.json)") {
+                        importingMissionDocument = true
+                    }
+                    let unresolved = repairTaskRows.filter {
+                        $0.resolvedByRevisionID == nil
+                    }
+                    if !unresolved.isEmpty {
+                        LabeledContent(
+                            "Repair tasks",
+                            value: String(
+                                format: "%d open",
+                                unresolved.count
+                            )
+                        )
+                    }
                 }
 
                 if state == .failed,
@@ -1323,7 +1530,11 @@ public struct CaptureRootView: View {
                     }
                 }
             }
-                .navigationTitle("HTDT Capture")
+                .navigationTitle(
+                    LocalizedStringKey(
+                        journey.currentStage.pageTitleKey
+                    )
+                )
                 .navigationDestination(
                     isPresented: $reviewWorkspaceShown
                 ) {
@@ -1580,8 +1791,92 @@ public struct CaptureRootView: View {
                     }
                     actions.importCaptureArchive(url)
                 }
+                .fileImporter(
+                    isPresented: $importingMissionDocument,
+                    allowedContentTypes: [.json, .plainText],
+                    allowsMultipleSelection: false
+                ) { result in
+                    guard let urls = try? result.get(),
+                          let url = urls.first
+                    else {
+                        return
+                    }
+                    actions.importMissionDocument(url)
+                }
+                .sheet(isPresented: $missionWorkflowsShown) {
+                    MissionWorkflowsView(
+                        entries: missionEntries,
+                        taskPlan: missionTaskPlan,
+                        taskPlanOutcomes: missionTaskPlanOutcomes,
+                        connectedSpaceIntent: connectedSpaceIntent,
+                        connectedTracker: connectedTracker,
+                        asBuiltPlanLoaded: asBuiltPlanLoaded,
+                        asBuiltItems: asBuiltItems,
+                        asBuiltGhostOverlayEnabled:
+                            asBuiltGhostOverlayEnabled,
+                        asBuiltAlignmentInstalled:
+                            asBuiltAlignmentInstalled,
+                        asBuiltActualCandidates:
+                            asBuiltActualCandidates,
+                        roomFrameAvailable: roomFrameAvailable,
+                        repairRows: repairTaskRows,
+                        onMarkTaskPlanItem:
+                            actions.markTaskPlanItem,
+                        onSetConnectedSpaceIntent:
+                            actions.setConnectedSpaceIntent,
+                        onBeginConnectedSegment:
+                            actions.beginConnectedSegment,
+                        onCompleteConnectedSegment:
+                            actions.completeConnectedSegment,
+                        onRecordPortal:
+                            actions.recordConnectedPortal,
+                        onRevisitRegion:
+                            actions.revisitConnectedRegion,
+                        onAsBuiltMarkUnavailable:
+                            actions.asBuiltMarkUnavailable,
+                        onAsBuiltEstablishAlignment:
+                            actions.asBuiltEstablishAlignment,
+                        onAsBuiltRecordActual:
+                            actions.asBuiltRecordActual,
+                        onResolveRepairTask:
+                            actions.resolveRepairTask,
+                        onOpenAnnotationWorkspace:
+                            actions.beginAnnotation
+                    )
+                    .presentationDetents([.medium, .large])
+                }
             }
                 }
+            }
+        }
+        .fileImporter(
+            isPresented: $importingPlanReference,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false
+        ) { result in
+            guard let urls = try? result.get(),
+                  let url = urls.first
+            else {
+                return
+            }
+            actions.importPlanReference(url)
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { semanticCorrectionContext != nil },
+                set: { presented in
+                    if !presented {
+                        actions.cancelSemanticCorrection()
+                    }
+                }
+            )
+        ) {
+            if let context = semanticCorrectionContext {
+                SemanticCorrectionSheet(
+                    context: context,
+                    commit: actions.commitSemanticCorrection,
+                    cancel: actions.cancelSemanticCorrection
+                )
             }
         }
     }
@@ -1593,12 +1888,60 @@ public struct CaptureRootView: View {
         !activeOperations.isEmpty
     }
 
+    /// The loop-aware capture journey (#372): which stage the operator
+    /// is in, each stage's truthful status, the one dominant action,
+    /// and mission/readiness summaries — derived here, never
+    /// persisted. An adopted persisted capture (`workingSetIdentity
+    /// == nil`) has no earlier-stage lineage in this session, so the
+    /// trail marks them unavailable instead of faking checks.
+    private var journey: CaptureJourneyPresentation {
+        CaptureJourneyPresentation.resolve(
+            CaptureJourneyInputs(
+                state: state,
+                lastFailure: lastFailure,
+                hasQualityReport: qualityReport != nil,
+                qualityReadyForIngestion:
+                    qualityReport?.readyForHTDTIngestion ?? false,
+                integrityPass:
+                    qualityReport?.integrityStatus == .pass,
+                integrityFail:
+                    qualityReport?.integrityStatus == .fail,
+                hasSpatialAuthority:
+                    annotationCoordinateSpaceID != nil
+                        && liveSpatialAuthority,
+                detailsCommitted: annotationAuthorityCommitted,
+                spatialCaptureSealed: spatialCaptureSealed,
+                hasValidationReport: validationReport != nil,
+                hasExportArchive: exportURL != nil,
+                isImportedFinalized: workingSetIdentity == nil,
+                mission: taskPlanMission,
+                cameraPermissionDenied:
+                    cameraPermission == .denied
+            )
+        )
+    }
+
     @ViewBuilder
     private var controls: some View {
         switch state {
         case .idle:
             Button("Start capture", action: actions.beginCapture)
-                .disabled(!capabilities.roomPlanMeshEligible)
+                .disabled(
+                    !capabilities.roomPlanMeshEligible || hostBusy
+                )
+            // #351: import is a library/home action, not a capture
+            // capability — it stays available on non-capture-capable
+            // devices.
+            ForEach(
+                Array(activeOperations),
+                id: \.self
+            ) { operation in
+                progressRow(operationLabel(operation))
+            }
+            Button("Import .htdtcapture") {
+                importingCaptureArchive = true
+            }
+            .disabled(hostBusy)
 
             // #320 practice mode: a guided rehearsal of the real
             // scan → End → Review flow that can never produce a
@@ -1633,22 +1976,6 @@ public struct CaptureRootView: View {
                 )
                 .disabled(!capabilities.roomPlanMeshEligible)
             }
-
-        case .setup:
-            EmptyView()
-                .disabled(
-                    !capabilities.roomPlanMeshEligible || hostBusy
-                )
-            ForEach(
-                Array(activeOperations),
-                id: \.self
-            ) { operation in
-                progressRow(operationLabel(operation))
-            }
-            Button("Import .htdtcapture") {
-                importingCaptureArchive = true
-            }
-            .disabled(hostBusy)
 
         case .setup:
             EmptyView()
@@ -1750,62 +2077,39 @@ public struct CaptureRootView: View {
                 .foregroundStyle(.secondary)
             }
 
-            Button("Open review workspace") {
-                actions.refreshReviewWorkspace()
-                reviewWorkspaceShown = true
-            }
-            .disabled(hostBusy)
-
-            if liveSpatialAuthority,
-               annotationCoordinateSpaceID != nil {
-                // Saved annotations/measurements survive a reopen
-                // while the same coordinate authority is still valid
-                // (#236), so Continue stays available after a saved
-                // annotation pass.
+            // One dominant action per stage (#372): a blocking
+            // integrity problem → Review diagnostics; required
+            // mission tasks outstanding → Complete required tasks;
+            // coverage unknown → Continue scanning; otherwise →
+            // Validate and finalize.
+            switch journey.primaryAction {
+            case .reviewDiagnostics:
+                if let qualityReport {
+                    NavigationLink("Review diagnostics") {
+                        CaptureReviewView(
+                            quality: qualityReport,
+                            advisory: advisoryReport,
+                            spatialFindings:
+                                spatialPlausibilityFindings
+                        )
+                    }
+                    .capturePrimaryAction()
+                }
+            case .completeRequiredTasks:
+                Button(
+                    "Complete required tasks",
+                    action: actions.beginAnnotation
+                )
+                .capturePrimaryAction()
+                .disabled(hostBusy)
+            case .continueScanning:
                 Button(
                     "Continue scanning",
                     action: actions.continueScanning
                 )
+                .capturePrimaryAction()
                 .disabled(hostBusy)
-                if !annotationAuthorityCommitted {
-                    Button(
-                        "Add annotations & measurements",
-                        action: actions.beginAnnotation
-                    )
-                    .disabled(hostBusy)
-                } else {
-                    Text("Annotation authority saved.")
-                    Button(
-                        spatialCaptureSealed
-                            ? "Edit labels, roles, equipment, and values"
-                            : "Edit saved annotations & measurements",
-                        action: actions.beginAnnotation
-                    )
-                    .disabled(hostBusy)
-                }
-            } else if annotationAuthorityCommitted {
-                Text("Annotation authority saved.")
-                Button(
-                    "Edit labels, roles, equipment, and values",
-                    action: actions.beginAnnotation
-                )
-                .disabled(hostBusy)
-            }
-
-            // #297 "Save and finish later": the end-accepted draft is
-            // durable; leaving Review keeps it listed as a recoverable
-            // draft on the home surface and next launch.
-            if workingSetIdentity != nil {
-                Button(
-                    "Save and finish later",
-                    action: actions.suspendReview
-                )
-            }
-
-            discardButton
-                .disabled(hostBusy)
-
-            if let qualityReport {
+            case .validateAndFinalize:
                 if practiceCaptureActive {
                     Text(
                         "Practice captures are never finalized; use Discard to end practice."
@@ -1817,14 +2121,16 @@ public struct CaptureRootView: View {
                         "Validate and finalize",
                         action: actions.finalizeCapture
                     )
+                    .capturePrimaryAction()
                     .disabled(
-                        !qualityReport.readyForHTDTIngestion
-                        || qualityReport.integrityStatus != .pass
+                        !(qualityReport?.readyForHTDTIngestion ?? false)
+                        || qualityReport?.integrityStatus != .pass
+                        || hostBusy
                     )
                     // #298: the disabled gate names its blocking
                     // reasons inline instead of leaving the operator
                     // to hunt through the diagnostics section.
-                    let blockers = qualityReport.diagnostics
+                    let blockers = (qualityReport?.diagnostics ?? [])
                         .filter { $0.severity == .error }
                     if !blockers.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
@@ -1857,23 +2163,58 @@ public struct CaptureRootView: View {
                     "Validate and finalize",
                     action: actions.finalizeCapture
                 )
+                .capturePrimaryAction()
                 .disabled(
-                    !qualityReport.readyForHTDTIngestion
-                    || qualityReport.integrityStatus != .pass
+                    !(qualityReport?.readyForHTDTIngestion ?? false)
+                    || qualityReport?.integrityStatus != .pass
                     || hostBusy
                 )
-                if activeOperations.contains(.reviewOperation) {
-                    progressRow("Finalizing capture…")
-                }
-            } else {
+            case .openReviewWorkspace:
+                reviewWorkspaceButton()
+                    .capturePrimaryAction()
+            default:
+                EmptyView()
+            }
+            if let blocked = journey.primaryActionBlockedKey {
+                Text(LocalizedStringKey(blocked))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if annotationAuthorityCommitted {
+                Text("Details saved.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(journey.secondaryActions, id: \.self) { id in
+                journeyActionRow(id)
+            }
+            if qualityReport == nil {
                 progressRow("Waiting for persisted evidence…")
             }
+            if activeOperations.contains(.reviewOperation) {
+                progressRow("Finalizing capture…")
+            }
+            // #297 "Save and finish later": the end-accepted draft is
+            // durable; leaving Review keeps it listed as a recoverable
+            // draft on the home surface and next launch.
+            if workingSetIdentity != nil {
+                Button(
+                    "Save and finish later",
+                    action: actions.suspendReview
+                )
+            }
+
+            // Discarding the working revision is always legal while
+            // unfinalized — kept last and visually separated.
+            discardButton
+                .disabled(hostBusy)
 
         case .failed:
             Button(
                 "Inspect retained evidence",
                 action: actions.inspectFailedCapture
             )
+            .capturePrimaryAction()
             .disabled(hostBusy)
             if activeOperations.contains(.exportDiagnostics) {
                 progressRow("Preparing diagnostic package…")
@@ -1885,6 +2226,7 @@ public struct CaptureRootView: View {
                             .exportFailedCaptureDiagnostics()
                 }
             }
+            .captureSecondaryAction()
             .disabled(hostBusy)
             if let diagnosticShareURL {
                 ShareLink(item: diagnosticShareURL) {
@@ -1897,6 +2239,7 @@ public struct CaptureRootView: View {
             Button("Start new capture") {
                 confirmingDiscard = true
             }
+            .captureSecondaryAction()
             .disabled(hostBusy)
             Button(
                 "Discard failed capture",
@@ -1914,10 +2257,13 @@ public struct CaptureRootView: View {
         case .finalized:
             // The export always packages every retained pixel
             // payload; the operator confirms visual evidence is
-            // included before preparing it (issue #241).
+            // included before preparing it (issue #241). One
+            // dominant action per stage (#372).
             Button("Prepare .htdtcapture") {
                 confirmingExport = true
             }
+            .capturePrimaryAction()
+            .disabled(hostBusy)
             .confirmationDialog(
                 "Export includes visual evidence?",
                 isPresented: $confirmingExport,
@@ -1935,11 +2281,6 @@ public struct CaptureRootView: View {
             if activeOperations.contains(.prepareExport) {
                 progressRow("Preparing archive…")
             }
-            Button(
-                "Prepare .htdtcapture",
-                action: actions.prepareExport
-            )
-            .disabled(hostBusy)
             revisionControls
             if let revisionID =
                 validationReport?.manifest.captureRevisionID
@@ -1964,10 +2305,12 @@ public struct CaptureRootView: View {
                 Button("Send to HTDT…") {
                     handoffDestinationsShown = true
                 }
+                .capturePrimaryAction()
                 .disabled(hostBusy)
                 Button("Share .htdtcapture") {
                     shareArchiveForHandoff = true
                 }
+                .captureSecondaryAction()
                 .disabled(hostBusy)
             }
             revisionControls
@@ -2006,10 +2349,12 @@ public struct CaptureRootView: View {
                 "Open Settings",
                 action: actions.openCameraSettings
             )
+            .capturePrimaryAction()
             Button(
                 "Check again",
                 action: actions.retryCameraPermission
             )
+            .captureSecondaryAction()
             Button(
                 "Cancel",
                 role: .cancel,
@@ -2111,292 +2456,62 @@ public struct CaptureRootView: View {
         }
     }
 
-    /// The capture library (#219/#251): series grouping, names/notes,
-    /// search, and per-revision storage breakdown. Extracted so the
-    /// type-checker stays inside its budget.
+    private func reviewWorkspaceButton() -> some View {
+        Button("Open review workspace") {
+            actions.refreshReviewWorkspace()
+            reviewWorkspaceShown = true
+        }
+        .disabled(hostBusy)
+    }
+
+    /// A journey-declared secondary action (#372): the presentation
+    /// orders the row set; the view binds each stable id to its host
+    /// callback and keeps destructive actions visually separated.
     @ViewBuilder
-    private var captureLibrarySection: some View {
-        Section("Capture library") {
-            LabeledContent(
-                "Total storage",
-                value: String(
-                    persistedInventory.totalRetainedBytes
-                )
-            )
-            TextField(
-                "Search captures",
-                text: $libraryQuery
-            )
-            #if os(iOS)
-            .textInputAutocapitalization(.never)
-            #endif
-        }
-
-        ForEach(
-            libraryGroups.filter {
-                CaptureSeriesGrouper.matches(
-                    group: $0,
-                    revisionNotes: revisionNotesByID,
-                    query: libraryQuery
-                )
-            }
-        ) { group in
-            Section(seriesTitle(group)) {
-                Button("Edit series name") {
-                    metadataEditorTarget =
-                        LibraryMetadataEditorTarget(
-                            revisionID: nil,
-                            seriesID: group.captureSeriesID
-                        )
-                }
-                .font(.caption)
-                ForEach(group.revisions) { record in
-                    persistedCaptureRow(record)
-                }
-            }
-        }
-
-        if !persistedInventory.quarantinedArtifacts.isEmpty
-            || !persistedInventory.enumerationFailures.isEmpty
-        {
-            Section("Inventory issues") {
-                ForEach(
-                    persistedInventory.quarantinedArtifacts
-                ) { artifact in
-                    quarantinedArtifactRow(artifact)
-                }
-                ForEach(
-                    persistedInventory.enumerationFailures,
-                    id: \.self
-                ) { failure in
-                    Text(failure)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    /// Series-grouped view of the persisted inventory (#219).
-    private var libraryGroups: [CaptureSeriesGroup] {
-        CaptureSeriesGrouper.group(
-            records: persistedInventory.captures,
-            metadata: libraryMetadata
-        )
-    }
-
-    private var revisionNotesByID:
-        [String: CaptureLibraryEntryMetadata]
-    {
-        libraryMetadata.revisions
-    }
-
-    private func seriesTitle(
-        _ group: CaptureSeriesGroup
-    ) -> String {
-        if let name = group.displayName, !name.isEmpty {
-            return name
-        }
-        return String(
-            localized: "Series "
-        ) + group.captureSeriesID.description
-    }
-
-    @ViewBuilder
-    private func persistedCaptureRow(
-        _ record: PersistedCaptureRecord
+    private func journeyActionRow(
+        _ id: CaptureJourneyAction
     ) -> some View {
-        let entry = libraryMetadata.revisions[
-            record.captureRevisionID.description
-        ]
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 10) {
-                #if os(iOS)
-                // Representative retained-evidence thumbnail (issue
-                // #219): first manifest-declared preview payload.
-                if let data = record.representativePreviewData(),
-                   let image = UIImage(data: data)
-                {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 56, height: 56)
-                        .clipShape(
-                            RoundedRectangle(cornerRadius: 6)
-                        )
-                } else {
-                    Image(systemName: "camera.aperture")
-                        .frame(width: 56, height: 56)
-                        .background(.quaternary)
-                        .clipShape(
-                            RoundedRectangle(cornerRadius: 6)
-                        )
-                        .foregroundStyle(.secondary)
-                }
-                #endif
-                VStack(alignment: .leading, spacing: 4) {
-                    if let name = entry?.displayName, !name.isEmpty {
-                        Text(name).font(.headline)
-                    }
-                    Text(record.captureRevisionID.description)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                    if let note = entry?.note, !note.isEmpty {
-                        Text(note)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-
-            if let validation = record.finalizedValidation {
-                LabeledContent(
-                    "Finalized",
-                    value: record.finalizedAtUTC
-                )
-                LabeledContent(
-                    "Payloads",
-                    value: String(validation.payloadCount)
-                )
-                LabeledContent(
-                    "Finalized bytes",
-                    value: String(
-                        record.finalizedByteCount ?? 0
-                    )
-                )
-            } else {
-                Text("Export archive only")
-                    .foregroundStyle(.secondary)
-            }
-            if record.exportArchive != nil {
-                LabeledContent(
-                    "Archive bytes",
-                    value: String(
-                        record.exportArchiveByteCount ?? 0
-                    )
-                )
-                if record.exportArchiveIsDerivedCopy {
-                    Text(
-                        "Archive is a derived copy of the finalized bundle"
-                    )
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                }
-            }
-            LabeledContent(
-                "Retained bytes",
-                value: String(record.retainedByteCount)
+        switch id {
+        case .openReviewWorkspace:
+            reviewWorkspaceButton()
+                .captureSecondaryAction()
+        case .continueScanning:
+            // Saved annotations/measurements survive a reopen while
+            // the same coordinate authority is still valid (#236).
+            Button(
+                "Continue scanning",
+                action: actions.continueScanning
             )
-
-            // #309: while a host operation targets this revision the
-            // row shows its busy state; during any in-flight persisted
-            // operation the guarded actions are disabled rather than
-            // silently no-op'd.
-            let rowBusy =
-                operationTargetRevisionID
-                    == record.captureRevisionID
-            if rowBusy {
-                ForEach(
-                    Array(activeOperations),
-                    id: \.self
-                ) { operation in
-                    progressRow(operationLabel(operation))
-                        .font(.caption)
-                }
-            }
-
-            HStack(spacing: 16) {
-                if record.canOpen {
-                    Button("View") {
-                        actions.loadPersistedWorkspace(record)
-                        persistedViewerShown = true
-                    }
-                    .disabled(hostBusy)
-                    Button("Adopt") {
-                        actions.openPersistedCapture(
-                            record.captureRevisionID
-                        )
-                    }
-                    .disabled(hostBusy)
-                }
-                if record.canOpen || record.exportArchive != nil {
-                    Button("Rescan") {
-                        actions.revisePersistedCapture(
-                            record
-                        )
-                    }
-                    .disabled(hostBusy)
-                }
-                Button("Edit name") {
-                    metadataEditorTarget =
-                        LibraryMetadataEditorTarget(
-                            revisionID: record.captureRevisionID,
-                            seriesID: nil
-                        )
-                }
-                .disabled(rowBusy)
-                Spacer()
-                Button("Delete", role: .destructive) {
-                    pendingDeletion = PendingCaptureDeletion(
-                        revisionID: record.captureRevisionID,
-                        includesExport:
-                            record.exportArchive != nil
-                    )
-                }
-                .disabled(hostBusy)
-            }
-            if record.exportArchive != nil,
-               record.finalizedDirectory != nil
-            {
-                // The archive is a derived copy: it can be deleted
-                // without touching the canonical finalized capture
-                // (#251).
-                Button("Delete archive only") {
-                    actions.deleteExportArchive(record)
-                }
-                .font(.caption)
-                .disabled(hostBusy)
-            }
-        }
-    }
-
-    private func workingOrphanRow(
-        _ orphan: PersistedCaptureWorkingOrphan
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            LabeledContent(
-                orphan.kind == .abandonedRevision
-                    ? String(localized: "Abandoned revision")
-                    : String(localized: "Writer temp file"),
-                value: orphan.url.lastPathComponent
-            )
-            LabeledContent(
-                "Retained bytes",
-                value: String(orphan.retainedBytes)
-            )
-            Button("Delete", role: .destructive) {
-                actions.removeWorkingOrphan(orphan)
-            }
+            .captureSecondaryAction()
             .disabled(hostBusy)
-        }
-    }
-
-    private func quarantinedArtifactRow(
-        _ artifact: PersistedCaptureQuarantinedArtifact
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            LabeledContent(
-                "Unreadable artifact",
-                value: artifact.url.lastPathComponent
+        case .addDetails:
+            Button(
+                "Add details",
+                action: actions.beginAnnotation
             )
-            Text(artifact.reason)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Button("Remove artifact", role: .destructive) {
-                actions.removeQuarantinedArtifact(artifact)
-            }
+            .captureSecondaryAction()
             .disabled(hostBusy)
+        case .editSavedDetails:
+            Button(
+                spatialCaptureSealed
+                    ? "Edit labels, roles, equipment, and values"
+                    : "Edit saved annotations & measurements",
+                action: actions.beginAnnotation
+            )
+            .captureSecondaryAction()
+            .disabled(hostBusy)
+        case .completeRequiredTasks:
+            Button(
+                "Complete required tasks",
+                action: actions.beginAnnotation
+            )
+            .captureSecondaryAction()
+            .disabled(hostBusy)
+        case .discardCapture:
+            discardButton
+                .disabled(hostBusy)
+        default:
+            EmptyView()
         }
     }
 

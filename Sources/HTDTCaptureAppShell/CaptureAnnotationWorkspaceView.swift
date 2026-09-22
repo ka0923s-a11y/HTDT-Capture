@@ -791,6 +791,7 @@ public struct CaptureAnnotationWorkspaceView: View {
             measurements: measurements,
             equipmentIdentityRecords: identityRecords,
             speakerLayoutPlan: speakerLayoutPlan,
+            theaterAuthorities: authorities,
             authorities: authorities,
             fieldAuthority: fieldAuthority
         )
