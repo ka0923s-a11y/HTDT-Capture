@@ -15,6 +15,10 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
     /// Option B): mesh when the device is mesh-eligible, nil when the
     /// host cannot start a production capture at all.
     public let resolvedMode: CaptureMode?
+    /// Current finalized-data backup policy so the privacy disclosure
+    /// states the actual behavior before the operator confirms
+    /// (#305).
+    public let finalizedBackupPolicy: FinalizedBackupPolicy
     /// The generic task profile chosen before acquisition (#352).
     /// Nil means a general capture with no task checklist.
     public let taskProfile: CaptureTaskProfile?
@@ -33,6 +37,8 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
         storagePreflight: CaptureStoragePreflight,
         deviceReadiness: CaptureDeviceReadiness?,
         resolvedMode: CaptureMode?,
+        finalizedBackupPolicy: FinalizedBackupPolicy
+            = .backupEligible,
         taskProfile: CaptureTaskProfile? = nil,
         importedTaskPlan: HTDTCaptureTaskPlan? = nil,
         taskPlanImportError: String? = nil,
@@ -42,6 +48,7 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
         self.storagePreflight = storagePreflight
         self.deviceReadiness = deviceReadiness
         self.resolvedMode = resolvedMode
+        self.finalizedBackupPolicy = finalizedBackupPolicy
         self.taskProfile = taskProfile
         self.importedTaskPlan = importedTaskPlan
         self.taskPlanImportError = taskPlanImportError
@@ -136,6 +143,12 @@ public enum CaptureMissionKind: String, Sendable, Equatable {
 /// capture clock or RoomPlan session starts from this view.
 public struct CaptureSetupView: View {
     public let presentation: CaptureSetupPresentation
+    /// Operator's multi-region capture intent (#353): when on, the
+    /// connected-space workflow is reachable for this capture.
+    public let connectedSpaceIntent: Binding<Bool>
+    /// Opens the mission-document importer (task plans, as-built
+    /// plans, repair task plans as .json) (#353/#321).
+    public let onImportMissionDocument: () -> Void
     /// Selected capture-strategy profile (#307): guidance/evidence
     /// budgets only — the choice steers prompts, never quality gates.
     /// `strategyPinned` means a task plan fixed the strategy and the
@@ -169,6 +182,9 @@ public struct CaptureSetupView: View {
 
     public init(
         presentation: CaptureSetupPresentation,
+        connectedSpaceIntent: Binding<Bool>
+            = .constant(false),
+        onImportMissionDocument: @escaping () -> Void = {},
         selectedStrategyID: CaptureStrategyIdentifier = .standard,
         strategyPinnedByTaskPlan: Bool = false,
         planUnderlay: PlanUnderlayDocument? = nil,
@@ -184,6 +200,8 @@ public struct CaptureSetupView: View {
         openCameraSettings: @escaping () -> Void = {}
     ) {
         self.presentation = presentation
+        self.connectedSpaceIntent = connectedSpaceIntent
+        self.onImportMissionDocument = onImportMissionDocument
         self.selectedStrategyID = selectedStrategyID
         self.strategyPinnedByTaskPlan = strategyPinnedByTaskPlan
         self.planUnderlay = planUnderlay
@@ -386,6 +404,13 @@ public struct CaptureSetupView: View {
                     "Everything stays on this device until you choose to share the .htdtcapture archive."
                 )
                 Text(
+                    "While you scan, working scan data stays app-private and is always excluded from device backup."
+                )
+                Text(finalizedDisclosureText)
+                Text(
+                    "Sharing or sending to HTDT is always an explicit action you choose — device backup never sends data to HTDT."
+                )
+                Text(
                     "Pause people and pets moving through the room during the scan."
                 )
                 Text(
@@ -400,6 +425,23 @@ public struct CaptureSetupView: View {
                 Text(
                     "Turn on normal room lighting for the scan if you can — visual tracking and evidence frames still need light even though depth works in the dark. You can dim the room again afterward."
                 )
+            }
+
+            // #353: mission opt-in lives at setup so a simple
+            // capture is never burdened with mission controls.
+            Section("Mission") {
+                Toggle(
+                    "Multi-region connected capture",
+                    isOn: connectedSpaceIntent
+                )
+                Button("Import mission document (.json)") {
+                    onImportMissionDocument()
+                }
+                Text(
+                    "Task plans, as-built plans, and HTDT repair plans import as .json mission documents."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section {
@@ -450,6 +492,24 @@ public struct CaptureSetupView: View {
             .padding(.horizontal, CaptureDesign.Spacing.edge)
             .padding(.vertical, CaptureDesign.Spacing.row)
             .background(.bar)
+        }
+    }
+
+    /// Working-vs-finalized retention disclosure (#305): states the
+    /// configured policy before the capture starts rather than
+    /// implying one.
+    private var finalizedDisclosureText: String {
+        switch presentation.finalizedBackupPolicy {
+        case .backupEligible:
+            return String(
+                localized:
+                    "After a successful capture, the finalized capture and its export archive stay in this app's storage on this device and may be included in your device backup."
+            )
+        case .excludedFromBackup:
+            return String(
+                localized:
+                    "After a successful capture, the finalized capture and its export archive stay in this app's storage on this device and are excluded from device backup."
+            )
         }
     }
 

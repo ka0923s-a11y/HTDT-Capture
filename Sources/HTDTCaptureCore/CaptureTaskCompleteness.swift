@@ -130,6 +130,23 @@ public struct CaptureTaskProfile: Sendable, Equatable, Codable {
         ]
     )
 
+    /// Built-in profiles that a device-local default may seed
+    /// (#338). Project/task plans remain the override authority — a
+    /// stored identifier only initializes an unset capture.
+    public static let standalonePresets: [CaptureTaskProfile] = [
+        .geometryOnly,
+        .roomAndListeningPosition,
+    ]
+
+    /// Resolves a stored preset identifier to the built-in profile.
+    /// Unknown identifiers degrade to nil so a stale or future
+    /// identifier never silently selects the wrong strategy.
+    public static func standalonePreset(
+        identifier: String
+    ) -> CaptureTaskProfile? {
+        standalonePresets.first { $0.identifier == identifier }
+    }
+
     /// Builds requirements straight from a versioned layout profile's
     /// declared cardinality (#315/#259): each role's minimum/maximum
     /// count becomes the requirement bounds and the match pins the

@@ -169,19 +169,26 @@ public struct HTDTIngestionResponse: Codable, Sendable, Equatable {
     /// (issue #387).
     public let stagingRef: String?
     public let detail: String?
+    /// Targeted repair/follow-up tasks the endpoint returns alongside
+    /// the ingestion verdict (issue #321). Absent means no requested
+    /// repairs. The plan must pin the same revision + bundle digest
+    /// the receipt binds or it is refused as out-of-context.
+    public let repairTaskPlan: HTDTRepairTaskPlan?
 
     public init(
         ingestionOutcome: String,
         captureRevisionID: String,
         bundleDigest: String,
         stagingRef: String? = nil,
-        detail: String? = nil
+        detail: String? = nil,
+        repairTaskPlan: HTDTRepairTaskPlan? = nil
     ) {
         self.ingestionOutcome = ingestionOutcome
         self.captureRevisionID = captureRevisionID
         self.bundleDigest = bundleDigest
         self.stagingRef = stagingRef
         self.detail = detail
+        self.repairTaskPlan = repairTaskPlan
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -190,6 +197,7 @@ public struct HTDTIngestionResponse: Codable, Sendable, Equatable {
         case bundleDigest = "bundle_digest"
         case stagingRef = "staging_ref"
         case detail
+        case repairTaskPlan = "repair_task_plan"
     }
 }
 
@@ -276,6 +284,17 @@ public enum HTDTHandoffRequestBuilder {
                     == HTDTIngestionResponse.outcomeAlreadyStaged
         else {
             throw HTDTHandoffError.malformedServerReceipt
+        }
+        if let plan = response.repairTaskPlan {
+            // A returned repair plan is only trusted when it pins the
+            // exact revision + digest this handoff just delivered —
+            // never a plan describing other bytes (#321).
+            guard plan.sourceCaptureRevisionID
+                    == captureRevisionID.description,
+                  plan.sourceBundleDigest == bundleDigest.value
+            else {
+                throw HTDTHandoffError.archiveIdentityMismatch
+            }
         }
         return response
     }

@@ -175,6 +175,19 @@ public struct CaptureRootActions {
     public let inspectFailedCapture: () -> Void
     public let exportFailedCaptureDiagnostics:
         () async -> URL?
+    /// Mission workflows (#353) + closed-loop repair (#321).
+    public let importMissionDocument: (URL) -> Void
+    public let setConnectedSpaceIntent: (Bool) -> Void
+    public let beginConnectedSegment:
+        (String, CaptureRegionKind) -> Void
+    public let completeConnectedSegment: () -> Void
+    public let recordConnectedPortal: (CaptureRegionID) -> Void
+    public let revisitConnectedRegion: (CaptureRegionID) -> Void
+    public let asBuiltMarkUnavailable: (String) -> Void
+    public let asBuiltEstablishAlignment: () -> Void
+    public let asBuiltRecordActual:
+        (String, AnnotationEntityID) -> Void
+    public let resolveRepairTask: (HTDTRepairTaskRow) -> Void
     /// Explicit Send-to-HTDT handoff (#225).
     public let sendCaptureToHTDT:
         (HTDTHandoffDestination) async -> Void
@@ -223,6 +236,46 @@ public struct CaptureRootActions {
     public let updateLibraryEntry:
         (CaptureRevisionID?, CaptureSeriesID?,
          CaptureLibraryEntryMetadata) -> Void
+    /// #393: the shared inbound-document boundary — identifies the
+    /// file, gates it by capture state, and hands it to the owning
+    /// importer.
+    public let importInboundDocument: (URL) -> Void
+    /// #378: commits or dismisses the staged library-package import
+    /// preview shown on the home surface.
+    public let confirmLibraryImport: () -> Void
+    public let dismissLibraryImport: () -> Void
+    /// #378: writes a `.htdtcapturelibrary` package of every
+    /// persisted capture plus filtered metadata and receipts.
+    public let exportLibraryPackage: () -> Void
+    /// #394: archives or restores a series — lifecycle state only;
+    /// canonical bundles are untouched.
+    public let setSeriesArchived:
+        (CaptureSeriesID, Bool) -> Void
+    /// #394: sets a revision's importance marks (milestone,
+    /// keep-local, favorite, pinned).
+    public let updateRevisionMark:
+        (CaptureRevisionID, CaptureRevisionMark) -> Void
+    /// #394: dependency-aware whole-series delete; `Bool` is the
+    /// explicit protected-marks override.
+    public let deleteSeries:
+        (CaptureSeriesID, Bool) -> Void
+    /// Derived export support (#306/#318): availability probe plus the
+    /// two export actions. All take the finalized capture's revision
+    /// id — the host resolves the finalized directory itself.
+    public let derivedExportInfo:
+        (CaptureRevisionID) async -> DerivedExportInfo?
+    public let exportDerived3D:
+        (CaptureRevisionID, Derived3DExportSelection)
+            async -> DerivedExportOutcome
+    public let exportSurveyReport:
+        (CaptureRevisionID, SurveyReportSelection)
+            async -> DerivedExportOutcome
+    /// Persists a new app-local settings document (#338). The host
+    /// owns the store and applies side effects (backup policy,
+    /// guidance cues).
+    public let updateAppSettings: (CaptureAppSettings) -> Void
+    /// Clears the durable equipment-catalog cache (#338).
+    public let clearEquipmentCatalogCache: () -> Void
     /// Capture-strategy profile selection (#307). Advisory guidance
     /// and evidence budgets only; a task-plan-pinned strategy cannot
     /// be changed by the operator.
@@ -436,6 +489,24 @@ public struct CaptureRootActions {
         inspectFailedCapture: @escaping () -> Void = {},
         exportFailedCaptureDiagnostics: @escaping
             () async -> URL? = { nil },
+        importMissionDocument: @escaping (URL) -> Void
+            = { _ in },
+        setConnectedSpaceIntent: @escaping (Bool) -> Void
+            = { _ in },
+        beginConnectedSegment: @escaping
+            (String, CaptureRegionKind) -> Void = { _, _ in },
+        completeConnectedSegment: @escaping () -> Void = {},
+        recordConnectedPortal: @escaping
+            (CaptureRegionID) -> Void = { _ in },
+        revisitConnectedRegion: @escaping
+            (CaptureRegionID) -> Void = { _ in },
+        asBuiltMarkUnavailable: @escaping (String) -> Void
+            = { _ in },
+        asBuiltEstablishAlignment: @escaping () -> Void = {},
+        asBuiltRecordActual: @escaping
+            (String, AnnotationEntityID) -> Void = { _, _ in },
+        resolveRepairTask: @escaping
+            (HTDTRepairTaskRow) -> Void = { _ in },
         sendCaptureToHTDT: @escaping
             (HTDTHandoffDestination) async -> Void = { _ in },
         importMissionPackage: @escaping (URL) async -> Void
@@ -478,6 +549,36 @@ public struct CaptureRootActions {
             CaptureSeriesID?,
             CaptureLibraryEntryMetadata
         ) -> Void = { _, _, _ in },
+        importInboundDocument: @escaping (URL) -> Void = { _ in },
+        confirmLibraryImport: @escaping () -> Void = {},
+        dismissLibraryImport: @escaping () -> Void = {},
+        exportLibraryPackage: @escaping () -> Void = {},
+        setSeriesArchived: @escaping
+            (CaptureSeriesID, Bool) -> Void = { _, _ in },
+        updateRevisionMark: @escaping
+            (CaptureRevisionID, CaptureRevisionMark) -> Void
+                = { _, _ in },
+        deleteSeries: @escaping
+            (CaptureSeriesID, Bool) -> Void = { _, _ in },
+        derivedExportInfo: @escaping
+            (CaptureRevisionID) async -> DerivedExportInfo? = {
+                _ in nil
+            },
+        exportDerived3D: @escaping (
+            CaptureRevisionID,
+            Derived3DExportSelection
+        ) async -> DerivedExportOutcome = { _, _ in
+            DerivedExportOutcome(files: [], error: nil)
+        },
+        exportSurveyReport: @escaping (
+            CaptureRevisionID,
+            SurveyReportSelection
+        ) async -> DerivedExportOutcome = { _, _ in
+            DerivedExportOutcome(files: [], error: nil)
+        },
+        updateAppSettings: @escaping
+            (CaptureAppSettings) -> Void = { _ in },
+        clearEquipmentCatalogCache: @escaping () -> Void = {},
         selectCaptureStrategy: @escaping
             (CaptureStrategyIdentifier) -> Void = { _ in },
         importPlanReference: @escaping (URL) -> Void = { _ in },
@@ -588,6 +689,18 @@ public struct CaptureRootActions {
         self.inspectFailedCapture = inspectFailedCapture
         self.exportFailedCaptureDiagnostics =
             exportFailedCaptureDiagnostics
+        self.importMissionDocument = importMissionDocument
+        self.setConnectedSpaceIntent = setConnectedSpaceIntent
+        self.beginConnectedSegment = beginConnectedSegment
+        self.completeConnectedSegment =
+            completeConnectedSegment
+        self.recordConnectedPortal = recordConnectedPortal
+        self.revisitConnectedRegion = revisitConnectedRegion
+        self.asBuiltMarkUnavailable = asBuiltMarkUnavailable
+        self.asBuiltEstablishAlignment =
+            asBuiltEstablishAlignment
+        self.asBuiltRecordActual = asBuiltRecordActual
+        self.resolveRepairTask = resolveRepairTask
         self.sendCaptureToHTDT = sendCaptureToHTDT
         self.importMissionPackage = importMissionPackage
         self.startMission = startMission
@@ -609,6 +722,18 @@ public struct CaptureRootActions {
         self.preflightDestination = preflightDestination
         self.deleteExportArchive = deleteExportArchive
         self.updateLibraryEntry = updateLibraryEntry
+        self.importInboundDocument = importInboundDocument
+        self.confirmLibraryImport = confirmLibraryImport
+        self.dismissLibraryImport = dismissLibraryImport
+        self.exportLibraryPackage = exportLibraryPackage
+        self.setSeriesArchived = setSeriesArchived
+        self.updateRevisionMark = updateRevisionMark
+        self.deleteSeries = deleteSeries
+        self.derivedExportInfo = derivedExportInfo
+        self.exportDerived3D = exportDerived3D
+        self.exportSurveyReport = exportSurveyReport
+        self.updateAppSettings = updateAppSettings
+        self.clearEquipmentCatalogCache = clearEquipmentCatalogCache
         self.selectCaptureStrategy = selectCaptureStrategy
         self.importPlanReference = importPlanReference
         self.beginSemanticCorrection = beginSemanticCorrection
@@ -773,6 +898,15 @@ public struct CaptureRootView: View {
     public let deliveryJobs: [HTDTDeliveryJob]
     /// App-local capture names/notes/series metadata (#219).
     public let libraryMetadata: CaptureLibraryMetadataDocument
+    /// #390: one-line notice when a durable document was preserved
+    /// rather than upgraded (its bytes are kept, never emptied).
+    public let localStateUpgradeNotice: String?
+    /// #378: staged library-package import preview awaiting confirm.
+    public let libraryImportPreview:
+        CaptureLibraryImportPreview?
+    /// #378: the `.htdtcapturelibrary` the host last wrote, offered
+    /// to the home surface's share affordance.
+    public let libraryExportURL: URL?
     /// Retained-evidence inspection for a failed capture (#224).
     public let failedInspection: FailedCaptureInspection?
     /// Required-task mission progress shown in the journey header
@@ -780,6 +914,23 @@ public struct CaptureRootView: View {
     public let taskPlanMission: CaptureJourneyMissionSummary?
     /// Spatial authority sealed for finalization (#276).
     public let spatialCaptureSealed: Bool
+    /// App-local device settings shown in the Settings surface
+    /// (#338) — presentation, defaults, storage policy.
+    public let appSettings: CaptureAppSettings
+    /// Mission workflow state surfaced on the root (#353/#321).
+    public let missionEntries: [MissionWorkflowEntry]
+    public let missionTaskPlan: HTDTCaptureTaskPlan?
+    public let missionTaskPlanOutcomes:
+        [CaptureTaskPlanStatusDocument.ItemOutcome]
+    public let connectedSpaceIntent: Bool
+    public let connectedTracker: ConnectedSpaceTracker?
+    public let asBuiltPlanLoaded: Bool
+    public let asBuiltItems: [AsBuiltVerificationItem]
+    public let asBuiltGhostOverlayEnabled: Bool
+    public let asBuiltAlignmentInstalled: Bool
+    public let asBuiltActualCandidates: [CaptureAnnotationEntity]
+    public let roomFrameAvailable: Bool
+    public let repairTaskRows: [HTDTRepairTaskRow]
     /// Live evidence-storage advisory for the scanning HUD (#308).
     public let evidenceStorageAdvisory:
         CaptureEvidenceStorageAdvisory?
@@ -847,6 +998,12 @@ public struct CaptureRootView: View {
     @State private var importingPlanReference = false
     @State private var confirmingExport = false
     @State private var diagnosticShareURL: URL?
+    /// Derived export sheets (#306/#318): which validated finalized
+    /// capture to export from — the active adoption or a library row.
+    @State private var derived3DTarget: DerivedExportTarget?
+    @State private var surveyReportTarget: DerivedExportTarget?
+    @State private var missionWorkflowsShown = false
+    @State private var importingMissionDocument = false
     /// Per-destination endpoint preflight results keyed by
     /// destination id (#374).
     @State private var preflightVerdicts:
@@ -927,8 +1084,26 @@ public struct CaptureRootView: View {
         deliveryJobs: [HTDTDeliveryJob] = [],
         libraryMetadata: CaptureLibraryMetadataDocument
             = CaptureLibraryMetadataDocument(),
+        localStateUpgradeNotice: String? = nil,
+        libraryImportPreview:
+            CaptureLibraryImportPreview? = nil,
+        libraryExportURL: URL? = nil,
         failedInspection: FailedCaptureInspection? = nil,
         spatialCaptureSealed: Bool = false,
+        appSettings: CaptureAppSettings = CaptureAppSettings(),
+        missionEntries: [MissionWorkflowEntry] = [],
+        missionTaskPlan: HTDTCaptureTaskPlan? = nil,
+        missionTaskPlanOutcomes:
+            [CaptureTaskPlanStatusDocument.ItemOutcome] = [],
+        connectedSpaceIntent: Bool = false,
+        connectedTracker: ConnectedSpaceTracker? = nil,
+        asBuiltPlanLoaded: Bool = false,
+        asBuiltItems: [AsBuiltVerificationItem] = [],
+        asBuiltGhostOverlayEnabled: Bool = false,
+        asBuiltAlignmentInstalled: Bool = false,
+        asBuiltActualCandidates: [CaptureAnnotationEntity] = [],
+        roomFrameAvailable: Bool = false,
+        repairTaskRows: [HTDTRepairTaskRow] = [],
         evidenceStorageAdvisory:
             CaptureEvidenceStorageAdvisory? = nil,
         selectedStrategyID: CaptureStrategyIdentifier = .standard,
@@ -1020,8 +1195,25 @@ public struct CaptureRootView: View {
         self.pairedDestinations = pairedDestinations
         self.deliveryJobs = deliveryJobs
         self.libraryMetadata = libraryMetadata
+        self.localStateUpgradeNotice = localStateUpgradeNotice
+        self.libraryImportPreview = libraryImportPreview
+        self.libraryExportURL = libraryExportURL
         self.failedInspection = failedInspection
         self.spatialCaptureSealed = spatialCaptureSealed
+        self.appSettings = appSettings
+        self.missionEntries = missionEntries
+        self.missionTaskPlan = missionTaskPlan
+        self.missionTaskPlanOutcomes = missionTaskPlanOutcomes
+        self.connectedSpaceIntent = connectedSpaceIntent
+        self.connectedTracker = connectedTracker
+        self.asBuiltPlanLoaded = asBuiltPlanLoaded
+        self.asBuiltItems = asBuiltItems
+        self.asBuiltGhostOverlayEnabled =
+            asBuiltGhostOverlayEnabled
+        self.asBuiltAlignmentInstalled = asBuiltAlignmentInstalled
+        self.asBuiltActualCandidates = asBuiltActualCandidates
+        self.roomFrameAvailable = roomFrameAvailable
+        self.repairTaskRows = repairTaskRows
         self.evidenceStorageAdvisory = evidenceStorageAdvisory
         self.selectedStrategyID = selectedStrategyID
         self.strategyPinnedByTaskPlan = strategyPinnedByTaskPlan
@@ -1114,7 +1306,12 @@ public struct CaptureRootView: View {
                     cameraPermission: cameraPermission,
                     persistedInventory: persistedInventory,
                     libraryMetadata: libraryMetadata,
+                    localStateUpgradeNotice:
+                        localStateUpgradeNotice,
+                    libraryImportPreview: libraryImportPreview,
+                    libraryExportURL: libraryExportURL,
                     persistedWorkspace: persistedWorkspace,
+                    handoffReceipts: handoffReceipts,
                     captureOrigins: captureOrigins,
                     missionRecords: missionRecords,
                     activeMissionRecordID: activeMissionRecordID,
@@ -1133,6 +1330,15 @@ public struct CaptureRootView: View {
             {
                 CaptureSetupView(
                     presentation: captureSetup,
+                    connectedSpaceIntent: Binding(
+                        get: { connectedSpaceIntent },
+                        set: {
+                            actions.setConnectedSpaceIntent($0)
+                        }
+                    ),
+                    onImportMissionDocument: {
+                        importingMissionDocument = true
+                    },
                     selectedStrategyID: selectedStrategyID,
                     strategyPinnedByTaskPlan:
                         strategyPinnedByTaskPlan,
@@ -1303,6 +1509,44 @@ public struct CaptureRootView: View {
                     controls
                 }
 
+                Section("Settings") {
+                    NavigationLink("Preferences & storage") {
+                        CaptureSettingsView(
+                            settings: appSettings,
+                            equipmentCatalog: equipmentCatalog,
+                            retainedByteCount: persistedInventory
+                                .totalRetainedBytes,
+                            onChange: actions.updateAppSettings,
+                            onClearEquipmentCatalog: actions
+                                .clearEquipmentCatalogCache
+                        )
+                    }
+                }
+
+                // #353: mission workflows reachable from production
+                // root; entries appear only when a mission requires
+                // them. #321: unresolved repair tasks surface here.
+                Section("Mission workflows") {
+                    Button("Mission workflows…") {
+                        missionWorkflowsShown = true
+                    }
+                    Button("Import mission document (.json)") {
+                        importingMissionDocument = true
+                    }
+                    let unresolved = repairTaskRows.filter {
+                        $0.resolvedByRevisionID == nil
+                    }
+                    if !unresolved.isEmpty {
+                        LabeledContent(
+                            "Repair tasks",
+                            value: String(
+                                format: "%d open",
+                                unresolved.count
+                            )
+                        )
+                    }
+                }
+
                 if state == .failed,
                    lastFailure != nil
                 {
@@ -1379,6 +1623,32 @@ public struct CaptureRootView: View {
                                     systemImage: "square.and.arrow.up"
                                 )
                             }
+                        }
+                        Button("Export derived 3D model…") {
+                            derived3DTarget = DerivedExportTarget(
+                                revisionID:
+                                    validationReport.manifest
+                                        .captureRevisionID,
+                                displayName:
+                                    libraryMetadata.revisions[
+                                        validationReport.manifest
+                                            .captureRevisionID
+                                            .description
+                                    ]?.displayName
+                            )
+                        }
+                        Button("Export survey report…") {
+                            surveyReportTarget = DerivedExportTarget(
+                                revisionID:
+                                    validationReport.manifest
+                                        .captureRevisionID,
+                                displayName:
+                                    libraryMetadata.revisions[
+                                        validationReport.manifest
+                                            .captureRevisionID
+                                            .description
+                                    ]?.displayName
+                            )
                         }
                     } header: {
                         Text("Finalized bundle")
@@ -1633,6 +1903,18 @@ public struct CaptureRootView: View {
                         )
                     }
                 }
+                .sheet(item: $derived3DTarget) { target in
+                    Derived3DExportSheet(
+                        target: target,
+                        actions: actions
+                    )
+                }
+                .sheet(item: $surveyReportTarget) { target in
+                    SurveyReportExportSheet(
+                        target: target,
+                        actions: actions
+                    )
+                }
                 .confirmationDialog(
                     "Delete local capture?",
                     isPresented: Binding(
@@ -1658,15 +1940,7 @@ public struct CaptureRootView: View {
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: { pending in
-                    if pending.descendantCount > 0 {
-                        Text(
-                            "This permanently deletes the finalized capture and any export archive stored for it from this device. \(pending.descendantCount) revision(s) declare it as their parent — their lineage link will no longer resolve."
-                        )
-                    } else {
-                        Text(
-                            "This permanently deletes the finalized capture and any export archive stored for it from this device."
-                        )
-                    }
+                    Text(deletionExplanationText(for: pending))
                 }
                 .fileImporter(
                     isPresented: $importingCaptureArchive,
@@ -1679,6 +1953,60 @@ public struct CaptureRootView: View {
                         return
                     }
                     actions.importCaptureArchive(url)
+                }
+                .fileImporter(
+                    isPresented: $importingMissionDocument,
+                    allowedContentTypes: [.json, .plainText],
+                    allowsMultipleSelection: false
+                ) { result in
+                    guard let urls = try? result.get(),
+                          let url = urls.first
+                    else {
+                        return
+                    }
+                    actions.importMissionDocument(url)
+                }
+                .sheet(isPresented: $missionWorkflowsShown) {
+                    MissionWorkflowsView(
+                        entries: missionEntries,
+                        taskPlan: missionTaskPlan,
+                        taskPlanOutcomes: missionTaskPlanOutcomes,
+                        connectedSpaceIntent: connectedSpaceIntent,
+                        connectedTracker: connectedTracker,
+                        asBuiltPlanLoaded: asBuiltPlanLoaded,
+                        asBuiltItems: asBuiltItems,
+                        asBuiltGhostOverlayEnabled:
+                            asBuiltGhostOverlayEnabled,
+                        asBuiltAlignmentInstalled:
+                            asBuiltAlignmentInstalled,
+                        asBuiltActualCandidates:
+                            asBuiltActualCandidates,
+                        roomFrameAvailable: roomFrameAvailable,
+                        repairRows: repairTaskRows,
+                        onMarkTaskPlanItem:
+                            actions.markTaskPlanItem,
+                        onSetConnectedSpaceIntent:
+                            actions.setConnectedSpaceIntent,
+                        onBeginConnectedSegment:
+                            actions.beginConnectedSegment,
+                        onCompleteConnectedSegment:
+                            actions.completeConnectedSegment,
+                        onRecordPortal:
+                            actions.recordConnectedPortal,
+                        onRevisitRegion:
+                            actions.revisitConnectedRegion,
+                        onAsBuiltMarkUnavailable:
+                            actions.asBuiltMarkUnavailable,
+                        onAsBuiltEstablishAlignment:
+                            actions.asBuiltEstablishAlignment,
+                        onAsBuiltRecordActual:
+                            actions.asBuiltRecordActual,
+                        onResolveRepairTask:
+                            actions.resolveRepairTask,
+                        onOpenAnnotationWorkspace:
+                            actions.beginAnnotation
+                    )
+                    .presentationDetents([.medium, .large])
                 }
             }
                 }
@@ -1761,7 +2089,22 @@ public struct CaptureRootView: View {
         switch state {
         case .idle:
             Button("Start capture", action: actions.beginCapture)
-                .disabled(!capabilities.roomPlanMeshEligible)
+                .disabled(
+                    !capabilities.roomPlanMeshEligible || hostBusy
+                )
+            // #351: import is a library/home action, not a capture
+            // capability — it stays available on non-capture-capable
+            // devices.
+            ForEach(
+                Array(activeOperations),
+                id: \.self
+            ) { operation in
+                progressRow(operationLabel(operation))
+            }
+            Button("Import .htdtcapture") {
+                importingCaptureArchive = true
+            }
+            .disabled(hostBusy)
 
             // #320 practice mode: a guided rehearsal of the real
             // scan → End → Review flow that can never produce a
@@ -1796,22 +2139,6 @@ public struct CaptureRootView: View {
                 )
                 .disabled(!capabilities.roomPlanMeshEligible)
             }
-
-        case .setup:
-            EmptyView()
-                .disabled(
-                    !capabilities.roomPlanMeshEligible || hostBusy
-                )
-            ForEach(
-                Array(activeOperations),
-                id: \.self
-            ) { operation in
-                progressRow(operationLabel(operation))
-            }
-            Button("Import .htdtcapture") {
-                importingCaptureArchive = true
-            }
-            .disabled(hostBusy)
 
         case .setup:
             EmptyView()
@@ -2356,6 +2683,53 @@ public struct CaptureRootView: View {
             ProgressView()
             Text(text)
         }
+    }
+
+    /// Where finalized data is retained + its backup state (#305) —
+    /// stated on the library itself, not only inside Settings.
+    private var finalizedRetentionText: String {
+        switch appSettings.storagePrivacy.finalizedBackupPolicy {
+        case .backupEligible:
+            return String(
+                localized:
+                    "Finalized captures and export archives stay in this app's on-device storage and may be included in your device backup."
+            )
+        case .excludedFromBackup:
+            return String(
+                localized:
+                    "Finalized captures and export archives stay in this app's on-device storage and are excluded from device backup."
+            )
+        }
+    }
+
+    /// Deletion scope (#305): always states what is removed locally;
+    /// when finalized data may join device backup it also says a
+    /// backup copy is managed by the system.
+    private func deletionExplanationText(
+        for pending: PendingCaptureDeletion
+    ) -> String {
+        let base: String
+        switch appSettings.storagePrivacy.finalizedBackupPolicy {
+        case .backupEligible:
+            base = String(
+                localized:
+                    "This permanently deletes the finalized capture and any export archive stored for it from this device. A copy already inside a device backup is managed by the system."
+            )
+        case .excludedFromBackup:
+            base = String(
+                localized:
+                    "This permanently deletes the finalized capture and any export archive stored for it from this device. Nothing is uploaded or backed up by this app."
+            )
+        }
+        // Lineage-aware deletion (issue #396): a revision that still
+        // has descendants naming it parent gets the extra warning.
+        guard pending.descendantCount > 0 else {
+            return base
+        }
+        return base + " " + String(
+            localized:
+                "\(pending.descendantCount) revision(s) declare it as their parent — their lineage link will no longer resolve."
+        )
     }
 
     /// Failed-capture retained-evidence detail (#224), extracted from

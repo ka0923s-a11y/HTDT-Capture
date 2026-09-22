@@ -1066,7 +1066,6 @@
 "No task profile" = "タスクプロファイルなし";
 "Geometry only" = "ジオメトリのみ";
 "Strategy profile" = "戦略プロファイル";
-"Standard" = "標準";
 "HTDT task plan" = "HTDT タスク計画";
 "Import HTDT task plan…" = "HTDT タスク計画を読み込む…";
 "Remove task plan" = "タスク計画を削除";
@@ -1168,7 +1167,6 @@
 "Device context (preset/config ref)" = "機器コンテキスト（プリセット/設定参照）";
 "Driven speakers" = "駆動するスピーカー";
 "Add speaker/subwoofer annotations first." = "先にスピーカー/サブウーファーのアノテーションを追加してください。";
-"Verification" = "検証";
 "Method" = "方法";
 "Band scope" = "帯域スコープ";
 "A printed cable label never verifies the live signal path." = "印字済みケーブルラベルは実際の信号経路を検証しません。";
@@ -1222,6 +1220,141 @@
 "Deviation appears once target, alignment, and the final entity are known." = "ターゲット・アライメント・最終エンティティが揃うと偏差が表示されます。";
 "Choose the planned target first." = "先に計画ターゲットを選択してください。";
 "Select the final as-built entity." = "最終竣工エンティティを選択してください。";
+
+/* Derived export sheets — issues #306 / #318 */
+"Export derived 3D model…" = "派生 3D モデルをエクスポート…";
+"Export survey report…" = "サーベイレポートをエクスポート…";
+"Export…" = "エクスポート…";
+"Derived 3D model…" = "派生 3D モデル…";
+"Survey report…" = "サーベイレポート…";
+"Derived 3D export" = "派生 3D エクスポート";
+"Survey report" = "サーベイレポート";
+"What this is" = "これは何ですか";
+"Derived output — not canonical capture evidence. The .htdtcapture bundle remains the evidence record; this file is a convenience export for external 3D tools." = "派生出力 — 正規のキャプチャ証跡ではありません。.htdtcapture バンドルが証跡レコードです。このファイルは外部 3D ツール向けの便宜上のエクスポートです。";
+"Contains geometry only — no camera imagery, depth frames, annotations, or measurements are embedded." = "ジオメトリのみを含みます — カメラ画像、深度フレーム、アノテーション、計測値は埋め込まれません。";
+"Geometry source" = "ジオメトリソース";
+"RoomPlan surfaces & objects" = "RoomPlan の面とオブジェクト";
+"Bounding boxes synthesized from the processed RoomPlan model. Not measured surface geometry." = "処理済み RoomPlan モデルから合成されたバウンディングボックス。実測の表面ジオメトリではありません。";
+"ARKit scanned mesh" = "ARKit スキャンメッシュ";
+"The recorded scene mesh merged into world space." = "ワールド空間にマージされた記録済みシーンメッシュ。";
+"Format" = "形式";
+"USDZ (RoomPlan parametric)" = "USDZ（RoomPlan パラメトリック）";
+"GLB (glTF binary)" = "GLB（glTF バイナリ）";
+"OBJ (Wavefront)" = "OBJ（Wavefront）";
+"PLY (ASCII)" = "PLY（ASCII）";
+"Not recorded in this capture" = "このキャプチャには記録されていません";
+"Export 3D model" = "3D モデルをエクスポート";
+"A provenance record (.provenance.json) is written next to the model: it binds the file to this exact capture revision and bundle digest, the coordinate space, and the transform and units applied." = "モデルの隣に来歴レコード（.provenance.json）が書き出されます。ファイルを正確なキャプチャリビジョンとバンドルダイジェスト、座標系、適用された変換と単位に紐付けます。";
+"Exported files" = "エクスポートされたファイル";
+"Provenance fields are embedded in the file itself (comments / glTF extras) and in the sidecar record." = "来歴フィールドはファイル自体（コメント／glTF extras）とサイドカーレコードに埋め込まれます。";
+"A printable HTML report plus an SVG plan, derived from this exact capture revision. It summarizes entities, measurements, mission completeness, and findings — it is not canonical evidence." = "この正確なキャプチャリビジョンから派生した、印刷可能な HTML レポートと SVG 平面図。エンティティ、計測値、ミッション達成度、所見を要約します — 正規の証跡ではありません。";
+"Language" = "言語";
+"Report language" = "レポート言語";
+"Evidence previews (optional)" = "証跡プレビュー（任意）";
+"Only frames you select are embedded as downscaled JPEG previews. The canonical bundle is untouched." = "選択したフレームのみが縮小 JPEG プレビューとして埋め込まれます。正規バンドルは変更されません。";
+"No preview-bearing evidence frames are recorded — the report will contain no camera imagery." = "プレビュー付き証跡フレームは記録されていません — レポートにカメラ画像は含まれません。";
+"Generate report" = "レポートを生成";
+
+/* Settings entry point and taxonomy (#338) */
+"Settings" = "設定";
+"Preferences & storage" = "設定とストレージ";
+"Presentation" = "表示設定";
+"Presentation choices only change how information is displayed or announced. They never change recorded capture data." = "表示設定は情報の表示方法や読み上げの方法だけを変更します。記録されたキャプチャデータは変更されません。";
+"Haptic and spoken guidance cues" = "触覚・音声ガイダンスキュー";
+"Length display unit" = "長さの表示単位";
+"Meters" = "メートル";
+"Millimeters" = "ミリメートル";
+"Inches" = "インチ";
+"Feet" = "フィート";
+"Reset presentation preferences" = "表示設定をリセット";
+"Capture defaults" = "キャプチャの既定値";
+"Default capture task" = "既定のキャプチャタスク";
+"Choose for each capture" = "キャプチャごとに選択";
+"Return-to-start consistency check" = "開始地点への復帰チェック";
+"A default applies when a new capture begins and stays changeable per capture. An explicit selection in the capture — or a project/task requirement — always wins, and the value the capture actually used is recorded with it." = "既定値は新しいキャプチャの開始時に適用され、キャプチャごとに変更できます。キャプチャ内での明示的な選択やプロジェクト・タスクの要件が常に優先され、実際に使用した値がキャプチャに記録されます。";
+"Reference contexts" = "参照コンテキスト";
+"Equipment catalog" = "機器カタログ";
+"Authority version" = "権威バージョン";
+"%lld definitions" = "%lld 件の定義";
+"Clear equipment catalog cache" = "機器カタログのキャッシュを消去";
+"No equipment catalog imported. Import one from the annotation workspace to bind exact equipment definitions." = "機器カタログが読み込まれていません。注釈ワークスペースから読み込んで、機器定義を正確に紐付けてください。";
+"An imported catalog is reference context only — a capture records the exact equipment identifiers it used, so clearing the cache never changes saved captures." = "読み込んだカタログは参照コンテキストにすぎません。キャプチャは使用した機器識別子を正確に記録するため、キャッシュを消去しても保存済みキャプチャは変わりません。";
+
+/* Data & backup disclosure and policy control (#305) */
+"Data & backup" = "データとバックアップ";
+"Finalized data backup" = "確定済みデータのバックアップ";
+"May join device backup" = "デバイスバックアップに含める";
+"Excluded from backup" = "バックアップから除外";
+"Retained data" = "保持データ";
+"Working scan data is kept app-private and is always excluded from device backup." = "作業スキャンデータはアプリ内に留まり、常にデバイスバックアップから除外されます。";
+"While you scan, working scan data stays app-private and is always excluded from device backup." = "スキャン中、作業スキャンデータはアプリ内に留まり、常にデバイスバックアップから除外されます。";
+"After a successful capture, the finalized capture and its export archive stay in this app's storage on this device and may be included in your device backup." = "キャプチャが成功すると、確定済みキャプチャとその書き出しアーカイブはこのデバイス上のこのアプリのストレージに残り、デバイスバックアップに含まれる場合があります。";
+"After a successful capture, the finalized capture and its export archive stay in this app's storage on this device and are excluded from device backup." = "キャプチャが成功すると、確定済みキャプチャとその書き出しアーカイブはこのデバイス上のこのアプリのストレージに残り、デバイスバックアップから除外されます。";
+"Finalized captures and their export archives stay in this app's storage on this device and may be included in your device backup, depending on your system settings." = "確定済みキャプチャとその書き出しアーカイブはこのデバイス上のこのアプリのストレージに残り、システム設定によってはデバイスバックアップに含まれる場合があります。";
+"Finalized captures and their export archives stay in this app's storage on this device and are excluded from device backup." = "確定済みキャプチャとその書き出しアーカイブはこのデバイス上のこのアプリのストレージに残り、デバイスバックアップから除外されます。";
+"Finalized captures and export archives stay in this app's on-device storage and may be included in your device backup." = "確定済みキャプチャと書き出しアーカイブはこのデバイス上のこのアプリのストレージに残り、デバイスバックアップに含まれる場合があります。";
+"Finalized captures and export archives stay in this app's on-device storage and are excluded from device backup." = "確定済みキャプチャと書き出しアーカイブはこのデバイス上のこのアプリのストレージに残り、デバイスバックアップから除外されます。";
+"Sharing or sending to HTDT is always an explicit action you choose — it is never tied to device backup." = "共有や HTDT への送信は、常に自分で選んで行う明示的な操作であり、デバイスバックアップとは無関係です。";
+"Sharing or sending to HTDT is always an explicit action you choose — device backup never sends data to HTDT." = "共有や HTDT への送信は、常に自分で選んで行う明示的な操作であり、デバイスバックアップがデータを HTDT に送ることはありません。";
+"Deleting a capture permanently removes its finalized copy and stored export archive from this device." = "キャプチャを削除すると、その確定済みコピーと保存済みの書き出しアーカイブがこのデバイスから完全に削除されます。";
+"The backup choice applies to finalized captures already on this device and to new ones." = "バックアップの選択は、このデバイス上にある既存の確定済みキャプチャと、今後作成されるものの両方に適用されます。";
+"This permanently deletes the finalized capture and any export archive stored for it from this device. Nothing is uploaded or backed up by this app." = "この操作により、確定済みキャプチャとそれに保存された書き出しアーカイブがこのデバイスから完全に削除されます。このアプリはアップロードもバックアップも行いません。";
+"This permanently deletes the finalized capture and any export archive stored for it from this device. A copy already inside a device backup is managed by the system." = "この操作により、確定済みキャプチャとそれに保存された書き出しアーカイブがこのデバイスから完全に削除されます。すでにデバイスバックアップに含まれたコピーはシステムが管理します。";
+"%lld revision(s) declare it as their parent — their lineage link will no longer resolve." = "この確定済みキャプチャを親として宣言しているリビジョンが %lld 件あります — 系統リンクは解決できなくなります。";
+
+/* Accessibility labels (#342) */
+"Direction coverage grid" = "方向カバレッジグリッド";
+"Series " = "シリーズ ";
+
+/* Mission workflows (#353/#321/#355). */
+"Mission workflows" = "ミッションワークフロー";
+"Mission workflows…" = "ミッションワークフロー…";
+"Mission" = "ミッション";
+"Multi-region connected capture" = "複数領域の接続キャプチャ";
+"Import mission document (.json)" = "ミッション文書を読み込む（.json）";
+"Task plans, as-built plans, and HTDT repair plans import as .json mission documents." = "タスクプラン・アズビルトプラン・HTDT 修復プランは .json ミッション文書として取り込めます。";
+"Repair tasks" = "修復タスク";
+"%d open" = "%d 件未解決";
+"No active mission items. Mission workflows appear once a task plan, as-built plan, connected-space intent, or HTDT repair task applies to this capture." = "アクティブなミッション項目はありません。タスクプラン・アズビルトプラン・接続領域の指定・HTDT 修復タスクがこのキャプチャに適用されると表示されます。";
+"Mission items are visible only when they apply to this capture; a simple capture is not burdened with them." = "ミッション項目はこのキャプチャに適用される場合のみ表示されます。シンプルなキャプチャには追加されません。";
+"Task plan checklist" = "タスクプラン チェックリスト";
+"Connected regions" = "接続領域";
+"As-built verification" = "アズビルト検証";
+"Post-scan annotations & measurements" = "スキャン後の注釈・計測";
+"Instrument measurement import" = "計器計測値の取り込み";
+"HTDT repair tasks" = "HTDT 修復タスク";
+"No task plan" = "タスクプランなし";
+"Import a capture task plan (.json) to drive the mission checklist." = "キャプチャタスクプラン（.json）を読み込み、ミッションチェックリストを駆動します。";
+"Begin region" = "領域を開始";
+"Multi-region capture is enabled. Each region you begin and complete here is tracked into the bundle." = "複数領域キャプチャが有効です。ここで開始・完了した各領域はバンドルに記録されます。";
+"Connected-space capture off" = "接続領域キャプチャはオフ";
+"Enable it for this capture only when the mission calls for multi-region coverage." = "ミッションで複数領域のカバレッジが必要な場合のみ、このキャプチャで有効にしてください。";
+"Enable" = "有効にする";
+"Region label" = "領域ラベル";
+"Begin" = "開始";
+"Establish plan alignment" = "プラン位置合わせを確立";
+"Uses the committed room reference frame to anchor the plan to this capture's coordinate authority." = "確定済みルーム基準フレームを使い、このキャプチャの座標権威にプランを固定します。";
+"Requires a committed room reference frame. Confirm the room frame in the review workspace, then return." = "確定済みルーム基準フレームが必要です。レビューワークスペースでルームフレームを確定してから戻ってください。";
+"Planned items" = "計画項目";
+"Actual" = "実測";
+"Choose entity" = "エンティティを選択";
+"Import an as-built plan (.json) to compare planned positions against captured observations." = "アズビルトプラン（.json）を読み込み、計画位置と取得済み観測値を比較します。";
+"Label, role, and measure the captured room in the annotation workspace. Committed records stay bound to the live coordinate authority." = "注釈ワークスペースで取得した部屋のラベル付け・役割設定・計測を行います。確定済みレコードはライブ座標権威に束縛されたままです。";
+"Open a measurement form inside the annotation workspace and use the Instrument reading section to import a reading file — the staged value is confirmed explicitly before it commits." = "注釈ワークスペースの計測フォームで「計器読み値」セクションから読み値ファイルを取り込みます。取り込まれた値は確定前に明示的に確認されます。";
+"Open annotation workspace" = "注釈ワークスペースを開く";
+"Plan %@ v%@ · %@" = "プラン %@ v%@ · %@";
+"Resolved — revision %@" = "解決済み — リビジョン %@";
+"Fix in Capture" = "Capture で修正";
+"required" = "必須";
+"%.1f cm" = "%.1f cm";
+"Instrument reading (optional)" = "計器読み値（任意）";
+"Instrument method" = "計器方式";
+"Instrument make/model" = "計器メーカー／型番";
+"Import reading file…" = "読み値ファイルを取り込む…";
+"Staged device reading" = "一時保留のデバイス読み値";
+"Use this reading" = "この読み値を使用";
+"Discard" = "破棄";
+"Reads a value file exported by the instrument (JSON or \"4.215 m\" text). The reading is staged first — nothing is recorded until you confirm it." = "計器が出力した値ファイル（JSON または \"4.215 m\" 形式のテキスト）を読み込みます。読み値はまず一時保留され、確認するまで記録されません。";
 
 /* Lifecycle & recovery (#296/#297/#298/#320) */
 "Guidance completion" = "ガイダンス完了";
@@ -1496,7 +1629,6 @@
 "Service point" = "サービスポイント";
 "Service type (optional, e.g. front_l)" = "サービス種別（任意、例: front_l）";
 "Setting" = "設定";
-"Settings" = "設定";
 "Speaker size" = "スピーカーサイズ";
 "Stated accuracy (optional, e.g. ±0.5 dB)" = "公称精度（任意、例: ±0.5 dB）";
 "Subwoofer crossover" = "サブウーファー クロスオーバー";
@@ -1631,7 +1763,6 @@
 "Spatial data" = "空間データ";
 
 // #367 interactive review plan surface
-"Plan" = "平面図";
 "Show on plan" = "平面図で表示";
 "Labels" = "ラベル";
 "Labels off" = "ラベルなし";
@@ -1703,7 +1834,6 @@
 "Deviated" = "偏差あり";
 "Door undercut" = "ドアアンダーカット";
 "Door" = "ドア";
-"Equipment catalog" = "機器カタログ";
 "Equipment furniture" = "機器家具";
 "Equipment item" = "機器項目";
 "Fabric" = "ファブリック";
@@ -1718,13 +1848,11 @@
 "Hard floor" = "ハードフロア";
 "High band direct" = "高域直結";
 "I confirmed this" = "自分で確認しました";
-"Imported file" = "読み込まれたファイル";
 "In ceiling" = "天井埋め込み";
 "In wall" = "壁埋め込み";
 "Installation alignment" = "設置アライメント";
 "Installer or build record" = "施工者または施工記録";
 "Insufficient" = "不十分";
-"Intentionally ignored" = "意図的に除外";
 "Kept as a scan-boundary frame" = "スキャン境界フレームとして保持";
 "Label only" = "ラベルのみ";
 "Lighting" = "照明";
@@ -1742,14 +1870,12 @@
 "Movable" = "可動";
 "My attestation" = "自分の証明";
 "My observation" = "自分の観測";
-"Needs more scanning" = "追加スキャンが必要";
 "Object identity" = "オブジェクト識別";
 "Object surface" = "オブジェクト面";
 "Occluded" = "遮蔽";
 "Off" = "オフ";
 "On a stand" = "スタンド上";
 "On wall" = "壁掛け";
-"Opening" = "開口部";
 "Partial-height wall" = "腰壁";
 "Pending review" = "レビュー待ち";
 "Platform top" = "プラットフォーム上面";
@@ -1792,7 +1918,6 @@
 "Transfer grille" = "トランスファーグリル";
 "Transparent" = "透明";
 "Two surveyed points" = "2つの測量点";
-"Unverified" = "未検証";
 "Upright" = "直立";
 "Wall direction" = "壁方向";
 "Window" = "窓";
@@ -1831,14 +1956,12 @@
 "Deleted " = "削除済み ";
 "target " = "対象 ";
 "plan " = "計画 ";
-"required" = "必須";
 "current" = "現在";
 "stale — " = "陳腐化 — ";
 "unknown" = "不明";
 
 // #386/#387/#374/#379 mission inbox, delivery queue, pairing, preflight
 "Missions" = "ミッション";
-"Mission" = "ミッション";
 "Destinations" = "送信先";
 "Deliveries" = "配信";
 "Delivery queue" = "配信キュー";
@@ -1853,7 +1976,6 @@
 "Resume mission" = "ミッションを再開";
 "Deactivate" = "非アクティブ化";
 "Archive" = "アーカイブ";
-"Discard" = "破棄";
 "Forget" = "解除";
 "Pause" = "一時停止";
 "Resume" = "再開";
@@ -1863,7 +1985,6 @@
 "Follow-up of" = "フォローアップ対象";
 "Follow-up origin" = "フォローアップ元";
 "Mission ID" = "ミッション ID";
-"Issued" = "発行";
 "Plan version" = "プランバージョン";
 "Project" = "プロジェクト";
 "Receiver" = "受信機";
