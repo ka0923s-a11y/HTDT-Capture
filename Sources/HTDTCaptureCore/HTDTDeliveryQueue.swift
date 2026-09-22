@@ -580,7 +580,8 @@ public struct HTDTDeliveryQueue: Sendable {
     @discardableResult
     public func processDueJobs(
         receiptStore: HTDTHandoffReceiptStore? = nil,
-        nowUTC: String = BundleTimestamp.utcString(from: Date())
+        nowUTC: String = BundleTimestamp.utcString(from: Date()),
+        onRepairPlan: (@Sendable (HTDTRepairTaskPlan, String?) -> Void)? = nil
     ) async -> [HTDTDeliveryJob] {
         var document: Document
         do {
@@ -623,10 +624,17 @@ public struct HTDTDeliveryQueue: Sendable {
             )
             document.jobs[index] = job
             try? save(document)
+            var receiptID: String? = nil
             if let receiptStore,
                let receipt = result.receipt(for: job)
             {
                 try? receiptStore.append(receipt)
+                receiptID = receipt.receiptID
+            }
+            if let plan = result.response?.repairTaskPlan {
+                // #321: surface a returned repair plan alongside the
+                // receipt id so the caller can bind the audit link.
+                onRepairPlan?(plan, receiptID)
             }
         }
         return document.jobs

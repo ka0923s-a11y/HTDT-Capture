@@ -1066,7 +1066,6 @@
 "No task profile" = "タスクプロファイルなし";
 "Geometry only" = "ジオメトリのみ";
 "Strategy profile" = "戦略プロファイル";
-"Standard" = "標準";
 "HTDT task plan" = "HTDT タスク計画";
 "Import HTDT task plan…" = "HTDT タスク計画を読み込む…";
 "Remove task plan" = "タスク計画を削除";
@@ -1168,7 +1167,6 @@
 "Device context (preset/config ref)" = "機器コンテキスト（プリセット/設定参照）";
 "Driven speakers" = "駆動するスピーカー";
 "Add speaker/subwoofer annotations first." = "先にスピーカー/サブウーファーのアノテーションを追加してください。";
-"Verification" = "検証";
 "Method" = "方法";
 "Band scope" = "帯域スコープ";
 "A printed cable label never verifies the live signal path." = "印字済みケーブルラベルは実際の信号経路を検証しません。";
@@ -1256,6 +1254,56 @@
 "Only frames you select are embedded as downscaled JPEG previews. The canonical bundle is untouched." = "選択したフレームのみが縮小 JPEG プレビューとして埋め込まれます。正規バンドルは変更されません。";
 "No preview-bearing evidence frames are recorded — the report will contain no camera imagery." = "プレビュー付き証跡フレームは記録されていません — レポートにカメラ画像は含まれません。";
 "Generate report" = "レポートを生成";
+
+/* Mission workflows (#353/#321/#355). */
+"Mission workflows" = "ミッションワークフロー";
+"Mission workflows…" = "ミッションワークフロー…";
+"Mission" = "ミッション";
+"Multi-region connected capture" = "複数領域の接続キャプチャ";
+"Import mission document (.json)" = "ミッション文書を読み込む（.json）";
+"Task plans, as-built plans, and HTDT repair plans import as .json mission documents." = "タスクプラン・アズビルトプラン・HTDT 修復プランは .json ミッション文書として取り込めます。";
+"Repair tasks" = "修復タスク";
+"%d open" = "%d 件未解決";
+"No active mission items. Mission workflows appear once a task plan, as-built plan, connected-space intent, or HTDT repair task applies to this capture." = "アクティブなミッション項目はありません。タスクプラン・アズビルトプラン・接続領域の指定・HTDT 修復タスクがこのキャプチャに適用されると表示されます。";
+"Mission items are visible only when they apply to this capture; a simple capture is not burdened with them." = "ミッション項目はこのキャプチャに適用される場合のみ表示されます。シンプルなキャプチャには追加されません。";
+"Task plan checklist" = "タスクプラン チェックリスト";
+"Connected regions" = "接続領域";
+"As-built verification" = "アズビルト検証";
+"Post-scan annotations & measurements" = "スキャン後の注釈・計測";
+"Instrument measurement import" = "計器計測値の取り込み";
+"HTDT repair tasks" = "HTDT 修復タスク";
+"No task plan" = "タスクプランなし";
+"Import a capture task plan (.json) to drive the mission checklist." = "キャプチャタスクプラン（.json）を読み込み、ミッションチェックリストを駆動します。";
+"Begin region" = "領域を開始";
+"Multi-region capture is enabled. Each region you begin and complete here is tracked into the bundle." = "複数領域キャプチャが有効です。ここで開始・完了した各領域はバンドルに記録されます。";
+"Connected-space capture off" = "接続領域キャプチャはオフ";
+"Enable it for this capture only when the mission calls for multi-region coverage." = "ミッションで複数領域のカバレッジが必要な場合のみ、このキャプチャで有効にしてください。";
+"Enable" = "有効にする";
+"Region label" = "領域ラベル";
+"Begin" = "開始";
+"Establish plan alignment" = "プラン位置合わせを確立";
+"Uses the committed room reference frame to anchor the plan to this capture's coordinate authority." = "確定済みルーム基準フレームを使い、このキャプチャの座標権威にプランを固定します。";
+"Requires a committed room reference frame. Confirm the room frame in the review workspace, then return." = "確定済みルーム基準フレームが必要です。レビューワークスペースでルームフレームを確定してから戻ってください。";
+"Planned items" = "計画項目";
+"Actual" = "実測";
+"Choose entity" = "エンティティを選択";
+"Import an as-built plan (.json) to compare planned positions against captured observations." = "アズビルトプラン（.json）を読み込み、計画位置と取得済み観測値を比較します。";
+"Label, role, and measure the captured room in the annotation workspace. Committed records stay bound to the live coordinate authority." = "注釈ワークスペースで取得した部屋のラベル付け・役割設定・計測を行います。確定済みレコードはライブ座標権威に束縛されたままです。";
+"Open a measurement form inside the annotation workspace and use the Instrument reading section to import a reading file — the staged value is confirmed explicitly before it commits." = "注釈ワークスペースの計測フォームで「計器読み値」セクションから読み値ファイルを取り込みます。取り込まれた値は確定前に明示的に確認されます。";
+"Open annotation workspace" = "注釈ワークスペースを開く";
+"Plan %@ v%@ · %@" = "プラン %@ v%@ · %@";
+"Resolved — revision %@" = "解決済み — リビジョン %@";
+"Fix in Capture" = "Capture で修正";
+"required" = "必須";
+"%.1f cm" = "%.1f cm";
+"Instrument reading (optional)" = "計器読み値（任意）";
+"Instrument method" = "計器方式";
+"Instrument make/model" = "計器メーカー／型番";
+"Import reading file…" = "読み値ファイルを取り込む…";
+"Staged device reading" = "一時保留のデバイス読み値";
+"Use this reading" = "この読み値を使用";
+"Discard" = "破棄";
+"Reads a value file exported by the instrument (JSON or \"4.215 m\" text). The reading is staged first — nothing is recorded until you confirm it." = "計器が出力した値ファイル（JSON または \"4.215 m\" 形式のテキスト）を読み込みます。読み値はまず一時保留され、確認するまで記録されません。";
 
 /* Lifecycle & recovery (#296/#297/#298/#320) */
 "Guidance completion" = "ガイダンス完了";
@@ -1665,7 +1713,6 @@
 "Spatial data" = "空間データ";
 
 // #367 interactive review plan surface
-"Plan" = "平面図";
 "Show on plan" = "平面図で表示";
 "Labels" = "ラベル";
 "Labels off" = "ラベルなし";
@@ -1752,13 +1799,11 @@
 "Hard floor" = "ハードフロア";
 "High band direct" = "高域直結";
 "I confirmed this" = "自分で確認しました";
-"Imported file" = "読み込まれたファイル";
 "In ceiling" = "天井埋め込み";
 "In wall" = "壁埋め込み";
 "Installation alignment" = "設置アライメント";
 "Installer or build record" = "施工者または施工記録";
 "Insufficient" = "不十分";
-"Intentionally ignored" = "意図的に除外";
 "Kept as a scan-boundary frame" = "スキャン境界フレームとして保持";
 "Label only" = "ラベルのみ";
 "Lighting" = "照明";
@@ -1776,14 +1821,12 @@
 "Movable" = "可動";
 "My attestation" = "自分の証明";
 "My observation" = "自分の観測";
-"Needs more scanning" = "追加スキャンが必要";
 "Object identity" = "オブジェクト識別";
 "Object surface" = "オブジェクト面";
 "Occluded" = "遮蔽";
 "Off" = "オフ";
 "On a stand" = "スタンド上";
 "On wall" = "壁掛け";
-"Opening" = "開口部";
 "Partial-height wall" = "腰壁";
 "Pending review" = "レビュー待ち";
 "Platform top" = "プラットフォーム上面";
@@ -1826,7 +1869,6 @@
 "Transfer grille" = "トランスファーグリル";
 "Transparent" = "透明";
 "Two surveyed points" = "2つの測量点";
-"Unverified" = "未検証";
 "Upright" = "直立";
 "Wall direction" = "壁方向";
 "Window" = "窓";
@@ -1865,14 +1907,12 @@
 "Deleted " = "削除済み ";
 "target " = "対象 ";
 "plan " = "計画 ";
-"required" = "必須";
 "current" = "現在";
 "stale — " = "陳腐化 — ";
 "unknown" = "不明";
 
 // #386/#387/#374/#379 mission inbox, delivery queue, pairing, preflight
 "Missions" = "ミッション";
-"Mission" = "ミッション";
 "Destinations" = "送信先";
 "Deliveries" = "配信";
 "Delivery queue" = "配信キュー";
@@ -1887,7 +1927,6 @@
 "Resume mission" = "ミッションを再開";
 "Deactivate" = "非アクティブ化";
 "Archive" = "アーカイブ";
-"Discard" = "破棄";
 "Forget" = "解除";
 "Pause" = "一時停止";
 "Resume" = "再開";
@@ -1897,7 +1936,6 @@
 "Follow-up of" = "フォローアップ対象";
 "Follow-up origin" = "フォローアップ元";
 "Mission ID" = "ミッション ID";
-"Issued" = "発行";
 "Plan version" = "プランバージョン";
 "Project" = "プロジェクト";
 "Receiver" = "受信機";
