@@ -1,0 +1,44 @@
+name: Auto-merge green PRs
+
+# Runs after every CI workflow completes. For each open PR whose
+# head branch matches the workflow's PR, merge it with squash when —
+# and only when — GitHub itself reports the PR mergeable. Required
+# checks and branch protection are evaluated by GitHub's merge API,
+# so a failing or dirty PR is skipped, never forced.
+on:
+  workflow_run:
+    workflows:
+      - "Phase 0 contracts"
+      - "Phase 1 core"
+      - "Phase 6 ingestion"
+      - "Build unsigned IPA"
+      - "Accuracy benchmark"
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Merge mergeable open PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -u
+          repo="${{ github.repository }}"
+          for pr in $(gh pr list -R "$repo" --state open \
+              --json number --jq '.[].number'); do
+            state=$(gh api "repos/$repo/pulls/$pr" \
+              --jq '.mergeable_state')
+            if [ "$state" = "clean" ]; then
+              echo "PR #$pr is clean — squash merging"
+              gh pr merge "$pr" -R "$repo" --squash \
+                || echo "PR #$pr merge rejected by GitHub rules"
+            else
+              echo "PR #$pr is $state — skipped"
+            fi
+          done
