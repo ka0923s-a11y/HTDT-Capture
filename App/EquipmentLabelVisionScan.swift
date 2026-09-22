@@ -9,6 +9,14 @@ import HTDTCaptureCore
 /// the result only ever produces operator-confirmed suggestions;
 /// nothing it returns is committed anywhere.
 enum EquipmentLabelVisionScan {
+    /// `CVPixelBuffer` is a CoreFoundation type without Sendable
+    /// conformance; the snapshot retains it and recognition only
+    /// reads pixel data, so carrying it across the detached task is
+    /// safe here.
+    private struct SendablePixelBuffer: @unchecked Sendable {
+        let buffer: CVPixelBuffer
+    }
+
     /// Runs OCR + barcode/QR detection on `pixelBuffer`. Returns the
     /// distinct observations with their provenance; an empty result
     /// (clean frame, unreadable label) is not an error — the matcher
@@ -17,77 +25,80 @@ enum EquipmentLabelVisionScan {
     static func recognize(
         _ pixelBuffer: CVPixelBuffer
     ) async throws -> [EquipmentLabelScanObservation] {
-        try await Task.detached(priority: .userInitiated) {
-            var observations: [EquipmentLabelScanObservation] = []
+        let buffer = SendablePixelBuffer(buffer: pixelBuffer)
+        return try await Task.detached(priority: .userInitiated) {
+            try recognizeSync(buffer.buffer)
+        }.value
+    }
 
-            let textRequest = VNRecognizeTextRequest()
-            textRequest.recognitionLevel = .accurate
-            textRequest.usesLanguageCorrection = false
-            // Serial/model strings stay verbatim — language
-            // correction would rewrite them into dictionary words.
-            textRequest.recognitionLanguages = ["en"]
-            textRequest.minimumTextHeight = 0.01
+    private static func recognizeSync(
+        _ pixelBuffer: CVPixelBuffer
+    ) throws -> [EquipmentLabelScanObservation] {
+        var observations: [EquipmentLabelScanObservation] = []
 
-            let barcodeRequest = VNDetectBarcodesRequest()
-            barcodeRequest.symbologies = [
-                .qr, .microQR, .aztec, .dataMatrix,
-                .code39, .code39Checksum, .code39FullASCII,
-                .code93, .code128,
-                .ean8, .ean13, .upce,
-                .pdf417, .itf14, .i2of5,
-            ]
+        let textRequest = VNRecognizeTextRequest()
+        textRequest.recognitionLevel = .accurate
+        textRequest.usesLanguageCorrection = false
+        // Serial/model strings stay verbatim — language correction
+        // would rewrite them into dictionary words.
+        textRequest.recognitionLanguages = ["en"]
+        textRequest.minimumTextHeight = 0.01
 
-            let handler = VNImageRequestHandler(
-                cvPixelBuffer: pixelBuffer,
-                options: [:]
-            )
-            try handler.perform([textRequest, barcodeRequest])
+        let barcodeRequest = VNDetectBarcodesRequest()
+        barcodeRequest.symbologies = [
+            .qr, .microQR, .aztec, .dataMatrix,
+            .code39, .code39Checksum, .code39FullASCII,
+            .code93, .code128,
+            .ean8, .ean13, .upce,
+            .pdf417, .itf14, .i2of5,
+        ]
 
-            for observation in
-                textRequest.results ?? []
-            {
-                guard let candidate = observation
-                    .topCandidates(1)
-                    .first
-                else {
-                    continue
-                }
-                let text = candidate.string
-                    .trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    )
-                if !text.isEmpty {
-                    observations.append(
-                        EquipmentLabelScanObservation(
-                            text: text,
-                            basis: .ocr,
-                            confidence: candidate.confidence
-                        )
-                    )
-                }
+        let handler = VNImageRequestHandler(
+            cvPixelBuffer: pixelBuffer,
+            options: [:]
+        )
+        try handler.perform([textRequest, barcodeRequest])
+
+        for observation in textRequest.results ?? [] {
+            guard let candidate = observation
+                .topCandidates(1)
+                .first
+            else {
+                continue
             }
-
-            for barcode in barcodeRequest.results ?? [] {
-                guard let payload = barcode.payloadStringValue,
-                      !payload.isEmpty
-                else {
-                    continue
-                }
-                let basis: EquipmentLabelScanBasis =
-                    barcode.symbology == .qr
-                        || barcode.symbology == .microQR
-                        ? .qrCode
-                        : .barcode
+            let text = candidate.string
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
                 observations.append(
                     EquipmentLabelScanObservation(
-                        text: payload,
-                        basis: basis,
-                        confidence: 1.0
+                        text: text,
+                        basis: .ocr,
+                        confidence: candidate.confidence
                     )
                 )
             }
+        }
 
-            return observations
-        }.value
+        for barcode in barcodeRequest.results ?? [] {
+            guard let payload = barcode.payloadStringValue,
+                  !payload.isEmpty
+            else {
+                continue
+            }
+            let basis: EquipmentLabelScanBasis =
+                barcode.symbology == .qr
+                    || barcode.symbology == .microQR
+                    ? .qrCode
+                    : .barcode
+            observations.append(
+                EquipmentLabelScanObservation(
+                    text: payload,
+                    basis: basis,
+                    confidence: 1.0
+                )
+            )
+        }
+
+        return observations
     }
 }
