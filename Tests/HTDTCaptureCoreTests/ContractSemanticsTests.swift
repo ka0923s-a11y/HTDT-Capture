@@ -804,15 +804,14 @@ func deviationStoresDeltaNotAbsolutePosition() throws {
         observation: observation,
         sceneFromCapture: .identity
     )
-    #expect(abs(deviation.translationScene.x - Float(0.05)) < 1e-6)
-    #expect(abs(deviation.translationScene.z - Float(0.03)) < 1e-6)
+    let deltaX = abs(deviation.translationScene.x - Float(0.05))
+    let deltaZ = abs(deviation.translationScene.z - Float(0.03))
+    let expectedDistance = sqrt(0.05 * 0.05 + 0.03 * 0.03)
+    let deltaDistance = abs(deviation.distanceMeters - expectedDistance)
+    #expect(deltaX < 1e-6)
+    #expect(deltaZ < 1e-6)
     #expect(deviation.translationScene.y == 0)
-    #expect(
-        abs(
-            deviation.distanceMeters
-                - sqrt(0.05 * 0.05 + 0.03 * 0.03)
-        ) < 1e-5
-    )
+    #expect(deltaDistance < 1e-5)
 }
 
 @Test
