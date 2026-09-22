@@ -227,8 +227,7 @@ private struct HTDTCaptureHostView: View {
                 updateAppSettings:
                     coordinator.updateAppSettings,
                 clearEquipmentCatalogCache:
-                    coordinator.clearEquipmentCatalogCache
-                    coordinator.updateLibraryEntry,
+                    coordinator.clearEquipmentCatalogCache,
                 retryCameraPermission:
                     coordinator.retryCameraPermission,
                 openCameraSettings:
@@ -1089,8 +1088,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 ? .roomPlanMesh
                 : nil,
             finalizedBackupPolicy: appSettings.storagePrivacy
-                .finalizedBackupPolicy
-                : nil,
+                .finalizedBackupPolicy,
             cameraPermission:
                 CameraPermissionController.currentStatus()
         )
