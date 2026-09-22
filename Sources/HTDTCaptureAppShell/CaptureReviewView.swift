@@ -27,19 +27,18 @@ public struct CaptureReviewView: View {
     public var body: some View {
         List {
             Section("Readiness") {
-                LabeledContent(
+                CaptureStatusContent(
                     "HTDT ingestion",
-                    value: quality.readyForHTDTIngestion
-                        ? String(localized: "Ready")
-                        : String(localized: "Not ready")
+                    status: quality.readyForHTDTIngestion
+                        ? .ready : .incomplete
                 )
                 LabeledContent(
                     "Ruleset",
                     value: quality.rulesetVersion
                 )
-                LabeledContent(
+                CaptureStatusContent(
                     "RoomPlan",
-                    value: localizedRoomPlanStatus(
+                    status: roomPlanStatus(
                         quality.roomPlanStatus
                     )
                 )
@@ -59,14 +58,20 @@ public struct CaptureReviewView: View {
                    let trackingState =
                     endCoverage.latestTrackingState
                 {
-                    LabeledContent(
+                    CaptureStatusContent(
                         "Tracking at End",
-                        value: localizedTrackingState(
-                            trackingState,
-                            reason: endCoverage
-                                .latestTrackingReason
+                        status: trackingStatus(
+                            trackingState
                         )
                     )
+                    if let reason = endCoverage
+                        .latestTrackingReason,
+                       !reason.isEmpty
+                    {
+                        Text(reason)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 if !quality.benchmarkRefs.isEmpty {
                     ForEach(
@@ -193,10 +198,11 @@ public struct CaptureReviewView: View {
                             Text(diagnostic.code)
                                 .font(.headline)
                             Text(localizedDiagnosticMessage(diagnostic))
-                            Text(
-                                localizedSeverity(diagnostic.severity)
+                            CaptureStatusView(
+                                severityStatus(
+                                    diagnostic.severity
+                                )
                             )
-                                .font(.caption)
                         }
                     }
                 }
@@ -238,24 +244,22 @@ public struct CaptureReviewView: View {
             }
 
             Section("Bundle integrity") {
-                LabeledContent(
+                CaptureStatusContent(
                     "Quality record",
-                    value: localizedIntegrity(
+                    status: integrityStatus(
                         quality.integrityStatus
                     )
                 )
                 if let validation {
-                    LabeledContent(
+                    CaptureStatusContent(
                         "Validator",
-                        value: validation.valid
-                            ? String(localized: "Pass")
-                            : String(localized: "Fail")
+                        status: validation.valid
+                            ? .verified : .blocked
                     )
-                    LabeledContent(
+                    CaptureTechnicalDetail(
                         "Bundle digest",
                         value: validation.bundleDigest.description
                     )
-                    .textSelection(.enabled)
                 }
             }
         }
@@ -276,14 +280,16 @@ public struct CaptureReviewView: View {
             Text(title)
                 .font(.headline)
             if status.required.isEmpty {
+                CaptureStatusView(.unknown)
                 Text(
                     String(
                         localized: "No requirements configured"
                     )
                 )
             } else if status.missing.isEmpty {
-                Text(String(localized: "Complete"))
+                CaptureStatusView(.verified)
             } else {
+                CaptureStatusView(.incomplete)
                 Text(
                     String(
                         format: String(localized: "Missing: %@"),
@@ -337,8 +343,8 @@ public struct CaptureReviewView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(outcome.requirement.identifier)
                         .font(.caption.monospaced())
-                    Text(
-                        localizedTaskRequirementStatus(
+                    CaptureStatusView(
+                        taskRequirementStatus(
                             outcome.status
                         )
                     )
@@ -768,47 +774,24 @@ public struct CaptureReviewView: View {
         )
     }
 
-    private func localizedTrackingState(
-        _ state: TrackingQualityState,
-        reason: String?
-    ) -> String {
-        let base: String
-        switch state {
-        case .normal:
-            base = String(localized: "Normal")
-        case .limited:
-            base = String(localized: "Limited")
-        case .unavailable:
-            base = String(localized: "Unavailable")
-        }
-        if let reason, !reason.isEmpty {
-            return base + " (" + reason + ")"
-        }
-        return base
-    }
-
-    private func localizedTaskRequirementStatus(
+    private func taskRequirementStatus(
         _ status: CaptureTaskRequirementStatus
-    ) -> String {
+    ) -> CaptureSemanticStatus {
         switch status {
         case .satisfied:
-            return String(localized: "Satisfied")
+            return .verified
         case .partial:
-            return String(localized: "Partial")
+            return .incomplete
         case .missing:
-            return String(localized: "Missing")
+            return .blocked
         case .satisfiedByAlternative:
-            return String(
-                localized: "Satisfied by alternative"
-            )
+            return .derived
         case .skipped:
-            return String(localized: "Skipped")
+            return .skipped
         case .optionalAbsent:
-            return String(localized: "Optional — absent")
+            return .unknown
         case .overMaximum:
-            return String(
-                localized: "More than expected"
-            )
+            return .needsReview
         }
     }
 
@@ -835,46 +818,61 @@ public struct CaptureReviewView: View {
         }
     }
 
-    private func localizedRoomPlanStatus(
+    /// The frozen status vocabulary (#361) applied to the review
+    /// diagnostic surfaces.
+    private func roomPlanStatus(
         _ status: RoomPlanQualityStatus
-    ) -> String {
+    ) -> CaptureSemanticStatus {
         switch status {
         case .notStarted:
-            return String(localized: "Not started")
+            return .pending
         case .running:
-            return String(localized: "Running")
+            return .pending
         case .completed:
-            return String(localized: "Completed")
+            return .verified
         case .failed:
-            return String(localized: "Failed")
+            return .blocked
         case .unavailable:
-            return String(localized: "Unavailable")
+            return .unavailable
         }
     }
 
-    private func localizedIntegrity(
+    private func integrityStatus(
         _ status: BundleIntegrityStatus
-    ) -> String {
+    ) -> CaptureSemanticStatus {
         switch status {
         case .notChecked:
-            return String(localized: "Not checked")
+            return .pending
         case .pass:
-            return String(localized: "Pass")
+            return .verified
         case .fail:
-            return String(localized: "Fail")
+            return .blocked
         }
     }
 
-    private func localizedSeverity(
+    private func trackingStatus(
+        _ state: TrackingQualityState
+    ) -> CaptureSemanticStatus {
+        switch state {
+        case .normal:
+            return .ready
+        case .limited:
+            return .needsReview
+        case .unavailable:
+            return .blocked
+        }
+    }
+
+    private func severityStatus(
         _ severity: QualityDiagnosticSeverity
-    ) -> String {
+    ) -> CaptureSemanticStatus {
         switch severity {
         case .info:
-            return String(localized: "Info")
+            return .advisory
         case .warning:
-            return String(localized: "Warning")
+            return .needsReview
         case .error:
-            return String(localized: "Error")
+            return .blocked
         }
     }
 
@@ -965,7 +963,9 @@ public struct CaptureReviewView: View {
     private func localizedResourceWarningSummary(
         _ group: ResourceWarningGroup
     ) -> String {
-        let severity = localizedSeverity(group.event.severity)
+        let severity = severityStatus(
+            group.event.severity
+        ).localizedLabel
         if group.count > 1 {
             return String(
                 format: String(localized: "%@ (×%d)"),

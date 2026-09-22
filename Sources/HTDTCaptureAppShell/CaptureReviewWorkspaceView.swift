@@ -111,52 +111,39 @@ public struct CaptureReviewWorkspaceView: View {
     }
 
     public var body: some View {
-        List {
+        // #362: regular-width splits the capture's *visual* evidence
+        // (plan preview + frame gallery) from its *detail* rows; on
+        // compact width the same sections compose back into one list.
+        CaptureAdaptivePanes {
             if model.spatialCaptureSealed && !model.readOnly {
                 Section {
-                    Text(
-                        "Live spatial capture is sealed for finalization. Labels, roles, equipment, and scalar values can still be corrected; raycast placement, orientation capture, and additional scanning are unavailable."
+                    CaptureNotice(
+                        status: .advisory,
+                        title: "Spatial capture sealed",
+                        message:
+                            "Live spatial capture is sealed for finalization. Labels, roles, equipment, and scalar values can still be corrected; raycast placement, orientation capture, and additional scanning are unavailable."
                     )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .listRowSeparator(.hidden)
                 }
             }
 
-            Section("RoomPlan result") {
-                if let metadata = model.roomMetadata {
-                    LabeledContent(
-                        "Raw payload",
-                        value: metadata.rawPayloadPath
-                    )
-                    .font(.caption)
-                    LabeledContent(
-                        "Processed",
-                        value:
-                            metadata.processedPayloadPath ?? "—"
-                    )
-                    .font(.caption)
-                    if let summary = metadata.summary,
-                       let dims = summary.dimensionsMeters
-                    {
-                        LabeledContent(
-                            "Dimensions",
-                            value: String(
-                                format: "%.2f × %.2f × %.2f m",
-                                dims.xMeters,
-                                dims.yMeters,
-                                dims.zMeters
-                            )
-                        )
-                    }
-                } else {
-                    Text("No RoomPlan lineage in this capture")
-                        .foregroundStyle(.secondary)
-                }
+            Section("Plan preview") {
                 if let plan = model.planPreview {
                     RoomPlanPreviewCanvas(model: plan)
-                        .frame(height: 220)
+                        .frame(
+                            minHeight: 220,
+                            idealHeight: 300
+                        )
                         .accessibilityLabel(
                             "Room plan preview"
+                        )
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 8,
+                                leading: 0,
+                                bottom: 8,
+                                trailing: 0
+                            )
                         )
                 } else {
                     Text(
@@ -189,6 +176,36 @@ public struct CaptureReviewWorkspaceView: View {
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                }
+            }
+        } trailing: {
+            Section("RoomPlan result") {
+                if let metadata = model.roomMetadata {
+                    CaptureTechnicalDetail(
+                        "Raw payload",
+                        value: metadata.rawPayloadPath
+                    )
+                    CaptureTechnicalDetail(
+                        "Processed",
+                        value:
+                            metadata.processedPayloadPath ?? "—"
+                    )
+                    if let summary = metadata.summary,
+                       let dims = summary.dimensionsMeters
+                    {
+                        LabeledContent(
+                            "Dimensions",
+                            value: String(
+                                format: "%.2f × %.2f × %.2f m",
+                                dims.xMeters,
+                                dims.yMeters,
+                                dims.zMeters
+                            )
+                        )
+                    }
+                } else {
+                    Text("No RoomPlan lineage in this capture")
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -976,11 +993,13 @@ public struct CaptureReviewWorkspaceView: View {
         _ item: ReviewEvidenceItem
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(item.frameID.description)
-                .font(.caption.monospaced())
+            CaptureTechnicalText(item.frameID.description)
             LabeledContent(
                 "Bytes",
-                value: String(item.byteCount)
+                value: ByteCountFormatter.string(
+                    fromByteCount: item.byteCount,
+                    countStyle: .file
+                )
             )
             LabeledContent(
                 "Kept because",
