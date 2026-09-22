@@ -840,6 +840,92 @@ enum BundleReservedPaths {
                     role: .canonical
                 )
             ),
+            // Typed field evidence (issues #300/#314): dedicated
+            // close-up photos captured for a record live under
+            // `evidence/field/captured/`, imported documents/photos
+            // under `evidence/field/imported/`. The directory split
+            // pins provenance by path alone — a captured asset can
+            // never masquerade as an imported external document.
+            (
+                "evidence/field/captured",
+                ".heic",
+                Binding(
+                    mediaType: "image/heic",
+                    producer: "field_evidence_capture",
+                    provenanceClass: .captureAppDerived,
+                    role: .canonical
+                )
+            ),
+            (
+                "evidence/field/captured",
+                ".jpg",
+                Binding(
+                    mediaType: "image/jpeg",
+                    producer: "field_evidence_capture",
+                    provenanceClass: .captureAppDerived,
+                    role: .canonical
+                )
+            ),
+            (
+                "evidence/field/captured",
+                ".png",
+                Binding(
+                    mediaType: "image/png",
+                    producer: "field_evidence_capture",
+                    provenanceClass: .captureAppDerived,
+                    role: .canonical
+                )
+            ),
+            (
+                "evidence/field/imported",
+                ".heic",
+                Binding(
+                    mediaType: "image/heic",
+                    producer: "field_evidence_import",
+                    provenanceClass: .importedReference,
+                    role: .canonical
+                )
+            ),
+            (
+                "evidence/field/imported",
+                ".jpg",
+                Binding(
+                    mediaType: "image/jpeg",
+                    producer: "field_evidence_import",
+                    provenanceClass: .importedReference,
+                    role: .canonical
+                )
+            ),
+            (
+                "evidence/field/imported",
+                ".png",
+                Binding(
+                    mediaType: "image/png",
+                    producer: "field_evidence_import",
+                    provenanceClass: .importedReference,
+                    role: .canonical
+                )
+            ),
+            (
+                "evidence/field/imported",
+                ".pdf",
+                Binding(
+                    mediaType: "application/pdf",
+                    producer: "field_evidence_import",
+                    provenanceClass: .importedReference,
+                    role: .canonical
+                )
+            ),
+            (
+                "evidence/field/imported",
+                ".bin",
+                Binding(
+                    mediaType: "application/octet-stream",
+                    producer: "field_evidence_import",
+                    provenanceClass: .importedReference,
+                    role: .canonical
+                )
+            ),
         ]
 
     static let unrestrictedProvenanceClasses:
