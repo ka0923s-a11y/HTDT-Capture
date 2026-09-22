@@ -28,6 +28,11 @@ public enum CaptureTaskPlanError: Error, Sendable, Equatable {
     /// A fulfillment binding does not name a canonical record id
     /// (#354).
     case invalidFulfillmentLink
+    /// A fulfillment binding does not match the item's declared kind,
+    /// subtype, or target — or points at a record/evidence ref that
+    /// does not exist, or shares one record across tasks without an
+    /// explicit `allow_shared_fulfillment` on both items.
+    case fulfillmentMismatch
 }
 
 /// The record kind a plan item's fulfillment link may name (#354).
@@ -61,13 +66,6 @@ public struct TaskFulfillmentLink: Codable, Sendable, Equatable {
         case recordKind = "record_kind"
         case recordID = "record_id"
     }
-    /// A fulfillment binding does not match the item's declared kind,
-    /// subtype, or target — or points at a record/evidence ref that
-    /// does not exist, or shares one record across tasks without an
-    /// explicit `allow_shared_fulfillment` on both items.
-    case fulfillmentMismatch
-    /// The item is not a kind that accepts this fulfillment payload.
-    case fulfillmentKindMismatch
 }
 
 /// One entity the plan asks the operator to place (issue #240). The
@@ -820,11 +818,7 @@ public struct CaptureTaskPlanStatusDocument: Codable, Sendable,
         public init(
             itemID: String,
             outcome: TaskPlanItemOutcome,
-            fulfillment: TaskFulfillmentLink? = nil
-        ) {
-        public init(
-            itemID: String,
-            outcome: TaskPlanItemOutcome,
+            fulfillment: TaskFulfillmentLink? = nil,
             fulfillmentRef: String? = nil
         ) {
             self.itemID = itemID
@@ -837,6 +831,7 @@ public struct CaptureTaskPlanStatusDocument: Codable, Sendable,
             case itemID = "item_id"
             case outcome
             case fulfillment
+            case fulfillmentRef = "fulfillment_ref"
         }
 
         public init(from decoder: Decoder) throws {
@@ -855,25 +850,25 @@ public struct CaptureTaskPlanStatusDocument: Codable, Sendable,
                 fulfillment: container.decodeIfPresent(
                     TaskFulfillmentLink.self,
                     forKey: .fulfillment
+                ),
+                fulfillmentRef: container.decodeIfPresent(
+                    String.self,
+                    forKey: .fulfillmentRef
                 )
             )
-            case fulfillmentRef = "fulfillment_ref"
         }
     }
 
     public static let schema = "htdt.capture-task-plan-status"
-    /// The payload version this build emits (#332): v1.1.0 adds the
-    /// typed `fulfillment` link per item (#354).
-    public static let schemaVersion = "1.1.0"
-    /// Every payload version this build can decode (#332): v1.0.0
-    /// documents carry outcomes without fulfillment links.
-    public static let supportedSchemaVersions: [String] = [
-        "1.0.0", "1.1.0",
-    ]
-    /// Emitted since the #359 contract: v1 documents still decode
-    /// (their items carry no `fulfillment_ref`).
+    /// The payload version this build emits: v1.1.0 adds the typed
+    /// `fulfillment` link (#354); v2.0.0 adds `fulfillment_ref` (#359).
     public static let schemaVersion = "2.0.0"
-    public static let supportedSchemaVersions = ["1.0.0", "2.0.0"]
+    /// Every payload version this build can decode: v1.0.0 documents
+    /// carry outcomes without fulfillment fields, v1.1.0 adds the
+    /// typed link, v2.0.0 adds the identity string.
+    public static let supportedSchemaVersions: [String] = [
+        "1.0.0", "1.1.0", "2.0.0",
+    ]
     public static let path = "session/task-plan-status.json"
 
     public let schema: String
@@ -989,6 +984,7 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
         self.planImport = planImport
         self.explicitMarks = [:]
         self.bindings = [:]
+        self.fulfillments = [:]
     }
 
     /// Bind a plan item to the exact entity record fulfilling it

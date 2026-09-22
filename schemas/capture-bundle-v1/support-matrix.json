@@ -248,12 +248,14 @@
       ],
       "documents": {
         "1.0.0": "task-plan-status-1.0.0",
-        "1.1.0": "task-plan-status-1.1.0"
+        "1.1.0": "task-plan-status-1.1.0",
+        "2.0.0": "task-plan-status-2.0.0"
       },
-      "emitted": "1.1.0",
+      "emitted": "2.0.0",
       "read": [
         "1.0.0",
-        "1.1.0"
+        "1.1.0",
+        "2.0.0"
       ]
     },
     "derived-geometry-candidates": {
@@ -336,7 +338,7 @@
       "documents": {},
       "emitted": null,
       "read": [],
-      "description": "Opaque Apple RoomPlan authority payloads — governed by media type, canonical-bytes and raw-lineage binding, not a project-owned schema."
+      "description": "Opaque Apple RoomPlan authority payloads \u2014 governed by media type, canonical-bytes and raw-lineage binding, not a project-owned schema."
     },
     "authority-dependencies": {
       "schema_id": "htdt.capture.authority-dependencies",
