@@ -952,6 +952,11 @@ public struct CaptureRootView: View {
     public let reviewWorkspace: CaptureReviewWorkspaceModel?
     /// Read-only persisted workspace (#294).
     public let persistedWorkspace: CaptureReviewWorkspaceModel?
+    /// RoomPlan bindables decoded from the persisted bundle
+    /// (#408/#409) — drive the read-only 3D scene and survey
+    /// targets on the persisted workspace.
+    public let persistedWorkspaceRoomPlanObjects:
+        [RoomPlanBindableObject]
     /// First captured room-frame point pending the front point
     /// (#232).
     public let roomFrameOriginPending: WorldPoint3D?
@@ -1147,6 +1152,8 @@ public struct CaptureRootView: View {
                 = PersistedCaptureInventoryResult(),
         reviewWorkspace: CaptureReviewWorkspaceModel? = nil,
         persistedWorkspace: CaptureReviewWorkspaceModel? = nil,
+        persistedWorkspaceRoomPlanObjects:
+            [RoomPlanBindableObject] = [],
         roomFrameOriginPending: WorldPoint3D? = nil,
         openingCenterPending: WorldPoint3D? = nil,
         danglingSpatialIssues: [SpatialEvidenceIssue] = [],
@@ -1259,6 +1266,8 @@ public struct CaptureRootView: View {
         self.persistedInventory = persistedInventory
         self.reviewWorkspace = reviewWorkspace
         self.persistedWorkspace = persistedWorkspace
+        self.persistedWorkspaceRoomPlanObjects =
+            persistedWorkspaceRoomPlanObjects
         self.roomFrameOriginPending = roomFrameOriginPending
         self.openingCenterPending = openingCenterPending
         self.danglingSpatialIssues = danglingSpatialIssues
@@ -1386,6 +1395,8 @@ public struct CaptureRootView: View {
                     libraryImportPreview: libraryImportPreview,
                     libraryExportURL: libraryExportURL,
                     persistedWorkspace: persistedWorkspace,
+                    persistedWorkspaceRoomPlanObjects:
+                        persistedWorkspaceRoomPlanObjects,
                     handoffReceipts: handoffReceipts,
                     captureOrigins: captureOrigins,
                     missionRecords: missionRecords,
@@ -1808,7 +1819,9 @@ public struct CaptureRootView: View {
                                 actions.bindFieldNote,
                             flagEvidenceFrameForPrivacy:
                                 actions
-                                    .flagEvidenceFrameForPrivacy
+                                    .flagEvidenceFrameForPrivacy,
+                            roomPlanObjects:
+                                annotationRoomPlanObjects
                         )
                     } else {
                         ProgressView("Loading workspace…")
