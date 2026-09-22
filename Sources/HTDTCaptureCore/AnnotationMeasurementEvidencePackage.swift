@@ -46,6 +46,7 @@ public enum AnnotationEvidencePackageBuilder {
     /// explicitly rather than silently replacing it (#267).
     public static func build(
         entities: [CaptureAnnotationEntity],
+        relations: [CaptureSemanticRelation] = [],
         priorEntities: [CaptureAnnotationEntity]? = nil,
         revisedAt now: Date = Date()
     ) throws -> AnnotationEvidencePackage {
@@ -69,7 +70,8 @@ public enum AnnotationEvidencePackageBuilder {
             $0.entityID.description < $1.entityID.description
         }
         let collection = try CaptureAnnotationCollection(
-            entities: sorted
+            entities: sorted,
+            relations: relations
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
