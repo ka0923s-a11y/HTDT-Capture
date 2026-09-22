@@ -92,6 +92,10 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         speakerLayoutPlan = try container.decodeIfPresent(
             SpeakerLayoutPlan.self, forKey: .speakerLayoutPlan
         )
+        theaterAuthorities = try container.decodeIfPresent(
+            TheaterAuthorityCollection.self,
+            forKey: .theaterAuthorities
+        )
         fieldAuthority = try container.decodeIfPresent(
             FieldAuthorityWorkspace.self,
             forKey: .fieldAuthority
