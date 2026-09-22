@@ -445,11 +445,23 @@ public struct SpeakerLayoutFlowView: View {
                         return .directPlacement
                     }
                 }
+            // Profile-bound plan roles (#315): entities record the
+            // exact {profile_id, profile_version, role_id} binding
+            // alongside the physical channel token.
+            let roleBinding = try plan.profileIdentity.map {
+                identity in
+                try SpeakerRoleBinding(
+                    profileID: identity.profileID,
+                    profileVersion: identity.profileVersion,
+                    roleID: role.roleID
+                )
+            }
             let entity = try seed.buildEntity(
                 coordinateSpaceID: coordinateSpaceID,
                 type: role.isSubwoofer ? .subwoofer : .speaker,
                 label: label.isEmpty ? role.displayName : label,
                 channelRole: role.channelRole,
+                roleBinding: roleBinding,
                 equipmentRef: equipment,
                 yawDegrees: nil,
                 referencePointConstruction: construction,
