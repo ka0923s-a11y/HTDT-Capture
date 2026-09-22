@@ -465,11 +465,15 @@ public struct CaptureRootView: View {
     @State private var importingCaptureArchive = false
     @State private var confirmingDiscard = false
     @State private var reviewWorkspaceShown = false
+    @State private var persistedViewerShown = false
     @State private var handoffDestinationsShown = false
     @State private var shareArchiveForHandoff = false
     @State private var revisionComparison:
         CaptureRevisionComparison?
     @State private var comparisonLoading = false
+    @State private var metadataEditorTarget:
+        LibraryMetadataEditorTarget?
+    @State private var libraryQuery = ""
     @State private var diagnosticShareURL: URL?
 
     public init(
