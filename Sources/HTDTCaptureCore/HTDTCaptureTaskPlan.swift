@@ -482,6 +482,11 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
     public let expectedChannelRoles: [ChannelRole]
     /// Equipment catalog snapshot/reference supplied with the plan.
     public let equipmentCatalog: HTDTEquipmentCatalogSnapshot?
+    /// Optional exact layout profile the plan supplies (#315): the
+    /// versioned role vocabulary bindings resolve against and the
+    /// completeness requirements evaluate from. Nil plans keep the
+    /// legacy `expected_channel_roles` behavior.
+    public let layoutProfile: SpeakerLayoutProfile?
     /// Theater-semantic authority tasks the plan requests (#359).
     public let semanticTasks: [HTDTTaskPlanSemanticItem]
     /// Stable-id evidence tasks the plan requests (#359).
@@ -499,6 +504,7 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
         evidenceTargets: [String] = [],
         expectedChannelRoles: [ChannelRole] = [],
         equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil,
+        layoutProfile: SpeakerLayoutProfile? = nil,
         semanticTasks: [HTDTTaskPlanSemanticItem] = [],
         evidenceTasks: [HTDTTaskPlanEvidenceItem] = [],
         schemaVersion: String = HTDTCaptureTaskPlan.schemaVersion
@@ -571,6 +577,7 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
         self.evidenceTargets = normalizedEvidenceTargets
         self.expectedChannelRoles = expectedChannelRoles
         self.equipmentCatalog = equipmentCatalog
+        self.layoutProfile = layoutProfile
         self.semanticTasks = semanticTasks
         self.evidenceTasks = evidenceTasks
     }
@@ -597,6 +604,7 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
         case evidenceTargets = "evidence_targets"
         case expectedChannelRoles = "expected_channel_roles"
         case equipmentCatalog = "equipment_catalog"
+        case layoutProfile = "layout_profile"
         case semanticTasks = "semantic_tasks"
         case evidenceTasks = "evidence_tasks"
     }
@@ -658,6 +666,10 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
                 HTDTEquipmentCatalogSnapshot.self,
                 forKey: .equipmentCatalog
             ),
+            layoutProfile: container.decodeIfPresent(
+                SpeakerLayoutProfile.self,
+                forKey: .layoutProfile
+            ),
             semanticTasks: container.decodeIfPresent(
                 [HTDTTaskPlanSemanticItem].self,
                 forKey: .semanticTasks
@@ -668,6 +680,60 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
             ) ?? [],
             schemaVersion: schemaVersion
         )
+    }
+}
+
+/// Result of comparing an imported plan's pinned equipment catalog
+/// against the catalog currently adopted on this device (#302).
+///
+/// A plan that carries an `equipment_catalog` snapshot demands that
+/// exact catalog — matched by semantic content digest, never by label.
+/// A mismatched or absent active catalog is reported so the operator
+/// can switch deliberately instead of unknowingly selecting
+/// definitions from a stale or unrelated last-used catalog.
+public enum EquipmentCatalogRequirement: Sendable, Equatable {
+    /// The plan does not pin a catalog; any selection context is fine.
+    case notRequired
+    /// The active catalog's content digest equals the pinned digest.
+    case satisfied
+    /// The plan pins a catalog but none is adopted on this device.
+    case missingCatalog(pinnedSHA256: EvidenceSHA256)
+    /// The plan pins a catalog whose content digest differs from the
+    /// adopted catalog's — an explicit switch/import is required.
+    case mismatchedCatalog(
+        pinnedSHA256: EvidenceSHA256,
+        activeSHA256: EvidenceSHA256
+    )
+
+    /// Whether selections made under the current catalog satisfy the
+    /// plan's pin. `satisfied`/`notRequired` are fine; the other cases
+    /// must be visibly surfaced.
+    public var isSatisfied: Bool {
+        switch self {
+        case .notRequired, .satisfied:
+            return true
+        case .missingCatalog, .mismatchedCatalog:
+            return false
+        }
+    }
+
+    public static func check(
+        plan: HTDTCaptureTaskPlan?,
+        activeCatalog: HTDTEquipmentCatalogSnapshot?
+    ) -> EquipmentCatalogRequirement {
+        guard let pinned = plan?.equipmentCatalog else {
+            return .notRequired
+        }
+        let pinnedDigest = pinned.contentSHA256
+        guard let activeCatalog else {
+            return .missingCatalog(pinnedSHA256: pinnedDigest)
+        }
+        return activeCatalog.contentSHA256 == pinnedDigest
+            ? .satisfied
+            : .mismatchedCatalog(
+                pinnedSHA256: pinnedDigest,
+                activeSHA256: activeCatalog.contentSHA256
+            )
     }
 }
 
