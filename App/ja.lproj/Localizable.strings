@@ -2676,3 +2676,12 @@
 "reference targets" = "参照ターゲット";
 "shared field datum" = "共有フィールド原点";
 "rigid" = "剛体";
+
+// #399 audit follow-up: unit symbols and mission/checklist identifiers.
+"m" = "m";
+"rad" = "rad";
+"s" = "s";
+"°C" = "°C";
+"%" = "%";
+"Plan %@ v%@" = "プラン %@ v%@";
+"%@ · %@ · Plan %@ v%@" = "%@ · %@ · プラン %@ v%@";
