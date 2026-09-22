@@ -179,10 +179,9 @@ public struct HTDTIngestionResponse: Codable, Sendable, Equatable {
         ingestionOutcome: String,
         captureRevisionID: String,
         bundleDigest: String,
+        stagingRef: String? = nil,
         detail: String? = nil,
         repairTaskPlan: HTDTRepairTaskPlan? = nil
-        stagingRef: String? = nil,
-        detail: String? = nil
     ) {
         self.ingestionOutcome = ingestionOutcome
         self.captureRevisionID = captureRevisionID

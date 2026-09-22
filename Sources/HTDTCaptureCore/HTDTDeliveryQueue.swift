@@ -581,7 +581,7 @@ public struct HTDTDeliveryQueue: Sendable {
     public func processDueJobs(
         receiptStore: HTDTHandoffReceiptStore? = nil,
         nowUTC: String = BundleTimestamp.utcString(from: Date()),
-        onRepairPlan: ((HTDTRepairTaskPlan, String?) -> Void)? = nil
+        onRepairPlan: (@Sendable (HTDTRepairTaskPlan, String?) -> Void)? = nil
     ) async -> [HTDTDeliveryJob] {
         var document: Document
         do {

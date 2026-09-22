@@ -5741,10 +5741,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 let jobs = await queue.processDueJobs(
                     receiptStore: receiptStore,
                     onRepairPlan: { plan, receiptID in
-                        self.recordRepairTaskPlan(
-                            plan,
-                            receiptID: receiptID ?? ""
-                        )
+                        Task { @MainActor in
+                            self.recordRepairTaskPlan(
+                                plan,
+                                receiptID: receiptID ?? ""
+                            )
+                        }
                     }
                 )
                 deliveryJobs = jobs
