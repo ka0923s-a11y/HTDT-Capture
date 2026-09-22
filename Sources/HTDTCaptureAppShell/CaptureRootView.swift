@@ -417,102 +417,6 @@ public struct CaptureRootActions {
     }
 }
 
-/// The pending delete-local-capture confirmation: which validated
-/// revision is selected and whether its canonical export slot exists.
-private struct PendingCaptureDeletion {
-    let revisionID: CaptureRevisionID
-    let includesExport: Bool
-}
-
-/// Identifiable target for the library-metadata editor sheet (#219):
-/// exactly one of `revisionID`/`seriesID` is set.
-private struct LibraryMetadataEditorTarget: Identifiable {
-    let revisionID: CaptureRevisionID?
-    let seriesID: CaptureSeriesID?
-    var id: String {
-        revisionID?.description
-            ?? seriesID?.description
-            ?? "editor"
-    }
-}
-
-/// Edits an operator-facing name + note for a capture revision or a
-/// whole series (#219). App-local metadata only — the capture bundle
-/// on disk is never touched.
-private struct LibraryMetadataEditor: View {
-    let revisionID: CaptureRevisionID?
-    let seriesID: CaptureSeriesID?
-    let document: CaptureLibraryMetadataDocument
-    let onSave:
-        (CaptureRevisionID?, CaptureSeriesID?,
-         CaptureLibraryEntryMetadata) -> Void
-
-    @State private var displayName: String
-    @State private var note: String
-    @Environment(\.dismiss) private var dismiss
-
-    init(
-        revisionID: CaptureRevisionID?,
-        seriesID: CaptureSeriesID?,
-        document: CaptureLibraryMetadataDocument,
-        onSave: @escaping (
-            CaptureRevisionID?,
-            CaptureSeriesID?,
-            CaptureLibraryEntryMetadata
-        ) -> Void
-    ) {
-        self.revisionID = revisionID
-        self.seriesID = seriesID
-        self.document = document
-        self.onSave = onSave
-        let existing = revisionID.flatMap {
-            document.revisions[$0.description]
-        } ?? seriesID.flatMap {
-            document.series[$0.description]
-        }
-        _displayName = State(
-            initialValue: existing?.displayName ?? ""
-        )
-        _note = State(
-            initialValue: existing?.note ?? ""
-        )
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                TextField("Room or project name", text: $displayName)
-                TextField(
-                    "Notes",
-                    text: $note,
-                    axis: .vertical
-                )
-            }
-            .navigationTitle("Capture details")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        onSave(
-                            revisionID,
-                            seriesID,
-                            CaptureLibraryEntryMetadata(
-                                displayName: displayName.isEmpty
-                                    ? nil
-                                    : displayName,
-                                note: note.isEmpty ? nil : note
-                            )
-                        )
-                        dismiss()
-                    }
-                }
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
-        }
-    }
-}
-
 #if os(iOS)
 /// The system share sheet used for the share-destination HTDT
 /// handoff (#225): presenting it and completing the share is the
@@ -897,6 +801,18 @@ public struct CaptureRootView: View {
                         actions.setScanMovementCapability,
                     endScan: actions.beginReview
                 )
+            } else if state == .idle {
+                // #360/#362: capture-first home + series-first
+                // library. NavigationSplitView collapses to the push
+                // stack on compact width and splits on regular width.
+                CaptureHomeView(
+                    capabilities: capabilities,
+                    cameraPermission: cameraPermission,
+                    persistedInventory: persistedInventory,
+                    libraryMetadata: libraryMetadata,
+                    persistedWorkspace: persistedWorkspace,
+                    actions: actions
+                )
             } else {
                 NavigationStack {
             if state == .setup,
@@ -986,63 +902,67 @@ public struct CaptureRootView: View {
                 .navigationTitle("Capture authority")
             } else {
                 List {
-                Section("Capture") {
-                    LabeledContent(
-                        "State",
-                        value: localizedState(state)
+                Section {
+                    CaptureTaskHeader(
+                        LocalizedStringKey(localizedState(state)),
+                        status: captureStateStatus(state)
                     )
-                    if let cameraPermission {
-                        LabeledContent(
-                            "Camera permission",
-                            value: localizedPermission(
-                                cameraPermission
-                            )
-                        )
-                    }
                     if let workingSetStatus {
-                        LabeledContent(
-                            "Working set",
-                            value: workingSetStatus
-                        )
-                    }
-                    if let lastFailure {
-                        LabeledContent(
-                            "Failure",
-                            value: localizedFailure(lastFailure)
-                        )
-                    }
-                    if let identity = workingSetIdentity,
-                       let parent = identity.parentRevisionID
-                    {
-                        LabeledContent(
-                            "Series",
-                            value: identity
-                                .captureSeriesID.description
-                        )
-                        LabeledContent(
-                            "Revises",
-                            value: parent.description
-                        )
+                        Text(workingSetStatus)
+                            .font(
+                                CaptureDesign.Typography
+                                    .secondary
+                            )
+                            .foregroundStyle(.secondary)
                     }
                 }
 
-                Section("Capabilities") {
-                    LabeledContent(
-                        "RoomPlan + mesh",
-                        value: localizedAvailability(
-                            capabilities.roomPlanMeshEligible
+                if state == .failed,
+                   let lastFailure
+                {
+                    Section {
+                        CaptureNotice(
+                            status: .blocked,
+                            title: LocalizedStringKey(
+                                failureReasonText(lastFailure)
+                            ),
+                            message: LocalizedStringKey(
+                                failureRecoveryText(lastFailure)
+                            )
                         )
-                    )
-                    LabeledContent(
-                        "Scene depth",
-                        value: localizedAvailability(
-                            capabilities.sceneDepthSupported
+                        .listRowSeparator(.hidden)
+                    }
+                }
+
+                if let lastFailure {
+                    Section("Details") {
+                        CaptureTechnicalDetail(
+                            "Failure code",
+                            value: lastFailure.rawValue
                         )
-                    )
-                    if capabilities.requiresCombinedFeatureProbe {
-                        Text(
-                            "Combined RoomPlan/depth behavior still requires physical-device verification."
-                        )
+                        if let cameraPermission {
+                            CaptureTechnicalDetail(
+                                "Camera permission",
+                                value: cameraPermission
+                                    .rawValue
+                            )
+                        }
+                        if let identity = workingSetIdentity {
+                            CaptureTechnicalDetail(
+                                "Series",
+                                value: identity
+                                    .captureSeriesID
+                                    .description
+                            )
+                            if let parent =
+                                identity.parentRevisionID
+                            {
+                                CaptureTechnicalDetail(
+                                    "Revises",
+                                    value: parent.description
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -1051,20 +971,8 @@ public struct CaptureRootView: View {
                 }
 
                 if state == .failed,
-                   let lastFailure
+                   lastFailure != nil
                 {
-                    Section("Recovery") {
-                        Text(
-                            failureReasonText(lastFailure)
-                        )
-                        .font(.headline)
-
-                        Text(
-                            failureRecoveryText(lastFailure)
-                        )
-                        .foregroundStyle(.secondary)
-                    }
-
                     if let failedInspection {
                         failedInspectionSection(
                             failedInspection
@@ -1095,15 +1003,16 @@ public struct CaptureRootView: View {
                    let qualityReport
                 {
                     Section("Quality") {
-                        LabeledContent(
+                        CaptureStatusContent(
                             "HTDT ingestion",
-                            value: localizedReadiness(
-                                qualityReport.readyForHTDTIngestion
-                            )
+                            status: qualityReport
+                                .readyForHTDTIngestion
+                                ? .ready
+                                : .incomplete
                         )
-                        LabeledContent(
+                        CaptureStatusContent(
                             "Integrity preflight",
-                            value: localizedIntegrity(
+                            status: integrityStatus(
                                 qualityReport.integrityStatus
                             )
                         )
@@ -1127,30 +1036,13 @@ public struct CaptureRootView: View {
                 if (state == .finalized || state == .exported),
                    let validationReport
                 {
-                    Section("Finalized bundle") {
-                        LabeledContent(
+                    Section {
+                        CaptureStatusContent(
                             "Validator",
-                            value: localizedPassFail(
-                                validationReport.valid
-                            )
+                            status: validationReport.valid
+                                ? .verified
+                                : .blocked
                         )
-                        Text(validationReport.bundleDigest.description)
-                            .font(.caption.monospaced())
-                            .textSelection(.enabled)
-                        LabeledContent(
-                            "Series",
-                            value: validationReport.manifest
-                                .captureSeriesID.description
-                        )
-                        if let parent =
-                            validationReport.manifest
-                                .parentRevisionID
-                        {
-                            LabeledContent(
-                                "Revises",
-                                value: parent.description
-                            )
-                        }
                         if let qualityReport {
                             NavigationLink(
                                 "Review finalized capture"
@@ -1211,12 +1103,36 @@ public struct CaptureRootView: View {
                                 .orphanedWorkingArtifacts
                         ) { orphan in
                             workingOrphanRow(orphan)
+                    } header: {
+                        Text("Finalized bundle")
+                    } footer: {
+                        VStack(
+                            alignment: .leading,
+                            spacing: CaptureDesign.Spacing.micro
+                        ) {
+                            CaptureTechnicalText(
+                                validationReport.bundleDigest
+                                    .description
+                            )
+                            CaptureTechnicalText(
+                                validationReport.manifest
+                                    .captureSeriesID
+                                    .description
+                            )
+                            if let parent =
+                                validationReport.manifest
+                                    .parentRevisionID
+                            {
+                                CaptureTechnicalText(
+                                    String(
+                                        format: String(
+                                            localized: "Revises %@"
+                                        ),
+                                        parent.description
+                                    )
+                                )
+                            }
                         }
-                        Text(
-                            "Left by an interrupted capture. It is never resumed as an active scan and can be safely deleted."
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -1253,17 +1169,6 @@ public struct CaptureRootView: View {
                         )
                     } else {
                         ProgressView("Loading workspace…")
-                    }
-                }
-                .navigationDestination(
-                    isPresented: $persistedViewerShown
-                ) {
-                    if let persistedWorkspace {
-                        CaptureReviewWorkspaceView(
-                            model: persistedWorkspace
-                        )
-                    } else {
-                        ProgressView("Loading capture…")
                     }
                 }
                 .confirmationDialog(
@@ -1409,14 +1314,6 @@ public struct CaptureRootView: View {
                             "Revision comparison"
                         )
                     }
-                }
-                .sheet(item: $metadataEditorTarget) { target in
-                    LibraryMetadataEditor(
-                        revisionID: target.revisionID,
-                        seriesID: target.seriesID,
-                        document: libraryMetadata,
-                        onSave: actions.updateLibraryEntry
-                    )
                 }
                 .confirmationDialog(
                     "Delete local capture?",
@@ -2445,43 +2342,43 @@ public struct CaptureRootView: View {
         }
     }
 
-    private func localizedPermission(
-        _ status: CameraPermissionStatus
-    ) -> String {
-        switch status {
-        case .notDetermined:
-            return String(localized: "Not determined")
-        case .authorized:
-            return String(localized: "Authorized")
-        case .denied:
-            return String(localized: "Denied")
-        case .restricted:
-            return String(localized: "Restricted")
-        case .unavailable:
-            return String(localized: "Unavailable")
+    /// Maps the capture state onto the frozen status vocabulary
+    /// (#361/#364): every screen reports state through the same
+    /// symbol+label.
+    private func captureStateStatus(
+        _ state: CaptureState
+    ) -> CaptureSemanticStatus {
+        switch state {
+        case .idle, .setup, .capabilityCheck, .permissions,
+             .preparing:
+            return .pending
+        case .scanning, .annotating:
+            return .pending
+        case .paused:
+            return .pending
+        case .reviewing:
+            return .needsReview
+        case .validating:
+            return .pending
+        case .finalized:
+            return .finalized
+        case .exported:
+            return .verified
+        case .failed:
+            return .blocked
         }
     }
 
-    private func localizedFailure(_ failure: CaptureFailureCode) -> String {
-        switch failure {
-        case .permissionDenied:
-            return String(localized: "Permission denied")
-        case .unsupportedDevice:
-            return String(localized: "Unsupported device")
-        case .trackingUnavailable:
-            return String(localized: "Tracking unavailable")
-        case .roomPlanFailure:
-            return String(localized: "RoomPlan failure")
-        case .storagePressure:
-            return String(localized: "Storage pressure")
-        case .persistenceFailure:
-            return String(localized: "Persistence failure")
-        case .thermalPressure:
-            return String(localized: "Thermal pressure")
-        case .interrupted:
-            return String(localized: "Interrupted")
-        case .unknown:
-            return String(localized: "Unknown error")
+    private func integrityStatus(
+        _ status: BundleIntegrityStatus
+    ) -> CaptureSemanticStatus {
+        switch status {
+        case .notChecked:
+            return .pending
+        case .pass:
+            return .verified
+        case .fail:
+            return .blocked
         }
     }
 

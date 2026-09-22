@@ -44,6 +44,21 @@ public struct EvidenceFramePickerView: View {
         var id: String { frame.id }
     }
     @State private var inspectTarget: InspectTarget?
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass)
+    private var horizontalSizeClass
+    #endif
+
+    /// #362: regular width renders the frames as a browsing grid
+    /// (bigger thumbnails, tap to select, eye for the full preview);
+    /// compact width keeps the dense row list.
+    private var usesGrid: Bool {
+        #if os(iOS)
+        return horizontalSizeClass == .regular
+        #else
+        return false
+        #endif
+    }
 
     public init(
         frames: [EvidenceFramePresentation],
@@ -59,8 +74,27 @@ public struct EvidenceFramePickerView: View {
         Section(
             String(localized: "Linked evidence frames")
         ) {
-            ForEach(frames) { frame in
-                row(for: frame)
+            if usesGrid {
+                LazyVGrid(
+                    columns: [
+                        GridItem(
+                            .adaptive(minimum: 170),
+                            spacing: CaptureDesign.Spacing
+                                .group
+                        ),
+                    ],
+                    spacing: CaptureDesign.Spacing.group
+                ) {
+                    ForEach(frames) { frame in
+                        gridCard(for: frame)
+                    }
+                }
+                .padding(.vertical,
+                         CaptureDesign.Spacing.micro)
+            } else {
+                ForEach(frames) { frame in
+                    row(for: frame)
+                }
             }
             ForEach(remainingRefs, id: \.self) { ref in
                 textRow(for: ref)
@@ -145,6 +179,103 @@ public struct EvidenceFramePickerView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    /// One regular-width grid cell: large thumbnail, caption, the
+    /// selection badge, and an eye button for the detail preview.
+    @ViewBuilder
+    private func gridCard(
+        for frame: EvidenceFramePresentation
+    ) -> some View {
+        let selected = selectedRefs.contains(frame.reference)
+        Button {
+            if selected {
+                selectedRefs.remove(frame.reference)
+            } else {
+                selectedRefs.insert(frame.reference)
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                ZStack(alignment: .topTrailing) {
+                    gridThumbnail(for: frame)
+                    Image(
+                        systemName: selected
+                            ? "checkmark.circle.fill"
+                            : "circle"
+                    )
+                    .foregroundStyle(
+                        selected
+                            ? Color.accentColor
+                            : .secondary
+                    )
+                    .padding(6)
+                }
+                HStack(spacing: 6) {
+                    Text(frame.retentionKind.displayName)
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Spacer()
+                    Button {
+                        inspectTarget = InspectTarget(
+                            frame: frame
+                        )
+                    } label: {
+                        Image(systemName: "eye")
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func gridThumbnail(
+        for frame: EvidenceFramePresentation
+    ) -> some View {
+        #if canImport(UIKit)
+        if let url = frame.previewFileURL,
+           let image = UIImage(contentsOfFile: url.path)
+        {
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: 110,
+                    maxHeight: 110
+                )
+                .clipShape(
+                    RoundedRectangle(cornerRadius: 8)
+                )
+        } else {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.secondary.opacity(0.15))
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: 110,
+                    maxHeight: 110
+                )
+                .overlay(
+                    Image(systemName: "photo")
+                        .foregroundStyle(.secondary)
+                )
+        }
+        #else
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color.secondary.opacity(0.15))
+            .frame(
+                maxWidth: .infinity,
+                minHeight: 110,
+                maxHeight: 110
+            )
+            .overlay(
+                Image(systemName: "photo")
+                    .foregroundStyle(.secondary)
+            )
+        #endif
     }
 
     @ViewBuilder
