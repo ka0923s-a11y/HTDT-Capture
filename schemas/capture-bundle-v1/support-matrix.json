@@ -353,6 +353,20 @@
         "1.0.0"
       ]
     },
+    "working-revision-state": {
+      "schema_id": "htdt.working-revision-state",
+      "paths": [
+        "session/revision-state.json"
+      ],
+      "documents": {
+        "1.0.0": "working-revision-state"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ],
+      "description": "Durable working-revision lifecycle marker carried into finalized bundles as provenance (issue #297)."
+    },
     "capture-strategy": {
       "schema_id": "htdt.capture.strategy",
       "paths": [
@@ -386,19 +400,6 @@
       ],
       "documents": {
         "1.0.0": "plan-underlay"
-      },
-      "emitted": "1.0.0",
-      "read": [
-        "1.0.0"
-      ]
-    },
-    "revision-state": {
-      "schema_id": "htdt.working-revision-state",
-      "paths": [
-        "session/revision-state.json"
-      ],
-      "documents": {
-        "1.0.0": "revision-state"
       },
       "emitted": "1.0.0",
       "read": [
