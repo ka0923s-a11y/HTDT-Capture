@@ -723,7 +723,7 @@ final class TheaterAuthorityTests: XCTestCase {
         try MeasurementEvidencePackageBuilder.build(
             measurements: [
                 try CaptureMeasurement(
-                    quantityType: "wall_length",
+                    quantityType: "x_wall_length",
                     value: .scalar(4.2),
                     unit: .meter,
                     acquisitionMethod: .laserDistanceMeter,

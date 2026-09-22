@@ -978,6 +978,9 @@
 "Captured RoomPlan element" = "取得済み RoomPlan 要素";
 "Captured mesh anchor" = "取得済みメッシュアンカー";
 "Treatment placement" = "トリートメント配置";
+"Verified" = "検証済み";
+"Out of tolerance" = "公差外";
+"Indeterminate" = "判定不能";
 "Add opening candidate" = "開口部候補を追加";
 "Width m" = "幅 m";
 "Height m" = "高さ m";
