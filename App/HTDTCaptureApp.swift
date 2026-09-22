@@ -242,8 +242,7 @@ private struct HTDTCaptureHostView: View {
                 beginPracticeCapture:
                     coordinator.beginPracticeCapture,
                 dismissPracticePrompt:
-                    coordinator.dismissPracticePrompt
-                    coordinator.updateLibraryEntry,
+                    coordinator.dismissPracticePrompt,
                 retryCameraPermission:
                     coordinator.retryCameraPermission,
                 openCameraSettings:
@@ -7093,8 +7092,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     progress.saturatedWeakRegionCount,
                 guidanceComplete: progress.isComplete,
                 guidanceCompletionSource:
-                    progress.completionSource.rawValue
-                guidanceComplete: progress.isComplete,
+                    progress.completionSource.rawValue,
                 // #347: unresolved weak regions beyond the displayed
                 // map window, and #336: the retention capacity outcome
                 // — both persist with the end advisory so a completed
