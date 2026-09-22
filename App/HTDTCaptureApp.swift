@@ -7390,7 +7390,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             )
                         }
                 ),
-                guidanceComplete: progress.isComplete,
                 // #347: unresolved weak regions beyond the displayed
                 // map window, and #336: the retention capacity outcome
                 // — both persist with the end advisory so a completed
