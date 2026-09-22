@@ -267,11 +267,11 @@ public struct CaptureScanningView: View {
             }
 
             Text(actionSentence)
-                .font(.headline.weight(.semibold))
+                .font(CaptureDesign.Typography.taskHeadline)
                 .foregroundStyle(
                     endScanGuidance == nil
                     ? Color.primary
-                    : Color.orange
+                    : CaptureColorRole.attention.color
                 )
                 .lineLimit(2)
                 .minimumScaleFactor(0.82)
@@ -412,8 +412,9 @@ public struct CaptureScanningView: View {
             .buttonStyle(.bordered)
             .tint(
                 endScanGuidance != nil
-                ? .orange
-                : (primaryScanReadyToEnd ? .green : nil)
+                ? CaptureColorRole.attention.color
+                : (primaryScanReadyToEnd
+                    ? CaptureColorRole.success.color : nil)
             )
             .controlSize(.regular)
             .disabled(isEndingScan)
@@ -432,7 +433,7 @@ public struct CaptureScanningView: View {
             ProgressView()
                 .controlSize(.large)
             Text("Finishing capture…")
-                .font(.headline.weight(.semibold))
+                .font(CaptureDesign.Typography.taskHeadline)
             Text(
                 "RoomPlan is producing the final result. The scan data stays recoverable until it finishes."
             )

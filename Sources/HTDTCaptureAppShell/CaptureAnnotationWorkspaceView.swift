@@ -267,14 +267,18 @@ public struct CaptureAnnotationWorkspaceView: View {
     }
 
     public var body: some View {
-        List {
+        // #362: on regular width the staged records (annotations,
+        // measurements, speaker layout) sit beside the context and
+        // commit controls; compact width composes into one list.
+        CaptureAdaptivePanes {
             statusSection
             restoredDraftNotice
-            equipmentCatalogSection
-            taskProfileSection
-            speakerLayoutSection
             annotationsSection
             measurementsSection
+            speakerLayoutSection
+        } trailing: {
+            equipmentCatalogSection
+            taskProfileSection
             theaterAuthoritySection
             commitSection
         }
@@ -532,13 +536,13 @@ public struct CaptureAnnotationWorkspaceView: View {
     private var restoredDraftNotice: some View {
         if restoredFromDraft {
             Section {
-                Label(
-                    String(localized:
-                        "Unsaved draft restored — records below are not yet saved authority"),
-                    systemImage: "doc.badge.clock"
+                CaptureNotice(
+                    status: .draft,
+                    title: "Draft restored",
+                    message:
+                        "Unsaved draft restored — records below are not yet saved authority"
                 )
-                .font(.callout)
-                .foregroundStyle(.orange)
+                .listRowSeparator(.hidden)
             }
         }
     }
@@ -693,6 +697,7 @@ public struct CaptureAnnotationWorkspaceView: View {
             ) {
                 commit()
             }
+            .capturePrimaryAction()
             Button(
                 String(localized: "Cancel"),
                 role: .cancel
