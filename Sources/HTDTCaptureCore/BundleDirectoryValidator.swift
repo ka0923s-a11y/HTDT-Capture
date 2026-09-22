@@ -32,16 +32,38 @@ public struct BundleValidationReport: Sendable, Equatable {
     public let manifest: BundleManifest
     public let bundleDigest: EvidenceSHA256
     public let payloadCount: Int
+    /// Schema family -> `schema_version` the bundle declared at
+    /// validation time (#332). Lets the library surface each payload's
+    /// source version and its compatibility status under this build.
+    public let payloadVersions: [String: String]
 
     public init(
         manifest: BundleManifest,
         bundleDigest: EvidenceSHA256,
-        payloadCount: Int
+        payloadCount: Int,
+        payloadVersions: [String: String] = [:]
     ) {
         self.valid = true
         self.manifest = manifest
         self.bundleDigest = bundleDigest
         self.payloadCount = payloadCount
+        self.payloadVersions = payloadVersions
+    }
+
+    /// Per-family compatibility of the validated payload versions
+    /// under the published support matrix (#332).
+    public var payloadCompatibility:
+        [String: CapturePayloadCompatibility]
+    {
+        let matrix = CaptureBundleSchemaRegistry.supportMatrix
+        var result: [String: CapturePayloadCompatibility] = [:]
+        for (family, version) in payloadVersions {
+            result[family] = matrix.compatibility(
+                family: family,
+                version: version
+            )
+        }
+        return result
     }
 }
 
@@ -94,10 +116,16 @@ public enum BundleDirectoryValidator {
             throw BundleDirectoryValidationError.manifestNotCanonical
         }
 
-        _ = try CanonicalPayloadValidator.validateSchemaOwnedJSON(
-            path: "manifest.json",
-            data: manifestData
-        )
+        var crossCheck = BundlePayloadCrossCheck()
+        if let manifestValue = try CanonicalPayloadValidator
+            .validateSchemaOwnedJSON(
+                path: "manifest.json",
+                data: manifestData
+            )
+        {
+            crossCheck.recordJSON(path: "manifest.json",
+                                  value: manifestValue)
+        }
 
         var declaredByPath: [String: BundleFileEntry] = [:]
         for entry in manifest.files {
@@ -170,7 +198,6 @@ public enum BundleDirectoryValidator {
                 )
         }
 
-        var crossCheck = BundlePayloadCrossCheck()
         for path in declaredSet.sorted(
             by: BundleLogicalPath.utf8Less
         ) {
@@ -180,9 +207,31 @@ public enum BundleDirectoryValidator {
                 continue
             }
 
-            let needsBytes = CaptureBundleSchemaRegistry.schemaName(
-                forPath: path
-            ) != nil
+            let schemaFamily = CaptureBundleSchemaRegistry
+                .schemaName(forPath: path)
+            // #332: a manifest-declared .json payload must be owned by
+            // a published schema or be a declared external authority
+            // payload (RoomPlan). Any other .json is a generic
+            // supplemental persistence bypass and fails validation —
+            // except legacy bundles that carry RoomPlan payloads at
+            // non-reserved paths, which the ingestor resolves by
+            // provenance class.
+            if path.hasSuffix(".json"),
+               schemaFamily == nil,
+               !CaptureBundleSchemaRegistry.supportMatrix
+                   .isExternalAuthorityPath(path),
+               entry.provenanceClass != .appleRoomPlanRawScan,
+               entry.provenanceClass != .appleRoomPlanInference
+            {
+                throw BundleDirectoryValidationError
+                    .schemaValidationFailed(
+                        path: path,
+                        detail: "JSON payload is not owned by a "
+                            + "published schema or external authority"
+                    )
+            }
+
+            let needsBytes = schemaFamily != nil
                 || CanonicalPayloadValidator.isCanonicalBinaryMediaType(
                     entry.mediaType
                 )
@@ -246,7 +295,8 @@ public enum BundleDirectoryValidator {
         return BundleValidationReport(
             manifest: manifest,
             bundleDigest: bundleDigest,
-            payloadCount: manifest.files.count
+            payloadCount: manifest.files.count,
+            payloadVersions: crossCheck.payloadVersions
         )
     }
 }

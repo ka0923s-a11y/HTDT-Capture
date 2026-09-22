@@ -978,6 +978,9 @@
 "Captured RoomPlan element" = "取得済み RoomPlan 要素";
 "Captured mesh anchor" = "取得済みメッシュアンカー";
 "Treatment placement" = "トリートメント配置";
+"Verified" = "検証済み";
+"Out of tolerance" = "公差外";
+"Indeterminate" = "判定不能";
 "Add opening candidate" = "開口部候補を追加";
 "Width m" = "幅 m";
 "Height m" = "高さ m";
@@ -1090,7 +1093,6 @@
 "Choose the planned target first." = "先に計画ターゲットを選択してください。";
 "Select the final as-built entity." = "最終竣工エンティティを選択してください。";
 
-<<<<<<< HEAD
 /* Derived export sheets — issues #306 / #318 */
 "Export derived 3D model…" = "派生 3D モデルをエクスポート…";
 "Export survey report…" = "サーベイレポートをエクスポート…";
@@ -1125,8 +1127,61 @@
 "No preview-bearing evidence frames are recorded — the report will contain no camera imagery." = "プレビュー付き証跡フレームは記録されていません — レポートにカメラ画像は含まれません。";
 "Generate report" = "レポートを生成";
 
-||||||| c8813d4
-=======
+/* Lifecycle & recovery (#296/#297/#298/#320) */
+"Guidance completion" = "ガイダンス完了";
+"Not complete" = "未完了";
+"Observed — all guidance satisfied" = "観測済み — すべてのガイダンスを満たしました";
+"everything was observed" = "すべて観測されました";
+"Finished after weak-area retries were exhausted" = "弱点領域の再試行上限に達して終了";
+"Finished when the guidance attempt budget ran out" = "ガイダンス試行の上限に達して終了";
+"Movement-constrained scan; movement checks skipped" = "移動制限スキャン。移動チェックはスキップされました";
+"%d weak area(s) unresolved when guidance ended" = "ガイダンス終了時に %d 件の弱点領域が未解決";
+"Guidance finished: %d weak area(s) did not improve after repeated attempts. They remain reviewable in spatial coverage." = "ガイダンス終了: %d 件の弱点領域は繰り返し試行しても改善しませんでした。空間カバレッジで確認できます。";
+"Movement-limited scan complete. Movement-dependent checks were skipped; weak or unknown areas may remain." = "移動制限スキャンが完了しました。移動依存のチェックはスキップされ、弱点または不明な領域が残る場合があります。";
+"Guidance attempt budget used. %d weak area(s) may remain — review spatial coverage before ending." = "ガイダンス試行の上限に達しました。%d 件の弱点領域が残る可能性があります。終了前に空間カバレッジを確認してください。";
+"Scan interrupted" = "スキャンが中断されました";
+"Recoverable drafts" = "復元可能な下書き";
+"Recovered draft" = "復元された下書き";
+"Reopen for review" = "レビュー用に再開";
+"Discard draft" = "下書きを破棄";
+"Ended; ready for review" = "終了済み。レビュー可能";
+"Ended; annotations in progress" = "終了済み。注釈を編集中";
+"Ready to finalize" = "確定可能";
+"%d unsupported file(s) kept" = "%d 件の非対応ファイルを保持";
+"An Ended capture whose data survived an interruption. Reopening restores Review with spatial capture sealed — you can finish annotations and finalize, but you cannot resume scanning." = "中断を越えてデータが残った終了済みキャプチャです。再開すると空間キャプチャを封印した状態でレビューに戻ります。注釈の完成と確定はできますが、スキャンの再開はできません。";
+"This capture was reopened after the app relaunched. Spatial evidence is sealed — you can review, author annotations and measurements, or finalize. You cannot resume scanning; start a new capture to add spatial evidence." = "このキャプチャはアプリ再起動後に再開されました。空間証拠は封印されています。レビュー、注釈・計測の作成、確定は可能ですが、スキャンは再開できません。空間証拠を追加するには新しいキャプチャを開始してください。";
+"%d file(s) kept but unsupported by this app version." = "%d 件のファイルは保持されましたが、このアプリバージョンでは対応していません。";
+"%d stale analysis file(s) will be recomputed." = "%d 件の古い解析ファイルは再計算されます。";
+"Scanning actions are unavailable on a recovered draft — spatial evidence is sealed." = "復元された下書きではスキャン操作は利用できません。空間証拠は封印されています。";
+"Save and finish later" = "保存して後で完了";
+"Blocked by quality diagnostics:" = "品質診断によりブロック中:";
+"Blocking: this must clear before Validate and finalize." = "ブロック中: 「検証して確定」の前に解消が必要です。";
+"Advisory: finalization stays available; fixing it improves the bundle." = "助言: 確定は可能ですが、修正するとバンドルの品質が向上します。";
+"Re-verify integrity" = "整合性を再検証";
+"Review task requirements" = "タスク要件を確認";
+"Add annotations" = "注釈を追加";
+"Start replacement capture" = "置き換えキャプチャを開始";
+"Discard this capture" = "このキャプチャを破棄";
+"Continue scanning lets RoomPlan finish its accepted geometry." = "スキャンを続けると RoomPlan が受理済みの形状を完成させます。";
+"Saved evidence frames give reviewers the visual record the ruleset requires." = "保存済み証拠フレームは、ルールセットが求める視覚記録をレビュアーに提供します。";
+"The missing annotation is a semantic fix — open the annotation workspace." = "不足している注釈は意味的な修正です。注釈ワークスペースを開いてください。";
+"The missing measurement is a semantic fix — open the measurement workspace." = "不足している計測は意味的な修正です。計測ワークスペースを開いてください。";
+"More scan coverage adds the geometric or depth evidence the ruleset requires." = "追加のスキャンカバレッジで、ルールセットが求める形状または深度の証拠を補えます。";
+"Keep scanning until tracking stays normal for the required stable interval." = "トラッキングが規定の安定時間だけ正常を保つまでスキャンを続けてください。";
+"Re-verifying reads the committed bytes again; a real corruption needs a discard." = "再検証はコミット済みバイトを読み直します。実際の破損は破棄が必要です。";
+"The spatial authority for this capture is already damaged; a replacement capture is the only repair." = "このキャプチャの空間権威はすでに損傷しています。置き換えキャプチャのみが修復手段です。";
+"A resource failure damaged capture authority; only a replacement revision clears it." = "リソース障害によりキャプチャ権威が損傷しました。置き換えリビジョンでのみ解消できます。";
+"New here? Try a practice capture first." = "はじめてですか？ まず練習キャプチャを試してください。";
+"Start practice capture" = "練習キャプチャを開始";
+"Not now" = "あとで";
+"Don't show again" = "再表示しない";
+"Practice a capture (no real bundle)" = "キャプチャの練習（実バンドルなし）";
+"Practice mode walks through scanning, End, and Review exactly like a real capture, but nothing is finalized or sent to HTDT. The data stays on this device marked as practice." = "練習モードではスキャン・終了・レビューを本物のキャプチャと同じ手順で体験できますが、確定も HTDT への送信もされません。データは練習としてマークされ、この端末に残ります。";
+"Practice mode — a rehearsal only; nothing here can be finalized or sent to HTDT." = "練習モード — リハーサルのみです。ここでの内容は確定も HTDT への送信もできません。";
+"Practice mode — this capture is never finalized or sent to HTDT." = "練習モード — このキャプチャは確定も HTDT への送信もされません。";
+"Practice captures are never finalized; use Discard to end practice." = "練習キャプチャは確定されません。練習を終えるには「破棄」を使ってください。";
+"Directions %d/%d" = "方向 %d/%d";
+
 // MARK: - GUI redesign (#360–#364): shared vocabulary, home, adaptive layouts
 "Blocked" = "ブロック中";
 "Incomplete" = "不完全";
@@ -1134,7 +1189,6 @@
 "Draft" = "下書き";
 "Imported" = "取り込み済み";
 "Derived" = "派生";
-"Verified" = "検証済み";
 
 "HTDT Capture" = "HTDT Capture";
 "Capture a room for Home Theater Digital Twin." = "Home Theater Digital Twin 用に部屋をキャプチャします。";
@@ -1167,7 +1221,6 @@
 
 "Camera access is required" = "カメラへのアクセスが必要です";
 "Enable camera access in Settings to scan a room." = "部屋をスキャンするには設定でカメラへのアクセスを許可してください。";
->>>>>>> origin/main
 /* #302 multi-catalog snapshot identity */
 "Catalog" = "カタログ";
 "Generated" = "生成日時";
