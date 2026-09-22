@@ -210,6 +210,10 @@ public struct CaptureHomeView: View {
     @State private var deleteSeriesIncludeProtected = false
     @State private var derived3DTarget: DerivedExportTarget?
     @State private var surveyReportTarget: DerivedExportTarget?
+    /// Draft pending discard confirmation (#437) — removing it is
+    /// irreversible, so the affordance confirms first.
+    @State private var pendingDraftDiscard:
+        RecoverableWorkingRevision?
     /// Disposable bounded decode cache for library-row previews
     /// (#411) — tied to this view's lifetime, never authority.
     @State private var thumbnailCache = SeriesThumbnailCache()
@@ -402,6 +406,27 @@ public struct CaptureHomeView: View {
                 )
             }
         }
+        // #437: draft discard confirms — the removal is permanent.
+        .confirmationDialog(
+            "Discard the draft?",
+            isPresented: Binding(
+                get: { pendingDraftDiscard != nil },
+                set: { presented in
+                    if !presented { pendingDraftDiscard = nil }
+                }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDraftDiscard
+        ) { draft in
+            Button("Discard the draft", role: .destructive) {
+                actions.discardRecoveredDraft(draft)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text(
+                "Permanently removes the draft's saved data."
+            )
+        }
     }
 
     // MARK: Sidebar — capture-first actions + series-first library
@@ -521,6 +546,42 @@ public struct CaptureHomeView: View {
                         }
                     }
                     .foregroundStyle(.primary)
+                    // #437: a draft row also offers the discard
+                    // path — the stranded-draft contract gives
+                    // resume AND remove, never resume-only.
+                    .contextMenu {
+                        if case .resumeDraft = item.kind,
+                           let draft = persistedInventory
+                               .recoverableDrafts.first(where: {
+                                   $0.url.path == item.identity
+                               })
+                        {
+                            Button(
+                                "Discard the draft",
+                                role: .destructive
+                            ) {
+                                pendingDraftDiscard = draft
+                            }
+                        }
+                    }
+                    .swipeActions(
+                        edge: .trailing,
+                        allowsFullSwipe: false
+                    ) {
+                        if case .resumeDraft = item.kind,
+                           let draft = persistedInventory
+                               .recoverableDrafts.first(where: {
+                                   $0.url.path == item.identity
+                               })
+                        {
+                            Button(
+                                "Discard the draft",
+                                role: .destructive
+                            ) {
+                                pendingDraftDiscard = draft
+                            }
+                        }
+                    }
                 }
                 NavigationLink(
                     value: CaptureHomeSelection.missions
@@ -1314,6 +1375,8 @@ public struct CaptureHomeView: View {
         switch notice {
         case .cameraAccessRequired:
             return "Open Settings"
+        case .interruptedCapture:
+            return "Resume the draft"
         default:
             return nil
         }
@@ -1332,6 +1395,15 @@ public struct CaptureHomeView: View {
                     UIApplication.shared.open(url)
                 }
                 #endif
+            }
+        case .interruptedCapture:
+            // #437: reopens the first stranded draft into Review.
+            return {
+                if let draft =
+                    persistedInventory.recoverableDrafts.first
+                {
+                    actions.openRecoveredDraft(draft)
+                }
             }
         default:
             return nil
@@ -1521,7 +1593,9 @@ public struct CaptureHomeView: View {
             deviceCaptureEligible:
                 capabilities.roomPlanMeshEligible,
             storageReadiness: .unknown,
-            maintenanceItemCount: maintenanceCount
+            maintenanceItemCount: maintenanceCount,
+            recoverableDraftCount:
+                persistedInventory.recoverableDrafts.count
         )
     }
 }

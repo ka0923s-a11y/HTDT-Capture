@@ -139,6 +139,18 @@ public struct CaptureRootActions {
     /// (#254): confirms in UI, tears down the live working set, and
     /// never touches finalized copies.
     public let discardActiveCapture: () -> Void
+    /// #437 "Reopen the draft and finish" on the failed surface:
+    /// preserves the failed end-accepted working set as a recoverable
+    /// draft and reopens it into sealed Review.
+    public let resumeFailedAsDraft: () -> Void
+    /// #437 "Keep the draft for later" on the failed surface:
+    /// preserves the working set as a recoverable draft without
+    /// reopening it.
+    public let keepFailedAsDraft: () -> Void
+    /// #437 "Discard and start a new capture" on the failed surface:
+    /// permanently removes the failed capture's retained data, then
+    /// opens capture setup.
+    public let discardFailedAndStartNew: () -> Void
     /// Rebuilds the review-workspace model (#213) before the
     /// workspace is pushed.
     public let refreshReviewWorkspace: () -> Void
@@ -516,6 +528,9 @@ public struct CaptureRootActions {
         reviseAdoptedCapture: @escaping () -> Void = {},
         importCaptureArchive: @escaping (URL) -> Void = { _ in },
         discardActiveCapture: @escaping () -> Void = {},
+        resumeFailedAsDraft: @escaping () -> Void = {},
+        keepFailedAsDraft: @escaping () -> Void = {},
+        discardFailedAndStartNew: @escaping () -> Void = {},
         refreshReviewWorkspace: @escaping () -> Void = {},
         captureRoomFrameOrigin: @escaping () -> Void = {},
         confirmRoomReferenceFrame: @escaping () -> Void = {},
@@ -763,6 +778,9 @@ public struct CaptureRootActions {
         self.reviseAdoptedCapture = reviseAdoptedCapture
         self.importCaptureArchive = importCaptureArchive
         self.discardActiveCapture = discardActiveCapture
+        self.resumeFailedAsDraft = resumeFailedAsDraft
+        self.keepFailedAsDraft = keepFailedAsDraft
+        self.discardFailedAndStartNew = discardFailedAndStartNew
         self.refreshReviewWorkspace = refreshReviewWorkspace
         self.captureRoomFrameOrigin = captureRoomFrameOrigin
         self.confirmRoomReferenceFrame =
@@ -1023,6 +1041,17 @@ public struct CaptureRootView: View {
     public let libraryExportURL: URL?
     /// Retained-evidence inspection for a failed capture (#224).
     public let failedInspection: FailedCaptureInspection?
+    /// #437: the failed capture's working revision can be preserved
+    /// as a recoverable draft — set when `.failed` was entered with
+    /// an end-accepted phase marker committed.
+    public let failedDraftRecoverable: Bool
+    /// #437: typed reason the last finalize attempt was rejected —
+    /// drives the structured recovery notice on the Review surface.
+    public let finalizeRejection: CaptureFinalizeRejection?
+    /// #437: typed reason the last export attempt was rejected —
+    /// drives the structured recovery notice on the Finalized
+    /// surface.
+    public let exportRejection: CaptureExportRejection?
     /// Required-task mission progress shown in the journey header
     /// (#372); nil when no plan is active.
     public let taskPlanMission: CaptureJourneyMissionSummary?
@@ -1103,6 +1132,10 @@ public struct CaptureRootView: View {
         PendingCaptureDeletion?
     @State private var importingCaptureArchive = false
     @State private var confirmingDiscard = false
+    /// Which terminal discard the `.failed` surface's destructive
+    /// recovery step asks the operator to confirm (#437) — start a
+    /// new capture afterward, or only remove the retained data.
+    @State private var pendingFailedDiscard: FailedDiscardIntent?
     @State private var reviewWorkspaceShown = false
     /// #364 §11: read-only re-open of the committed capture from the
     /// finalized summary.
@@ -1208,6 +1241,9 @@ public struct CaptureRootView: View {
             CaptureLibraryImportPreview? = nil,
         libraryExportURL: URL? = nil,
         failedInspection: FailedCaptureInspection? = nil,
+        failedDraftRecoverable: Bool = false,
+        finalizeRejection: CaptureFinalizeRejection? = nil,
+        exportRejection: CaptureExportRejection? = nil,
         spatialCaptureSealed: Bool = false,
         appSettings: CaptureAppSettings = CaptureAppSettings(),
         missionEntries: [MissionWorkflowEntry] = [],
@@ -1320,6 +1356,9 @@ public struct CaptureRootView: View {
         self.libraryImportPreview = libraryImportPreview
         self.libraryExportURL = libraryExportURL
         self.failedInspection = failedInspection
+        self.failedDraftRecoverable = failedDraftRecoverable
+        self.finalizeRejection = finalizeRejection
+        self.exportRejection = exportRejection
         self.spatialCaptureSealed = spatialCaptureSealed
         self.appSettings = appSettings
         self.missionEntries = missionEntries
@@ -1354,6 +1393,104 @@ public struct CaptureRootView: View {
         self.operationTargetRevisionID =
             operationTargetRevisionID
         self.actions = actions
+    }
+
+    /// The terminal-discard choice a `.failed` destructive recovery
+    /// step confirms before running (#437).
+    private enum FailedDiscardIntent {
+        /// Remove the retained data, then open capture setup.
+        case discardAndStartNew
+        /// Remove the retained data only.
+        case discardOnly
+    }
+
+    /// #437: the resolved failure → recovery contract for the
+    /// current capture-terminal surface — nil when the surface is
+    /// healthy and shows its normal controls.
+    private var recoveryPlan: CaptureRecoveryPlan? {
+        switch state {
+        case .failed:
+            return CaptureRecoveryPresentation.failedPlan(
+                failure: lastFailure ?? .unknown,
+                draftRecoverable: failedDraftRecoverable
+            )
+        case .reviewing:
+            guard let finalizeRejection else { return nil }
+            return CaptureRecoveryPresentation
+                .finalizeRejectedPlan(finalizeRejection)
+        case .finalized:
+            guard let exportRejection else { return nil }
+            return CaptureRecoveryPresentation
+                .exportRejectedPlan(exportRejection)
+        default:
+            return nil
+        }
+    }
+
+    /// Binds a plan step to its real host action (#437) — every
+    /// action id the resolver emits lands here.
+    private func performRecoveryAction(
+        _ action: CaptureRecoveryAction
+    ) {
+        switch action {
+        case .resumeFailedAsDraft:
+            actions.resumeFailedAsDraft()
+        case .keepFailedAsDraft:
+            actions.keepFailedAsDraft()
+        case .resumeDraft:
+            if let draft =
+                persistedInventory.recoverableDrafts.first
+            {
+                actions.openRecoveredDraft(draft)
+            }
+        case .discardDraft:
+            if let draft =
+                persistedInventory.recoverableDrafts.first
+            {
+                actions.discardRecoveredDraft(draft)
+            }
+        case .retryFinalize:
+            actions.finalizeCapture()
+        case .openAnnotations:
+            actions.beginAnnotation()
+        case .saveDraftAndFinishLater:
+            actions.suspendReview()
+        case .inspectRetainedEvidence:
+            actions.inspectFailedCapture()
+        case .exportDiagnostics:
+            Task {
+                diagnosticShareURL =
+                    await actions
+                        .exportFailedCaptureDiagnostics()
+            }
+        case .retryExport:
+            confirmingExport = true
+        case .discardAndStartNew:
+            pendingFailedDiscard = .discardAndStartNew
+        case .discardFailedCapture:
+            pendingFailedDiscard = .discardOnly
+        case .discardCapture:
+            confirmingDiscard = true
+        case .deleteLocalCapture:
+            if let revisionID =
+                validationReport?.manifest.captureRevisionID
+            {
+                pendingDeletion = PendingCaptureDeletion(
+                    revisionID: revisionID,
+                    includesExport: exportURL != nil
+                )
+            }
+        case .startNewCapture:
+            // "Leaves this capture saved and begins a fresh one" —
+            // reset drops the finalized surface to .idle, then
+            // setup opens.
+            actions.resetCapture()
+            actions.beginCapture()
+        case .openCameraSettings:
+            actions.openCameraSettings()
+        case .retryCameraPermission:
+            actions.retryCameraPermission()
+        }
     }
 
     /// Manifest-declared `evidence/frames/*.pixelbin` payloads — the
@@ -1479,6 +1616,11 @@ public struct CaptureRootView: View {
                     },
                     importTaskPlan: actions.importTaskPlan,
                     clearTaskPlan: actions.clearTaskPlan,
+                    onResumeDraft: actions.openRecoveredDraft,
+                    onDiscardDraft: {
+                        draft in
+                        actions.discardRecoveredDraft(draft)
+                    },
                     openCameraSettings: actions.openCameraSettings
                 )
             } else if state == .annotating,
@@ -1581,19 +1723,29 @@ public struct CaptureRootView: View {
                 }
 
                 if state == .failed,
-                   let lastFailure
+                   let plan = recoveryPlan
                 {
+                    // #437: the failure banner names the failed step,
+                    // gives the reason in plain language, and states
+                    // whether the data survives as a resumable draft.
                     Section {
                         CaptureNotice(
                             status: .blocked,
                             title: LocalizedStringKey(
-                                failureReasonText(lastFailure)
+                                plan.titleKey
                             ),
                             message: LocalizedStringKey(
-                                failureRecoveryText(lastFailure)
+                                plan.reasonKey
                             )
                         )
                         .listRowSeparator(.hidden)
+                        if let detailKey = plan.detailKey {
+                            Text(
+                                LocalizedStringKey(detailKey)
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -1926,6 +2078,44 @@ public struct CaptureRootView: View {
                 } message: {
                     Text(
                         "Stops scanning and permanently removes the working revision. Finalized captures are never touched."
+                    )
+                }
+                // #437: the destructive steps on the failed surface
+                // confirm before removing retained data — optionally
+                // continuing into capture setup.
+                .confirmationDialog(
+                    "Discard the failed capture's data?",
+                    isPresented: Binding(
+                        get: { pendingFailedDiscard != nil },
+                        set: { presented in
+                            if !presented {
+                                pendingFailedDiscard = nil
+                            }
+                        }
+                    ),
+                    titleVisibility: .visible,
+                    presenting: pendingFailedDiscard
+                ) { intent in
+                    switch intent {
+                    case .discardAndStartNew:
+                        Button(
+                            "Discard and start a new capture",
+                            role: .destructive
+                        ) {
+                            actions.discardFailedAndStartNew()
+                        }
+                    case .discardOnly:
+                        Button(
+                            "Discard the failed capture",
+                            role: .destructive
+                        ) {
+                            actions.resetCapture()
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: { _ in
+                    Text(
+                        "Permanently removes the data this capture kept. Finalized captures are never touched."
                     )
                 }
                 .sheet(
@@ -2373,6 +2563,24 @@ public struct CaptureRootView: View {
             discardButton
 
         case .reviewing:
+            // #437: a rejected finalize attempt names the specific
+            // step and the ordered next-step set — retry, save the
+            // draft for later, or discard. The capture stays
+            // mutable; nothing was lost.
+            if let plan = recoveryPlan {
+                CaptureNotice(
+                    status: .needsReview,
+                    title: LocalizedStringKey(plan.titleKey),
+                    message: LocalizedStringKey(plan.reasonKey)
+                )
+                .listRowSeparator(.hidden)
+                if let detailKey = plan.detailKey {
+                    Text(LocalizedStringKey(detailKey))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                recoveryStepsView(plan)
+            }
             // #297: a draft recovered after relaunch has no live AR
             // coordinate authority — Continue scanning and evidence
             // capture must never appear; semantic review/authoring and
@@ -2455,43 +2663,17 @@ public struct CaptureRootView: View {
                 .disabled(hostBusy)
 
         case .failed:
-            Button(
-                "Inspect retained evidence",
-                action: actions.inspectFailedCapture
-            )
-            .capturePrimaryAction()
-            .disabled(hostBusy)
+            // #437: the ordered recovery contract — reopen/keep the
+            // draft when the End boundary survived, inspect or
+            // export the retained evidence, or discard. Every step
+            // is a real action; the resolver never emits a dead
+            // control.
+            if let plan = recoveryPlan {
+                recoveryStepsView(plan)
+            }
             if activeOperations.contains(.exportDiagnostics) {
                 progressRow("Preparing diagnostic package…")
             }
-            Button("Export diagnostic package") {
-                Task {
-                    diagnosticShareURL =
-                        await actions
-                            .exportFailedCaptureDiagnostics()
-                }
-            }
-            .captureSecondaryAction()
-            .disabled(hostBusy)
-            if let diagnosticShareURL {
-                ShareLink(item: diagnosticShareURL) {
-                    Label(
-                        "Share diagnostic package",
-                        systemImage: "square.and.arrow.up"
-                    )
-                }
-            }
-            Button("Start new capture") {
-                confirmingDiscard = true
-            }
-            .captureSecondaryAction()
-            .disabled(hostBusy)
-            Button(
-                "Discard failed capture",
-                role: .destructive,
-                action: actions.resetCapture
-            )
-            .disabled(hostBusy)
 
         case .annotating:
             EmptyView()
@@ -2500,51 +2682,92 @@ public struct CaptureRootView: View {
             progressRow("Validating and finalizing capture…")
 
         case .finalized:
-            // The export always packages every retained pixel
-            // payload; the operator confirms visual evidence is
-            // included before preparing it (issue #241). One
-            // dominant action per stage (#372).
-            Button("Prepare .htdtcapture") {
-                confirmingExport = true
-            }
-            .capturePrimaryAction()
-            .disabled(hostBusy)
-            .confirmationDialog(
-                "Export includes visual evidence?",
-                isPresented: $confirmingExport,
-                titleVisibility: .visible
-            ) {
-                Button("Prepare .htdtcapture") {
-                    actions.prepareExport()
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(
-                    String(
-                        format: String(
-                            localized: "The archive packages %lld retained camera frame pixel payload(s) with the capture. Open Visual evidence review first if you need to remove unreferenced frames for privacy."
-                        ),
-                        retainedVisualEvidenceCount
-                    )
+            // #437: a rejected export attempt names the specific
+            // step and the ordered next-step set — the finalized
+            // revision itself is durable; only the transport failed.
+            if let plan = recoveryPlan {
+                CaptureNotice(
+                    status: .needsReview,
+                    title: LocalizedStringKey(plan.titleKey),
+                    message: LocalizedStringKey(plan.reasonKey)
                 )
-            }
-            if activeOperations.contains(.prepareExport) {
-                progressRow("Preparing archive…")
-            }
-            revisionControls
-            if let revisionID =
-                validationReport?.manifest.captureRevisionID
-            {
-                Button(
-                    "Delete local capture",
-                    role: .destructive
+                .listRowSeparator(.hidden)
+                if let detailKey = plan.detailKey {
+                    Text(LocalizedStringKey(detailKey))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                recoveryStepsView(plan)
+                    .confirmationDialog(
+                        "Export includes visual evidence?",
+                        isPresented: $confirmingExport,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Prepare .htdtcapture") {
+                            actions.prepareExport()
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text(
+                            String(
+                                format: String(
+                                    localized: "The archive packages %lld retained camera frame pixel payload(s) with the capture. Open Visual evidence review first if you need to remove unreferenced frames for privacy."
+                                ),
+                                retainedVisualEvidenceCount
+                            )
+                        )
+                    }
+                if activeOperations.contains(.prepareExport) {
+                    progressRow("Preparing archive…")
+                }
+                revisionControls
+            } else {
+                // The export always packages every retained pixel
+                // payload; the operator confirms visual evidence is
+                // included before preparing it (issue #241). One
+                // dominant action per stage (#372).
+                Button("Prepare .htdtcapture") {
+                    confirmingExport = true
+                }
+                .capturePrimaryAction()
+                .disabled(hostBusy)
+                .confirmationDialog(
+                    "Export includes visual evidence?",
+                    isPresented: $confirmingExport,
+                    titleVisibility: .visible
                 ) {
-                    pendingDeletion = PendingCaptureDeletion(
-                        revisionID: revisionID,
-                        includesExport: exportURL != nil
+                    Button("Prepare .htdtcapture") {
+                        actions.prepareExport()
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text(
+                        String(
+                            format: String(
+                                localized: "The archive packages %lld retained camera frame pixel payload(s) with the capture. Open Visual evidence review first if you need to remove unreferenced frames for privacy."
+                            ),
+                            retainedVisualEvidenceCount
+                        )
                     )
                 }
-                .disabled(hostBusy)
+                if activeOperations.contains(.prepareExport) {
+                    progressRow("Preparing archive…")
+                }
+                revisionControls
+                if let revisionID =
+                    validationReport?.manifest.captureRevisionID
+                {
+                    Button(
+                        "Delete local capture",
+                        role: .destructive
+                    ) {
+                        pendingDeletion = PendingCaptureDeletion(
+                            revisionID: revisionID,
+                            includesExport: exportURL != nil
+                        )
+                    }
+                    .disabled(hostBusy)
+                }
             }
 
         case .exported:
@@ -2991,6 +3214,80 @@ public struct CaptureRootView: View {
         }
     }
 
+    /// One plan step rendered as its role demands (#437): primary
+    /// and secondary are real buttons bound through
+    /// `performRecoveryAction`, destructive asks for confirmation,
+    /// guidance is an instruction line — never a control. The
+    /// step's detail (consequence or pre-condition) renders as a
+    /// caption under it.
+    @ViewBuilder
+    private func recoveryStepRow(
+        _ step: CaptureRecoveryStep
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            switch step.role {
+            case .primary:
+                Button(LocalizedStringKey(step.titleKey)) {
+                    if let action = step.action {
+                        performRecoveryAction(action)
+                    }
+                }
+                .capturePrimaryAction()
+                .disabled(hostBusy)
+            case .secondary:
+                Button(LocalizedStringKey(step.titleKey)) {
+                    if let action = step.action {
+                        performRecoveryAction(action)
+                    }
+                }
+                .captureSecondaryAction()
+                .disabled(hostBusy)
+            case .destructive:
+                Button(
+                    LocalizedStringKey(step.titleKey),
+                    role: .destructive
+                ) {
+                    if let action = step.action {
+                        performRecoveryAction(action)
+                    }
+                }
+                .disabled(hostBusy)
+            case .guidance:
+                Text(LocalizedStringKey(step.titleKey))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            if let detailKey = step.detailKey {
+                Text(LocalizedStringKey(detailKey))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// The ordered next-step list for a resolved recovery plan
+    /// (#437) — reason + detail are already shown by the surface's
+    /// notice; this renders only the actionable steps in order.
+    @ViewBuilder
+    private func recoveryStepsView(
+        _ plan: CaptureRecoveryPlan
+    ) -> some View {
+        ForEach(
+            Array(plan.steps.enumerated()),
+            id: \.offset
+        ) { _, step in
+            recoveryStepRow(step)
+        }
+        if let diagnosticShareURL {
+            ShareLink(item: diagnosticShareURL) {
+                Label(
+                    "Share diagnostic package",
+                    systemImage: "square.and.arrow.up"
+                )
+            }
+        }
+    }
+
     private func progressRow(_ text: LocalizedStringKey) -> some View {
         HStack(spacing: 12) {
             ProgressView()
@@ -3300,110 +3597,6 @@ public struct CaptureRootView: View {
             return .verified
         case .fail:
             return .blocked
-        }
-    }
-
-    private func failureReasonText(
-        _ failure: CaptureFailureCode
-    ) -> String {
-        switch failure {
-        case .interrupted:
-            return String(
-                localized:
-                    "The app left the foreground during an active capture. HTDT no longer assumes the same AR coordinate space is valid."
-            )
-        case .trackingUnavailable:
-            return String(
-                localized:
-                    "AR tracking or the current camera frame became unavailable during capture."
-            )
-        case .roomPlanFailure:
-            return String(
-                localized:
-                    "RoomPlan could not start or continue the room scan reliably."
-            )
-        case .storagePressure:
-            return String(
-                localized:
-                    "Available storage fell below the safe capture threshold."
-            )
-        case .thermalPressure:
-            return String(
-                localized:
-                    "The device reached a critical thermal state during capture."
-            )
-        case .persistenceFailure:
-            return String(
-                localized:
-                    "Required capture evidence could not be written safely."
-            )
-        case .permissionDenied:
-            return String(
-                localized:
-                    "Camera access is required to capture RoomPlan and AR evidence."
-            )
-        case .unsupportedDevice:
-            return String(
-                localized:
-                    "This device does not provide the required RoomPlan and mesh capture capabilities."
-            )
-        case .unknown:
-            return String(
-                localized:
-                    "The capture stopped because of an unexpected error."
-            )
-        }
-    }
-
-    private func failureRecoveryText(
-        _ failure: CaptureFailureCode
-    ) -> String {
-        switch failure {
-        case .interrupted:
-            return String(
-                localized:
-                    "This scan is not silently resumed. Discard the failed capture and start a new scan so a fresh coordinate-space authority is created."
-            )
-        case .trackingUnavailable:
-            return String(
-                localized:
-                    "Move to a well-lit area with visible room features, then discard this failed capture and start a new scan."
-            )
-        case .roomPlanFailure:
-            return String(
-                localized:
-                    "Discard this failed capture and start again. Move slowly and keep walls, corners, and furniture edges in view."
-            )
-        case .storagePressure:
-            return String(
-                localized:
-                    "Free device storage before starting another capture."
-            )
-        case .thermalPressure:
-            return String(
-                localized:
-                    "Let the device cool before starting another capture."
-            )
-        case .persistenceFailure:
-            return String(
-                localized:
-                    "A canonical evidence or authority conflict prevented safe continuation. Check the work-data diagnostic; if recovery is not offered, discard this capture and retry."
-            )
-        case .permissionDenied:
-            return String(
-                localized:
-                    "Allow camera access in iOS Settings, then start a new capture."
-            )
-        case .unsupportedDevice:
-            return String(
-                localized:
-                    "Use a supported LiDAR-capable iPhone or iPad for this capture workflow."
-            )
-        case .unknown:
-            return String(
-                localized:
-                    "Discard the failed capture and retry. If the error repeats, record the screen state before resetting."
-            )
         }
     }
 
