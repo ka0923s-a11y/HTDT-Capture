@@ -2686,6 +2686,42 @@
 "Plan %@ v%@" = "プラン %@ v%@";
 "%@ · %@ · Plan %@ v%@" = "%@ · %@ · プラン %@ v%@";
 
+// #422/#423: paired Mission receive leg + artifact-aware field-return delivery.
+"Check HTDT for missions" = "HTDT でミッションを確認";
+"Pair an HTDT receiver on the Destinations surface to pull missions from it." = "配信先画面で HTDT 受信機をペアリングしてミッションを取得してください。";
+"No paired HTDT receivers — pair a receiver or import the mission file" = "ペアリング済み HTDT 受信機なし — 受信機をペアリングするかミッションファイルを取り込んでください";
+"Checked HTDT — nothing pending" = "HTDT を確認 — 保留なし";
+"Checked HTDT — receiver unreachable; import the mission file instead" = "HTDT を確認 — 受信機に接続できません。代わりにミッションファイルを取り込んでください";
+"Checked HTDT — \(imported + superseded) new mission(s) received into the inbox" = "HTDT を確認 — \(imported + superseded) 件の新規ミッションを受信ボックスに取り込みました";
+"Checked HTDT — \(pending) mission(s) already staged or pending" = "HTDT を確認 — \(pending) 件のミッションは取り込み済みまたは保留中です";
+"Checked HTDT — \(conflicts + rejected) pending mission(s) could not be staged; receipt ledger has details" = "HTDT を確認 — \(conflicts + rejected) 件の保留ミッションを取り込めませんでした。詳細は受領台帳を確認してください";
+"Checked HTDT — a pending mission conflicts with a local record; it was not merged" = "HTDT を確認 — 保留ミッションがローカルレコードと競合しました。マージされませんでした";
+"Deliver" = "配信";
+"Share file…" = "ファイルを共有…";
+"Send to %@" = "%@ へ送信";
+"Pair an HTDT receiver on the Destinations surface to send this field return. Sharing the file is always available." = "このフィールドリターンを送るには配信先画面で HTDT 受信機をペアリングしてください。ファイル共有はいつでも利用できます。";
+"Ready to send to this receiver" = "この受信機へ送信可能";
+"Ready; %d item(s) stage-only" = "送信可能。%d 件はステージのみ";
+"Cannot send: %@" = "送信不可: %@";
+"receiver does not accept field returns" = "受信機がフィールドリターンに未対応";
+"Capability unknown: %@" = "対応不明: %@";
+"Finalize the field return before sending it" = "送信前にフィールドリターンを確定してください";
+"The finalized field-return file is missing" = "確定済みフィールドリターンファイルが見つかりません";
+"The field-return delivery could not be queued" = "フィールドリターンの配信をキューに登録できませんでした";
+"The receiver rejected the field return; it will not be retried" = "受信機がフィールドリターンを拒否しました。再試行されません";
+"Field return delivered and staged at the receiver; receipt saved" = "フィールドリターンを受信機に配信しステージされました。受領書を保存しました";
+"Field return queued; it will retry under the queue's policy (see Deliveries)" = "フィールドリターンをキューに登録しました。キューのポリシーで再試行されます（配信を参照）";
+"Checked HTDT — pending mission(s) could not be staged (see receipt ledger)" = "HTDT を確認 — 保留ミッションを取り込めませんでした（受領台帳を参照）";
+
+// #422/#423 follow-up: leftover HostLocalization call sites moved onto
+// String(localized:) — same operator text, now catalog-backed.
+
+// #422/#423 follow-up: fills the pre-existing ja.lproj gaps the
+// contracts workflow gates on — none of these keys were added by
+// this branch, but the audit fails on any missing entry.
+"Scene elements (\(scene.elements.count))" = "シーン要素 (\(scene.elements.count))";
+"\(record.evidenceRefs.count) evidence ref(s)" = "証拠参照 \(record.evidenceRefs.count) 件";
+
 // #364 §4: setup mission-needs, device details, and prep rationale.
 "Room surfaces and geometry" = "部屋の表面と形状";
 "%@ or %@" = "%@ または %@";
@@ -2702,56 +2738,7 @@
 
 // #430 audit follow-up: entries for #383/#424-era surfaces that
 // shipped without catalog coverage, plus HostLocalization removals.
-"%d actionable mission(s)" = "実行可能なミッション %d 件";
-"%d capture(s) · %d series" = "キャプチャ %d 件 · シリーズ %d 件";
-"%d target(s) still need review" = "レビューが必要なターゲット %d 件";
 "%lld evidence ref(s)" = "証跡参照 %lld 件";
-"3D" = "3D";
-"3D preview is available on iOS — the elements list carries the same geometry" = "3DプレビューはiOSで利用できます — 要素リストは同じ形状を示します";
-"All targets reviewed" = "すべてのターゲットをレビュー済み";
-"Capture a room for Home Theater Digital Twin" = "Home Theater Digital Twin 用の部屋をキャプチャ";
-"Captured evidence" = "キャプチャ済みの証跡";
-"Committed authority" = "確定済みの権威";
-"Committed entities" = "確定済みのエンティティ";
-"Committed entity" = "確定済みのエンティティ";
-"Construction features" = "構造要素";
-"Delivery needs attention" = "配信に注意が必要です";
-"Derived candidate" = "派生候補";
-"Derived geometry" = "派生ジオメトリ";
-"Drafts, missions, and deliveries that still need you — everything else stays out of the way." = "対応が必要な下書き・ミッション・配信 — それ以外は目立たなくしています。";
-"Features" = "特徴";
-"Finalized capture — records are read-only" = "確定済みキャプチャ — レコードは読み取り専用です";
-"Furniture" = "家具";
-"Geometry committed under a different epoch must be re-picked in the annotation workspace — this surface never rewrites authority bindings." = "別のエポックで確定されたジオメトリはアノテーションワークスペースで再選択が必要です — この画面は権威バインディングを書き換えません。";
-"Installations" = "設置物";
-"Library" = "ライブラリ";
-"Mesh region" = "メッシュ領域";
-"Mission activated — its tasks need no spatial capture; continue in Field return" = "ミッションを有効化しました — 空間キャプチャは不要です。フィールドリターンで続けてください";
-"Mission cannot start: its task plan could not be read" = "ミッションを開始できません: タスクプランを読み取れませんでした";
-"Mission has no tasks this device can execute" = "このミッションにはこのデバイスで実行できるタスクがありません";
-"Mission in progress — continue" = "ミッション進行中 — 続行";
-"Mission is past field work — its captures are reviewable from the inbox" = "ミッションはフィールド作業を終えています — キャプチャはインボックスから確認できます";
-"Mission items" = "ミッション項目";
-"Mission ready — dependencies unmet" = "ミッション準備完了 — 依存関係が未充足です";
-"Mission ready — start" = "ミッション準備完了 — 開始";
-"Mission requires spatial capture, which is unavailable on this device" = "このミッションには空間キャプチャが必要ですが、このデバイスでは利用できません";
-"Mission-required targets first, then attention flags, then boundaries, then objects." = "ミッション必須ターゲットを最初に、次に注意フラグ、境界、そしてオブジェクト。";
-"Next unresolved" = "次の未解決";
-"No spatial geometry is stored in this capture" = "このキャプチャには空間ジオメトリが保存されていません";
-"Not reviewed" = "未レビュー";
-"Not yet documented" = "まだ記録されていません";
-"Object-first review state over every committed surface, object, and entity — derived from existing records, never a parallel schema." = "すべての確定済み面・オブジェクト・エンティティを対象とするオブジェクト優先のレビュー状態 — 既存レコードから導出され、並行スキーマではありません。";
-"Objects" = "オブジェクト";
-"Orbit" = "オービット";
-"Partially documented" = "一部記録済み";
-"Problem surfaces" = "問題のある面";
-"Progress" = "進捗";
-"Remaining" = "残り";
-"Required gaps" = "必須のギャップ";
-"Resume draft" = "下書きを再開";
-"Review latest capture" = "最新のキャプチャをレビュー";
-"Reviewed" = "レビュー済み";
-"Room boundaries" = "部屋の境界";
 "Scene elements (%lld)" = "シーン要素 (%lld)";
 "Search library" = "ライブラリを検索";
 "Send & connections" = "送信と接続";
@@ -2765,3 +2752,54 @@
 "Wall" = "壁";
 "Wiring" = "配線";
 "Work" = "作業";
+
+// #422/#423 merge resolution: paired-delivery and new review/survey surfaces.
+"%d actionable mission(s)" = "要対応ミッション %d 件";
+"%d capture(s) · %d series" = "キャプチャ %d 件 · シリーズ %d 件";
+"%d target(s) still need review" = "レビュー未了のターゲット %d 件";
+"3D" = "3D";
+"3D preview is available on iOS — the elements list carries the same geometry" = "3D プレビューは iOS で利用可能 — 要素リストに同じジオメトリが含まれています";
+"All targets reviewed" = "全ターゲットのレビュー完了";
+"Capture a room for Home Theater Digital Twin" = "Home Theater Digital Twin 用に部屋をキャプチャ";
+"Captured evidence" = "キャプチャ済みの証跡";
+"Committed authority" = "確定済み権威";
+"Committed entities" = "確定済みエンティティ";
+"Committed entity" = "確定済みエンティティ";
+"Construction features" = "施工フィーチャ";
+"Delivery needs attention" = "配信に対応が必要";
+"Derived candidate" = "導出候補";
+"Derived geometry" = "導出ジオメトリ";
+"Drafts, missions, and deliveries that still need you — everything else stays out of the way." = "対応が必要なドラフト・ミッション・配信のみ表示 — その他は退けてあります。";
+"Features" = "フィーチャ";
+"Finalized capture — records are read-only" = "確定済みキャプチャ — レコードは読み取り専用";
+"Furniture" = "家具";
+"Geometry committed under a different epoch must be re-picked in the annotation workspace — this surface never rewrites authority bindings." = "別エポックで確定されたジオメトリはアノテーションワークスペースで再選択が必要 — この画面は権威バインドを書き換えません。";
+"Installations" = "設置物";
+"Library" = "ライブラリ";
+"Mesh region" = "メッシュ領域";
+"Mission activated — its tasks need no spatial capture; continue in Field return" = "ミッションをアクティブ化 — タスクに空間キャプチャは不要です。Field return で続行してください";
+"Mission cannot start: its task plan could not be read" = "ミッションを開始できません: タスクプランを読み取れませんでした";
+"Mission has no tasks this device can execute" = "このデバイスで実行可能なタスクがミッションにありません";
+"Mission in progress — continue" = "ミッション進行中 — 続行";
+"Mission is past field work — its captures are reviewable from the inbox" = "ミッションはフィールド作業を終えています — キャプチャは受信ボックスからレビュー可能です";
+"Mission items" = "ミッション項目";
+"Mission ready — dependencies unmet" = "ミッション準備済み — 依存関係が未充足";
+"Mission ready — start" = "ミッション準備済み — 開始";
+"Mission requires spatial capture, which is unavailable on this device" = "ミッションには空間キャプチャが必要ですが、このデバイスでは利用できません";
+"Mission-required targets first, then attention flags, then boundaries, then objects." = "ミッション必須ターゲット → 注意フラグ → 境界 → オブジェクトの順。";
+"Next unresolved" = "次の未解決";
+"No spatial geometry is stored in this capture" = "このキャプチャに空間ジオメトリは保存されていません";
+"Not reviewed" = "未レビュー";
+"Not yet documented" = "未記録";
+"Object-first review state over every committed surface, object, and entity — derived from existing records, never a parallel schema." = "確定済みの全サーフェス・オブジェクト・エンティティを対象とするオブジェクトファーストのレビュー状態 — 既存レコードから導出され、並行スキーマではありません。";
+"Objects" = "オブジェクト";
+"Orbit" = "オービット";
+"Partially documented" = "一部記録済み";
+"Problem surfaces" = "問題サーフェス";
+"Progress" = "進捗";
+"Remaining" = "残り";
+"Required gaps" = "必須ギャップ";
+"Resume draft" = "ドラフトを再開";
+"Review latest capture" = "最新キャプチャをレビュー";
+"Reviewed" = "レビュー済み";
+"Room boundaries" = "部屋の境界";

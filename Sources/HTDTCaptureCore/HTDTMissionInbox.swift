@@ -715,10 +715,12 @@ public struct HTDTMissionInboxStore: Sendable {
                     $0.captureRevisionID.description == dependency.ref
                 } ?? false
             case .captureDelivered:
+                // #423: a delivered capture dependency matches the
+                // job's artifact id, whatever artifact family rides
+                // the queue.
                 satisfied = (try? deliveryQueue?.jobs())?
                     .contains {
-                        $0.captureRevisionID.description
-                            == dependency.ref
+                        $0.artifactIDText == dependency.ref
                             && $0.state == .deliveredStaged
                     } ?? false
             }

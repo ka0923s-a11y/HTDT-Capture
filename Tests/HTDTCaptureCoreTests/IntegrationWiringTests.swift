@@ -263,8 +263,10 @@ final class IntegrationWiringTests: XCTestCase {
         XCTAssertThrowsError(
             try HTDTHandoffRequestBuilder.validateServerReceipt(
                 data: data,
-                captureRevisionID: sourceRevision,
-                bundleDigest: digest
+                deliverable: .captureBundle(
+                    revisionID: sourceRevision,
+                    bundleDigest: digest.value
+                )
             )
         ) { error in
             XCTAssertEqual(
@@ -289,8 +291,10 @@ final class IntegrationWiringTests: XCTestCase {
         let validated = try HTDTHandoffRequestBuilder
             .validateServerReceipt(
                 data: data,
-                captureRevisionID: sourceRevision,
-                bundleDigest: digest
+                deliverable: .captureBundle(
+                    revisionID: sourceRevision,
+                    bundleDigest: digest.value
+                )
             )
         XCTAssertEqual(validated.repairTaskPlan, plan)
     }
