@@ -508,21 +508,6 @@ public struct MissionWorkflowsView: View {
                     )
                     .font(.caption2.monospaced())
                     .foregroundStyle(.tertiary)
-                        "Plan \(row.planID) v\(row.planVersion) · \(row.task.kind.rawValue)"
-                    )
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                            String(
-                                format: String(
-                                    localized: "Plan %@ v%@ · %@"
-                                ),
-                                row.planID,
-                                row.planVersion,
-                                row.task.kind.rawValue
-                            )
-                        )
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
                     if let resolvedBy = row.resolvedByRevisionID {
                         Text(
                                 String(

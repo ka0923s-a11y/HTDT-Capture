@@ -97,12 +97,6 @@ public struct ConnectedSpaceStatusView: View {
                 Section("Portals") {
                     ForEach(tracker.portals, id: \.portalID) { portal in
                         Text(
-                            "\(regionLabel(portal.regionAID)) ↔ "
-                                + "\(regionLabel(portal.regionBID)) "
-                                + "(\(MissionPresentation.portalKindName(portal.kind)))"
-                            "\(regionLabel(portal.regionAID)) ↔ "
-                                + "\(regionLabel(portal.regionBID)) "
-                                + "(\(portal.kind.rawValue))"
                             String(
                                 format: String(
                                     localized: "%1$@ ↔ %2$@ (%3$@)"
@@ -147,16 +141,6 @@ public struct CaptureTaskPlanChecklistView: View {
 
     public var body: some View {
         List {
-            Section(plan.roomName) {
-                // Plan identity stays inspectable but secondary — it
-                // is a reference, not the row's job (issue #412).
-                Text("Plan \(plan.planID) v\(plan.planVersion)")
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.tertiary)
-            Section(
-                "Plan \(plan.planID) v\(plan.planVersion) — "
-                    + plan.roomName
-            ) {
             Section(
                 String(
                     format: String(
@@ -167,6 +151,11 @@ public struct CaptureTaskPlanChecklistView: View {
                     plan.roomName
                 )
             ) {
+                // Plan identity stays inspectable but secondary — it
+                // is a reference, not the row's job (issue #412).
+                Text("Plan \(plan.planID) v\(plan.planVersion)")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
                 ForEach(plan.entityChecklist, id: \.itemID) { item in
                     row(
                         itemID: item.itemID,
