@@ -54,7 +54,10 @@ enum BundleValidationFixture {
             sha256: EvidenceIntegrity.sha256(of: data),
             producer: binding?.producer ?? "test",
             provenanceClass: binding?.provenanceClass ?? .captureAppDerived,
-            role: binding?.role ?? .canonical
+            role: binding?.role ?? .canonical,
+            sourceRefs: binding?.role == .derived
+                ? ["capture_session:" + sessionUUID]
+                : nil
         )
     }
 
