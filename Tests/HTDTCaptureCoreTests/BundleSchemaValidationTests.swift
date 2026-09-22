@@ -26,6 +26,12 @@ func registryMapsEverySchemaOwnedPath() throws {
             "room-reference-frame",
         "annotations/opening-review.json": "opening-review",
         "session/room-field-datum.json": "room-field-datum",
+        "derived/operator-profiles.json": "operator-profiles",
+        "derived/field-evidence.json": "field-evidence",
+        "derived/instrument-profiles.json": "instrument-profiles",
+        "derived/settings-observations.json":
+            "settings-observations",
+        "derived/wiring-routes.json": "wiring-routes",
     ]
     for (path, name) in expected {
         #expect(CaptureBundleSchemaRegistry.schemaName(forPath: path) == name)
