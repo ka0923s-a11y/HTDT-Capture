@@ -22,6 +22,12 @@ func registryMapsEverySchemaOwnedPath() throws {
         "quality/capture-quality.json": "quality",
         "quality/capture-advisory.json": "capture-advisory",
         "evidence/frames/anything.json": "frame",
+        "derived/operator-profiles.json": "operator-profiles",
+        "derived/field-evidence.json": "field-evidence",
+        "derived/instrument-profiles.json": "instrument-profiles",
+        "derived/settings-observations.json":
+            "settings-observations",
+        "derived/wiring-routes.json": "wiring-routes",
     ]
     for (path, name) in expected {
         #expect(CaptureBundleSchemaRegistry.schemaName(forPath: path) == name)
