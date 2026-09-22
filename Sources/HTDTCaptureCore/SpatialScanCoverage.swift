@@ -78,6 +78,22 @@ public enum SpatialCoverageDistanceBucket: String, Sendable, Equatable {
     case near
     case medium
     case far
+
+    /// Buckets a camera-relative distance in meters: <1.5 m near,
+    /// <3.5 m medium, otherwise far. Shared by the tracker and the
+    /// accessibility summary so a spoken label names the same bucket
+    /// the map does.
+    public static func bucket(
+        forMeters meters: Double
+    ) -> SpatialCoverageDistanceBucket {
+        if meters < 1.5 {
+            return .near
+        }
+        if meters < 3.5 {
+            return .medium
+        }
+        return .far
+    }
 }
 
 public enum SpatialCoverageClassification: String, Sendable, Equatable {
@@ -591,13 +607,7 @@ public struct SpatialScanCoverageTracker: Sendable {
     private static func distanceBucket(
         _ meters: Double
     ) -> SpatialCoverageDistanceBucket {
-        if meters < 1.5 {
-            return .near
-        }
-        if meters < 3.5 {
-            return .medium
-        }
-        return .far
+        SpatialCoverageDistanceBucket.bucket(forMeters: meters)
     }
 
     private static func normalizeSignedRadians(

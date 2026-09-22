@@ -131,6 +131,12 @@ public struct CaptureRootActions {
     public let updateLibraryEntry:
         (CaptureRevisionID?, CaptureSeriesID?,
          CaptureLibraryEntryMetadata) -> Void
+    /// Persists a new app-local settings document (#338). The host
+    /// owns the store and applies side effects (backup policy,
+    /// guidance cues).
+    public let updateAppSettings: (CaptureAppSettings) -> Void
+    /// Clears the durable equipment-catalog cache (#338).
+    public let clearEquipmentCatalogCache: () -> Void
 
     public init(
         beginCapture: @escaping () -> Void = {},
@@ -241,7 +247,10 @@ public struct CaptureRootActions {
             CaptureRevisionID?,
             CaptureSeriesID?,
             CaptureLibraryEntryMetadata
-        ) -> Void = { _, _, _ in }
+        ) -> Void = { _, _, _ in },
+        updateAppSettings: @escaping
+            (CaptureAppSettings) -> Void = { _ in },
+        clearEquipmentCatalogCache: @escaping () -> Void = {}
     ) {
         self.beginCapture = beginCapture
         self.beginScanning = beginScanning
@@ -304,6 +313,8 @@ public struct CaptureRootActions {
         self.sendCaptureToHTDT = sendCaptureToHTDT
         self.deleteExportArchive = deleteExportArchive
         self.updateLibraryEntry = updateLibraryEntry
+        self.updateAppSettings = updateAppSettings
+        self.clearEquipmentCatalogCache = clearEquipmentCatalogCache
     }
 }
 
@@ -527,6 +538,9 @@ public struct CaptureRootView: View {
     public let failedInspection: FailedCaptureInspection?
     /// Spatial authority sealed for finalization (#276).
     public let spatialCaptureSealed: Bool
+    /// App-local device settings shown in the Settings surface
+    /// (#338) — presentation, defaults, storage policy.
+    public let appSettings: CaptureAppSettings
     public let actions: CaptureRootActions
 
     @State private var pendingDeletion:
@@ -606,6 +620,7 @@ public struct CaptureRootView: View {
             = CaptureLibraryMetadataDocument(),
         failedInspection: FailedCaptureInspection? = nil,
         spatialCaptureSealed: Bool = false,
+        appSettings: CaptureAppSettings = CaptureAppSettings(),
         actions: CaptureRootActions = CaptureRootActions()
     ) {
         self.state = state
@@ -668,6 +683,7 @@ public struct CaptureRootView: View {
         self.libraryMetadata = libraryMetadata
         self.failedInspection = failedInspection
         self.spatialCaptureSealed = spatialCaptureSealed
+        self.appSettings = appSettings
         self.actions = actions
     }
 
@@ -844,6 +860,20 @@ public struct CaptureRootView: View {
 
                 Section("Controls") {
                     controls
+                }
+
+                Section("Settings") {
+                    NavigationLink("Preferences & storage") {
+                        CaptureSettingsView(
+                            settings: appSettings,
+                            equipmentCatalog: equipmentCatalog,
+                            retainedByteCount: persistedInventory
+                                .totalRetainedBytes,
+                            onChange: actions.updateAppSettings,
+                            onClearEquipmentCatalog: actions
+                                .clearEquipmentCatalogCache
+                        )
+                    }
                 }
 
                 if state == .failed,
@@ -1206,9 +1236,7 @@ public struct CaptureRootView: View {
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: { _ in
-                    Text(
-                        "This permanently deletes the finalized capture and any export archive stored for it from this device."
-                    )
+                    Text(deletionExplanationText)
                 }
                 .fileImporter(
                     isPresented: $importingCaptureArchive,
@@ -1448,6 +1476,9 @@ public struct CaptureRootView: View {
                     persistedInventory.totalRetainedBytes
                 )
             )
+            Text(finalizedRetentionText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             TextField(
                 "Search captures",
                 text: $libraryQuery
@@ -1676,6 +1707,41 @@ public struct CaptureRootView: View {
         HStack(spacing: 12) {
             ProgressView()
             Text(text)
+        }
+    }
+
+    /// Where finalized data is retained + its backup state (#305) —
+    /// stated on the library itself, not only inside Settings.
+    private var finalizedRetentionText: String {
+        switch appSettings.storagePrivacy.finalizedBackupPolicy {
+        case .backupEligible:
+            return String(
+                localized:
+                    "Finalized captures and export archives stay in this app's on-device storage and may be included in your device backup."
+            )
+        case .excludedFromBackup:
+            return String(
+                localized:
+                    "Finalized captures and export archives stay in this app's on-device storage and are excluded from device backup."
+            )
+        }
+    }
+
+    /// Deletion scope (#305): always states what is removed locally;
+    /// when finalized data may join device backup it also says a
+    /// backup copy is managed by the system.
+    private var deletionExplanationText: String {
+        switch appSettings.storagePrivacy.finalizedBackupPolicy {
+        case .backupEligible:
+            return String(
+                localized:
+                    "This permanently deletes the finalized capture and any export archive stored for it from this device. A copy already inside a device backup is managed by the system."
+            )
+        case .excludedFromBackup:
+            return String(
+                localized:
+                    "This permanently deletes the finalized capture and any export archive stored for it from this device. Nothing is uploaded or backed up by this app."
+            )
         }
     }
 

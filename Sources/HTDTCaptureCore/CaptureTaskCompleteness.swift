@@ -113,6 +113,23 @@ public struct CaptureTaskProfile: Sendable, Equatable, Codable {
         ]
     )
 
+    /// Built-in profiles that a device-local default may seed
+    /// (#338). Project/task plans remain the override authority — a
+    /// stored identifier only initializes an unset capture.
+    public static let standalonePresets: [CaptureTaskProfile] = [
+        .geometryOnly,
+        .roomAndListeningPosition,
+    ]
+
+    /// Resolves a stored preset identifier to the built-in profile.
+    /// Unknown identifiers degrade to nil so a stale or future
+    /// identifier never silently selects the wrong strategy.
+    public static func standalonePreset(
+        identifier: String
+    ) -> CaptureTaskProfile? {
+        standalonePresets.first { $0.identifier == identifier }
+    }
+
     /// Theater layout profile: exactly one MLP, at least one screen or
     /// display, one annotation per selected speaker role, and a
     /// configurable subwoofer count. The role list is caller-chosen so
