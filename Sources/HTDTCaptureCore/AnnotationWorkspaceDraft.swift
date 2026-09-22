@@ -25,6 +25,9 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
     /// Ordered channel-role plan the speaker-layout flow is running
     /// through, when the operator started one (#278).
     public var speakerLayoutPlan: SpeakerLayoutPlan?
+    /// Staged theater-semantic authorities (#350); nil in drafts
+    /// written before this field existed.
+    public var theaterAuthorities: TheaterAuthorityCollection?
     /// Staged theater-semantic authority records (#357): edits,
     /// deletes, and newly authored records survive interruption just
     /// like annotations; only Save writes the canonical package.
@@ -43,6 +46,7 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         measurements: [CaptureMeasurement] = [],
         equipmentIdentityRecords: [EquipmentIdentityRecord] = [],
         speakerLayoutPlan: SpeakerLayoutPlan? = nil,
+        theaterAuthorities: TheaterAuthorityCollection? = nil,
         authorities: TheaterAuthorityCollection? = nil,
         fieldAuthority: FieldAuthorityWorkspace? = nil
     ) {
@@ -55,6 +59,7 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         self.measurements = measurements
         self.equipmentIdentityRecords = equipmentIdentityRecords
         self.speakerLayoutPlan = speakerLayoutPlan
+        self.theaterAuthorities = theaterAuthorities
         self.authorities = authorities
         self.fieldAuthority = fieldAuthority
     }
@@ -93,6 +98,10 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         speakerLayoutPlan = try container.decodeIfPresent(
             SpeakerLayoutPlan.self, forKey: .speakerLayoutPlan
         )
+        theaterAuthorities = try container.decodeIfPresent(
+            TheaterAuthorityCollection.self,
+            forKey: .theaterAuthorities
+        )
         fieldAuthority = try container.decodeIfPresent(
             FieldAuthorityWorkspace.self,
             forKey: .fieldAuthority
@@ -113,6 +122,7 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         case measurements
         case equipmentIdentityRecords = "equipment_identity_records"
         case speakerLayoutPlan = "speaker_layout_plan"
+        case theaterAuthorities = "theater_authorities"
         case authorities
         case fieldAuthority = "field_authority"
     }
