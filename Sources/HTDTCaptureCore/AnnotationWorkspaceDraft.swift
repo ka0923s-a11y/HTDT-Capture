@@ -25,6 +25,10 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
     /// Ordered channel-role plan the speaker-layout flow is running
     /// through, when the operator started one (#278).
     public var speakerLayoutPlan: SpeakerLayoutPlan?
+    /// Staged theater-semantic authority records (#357): edits,
+    /// deletes, and newly authored records survive interruption just
+    /// like annotations; only Save writes the canonical package.
+    public var authorities: TheaterAuthorityCollection?
     /// Staged field-authority state — operator profiles, field
     /// evidence, instrument profiles, settings observations and
     /// wiring routes (#300/#301/#310/#314/#324/#331). Optional so
@@ -39,6 +43,7 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         measurements: [CaptureMeasurement] = [],
         equipmentIdentityRecords: [EquipmentIdentityRecord] = [],
         speakerLayoutPlan: SpeakerLayoutPlan? = nil,
+        authorities: TheaterAuthorityCollection? = nil,
         fieldAuthority: FieldAuthorityWorkspace? = nil
     ) {
         self.schemaName = Self.schema
@@ -50,6 +55,7 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         self.measurements = measurements
         self.equipmentIdentityRecords = equipmentIdentityRecords
         self.speakerLayoutPlan = speakerLayoutPlan
+        self.authorities = authorities
         self.fieldAuthority = fieldAuthority
     }
 
@@ -91,6 +97,10 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
             FieldAuthorityWorkspace.self,
             forKey: .fieldAuthority
         )
+        authorities = try container.decodeIfPresent(
+            TheaterAuthorityCollection.self,
+            forKey: .authorities
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -103,6 +113,7 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         case measurements
         case equipmentIdentityRecords = "equipment_identity_records"
         case speakerLayoutPlan = "speaker_layout_plan"
+        case authorities
         case fieldAuthority = "field_authority"
     }
 }
