@@ -131,6 +131,25 @@ public struct CaptureRootActions {
     public let updateLibraryEntry:
         (CaptureRevisionID?, CaptureSeriesID?,
          CaptureLibraryEntryMetadata) -> Void
+    /// Capture-strategy profile selection (#307). Advisory guidance
+    /// and evidence budgets only; a task-plan-pinned strategy cannot
+    /// be changed by the operator.
+    public let selectCaptureStrategy:
+        (CaptureStrategyIdentifier) -> Void
+    /// Plan-reference underlay import (#322): the host reads and
+    /// validates the plan document at the given URL. Underlay
+    /// authority stays reference-only — it never becomes observed
+    /// truth.
+    public let importPlanReference: (URL) -> Void
+    /// Semantic-only child revision (#319): loads the parent context
+    /// and opens the correction sheet.
+    public let beginSemanticCorrection:
+        (PersistedCaptureRecord) -> Void
+    /// Builds the semantic child from the sheet's edits; true on
+    /// success.
+    public let commitSemanticCorrection:
+        (SemanticChildRevisionEdits) async -> Bool
+    public let cancelSemanticCorrection: () -> Void
 
     public init(
         beginCapture: @escaping () -> Void = {},
@@ -241,7 +260,17 @@ public struct CaptureRootActions {
             CaptureRevisionID?,
             CaptureSeriesID?,
             CaptureLibraryEntryMetadata
-        ) -> Void = { _, _, _ in }
+        ) -> Void = { _, _, _ in },
+        selectCaptureStrategy: @escaping
+            (CaptureStrategyIdentifier) -> Void = { _ in },
+        importPlanReference: @escaping (URL) -> Void = { _ in },
+        beginSemanticCorrection: @escaping
+            (PersistedCaptureRecord) -> Void = { _ in },
+        commitSemanticCorrection: @escaping
+            (SemanticChildRevisionEdits) async -> Bool = {
+                _ in false
+            },
+        cancelSemanticCorrection: @escaping () -> Void = {}
     ) {
         self.beginCapture = beginCapture
         self.beginScanning = beginScanning
@@ -304,7 +333,23 @@ public struct CaptureRootActions {
         self.sendCaptureToHTDT = sendCaptureToHTDT
         self.deleteExportArchive = deleteExportArchive
         self.updateLibraryEntry = updateLibraryEntry
+        self.selectCaptureStrategy = selectCaptureStrategy
+        self.importPlanReference = importPlanReference
+        self.beginSemanticCorrection = beginSemanticCorrection
+        self.commitSemanticCorrection =
+            commitSemanticCorrection
+        self.cancelSemanticCorrection = cancelSemanticCorrection
     }
+}
+
+/// Library filter for acquisition origin (#317): imported/received
+/// captures are always visually distinct from device-created ones, so
+/// the filter narrows on that axis rather than on file presence.
+private enum CaptureOriginFilter: String, CaseIterable, Identifiable {
+    case all
+    case device
+    case external
+    var id: String { rawValue }
 }
 
 /// The pending delete-local-capture confirmation: which validated
@@ -527,6 +572,22 @@ public struct CaptureRootView: View {
     public let failedInspection: FailedCaptureInspection?
     /// Spatial authority sealed for finalization (#276).
     public let spatialCaptureSealed: Bool
+    /// Live evidence-storage advisory for the scanning HUD (#308).
+    public let evidenceStorageAdvisory:
+        CaptureEvidenceStorageAdvisory?
+    /// Selected capture-strategy profile for setup display (#307);
+    /// pinned means the active task plan fixed it.
+    public let selectedStrategyID: CaptureStrategyIdentifier
+    public let strategyPinnedByTaskPlan: Bool
+    /// App-local acquisition origins keyed by revision (#317).
+    public let captureOrigins:
+        [CaptureRevisionID: CaptureAcquisitionOriginRecord]
+    /// Pending/committed plan-reference underlay (#322).
+    public let planUnderlayDocument: PlanUnderlayDocument?
+    /// Parent context for the in-flight semantic correction (#319);
+    /// nil when no correction sheet is open.
+    public let semanticCorrectionContext:
+        SemanticChildRevisionContext?
     public let actions: CaptureRootActions
 
     @State private var pendingDeletion:
@@ -543,6 +604,8 @@ public struct CaptureRootView: View {
     @State private var metadataEditorTarget:
         LibraryMetadataEditorTarget?
     @State private var libraryQuery = ""
+    @State private var libraryOriginFilter: CaptureOriginFilter = .all
+    @State private var importingPlanReference = false
     @State private var diagnosticShareURL: URL?
 
     public init(
@@ -606,6 +669,15 @@ public struct CaptureRootView: View {
             = CaptureLibraryMetadataDocument(),
         failedInspection: FailedCaptureInspection? = nil,
         spatialCaptureSealed: Bool = false,
+        evidenceStorageAdvisory:
+            CaptureEvidenceStorageAdvisory? = nil,
+        selectedStrategyID: CaptureStrategyIdentifier = .standard,
+        strategyPinnedByTaskPlan: Bool = false,
+        captureOrigins:
+            [CaptureRevisionID: CaptureAcquisitionOriginRecord] = [:],
+        planUnderlayDocument: PlanUnderlayDocument? = nil,
+        semanticCorrectionContext:
+            SemanticChildRevisionContext? = nil,
         actions: CaptureRootActions = CaptureRootActions()
     ) {
         self.state = state
@@ -668,6 +740,13 @@ public struct CaptureRootView: View {
         self.libraryMetadata = libraryMetadata
         self.failedInspection = failedInspection
         self.spatialCaptureSealed = spatialCaptureSealed
+        self.evidenceStorageAdvisory = evidenceStorageAdvisory
+        self.selectedStrategyID = selectedStrategyID
+        self.strategyPinnedByTaskPlan = strategyPinnedByTaskPlan
+        self.captureOrigins = captureOrigins
+        self.planUnderlayDocument = planUnderlayDocument
+        self.semanticCorrectionContext =
+            semanticCorrectionContext
         self.actions = actions
     }
 
@@ -690,6 +769,7 @@ public struct CaptureRootView: View {
                     isEndingScan: isEndingScan,
                     isCapturingEvidence: isCapturingEvidence,
                     automaticEvidenceCount: automaticEvidenceCount,
+                    evidenceStorageAdvisory: evidenceStorageAdvisory,
                     lowLightGuidanceActive: lowLightGuidanceActive,
                     targetScanStatus: targetScanStatus,
                     declaredRegions: declaredRegions,
@@ -721,6 +801,15 @@ public struct CaptureRootView: View {
             {
                 CaptureSetupView(
                     presentation: captureSetup,
+                    selectedStrategyID: selectedStrategyID,
+                    strategyPinnedByTaskPlan:
+                        strategyPinnedByTaskPlan,
+                    planUnderlay: planUnderlayDocument,
+                    selectCaptureStrategy:
+                        actions.selectCaptureStrategy,
+                    importPlanReference: {
+                        importingPlanReference = true
+                    },
                     beginScanning: actions.beginScanning,
                     cancel: actions.cancelCaptureSetup
                 )
@@ -1173,6 +1262,24 @@ public struct CaptureRootView: View {
                         )
                     }
                 }
+                .sheet(
+                    isPresented: Binding(
+                        get: { semanticCorrectionContext != nil },
+                        set: { presented in
+                            if !presented {
+                                actions.cancelSemanticCorrection()
+                            }
+                        }
+                    )
+                ) {
+                    if let context = semanticCorrectionContext {
+                        SemanticCorrectionSheet(
+                            context: context,
+                            commit: actions.commitSemanticCorrection,
+                            cancel: actions.cancelSemanticCorrection
+                        )
+                    }
+                }
                 .sheet(item: $metadataEditorTarget) { target in
                     LibraryMetadataEditor(
                         revisionID: target.revisionID,
@@ -1221,6 +1328,18 @@ public struct CaptureRootView: View {
                         return
                     }
                     actions.importCaptureArchive(url)
+                }
+                .fileImporter(
+                    isPresented: $importingPlanReference,
+                    allowedContentTypes: [.json],
+                    allowsMultipleSelection: false
+                ) { result in
+                    guard let urls = try? result.get(),
+                          let url = urls.first
+                    else {
+                        return
+                    }
+                    actions.importPlanReference(url)
                 }
             }
                 }
@@ -1455,6 +1574,18 @@ public struct CaptureRootView: View {
             #if os(iOS)
             .textInputAutocapitalization(.never)
             #endif
+            Picker(
+                String(localized: "Origin"),
+                selection: $libraryOriginFilter
+            ) {
+                Text(String(localized: "All"))
+                    .tag(CaptureOriginFilter.all)
+                Text(String(localized: "This device"))
+                    .tag(CaptureOriginFilter.device)
+                Text(String(localized: "Imported or received"))
+                    .tag(CaptureOriginFilter.external)
+            }
+            .pickerStyle(.segmented)
         }
 
         ForEach(
@@ -1464,6 +1595,8 @@ public struct CaptureRootView: View {
                     revisionNotes: revisionNotesByID,
                     query: libraryQuery
                 )
+            }.filter { group in
+                group.revisions.contains(where: matchesOriginFilter)
             }
         ) { group in
             Section(seriesTitle(group)) {
@@ -1475,7 +1608,9 @@ public struct CaptureRootView: View {
                         )
                 }
                 .font(.caption)
-                ForEach(group.revisions) { record in
+                ForEach(
+                    group.revisions.filter(matchesOriginFilter)
+                ) { record in
                     persistedCaptureRow(record)
                 }
             }
@@ -1527,6 +1662,47 @@ public struct CaptureRootView: View {
         ) + group.captureSeriesID.description
     }
 
+    /// Whether a library record matches the selected origin filter
+    /// (#317). Records with no origin record at all count as
+    /// device-created only under `.all`/`.device` — pre-tracking
+    /// captures surface as "origin unknown" rather than silently
+    /// claiming local provenance.
+    private func matchesOriginFilter(
+        _ record: PersistedCaptureRecord
+    ) -> Bool {
+        let kind =
+            captureOrigins[record.captureRevisionID]?.kind
+                ?? .legacyUnknown
+        switch libraryOriginFilter {
+        case .all:
+            return true
+        case .device:
+            return kind == .createdOnThisDevice
+                || kind == .legacyUnknown
+        case .external:
+            return kind == .importedFile
+                || kind == .receivedFromHTDT
+                || kind == .sharedOther
+        }
+    }
+
+    private func originKindLabel(
+        _ kind: CaptureAcquisitionOriginKind
+    ) -> String {
+        switch kind {
+        case .createdOnThisDevice:
+            return String(localized: "Created on this device")
+        case .importedFile:
+            return String(localized: "Imported file")
+        case .receivedFromHTDT:
+            return String(localized: "Received from HTDT")
+        case .sharedOther:
+            return String(localized: "Shared")
+        case .legacyUnknown:
+            return String(localized: "Origin unknown")
+        }
+    }
+
     @ViewBuilder
     private func persistedCaptureRow(
         _ record: PersistedCaptureRecord
@@ -1545,6 +1721,31 @@ public struct CaptureRootView: View {
                 Text(note)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            if let origin =
+                captureOrigins[record.captureRevisionID]
+            {
+                HStack(spacing: 6) {
+                    Label(
+                        originKindLabel(origin.kind),
+                        systemImage: origin.kind
+                            == .createdOnThisDevice
+                            ? "iphone"
+                            : "square.and.arrow.down.on.square"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(
+                        origin.kind == .createdOnThisDevice
+                            ? AnyShapeStyle(.secondary)
+                            : AnyShapeStyle(.indigo)
+                    )
+                    if let filename = origin.originalFilename {
+                        Text(filename)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
             }
 
             if let validation = record.finalizedValidation {
@@ -1604,6 +1805,14 @@ public struct CaptureRootView: View {
                             record
                         )
                     }
+                }
+                if record.canOpen {
+                    Button("Correct metadata") {
+                        actions.beginSemanticCorrection(record)
+                    }
+                    .accessibilityIdentifier(
+                        "library.correctMetadata"
+                    )
                 }
                 Button("Edit name") {
                     metadataEditorTarget =

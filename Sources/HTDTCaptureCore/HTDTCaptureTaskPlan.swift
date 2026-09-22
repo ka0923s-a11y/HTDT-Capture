@@ -231,6 +231,14 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
     public let expectedChannelRoles: [ChannelRole]
     /// Equipment catalog snapshot/reference supplied with the plan.
     public let equipmentCatalog: HTDTEquipmentCatalogSnapshot?
+    /// Catalog `strategy_id` the plan recommends (or pins) for this
+    /// capture (#307). Absent for plans that leave strategy to the
+    /// operator. Unknown identifiers are rejected at decode.
+    public let recommendedCaptureStrategy: String?
+    /// When true, `recommendedCaptureStrategy` is a plan pin: the app
+    /// applies it as binding. When false it is a recommendation the
+    /// operator may override.
+    public let captureStrategyPinned: Bool
 
     public init(
         planID: String,
@@ -243,7 +251,9 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
         surfaceReviewTasks: [HTDTTaskPlanSurfaceItem] = [],
         evidenceTargets: [String] = [],
         expectedChannelRoles: [ChannelRole] = [],
-        equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil
+        equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil,
+        recommendedCaptureStrategy: String? = nil,
+        captureStrategyPinned: Bool = false
     ) throws {
         let normalizedID = SchemaOwnedText.nfc(planID)
         let normalizedVersion = SchemaOwnedText.nfc(planVersion)
@@ -296,9 +306,26 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
         self.entityChecklist = entityChecklist
         self.measurementRequests = measurementRequests
         self.surfaceReviewTasks = surfaceReviewTasks
+        let normalizedStrategy = SchemaOwnedText.nfc(
+            recommendedCaptureStrategy
+        )
+        if let normalizedStrategy {
+            guard !normalizedStrategy.isEmpty,
+                  CaptureStrategyIdentifier(
+                      rawValue: normalizedStrategy
+                  ) != nil
+            else {
+                throw CaptureTaskPlanError.emptyField
+            }
+        }
         self.evidenceTargets = normalizedEvidenceTargets
         self.expectedChannelRoles = expectedChannelRoles
         self.equipmentCatalog = equipmentCatalog
+        self.recommendedCaptureStrategy = normalizedStrategy
+        // A pin without a recommended strategy is meaningless — only
+        // honor the flag when a strategy is present.
+        self.captureStrategyPinned = captureStrategyPinned
+            && normalizedStrategy != nil
     }
 
     public var allItemIDs: [String] {
@@ -321,6 +348,8 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
         case evidenceTargets = "evidence_targets"
         case expectedChannelRoles = "expected_channel_roles"
         case equipmentCatalog = "equipment_catalog"
+        case recommendedCaptureStrategy = "recommended_capture_strategy"
+        case captureStrategyPinned = "capture_strategy_pinned"
     }
 
     /// Decodes an imported plan. Malformed bytes, unsupported schema
@@ -379,7 +408,15 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
             equipmentCatalog: container.decodeIfPresent(
                 HTDTEquipmentCatalogSnapshot.self,
                 forKey: .equipmentCatalog
-            )
+            ),
+            recommendedCaptureStrategy: container.decodeIfPresent(
+                String.self,
+                forKey: .recommendedCaptureStrategy
+            ),
+            captureStrategyPinned: container.decodeIfPresent(
+                Bool.self,
+                forKey: .captureStrategyPinned
+            ) ?? false
         )
     }
 }

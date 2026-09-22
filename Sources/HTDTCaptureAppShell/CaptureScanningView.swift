@@ -25,6 +25,11 @@ public struct CaptureScanningView: View {
     public let isCapturingEvidence: Bool
     /// Frames retained by the bounded automatic selector (#216).
     public let automaticEvidenceCount: Int
+    /// Live storage accounting for the working revision (#308):
+    /// retained bytes by category, measured device free space, and
+    /// the automatic-keyframe budget. Advisory only.
+    public let evidenceStorageAdvisory:
+        CaptureEvidenceStorageAdvisory?
     /// Live low-light recovery surface (#283).
     public let lowLightGuidanceActive: Bool
     /// Active targeted-object pass status (#250).
@@ -68,6 +73,8 @@ public struct CaptureScanningView: View {
         isEndingScan: Bool = false,
         isCapturingEvidence: Bool = false,
         automaticEvidenceCount: Int = 0,
+        evidenceStorageAdvisory:
+            CaptureEvidenceStorageAdvisory? = nil,
         lowLightGuidanceActive: Bool = false,
         targetScanStatus: TargetScanStatus? = nil,
         declaredRegions: [DeclaredCoverageRegion] = [],
@@ -104,6 +111,7 @@ public struct CaptureScanningView: View {
         self.isEndingScan = isEndingScan
         self.isCapturingEvidence = isCapturingEvidence
         self.automaticEvidenceCount = automaticEvidenceCount
+        self.evidenceStorageAdvisory = evidenceStorageAdvisory
         self.lowLightGuidanceActive = lowLightGuidanceActive
         self.targetScanStatus = targetScanStatus
         self.declaredRegions = declaredRegions
@@ -546,6 +554,10 @@ public struct CaptureScanningView: View {
                 expandedStatusRow
                 directionCoverageSection
 
+                if let storage = evidenceStorageAdvisory {
+                    evidenceStorageSection(storage)
+                }
+
                 DisclosureGroup(
                     isExpanded: $showingSpatialMap
                 ) {
@@ -673,6 +685,17 @@ public struct CaptureScanningView: View {
                         ),
                         systemImage: "camera"
                     )
+                    if let storage = evidenceStorageAdvisory {
+                        Label(
+                            storageByteLabel(
+                                storage.profile.totalBytes
+                            ),
+                            systemImage: "internaldrive"
+                        )
+                        .foregroundStyle(
+                            storageBandColor(storage.pressureBand)
+                        )
+                    }
                     if automaticEvidenceCount > 0 {
                         Label(
                             String(
@@ -1735,6 +1758,207 @@ public struct CaptureScanningView: View {
             return String(localized: "Front left")
         }
     }
+    /// Retained-storage accounting for the working revision (#308).
+    /// Shows bytes by category plus the measured device free space and
+    /// the automatic-keyframe budget — evidence counts alone no longer
+    /// stand in for storage cost. Advisory only: this section never
+    /// claims anything about capture completeness.
+    private func evidenceStorageSection(
+        _ storage: CaptureEvidenceStorageAdvisory
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Storage")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("Advisory")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            LabeledContent(
+                "Retained evidence",
+                value: storageByteLabel(
+                    storage.profile.totalBytes
+                )
+            )
+            .font(.caption)
+
+            HStack(spacing: 10) {
+                if storage.evidenceFrameCount > 0 {
+                    Text(
+                        String(
+                            format:
+                                String(
+                                    localized:
+                                        "%lld frames · %@"
+                                ),
+                            Int64(storage.evidenceFrameCount),
+                            storageByteLabel(
+                                storage.profile.framePixelBytes
+                            )
+                        )
+                    )
+                }
+                if storage.depthEvidenceCount > 0 {
+                    Text(
+                        String(
+                            format:
+                                String(
+                                    localized:
+                                        "%lld depth · %@"
+                                ),
+                            Int64(storage.depthEvidenceCount),
+                            storageByteLabel(
+                                storage.profile
+                                    .depthConfidenceBytes
+                            )
+                        )
+                    )
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                if storage.profile.meshBytes > 0 {
+                    Text(
+                        String(
+                            format:
+                                String(
+                                    localized: "Mesh %@"
+                                ),
+                            storageByteLabel(
+                                storage.profile.meshBytes
+                            )
+                        )
+                    )
+                }
+                if storage.profile.roomPlanBytes > 0 {
+                    Text(
+                        String(
+                            format:
+                                String(
+                                    localized:
+                                        "RoomPlan %@"
+                                ),
+                            storageByteLabel(
+                                storage.profile.roomPlanBytes
+                            )
+                        )
+                    )
+                }
+                if storage.profile.previewAndDerivedBytes > 0 {
+                    Text(
+                        String(
+                            format:
+                                String(
+                                    localized:
+                                        "Derived %@"
+                                ),
+                            storageByteLabel(
+                                storage.profile
+                                    .previewAndDerivedBytes
+                            )
+                        )
+                    )
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+
+            HStack {
+                Text("Device free")
+                    .font(.caption)
+                Spacer()
+                if let free = storage.deviceAvailableBytes {
+                    Text(storageByteLabel(free))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(
+                            storageBandColor(
+                                storage.pressureBand
+                            )
+                        )
+                } else {
+                    Text(String(localized: "Unknown"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if storage.pressureBand == .warning
+                || storage.pressureBand == .critical
+            {
+                Text(
+                    storage.pressureBand == .critical
+                        ? String(
+                            localized:
+                                "Very little free storage remains; capture may stop early."
+                        )
+                        : String(
+                            localized:
+                                "Free storage is running low for this capture."
+                        )
+                )
+                .font(.caption2)
+                .foregroundStyle(
+                    storageBandColor(storage.pressureBand)
+                )
+            }
+
+            if let budget = storage.keyframeBudget {
+                LabeledContent(
+                    "Auto evidence",
+                    value: String(
+                        format: String(
+                            localized:
+                                "%lld/%lld frames · %@/%@"
+                        ),
+                        Int64(budget.retainedFrameCount),
+                        Int64(budget.maximumRetainedFrames),
+                        storageByteLabel(
+                            Int64(budget.retainedEstimatedBytes)
+                        ),
+                        storageByteLabel(
+                            Int64(budget.maximumRetainedBytes)
+                        )
+                    )
+                )
+                .font(.caption)
+            }
+        }
+        .padding(10)
+        .background(
+            Color.black.opacity(0.18),
+            in: RoundedRectangle(
+                cornerRadius: 12,
+                style: .continuous
+            )
+        )
+        .accessibilityElement(children: .contain)
+    }
+
+    private func storageByteLabel(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(
+            fromByteCount: bytes,
+            countStyle: .file
+        )
+    }
+
+    private func storageBandColor(
+        _ band: CaptureStoragePressureBand
+    ) -> Color {
+        switch band {
+        case .nominal:
+            return .secondary
+        case .warning:
+            return .orange
+        case .critical:
+            return .red
+        case .unknown:
+            return .secondary
+        }
+    }
 }
 
 
@@ -1848,6 +2072,7 @@ private struct RelativeGuidanceCompass: View {
             )
             .accessibilityLabel(accessibilityLabel)
     }
+
 }
 
 

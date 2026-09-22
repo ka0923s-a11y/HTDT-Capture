@@ -95,6 +95,9 @@ SCHEMA_OWNED_PATHS = {
     "quality/capture-quality.json": "quality.schema.json",
     "session/room-reference-frame.json": "room-reference-frame.schema.json",
     "quality/capture-advisory.json": "capture-advisory.schema.json",
+    "session/capture-strategy.json": "capture-strategy.schema.json",
+    "revision/intent.json": "revision-intent.schema.json",
+    "reference/plan-underlay.json": "plan-underlay.schema.json",
 }
 FRAME_DESCRIPTOR_RE = re.compile(r"^evidence/frames/[^/]+\.json$")
 
