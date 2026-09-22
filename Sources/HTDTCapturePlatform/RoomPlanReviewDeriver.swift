@@ -181,6 +181,7 @@ public enum RoomPlanReviewDeriver {
         func addMarkers<O: RoomPlanPlanItem>(
             _ objects: [O],
             kind: RoomPlanPreviewModel.PlanMarker.Kind,
+            sourceToken: String,
             label: (O) -> String?
         ) {
             for object in objects {
@@ -195,16 +196,33 @@ public enum RoomPlanReviewDeriver {
                         z: z,
                         dirX: Double(c.0.x),
                         dirZ: Double(c.0.z),
-                        label: label(object)
+                        label: label(object),
+                        // Same lineage token `enumerateOpenings`
+                        // stamps as the candidate's `source_ref`
+                        // (issue #367): a reviewed opening replaces
+                        // this raw marker on the review surface.
+                        identifier:
+                            "roomplan:\(sourceToken):"
+                            + object.identifier
+                                .uuidString.lowercased(),
+                        selectable: true
                     )
                 )
             }
         }
 
-        addMarkers(room.doors, kind: .door) { _ in "door" }
-        addMarkers(room.windows, kind: .window) { _ in "window" }
-        addMarkers(room.openings, kind: .opening) { _ in "opening" }
-        addMarkers(room.objects, kind: .object) {
+        addMarkers(
+            room.doors, kind: .door, sourceToken: "door"
+        ) { _ in "door" }
+        addMarkers(
+            room.windows, kind: .window, sourceToken: "window"
+        ) { _ in "window" }
+        addMarkers(
+            room.openings, kind: .opening, sourceToken: "opening"
+        ) { _ in "opening" }
+        addMarkers(
+            room.objects, kind: .object, sourceToken: "object"
+        ) {
             String(describing: $0.category)
         }
 

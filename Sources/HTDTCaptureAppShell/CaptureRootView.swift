@@ -763,6 +763,9 @@ public struct CaptureRootView: View {
     public let libraryMetadata: CaptureLibraryMetadataDocument
     /// Retained-evidence inspection for a failed capture (#224).
     public let failedInspection: FailedCaptureInspection?
+    /// Required-task mission progress shown in the journey header
+    /// (#372); nil when no plan is active.
+    public let taskPlanMission: CaptureJourneyMissionSummary?
     /// Spatial authority sealed for finalization (#276).
     public let spatialCaptureSealed: Bool
     /// Live evidence-storage advisory for the scanning HUD (#308).
@@ -855,6 +858,10 @@ public struct CaptureRootView: View {
         equipmentCatalogLibrary:
             [HTDTEquipmentCatalogLibrary.StoredCatalog] = [],
         taskPlan: HTDTCaptureTaskPlan? = nil,
+        /// Required-task progress for the journey header (#372):
+        /// evaluated by the host from the plan plus the committed
+        /// records — nil when no plan is active or none are required.
+        taskPlanMission: CaptureJourneyMissionSummary? = nil,
         workingSetIdentity: CaptureWorkingSetIdentity? = nil,
         annotationEvidenceFrames: [EvidenceFramePresentation] = [],
         annotationRoomPlanObjects: [RoomPlanBindableObject] = [],
@@ -946,6 +953,7 @@ public struct CaptureRootView: View {
         self.equipmentCatalog = equipmentCatalog
         self.equipmentCatalogLibrary = equipmentCatalogLibrary
         self.taskPlan = taskPlan
+        self.taskPlanMission = taskPlanMission
         self.workingSetIdentity = workingSetIdentity
         self.annotationEvidenceFrames = annotationEvidenceFrames
         self.annotationRoomPlanObjects = annotationRoomPlanObjects
@@ -1189,14 +1197,20 @@ public struct CaptureRootView: View {
                         confirmingDiscard = true
                     }
                 )
-                .navigationTitle("Capture authority")
+                .navigationTitle(
+                    LocalizedStringKey(
+                        CaptureJourneyStage.details.pageTitleKey
+                    )
+                )
             } else {
                 List {
                 Section {
-                    CaptureTaskHeader(
-                        LocalizedStringKey(localizedState(state)),
-                        status: captureStateStatus(state)
-                    )
+                    // The loop-aware journey header (#372) replaces
+                    // the bare state banner: current stage, truthful
+                    // per-stage statuses, mission progress and
+                    // technical readiness — all derived, never
+                    // persisted.
+                    CaptureJourneyHeader(presentation: journey)
                     if let workingSetStatus {
                         Text(workingSetStatus)
                             .font(
@@ -1396,7 +1410,11 @@ public struct CaptureRootView: View {
                     }
                 }
             }
-                .navigationTitle("HTDT Capture")
+                .navigationTitle(
+                    LocalizedStringKey(
+                        journey.currentStage.pageTitleKey
+                    )
+                )
                 .navigationDestination(
                     isPresented: $reviewWorkspaceShown
                 ) {
@@ -1708,6 +1726,39 @@ public struct CaptureRootView: View {
         !activeOperations.isEmpty
     }
 
+    /// The loop-aware capture journey (#372): which stage the operator
+    /// is in, each stage's truthful status, the one dominant action,
+    /// and mission/readiness summaries — derived here, never
+    /// persisted. An adopted persisted capture (`workingSetIdentity
+    /// == nil`) has no earlier-stage lineage in this session, so the
+    /// trail marks them unavailable instead of faking checks.
+    private var journey: CaptureJourneyPresentation {
+        CaptureJourneyPresentation.resolve(
+            CaptureJourneyInputs(
+                state: state,
+                lastFailure: lastFailure,
+                hasQualityReport: qualityReport != nil,
+                qualityReadyForIngestion:
+                    qualityReport?.readyForHTDTIngestion ?? false,
+                integrityPass:
+                    qualityReport?.integrityStatus == .pass,
+                integrityFail:
+                    qualityReport?.integrityStatus == .fail,
+                hasSpatialAuthority:
+                    annotationCoordinateSpaceID != nil
+                        && liveSpatialAuthority,
+                detailsCommitted: annotationAuthorityCommitted,
+                spatialCaptureSealed: spatialCaptureSealed,
+                hasValidationReport: validationReport != nil,
+                hasExportArchive: exportURL != nil,
+                isImportedFinalized: workingSetIdentity == nil,
+                mission: taskPlanMission,
+                cameraPermissionDenied:
+                    cameraPermission == .denied
+            )
+        )
+    }
+
     @ViewBuilder
     private var controls: some View {
         switch state {
@@ -1865,62 +1916,39 @@ public struct CaptureRootView: View {
                 .foregroundStyle(.secondary)
             }
 
-            Button("Open review workspace") {
-                actions.refreshReviewWorkspace()
-                reviewWorkspaceShown = true
-            }
-            .disabled(hostBusy)
-
-            if liveSpatialAuthority,
-               annotationCoordinateSpaceID != nil {
-                // Saved annotations/measurements survive a reopen
-                // while the same coordinate authority is still valid
-                // (#236), so Continue stays available after a saved
-                // annotation pass.
+            // One dominant action per stage (#372): a blocking
+            // integrity problem → Review diagnostics; required
+            // mission tasks outstanding → Complete required tasks;
+            // coverage unknown → Continue scanning; otherwise →
+            // Validate and finalize.
+            switch journey.primaryAction {
+            case .reviewDiagnostics:
+                if let qualityReport {
+                    NavigationLink("Review diagnostics") {
+                        CaptureReviewView(
+                            quality: qualityReport,
+                            advisory: advisoryReport,
+                            spatialFindings:
+                                spatialPlausibilityFindings
+                        )
+                    }
+                    .capturePrimaryAction()
+                }
+            case .completeRequiredTasks:
+                Button(
+                    "Complete required tasks",
+                    action: actions.beginAnnotation
+                )
+                .capturePrimaryAction()
+                .disabled(hostBusy)
+            case .continueScanning:
                 Button(
                     "Continue scanning",
                     action: actions.continueScanning
                 )
+                .capturePrimaryAction()
                 .disabled(hostBusy)
-                if !annotationAuthorityCommitted {
-                    Button(
-                        "Add annotations & measurements",
-                        action: actions.beginAnnotation
-                    )
-                    .disabled(hostBusy)
-                } else {
-                    Text("Annotation authority saved.")
-                    Button(
-                        spatialCaptureSealed
-                            ? "Edit labels, roles, equipment, and values"
-                            : "Edit saved annotations & measurements",
-                        action: actions.beginAnnotation
-                    )
-                    .disabled(hostBusy)
-                }
-            } else if annotationAuthorityCommitted {
-                Text("Annotation authority saved.")
-                Button(
-                    "Edit labels, roles, equipment, and values",
-                    action: actions.beginAnnotation
-                )
-                .disabled(hostBusy)
-            }
-
-            // #297 "Save and finish later": the end-accepted draft is
-            // durable; leaving Review keeps it listed as a recoverable
-            // draft on the home surface and next launch.
-            if workingSetIdentity != nil {
-                Button(
-                    "Save and finish later",
-                    action: actions.suspendReview
-                )
-            }
-
-            discardButton
-                .disabled(hostBusy)
-
-            if let qualityReport {
+            case .validateAndFinalize:
                 if practiceCaptureActive {
                     Text(
                         "Practice captures are never finalized; use Discard to end practice."
@@ -1932,14 +1960,16 @@ public struct CaptureRootView: View {
                         "Validate and finalize",
                         action: actions.finalizeCapture
                     )
+                    .capturePrimaryAction()
                     .disabled(
-                        !qualityReport.readyForHTDTIngestion
-                        || qualityReport.integrityStatus != .pass
+                        !(qualityReport?.readyForHTDTIngestion ?? false)
+                        || qualityReport?.integrityStatus != .pass
+                        || hostBusy
                     )
                     // #298: the disabled gate names its blocking
                     // reasons inline instead of leaving the operator
                     // to hunt through the diagnostics section.
-                    let blockers = qualityReport.diagnostics
+                    let blockers = (qualityReport?.diagnostics ?? [])
                         .filter { $0.severity == .error }
                     if !blockers.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
@@ -1972,23 +2002,58 @@ public struct CaptureRootView: View {
                     "Validate and finalize",
                     action: actions.finalizeCapture
                 )
+                .capturePrimaryAction()
                 .disabled(
-                    !qualityReport.readyForHTDTIngestion
-                    || qualityReport.integrityStatus != .pass
+                    !(qualityReport?.readyForHTDTIngestion ?? false)
+                    || qualityReport?.integrityStatus != .pass
                     || hostBusy
                 )
-                if activeOperations.contains(.reviewOperation) {
-                    progressRow("Finalizing capture…")
-                }
-            } else {
+            case .openReviewWorkspace:
+                reviewWorkspaceButton()
+                    .capturePrimaryAction()
+            default:
+                EmptyView()
+            }
+            if let blocked = journey.primaryActionBlockedKey {
+                Text(LocalizedStringKey(blocked))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if annotationAuthorityCommitted {
+                Text("Details saved.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(journey.secondaryActions, id: \.self) { id in
+                journeyActionRow(id)
+            }
+            if qualityReport == nil {
                 progressRow("Waiting for persisted evidence…")
             }
+            if activeOperations.contains(.reviewOperation) {
+                progressRow("Finalizing capture…")
+            }
+            // #297 "Save and finish later": the end-accepted draft is
+            // durable; leaving Review keeps it listed as a recoverable
+            // draft on the home surface and next launch.
+            if workingSetIdentity != nil {
+                Button(
+                    "Save and finish later",
+                    action: actions.suspendReview
+                )
+            }
+
+            // Discarding the working revision is always legal while
+            // unfinalized — kept last and visually separated.
+            discardButton
+                .disabled(hostBusy)
 
         case .failed:
             Button(
                 "Inspect retained evidence",
                 action: actions.inspectFailedCapture
             )
+            .capturePrimaryAction()
             .disabled(hostBusy)
             if activeOperations.contains(.exportDiagnostics) {
                 progressRow("Preparing diagnostic package…")
@@ -2000,6 +2065,7 @@ public struct CaptureRootView: View {
                             .exportFailedCaptureDiagnostics()
                 }
             }
+            .captureSecondaryAction()
             .disabled(hostBusy)
             if let diagnosticShareURL {
                 ShareLink(item: diagnosticShareURL) {
@@ -2012,6 +2078,7 @@ public struct CaptureRootView: View {
             Button("Start new capture") {
                 confirmingDiscard = true
             }
+            .captureSecondaryAction()
             .disabled(hostBusy)
             Button(
                 "Discard failed capture",
@@ -2029,10 +2096,13 @@ public struct CaptureRootView: View {
         case .finalized:
             // The export always packages every retained pixel
             // payload; the operator confirms visual evidence is
-            // included before preparing it (issue #241).
+            // included before preparing it (issue #241). One
+            // dominant action per stage (#372).
             Button("Prepare .htdtcapture") {
                 confirmingExport = true
             }
+            .capturePrimaryAction()
+            .disabled(hostBusy)
             .confirmationDialog(
                 "Export includes visual evidence?",
                 isPresented: $confirmingExport,
@@ -2050,11 +2120,6 @@ public struct CaptureRootView: View {
             if activeOperations.contains(.prepareExport) {
                 progressRow("Preparing archive…")
             }
-            Button(
-                "Prepare .htdtcapture",
-                action: actions.prepareExport
-            )
-            .disabled(hostBusy)
             revisionControls
             if let revisionID =
                 validationReport?.manifest.captureRevisionID
@@ -2079,10 +2144,12 @@ public struct CaptureRootView: View {
                 Button("Send to HTDT…") {
                     handoffDestinationsShown = true
                 }
+                .capturePrimaryAction()
                 .disabled(hostBusy)
                 Button("Share .htdtcapture") {
                     shareArchiveForHandoff = true
                 }
+                .captureSecondaryAction()
                 .disabled(hostBusy)
             }
             revisionControls
@@ -2121,10 +2188,12 @@ public struct CaptureRootView: View {
                 "Open Settings",
                 action: actions.openCameraSettings
             )
+            .capturePrimaryAction()
             Button(
                 "Check again",
                 action: actions.retryCameraPermission
             )
+            .captureSecondaryAction()
             Button(
                 "Cancel",
                 role: .cancel,
@@ -2223,6 +2292,65 @@ public struct CaptureRootView: View {
     private var discardButton: some View {
         Button("Discard capture", role: .destructive) {
             confirmingDiscard = true
+        }
+    }
+
+    private func reviewWorkspaceButton() -> some View {
+        Button("Open review workspace") {
+            actions.refreshReviewWorkspace()
+            reviewWorkspaceShown = true
+        }
+        .disabled(hostBusy)
+    }
+
+    /// A journey-declared secondary action (#372): the presentation
+    /// orders the row set; the view binds each stable id to its host
+    /// callback and keeps destructive actions visually separated.
+    @ViewBuilder
+    private func journeyActionRow(
+        _ id: CaptureJourneyAction
+    ) -> some View {
+        switch id {
+        case .openReviewWorkspace:
+            reviewWorkspaceButton()
+                .captureSecondaryAction()
+        case .continueScanning:
+            // Saved annotations/measurements survive a reopen while
+            // the same coordinate authority is still valid (#236).
+            Button(
+                "Continue scanning",
+                action: actions.continueScanning
+            )
+            .captureSecondaryAction()
+            .disabled(hostBusy)
+        case .addDetails:
+            Button(
+                "Add details",
+                action: actions.beginAnnotation
+            )
+            .captureSecondaryAction()
+            .disabled(hostBusy)
+        case .editSavedDetails:
+            Button(
+                spatialCaptureSealed
+                    ? "Edit labels, roles, equipment, and values"
+                    : "Edit saved annotations & measurements",
+                action: actions.beginAnnotation
+            )
+            .captureSecondaryAction()
+            .disabled(hostBusy)
+        case .completeRequiredTasks:
+            Button(
+                "Complete required tasks",
+                action: actions.beginAnnotation
+            )
+            .captureSecondaryAction()
+            .disabled(hostBusy)
+        case .discardCapture:
+            discardButton
+                .disabled(hostBusy)
+        default:
+            EmptyView()
         }
     }
 
