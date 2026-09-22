@@ -45,6 +45,10 @@ public struct SemanticChildRevisionContext: Sendable {
     public let sessionDocument: CaptureSessionDocument
     public let parentQualityReport: CaptureQualityReport
     public let entities: [CaptureAnnotationEntity]
+    /// Semantic relation graph carried from the parent (#333);
+    /// entity ids are stable across a correction so relations keep
+    /// resolving.
+    public let relations: [CaptureSemanticRelation]
     public let measurements: [CaptureMeasurement]
     public let openingReview: OpeningReviewDocument?
     public let equipmentIdentity: EquipmentIdentityDocument?
@@ -63,7 +67,8 @@ public struct SemanticChildRevisionContext: Sendable {
         measurements: [CaptureMeasurement],
         openingReview: OpeningReviewDocument?,
         equipmentIdentity: EquipmentIdentityDocument?,
-        parentIntent: CaptureRevisionIntentDocument?
+        parentIntent: CaptureRevisionIntentDocument?,
+        relations: [CaptureSemanticRelation] = []
     ) {
         self.parentDirectory = parentDirectory
         self.manifest = manifest
@@ -71,6 +76,7 @@ public struct SemanticChildRevisionContext: Sendable {
         self.sessionDocument = sessionDocument
         self.parentQualityReport = parentQualityReport
         self.entities = entities
+        self.relations = relations
         self.measurements = measurements
         self.openingReview = openingReview
         self.equipmentIdentity = equipmentIdentity
@@ -83,6 +89,9 @@ public struct SemanticChildRevisionContext: Sendable {
 /// builder re-binds revision identity and lifecycle metadata itself.
 public struct SemanticChildRevisionEdits: Sendable, Equatable {
     public var entities: [CaptureAnnotationEntity]?
+    /// Relation-graph replacement; nil keeps the parent's graph
+    /// verbatim (entity ids are stable across a correction).
+    public var relations: [CaptureSemanticRelation]?
     public var measurements: [CaptureMeasurement]?
     /// Opening candidates for the child's review document. The doc's
     /// session/space identities are re-bound to the parent's, so edits
@@ -96,12 +105,14 @@ public struct SemanticChildRevisionEdits: Sendable, Equatable {
 
     public init(
         entities: [CaptureAnnotationEntity]? = nil,
+        relations: [CaptureSemanticRelation]? = nil,
         measurements: [CaptureMeasurement]? = nil,
         openings: [RoomOpeningCandidate]? = nil,
         equipmentRecords: [EquipmentIdentityRecord]? = nil,
         correctionNote: String? = nil
     ) {
         self.entities = entities
+        self.relations = relations
         self.measurements = measurements
         self.openings = openings
         self.equipmentRecords = equipmentRecords
@@ -202,10 +213,12 @@ public enum SemanticChildRevisionBuilder {
             throw SemanticChildRevisionError
                 .parentMissingQualityReport
         }
-        let entities = try decode(
+        let annotationCollection = try decode(
             CaptureAnnotationCollection.self,
             path: AnnotationEvidencePackage.path
-        )?.entities ?? []
+        )
+        let entities = annotationCollection?.entities ?? []
+        let relations = annotationCollection?.relations ?? []
         let measurements = try decode(
             CaptureMeasurementCollection.self,
             path: MeasurementEvidencePackage.path
@@ -229,7 +242,8 @@ public enum SemanticChildRevisionBuilder {
             parentIntent: try decode(
                 CaptureRevisionIntentDocument.self,
                 path: CaptureRevisionIntentPackage.path
-            )
+            ),
+            relations: relations
         )
     }
 
@@ -248,9 +262,20 @@ public enum SemanticChildRevisionBuilder {
         now: Date = Date()
     ) async throws -> SemanticChildRevisionResult {
         let parentRevisionID = context.manifest.captureRevisionID
-        let childEntities = edits.entities ?? context.entities
-        let childMeasurements =
+        // Re-emitted payloads declare the current schema version, so
+        // legacy custom-unscoped tokens carried from a pre-1.1.0
+        // parent are normalized into the reserved extension prefix
+        // (#344) — the meaning survives while the child stays
+        // wire-legal.
+        let childEntities = try (
+            edits.entities ?? context.entities
+        ).map(wireLegalEntity)
+        let childRelations = try (
+            edits.relations ?? context.relations
+        ).map(wireLegalRelation)
+        let childMeasurements = try (
             edits.measurements ?? context.measurements
+        ).map(wireLegalMeasurement)
 
         var fileManager: FileManager { .default }
         if fileManager.fileExists(atPath: stagingDirectory.path) {
@@ -270,6 +295,7 @@ public enum SemanticChildRevisionBuilder {
         if parentHasAnnotations || edits.entities != nil {
             let package = try AnnotationEvidencePackageBuilder.build(
                 entities: childEntities,
+                relations: childRelations,
                 priorEntities: context.entities,
                 revisedAt: now
             )
@@ -801,5 +827,123 @@ public enum SemanticChildRevisionBuilder {
         case .captureAppDerived, nil:
             return .captureAppDerived
         }
+    }
+}
+
+private extension SemanticChildRevisionBuilder {
+    /// Legacy v1.0.0 payloads may carry custom tokens without the
+    /// reserved extension prefix; re-emitting them under the current
+    /// schema version would be wire-illegal (#344). Standard and
+    /// already-scoped tokens pass through `scopedForAuthoring`
+    /// verbatim, so normalization only ever rewrites the legacy
+    /// unscoped case.
+    static func wireLegalEntity(
+        _ entity: CaptureAnnotationEntity
+    ) throws -> CaptureAnnotationEntity {
+        let semantics =
+            OpenTokenPolicy.scopedForAuthoring(
+                entity.referencePointSemantics.rawValue,
+                vocabulary: .referencePointSemantics
+            ).flatMap(ReferencePointSemantics.init(rawValue:))
+                ?? entity.referencePointSemantics
+        let role = entity.channelRole.map { current in
+            OpenTokenPolicy.scopedForAuthoring(
+                current.rawValue,
+                vocabulary: .channelRole
+            ).flatMap(ChannelRole.init(rawValue:)) ?? current
+        }
+        guard
+            semantics != entity.referencePointSemantics
+                || role != entity.channelRole
+        else {
+            return entity
+        }
+        return try CaptureAnnotationEntity(
+            entityID: entity.entityID,
+            type: entity.type,
+            coordinateSpaceID: entity.coordinateSpaceID,
+            worldFromAnnotation: entity.worldFromAnnotation,
+            referencePointSemantics: semantics,
+            label: entity.label,
+            provenanceClass: entity.provenanceClass,
+            verificationState: entity.verificationState,
+            placement: entity.placement,
+            orientation: entity.orientation,
+            channelRole: role,
+            roleBinding: entity.roleBinding,
+            acousticCenter: entity.acousticCenter,
+            equipmentRef: entity.equipmentRef,
+            evidenceRefs: entity.evidenceRefs,
+            physicalEnvelope: entity.physicalEnvelope,
+            listeningRole: entity.listeningRole,
+            uncertainty: entity.uncertainty,
+            authority: entity.authority,
+            lifecycle: entity.lifecycle,
+            referencePoint: entity.referencePoint,
+            lineage: entity.lineage,
+            authorOperatorID: entity.authorOperatorID
+        )
+    }
+
+    static func wireLegalRelation(
+        _ relation: CaptureSemanticRelation
+    ) throws -> CaptureSemanticRelation {
+        guard
+            let scoped = OpenTokenPolicy.scopedForAuthoring(
+                relation.relationType.rawValue,
+                vocabulary: .relationType
+            ).flatMap(SemanticRelationType.init(rawValue:)),
+            scoped != relation.relationType
+        else {
+            return relation
+        }
+        return try CaptureSemanticRelation(
+            relationID: relation.relationID,
+            relationType: scoped,
+            subjectRef: relation.subjectRef,
+            objectRefs: relation.objectRefs,
+            provenanceClass: relation.provenanceClass,
+            verificationState: relation.verificationState,
+            evidenceRefs: relation.evidenceRefs,
+            createdAtUTC: relation.createdAtUTC,
+            updatedAtUTC: relation.updatedAtUTC,
+            attributes: relation.attributes
+        )
+    }
+
+    static func wireLegalMeasurement(
+        _ measurement: CaptureMeasurement
+    ) throws -> CaptureMeasurement {
+        guard
+            let scoped = OpenTokenPolicy.scopedForAuthoring(
+                measurement.quantityType,
+                vocabulary: .measurementQuantity
+            ),
+            scoped != measurement.quantityType
+        else {
+            return measurement
+        }
+        return try CaptureMeasurement(
+            measurementID: measurement.measurementID,
+            quantityType: scoped,
+            value: measurement.value,
+            unit: measurement.unit,
+            coordinateSpaceID: measurement.coordinateSpaceID,
+            endpointRefs: measurement.endpointRefs,
+            acquisitionMethod: measurement.acquisitionMethod,
+            instrument: measurement.instrument,
+            statedUncertainty: measurement.statedUncertainty,
+            observedAtUTC: measurement.observedAtUTC,
+            userAttestation: measurement.userAttestation,
+            provenanceClass: measurement.provenanceClass,
+            sourceValueText: measurement.sourceValueText,
+            sourceAuthority: measurement.sourceAuthority,
+            derivation: measurement.derivation,
+            uncertainty: measurement.uncertainty,
+            lineage: measurement.lineage,
+            instrumentAuthority: measurement.instrumentAuthority,
+            authorOperatorID: measurement.authorOperatorID,
+            evidenceRefs: measurement.evidenceRefs
+        )
     }
 }
