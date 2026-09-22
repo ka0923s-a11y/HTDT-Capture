@@ -1588,7 +1588,7 @@ public struct CaptureReviewWorkspaceView: View {
 /// derived convenience artifacts; a missing/unreadable preview degrades
 /// to a stable placeholder — never a hidden failure and never a row
 /// jump (issue #367).
-private struct AsyncPreviewImage: View {
+struct AsyncPreviewImage: View {
     let url: URL?
 
     var body: some View {
