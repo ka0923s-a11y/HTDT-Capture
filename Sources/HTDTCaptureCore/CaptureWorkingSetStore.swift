@@ -93,6 +93,8 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
     public let evidenceFrameRefs: [String]
     /// Committed room reference frame document (issue #232), if any.
     public let roomReferenceFrame: RoomReferenceFrameDocument?
+    /// Committed room field datum document (issue #232), if any.
+    public let roomFieldDatum: RoomFieldDatumDocument?
     /// Committed opening-review document (issue #231), if any.
     public let openingReview: OpeningReviewDocument?
     /// Frame ids committed by the accepted End boundary (issue #241);
@@ -117,6 +119,7 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         usableDepthEvidenceCount: Int,
         evidenceFrameRefs: [String],
         roomReferenceFrame: RoomReferenceFrameDocument? = nil,
+        roomFieldDatum: RoomFieldDatumDocument? = nil,
         openingReview: OpeningReviewDocument? = nil,
         endBoundaryFrameIDs: [EvidenceFrameID] = []
     ) {
@@ -137,6 +140,7 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         self.usableDepthEvidenceCount = usableDepthEvidenceCount
         self.evidenceFrameRefs = evidenceFrameRefs
         self.roomReferenceFrame = roomReferenceFrame
+        self.roomFieldDatum = roomFieldDatum
         self.openingReview = openingReview
         self.endBoundaryFrameIDs = endBoundaryFrameIDs
     }
@@ -434,6 +438,9 @@ public actor CaptureWorkingSetStore {
     private var measurementQuantityTypesPresent: Set<String> = []
     /// User-confirmed room reference frame (issue #232), iff committed.
     private var roomReferenceFrame: RoomReferenceFrameDocument?
+    /// Operator-declared field/install datum (issue #232), iff
+    /// committed.
+    private var roomFieldDatum: RoomFieldDatumDocument?
     /// Operator opening-review document (issue #231), iff committed.
     private var openingReviewDocument: OpeningReviewDocument?
     /// Frames committed by an accepted End boundary (issue #241). The
@@ -3316,6 +3323,105 @@ public actor CaptureWorkingSetStore {
         roomReferenceFrame = document
     }
 
+    /// Commits or replaces the operator-declared field/install datum
+    /// (issue #232). Same binding and atomic-rewrite rules as the room
+    /// reference frame; every reference token the datum carries
+    /// (origin, axis, vertical, and evidence links) passes spatial
+    /// evidence-link congruence against committed authority.
+    public func commitRoomFieldDatum(
+        _ package: RoomFieldDatumPackage
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        let admissionReservation = try reserveAdmission(
+            bytes: package.data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
+
+        guard let decoded = try? JSONDecoder().decode(
+            RoomFieldDatumDocument.self,
+            from: package.data
+        ), decoded == package.document else {
+            throw CaptureWorkingSetError
+                .invalidSessionFoundationPackage
+        }
+        let document = package.document
+        guard document.captureRevisionID
+                == identity.captureRevisionID,
+              let captureSessionID,
+              document.captureSessionID == captureSessionID
+        else {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        try validateCoordinateAuthority(
+            document.coordinateSpaceID
+        )
+        for ref in document.referenceTokens {
+            try requireSpatialEvidenceLinkCongruence(
+                ref,
+                coordinateSpaceID: document.coordinateSpaceID
+            )
+        }
+
+        let declaration = package.payloadDeclaration
+        if let existing = declarations[declaration.path] {
+            guard existing.path == declaration.path,
+                  existing.mediaType == declaration.mediaType,
+                  existing.producer == declaration.producer,
+                  existing.provenanceClass
+                    == declaration.provenanceClass,
+                  existing.role == declaration.role
+            else {
+                throw CaptureWorkingSetError
+                    .duplicatePayloadDeclaration(
+                        declaration.path
+                    )
+            }
+        }
+
+        try await writer.writeBatchReplacing([
+            try CaptureFileWriteRequest(
+                data: package.data,
+                path: CaptureStorePath(
+                    RoomFieldDatumPackage.path
+                )
+            ),
+        ])
+
+        // Re-check after the write suspension (#202).
+        guard let captureSessionIDAfter = self.captureSessionID,
+              document.captureSessionID == captureSessionIDAfter
+        else {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        try publishCoordinateAuthority(
+            document.coordinateSpaceID
+        )
+        declarations[declaration.path] = declaration
+        roomFieldDatum = document
+    }
+
+    /// Removes the field datum payload entirely (issue #232). The
+    /// datum is optional promotion reference and entities never
+    /// reference it implicitly, so removal is safe whenever the set is
+    /// mutable.
+    public func removeRoomFieldDatum() async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        guard roomFieldDatum != nil else {
+            return
+        }
+        try await writer.removeIfPresent(
+            CaptureStorePath(RoomFieldDatumPackage.path)
+        )
+        declarations.removeValue(
+            forKey: RoomFieldDatumPackage.path
+        )
+        roomFieldDatum = nil
+    }
+
     /// Removes the room reference frame payload entirely (issue #232).
     /// The frame is optional authority and entities never reference it
     /// implicitly, so removal is safe whenever the set is mutable.
@@ -3518,6 +3624,14 @@ public actor CaptureWorkingSetStore {
             throw CaptureWorkingSetError
                 .unresolvableSpatialEvidenceLink(
                     "referenced:room_reference_frame"
+                )
+        }
+        if let datum = roomFieldDatum,
+           refsFrame(datum.referenceTokens)
+        {
+            throw CaptureWorkingSetError
+                .unresolvableSpatialEvidenceLink(
+                    "referenced:room_field_datum"
                 )
         }
 
@@ -4846,6 +4960,7 @@ public actor CaptureWorkingSetStore {
                 }
                 .sorted(),
             roomReferenceFrame: roomReferenceFrame,
+            roomFieldDatum: roomFieldDatum,
             openingReview: openingReviewDocument,
             endBoundaryFrameIDs: endBoundaryFrameIDs.sorted {
                 $0.description < $1.description
@@ -5026,6 +5141,23 @@ public actor CaptureWorkingSetStore {
             try verifyTypedJSON(
                 path: OpeningReviewPackage.path,
                 expected: openingReviewDocument,
+                actualByPath: actualByPath
+            )
+        }
+
+        if let roomFieldDatum {
+            guard roomFieldDatum.captureRevisionID
+                    == identity.captureRevisionID,
+                  roomFieldDatum.captureSessionID
+                    == captureSessionID,
+                  roomFieldDatum.coordinateSpaceID
+                    == coordinateSpaceID
+            else {
+                throw CaptureWorkingSetError.integrityVerificationFailed
+            }
+            try verifyTypedJSON(
+                path: RoomFieldDatumPackage.path,
+                expected: roomFieldDatum,
                 actualByPath: actualByPath
             )
         }
