@@ -133,6 +133,14 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
     /// True for a practice-mode working set (issue #320): never
     /// finalizable, never a real capture.
     public let practiceCapture: Bool
+    /// Operator field notes committed on this revision (issue #375) —
+    /// exposed on the snapshot so sealed Review/finalization paths
+    /// read the same collection the checkpoint persists.
+    public let fieldNotes: [CaptureFieldNote]
+    /// `evidence/frames/<id>.json` of the most recently committed
+    /// evidence frame (commit order, not id order) — the default
+    /// evidence attachment for a note authored mid-scan (#375).
+    public let latestEvidenceDescriptorPath: String?
 
     public init(
         identity: CaptureWorkingSetIdentity,
@@ -158,6 +166,8 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         spatialAuthorityLive: Bool = true,
         practiceCapture: Bool = false,
         endBoundaryFrameIDs: [EvidenceFrameID] = [],
+        fieldNotes: [CaptureFieldNote] = [],
+        latestEvidenceDescriptorPath: String? = nil,
         captureStrategy: CaptureStrategyDocument? = nil,
         planUnderlay: PlanUnderlayDocument? = nil
     ) {
@@ -184,6 +194,9 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         self.spatialAuthorityLive = spatialAuthorityLive
         self.practiceCapture = practiceCapture
         self.endBoundaryFrameIDs = endBoundaryFrameIDs
+        self.fieldNotes = fieldNotes
+        self.latestEvidenceDescriptorPath =
+            latestEvidenceDescriptorPath
         self.captureStrategy = captureStrategy
         self.planUnderlay = planUnderlay
     }
@@ -523,6 +536,10 @@ public actor CaptureWorkingSetStore {
     /// policies; persisted at `advisory/operator-advisories.json` and
     /// surfaced to quality evaluation as advisory findings.
     private var advisoryNotes: [CaptureAdvisoryNote] = []
+    /// Operator field notes bound to this revision (issue #375);
+    /// persisted at `session/field-notes.json` as a canonical
+    /// user-annotation payload and carried into the finalized bundle.
+    private var fieldNotes: [CaptureFieldNote] = []
     private var sealState: SealState = .mutable
     /// Bounded pending-write admission ledger shared by every mutation
     /// entry point: evidence bytes are reserved before they become
@@ -617,6 +634,8 @@ public actor CaptureWorkingSetStore {
     /// count far beyond this indicates abuse rather than legitimate
     /// scan annotations.
     public static let maxAdvisoryNotes = 128
+    /// Deterministic bound on operator field notes (#375).
+    public static let maxFieldNotes = 256
 
     public init(
         identity: CaptureWorkingSetIdentity = CaptureWorkingSetIdentity(),
@@ -4949,6 +4968,191 @@ public actor CaptureWorkingSetStore {
     public var advisoryFindings: [QualityDiagnostic] {
         advisoryNotes.map(\.qualityDiagnostic)
     }
+
+    /// The operator field notes recorded on this revision (issue
+    /// #375), chronological as committed.
+    public var recordedFieldNotes: [CaptureFieldNote] {
+        fieldNotes
+    }
+
+    /// Records one operator field note and rewrites the canonical
+    /// `session/field-notes.json` payload (issue #375). The note binds
+    /// this revision and, once the session foundation is committed,
+    /// the live capture session. Exact note-id duplicates are a no-op
+    /// so a retried record does not grow history; a conflicting id is
+    /// a typed rejection. Notes are never rewritten in place —
+    /// corrections land via `supersedeFieldNote`.
+    public func recordFieldNote(_ note: CaptureFieldNote) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+
+        guard note.captureRevisionID == identity.captureRevisionID
+        else {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        // A note may legitimately arrive before the session
+        // foundation commits (or on a restored draft): bind the live
+        // session authority when it exists; a conflicting declared
+        // session is a typed rejection, never a silent rewrite.
+        var bound = note
+        if bound.captureSessionID == nil, let captureSessionID {
+            bound = try bound.withSessionBinding(captureSessionID)
+        }
+        if let declared = bound.captureSessionID,
+           declared != captureSessionID
+        {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        if let existingIndex = fieldNotes.firstIndex(where: {
+            $0.noteID == bound.noteID
+        }) {
+            guard fieldNotes[existingIndex] == bound else {
+                throw CaptureWorkingSetError.duplicatePayloadDeclaration(
+                    CaptureFieldNoteDocument.path
+                )
+            }
+            return
+        }
+        if let supersedes = bound.supersedesNoteID,
+           let target = fieldNotes.first(where: {
+               $0.noteID == supersedes
+           })
+        {
+            // Recording a replacement note performs the supersession
+            // atomically: the earlier note goes terminal in the same
+            // document commit so the pair can never disagree on disk.
+            try await applySupersession(
+                target: target,
+                replacement: bound
+            )
+            return
+        }
+        guard fieldNotes.count < Self.maxFieldNotes else {
+            throw CaptureFieldNoteError.collectionBoundExceeded
+        }
+        fieldNotes.append(bound)
+        try await persistFieldNotes()
+    }
+
+    /// Supersedes an active field note with a replacement note
+    /// (issue #375). The replacement's `supersedes_note_id` must name
+    /// the target; both land in one document commit.
+    public func supersedeFieldNote(
+        _ noteID: CaptureFieldNoteID,
+        replacement: CaptureFieldNote
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+
+        guard replacement.captureRevisionID
+                == identity.captureRevisionID
+        else {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        guard let targetIndex = fieldNotes.firstIndex(where: {
+            $0.noteID == noteID
+        }) else {
+            throw CaptureFieldNoteError.unknownNoteID
+        }
+        var bound = replacement
+        if bound.captureSessionID == nil, let captureSessionID {
+            bound = try bound.withSessionBinding(captureSessionID)
+        }
+        if let declared = bound.captureSessionID,
+           declared != captureSessionID
+        {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
+        try await applySupersession(
+            target: fieldNotes[targetIndex],
+            replacement: bound
+        )
+    }
+
+    /// Marks an active field note resolved — a terminal lifecycle
+    /// transition that keeps the recorded bytes (issue #375).
+    public func resolveFieldNote(
+        _ noteID: CaptureFieldNoteID
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+
+        guard let index = fieldNotes.firstIndex(where: {
+            $0.noteID == noteID
+        }) else {
+            throw CaptureFieldNoteError.unknownNoteID
+        }
+        fieldNotes[index] = try fieldNotes[index].resolving()
+        try await persistFieldNotes()
+    }
+
+    /// Shared supersession body: validates the replacement declares
+    /// the target, flips the target terminal, appends the replacement,
+    /// and commits the whole collection in one write.
+    private func applySupersession(
+        target: CaptureFieldNote,
+        replacement: CaptureFieldNote
+    ) async throws {
+        guard replacement.supersedesNoteID == target.noteID else {
+            throw CaptureFieldNoteError.supersessionNotDeclared
+        }
+        guard let index = fieldNotes.firstIndex(where: {
+            $0.noteID == target.noteID
+        }) else {
+            throw CaptureFieldNoteError.unknownNoteID
+        }
+        guard fieldNotes.count < Self.maxFieldNotes else {
+            throw CaptureFieldNoteError.collectionBoundExceeded
+        }
+        fieldNotes[index] = try target.superseding(
+            by: replacement.noteID
+        )
+        fieldNotes.append(replacement)
+        try await persistFieldNotes()
+    }
+
+    /// Rewrites `session/field-notes.json` from the committed note
+    /// collection and re-registers its stable declaration (issue
+    /// #375).
+    private func persistFieldNotes() async throws {
+        let document = CaptureFieldNoteDocument(
+            captureRevisionID: identity.captureRevisionID,
+            captureSessionID: captureSessionID,
+            notes: fieldNotes
+        )
+        let data = try document.encoded()
+        let reservation = try reserveAdmission(bytes: data.count)
+        defer { releaseAdmission(reservation) }
+        // The notes document is lifecycle-mutable (resolve/supersede
+        // rewrite it), so it commits through the replacing writer like
+        // the revision-state marker.
+        try await writer.writeBatchReplacing([
+            try CaptureFileWriteRequest(
+                data: data,
+                path: CaptureStorePath(
+                    CaptureFieldNoteDocument.path
+                )
+            ),
+        ])
+        try register(Self.fieldNotesDeclaration)
+
+        // Post-End semantic commit (issue #297): the durable marker
+        // advances so a relaunch reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
+    }
+
+    private static var fieldNotesDeclaration: BundlePayloadDeclaration {
+        BundlePayloadDeclaration(
+            path: CaptureFieldNoteDocument.path,
+            mediaType: "application/json",
+            producer: "capture_field_notes",
+            provenanceClass: .userAnnotation,
+            role: .canonical
+        )
+    }
     public func evaluateQuality(
         requirements: CaptureQualityRequirements = .init()
     ) -> CaptureQualityReport {
@@ -5433,6 +5637,13 @@ public actor CaptureWorkingSetStore {
             endBoundaryFrameIDs: endBoundaryFrameIDs.sorted {
                 $0.description < $1.description
             },
+            fieldNotes: fieldNotes,
+            latestEvidenceDescriptorPath:
+                frameDescriptors.last.map {
+                    "evidence/frames/"
+                        + $0.frameID.description
+                        + ".json"
+                },
             captureStrategy: captureStrategyDocument,
             planUnderlay: planUnderlayDocument
         )
@@ -6344,7 +6555,8 @@ public actor CaptureWorkingSetStore {
                 endSessionTimestampSeconds:
                     advisoryEndContext?.endSessionTimestampSeconds
             ),
-            advisoryNotes: advisoryNotes
+            advisoryNotes: advisoryNotes,
+            fieldNotes: fieldNotes
         )
     }
 
@@ -7256,6 +7468,29 @@ public actor CaptureWorkingSetStore {
                 missingCheckpoint.append("operator_advisories_file")
             }
         }
+        if let fieldNotesData = try readConsumed(
+            CaptureFieldNoteDocument.path,
+            required: false
+        ) {
+            guard
+                let document = try? decoder.decode(
+                    CaptureFieldNoteDocument.self,
+                    from: fieldNotesData
+                ),
+                document.captureRevisionID
+                    == identity.captureRevisionID
+            else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+            fieldNotes = document.notes
+            try register(Self.fieldNotesDeclaration)
+        } else {
+            fieldNotes = checkpoint.fieldNotes
+            if !fieldNotes.isEmpty {
+                missingCheckpoint.append("field_notes_file")
+            }
+        }
 
         // 6. Operator supplemental payloads at reserved paths — these
         //    carry the workflow state (task plan/status, connected
@@ -7267,6 +7502,7 @@ public actor CaptureWorkingSetStore {
                 "session/capture-task-plan.json",
                 "session/task-plan-status.json",
                 "session/connected-spaces.json",
+                "session/field-notes.json",
                 "evidence/reference-targets.json",
                 "derived/geometry-candidates.json",
                 "verification/as-built.json":

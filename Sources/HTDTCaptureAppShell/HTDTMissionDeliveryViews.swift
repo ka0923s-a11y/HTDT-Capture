@@ -11,10 +11,16 @@ import HTDTCaptureCore
 struct HTDTMissionInboxView: View {
     let records: [HTDTMissionRecord]
     let activeMissionRecordID: String?
+    /// Replayed mission progress per record id (#397) — never a
+    /// stored percentage.
+    let progressEvaluations: [String: MissionProgressEvaluation]
     let actions: CaptureRootActions
 
     @State private var importingMission = false
     @State private var selectedRecord: HTDTMissionRecord?
+    @State private var fieldReturnRecord: HTDTMissionRecord?
+    @State private var fieldReturnDocuments:
+        [HTDTFieldReturnDocument] = []
     @State private var dependencyReport:
         HTDTMissionDependencyReport?
     @State private var dependencyError: String?
@@ -117,10 +123,20 @@ struct HTDTMissionInboxView: View {
             }
             .presentationDetents([.medium, .large])
         }
+        .sheet(item: $fieldReturnRecord) { record in
+            NavigationStack {
+                HTDTFieldReturnWorkspaceView(
+                    record: record,
+                    actions: actions
+                )
+            }
+        }
         .task(id: selectedRecord?.recordID) {
             guard let selectedRecord else { return }
             dependencyReport = nil
             dependencyError = nil
+            fieldReturnDocuments = await actions
+                .listFieldReturns()
             do {
                 dependencyReport = try await actions
                     .evaluateMissionDependencies(
@@ -130,6 +146,98 @@ struct HTDTMissionInboxView: View {
                 dependencyError = String(describing: error)
             }
         }
+    }
+
+    /// Aggregated field progress replayed from the mission progress
+    /// ledger (#397): per-kind tallies, outstanding items with the
+    /// explicit waiver action (mission-level, auditable — never a
+    /// revision-local skip), contested items where two heads claimed
+    /// the same item, and the field-complete verdict kept separate
+    /// from delivered.
+    @ViewBuilder
+    private func missionProgressSection(
+        _ record: HTDTMissionRecord,
+        _ progress: MissionProgressEvaluation
+    ) -> some View {
+        Section("Field progress") {
+            if progress.fieldComplete {
+                Label(
+                    "Field complete",
+                    systemImage: "checkmark.seal"
+                )
+                .foregroundStyle(.green)
+            } else if progress.requiredItemsResolved {
+                Label(
+                    "All required resolved — some via waiver",
+                    systemImage: "checkmark.circle"
+                )
+                .foregroundStyle(.orange)
+            }
+            ForEach(progress.kinds, id: \.kind) { kind in
+                LabeledContent(
+                    kindLabel(kind.kind),
+                    value:
+                        "\(kind.completedCount)/\(kind.itemCount) completed"
+                        + (kind.requiredOutstandingCount > 0
+                            ? " · \(kind.requiredOutstandingCount) required open"
+                            : "")
+                )
+                .font(.caption)
+            }
+            if !progress.contestedItemIDs.isEmpty {
+                let contestedItems = progress.contestedItemIDs
+                    .joined(separator: ", ")
+                Label(
+                    "Contested: \(contestedItems)",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
+            ForEach(
+                progress.items.filter { !$0.resolved },
+                id: \.taskItemID
+            ) { item in
+                HStack {
+                    Text(item.taskItemID)
+                        .font(.caption.monospaced())
+                        .lineLimit(1)
+                    Spacer()
+                    if item.requirement == .required {
+                        Text("required")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                    Button("Waive") {
+                        Task {
+                            await actions.waiveMissionItem(
+                                record.recordID,
+                                item.taskItemID,
+                                nil
+                            )
+                        }
+                    }
+                    .font(.caption)
+                }
+            }
+            ForEach(
+                progress.items.filter { $0.waived },
+                id: \.taskItemID
+            ) { item in
+                Label(
+                    "\(item.taskItemID) — waived",
+                    systemImage: "flag"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func kindLabel(
+        _ kind: MissionLedgerTaskKind
+    ) -> String {
+        kind.rawValue.replacingOccurrences(of: "_", with: " ")
     }
 
     @ViewBuilder
@@ -171,6 +279,13 @@ struct HTDTMissionInboxView: View {
                                         .count
                                 ),
                                 systemImage: "cube"
+                        )
+                    }
+                    if !record.fieldReturnIDs.isEmpty {
+                        Label(
+                            "\(record.fieldReturnIDs.count) field return(s)",
+                            systemImage:
+                                "checklist.unchecked"
                         )
                     }
                     if record.followUpOfMissionID != nil {
@@ -253,6 +368,51 @@ struct HTDTMissionInboxView: View {
                         "Delivery jobs",
                         value: String(record.deliveryJobIDs.count)
                     )
+                }
+            }
+
+            if let progress = progressEvaluations[record.recordID] {
+                missionProgressSection(record, progress)
+            }
+
+            // #400: finalized field returns list separately from
+            // capture revisions in mission history — the non-spatial
+            // completion path stays visible on its own terms.
+            if !record.fieldReturnIDs.isEmpty
+                || record.lifecycle.canStart
+                || record.lifecycle == .inProgress
+            {
+                Section("Field return") {
+                    Button {
+                        fieldReturnRecord = record
+                    } label: {
+                        Label(
+                            "Open field return",
+                            systemImage:
+                                "checklist.unchecked"
+                        )
+                    }
+                    ForEach(
+                        fieldReturnDocuments.filter { doc in
+                            record.fieldReturnIDs.contains(
+                                doc.contributionID.description
+                            )
+                        },
+                        id: \.contributionID
+                    ) { doc in
+                        VStack(
+                            alignment: .leading,
+                            spacing: 2
+                        ) {
+                            Text(doc.contributionID.description)
+                                .font(.caption.monospaced())
+                            Text(
+                                "Finalized \(doc.finalizedAtUTC)"
+                            )
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
 

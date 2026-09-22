@@ -257,6 +257,15 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
     public let captureTaskPlan: HTDTCaptureTaskPlan?
     /// Task-plan item outcomes as of Review time (#352).
     public let taskPlanStatus: CaptureTaskPlanStatusDocument?
+    /// Operator field notes committed on this revision (issue #375).
+    /// Needs-attention notes surface in Review before Finalize;
+    /// resolved/superseded notes stay visible in the library views.
+    public let fieldNotes: [CaptureFieldNote]
+    /// Pre-finalization evidence contact sheet (issue #376): one
+    /// tile per committed evidence frame with pose, depth and
+    /// usability summaries, reference counts and privacy flags.
+    /// nil only when the bundle declares no frame descriptors.
+    public let contactSheet: EvidenceContactSheetModel?
     /// Decoding/enumeration problems that degraded the workspace. A
     /// missing optional payload is not an issue; an unreadable declared
     /// payload is listed so the UI can degrade to text while naming
@@ -287,6 +296,8 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
         revisitFlags: [ScanRevisitFlag] = [],
         captureTaskPlan: HTDTCaptureTaskPlan? = nil,
         taskPlanStatus: CaptureTaskPlanStatusDocument? = nil,
+        fieldNotes: [CaptureFieldNote] = [],
+        contactSheet: EvidenceContactSheetModel? = nil,
         issues: [String] = []
     ) {
         self.captureRevisionID = captureRevisionID
@@ -311,6 +322,8 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
         self.revisitFlags = revisitFlags
         self.captureTaskPlan = captureTaskPlan
         self.taskPlanStatus = taskPlanStatus
+        self.fieldNotes = fieldNotes
+        self.contactSheet = contactSheet
         self.issues = issues
     }
 }
@@ -432,10 +445,11 @@ public enum CaptureReviewWorkspaceLoader {
         // retained, so review classifies them separately from
         // operator picks.
         var automaticKeyframeFrameIDs = Set<EvidenceFrameID>()
-        if let advisories = decodeIfDeclared(
+        let advisoryNotesDocument = decodeIfDeclared(
             CaptureAdvisoryNoteDocument.self,
             "advisory/operator-advisories.json"
-        ) {
+        )
+        if let advisories = advisoryNotesDocument {
             for note in advisories.notes
             where note.kind == .automaticKeyframe {
                 if let token = note.detail
@@ -495,6 +509,12 @@ public enum CaptureReviewWorkspaceLoader {
             CaptureTaskPlanStatusDocument.self,
             CaptureTaskPlanStatusDocument.path
         )
+        // Operator field notes (issue #375): absent on pre-#375
+        // bundles, decoded verbatim when committed.
+        let fieldNotes = decodeIfDeclared(
+            CaptureFieldNoteDocument.self,
+            CaptureFieldNoteDocument.path
+        )?.notes ?? []
 
         // Frame descriptors are enumerated from the declared set, not
         // from the filesystem listing alone.
@@ -531,6 +551,7 @@ public enum CaptureReviewWorkspaceLoader {
                 roomFieldDatum: roomFieldDatum,
                 endBoundaryFrameIDs: endBoundaryFrameIDs,
                 automaticKeyframeFrameIDs: automaticKeyframeFrameIDs,
+                fieldNotes: fieldNotes,
                 readOnly: readOnly
             )
         }
@@ -634,6 +655,32 @@ public enum CaptureReviewWorkspaceLoader {
             ?? roomReferenceFrame?.coordinateSpaceID
             ?? descriptors.first?.coordinateSpaceID
 
+        // Evidence contact sheet (issue #376): equipment-identity
+        // field-evidence records mark identity evidence — tiles the
+        // operator may want to filter to or privacy-flag.
+        let identityFrameIDs = Set(
+            (fieldEvidenceDoc?.records ?? []).compactMap {
+                record -> EvidenceFrameID? in
+                guard record.kind == .equipmentIdentity,
+                      let ref = record.asset?.frameRef,
+                      ref.hasPrefix("frame:"),
+                      let id = EvidenceFrameID(
+                        canonicalString: String(ref.dropFirst(6))
+                      )
+                else { return nil }
+                return id
+            }
+        )
+        let contactSheet = descriptors.isEmpty
+            ? nil
+            : EvidenceContactSheetModel(
+                evidenceItems: evidenceItems,
+                descriptors: descriptors,
+                advisoryNotes: advisoryNotesDocument?.notes ?? [],
+                identityFrameIDs: identityFrameIDs,
+                readOnly: readOnly
+            )
+
         return CaptureReviewWorkspaceModel(
             captureRevisionID: captureRevisionID,
             coordinateSpaceID: coordinateSpaceID,
@@ -659,6 +706,8 @@ public enum CaptureReviewWorkspaceLoader {
             revisitFlags: revisitFlagDocument?.flags ?? [],
             captureTaskPlan: captureTaskPlan,
             taskPlanStatus: taskPlanStatus,
+            fieldNotes: fieldNotes,
+            contactSheet: contactSheet,
             issues: issues
         )
     }
@@ -679,6 +728,7 @@ public enum CaptureReviewWorkspaceLoader {
         roomFieldDatum: RoomFieldDatumDocument?,
         endBoundaryFrameIDs: Set<EvidenceFrameID>,
         automaticKeyframeFrameIDs: Set<EvidenceFrameID>,
+        fieldNotes: [CaptureFieldNote] = [],
         readOnly: Bool
     ) -> ReviewEvidenceItem {
         let descriptorPath =
@@ -744,6 +794,17 @@ public enum CaptureReviewWorkspaceLoader {
             referencedBy.append(
                 "field_evidence:"
                     + record.evidenceID.description
+            )
+        }
+        // A field note bound to this frame (#375) retains it —
+        // evidence refs resolve `frame:`/`path:` tokens the same
+        // way annotations do.
+        for note in fieldNotes {
+            guard note.status != .superseded,
+                  refsFrame(note.evidenceRefs + note.bindingRefs)
+            else { continue }
+            referencedBy.append(
+                "field_note:" + note.noteID.description
             )
         }
         if let frame = roomReferenceFrame,
@@ -835,6 +896,10 @@ public struct PersistedCaptureContents: Sendable, Equatable {
     public let meshAnchorIndex: MeshAnchorEvidenceIndex?
     /// Decoded reference-target document (issue #227), iff declared.
     public let referenceTargets: ReferenceTargetCaptureDocument?
+    /// Operator field notes (issue #375), iff declared — decoded
+    /// verbatim so the library and parent/child note comparisons
+    /// work on persisted bundles too.
+    public let fieldNotes: [CaptureFieldNote]
     /// Raw `roomplan/captured-room-data.json` bytes when declared —
     /// lets `roomplan:*:<uuid>` datum refs resolve at surface-id
     /// level on any platform.
@@ -861,6 +926,7 @@ public struct PersistedCaptureContents: Sendable, Equatable {
         roomFieldDatum: RoomFieldDatumDocument? = nil,
         meshAnchorIndex: MeshAnchorEvidenceIndex? = nil,
         referenceTargets: ReferenceTargetCaptureDocument? = nil,
+        fieldNotes: [CaptureFieldNote] = [],
         roomPlanPayload: Data? = nil,
         frameDescriptors: [FrameEvidenceDescriptor],
         issues: [String],
@@ -878,6 +944,7 @@ public struct PersistedCaptureContents: Sendable, Equatable {
         self.roomFieldDatum = roomFieldDatum
         self.meshAnchorIndex = meshAnchorIndex
         self.referenceTargets = referenceTargets
+        self.fieldNotes = fieldNotes
         self.roomPlanPayload = roomPlanPayload
         self.frameDescriptors = frameDescriptors
         self.issues = issues
@@ -1029,6 +1096,10 @@ public enum PersistedCaptureContentsLoader {
                 ReferenceTargetCaptureDocument.self,
                 ReferenceTargetCapturePackage.path
             ),
+            fieldNotes: decodeIfDeclared(
+                CaptureFieldNoteDocument.self,
+                CaptureFieldNoteDocument.path
+            )?.notes ?? [],
             roomPlanPayload: (
                 declaredPaths.contains(
                     RoomPlanEvidenceArtifactBuilder.processedPath
@@ -1099,15 +1170,22 @@ public struct CaptureRevisionComparison: Sendable, Equatable {
     public let parentRevisionID: CaptureRevisionID
     public let childRevisionID: CaptureRevisionID
     public let fields: [RevisionFieldComparison]
+    /// Field-note lineage between the two revisions (issue #375):
+    /// notes added on the child, superseded by a child note, or
+    /// resolved on the child — keyed on stable note ids, so a parent
+    /// note untouched by the child never reports as removed.
+    public let fieldNoteDiff: CaptureFieldNoteDiff
 
     public init(
         parentRevisionID: CaptureRevisionID,
         childRevisionID: CaptureRevisionID,
-        fields: [RevisionFieldComparison]
+        fields: [RevisionFieldComparison],
+        fieldNoteDiff: CaptureFieldNoteDiff = .empty
     ) {
         self.parentRevisionID = parentRevisionID
         self.childRevisionID = childRevisionID
         self.fields = fields
+        self.fieldNoteDiff = fieldNoteDiff
     }
 }
 
@@ -1299,6 +1377,35 @@ public enum CaptureRevisionComparator {
                 child: dims(child.roomMetadata)
             )
         )
+        // Field-note lineage (issue #375): the comparison reports
+        // which notes the child added, resolved, or superseded so
+        // the operator can verify a follow-up from the parent was
+        // actually addressed.
+        let noteDiff = CaptureFieldNoteDiff.compare(
+            parent: CaptureFieldNoteCollection(notes: parent.fieldNotes),
+            child: CaptureFieldNoteCollection(notes: child.fieldNotes)
+        )
+        fields.append(
+            RevisionFieldComparison(
+                field: "field_notes",
+                parent: str(parent.fieldNotes.count),
+                child: str(child.fieldNotes.count)
+            )
+        )
+        fields.append(
+            RevisionFieldComparison(
+                field: "field_notes_superseded_by_child",
+                parent: "—",
+                child: str(noteDiff.superseding.count)
+            )
+        )
+        fields.append(
+            RevisionFieldComparison(
+                field: "field_notes_resolved_on_child",
+                parent: "—",
+                child: str(noteDiff.resolved.count)
+            )
+        )
 
         // Exact semantic diff (#319): when the child declared a
         // semantic_correction intent, surface the revision kind, the
@@ -1358,7 +1465,8 @@ public enum CaptureRevisionComparator {
         return CaptureRevisionComparison(
             parentRevisionID: parent.manifest.captureRevisionID,
             childRevisionID: child.manifest.captureRevisionID,
-            fields: fields
+            fields: fields,
+            fieldNoteDiff: noteDiff
         )
     }
 }

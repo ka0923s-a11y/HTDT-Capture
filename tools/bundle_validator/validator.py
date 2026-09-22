@@ -104,6 +104,7 @@ SCHEMA_OWNED_PATHS = {
     "quality/capture-advisory.json": "capture-advisory.schema.json",
     "session/capture-strategy.json": "capture-strategy.schema.json",
     "revision/intent.json": "revision-intent.schema.json",
+    "revision/registrations.json": "cross-revision-registration.schema.json",
     "reference/plan-underlay.json": "plan-underlay.schema.json",
     "session/revision-state.json": "working-revision-state.schema.json",
     "derived/operator-profiles.json": "operator-profiles.schema.json",
