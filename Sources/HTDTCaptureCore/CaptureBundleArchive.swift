@@ -709,7 +709,9 @@ public enum StoredCaptureBundleArchiveValidator {
     }
 }
 
-private enum ZIPCRC32 {
+/// Internal so the field-return container writer (#400) reuses the
+/// same stored-ZIP CRC32 implementation.
+enum ZIPCRC32 {
     private static let table: [UInt32] = (0..<256).map {
         index in
         var value = UInt32(index)
@@ -767,6 +769,12 @@ private enum ZIPCRC32 {
         return crc ^ UInt32.max
     }
 
+    /// CRC32 of an in-memory payload (field-return container entries
+    /// assemble in memory — issue #400).
+    static func data(_ data: Data) -> UInt32 {
+        update(UInt32.max, data) ^ UInt32.max
+    }
+
     private static func update(
         _ initial: UInt32,
         _ data: Data
@@ -782,7 +790,9 @@ private enum ZIPCRC32 {
     }
 }
 
-private extension Data {
+/// Internal so the field-return container writer (#400) reuses the
+/// same little-endian append helper.
+extension Data {
     mutating func appendLE<T: FixedWidthInteger>(
         _ value: T
     ) {

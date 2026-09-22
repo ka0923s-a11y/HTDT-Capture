@@ -401,7 +401,37 @@ private struct HTDTCaptureHostView: View {
                 acceptRevisionAlignment:
                     coordinator.acceptRevisionAlignment,
                 waiveMissionItem:
-                    coordinator.waiveMissionItem
+                    coordinator.waiveMissionItem,
+                recordFieldNote: {
+                    text, category, attention, attach, dictated in
+                    coordinator.recordFieldNote(
+                        text: text,
+                        category: category,
+                        needsAttention: attention,
+                        attachLatestEvidence: attach,
+                        dictated: dictated
+                    )
+                },
+                recordReviewFieldNote:
+                    coordinator.recordReviewFieldNote,
+                resolveFieldNote:
+                    coordinator.resolveFieldNote,
+                supersedeFieldNote:
+                    coordinator.supersedeFieldNote,
+                bindFieldNote:
+                    coordinator.bindFieldNote,
+                flagEvidenceFrameForPrivacy:
+                    coordinator.flagEvidenceFrameForPrivacy,
+                collectSupportDiagnostics:
+                    coordinator.collectSupportDiagnostics,
+                openFieldReturnWorkspace:
+                    coordinator.openFieldReturnWorkspace,
+                persistFieldReturnDraft:
+                    coordinator.persistFieldReturnDraft,
+                finalizeFieldReturn:
+                    coordinator.finalizeFieldReturn,
+                listFieldReturns:
+                    coordinator.listFieldReturns
             )
         )
         .onOpenURL { url in
@@ -2016,7 +2046,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         sessionTimestampSeconds:
                             frameSnapshot.sessionTimestampSeconds,
                         detail:
-                            "status=\(usability.status.rawValue) issues="
+                            "status=\(usability.status.rawValue)"
+                            + " frame=\(frameSnapshot.frameID) issues="
                             + usability.issues
                                 .map(\.rawValue)
                                 .joined(separator: ",")
@@ -5430,14 +5461,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     evidenceItems: model.evidenceItems,
                     annotations: model.annotations,
                     measurements: model.measurements,
+                    operatorProfiles: model.operatorProfiles,
+                    fieldEvidence: model.fieldEvidence,
+                    instruments: model.instruments,
+                    settingsObservations:
+                        model.settingsObservations,
+                    wiringRoutes: model.wiringRoutes,
                     openingReview: model.openingReview,
                     roomReferenceFrame: model.roomReferenceFrame,
+                    roomFieldDatum: model.roomFieldDatum,
+                    roomFieldDatumStaleness:
+                        model.roomFieldDatumStaleness,
                     qualityReport: model.qualityReport,
                     readOnly: model.readOnly,
                     spatialCaptureSealed: true,
                     revisitFlags: model.revisitFlags,
                     captureTaskPlan: model.captureTaskPlan,
                     taskPlanStatus: model.taskPlanStatus,
+                    fieldNotes: model.fieldNotes,
+                    contactSheet: model.contactSheet,
                     issues: model.issues
                 )
             }
@@ -7202,6 +7244,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func preflightDestination(
         _ destination: HTDTHandoffDestination
     ) async -> HTDTCompatibilityVerdict {
+        let verdict = await evaluateDestinationPreflight(
+            destination
+        )
+        recordEndpointPreflightVerdict(verdict)
+        return verdict
+    }
+
+    private func evaluateDestinationPreflight(
+        _ destination: HTDTHandoffDestination
+    ) async -> HTDTCompatibilityVerdict {
         guard destination.kind == .endpoint,
               let urlString = destination.url,
               let base = URL(string: urlString),
@@ -8943,6 +8995,583 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         + Self.persistenceDiagnostic(error)
                 )
             )
+        }
+    }
+
+    // MARK: - Field notes (#375)
+
+    /// Commits an operator field note bound to this revision. During
+    /// scanning `attachLatestEvidence` binds the most recently
+    /// committed evidence frame (the operator's "current camera
+    /// evidence"); in Review `bindingRefs` carries the entity/
+    /// measurement/frame refs the note was bound against. The note is
+    /// never edited in place — corrections supersede.
+    func recordFieldNote(
+        text: String,
+        category: CaptureFieldNoteCategory,
+        needsAttention: Bool,
+        severity: CaptureFieldNoteSeverity? = nil,
+        bindingRefs: [String] = [],
+        attachLatestEvidence: Bool = false,
+        dictated: Bool = false
+    ) {
+        // Notes are operator-authored supplemental docs — not spatial
+        // authority — so the #276 finalization seal never silences
+        // them; the store's own mutability contract is the boundary.
+        guard let store = workingSetStore,
+              state == .scanning || state == .reviewing
+                  || state == .annotating
+        else {
+            return
+        }
+        let sessionSeconds = latestScanTimestampSeconds
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let snapshot = await store.snapshot()
+                var evidenceRefs: [String] = []
+                if attachLatestEvidence,
+                   let path = snapshot.latestEvidenceDescriptorPath
+                {
+                    evidenceRefs.append("path:" + path)
+                }
+                let note = try CaptureFieldNote(
+                    captureRevisionID:
+                        snapshot.identity.captureRevisionID,
+                    createdAtUTC: BundleTimestamp.utcString(
+                        from: Date()
+                    ),
+                    sessionTimestampSeconds: sessionSeconds,
+                    category: category,
+                    text: text,
+                    severity: severity,
+                    needsAttention: needsAttention,
+                    bindingRefs: bindingRefs,
+                    evidenceRefs: evidenceRefs,
+                    authoringMethod:
+                        dictated ? .dictated : .typed
+                )
+                try await store.recordFieldNote(note)
+                self.refreshReviewWorkspace()
+            } catch {
+                self.workingSetStatus = HostLocalization.text(
+                    "Note could not be saved",
+                    "ノートを保存できませんでした"
+                ) + " ["
+                    + Self.persistenceDiagnostic(error) + "]"
+            }
+        }
+    }
+
+    /// Marks an active field note resolved — the terminal lifecycle
+    /// transition Review exposes (#375).
+    func resolveFieldNote(_ noteID: CaptureFieldNoteID) {
+        guard let store = workingSetStore else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await store.resolveFieldNote(noteID)
+                self.refreshReviewWorkspace()
+            } catch {
+                self.workingSetStatus = HostLocalization.text(
+                    "Note could not be resolved",
+                    "ノートを解決できませんでした"
+                ) + " ["
+                    + Self.persistenceDiagnostic(error) + "]"
+            }
+        }
+    }
+
+    /// Supersedes a note with a corrected replacement — the stored
+    /// bytes pair commits atomically so the lineage never splits
+    /// (#375).
+    func supersedeFieldNote(
+        _ noteID: CaptureFieldNoteID,
+        replacementText: String,
+        category: CaptureFieldNoteCategory
+    ) {
+        guard let store = workingSetStore else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let snapshot = await store.snapshot()
+                guard let original = snapshot.fieldNotes
+                    .first(where: { $0.noteID == noteID })
+                else {
+                    return
+                }
+                let replacement = try CaptureFieldNote(
+                    captureRevisionID:
+                        snapshot.identity.captureRevisionID,
+                    createdAtUTC: BundleTimestamp.utcString(
+                        from: Date()
+                    ),
+                    sessionTimestampSeconds:
+                        self.latestScanTimestampSeconds,
+                    category: category,
+                    text: replacementText,
+                    severity: original.severity,
+                    needsAttention: original.needsAttention,
+                    bindingRefs: original.bindingRefs,
+                    evidenceRefs: original.evidenceRefs,
+                    spatialPosition: original.spatialPosition,
+                    authoringMethod: .typed,
+                    supersedesNoteID: original.noteID
+                )
+                try await store.supersedeFieldNote(
+                    noteID,
+                    replacement: replacement
+                )
+                self.refreshReviewWorkspace()
+            } catch {
+                self.workingSetStatus = HostLocalization.text(
+                    "Note could not be corrected",
+                    "ノートを修正できませんでした"
+                ) + " ["
+                    + Self.persistenceDiagnostic(error) + "]"
+            }
+        }
+    }
+
+    /// True when a field note may be authored right now — mid-scan
+    /// (bind the latest committed frame as evidence) or in Review
+    /// pre-finalization.
+    var fieldNoteAuthoringAvailable: Bool {
+        (state == .scanning || state == .reviewing
+            || state == .annotating)
+            && workingSetStore != nil
+    }
+
+    /// Review-side authoring entry point (#375): same commit path as
+    /// a mid-scan note but carrying the operator's binding refs
+    /// instead of the latest-evidence attachment.
+    func recordReviewFieldNote(
+        text: String,
+        category: CaptureFieldNoteCategory,
+        needsAttention: Bool,
+        bindingRefs: [String]
+    ) {
+        recordFieldNote(
+            text: text,
+            category: category,
+            needsAttention: needsAttention,
+            bindingRefs: bindingRefs
+        )
+    }
+
+    /// Binds an unbound note to an authority/evidence ref (#375) by
+    /// superseding it — the stored pair keeps the original text and
+    /// gains the binding, so the lineage shows the Review-time intent.
+    func bindFieldNote(
+        _ noteID: CaptureFieldNoteID,
+        ref: String
+    ) {
+        guard let store = workingSetStore else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let snapshot = await store.snapshot()
+                guard let original = snapshot.fieldNotes
+                    .first(where: { $0.noteID == noteID })
+                else {
+                    return
+                }
+                let replacement = try CaptureFieldNote(
+                    captureRevisionID:
+                        snapshot.identity.captureRevisionID,
+                    createdAtUTC: BundleTimestamp.utcString(
+                        from: Date()
+                    ),
+                    sessionTimestampSeconds:
+                        self.latestScanTimestampSeconds,
+                    category: original.category,
+                    text: original.text,
+                    severity: original.severity,
+                    needsAttention: original.needsAttention,
+                    bindingRefs: original.bindingRefs + [ref],
+                    evidenceRefs: original.evidenceRefs,
+                    spatialPosition: original.spatialPosition,
+                    authoringMethod: original.authoringMethod,
+                    supersedesNoteID: original.noteID
+                )
+                try await store.supersedeFieldNote(
+                    noteID,
+                    replacement: replacement
+                )
+                self.refreshReviewWorkspace()
+            } catch {
+                self.workingSetStatus = HostLocalization.text(
+                    "Note could not be bound",
+                    "ノートを関連付けできませんでした"
+                ) + " ["
+                    + Self.persistenceDiagnostic(error) + "]"
+            }
+        }
+    }
+
+    // MARK: - Evidence privacy flag (#376)
+
+    /// Marks an evidence frame privacy-sensitive in the contact sheet
+    /// — an advisory note carrying `frame=<id>`, riding the same
+    /// committed-document channel as other advisories so the flag is
+    /// integrity-covered and survives finalize/export.
+    func flagEvidenceFrameForPrivacy(_ frameID: EvidenceFrameID) {
+        guard let store = workingSetStore else { return }
+        let seconds = latestScanTimestampSeconds ?? 0
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await store.recordAdvisoryNote(
+                    CaptureAdvisoryNote(
+                        kind: .privacyFlag,
+                        sessionTimestampSeconds: seconds,
+                        detail: "frame=\(frameID.description)"
+                    )
+                )
+                self.refreshReviewWorkspace()
+            } catch {
+                self.workingSetStatus = HostLocalization.text(
+                    "Privacy flag could not be saved",
+                    "プライバシーフラグを保存できませんでした"
+                ) + " ["
+                    + Self.persistenceDiagnostic(error) + "]"
+            }
+        }
+    }
+
+    // MARK: - Support & Diagnostics (#389)
+
+    /// Collects a privacy-reviewed app diagnostic package (#389).
+    /// Everything is already privacy-shaped at collection: resource
+    /// events arrive as counts, endpoint reachability as a verdict
+    /// class, device identity as a model family — never serials,
+    /// project names, secrets, or capture evidence.
+    func collectSupportDiagnostics() async throws
+        -> SupportDiagnosticsPackage
+    {
+        let info = Bundle.main.infoDictionary
+        let appVersion = info?["CFBundleShortVersionString"]
+            as? String ?? "0"
+        let appBuild = info?["CFBundleVersion"] as? String ?? "0"
+        let deviceFamily = Self.diagnosticsDeviceFamily()
+        #if os(iOS)
+        let osFamily = UIDevice.current.systemName + " "
+            + UIDevice.current.systemVersion
+        #else
+        let osFamily = ProcessInfo.processInfo
+            .operatingSystemVersionString
+        #endif
+        let environment = SupportDiagnosticsEnvironment(
+            appName: "HTDT Capture",
+            appVersion: appVersion,
+            appBuild: appBuild,
+            deviceModelFamily: deviceFamily,
+            osFamilyAndVersion: osFamily,
+            emittedSchemaIDs: [
+                "htdt.capture.bundle",
+                "htdt.capture.field_notes",
+                "htdt.field_return",
+            ]
+        )
+        let capabilitySummary = DiagnosticsCapabilitySummary(
+            roomPlanEligible: capabilities.roomPlanMeshEligible,
+            sceneReconstructionEligible:
+                capabilities.sceneReconstructionSupported,
+            lidarDepthAvailable: capabilities.sceneDepthSupported,
+            smoothedDepthAvailable:
+                capabilities.smoothedSceneDepthSupported,
+            meshAnchoringAvailable:
+                capabilities.worldTrackingSupported
+        )
+        // Resource events live in the last evaluated quality report;
+        // outside a capture there is none — an empty histogram is the
+        // honest "no recent capture activity" signal.
+        let events = qualityReport?.resourceEvents ?? []
+        let storageVerdict = Self.currentStoragePreflight()
+            .readiness
+        let lastFailureClass = lastFailure.map {
+            String(describing: $0)
+        }
+        return try SupportDiagnosticsCollector.collect(
+            environment: environment,
+            capabilities: capabilitySummary,
+            resourceEvents: events,
+            storagePreflightVerdict: storageVerdict,
+            persistedCaptureCount:
+                persistedInventory.captures.count,
+            quarantinedArtifactCount:
+                persistedInventory.quarantinedArtifacts.count,
+            orphanedWorkingArtifactCount:
+                persistedInventory.orphanedWorkingArtifacts.count,
+            lastValidationFailureClass: lastFailureClass,
+            endpointVerdict: lastEndpointPreflightVerdict,
+            endpointCheckedAtUTC: lastEndpointPreflightCheckedAtUTC
+        )
+    }
+
+    /// Model family only ("iPad") — never a serial or machine
+    /// identifier, per the #389 privacy envelope.
+    private static func diagnosticsDeviceFamily() -> String {
+        #if os(iOS)
+        return UIDevice.current.model
+        #else
+        return "mac"
+        #endif
+    }
+
+    /// The last endpoint capability-preflight result (#374), mirrored
+    /// into diagnostics (#389) as a reachability verdict class.
+    private var lastEndpointPreflightVerdict:
+        HTDTCompatibilityVerdict?
+    private var lastEndpointPreflightCheckedAtUTC: String?
+
+    func recordEndpointPreflightVerdict(
+        _ verdict: HTDTCompatibilityVerdict
+    ) {
+        lastEndpointPreflightVerdict = verdict
+        lastEndpointPreflightCheckedAtUTC =
+            BundleTimestamp.utcString(from: Date())
+    }
+
+    // MARK: - Field mission returns (#400)
+
+    /// Index of finalized field returns under the capture root —
+    /// never inside a capture bundle (issue #400). Draft workspaces
+    /// live as `field-returns/<contribution>.draft.json` beside the
+    /// finalized `.htdtfieldreturn` artifacts.
+    private static func fieldReturnsDirectory(
+        captureRoot: URL
+    ) -> URL {
+        captureRoot.appendingPathComponent(
+            "field-returns",
+            isDirectory: true
+        )
+    }
+
+    private static func fieldReturnDraftURL(
+        directory: URL,
+        contributionID: HTDTFieldReturnID
+    ) -> URL {
+        directory.appendingPathComponent(
+            contributionID.description + ".draft.json"
+        )
+    }
+
+    /// Field-return draft workspace files under `field-returns/` —
+    /// decoded best-effort; a corrupt draft is skipped, never
+    /// repaired in place (issue #400).
+    private func fieldReturnDrafts(
+        directory: URL
+    ) -> [HTDTFieldReturnWorkspace] {
+        guard let names = try? FileManager.default
+            .contentsOfDirectory(atPath: directory.path)
+        else {
+            return []
+        }
+        let decoder = JSONDecoder()
+        return names.filter {
+            $0.hasSuffix(".draft.json")
+        }.compactMap { name in
+            let url = directory.appendingPathComponent(name)
+            guard let data = try? Data(contentsOf: url) else {
+                return nil
+            }
+            return try? decoder.decode(
+                HTDTFieldReturnWorkspace.self,
+                from: data
+            )
+        }
+    }
+
+    /// Finalized `.htdtfieldreturn` artifact files under
+    /// `field-returns/` — listed in mission history (#400).
+    func fieldReturnArtifacts() -> [URL] {
+        guard let root = Self.captureRootDirectory(),
+              let names = try? FileManager.default
+                  .contentsOfDirectory(
+                      atPath: Self
+                          .fieldReturnsDirectory(captureRoot: root)
+                          .path
+                  )
+        else {
+            return []
+        }
+        return names.filter {
+            $0.hasSuffix(".htdtfieldreturn")
+        }.sorted().map {
+            Self.fieldReturnsDirectory(captureRoot: root)
+                .appendingPathComponent($0)
+        }
+    }
+
+    /// Finalized field-return documents for mission history (#400) —
+    /// each container is verified on read; a corrupt artifact is
+    /// skipped rather than presented as a contribution.
+    func listFieldReturns() async
+        -> [HTDTFieldReturnDocument]
+    {
+        fieldReturnArtifacts().compactMap { url in
+            try? HTDTFieldReturnArchiveReader.read(
+                archive: url
+            ).document
+        }
+    }
+
+    /// Opens the field-return workspace for a mission record (#400):
+    /// resumes a persisted draft when one exists, otherwise seeds the
+    /// task ledger from the mission's plan items with the per-task
+    /// capability preflight applied — spatial tasks enter the ledger
+    /// disabled with the human-readable reason, non-spatial tasks
+    /// stay actionable.
+    func openFieldReturnWorkspace(
+        missionRecordID: String
+    ) async -> HTDTFieldReturnWorkspace? {
+        guard let root = Self.captureRootDirectory(),
+              let store = missionInboxStore,
+              let record = try? store.record(id: missionRecordID)
+        else {
+            return nil
+        }
+        let directory = Self.fieldReturnsDirectory(captureRoot: root)
+        if let draft = fieldReturnDrafts(directory: directory)
+            .first(where: { $0.missionRecordID == missionRecordID }),
+           !draft.isFinalized
+        {
+            return draft
+        }
+
+        var workspace = HTDTFieldReturnWorkspace(
+            missionRecordID: record.recordID,
+            missionID: record.missionID,
+            planID: record.planID,
+            planVersion: record.planVersion,
+            planSHA256: record.planSHA256,
+            relatedCaptureRevisionIDs:
+                record.associatedCaptureRevisionIDs.compactMap {
+                    CaptureRevisionID(canonicalString: $0)
+                }
+        )
+        if let plan = try? store.plan(for: record) {
+            let preflight = HTDTFieldTaskPreflightEvaluator.evaluate(
+                plan: plan,
+                spatialAvailable: capabilities.roomPlanMeshEligible
+            )
+            try? workspace.seedTaskLedger(preflight: preflight)
+        }
+        await persistFieldReturnDraft(workspace)
+        return workspace
+    }
+
+    /// Persists a draft workspace to the field-returns directory so a
+    /// relaunch resumes the operator's outcomes (#400).
+    func persistFieldReturnDraft(
+        _ workspace: HTDTFieldReturnWorkspace
+    ) async {
+        guard let root = Self.captureRootDirectory() else {
+            return
+        }
+        let directory = Self.fieldReturnsDirectory(captureRoot: root)
+        let draftURL = Self.fieldReturnDraftURL(
+            directory: directory,
+            contributionID: workspace.contributionID
+        )
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [
+                .sortedKeys, .prettyPrinted,
+                .withoutEscapingSlashes,
+            ]
+            let data = try encoder.encode(workspace)
+            try data.write(to: draftURL, options: .atomic)
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "Field return draft could not be saved",
+                "フィールドリターンの下書きを保存できませんでした"
+            ) + " ["
+                + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
+    /// Finalizes a field-return workspace into a `.htdtfieldreturn`
+    /// container (#400): the assembler embeds the non-spatial
+    /// authority documents and evidence assets, the archive writer
+    /// produces a stored-ZIP container with a verified
+    /// `container-manifest.json`, the index records the finalized
+    /// workspace, and the mission record links the contribution.
+    /// Returns the artifact URL for sharing.
+    func finalizeFieldReturn(
+        _ workspace: HTDTFieldReturnWorkspace
+    ) async -> URL? {
+        guard let root = Self.captureRootDirectory() else {
+            return nil
+        }
+        var finalized = workspace
+        let finalizedAt = BundleTimestamp.utcString(from: Date())
+        do {
+            let artifact = try HTDTFieldReturnAssembler.assemble(
+                workspace: workspace,
+                provenance: HTDTFieldReturnProvenance(
+                    appName: "HTDT Capture",
+                    appVersion:
+                        Bundle.main.infoDictionary?[
+                            "CFBundleShortVersionString"
+                        ] as? String ?? "0",
+                    deviceModelFamily: Self.diagnosticsDeviceFamily()
+                ),
+                finalizedAtUTC: finalizedAt
+            )
+            let directory = Self.fieldReturnsDirectory(
+                captureRoot: root
+            )
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+            let destination = directory.appendingPathComponent(
+                workspace.contributionID.description
+                    + ".htdtfieldreturn"
+            )
+            try HTDTFieldReturnArchiveWriter.write(
+                artifact: artifact,
+                to: destination
+            )
+            finalized.finalizedAtUTC = finalizedAt
+            finalized.finalizedDigest = artifact.document
+                .contentDigest.value
+            var index = try HTDTFieldReturnStore(
+                captureRoot: root
+            ).load()
+            index.workspaces.removeAll {
+                $0.contributionID == finalized.contributionID
+            }
+            index.workspaces.append(finalized)
+            try HTDTFieldReturnStore(captureRoot: root).save(index)
+            if let missionRecordID = workspace.missionRecordID {
+                try? missionInboxStore?.associateFieldReturn(
+                    recordID: missionRecordID,
+                    contributionID:
+                        workspace.contributionID
+                )
+            }
+            try? FileManager.default.removeItem(
+                at: Self.fieldReturnDraftURL(
+                    directory: directory,
+                    contributionID: workspace.contributionID
+                )
+            )
+            refreshMissionDeliveryStores()
+            return destination
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "Field return could not be finalized",
+                "フィールドリターンを確定できませんでした"
+            ) + " ["
+                + Self.persistenceDiagnostic(error) + "]"
+            return nil
         }
     }
 

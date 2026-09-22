@@ -419,6 +419,19 @@
         "1.0.0"
       ],
       "description": "#395 cross-revision spatial registration authority: explicit transform declarations between independent finalized capture coordinate spaces, carried as supplemental authority."
+    },
+    "field-notes": {
+      "schema_id": "htdt.capture.field_notes",
+      "paths": [
+        "session/field-notes.json"
+      ],
+      "documents": {
+        "1.0.0": "field-notes"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
     }
   }
 }

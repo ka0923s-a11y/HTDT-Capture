@@ -263,6 +263,10 @@ public struct HTDTMissionRecord:
     /// have several captures, and standalone captures never gain a
     /// mission association.
     public var associatedCaptureRevisionIDs: [String]
+    /// Field-return contribution ids attached to this mission (issue
+    /// #400). Non-spatial work completes a mission through these
+    /// alongside (or instead of) capture revisions.
+    public var fieldReturnIDs: [String]
     public let supersedesMissionID: String?
     public var supersededByMissionID: String?
     public let followUpOfMissionID: String?
@@ -292,6 +296,7 @@ public struct HTDTMissionRecord:
         importedAtUTC: String,
         lifecycle: HTDTMissionLifecycle,
         associatedCaptureRevisionIDs: [String] = [],
+        fieldReturnIDs: [String] = [],
         supersedesMissionID: String? = nil,
         supersededByMissionID: String? = nil,
         followUpOfMissionID: String? = nil,
@@ -316,6 +321,7 @@ public struct HTDTMissionRecord:
         self.importedAtUTC = importedAtUTC
         self.lifecycle = lifecycle
         self.associatedCaptureRevisionIDs = associatedCaptureRevisionIDs
+        self.fieldReturnIDs = fieldReturnIDs
         self.supersedesMissionID = supersedesMissionID
         self.supersededByMissionID = supersededByMissionID
         self.followUpOfMissionID = followUpOfMissionID
@@ -345,6 +351,7 @@ public struct HTDTMissionRecord:
         case lifecycle
         case associatedCaptureRevisionIDs =
             "associated_capture_revision_ids"
+        case fieldReturnIDs = "field_return_ids"
         case supersedesMissionID = "supersedes_mission_id"
         case supersededByMissionID = "superseded_by_mission_id"
         case followUpOfMissionID = "follow_up_of_mission_id"
@@ -353,6 +360,80 @@ public struct HTDTMissionRecord:
         case receiverRequirement = "receiver_requirement"
         case deliveryJobIDs = "delivery_job_ids"
         case userNote = "user_note"
+    }
+
+    /// Inbox files written before #400 lack `field_return_ids` —
+    /// decode them as an empty set rather than failing the whole
+    /// inbox.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.recordID = try container.decode(String.self, forKey: .recordID)
+        self.missionID = try container.decode(String.self, forKey: .missionID)
+        self.missionKind = try container.decode(
+            HTDTMissionKind.self, forKey: .missionKind
+        )
+        self.purpose = try container.decodeIfPresent(
+            String.self, forKey: .purpose
+        )
+        self.payloadRelativePath = try container.decode(
+            String.self, forKey: .payloadRelativePath
+        )
+        self.payloadSHA256 = try container.decode(
+            String.self, forKey: .payloadSHA256
+        )
+        self.planID = try container.decode(String.self, forKey: .planID)
+        self.planVersion = try container.decode(
+            String.self, forKey: .planVersion
+        )
+        self.planSHA256 = try container.decode(
+            String.self, forKey: .planSHA256
+        )
+        self.projectRef = try container.decode(
+            String.self, forKey: .projectRef
+        )
+        self.roomName = try container.decode(
+            String.self, forKey: .roomName
+        )
+        self.issuedAtUTC = try container.decodeIfPresent(
+            String.self, forKey: .issuedAtUTC
+        )
+        self.importedAtUTC = try container.decode(
+            String.self, forKey: .importedAtUTC
+        )
+        self.lifecycle = try container.decode(
+            HTDTMissionLifecycle.self, forKey: .lifecycle
+        )
+        self.associatedCaptureRevisionIDs = try container.decode(
+            [String].self, forKey: .associatedCaptureRevisionIDs
+        )
+        self.fieldReturnIDs = try container.decodeIfPresent(
+            [String].self, forKey: .fieldReturnIDs
+        ) ?? []
+        self.supersedesMissionID = try container.decodeIfPresent(
+            String.self, forKey: .supersedesMissionID
+        )
+        self.supersededByMissionID = try container.decodeIfPresent(
+            String.self, forKey: .supersededByMissionID
+        )
+        self.followUpOfMissionID = try container.decodeIfPresent(
+            String.self, forKey: .followUpOfMissionID
+        )
+        self.followUpOriginRef = try container.decodeIfPresent(
+            String.self, forKey: .followUpOriginRef
+        )
+        self.dependencies = try container.decode(
+            [HTDTMissionDependency].self, forKey: .dependencies
+        )
+        self.receiverRequirement = try container.decodeIfPresent(
+            HTDTMissionReceiverRequirement.self,
+            forKey: .receiverRequirement
+        )
+        self.deliveryJobIDs = try container.decode(
+            [String].self, forKey: .deliveryJobIDs
+        )
+        self.userNote = try container.decodeIfPresent(
+            String.self, forKey: .userNote
+        )
     }
 }
 
@@ -781,6 +862,20 @@ public struct HTDTMissionInboxStore: Sendable {
             let id = captureRevisionID.description
             if !record.associatedCaptureRevisionIDs.contains(id) {
                 record.associatedCaptureRevisionIDs.append(id)
+            }
+        }
+    }
+
+    /// Links a finalized field-return contribution to this mission
+    /// (#400) — the non-spatial counterpart of `associateCapture`.
+    public func associateFieldReturn(
+        recordID: String,
+        contributionID: HTDTFieldReturnID
+    ) throws {
+        try mutate(recordID: recordID) { record in
+            let id = contributionID.description
+            if !record.fieldReturnIDs.contains(id) {
+                record.fieldReturnIDs.append(id)
             }
         }
     }
