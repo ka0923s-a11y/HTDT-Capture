@@ -779,14 +779,11 @@ public struct CaptureReviewWorkspaceView: View {
         }
     }
 
-<<<<<<< HEAD
     /// Preview-first evidence row (issue #367): thumbnail, human
     /// retention label, linked subjects, status symbols. Exact refs —
     /// frame ID, byte count, source paths — stay one disclosure away,
     /// and removal lives in the context menu, never in the primary
     /// row.
-||||||| 4bf7c9b
-=======
     /// #352: the mission bound before acquisition. Mission
     /// completeness is displayed against committed outcomes and stays
     /// distinct from the technical `ready_for_htdt_ingestion` verdict.
@@ -1034,7 +1031,6 @@ public struct CaptureReviewWorkspaceView: View {
         }
     }
 
->>>>>>> origin/main
     @ViewBuilder
     private func evidenceRow(
         _ item: ReviewEvidenceItem
@@ -1289,193 +1285,6 @@ public struct CaptureReviewWorkspaceView: View {
 }
 
 
-<<<<<<< HEAD
-||||||| 4bf7c9b
-    public init(model: RoomPlanPreviewModel) {
-        self.model = model
-    }
-
-    public var body: some View {
-        Canvas { context, size in
-            let spanX = max(model.maxX - model.minX, 0.01)
-            let spanZ = max(model.maxZ - model.minZ, 0.01)
-            let scale = min(
-                Double(size.width) / spanX,
-                Double(size.height) / spanZ
-            ) * 0.9
-            let offsetX =
-                (Double(size.width) - spanX * scale) / 2
-            let offsetY =
-                (Double(size.height) - spanZ * scale) / 2
-
-            func point(_ x: Double, _ z: Double) -> CGPoint {
-                CGPoint(
-                    x: offsetX
-                        + (x - model.minX) * scale,
-                    y: offsetY
-                        + (z - model.minZ) * scale
-                )
-            }
-
-            for wall in model.walls {
-                var path = Path()
-                path.move(
-                    to: point(wall.startX, wall.startZ)
-                )
-                path.addLine(
-                    to: point(wall.endX, wall.endZ)
-                )
-                context.stroke(
-                    path,
-                    with: .color(.primary),
-                    lineWidth: 2
-                )
-            }
-
-            for marker in model.markers {
-                let p = point(marker.x, marker.z)
-                let color: Color =
-                    switch marker.kind {
-                    case .door: .green
-                    case .window: .blue
-                    case .opening: .teal
-                    case .object: .gray
-                    case .annotation: .orange
-                    case .roomFrameOrigin: .red
-                    case .roomFrameFront: .purple
-                    }
-                let rect = CGRect(
-                    x: p.x - 4,
-                    y: p.y - 4,
-                    width: 8,
-                    height: 8
-                )
-                context.fill(
-                    Path(ellipseIn: rect),
-                    with: .color(color)
-                )
-                if let dirX = marker.dirX,
-                   let dirZ = marker.dirZ
-                {
-                    let len = max(
-                        (dirX * dirX + dirZ * dirZ)
-                            .squareRoot(),
-                        0.001
-                    )
-                    var arrow = Path()
-                    arrow.move(to: p)
-                    arrow.addLine(
-                        to: CGPoint(
-                            x: p.x + dirX / len * 14,
-                            y: p.y + dirZ / len * 14
-                        )
-                    )
-                    context.stroke(
-                        arrow,
-                        with: .color(color),
-                        lineWidth: 1
-                    )
-                }
-            }
-        }
-        .background(.quaternary)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-}
-=======
-    public init(model: RoomPlanPreviewModel) {
-        self.model = model
-    }
-
-    public var body: some View {
-        Canvas { context, size in
-            let spanX = max(model.maxX - model.minX, 0.01)
-            let spanZ = max(model.maxZ - model.minZ, 0.01)
-            let scale = min(
-                Double(size.width) / spanX,
-                Double(size.height) / spanZ
-            ) * 0.9
-            let offsetX =
-                (Double(size.width) - spanX * scale) / 2
-            let offsetY =
-                (Double(size.height) - spanZ * scale) / 2
-
-            func point(_ x: Double, _ z: Double) -> CGPoint {
-                CGPoint(
-                    x: offsetX
-                        + (x - model.minX) * scale,
-                    y: offsetY
-                        + (z - model.minZ) * scale
-                )
-            }
-
-            for wall in model.walls {
-                var path = Path()
-                path.move(
-                    to: point(wall.startX, wall.startZ)
-                )
-                path.addLine(
-                    to: point(wall.endX, wall.endZ)
-                )
-                context.stroke(
-                    path,
-                    with: .color(.primary),
-                    lineWidth: 2
-                )
-            }
-
-            for marker in model.markers {
-                let p = point(marker.x, marker.z)
-                let color: Color =
-                    switch marker.kind {
-                    case .door: .green
-                    case .window: .blue
-                    case .opening: .teal
-                    case .object: .gray
-                    case .annotation: .orange
-                    case .roomFrameOrigin: .red
-                    case .roomFrameFront: .purple
-                    case .revisitFlag: .pink
-                    }
-                let rect = CGRect(
-                    x: p.x - 4,
-                    y: p.y - 4,
-                    width: 8,
-                    height: 8
-                )
-                context.fill(
-                    Path(ellipseIn: rect),
-                    with: .color(color)
-                )
-                if let dirX = marker.dirX,
-                   let dirZ = marker.dirZ
-                {
-                    let len = max(
-                        (dirX * dirX + dirZ * dirZ)
-                            .squareRoot(),
-                        0.001
-                    )
-                    var arrow = Path()
-                    arrow.move(to: p)
-                    arrow.addLine(
-                        to: CGPoint(
-                            x: p.x + dirX / len * 14,
-                            y: p.y + dirZ / len * 14
-                        )
-                    )
-                    context.stroke(
-                        arrow,
-                        with: .color(color),
-                        lineWidth: 1
-                    )
-                }
-            }
-        }
-        .background(.quaternary)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-}
->>>>>>> origin/main
 
 #if os(iOS)
 /// Loads a preview HEIC lazily for the evidence gallery. Previews are

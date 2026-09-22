@@ -735,6 +735,18 @@ public struct ReviewPlanSurface: View {
         case .roomFrameFront:
             // The front arrow is drawn by the direction pass above.
             break
+        case .revisitFlag:
+            // Flag: pole plus pennant — operator revisit marker (#325).
+            var flag = Path()
+            flag.move(to: CGPoint(x: p.x - 4, y: p.y - r - 2))
+            flag.addLine(to: CGPoint(x: p.x - 4, y: p.y + r + 2))
+            context.stroke(flag, with: .color(color), lineWidth: 1.6)
+            var pennant = Path()
+            pennant.move(to: CGPoint(x: p.x - 4, y: p.y - r - 2))
+            pennant.addLine(to: CGPoint(x: p.x + r + 1, y: p.y - r + 1))
+            pennant.addLine(to: CGPoint(x: p.x - 4, y: p.y - 1))
+            pennant.closeSubpath()
+            context.fill(pennant, with: .color(color))
         case .object, .genericEntity:
             context.stroke(
                 Path(CGRect(
@@ -766,6 +778,7 @@ public struct ReviewPlanSurface: View {
         case .projector: return .mint
         case .measurement, .referencePoint: return .pink
         case .genericEntity: return .secondary
+        case .revisitFlag: return .yellow
         }
     }
 }
@@ -861,6 +874,15 @@ private struct LegendGlyph: View {
                 path.move(to: CGPoint(x: p.x + 6, y: p.y))
                 path.addLine(to: CGPoint(x: p.x + 2, y: p.y + 4))
                 context.stroke(path, with: .color(color), lineWidth: 2)
+            case .revisitFlag:
+                path.move(to: CGPoint(x: p.x - 3, y: p.y - 6))
+                path.addLine(to: CGPoint(x: p.x - 3, y: p.y + 6))
+                context.stroke(path, with: .color(color), lineWidth: 1.5)
+                path.move(to: CGPoint(x: p.x - 3, y: p.y - 6))
+                path.addLine(to: CGPoint(x: p.x + 5, y: p.y - 4))
+                path.addLine(to: CGPoint(x: p.x - 3, y: p.y - 1))
+                path.closeSubpath()
+                context.fill(path, with: .color(color))
             case .object, .genericEntity:
                 context.stroke(
                     Path(CGRect(
@@ -882,7 +904,7 @@ public extension RoomPlanPreviewModel.PlanMarker.Kind {
             .speaker, .seat, .screen, .projector, .display,
             .measurement, .referencePoint, .annotation,
             .object, .genericEntity,
-            .roomFrameOrigin, .roomFrameFront,
+            .roomFrameOrigin, .roomFrameFront, .revisitFlag,
         ]
     }
 }

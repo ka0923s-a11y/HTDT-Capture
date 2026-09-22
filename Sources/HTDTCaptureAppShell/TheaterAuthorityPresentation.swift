@@ -739,6 +739,8 @@ public enum TheaterAuthorityPresentation {
             return String(localized: "Reference point")
         case .genericEntity:
             return String(localized: "Entity")
+        case .revisitFlag:
+            return String(localized: "Revisit flag")
         }
     }
 }

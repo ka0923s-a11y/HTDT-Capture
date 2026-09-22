@@ -114,7 +114,6 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
             case annotation
             case roomFrameOrigin
             case roomFrameFront
-<<<<<<< HEAD
             // Committed spatial-authority entities (issue #367): the
             // glyph grammar distinguishes equipment classes instead of
             // one generic object dot.
@@ -126,11 +125,8 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
             case measurement
             case referencePoint
             case genericEntity
-||||||| 4bf7c9b
-=======
             /// An unresolved operator revisit flag (#325).
             case revisitFlag
->>>>>>> origin/main
         }
 
         public let kind: Kind
