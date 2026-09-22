@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/revision-state.schema.json",
+  "title": "HTDT Working Revision State v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "capture_series_id",
+    "capture_revision_id",
+    "created_at_utc",
+    "phase",
+    "updated_at_utc",
+    "practice"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.working-revision-state"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "capture_series_id": {
+      "$ref": "#/$defs/uuid4"
+    },
+    "capture_revision_id": {
+      "$ref": "#/$defs/uuid4"
+    },
+    "parent_revision_id": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid4"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "created_at_utc": {
+      "$ref": "#/$defs/utc_timestamp"
+    },
+    "capture_session_id": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid4"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "coordinate_space_id": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid4"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "phase": {
+      "enum": [
+        "live_scan_incomplete",
+        "end_accepted",
+        "semantic_authoring",
+        "ready_to_finalize"
+      ]
+    },
+    "updated_at_utc": {
+      "$ref": "#/$defs/utc_timestamp"
+    },
+    "practice": {
+      "type": "boolean"
+    },
+    "checkpoint": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/checkpoint"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "uuid4": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "utc_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "tracking_interval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "first_seconds",
+        "last_seconds",
+        "sample_count"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "normal",
+            "limited",
+            "unavailable"
+          ]
+        },
+        "reason": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "first_seconds": {
+          "type": "number"
+        },
+        "last_seconds": {
+          "type": "number"
+        },
+        "sample_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "resource_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "severity",
+        "detail",
+        "occurred_at_utc",
+        "sequence"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "detail": {
+          "type": "string"
+        },
+        "occurred_at_utc": {
+          "$ref": "#/$defs/utc_timestamp"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tracking_intervals",
+        "resource_events",
+        "benchmark_refs",
+        "skipped_task_requirement_ids",
+        "end_boundary_frame_ids",
+        "roomplan_guidance_available",
+        "advisory_notes"
+      ],
+      "properties": {
+        "tracking_intervals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/tracking_interval"
+          }
+        },
+        "resource_events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/resource_event"
+          }
+        },
+        "benchmark_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "task_profile": {},
+        "skipped_task_requirement_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "end_boundary_frame_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid4"
+          }
+        },
+        "end_coverage": {},
+        "roomplan_guidance_available": {
+          "type": "boolean"
+        },
+        "roomplan_guidance": {},
+        "mesh_lifecycle": {},
+        "advisory_notes": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  }
+}

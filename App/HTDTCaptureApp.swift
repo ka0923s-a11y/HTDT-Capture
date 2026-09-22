@@ -120,6 +120,12 @@ private struct HTDTCaptureHostView: View {
             handoffDestinations:
                 coordinator.handoffDestinations,
             handoffReceipts: coordinator.handoffReceipts,
+            missionRecords: coordinator.missionRecords,
+            activeMissionRecordID:
+                coordinator.activeMissionRecordID,
+            pairedDestinations:
+                coordinator.pairedDestinations,
+            deliveryJobs: coordinator.deliveryJobs,
             libraryMetadata: coordinator.libraryMetadata,
             failedInspection: coordinator.failedInspection,
             spatialCaptureSealed:
@@ -248,6 +254,32 @@ private struct HTDTCaptureHostView: View {
                     coordinator.exportFailedCaptureDiagnostics,
                 sendCaptureToHTDT:
                     coordinator.sendCaptureToHTDT,
+                importMissionPackage:
+                    coordinator.importMissionPackage,
+                startMission: coordinator.startMission,
+                deactivateMission:
+                    coordinator.deactivateMission,
+                archiveMission: coordinator.archiveMission,
+                evaluateMissionDependencies:
+                    coordinator.evaluateMissionDependencies,
+                pairDestinationPayload:
+                    coordinator.pairDestinationPayload,
+                confirmPairing: coordinator.confirmPairing,
+                forgetDestination:
+                    coordinator.forgetDestination,
+                revokeDestination:
+                    coordinator.revokeDestination,
+                refreshEndpointCapabilities:
+                    coordinator.refreshEndpointCapabilities,
+                deliveryRetryNow:
+                    coordinator.deliveryRetryNow,
+                deliveryPause: coordinator.deliveryPause,
+                deliveryResume: coordinator.deliveryResume,
+                deliveryCancel: coordinator.deliveryCancel,
+                deliveryPurgePayload:
+                    coordinator.deliveryPurgePayload,
+                preflightDestination:
+                    coordinator.preflightDestination,
                 deleteExportArchive:
                     coordinator.deleteExportArchive,
                 updateLibraryEntry:
@@ -452,6 +484,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Receipts recorded for the adopted finalized revision (#225).
     @Published private(set)
     var handoffReceipts: [HTDTHandoffReceipt] = []
+    /// Mission inbox records (#386) and the record currently driving
+    /// the capture, if any.
+    @Published private(set)
+    var missionRecords: [HTDTMissionRecord] = []
+    @Published private(set)
+    var activeMissionRecordID: String?
+    /// QR-paired, identity-pinned receivers (#379).
+    @Published private(set)
+    var pairedDestinations: [PairedHTDTDestination] = []
+    /// Durable delivery-queue ledger (#387).
+    @Published private(set)
+    var deliveryJobs: [HTDTDeliveryJob] = []
+    /// SHA of the plan bytes bound to `taskPlan` (#386): the mission's
+    /// embedded plan import carries its own content digest.
+    private var taskPlanSHA256: EvidenceSHA256?
     /// Operator-facing library metadata (names, notes) layered over the
     /// persisted inventory (issue #219).
     @Published private(set)
@@ -805,6 +852,23 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         loadPersistedCaptures()
+
+        // #386/#379/#387: surface the mission inbox, paired
+        // receivers and delivery ledger immediately, then reconcile
+        // the durable queue — a job `sending` when the app last
+        // exited is rescheduled for an idempotent retry, and every
+        // due job resumes under the queue's backoff.
+        refreshMissionDeliveryStores()
+        if let queue = deliveryQueueStore {
+            try? queue.reconcileOnLaunch()
+            refreshMissionDeliveryStores()
+            Task { @MainActor [weak self] in
+                _ = await queue.processDueJobs(
+                    receiptStore: self?.handoffReceiptStore()
+                )
+                self?.refreshMissionDeliveryStores()
+            }
+        }
 
         // #211/#302: restore the catalog library — the legacy
         // single-slot cache migrates in-place, then the active (or
@@ -3650,7 +3714,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                                     identityRecords:
                                         identityRecords,
                                     taskPlan: taskPlan,
-                                    taskPlanSHA256: nil,
+                                    taskPlanSHA256: taskPlanSHA256,
                                     generatedAtUTC:
                                         BundleTimestamp.utcString(
                                             from: Date()
@@ -5474,6 +5538,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         ]
         if let root = Self.captureRootDirectory() {
+            // #379: QR-paired, identity-pinned receivers are named
+            // destinations; configured raw endpoints remain as
+            // unpinned fallbacks.
+            if let paired = try? PairedHTDTDestinationStore(
+                captureRoot: root
+            ).activeDestinations() {
+                destinations.append(
+                    contentsOf: paired.map(\.handoffDestination)
+                )
+            }
             let url = root.appendingPathComponent(
                 "handoff-destinations.json",
                 isDirectory: false
@@ -5539,79 +5613,533 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        var outcome = "delivered"
-        var detail: String? = nil
         switch destination.kind {
         case .shareSheet:
             // The UI layer presents the system share sheet over
             // archiveURL; the operator's explicit share action is the
             // handoff and the receipt records it durably.
-            detail = "operator_shared_via_system_sheet"
-        case .endpoint:
-            guard let urlString = destination.url,
-                  let endpoint = URL(string: urlString)
-            else {
-                outcome = "failed"
-                detail = "invalid_endpoint_url"
-                break
-            }
-            do {
-                let response = try await HTDTHandoffClient().submit(
-                    archive: archiveURL,
-                    archiveSHA256: archiveSHA,
-                    archiveByteCount: archiveBytes,
-                    captureRevisionID:
-                        manifest.captureRevisionID,
-                    bundleDigest: bundleDigest,
-                    endpoint: endpoint
-                )
-                if response.ingestionOutcome == "accepted" {
-                    outcome = "delivered"
-                    detail = response.detail
-                } else {
-                    outcome = "failed"
-                    detail = response.detail ?? "rejected"
-                }
-            } catch {
-                outcome = "failed"
-                detail = String(describing: error)
-            }
-        }
-
-        let receipt = HTDTHandoffReceipt(
-            receiptID: UUID().uuidString.lowercased(),
-            captureRevisionID: manifest.captureRevisionID,
-            captureSeriesID: manifest.captureSeriesID,
-            bundleDigest: bundleDigest.value,
-            archiveSHA256: archiveSHA.value,
-            archiveByteCount: archiveBytes,
-            destination: destination,
-            initiatedAtUTC: BundleTimestamp.utcString(
-                from: Date()
-            ),
-            outcome: outcome,
-            detail: detail
-        )
-        do {
-            try receiptStore.append(receipt)
-        } catch {
-            workingSetStatus = HostLocalization.text(
-                "The handoff completed but its receipt could not be saved",
-                "送信は完了しましたが、受領記録を保存できませんでした"
+            let receipt = HTDTHandoffReceipt(
+                receiptID: UUID().uuidString.lowercased(),
+                captureRevisionID: manifest.captureRevisionID,
+                captureSeriesID: manifest.captureSeriesID,
+                bundleDigest: bundleDigest.value,
+                archiveSHA256: archiveSHA.value,
+                archiveByteCount: archiveBytes,
+                destination: destination,
+                initiatedAtUTC: BundleTimestamp.utcString(
+                    from: Date()
+                ),
+                outcome: "delivered",
+                detail: "operator_shared_via_system_sheet"
             )
-        }
-        handoffReceipts = (try? receiptStore.receipts(
-            for: manifest.captureRevisionID
-        )) ?? [receipt]
-        if outcome == "delivered" {
+            do {
+                try receiptStore.append(receipt)
+            } catch {
+                workingSetStatus = HostLocalization.text(
+                    "The handoff completed but its receipt could not be saved",
+                    "送信は完了しましたが、受領記録を保存できませんでした"
+                )
+            }
+            handoffReceipts = (try? receiptStore.receipts(
+                for: manifest.captureRevisionID
+            )) ?? [receipt]
             workingSetStatus = HostLocalization.text(
                 "Capture handed off to HTDT; receipt saved",
                 "HTDT に送信しました。受領記録を保存しました"
             )
-        } else {
+
+        case .endpoint:
+            // #387: endpoint sends are durable jobs — recorded before
+            // bytes move, idempotent at the receiver via the stable
+            // delivery id, and retried under the queue's policy rather
+            // than a one-shot fire-and-forget upload.
+            guard let urlString = destination.url,
+                  URL(string: urlString) != nil
+            else {
+                workingSetStatus = HostLocalization.text(
+                    "The destination has no valid HTTPS endpoint",
+                    "送信先に有効な HTTPS エンドポイントがありません"
+                )
+                return
+            }
+            let queue = HTDTDeliveryQueue(
+                captureRoot: captureRoot
+            )
+            let pairedID = (try? PairedHTDTDestinationStore(
+                captureRoot: captureRoot
+            ).activeDestinations())?.first(where: {
+                $0.endpointURL == urlString
+            })?.destinationID
+            let missionID = activeMissionRecordID.flatMap { id in
+                missionRecords.first(where: {
+                    $0.recordID == id
+                        && $0.associatedCaptureRevisionIDs
+                            .contains(
+                                manifest.captureRevisionID
+                                    .description
+                            )
+                })?.recordID
+            }
+            do {
+                let job = try queue.enqueue(
+                    captureRevisionID: manifest.captureRevisionID,
+                    captureSeriesID: manifest.captureSeriesID,
+                    bundleDigest: bundleDigest,
+                    archiveSHA256: archiveSHA,
+                    archiveByteCount: archiveBytes,
+                    archiveURL: archiveURL,
+                    destination: destination,
+                    pairedDestinationID: pairedID,
+                    missionRecordID: missionID,
+                    compatibilitySummary: nil
+                )
+                if let missionID {
+                    try? missionInboxStore?.associateDeliveryJob(
+                        recordID: missionID,
+                        deliveryJobID: job.deliveryJobID
+                    )
+                }
+                let jobs = await queue.processDueJobs(
+                    receiptStore: receiptStore
+                )
+                deliveryJobs = jobs
+                let updated = jobs.first {
+                    $0.deliveryJobID == job.deliveryJobID
+                }
+                handoffReceipts = (try? receiptStore.receipts(
+                    for: manifest.captureRevisionID
+                )) ?? handoffReceipts
+                switch updated?.state {
+                case .deliveredStaged:
+                    workingSetStatus = HostLocalization.text(
+                        "Capture delivered and staged at the receiver; receipt saved",
+                        "受信側に送信され、ステージされました。受領記録を保存しました"
+                    )
+                case .rejected:
+                    workingSetStatus = HostLocalization.text(
+                        "The receiver rejected the bundle semantically; it will not be retried",
+                        "受信側がバンドルを拒否しました。再送されません"
+                    )
+                case .blocked:
+                    workingSetStatus = HostLocalization.text(
+                        "Delivery is blocked and needs an operator decision (see Deliveries)",
+                        "送信がブロックされています。配信画面で対応が必要です"
+                    )
+                default:
+                    workingSetStatus = HostLocalization.text(
+                        "Delivery queued; it will retry under the queue's policy (see Deliveries)",
+                        "送信をキューに登録しました。配信ポリシーで再試行されます"
+                    )
+                }
+                refreshMissionDeliveryStores()
+            } catch {
+                workingSetStatus = HostLocalization.text(
+                    "The delivery could not be queued",
+                    "送信をキューに登録できませんでした"
+                )
+            }
+        }
+    }
+
+    /// Refreshes the mission inbox, paired destinations and delivery
+    /// queue into the published props the home screen renders (#386/
+    /// #379/#387).
+    private func refreshMissionDeliveryStores() {
+        guard let captureRoot = Self.captureRootDirectory() else {
+            missionRecords = []
+            activeMissionRecordID = nil
+            pairedDestinations = []
+            deliveryJobs = []
+            return
+        }
+        let inbox = HTDTMissionInboxStore(captureRoot: captureRoot)
+        missionRecords = (try? inbox.records()) ?? []
+        let activeRecord = try? inbox.activeMissionRecord()
+        activeMissionRecordID = activeRecord?.recordID
+        pairedDestinations = (try? PairedHTDTDestinationStore(
+            captureRoot: captureRoot
+        ).load().destinations) ?? []
+        deliveryJobs = (try? HTDTDeliveryQueue(
+            captureRoot: captureRoot
+        ).jobs()) ?? []
+    }
+
+    private var missionInboxStore: HTDTMissionInboxStore? {
+        Self.captureRootDirectory().map {
+            HTDTMissionInboxStore(captureRoot: $0)
+        }
+    }
+
+    private var pairedDestinationStore: PairedHTDTDestinationStore? {
+        Self.captureRootDirectory().map {
+            PairedHTDTDestinationStore(captureRoot: $0)
+        }
+    }
+
+    private var deliveryQueueStore: HTDTDeliveryQueue? {
+        Self.captureRootDirectory().map {
+            HTDTDeliveryQueue(captureRoot: $0)
+        }
+    }
+
+    /// Imports a mission package file — envelope or bare task plan —
+    /// into the inbox (issue #386).
+    func importMissionPackage(_ url: URL) async {
+        let accessing =
+            url.startAccessingSecurityScopedResource()
+        defer {
+            if accessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        guard let store = missionInboxStore,
+              let data = try? Data(contentsOf: url)
+        else {
             workingSetStatus = HostLocalization.text(
-                "Handoff failed; the receipt was recorded and Send can be retried",
-                "送信に失敗しました。記録は保存されているので、送信を再試行できます"
+                "The mission package could not be read",
+                "ミッションパッケージを読み込めませんでした"
+            )
+            return
+        }
+        do {
+            let outcome = try store.importMission(data: data)
+            refreshMissionDeliveryStores()
+            switch outcome {
+            case .imported:
+                workingSetStatus = HostLocalization.text(
+                    "Mission imported",
+                    "ミッションを読み込みました"
+                )
+            case .duplicate:
+                workingSetStatus = HostLocalization.text(
+                    "This mission is already in the inbox",
+                    "このミッションは既にインボックスにあります"
+                )
+            case .superseding:
+                workingSetStatus = HostLocalization.text(
+                    "Mission imported; the replaced mission is marked superseded",
+                    "ミッションを読み込みました。置き換えられたミッションは superseded になりました"
+                )
+            }
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "Mission import failed: \(error)",
+                "ミッションの読み込みに失敗しました: \(error)"
+            )
+        }
+    }
+
+    /// Starts or resumes a mission record: dependencies are evaluated
+    /// before Start, a single mission may be active at a time, and
+    /// the embedded plan becomes the capture's task plan (#386).
+    func startMission(_ recordID: String) async {
+        guard let store = missionInboxStore else { return }
+        do {
+            let resume = try store.startMission(
+                recordID: recordID,
+                inventory: persistedInventory,
+                deliveryQueue: deliveryQueueStore,
+                activeCatalog: equipmentCatalog
+            )
+            taskPlan = resume.planImport.plan
+            taskPlanSHA256 = resume.planImport.planSHA256
+            refreshMissionDeliveryStores()
+            beginCapture()
+        } catch {
+            refreshMissionDeliveryStores()
+            workingSetStatus = HostLocalization.text(
+                "Mission cannot start: \(error)",
+                "ミッションを開始できません: \(error)"
+            )
+        }
+    }
+
+    /// Clears the active-mission pointer and the plan context —
+    /// records and their captures are never touched (#386).
+    func deactivateMission() async {
+        try? missionInboxStore?.pauseActiveMission()
+        taskPlan = nil
+        taskPlanSHA256 = nil
+        refreshMissionDeliveryStores()
+    }
+
+    /// Hides a record from the default inbox without deleting it.
+    func archiveMission(_ recordID: String) async {
+        try? missionInboxStore?.setLifecycle(
+            recordID: recordID,
+            .archived
+        )
+        refreshMissionDeliveryStores()
+    }
+
+    /// The dependency report the mission detail view renders before
+    /// Start (#386) — declared dependencies, catalog pin, and any
+    /// mission-level receiver requirement gaps against paired
+    /// destinations (#374).
+    func evaluateMissionDependencies(
+        _ recordID: String
+    ) async throws -> HTDTMissionDependencyReport {
+        guard let store = missionInboxStore else {
+            throw HTDTMissionInboxError.unreadableDocument
+        }
+        var report = try store.evaluateDependencies(
+            recordID: recordID,
+            inventory: persistedInventory,
+            deliveryQueue: deliveryQueueStore,
+            activeCatalog: equipmentCatalog
+        )
+        if let requirement = try? store.record(id: recordID)?
+            .receiverRequirement
+        {
+            // Check the requirement against paired receivers: use a
+            // cached snapshot when one exists (labeled), else fetch
+            // live when reachable.
+            let paired = try? pairedDestinationStore?
+                .activeDestinations()
+            var gaps: [String] = []
+            var checked = false
+            for destination in paired ?? [] {
+                guard let url = destination.capabilityEndpointURL
+                    .flatMap(URL.init)
+                    ?? URL(string: destination.endpointURL)
+                else { continue }
+                if let snapshot = try? await HTDTCapabilityClient()
+                    .fetch(
+                        endpoint: url,
+                        pinnedIdentity:
+                            destination.pinnedIdentity
+                    )
+                {
+                    checked = true
+                    try? pairedDestinationStore?
+                        .updateCachedCapability(
+                            destinationID:
+                                destination.destinationID,
+                            snapshot: snapshot
+                        )
+                    let verdict = HTDTCompatibilityChecker
+                        .checkMissionRequirement(
+                            requirement,
+                            capabilities: snapshot.document
+                        )
+                    if case .incompatible(let g) = verdict {
+                        gaps.append(
+                            contentsOf: g.map(\.detail)
+                        )
+                    }
+                }
+            }
+            if !checked, (paired ?? []).isEmpty {
+                gaps.append(
+                    "No paired receiver to check the mission's "
+                        + "receiver requirement against"
+                )
+            }
+            report.receiverGaps = gaps
+        }
+        return report
+    }
+
+    /// Decodes and validates a QR pairing payload for the confirm
+    /// sheet (#379).
+    func pairDestinationPayload(
+        _ data: Data
+    ) throws -> HTDTReceiverPairingPayload {
+        try HTDTReceiverPairingPayload(data: data)
+    }
+
+    /// Stores the confirmed pairing — the pinned identity now binds
+    /// sends to that receiver (#379).
+    func confirmPairing(
+        _ payload: HTDTReceiverPairingPayload
+    ) async {
+        do {
+            _ = try pairedDestinationStore?.pair(payload: payload)
+            refreshMissionDeliveryStores()
+            refreshHandoffDestinations()
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "Pairing could not be stored",
+                "ペアリングを保存できませんでした"
+            )
+        }
+    }
+
+    func forgetDestination(_ destinationID: String) async {
+        try? pairedDestinationStore?.forget(
+            destinationID: destinationID
+        )
+        refreshMissionDeliveryStores()
+        refreshHandoffDestinations()
+    }
+
+    func revokeDestination(_ destinationID: String) async {
+        try? pairedDestinationStore?.revoke(
+            destinationID: destinationID
+        )
+        refreshMissionDeliveryStores()
+        refreshHandoffDestinations()
+    }
+
+    /// Fetches a paired receiver's capability document with the
+    /// pairing pin and stores it as a labeled cache (#374/#379).
+    func refreshEndpointCapabilities(
+        _ destinationID: String
+    ) async {
+        guard let destination = try? pairedDestinationStore?
+            .load().destinations.first(where: {
+                $0.destinationID == destinationID
+            })
+        else { return }
+        guard let url = destination.capabilityEndpointURL
+            .flatMap(URL.init)
+            ?? URL(string: destination.endpointURL)
+        else { return }
+        if let snapshot = try? await HTDTCapabilityClient().fetch(
+            endpoint: url,
+            pinnedIdentity: destination.pinnedIdentity
+        ) {
+            try? pairedDestinationStore?.updateCachedCapability(
+                destinationID: destinationID,
+                snapshot: snapshot
+            )
+            try? pairedDestinationStore?.markSeen(
+                destinationID: destinationID
+            )
+            refreshMissionDeliveryStores()
+        }
+    }
+
+    /// Delivery queue operator controls (#387).
+    func deliveryRetryNow(_ jobID: String) async {
+        try? deliveryQueueStore?.retryNow(jobID: jobID)
+        _ = await deliveryQueueStore?.processDueJobs(
+            receiptStore: handoffReceiptStore()
+        )
+        refreshMissionDeliveryStores()
+    }
+
+    func deliveryPause(_ jobID: String) async {
+        try? deliveryQueueStore?.pause(jobID: jobID)
+        refreshMissionDeliveryStores()
+    }
+
+    func deliveryResume(_ jobID: String) async {
+        try? deliveryQueueStore?.resume(jobID: jobID)
+        _ = await deliveryQueueStore?.processDueJobs(
+            receiptStore: handoffReceiptStore()
+        )
+        refreshMissionDeliveryStores()
+    }
+
+    func deliveryCancel(_ jobID: String) async {
+        try? deliveryQueueStore?.cancel(jobID: jobID)
+        refreshMissionDeliveryStores()
+    }
+
+    func deliveryPurgePayload(_ jobID: String) async {
+        try? deliveryQueueStore?.purgePayload(jobID: jobID)
+        refreshMissionDeliveryStores()
+    }
+
+    private func handoffReceiptStore()
+        -> HTDTHandoffReceiptStore?
+    {
+        Self.captureRootDirectory().map {
+            HTDTHandoffReceiptStore(captureRoot: $0)
+        }
+    }
+
+    /// Endpoint capability preflight (#374): fetches the
+    /// destination's capability document (pinned when the endpoint is
+    /// paired) and classifies the validated export's compatibility —
+    /// without uploading a single archive byte.
+    func preflightDestination(
+        _ destination: HTDTHandoffDestination
+    ) async -> HTDTCompatibilityVerdict {
+        guard destination.kind == .endpoint,
+              let urlString = destination.url,
+              let base = URL(string: urlString),
+              let manifest = validationReport?.manifest
+        else {
+            return .unknown(
+                reason: "No endpoint or no validated archive"
+            )
+        }
+        let paired = try? pairedDestinationStore?
+            .activeDestinations().first(where: {
+                $0.endpointURL == urlString
+            })
+        guard let capabilityURL = paired
+            .flatMap({ $0.capabilityEndpointURL })
+            .flatMap(URL.init) ?? Optional(base)
+        else {
+            return .unknown(
+                reason: "Endpoint has no capability URL"
+            )
+        }
+        // Inventory the bundle without opening it: manifest-declared
+        // payloads + the committed authority collection + archive
+        // size are all the checker needs.
+        var authorities = TheaterAuthorityCollection.empty
+        if let directory = finalizedRevision?.directory
+            .appendingPathComponent(
+                TheaterAuthorityPackage.path,
+                isDirectory: false
+            ),
+            let data = try? Data(contentsOf: directory),
+            let collection = try? JSONDecoder().decode(
+                TheaterAuthorityCollection.self,
+                from: data
+            )
+        {
+            authorities = collection
+        }
+        let archiveBytes = exportURL.flatMap {
+            try? FileManager.default.attributesOfItem(
+                atPath: $0.path
+            )[.size] as? Int64
+        } ?? 0
+        let inventory = HTDTBundleInventory(
+            manifest: manifest,
+            authorities: authorities,
+            archiveByteCount: archiveBytes,
+            projectRef: nil
+        )
+        do {
+            let snapshot = try await HTDTCapabilityClient().fetch(
+                endpoint: capabilityURL,
+                pinnedIdentity: paired?.pinnedIdentity
+            )
+            if let paired {
+                try? pairedDestinationStore?
+                    .updateCachedCapability(
+                        destinationID: paired.destinationID,
+                        snapshot: snapshot
+                    )
+                refreshMissionDeliveryStores()
+            }
+            return HTDTCompatibilityChecker.check(
+                inventory: inventory,
+                capabilities: snapshot.document,
+                requiresMissionReceipts:
+                    missionRecords.contains {
+                        $0.receiverRequirement?
+                            .requireMissionReceipts == true
+                            && $0.recordID
+                                == activeMissionRecordID
+                    }
+            )
+        } catch {
+            if let cached = paired?.cachedCapability {
+                return HTDTCompatibilityChecker.check(
+                    inventory: inventory,
+                    capabilities: cached.document,
+                    requiresMissionReceipts: false
+                )
+            }
+            return .unknown(
+                reason: String(describing: error)
             )
         }
     }
@@ -9102,6 +9630,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         {
             try? originStore.record(originRecord)
             captureOrigins[finalized.captureRevisionID] = originRecord
+        }
+
+        // #386: a finalized capture under an active mission joins
+        // that mission's associations — the mission record, never
+        // the bundle, carries the intent.
+        if let missionID = activeMissionRecordID {
+            try? missionInboxStore?.associateCapture(
+                recordID: missionID,
+                captureRevisionID:
+                    finalized.captureRevisionID
+            )
+            refreshMissionDeliveryStores()
         }
 
         refreshHandoffDestinations()
