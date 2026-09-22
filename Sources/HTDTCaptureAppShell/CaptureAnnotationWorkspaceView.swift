@@ -23,6 +23,10 @@ public struct AnnotationWorkspaceSeed: Sendable, Equatable {
     /// Committed theater-semantic authorities, when an
     /// `annotations/authorities.json` file exists in the revision.
     public let authorities: TheaterAuthorityCollection?
+    /// Committed or draft-restored field-authority state (#300/#301/
+    /// #310/#314/#324/#331): operator profiles, field evidence,
+    /// instrument profiles, settings observations and wiring routes.
+    public let fieldAuthority: FieldAuthorityWorkspace
 
     public init(
         annotations: [CaptureAnnotationEntity] = [],
@@ -30,7 +34,9 @@ public struct AnnotationWorkspaceSeed: Sendable, Equatable {
         equipmentIdentityRecords: [EquipmentIdentityRecord] = [],
         speakerLayoutPlan: SpeakerLayoutPlan? = nil,
         isRestoredDraft: Bool = false,
-        authorities: TheaterAuthorityCollection? = nil
+        authorities: TheaterAuthorityCollection? = nil,
+        fieldAuthority: FieldAuthorityWorkspace =
+            FieldAuthorityWorkspace()
     ) {
         self.annotations = annotations
         self.measurements = measurements
@@ -38,6 +44,7 @@ public struct AnnotationWorkspaceSeed: Sendable, Equatable {
         self.speakerLayoutPlan = speakerLayoutPlan
         self.isRestoredDraft = isRestoredDraft
         self.authorities = authorities
+        self.fieldAuthority = fieldAuthority
     }
 }
 
@@ -95,6 +102,17 @@ public struct CaptureAnnotationWorkspaceView: View {
     /// Captures a plain evidence frame for equipment-identity photos
     /// (#239); returns the canonical `path:` ref.
     public let captureIdentityPhoto: () async throws -> String
+    /// Captures a dedicated close-up photo for field evidence
+    /// (#314): a fresh camera frame materialized as an image, with no
+    /// frame descriptor persisted — image evidence, never spatial
+    /// authority.
+    public let captureFieldEvidencePhoto:
+        () async throws -> CapturedFieldPhoto
+    /// Receives the staged field-authority state on Save so the host
+    /// can persist the derived documents (#300/#301/#310/#314/#324/
+    /// #331).
+    public let onCommitFieldAuthority:
+        (FieldAuthorityWorkspace) -> Void
     /// Recognized RoomPlan objects offered for direct binding (#246).
     public let roomPlanObjects: [RoomPlanBindableObject]
     /// Advisory plausibility context for live flags (#247).
@@ -175,6 +193,17 @@ public struct CaptureAnnotationWorkspaceView: View {
     @State private var importingEquipmentCatalog = false
     @State private var equipmentCatalogError: String?
     @State private var draftSaveTask: Task<Void, Never>?
+    /// Staged field-authority state (#300/#301/#310/#314/#324/#331),
+    /// autosaved with the draft and committed on Save.
+    @State private var fieldAuthority = FieldAuthorityWorkspace()
+    @State private var showingOperators = false
+    @State private var addingFieldEvidence = false
+    @State private var fieldEvidenceSeedTargets: [String] = []
+    @State private var addingInstrument = false
+    @State private var editingInstrument:
+        MeasurementInstrumentProfile?
+    @State private var addingObservation = false
+    @State private var addingRoute = false
 
     /// Undo-history bound (#330): snapshots are deep value copies, so
     /// the stack is capped at a deterministic depth.
@@ -217,6 +246,12 @@ public struct CaptureAnnotationWorkspaceView: View {
             () async throws -> String = {
                 throw ManualAuthorityBuilderError.invalidPosition
             },
+        captureFieldEvidencePhoto: @escaping
+            () async throws -> CapturedFieldPhoto = {
+                throw ManualAuthorityBuilderError.invalidPosition
+            },
+        onCommitFieldAuthority: @escaping
+            (FieldAuthorityWorkspace) -> Void = { _ in },
         roomPlanObjects: [RoomPlanBindableObject] = [],
         plausibilityContext: SpatialPlausibilityContext =
             SpatialPlausibilityContext(),
@@ -263,6 +298,9 @@ public struct CaptureAnnotationWorkspaceView: View {
             captureSpeakerOrientation
         self.capturePointOrientation = capturePointOrientation
         self.captureIdentityPhoto = captureIdentityPhoto
+        self.captureFieldEvidencePhoto =
+            captureFieldEvidencePhoto
+        self.onCommitFieldAuthority = onCommitFieldAuthority
         self.roomPlanObjects = roomPlanObjects
         self.plausibilityContext = plausibilityContext
         self.equipmentRecents = equipmentRecents
@@ -293,6 +331,10 @@ public struct CaptureAnnotationWorkspaceView: View {
         )
         _authorities = State(
             initialValue: seed?.authorities ?? .empty
+        )
+        _fieldAuthority = State(
+            initialValue: seed?.fieldAuthority
+                ?? FieldAuthorityWorkspace()
         )
         _equipmentCatalog = State(initialValue: equipmentCatalog)
         self.commitInFlight = commitInFlight
@@ -325,6 +367,7 @@ public struct CaptureAnnotationWorkspaceView: View {
             annotationsSection
             measurementsSection
             theaterAuthoritySection
+            fieldAuthoritySection
             commitSection
         }
         .sheet(isPresented: $addingAnnotation) {
@@ -343,7 +386,8 @@ public struct CaptureAnnotationWorkspaceView: View {
                     coordinateSpaceID: coordinateSpaceID,
                     endpointCandidates: annotations,
                     evidenceFrames: evidenceFrames,
-                    otherEvidenceRefs: otherEvidenceRefs
+                    otherEvidenceRefs: otherEvidenceRefs,
+                    instrumentProfiles: fieldAuthority.instruments
                 ) { measurement in
                     recordUndoableEdit()
                     measurements.append(measurement)
@@ -368,6 +412,100 @@ public struct CaptureAnnotationWorkspaceView: View {
         ) { result in
             importEquipmentCatalog(result)
         }
+        .sheet(isPresented: $showingOperators) {
+            NavigationStack {
+                OperatorProfilesView(
+                    operators: $fieldAuthority.operatorProfiles,
+                    selectedOperatorID:
+                        $fieldAuthority.selectedOperatorID,
+                    onChange: scheduleDraftSave
+                )
+            }
+        }
+        .sheet(isPresented: $addingFieldEvidence) {
+            NavigationStack {
+                FieldEvidenceFormView(
+                    captureRevisionID: captureRevisionID,
+                    initialTargets: fieldEvidenceSeedTargets,
+                    annotations: annotations,
+                    measurements: measurements,
+                    evidenceFrames: evidenceFrames,
+                    taskScopeRefs: [],
+                    selectedOperatorID:
+                        fieldAuthority.selectedOperatorID,
+                    captureFieldEvidencePhoto:
+                        captureFieldEvidencePhoto
+                ) { record, asset in
+                    fieldAuthority.fieldEvidence.append(record)
+                    if let asset {
+                        fieldAuthority.fieldEvidenceAssets.append(
+                            asset
+                        )
+                    }
+                    scheduleDraftSave()
+                }
+            }
+        }
+        .sheet(isPresented: $addingInstrument) {
+            NavigationStack {
+                InstrumentProfileFormView { profile in
+                    upsertInstrumentProfile(profile)
+                }
+            }
+        }
+        .sheet(item: $editingInstrument) { instrument in
+            NavigationStack {
+                InstrumentProfileFormView(
+                    existing: instrument
+                ) { profile in
+                    upsertInstrumentProfile(profile)
+                }
+            }
+        }
+        .sheet(isPresented: $addingObservation) {
+            NavigationStack {
+                SettingsObservationFormView(
+                    captureRevisionID: captureRevisionID,
+                    annotations: annotations,
+                    inventoryItems: authorities.inventoryItems,
+                    evidenceRefSuggestions:
+                        availableEvidenceRefs
+                            + fieldAuthority.fieldEvidence.map {
+                                "field_evidence:"
+                                    + $0.evidenceID.description
+                            },
+                    selectedOperatorID:
+                        fieldAuthority.selectedOperatorID
+                ) { observation in
+                    fieldAuthority.settingsObservations.append(
+                        observation
+                    )
+                    scheduleDraftSave()
+                }
+            }
+        }
+        .sheet(isPresented: $addingRoute) {
+            NavigationStack {
+                WiringRouteFormView(
+                    captureRevisionID: captureRevisionID,
+                    annotations: annotations,
+                    inventoryItems: authorities.inventoryItems,
+                    evidenceRefSuggestions:
+                        availableEvidenceRefs
+                            + fieldAuthority.fieldEvidence.map {
+                                "field_evidence:"
+                                    + $0.evidenceID.description
+                            },
+                    selectedOperatorID:
+                        fieldAuthority.selectedOperatorID,
+                    captureTargetedPlacement:
+                        captureTargetedPlacement
+                ) { route in
+                    fieldAuthority.wiringRoutes.append(route)
+                    scheduleDraftSave()
+                }
+            }
+        }
         .confirmationDialog(
             "Discard unsaved changes?",
             isPresented: $confirmingCancel,
@@ -390,6 +528,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         .onChange(of: annotations) { _, _ in scheduleDraftSave() }
         .onChange(of: measurements) { _, _ in scheduleDraftSave() }
         .onChange(of: identityRecords) { _, _ in scheduleDraftSave() }
+        .onChange(of: fieldAuthority) { _, _ in scheduleDraftSave() }
         .onDisappear {
             // Final flush — an interrupting view teardown must still
             // leave the draft durable.
@@ -608,7 +747,8 @@ public struct CaptureAnnotationWorkspaceView: View {
             annotations: annotations,
             measurements: measurements,
             equipmentIdentityRecords: identityRecords,
-            speakerLayoutPlan: speakerLayoutPlan
+            speakerLayoutPlan: speakerLayoutPlan,
+            fieldAuthority: fieldAuthority
         )
         try? draftStore.save(draft)
     }
@@ -621,7 +761,50 @@ public struct CaptureAnnotationWorkspaceView: View {
 
     private func commit() {
         discardDraft()
+        // Stamp the selected operator identity onto newly authored
+        // records that do not already carry one (#310); an explicit
+        // author on a record is never overwritten.
+        if let operatorID = fieldAuthority.selectedOperatorID {
+            for index in annotations.indices
+            where annotations[index].authorOperatorID == nil {
+                if let stamped =
+                    try? annotations[index].withAuthorOperator(
+                        operatorID
+                    )
+                {
+                    annotations[index] = stamped
+                }
+            }
+            for index in measurements.indices
+            where measurements[index].authorOperatorID == nil {
+                if let stamped =
+                    try? measurements[index].withAuthorOperator(
+                        operatorID
+                    )
+                {
+                    measurements[index] = stamped
+                }
+            }
+        }
+        onCommitFieldAuthority(fieldAuthority)
         onCommit(annotations, measurements, identityRecords, authorities)
+    }
+
+    /// Task items (#217) whose match clause targets this entity type —
+    /// used to auto-scope row-triggered evidence capture (#314).
+    private func taskScopeRefs(
+        for entity: CaptureAnnotationEntity
+    ) -> [String] {
+        guard let taskProfile else { return [] }
+        return taskProfile.requirements.compactMap { requirement in
+            guard requirement.match.kind == .annotationEntityType,
+                  requirement.match.value
+                    == entity.type.rawValue
+            else {
+                return nil
+            }
+            return "task_item:" + requirement.identifier
+        }
     }
 
     /// Cancel is one tap when nothing was staged (#330); a dirty
@@ -919,6 +1102,265 @@ public struct CaptureAnnotationWorkspaceView: View {
             }
         }
     }
+    /// Field authority (#300/#301/#310/#314/#324/#331): operator
+    /// identity, typed field evidence, measurement instruments,
+    /// installed-settings observations and as-built wiring routes —
+    /// all derived documents staged beside the canonical collections.
+    @ViewBuilder
+    private var fieldAuthoritySection: some View {
+        Section(String(localized: "Author & operators")) {
+            HStack {
+                if let selected = fieldAuthority
+                    .operatorProfiles.first(where: {
+                        $0.operatorID
+                            == fieldAuthority.selectedOperatorID
+                    })
+                {
+                    Text(selected.displayName)
+                } else {
+                    Text(String(localized: "Anonymous author"))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(String(localized: "Operators")) {
+                    showingOperators = true
+                }
+            }
+        }
+
+        Section(String(localized: "Field evidence")) {
+            if fieldAuthority.fieldEvidence.isEmpty {
+                Text(
+                    String(localized:
+                        "No field evidence staged.")
+                )
+                .foregroundStyle(.secondary)
+            } else {
+                ForEach(
+                    fieldAuthority.fieldEvidence,
+                    id: \.evidenceID
+                ) { record in
+                    VStack(
+                        alignment: .leading,
+                        spacing: 2
+                    ) {
+                        Text(record.title)
+                        Text(
+                            [
+                                FieldAuthorityPresentation
+                                    .evidenceKindName(
+                                        record.kind
+                                    ),
+                                record.acquisition.rawValue,
+                                String(
+                                    record.targetRefs.count
+                                ) + " target(s)",
+                            ]
+                            .compactMap { $0 }
+                            .joined(separator: " · ")
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                .onDelete { offsets in
+                    let removed = offsets.map {
+                        fieldAuthority.fieldEvidence[$0]
+                    }
+                    fieldAuthority.fieldEvidence.remove(
+                        atOffsets: offsets
+                    )
+                    // A staged-only asset payload is dropped with its
+                    // record; an already-committed asset stays
+                    // byte-exact in the bundle.
+                    let droppedPaths = Set(
+                        removed.compactMap {
+                            $0.asset?.assetPath
+                        }
+                    )
+                    fieldAuthority.fieldEvidenceAssets
+                        .removeAll {
+                            droppedPaths.contains($0.path)
+                        }
+                    scheduleDraftSave()
+                }
+            }
+            Button(
+                String(localized: "Capture field evidence")
+            ) {
+                fieldEvidenceSeedTargets = []
+                addingFieldEvidence = true
+            }
+        }
+
+        Section(
+            String(localized: "Measurement instruments")
+        ) {
+            if fieldAuthority.instruments.isEmpty {
+                Text(
+                    String(localized:
+                        "No instrument profiles staged.")
+                )
+                .foregroundStyle(.secondary)
+            } else {
+                ForEach(
+                    fieldAuthority.instruments,
+                    id: \.id
+                ) { instrument in
+                    Button {
+                        editingInstrument = instrument
+                    } label: {
+                        VStack(
+                            alignment: .leading,
+                            spacing: 2
+                        ) {
+                            Text(
+                                [
+                                    instrument.manufacturer,
+                                    instrument.model,
+                                ]
+                                .compactMap { $0 }
+                                .joined(separator: " ")
+                            )
+                            .foregroundStyle(.primary)
+                            Text(
+                                [
+                                    FieldAuthorityPresentation
+                                        .instrumentClassName(
+                                            instrument
+                                                .instrumentClass
+                                        ),
+                                    "v"
+                                        + String(
+                                            instrument
+                                                .profileVersion
+                                        ),
+                                    instrument
+                                        .serialOrAssetID
+                                        .map {
+                                            "serial " + $0
+                                        },
+                                ]
+                                .compactMap { $0 }
+                                .joined(separator: " · ")
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            Button(String(localized: "Add instrument")) {
+                addingInstrument = true
+            }
+        }
+
+        Section(
+            String(localized: "Installed settings")
+        ) {
+            if fieldAuthority.settingsObservations.isEmpty {
+                Text(
+                    String(localized:
+                        "No settings observations staged.")
+                )
+                .foregroundStyle(.secondary)
+            } else {
+                ForEach(
+                    fieldAuthority.settingsObservations,
+                    id: \.observationID
+                ) { observation in
+                    VStack(
+                        alignment: .leading,
+                        spacing: 2
+                    ) {
+                        Text(observation.targetRef)
+                            .font(.callout.monospaced())
+                        Text(
+                            String(
+                                observation.settings.count
+                            ) + " settings · "
+                                + observation.recordedAtUTC
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                .onDelete { offsets in
+                    fieldAuthority.settingsObservations
+                        .remove(atOffsets: offsets)
+                    scheduleDraftSave()
+                }
+            }
+            Button(
+                String(localized:
+                    "Record device settings")
+            ) {
+                addingObservation = true
+            }
+        }
+
+        Section(String(localized: "As-built wiring")) {
+            if fieldAuthority.wiringRoutes.isEmpty {
+                Text(
+                    String(localized:
+                        "No wiring routes staged.")
+                )
+                .foregroundStyle(.secondary)
+            } else {
+                ForEach(
+                    fieldAuthority.wiringRoutes,
+                    id: \.routeID
+                ) { route in
+                    VStack(
+                        alignment: .leading,
+                        spacing: 2
+                    ) {
+                        Text(route.cableType)
+                        Text(
+                            [
+                                FieldAuthorityPresentation
+                                    .routeStateName(
+                                        route.state
+                                    ),
+                                route.serviceType,
+                                String(
+                                    route.segments.count
+                                ) + " segment(s)",
+                            ]
+                            .compactMap { $0 }
+                            .joined(separator: " · ")
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                .onDelete { offsets in
+                    fieldAuthority.wiringRoutes.remove(
+                        atOffsets: offsets
+                    )
+                    scheduleDraftSave()
+                }
+            }
+            Button(
+                String(localized: "Record wiring route")
+            ) {
+                addingRoute = true
+            }
+        }
+    }
+
+    private func upsertInstrumentProfile(
+        _ profile: MeasurementInstrumentProfile
+    ) {
+        fieldAuthority.instruments.removeAll {
+            $0.instrumentID == profile.instrumentID
+                && $0.profileVersion == profile.profileVersion
+        }
+        fieldAuthority.instruments.append(profile)
+        scheduleDraftSave()
+    }
+
     @ViewBuilder
     private var commitSection: some View {
         Section {
@@ -1078,7 +1520,8 @@ public struct CaptureAnnotationWorkspaceView: View {
                     coordinateSpaceID: coordinateSpaceID,
                     endpointCandidates: annotations,
                     evidenceFrames: evidenceFrames,
-                    otherEvidenceRefs: otherEvidenceRefs
+                    otherEvidenceRefs: otherEvidenceRefs,
+                    instrumentProfiles: fieldAuthority.instruments
                 ) { updated in
                     recordUndoableEdit()
                     measurements.replaceAll(
@@ -1207,6 +1650,19 @@ public struct CaptureAnnotationWorkspaceView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             }
+            Button {
+                fieldEvidenceSeedTargets = [
+                    "entity:" + entity.entityID.description
+                ] + taskScopeRefs(for: entity)
+                addingFieldEvidence = true
+            } label: {
+                Label(
+                    String(localized: "Capture evidence"),
+                    systemImage: "camera.badge.ellipsis"
+                )
+                .font(.caption)
+            }
+            .buttonStyle(.borderless)
         }
     }
 
@@ -1230,6 +1686,20 @@ public struct CaptureAnnotationWorkspaceView: View {
             Text(measurementDetail(measurement))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            Button {
+                fieldEvidenceSeedTargets = [
+                    "measurement:"
+                        + measurement.measurementID.description
+                ]
+                addingFieldEvidence = true
+            } label: {
+                Label(
+                    String(localized: "Capture evidence"),
+                    systemImage: "camera.badge.ellipsis"
+                )
+                .font(.caption)
+            }
+            .buttonStyle(.borderless)
         }
     }
 

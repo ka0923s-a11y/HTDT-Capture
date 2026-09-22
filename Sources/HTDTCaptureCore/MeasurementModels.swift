@@ -356,6 +356,15 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
     /// Algorithmic lineage for derived/app-computed values
     /// (issue #286). Never present on raw user-entered values.
     public let derivation: MeasurementDerivation?
+    /// Exact instrument profile version this value relied on
+    /// (issue #331). When present it is the instrument authority; the
+    /// legacy free-text `instrument` field stays populated for
+    /// readability and remains loadable on its own.
+    public let instrumentAuthority: MeasurementInstrumentReference?
+    /// Optional app-local author/operator binding (issue #310):
+    /// `operator_id` from `derived/operator-profiles.json`. Anonymous
+    /// records remain valid — identity is claimed, never assumed.
+    public let authorOperatorID: OperatorProfileID?
     public let evidenceRefs: [String]
 
     public init(
@@ -374,6 +383,8 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
         sourceValueText: String? = nil,
         sourceAuthority: MeasurementSourceAuthority? = nil,
         derivation: MeasurementDerivation? = nil,
+        instrumentAuthority: MeasurementInstrumentReference? = nil,
+        authorOperatorID: OperatorProfileID? = nil,
         evidenceRefs: [String] = []
     ) throws {
         let normalizedQuantityType = SchemaOwnedText.nfc(quantityType)
@@ -512,7 +523,65 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
         self.sourceValueText = SchemaOwnedText.nfc(sourceValueText)
         self.sourceAuthority = sourceAuthority
         self.derivation = derivation
+        self.instrumentAuthority = instrumentAuthority
+        self.authorOperatorID = authorOperatorID
         self.evidenceRefs = normalizedEvidence
+    }
+
+    /// A copy of this measurement with `author_operator_id` set to
+    /// `operatorID` — used when the workspace applies the selected
+    /// operator profile to a newly authored record (issue #310).
+    public func withAuthorOperator(
+        _ operatorID: OperatorProfileID?
+    ) throws -> CaptureMeasurement {
+        try CaptureMeasurement(
+            measurementID: measurementID,
+            quantityType: quantityType,
+            value: value,
+            unit: unit,
+            coordinateSpaceID: coordinateSpaceID,
+            endpointRefs: endpointRefs,
+            acquisitionMethod: acquisitionMethod,
+            instrument: instrument,
+            statedUncertainty: statedUncertainty,
+            observedAtUTC: observedAtUTC,
+            userAttestation: userAttestation,
+            provenanceClass: provenanceClass,
+            sourceValueText: sourceValueText,
+            sourceAuthority: sourceAuthority,
+            derivation: derivation,
+            instrumentAuthority: instrumentAuthority,
+            authorOperatorID: operatorID,
+            evidenceRefs: evidenceRefs
+        )
+    }
+
+    /// A copy of this measurement with `instrument_authority` set —
+    /// the legacy `instrument` text is preserved verbatim so older
+    /// readers keep working (issue #331).
+    public func withInstrumentAuthority(
+        _ reference: MeasurementInstrumentReference?
+    ) throws -> CaptureMeasurement {
+        try CaptureMeasurement(
+            measurementID: measurementID,
+            quantityType: quantityType,
+            value: value,
+            unit: unit,
+            coordinateSpaceID: coordinateSpaceID,
+            endpointRefs: endpointRefs,
+            acquisitionMethod: acquisitionMethod,
+            instrument: instrument,
+            statedUncertainty: statedUncertainty,
+            observedAtUTC: observedAtUTC,
+            userAttestation: userAttestation,
+            provenanceClass: provenanceClass,
+            sourceValueText: sourceValueText,
+            sourceAuthority: sourceAuthority,
+            derivation: derivation,
+            instrumentAuthority: reference,
+            authorOperatorID: authorOperatorID,
+            evidenceRefs: evidenceRefs
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -531,6 +600,8 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
         case sourceValueText = "source_value_text"
         case sourceAuthority = "source_authority"
         case derivation
+        case instrumentAuthority = "instrument_authority"
+        case authorOperatorID = "author_operator_id"
         case evidenceRefs = "evidence_refs"
     }
 
@@ -590,6 +661,14 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
             derivation: container.decodeIfPresent(
                 MeasurementDerivation.self,
                 forKey: .derivation
+            ),
+            instrumentAuthority: container.decodeIfPresent(
+                MeasurementInstrumentReference.self,
+                forKey: .instrumentAuthority
+            ),
+            authorOperatorID: container.decodeIfPresent(
+                OperatorProfileID.self,
+                forKey: .authorOperatorID
             ),
             evidenceRefs: container.decode(
                 [String].self,
