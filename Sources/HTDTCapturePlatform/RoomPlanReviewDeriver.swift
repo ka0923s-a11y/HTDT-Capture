@@ -102,6 +102,26 @@ public enum RoomPlanReviewDeriver {
         return enumerated
     }
 
+    /// The elevation (capture-space Y, meters) of the largest
+    /// detected floor surface in the processed payload, or nil when
+    /// no floor exists (issue #232 field datum). This is the only
+    /// ground-truth floor level a RoomPlan payload carries.
+    public static func finishedFloorElevationMeters(
+        processedPayload: Data
+    ) -> Double? {
+        guard let room = try? decodeRoom(processedPayload),
+              !room.floors.isEmpty
+        else {
+            return nil
+        }
+        let largest = room.floors.max { lhs, rhs in
+            lhs.dimensions.x * lhs.dimensions.z
+                < rhs.dimensions.x * rhs.dimensions.z
+        }
+        guard let floor = largest else { return nil }
+        return Double(floor.transform.columns.3.y)
+    }
+
     /// Builds the top-down plan model (issue #213): walls as segments,
     /// openings and objects as markers, all projected onto the XZ
     /// floor plane in the capture's bound coordinate space.

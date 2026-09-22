@@ -80,6 +80,10 @@
             "door",
             "window",
             "opening",
+            "hvac_grille",
+            "transfer_grille",
+            "door_undercut",
+            "service_penetration",
             "other"
           ]
         },
@@ -123,6 +127,13 @@
             "confirmed",
             "needs_more_scanning",
             "intentionally_ignored"
+          ]
+        },
+        "open_state": {
+          "enum": [
+            "open",
+            "closed",
+            "unknown"
           ]
         },
         "reviewed_at": {

@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-task-plan-v2.schema.json",
+  "title": "HTDT Capture Task Plan v2",
+  "description": "Imported HTDT mission contract (issue #359). Adds first-class theater-semantic authority tasks and stable-id evidence tasks to the v1 checklist contract. Persisted verbatim in the bundle under session/capture-task-plan.json as imported reference; not a canonical schema-owned payload.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "plan_id",
+    "plan_version",
+    "project_ref",
+    "room_name",
+    "entity_checklist",
+    "measurement_requests",
+    "surface_review_tasks"
+  ],
+  "properties": {
+    "schema": { "const": "htdt.capture-task-plan" },
+    "schema_version": { "const": "2.0.0" },
+    "plan_id": { "type": "string", "minLength": 1 },
+    "plan_version": { "type": "string", "minLength": 1 },
+    "project_ref": { "type": "string", "minLength": 1 },
+    "room_name": { "type": "string", "minLength": 1 },
+    "issued_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "entity_checklist": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entityItem" }
+    },
+    "measurement_requests": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/measurementItem" }
+    },
+    "surface_review_tasks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/surfaceItem" }
+    },
+    "evidence_targets": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "expected_channel_roles": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/channelRole" }
+    },
+    "equipment_catalog": {
+      "type": ["object", "null"]
+    },
+    "semantic_tasks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/semanticTaskItem" }
+    },
+    "evidence_tasks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidenceTaskItem" }
+    }
+  },
+  "$defs": {
+    "uuid4": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "channelRole": {
+      "type": "string",
+      "pattern": "^[A-Z0-9_]+$"
+    },
+    "requirement": { "enum": ["required", "optional"] },
+    "entityType": {
+      "enum": [
+        "speaker", "subwoofer", "display", "projection_screen",
+        "projector", "listening_position", "seat",
+        "acoustic_treatment", "equipment_rack", "reference_point",
+        "measurement_point", "custom"
+      ]
+    },
+    "semanticKind": {
+      "enum": [
+        "surface_semantics", "surface_construction", "problem_surface",
+        "construction_feature", "room_state_observation",
+        "room_state_snapshot", "inventory_item", "furniture_semantics",
+        "speaker_installation", "screen_semantics", "seat_layout",
+        "routing_verification", "projector_commissioning",
+        "installation_alignment"
+      ]
+    },
+    "entityItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "entity_type", "requirement"],
+      "properties": {
+        "item_id": { "type": "string", "minLength": 1 },
+        "entity_type": { "$ref": "#/$defs/entityType" },
+        "requirement": { "$ref": "#/$defs/requirement" },
+        "channel_role": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/channelRole" }]
+        },
+        "label_hint": { "type": ["string", "null"], "minLength": 1 },
+        "equipment_ref": { "type": ["object", "null"] }
+      }
+    },
+    "measurementItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "quantity_type", "requirement"],
+      "properties": {
+        "item_id": { "type": "string", "minLength": 1 },
+        "quantity_type": { "type": "string", "minLength": 1 },
+        "requirement": { "$ref": "#/$defs/requirement" },
+        "endpoint_semantics": {
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "expected_unit": {
+          "type": ["string", "null"],
+          "enum": ["m", "rad", "1", "s", "degC", "%", null]
+        }
+      }
+    },
+    "surfaceItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "surface_kind", "requirement"],
+      "properties": {
+        "item_id": { "type": "string", "minLength": 1 },
+        "surface_kind": { "type": "string", "minLength": 1 },
+        "note": { "type": ["string", "null"], "minLength": 1 },
+        "requirement": { "$ref": "#/$defs/requirement" }
+      }
+    },
+    "semanticTaskItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "requirement", "semantic_kind"],
+      "properties": {
+        "item_id": { "type": "string", "minLength": 1 },
+        "requirement": { "$ref": "#/$defs/requirement" },
+        "semantic_kind": { "$ref": "#/$defs/semanticKind" },
+        "expected_subtype": {
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "target_ref": { "type": ["string", "null"], "minLength": 1 },
+        "label": { "type": ["string", "null"], "minLength": 1 },
+        "planned_ref": { "type": ["string", "null"], "minLength": 1 },
+        "allow_shared_fulfillment": { "type": ["boolean", "null"] }
+      }
+    },
+    "evidenceTaskItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "requirement", "purpose"],
+      "properties": {
+        "item_id": { "type": "string", "minLength": 1 },
+        "requirement": { "$ref": "#/$defs/requirement" },
+        "purpose": { "type": "string", "minLength": 1 },
+        "subject_ref": { "type": ["string", "null"], "minLength": 1 },
+        "guidance": { "type": ["string", "null"], "minLength": 1 }
+      }
+    }
+  }
+}
