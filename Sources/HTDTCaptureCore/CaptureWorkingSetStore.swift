@@ -154,12 +154,12 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         roomReferenceFrame: RoomReferenceFrameDocument? = nil,
         roomFieldDatum: RoomFieldDatumDocument? = nil,
         openingReview: OpeningReviewDocument? = nil,
-        captureStrategy: CaptureStrategyDocument? = nil,
-        planUnderlay: PlanUnderlayDocument? = nil,
         revisionPhase: WorkingRevisionPhase? = nil,
         spatialAuthorityLive: Bool = true,
         practiceCapture: Bool = false,
-        endBoundaryFrameIDs: [EvidenceFrameID] = []
+        endBoundaryFrameIDs: [EvidenceFrameID] = [],
+        captureStrategy: CaptureStrategyDocument? = nil,
+        planUnderlay: PlanUnderlayDocument? = nil
     ) {
         self.identity = identity
         self.rootDirectory = rootDirectory
