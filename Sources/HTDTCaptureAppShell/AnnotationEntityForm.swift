@@ -962,7 +962,8 @@ public struct AnnotationEntityForm: View {
                 ) {
                     capturePointDirection()
                 }
-                .disabled(capturingPointDirection)
+                .disabled(capturingPointDirection
+                    || cameraPreview == nil)
                 Text(
                     "Aim the phone along the microphone's acoustic axis, then capture. The full 3D direction — including pitch — is adopted; nothing is flattened to a horizontal heading."
                 )
