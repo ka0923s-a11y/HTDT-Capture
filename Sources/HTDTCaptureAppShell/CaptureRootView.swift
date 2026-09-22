@@ -58,6 +58,12 @@ public struct CaptureRootActions {
     /// Captures a plain evidence frame for equipment-identity photos
     /// (#239); returns its canonical `path:` ref.
     public let captureIdentityPhoto: () async throws -> String
+    /// Label-scan assist (#345): captures a close-up label frame, runs
+    /// Vision OCR/barcode recognition, and returns suggestion
+    /// candidates for explicit operator confirmation — it never
+    /// commits anything.
+    public let scanEquipmentLabel: () async throws
+        -> EquipmentLabelScanResult
     /// Captures a dedicated close-up photo for field evidence
     /// (#314): image bytes + dims, no frame descriptor persisted.
     public let captureFieldEvidencePhoto:
@@ -83,6 +89,10 @@ public struct CaptureRootActions {
     /// decodes through the validating initializer without persisting.
     public let importEquipmentCatalog:
         (Data) throws -> HTDTEquipmentCatalogSnapshot
+    /// Explicitly activates a catalog already stored in the host's
+    /// multi-catalog library (#302); argument is the content key shown
+    /// in `equipmentCatalogLibrary`.
+    public let selectEquipmentCatalog: (String) -> Void
     public let finalizeCapture: () -> Void
     public let prepareExport: () -> Void
     public let resetCapture: () -> Void
@@ -203,6 +213,10 @@ public struct CaptureRootActions {
             () async throws -> String = {
                 throw ManualAuthorityBuilderError.invalidPosition
             },
+        scanEquipmentLabel: @escaping
+            () async throws -> EquipmentLabelScanResult = {
+                throw EquipmentLabelScanError.scanUnavailable
+            },
         captureFieldEvidencePhoto: @escaping
             () async throws -> CapturedFieldPhoto = {
                 throw ManualAuthorityBuilderError.invalidPosition
@@ -226,6 +240,7 @@ public struct CaptureRootActions {
                     from: data
                 )
             },
+        selectEquipmentCatalog: @escaping (String) -> Void = { _ in },
         finalizeCapture: @escaping () -> Void = {},
         prepareExport: @escaping () -> Void = {},
         resetCapture: @escaping () -> Void = {},
@@ -305,6 +320,7 @@ public struct CaptureRootActions {
         self.probeCameraHeading = probeCameraHeading
         self.captureTargetedPlacement = captureTargetedPlacement
         self.captureIdentityPhoto = captureIdentityPhoto
+        self.scanEquipmentLabel = scanEquipmentLabel
         self.captureFieldEvidencePhoto =
             captureFieldEvidencePhoto
         self.commitFieldAuthority = commitFieldAuthority
@@ -313,6 +329,7 @@ public struct CaptureRootActions {
         self.cancelAnnotation = cancelAnnotation
         self.selectTaskProfile = selectTaskProfile
         self.importEquipmentCatalog = importEquipmentCatalog
+        self.selectEquipmentCatalog = selectEquipmentCatalog
         self.finalizeCapture = finalizeCapture
         self.prepareExport = prepareExport
         self.resetCapture = resetCapture
@@ -506,6 +523,14 @@ public struct CaptureRootView: View {
     /// annotation workspace (#211). Survives annotation cancel → Review
     /// → re-enter and relaunch; never part of capture-bundle authority.
     public let equipmentCatalog: HTDTEquipmentCatalogSnapshot?
+    /// Every snapshot stored in the host's catalog library (#302); the
+    /// workspace renders identity rows and explicit switching.
+    public let equipmentCatalogLibrary:
+        [HTDTEquipmentCatalogLibrary.StoredCatalog]
+    /// Imported capture task plan (#240), when loaded — drives the
+    /// pinned-catalog requirement (#302) and the role-binding profile
+    /// (#315) in the annotation workspace.
+    public let taskPlan: HTDTCaptureTaskPlan?
     /// Identity of the live working revision; carries the
     /// series/parent linkage for a revise-existing capture (#155).
     public let workingSetIdentity: CaptureWorkingSetIdentity?
@@ -622,6 +647,9 @@ public struct CaptureRootView: View {
         annotationAuthorityCommitted: Bool = false,
         annotationRevisionSeed: AnnotationWorkspaceSeed? = nil,
         equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil,
+        equipmentCatalogLibrary:
+            [HTDTEquipmentCatalogLibrary.StoredCatalog] = [],
+        taskPlan: HTDTCaptureTaskPlan? = nil,
         workingSetIdentity: CaptureWorkingSetIdentity? = nil,
         annotationEvidenceFrames: [EvidenceFramePresentation] = [],
         annotationRoomPlanObjects: [RoomPlanBindableObject] = [],
@@ -692,6 +720,8 @@ public struct CaptureRootView: View {
             annotationAuthorityCommitted
         self.annotationRevisionSeed = annotationRevisionSeed
         self.equipmentCatalog = equipmentCatalog
+        self.equipmentCatalogLibrary = equipmentCatalogLibrary
+        self.taskPlan = taskPlan
         self.workingSetIdentity = workingSetIdentity
         self.annotationEvidenceFrames = annotationEvidenceFrames
         self.annotationRoomPlanObjects = annotationRoomPlanObjects
@@ -851,6 +881,13 @@ public struct CaptureRootView: View {
                     draftRevisionID: annotationDraftRevisionID,
                     onImportEquipmentCatalog:
                         actions.importEquipmentCatalog,
+                    equipmentCatalogLibrary: equipmentCatalogLibrary,
+                    onSelectEquipmentCatalog:
+                        actions.selectEquipmentCatalog,
+                    taskPlan: taskPlan,
+                    scanEquipmentLabel: {
+                        try await actions.scanEquipmentLabel()
+                    },
                     onCommit:
                         actions.commitAnnotationAuthority,
                     taskProfile: taskProfile,
