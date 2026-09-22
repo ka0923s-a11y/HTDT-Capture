@@ -1455,13 +1455,16 @@ public enum CaptureStoragePolicy {
 
     /// Applies the full capture-root policy: the capture root plus its
     /// `working/`, `finalized/`, and `exports/` children are created if
-    /// missing, the protection class is applied to each, and `working/`
-    /// alone is excluded from backup. Returns a deterministic list of
-    /// per-item failures; an empty list means every reachable item was
-    /// verified.
+    /// missing, the protection class is applied to each, `working/`
+    /// alone is excluded from backup, and `finalized/`/`exports/` are
+    /// normalized to the configured finalized-backup policy (#305).
+    /// Returns a deterministic list of per-item failures; an empty
+    /// list means every reachable item was verified.
     @discardableResult
     public static func applyCaptureRootPolicy(
-        captureRoot: URL
+        captureRoot: URL,
+        finalizedBackupPolicy: FinalizedBackupPolicy
+            = .backupEligible
     ) -> [String] {
         let fileManager = FileManager.default
         var failures: [String] = []
@@ -1515,7 +1518,117 @@ public enum CaptureStoragePolicy {
             )
         }
 
+        failures.append(
+            contentsOf: applyFinalizedBackupPolicy(
+                captureRoot: captureRoot,
+                policy: finalizedBackupPolicy
+            )
+        )
+
         return failures
+    }
+
+    /// Applies the operator-configured finalized backup policy
+    /// (#305): `finalized/` and `exports/` and each of their direct
+    /// children are explicitly marked excluded or not excluded.
+    ///
+    /// The explicit write matters in both directions: promotion moves
+    /// a `working/<uuid>` directory — which carries
+    /// `isExcludedFromBackup` — into `finalized/`, and a rename
+    /// preserves extended attributes, so an eligible policy must
+    /// clear the flag rather than assume it is absent.
+    ///
+    /// Returns a deterministic list of per-item failures; an empty
+    /// list means every reachable item was verified.
+    @discardableResult
+    public static func applyFinalizedBackupPolicy(
+        captureRoot: URL,
+        policy: FinalizedBackupPolicy
+    ) -> [String] {
+        let excluded = policy == .excludedFromBackup
+        let fileManager = FileManager.default
+        var failures: [String] = []
+
+        for directoryName in ["finalized", "exports"] {
+            let directory = captureRoot.appendingPathComponent(
+                directoryName,
+                isDirectory: true
+            )
+            do {
+                try fileManager.createDirectory(
+                    at: directory,
+                    withIntermediateDirectories: true
+                )
+            } catch {
+                failures.append(
+                    directoryName
+                        + " could not be created: "
+                        + diagnosticDescription(error)
+                )
+                continue
+            }
+            do {
+                try setBackupExcluded(directory, excluded)
+            } catch {
+                failures.append(
+                    directoryName
+                        + " backup policy was not applied: "
+                        + diagnosticDescription(error)
+                )
+            }
+            guard let children = try? fileManager
+                .contentsOfDirectory(
+                    at: directory,
+                    includingPropertiesForKeys: nil
+                )
+            else {
+                continue
+            }
+            for child in children.sorted(by: {
+                $0.lastPathComponent < $1.lastPathComponent
+            }) {
+                do {
+                    try setBackupExcluded(child, excluded)
+                } catch {
+                    failures.append(
+                        child.lastPathComponent
+                            + " backup policy was not applied: "
+                            + diagnosticDescription(error)
+                    )
+                }
+            }
+        }
+
+        return failures
+    }
+
+    /// Applies the finalized backup policy to one newly promoted
+    /// `finalized/<uuid>` revision directory (#305). Must be called
+    /// after promotion: the atomic move preserves the
+    /// `isExcludedFromBackup` attribute the working revision carried,
+    /// so without this a finalized directory silently keeps whatever
+    /// the working policy set regardless of the configured policy.
+    public static func applyFinalizedRevisionPolicy(
+        revisionRoot: URL,
+        policy: FinalizedBackupPolicy
+    ) throws {
+        try setBackupExcluded(
+            revisionRoot,
+            policy == .excludedFromBackup
+        )
+    }
+
+    /// Applies the finalized backup policy to one export archive
+    /// (#305); same policy as its finalized sibling since both are
+    /// user-facing retained artifacts.
+    public static func applyExportArchivePolicy(
+        archiveURL: URL,
+        policy: FinalizedBackupPolicy
+    ) throws {
+        try setBackupExcluded(
+            archiveURL,
+            policy == .excludedFromBackup
+        )
     }
 
     /// Applies the transient-working policy to one new
@@ -1532,20 +1645,54 @@ public enum CaptureStoragePolicy {
     /// Excludes `url` (a directory and everything inside it) from
     /// platform backup, then verifies the resource value round-trips.
     public static func excludeFromBackup(_ url: URL) throws {
+        try setBackupExcluded(url, true)
+    }
+
+    /// Writes `isExcludedFromBackup` on `url` in either direction and
+    /// verifies the value persisted (#305): an explicit `false` is
+    /// required to clear an exclusion inherited through promotion or
+    /// an earlier policy setting.
+    ///
+    /// `URL.resourceValues` can report a freshly written value from
+    /// its resource cache even when the extended-attribute write did
+    /// not persist, so the verification reads the exclusion attribute
+    /// directly; one retry covers a silently dropped write.
+    public static func setBackupExcluded(
+        _ url: URL,
+        _ excluded: Bool
+    ) throws {
         var target = url
         var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        try target.setResourceValues(values)
+        values.isExcludedFromBackup = excluded
+        for _ in 0..<2 {
+            try target.setResourceValues(values)
+            if isBackupExcludedAttributePresent(at: url) == excluded {
+                return
+            }
+        }
+        throw PersistedCaptureInventoryError
+            .storagePolicyVerificationFailed(
+                "isExcludedFromBackup did not persist on "
+                    + url.lastPathComponent
+            )
+    }
 
-        let verified = try target.resourceValues(
-            forKeys: [.isExcludedFromBackupKey]
-        )
-        guard verified.isExcludedFromBackup == true else {
-            throw PersistedCaptureInventoryError
-                .storagePolicyVerificationFailed(
-                    "isExcludedFromBackup did not persist on "
-                        + url.lastPathComponent
-                )
+    /// Filesystem-level truth for the exclusion flag: the
+    /// `com.apple.metadata:com_apple_backup_excludeItem` extended
+    /// attribute is what the platform backup honors, and only its
+    /// presence proves the write persisted.
+    private static func isBackupExcludedAttributePresent(
+        at url: URL
+    ) -> Bool {
+        url.path.withCString {
+            getxattr(
+                $0,
+                "com.apple.metadata:com_apple_backup_excludeItem",
+                nil,
+                0,
+                0,
+                0
+            ) >= 0
         }
     }
 

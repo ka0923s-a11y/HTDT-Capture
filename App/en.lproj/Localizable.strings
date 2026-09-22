@@ -1,0 +1,53 @@
+/* English UI localization for HTDT Capture — explicit entries for the
+   settings/privacy/accessibility strings added for #305/#338/#342.
+   Keys are the development-language literals used with String(localized:). */
+
+/* Settings entry point and taxonomy (#338) */
+"Settings" = "Settings";
+"Preferences & storage" = "Preferences & storage";
+"Presentation" = "Presentation";
+"Presentation choices only change how information is displayed or announced. They never change recorded capture data." = "Presentation choices only change how information is displayed or announced. They never change recorded capture data.";
+"Haptic and spoken guidance cues" = "Haptic and spoken guidance cues";
+"Length display unit" = "Length display unit";
+"Meters" = "Meters";
+"Millimeters" = "Millimeters";
+"Inches" = "Inches";
+"Feet" = "Feet";
+"Reset presentation preferences" = "Reset presentation preferences";
+"Capture defaults" = "Capture defaults";
+"Default capture task" = "Default capture task";
+"Choose for each capture" = "Choose for each capture";
+"Return-to-start consistency check" = "Return-to-start consistency check";
+"A default applies when a new capture begins and stays changeable per capture. An explicit selection in the capture — or a project/task requirement — always wins, and the value the capture actually used is recorded with it." = "A default applies when a new capture begins and stays changeable per capture. An explicit selection in the capture — or a project/task requirement — always wins, and the value the capture actually used is recorded with it.";
+"Reference contexts" = "Reference contexts";
+"Equipment catalog" = "Equipment catalog";
+"Authority version" = "Authority version";
+"%lld definitions" = "%lld definitions";
+"Clear equipment catalog cache" = "Clear equipment catalog cache";
+"No equipment catalog imported. Import one from the annotation workspace to bind exact equipment definitions." = "No equipment catalog imported. Import one from the annotation workspace to bind exact equipment definitions.";
+"An imported catalog is reference context only — a capture records the exact equipment identifiers it used, so clearing the cache never changes saved captures." = "An imported catalog is reference context only — a capture records the exact equipment identifiers it used, so clearing the cache never changes saved captures.";
+
+/* Data & backup disclosure and policy control (#305) */
+"Data & backup" = "Data & backup";
+"Finalized data backup" = "Finalized data backup";
+"May join device backup" = "May join device backup";
+"Excluded from backup" = "Excluded from backup";
+"Retained data" = "Retained data";
+"Working scan data is kept app-private and is always excluded from device backup." = "Working scan data is kept app-private and is always excluded from device backup.";
+"While you scan, working scan data stays app-private and is always excluded from device backup." = "While you scan, working scan data stays app-private and is always excluded from device backup.";
+"After a successful capture, the finalized capture and its export archive stay in this app's storage on this device and may be included in your device backup." = "After a successful capture, the finalized capture and its export archive stay in this app's storage on this device and may be included in your device backup.";
+"After a successful capture, the finalized capture and its export archive stay in this app's storage on this device and are excluded from device backup." = "After a successful capture, the finalized capture and its export archive stay in this app's storage on this device and are excluded from device backup.";
+"Finalized captures and their export archives stay in this app's storage on this device and may be included in your device backup, depending on your system settings." = "Finalized captures and their export archives stay in this app's storage on this device and may be included in your device backup, depending on your system settings.";
+"Finalized captures and their export archives stay in this app's storage on this device and are excluded from device backup." = "Finalized captures and their export archives stay in this app's storage on this device and are excluded from device backup.";
+"Finalized captures and export archives stay in this app's on-device storage and may be included in your device backup." = "Finalized captures and export archives stay in this app's on-device storage and may be included in your device backup.";
+"Finalized captures and export archives stay in this app's on-device storage and are excluded from device backup." = "Finalized captures and export archives stay in this app's on-device storage and are excluded from device backup.";
+"Sharing or sending to HTDT is always an explicit action you choose — it is never tied to device backup." = "Sharing or sending to HTDT is always an explicit action you choose — it is never tied to device backup.";
+"Sharing or sending to HTDT is always an explicit action you choose — device backup never sends data to HTDT." = "Sharing or sending to HTDT is always an explicit action you choose — device backup never sends data to HTDT.";
+"Deleting a capture permanently removes its finalized copy and stored export archive from this device." = "Deleting a capture permanently removes its finalized copy and stored export archive from this device.";
+"The backup choice applies to finalized captures already on this device and to new ones." = "The backup choice applies to finalized captures already on this device and to new ones.";
+"This permanently deletes the finalized capture and any export archive stored for it from this device. Nothing is uploaded or backed up by this app." = "This permanently deletes the finalized capture and any export archive stored for it from this device. Nothing is uploaded or backed up by this app.";
+"This permanently deletes the finalized capture and any export archive stored for it from this device. A copy already inside a device backup is managed by the system." = "This permanently deletes the finalized capture and any export archive stored for it from this device. A copy already inside a device backup is managed by the system.";
+
+/* Accessibility labels (#342) */
+"Direction coverage grid" = "Direction coverage grid";
+"Series " = "Series ";
