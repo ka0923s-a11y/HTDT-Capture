@@ -100,6 +100,16 @@ public struct CaptureRootActions {
     /// Two-point room-reference-frame capture (#232).
     public let captureRoomFrameOrigin: () -> Void
     public let confirmRoomReferenceFrame: () -> Void
+    /// Field/install datum capture (#232): derives the datum from
+    /// the committed room reference frame, or removes the committed
+    /// datum payload.
+    public let confirmFieldDatumFromRoomFrame: () async -> Bool
+    public let removeRoomFieldDatum: () async -> Void
+    /// Captures the camera position for a user-declared opening
+    /// candidate's center (#231).
+    public let captureOpeningCenter: () -> Void
+    /// Clears a pending opening-center capture (#231).
+    public let clearOpeningCenter: () -> Void
     /// Enumerates opening candidates for the review step (#231).
     public let openingReviewCandidates:
         () async -> [RoomOpeningCandidate]?
@@ -218,6 +228,12 @@ public struct CaptureRootActions {
         refreshReviewWorkspace: @escaping () -> Void = {},
         captureRoomFrameOrigin: @escaping () -> Void = {},
         confirmRoomReferenceFrame: @escaping () -> Void = {},
+        confirmFieldDatumFromRoomFrame: @escaping
+            () async -> Bool = { false },
+        removeRoomFieldDatum: @escaping
+            () async -> Void = {},
+        captureOpeningCenter: @escaping () -> Void = {},
+        clearOpeningCenter: @escaping () -> Void = {},
         openingReviewCandidates: @escaping
             () async -> [RoomOpeningCandidate]? = { nil },
         commitOpeningReview: @escaping
@@ -291,6 +307,11 @@ public struct CaptureRootActions {
         self.captureRoomFrameOrigin = captureRoomFrameOrigin
         self.confirmRoomReferenceFrame =
             confirmRoomReferenceFrame
+        self.confirmFieldDatumFromRoomFrame =
+            confirmFieldDatumFromRoomFrame
+        self.removeRoomFieldDatum = removeRoomFieldDatum
+        self.captureOpeningCenter = captureOpeningCenter
+        self.clearOpeningCenter = clearOpeningCenter
         self.openingReviewCandidates = openingReviewCandidates
         self.commitOpeningReview = commitOpeningReview
         self.removeEvidenceFrameForPrivacy =
@@ -516,6 +537,9 @@ public struct CaptureRootView: View {
     /// First captured room-frame point pending the front point
     /// (#232).
     public let roomFrameOriginPending: WorldPoint3D?
+    /// Pending camera-captured center for a user-declared opening
+    /// candidate (issue #231).
+    public let openingCenterPending: WorldPoint3D?
     /// Committed evidence references dangling after a re-End (#236).
     public let danglingSpatialIssues: [SpatialEvidenceIssue]
     /// Operator-visible Send-to-HTDT destinations + receipts (#225).
@@ -543,6 +567,7 @@ public struct CaptureRootView: View {
     @State private var metadataEditorTarget:
         LibraryMetadataEditorTarget?
     @State private var libraryQuery = ""
+    @State private var confirmingExport = false
     @State private var diagnosticShareURL: URL?
 
     public init(
@@ -599,6 +624,7 @@ public struct CaptureRootView: View {
         reviewWorkspace: CaptureReviewWorkspaceModel? = nil,
         persistedWorkspace: CaptureReviewWorkspaceModel? = nil,
         roomFrameOriginPending: WorldPoint3D? = nil,
+        openingCenterPending: WorldPoint3D? = nil,
         danglingSpatialIssues: [SpatialEvidenceIssue] = [],
         handoffDestinations: [HTDTHandoffDestination] = [],
         handoffReceipts: [HTDTHandoffReceipt] = [],
@@ -662,6 +688,7 @@ public struct CaptureRootView: View {
         self.reviewWorkspace = reviewWorkspace
         self.persistedWorkspace = persistedWorkspace
         self.roomFrameOriginPending = roomFrameOriginPending
+        self.openingCenterPending = openingCenterPending
         self.danglingSpatialIssues = danglingSpatialIssues
         self.handoffDestinations = handoffDestinations
         self.handoffReceipts = handoffReceipts
@@ -669,6 +696,17 @@ public struct CaptureRootView: View {
         self.failedInspection = failedInspection
         self.spatialCaptureSealed = spatialCaptureSealed
         self.actions = actions
+    }
+
+    /// Manifest-declared `evidence/frames/*.pixelbin` payloads — the
+    /// visual camera evidence the export would package (issue #241).
+    private var retainedVisualEvidenceCount: Int {
+        validationReport?.manifest.files
+            .filter {
+                $0.path.hasPrefix("evidence/frames/")
+                    && $0.path.hasSuffix(".pixelbin")
+            }
+            .count ?? 0
     }
 
     public var body: some View {
@@ -1003,6 +1041,8 @@ public struct CaptureRootView: View {
                             model: reviewWorkspace,
                             roomFrameOriginPending:
                                 roomFrameOriginPending,
+                            openingCenterPending:
+                                openingCenterPending,
                             removeEvidenceFrame: actions
                                 .removeEvidenceFrameForPrivacy,
                             openingReviewCandidates: actions
@@ -1012,7 +1052,16 @@ public struct CaptureRootView: View {
                             captureRoomFrameOrigin: actions
                                 .captureRoomFrameOrigin,
                             confirmRoomReferenceFrame: actions
-                                .confirmRoomReferenceFrame
+                                .confirmRoomReferenceFrame,
+                            confirmFieldDatumFromRoomFrame:
+                                actions
+                                    .confirmFieldDatumFromRoomFrame,
+                            removeRoomFieldDatum:
+                                actions.removeRoomFieldDatum,
+                            captureOpeningCenter:
+                                actions.captureOpeningCenter,
+                            clearOpeningCenter:
+                                actions.clearOpeningCenter
                         )
                     } else {
                         ProgressView("Loading workspace…")
@@ -1351,10 +1400,26 @@ public struct CaptureRootView: View {
             progressRow("Validating and finalizing capture…")
 
         case .finalized:
-            Button(
-                "Prepare .htdtcapture",
-                action: actions.prepareExport
-            )
+            // The export always packages every retained pixel
+            // payload; the operator confirms visual evidence is
+            // included before preparing it (issue #241).
+            Button("Prepare .htdtcapture") {
+                confirmingExport = true
+            }
+            .confirmationDialog(
+                "Export includes visual evidence?",
+                isPresented: $confirmingExport,
+                titleVisibility: .visible
+            ) {
+                Button("Prepare .htdtcapture") {
+                    actions.prepareExport()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(
+                    "The archive packages \(retainedVisualEvidenceCount) retained camera frame pixel payload(s) with the capture. Open Visual evidence review first if you need to remove unreferenced frames for privacy."
+                )
+            }
             revisionControls
             if let revisionID =
                 validationReport?.manifest.captureRevisionID
@@ -1535,17 +1600,45 @@ public struct CaptureRootView: View {
             record.captureRevisionID.description
         ]
         VStack(alignment: .leading, spacing: 6) {
-            if let name = entry?.displayName, !name.isEmpty {
-                Text(name).font(.headline)
+            HStack(alignment: .top, spacing: 10) {
+                #if os(iOS)
+                // Representative retained-evidence thumbnail (issue
+                // #219): first manifest-declared preview payload.
+                if let data = record.representativePreviewData(),
+                   let image = UIImage(data: data)
+                {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 56, height: 56)
+                        .clipShape(
+                            RoundedRectangle(cornerRadius: 6)
+                        )
+                } else {
+                    Image(systemName: "camera.aperture")
+                        .frame(width: 56, height: 56)
+                        .background(.quaternary)
+                        .clipShape(
+                            RoundedRectangle(cornerRadius: 6)
+                        )
+                        .foregroundStyle(.secondary)
+                }
+                #endif
+                VStack(alignment: .leading, spacing: 4) {
+                    if let name = entry?.displayName, !name.isEmpty {
+                        Text(name).font(.headline)
+                    }
+                    Text(record.captureRevisionID.description)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                    if let note = entry?.note, !note.isEmpty {
+                        Text(note)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
-            Text(record.captureRevisionID.description)
-                .font(.caption.monospaced())
-                .textSelection(.enabled)
-            if let note = entry?.note, !note.isEmpty {
-                Text(note)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+
 
             if let validation = record.finalizedValidation {
                 LabeledContent(
