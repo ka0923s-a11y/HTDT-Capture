@@ -1122,7 +1122,6 @@
 "Planned items" = "計画項目";
 "Actual" = "実測";
 "Choose entity" = "エンティティを選択";
-"Record" = "記録";
 "Mark unavailable" = "取得不可にする";
 "Import an as-built plan (.json) to compare planned positions against captured observations." = "アズビルトプラン（.json）を読み込み、計画位置と取得済み観測値を比較します。";
 "Label, role, and measure the captured room in the annotation workspace. Committed records stay bound to the live coordinate authority." = "注釈ワークスペースで取得した部屋のラベル付け・役割設定・計測を行います。確定済みレコードはライブ座標権威に束縛されたままです。";
@@ -1142,6 +1141,46 @@
 "Discard" = "破棄";
 "Reads a value file exported by the instrument (JSON or \"4.215 m\" text). The reading is staged first — nothing is recorded until you confirm it." = "計器が出力した値ファイル（JSON または \"4.215 m\" 形式のテキスト）を読み込みます。読み値はまず一時保留され、確認するまで記録されません。";
 
+// MARK: - GUI redesign (#360–#364): shared vocabulary, home, adaptive layouts
+"Blocked" = "ブロック中";
+"Incomplete" = "不完全";
+"Needs review" = "要確認";
+"Draft" = "下書き";
+"Imported" = "取り込み済み";
+"Derived" = "派生";
+"Verified" = "検証済み";
+
+"HTDT Capture" = "HTDT Capture";
+"Capture a room for Home Theater Digital Twin." = "Home Theater Digital Twin 用に部屋をキャプチャします。";
+"Capture a room for Home Theater Digital Twin, or open an existing .htdtcapture archive." = "Home Theater Digital Twin 用に部屋をキャプチャするか、既存の .htdtcapture アーカイブを開きます。";
+"New capture" = "新規キャプチャ";
+"Captures" = "キャプチャ";
+"No captures yet" = "キャプチャはまだありません";
+"Select a capture" = "キャプチャを選択";
+"Choose a theater or series to see its revisions." = "シアターまたはシリーズを選択するとリビジョンが表示されます。";
+"Unnamed series" = "名称未設定のシリーズ";
+"Latest" = "最新";
+"History" = "履歴";
+"1 revision" = "1 リビジョン";
+"%d revisions" = "%d リビジョン";
+"Use this revision" = "このリビジョンを使用";
+"Use this revision for review, rescan, or HTDT handoff." = "このリビジョンをレビュー・再スキャン・HTDT 連携に使用します。";
+"Delete archive copy" = "アーカイブコピーを削除";
+"Rename…" = "名前を変更…";
+"Delete…" = "削除…";
+"Series actions" = "シリーズ操作";
+"Series ID" = "シリーズ ID";
+"Revises %@" = "改訂元 %@";
+
+"Library maintenance" = "ライブラリのメンテナンス";
+"Library maintenance needed" = "ライブラリのメンテナンスが必要です";
+"%d item(s) need attention" = "%d 件の項目に注意が必要です";
+"Interrupted capture data needs attention." = "中断されたキャプチャデータは対応が必要です。";
+"Interrupted capture files" = "中断されたキャプチャファイル";
+"Unreadable artifacts" = "読み取り不可能なアーティファクト";
+
+"Camera access is required" = "カメラへのアクセスが必要です";
+"Enable camera access in Settings to scan a room." = "部屋をスキャンするには設定でカメラへのアクセスを許可してください。";
 /* #302 multi-catalog snapshot identity */
 "Catalog" = "カタログ";
 "Generated" = "生成日時";
@@ -1346,6 +1385,24 @@
 
 // #295 camera permission recovery
 "Open Settings" = "設定を開く";
+"Camera" = "カメラ";
+"Permissions" = "権限";
+"Capture capability" = "キャプチャ能力";
+"Device advisory" = "デバイスの注意点";
+"This device cannot scan" = "このデバイスではスキャンできません";
+"Mesh capture is not available on this device. Use a supported LiDAR-capable iPhone or iPad." = "このデバイスではメッシュキャプチャを利用できません。LiDAR 対応の iPhone または iPad を使用してください。";
+"Not enough free storage" = "空き容量が不足しています";
+"Free device storage before starting a capture." = "キャプチャを開始する前に端末の空き容量を確保してください。";
+"free" = "空き";
+"Spatial capture sealed" = "空間キャプチャは確定済みです";
+"Draft restored" = "下書きを復元しました";
+"Plan preview" = "平面プレビュー";
+"No RoomPlan lineage in this capture" = "このキャプチャに RoomPlan の系譜はありません";
+"Failure code" = "失敗コード";
+"Last failure" = "直近の失敗";
+"%.2f × %.2f × %.2f m" = "%.2f × %.2f × %.2f m";
+
+// #295 camera permission recovery
 "Check again" = "再確認";
 "Camera access is off for this app. HTDT Capture needs the camera to record RoomPlan and AR evidence — enable it in iOS Settings, then Begin scanning." = "このアプリのカメラアクセスがオフになっています。HTDT Capture は RoomPlan と AR の証拠記録にカメラが必要です。iOS の設定で許可してからスキャンを開始してください。";
 "Camera access is off. HTDT Capture needs the camera to record RoomPlan and AR evidence — nothing is captured until you allow it." = "カメラアクセスがオフになっています。HTDT Capture は RoomPlan と AR の証拠記録にカメラが必要です。許可するまで何も記録されません。";
