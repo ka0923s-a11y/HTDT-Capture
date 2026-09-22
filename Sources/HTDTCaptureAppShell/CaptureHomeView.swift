@@ -164,6 +164,10 @@ public struct CaptureHomeView: View {
     public let libraryExportURL: URL?
     /// Read-only workspace for the persisted viewer (#294).
     public let persistedWorkspace: CaptureReviewWorkspaceModel?
+    /// RoomPlan bindables for the persisted workspace's read-only
+    /// 3D scene and survey (#408/#409).
+    public let persistedWorkspaceRoomPlanObjects:
+        [RoomPlanBindableObject]
     /// Handoff receipts (#225) — the historical send record the
     /// retention previews cite (#394).
     public let handoffReceipts: [HTDTHandoffReceipt]
@@ -223,6 +227,8 @@ public struct CaptureHomeView: View {
             CaptureLibraryImportPreview? = nil,
         libraryExportURL: URL? = nil,
         persistedWorkspace: CaptureReviewWorkspaceModel? = nil,
+        persistedWorkspaceRoomPlanObjects:
+            [RoomPlanBindableObject] = [],
         handoffReceipts: [HTDTHandoffReceipt] = [],
         captureOrigins:
             [CaptureRevisionID: CaptureAcquisitionOriginRecord] = [:],
@@ -244,6 +250,8 @@ public struct CaptureHomeView: View {
         self.libraryImportPreview = libraryImportPreview
         self.libraryExportURL = libraryExportURL
         self.persistedWorkspace = persistedWorkspace
+        self.persistedWorkspaceRoomPlanObjects =
+            persistedWorkspaceRoomPlanObjects
         self.handoffReceipts = handoffReceipts
         self.captureOrigins = captureOrigins
         self.missionRecords = missionRecords
@@ -403,54 +411,6 @@ public struct CaptureHomeView: View {
         List(selection: $selection) {
             Section {
                 heroHeader
-                Button(action: actions.beginCapture) {
-                    Label("New capture", systemImage: "plus.viewfinder")
-                        .font(
-                            CaptureDesign.Typography
-                                .taskHeadline
-                        )
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                }
-                .capturePrimaryAction()
-                .disabled(
-                    !capabilities.roomPlanMeshEligible
-                )
-                .accessibilityIdentifier("home.newCapture")
-                Button {
-                    importingCaptureArchive = true
-                } label: {
-                    Label(
-                        "Import bundle or library",
-                        systemImage: "square.and.arrow.down"
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-                .captureSecondaryAction()
-                // #378: one-tap whole-library package export; the
-                // written `.htdtcapturelibrary` shares via the same
-                // affordance once the host publishes it.
-                Button {
-                    actions.exportLibraryPackage()
-                } label: {
-                    Label(
-                        "Export library package",
-                        systemImage:
-                            "square.and.arrow.up.on.square"
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-                .captureSecondaryAction()
-                if let libraryExportURL {
-                    ShareLink(item: libraryExportURL) {
-                        Label(
-                            "Share library package",
-                            systemImage: "square.and.arrow.up"
-                        )
-                        .frame(maxWidth: .infinity)
-                    }
-                    .captureSecondaryAction()
-                }
             }
             .listRowSeparator(.hidden)
             .listRowInsets(
@@ -461,6 +421,143 @@ public struct CaptureHomeView: View {
                     trailing: 0
                 )
             )
+
+            // #406: the landing answers "what next?" — one dominant
+            // action card chosen by the Core presentation model,
+            // never a stacked list of every possibility.
+            Section {
+                if homeModel.nextAction != .none {
+                    Button {
+                        performNextAction()
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(
+                                systemName:
+                                    nextActionSymbol
+                            )
+                            .font(.title3)
+                            VStack(
+                                alignment: .leading,
+                                spacing: 2
+                            ) {
+                                Text(nextActionTitle)
+                                    .font(
+                                        CaptureDesign.Typography
+                                            .taskHeadline
+                                    )
+                                Text(nextActionSubtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(
+                                systemName: "chevron.right"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                    }
+                    .capturePrimaryAction()
+                    .accessibilityIdentifier("home.nextAction")
+                } else {
+                    Button(action: actions.beginCapture) {
+                        Label(
+                            "New capture",
+                            systemImage: "plus.viewfinder"
+                        )
+                        .font(
+                            CaptureDesign.Typography
+                                .taskHeadline
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                    }
+                    .capturePrimaryAction()
+                    .disabled(
+                        !capabilities.roomPlanMeshEligible
+                    )
+                    .accessibilityIdentifier("home.newCapture")
+                }
+                // The rest of the Work queue — every row is
+                // actionable, informational items never list.
+                ForEach(
+                    remainingWorkItems
+                ) { item in
+                    Button {
+                        performWorkItem(item)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(
+                                systemName: workItemSymbol(
+                                    item.kind
+                                )
+                            )
+                            .foregroundStyle(.secondary)
+                            .frame(width: 22)
+                            VStack(
+                                alignment: .leading,
+                                spacing: 1
+                            ) {
+                                Text(item.title)
+                                    .font(.callout)
+                                    .lineLimit(1)
+                                if let subtitle = item.subtitle {
+                                    Text(subtitle)
+                                        .font(.caption)
+                                        .foregroundStyle(
+                                            .secondary
+                                        )
+                                        .lineLimit(1)
+                                }
+                            }
+                            Spacer()
+                            Image(
+                                systemName: "chevron.right"
+                            )
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .foregroundStyle(.primary)
+                }
+                NavigationLink(
+                    value: CaptureHomeSelection.missions
+                ) {
+                    Label {
+                        VStack(
+                            alignment: .leading,
+                            spacing: 2
+                        ) {
+                            Text("Missions")
+                            Text(
+                                missionsCaption
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "tray.full")
+                    }
+                }
+                Button {
+                    importingCaptureArchive = true
+                } label: {
+                    Label(
+                        "Import bundle or library",
+                        systemImage: "square.and.arrow.down"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .captureSecondaryAction()
+            } header: {
+                Text("Work")
+            } footer: {
+                Text(
+                    "Drafts, missions, and deliveries that still need you — everything else stays out of the way."
+                )
+            }
 
             if !homeNotices.isEmpty {
                 Section {
@@ -547,8 +644,24 @@ public struct CaptureHomeView: View {
                     }
                 }
             } header: {
+                // #406: the Library intent keeps its series-first
+                // identity — header carries honest totals, not the
+                // full record dump.
                 HStack {
-                    Text("Captures")
+                    Text("Library")
+                    Text(
+                        String(
+                            format: String(
+                                localized:
+                                    "%d capture(s) · %d series"
+                            ),
+                            homeModel.libraryCaptureCount,
+                            homeModel.librarySeriesCount
+                        )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textCase(.none)
                     Menu {
                         Picker(
                             String(localized: "Capture origin"),
@@ -614,16 +727,10 @@ public struct CaptureHomeView: View {
                 }
             }
 
+            // #406: the Send & connections intent — pairing,
+            // transfers, and package export. The delivery badge
+            // counts only actionable jobs.
             Section {
-                NavigationLink(
-                    value: CaptureHomeSelection.missions
-                ) {
-                    Label {
-                        missionRowLabel
-                    } icon: {
-                        Image(systemName: "tray.full")
-                    }
-                }
                 NavigationLink(
                     value: CaptureHomeSelection.destinations
                 ) {
@@ -662,7 +769,13 @@ public struct CaptureHomeView: View {
                                 deliveryRowCaption
                             )
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(
+                                homeModel.send
+                                    .actionableCount > 0
+                                    ? CaptureColorRole
+                                        .attention.color
+                                    : .secondary
+                            )
                         }
                     } icon: {
                         Image(
@@ -671,13 +784,74 @@ public struct CaptureHomeView: View {
                         )
                     }
                 }
-                NavigationLink(
-                    value: CaptureHomeSelection.readiness
-                ) {
+                // #378: one-tap whole-library package export; the
+                // written `.htdtcapturelibrary` shares via the same
+                // affordance once the host publishes it.
+                Button {
+                    actions.exportLibraryPackage()
+                } label: {
                     Label(
-                        "Device readiness",
-                        systemImage: "checklist"
+                        "Export library package",
+                        systemImage:
+                            "square.and.arrow.up.on.square"
                     )
+                    .frame(maxWidth: .infinity)
+                }
+                .captureSecondaryAction()
+                if let libraryExportURL {
+                    ShareLink(item: libraryExportURL) {
+                        Label(
+                            "Share library package",
+                            systemImage: "square.and.arrow.up"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                    .captureSecondaryAction()
+                }
+            } header: {
+                Text("Send & connections")
+            }
+
+            // #406: device administration stays contextual —
+            // readiness surfaces only when something needs a
+            // decision; diagnostics is the always-available support
+            // entry at the very bottom.
+            Section {
+                if !homeModel.readinessAttentions
+                    .isEmpty
+                {
+                    NavigationLink(
+                        value: CaptureHomeSelection.readiness
+                    ) {
+                        Label {
+                            VStack(
+                                alignment: .leading,
+                                spacing: 2
+                            ) {
+                                Text("Device readiness")
+                                Text(
+                                    homeModel
+                                        .readinessAttentions
+                                        .first?.label
+                                        ?? ""
+                                )
+                                .font(.caption)
+                                .foregroundStyle(
+                                    CaptureColorRole
+                                        .attention.color
+                                )
+                            }
+                        } icon: {
+                            Image(
+                                systemName:
+                                    "exclamationmark.triangle"
+                            )
+                            .foregroundStyle(
+                                CaptureColorRole
+                                    .attention.color
+                            )
+                        }
+                    }
                 }
                 NavigationLink(
                     value: CaptureHomeSelection.diagnostics
@@ -687,32 +861,289 @@ public struct CaptureHomeView: View {
                         systemImage: "stethoscope"
                     )
                 }
+            } header: {
+                Text("Device")
             }
         }
         .modifier(LibrarySearchModifier(query: $libraryQuery))
     }
 
-    /// Mission inbox row caption: active mission first, then counts
-    /// (#386).
-    @ViewBuilder
-    private var missionRowLabel: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("Missions")
-            let visible = missionRecords.filter {
-                $0.lifecycle != .archived
-                    && $0.lifecycle != .superseded
-            }
-            Text(
-                String(
-                    format: String(
-                        localized: "%d mission(s)"
-                    ),
-                    visible.count
+    /// The Home IA v2 presentation model (issue #406): everything
+    /// this surface shows — the dominant next action, the Work
+    /// queue, per-intent badges — is derived in Core so the "what do
+    /// I do next?" logic is unit-tested and can't drift from the
+    /// raw lists.
+    private var homeModel: CaptureHomeModel {
+        let mostRecentRevision = persistedInventory.captures
+            .max {
+                $0.finalizedAtUTC < $1.finalizedAtUTC
+            }?.captureRevisionID
+        return CaptureHomeModel(
+            recoverableDrafts: persistedInventory
+                .recoverableDrafts,
+            missions: missionRecords,
+            activeMissionRecordID: activeMissionRecordID,
+            deliveryJobs: deliveryJobs,
+            pairedDestinationCount: pairedDestinations.count,
+            libraryCaptureCount: persistedInventory.captures
+                .count,
+            librarySeriesCount: Set(
+                persistedInventory.captures
+                    .map(\.captureSeriesID)
+            ).count,
+            mostRecentRevisionID: mostRecentRevision,
+            maintenance: HomeMaintenanceSummary(
+                quarantinedArtifactCount:
+                    persistedInventory.quarantinedArtifacts
+                        .count,
+                workingOrphanCount:
+                    persistedInventory
+                        .orphanedWorkingArtifacts.count,
+                enumerationFailureCount:
+                    persistedInventory.enumerationFailures
+                        .count
+            ),
+            readinessAttentions: readinessAttentions,
+            captureAvailable: capabilities
+                .roomPlanMeshEligible
+        )
+    }
+
+    /// #406 §5: readiness surfaces only on a real attention item —
+    /// denied/restricted camera, or a device that can't scan.
+    private var readinessAttentions:
+        [HomeReadinessAttention]
+    {
+        var items: [HomeReadinessAttention] = []
+        if cameraPermission == .denied
+            || cameraPermission == .restricted
+        {
+            items.append(
+                HomeReadinessAttention(
+                    kind: .cameraPermissionDenied,
+                    label: "Camera access needs attention"
                 )
             )
-            .font(.caption)
-            .foregroundStyle(.secondary)
         }
+        if !capabilities.roomPlanMeshEligible {
+            items.append(
+                HomeReadinessAttention(
+                    kind: .spatialCaptureUnavailable,
+                    label: "Spatial capture unavailable on this device"
+                )
+            )
+        }
+        return items
+    }
+
+    /// Work-queue rows minus the one the dominant card already
+    /// covers — the card and the list never double-surface the
+    /// same item.
+    private var remainingWorkItems: [HomeWorkItem] {
+        let cardIdentity: String? = {
+            switch homeModel.nextAction {
+            case .resumeDraft(let draft):
+                return draft.url.path
+            case .continueMission(let record),
+                 .startMission(let record):
+                return record.recordID
+            case .retryDelivery(let job):
+                return job.deliveryJobID
+            case .openRecentArtifact(let revisionID):
+                return revisionID.description
+            case .newCapture, .none:
+                return nil
+            }
+        }()
+        return homeModel.workItems.filter {
+            $0.identity != cardIdentity
+        }
+        .prefix(6)
+        .map { $0 }
+    }
+
+    private var missionsCaption: String {
+        let actionable = homeModel.actionableMissions.count
+        if actionable > 0 {
+            return String(
+                format: String(
+                    localized: "%d actionable mission(s)"
+                ),
+                actionable
+            )
+        }
+        let visible = missionRecords.filter {
+            $0.lifecycle != .archived
+                && $0.lifecycle != .superseded
+        }
+        return String(
+            format: String(
+                localized: "%d mission(s)"
+            ),
+            visible.count
+        )
+    }
+
+    // MARK: Next-action card
+
+    private var nextActionTitle: String {
+        switch homeModel.nextAction {
+        case .resumeDraft:
+            return String(localized: "Resume draft")
+        case .continueMission(let record):
+            return record.purpose ?? record.missionID
+        case .startMission(let record):
+            return record.purpose ?? record.missionID
+        case .newCapture:
+            return String(localized: "New capture")
+        case .openRecentArtifact:
+            return String(
+                localized: "Review latest capture"
+            )
+        case .retryDelivery:
+            return String(
+                localized: "Delivery needs attention"
+            )
+        case .none:
+            return ""
+        }
+    }
+
+    private var nextActionSubtitle: String {
+        switch homeModel.nextAction {
+        case .resumeDraft(let draft):
+            return draft.revisionID.description
+        case .continueMission:
+            return String(
+                localized: "Mission in progress — continue"
+            )
+        case .startMission(let record):
+            return record.lifecycle == .blockedDependency
+                ? String(
+                    localized:
+                        "Mission ready — dependencies unmet"
+                )
+                : String(
+                    localized: "Mission ready — start"
+                )
+        case .newCapture:
+            return String(
+                localized:
+                    "Capture a room for Home Theater Digital Twin"
+            )
+        case .openRecentArtifact(let revisionID):
+            return revisionID.description
+        case .retryDelivery(let job):
+            return job.lastError
+                ?? String(
+                    localized: "The queue needs a decision"
+                )
+        case .none:
+            return ""
+        }
+    }
+
+    private var nextActionSymbol: String {
+        switch homeModel.nextAction {
+        case .resumeDraft:
+            return "arrow.clockwise"
+        case .continueMission, .startMission:
+            return "tray.full"
+        case .newCapture:
+            return "plus.viewfinder"
+        case .openRecentArtifact:
+            return "doc.magnifyingglass"
+        case .retryDelivery:
+            return "exclamationmark.arrow.up.circle"
+        case .none:
+            return "questionmark"
+        }
+    }
+
+    private func performNextAction() {
+        switch homeModel.nextAction {
+        case .resumeDraft(let draft):
+            actions.openRecoveredDraft(draft)
+        case .continueMission:
+            selection = .missions
+        case .startMission(let record):
+            if record.lifecycle == .blockedDependency {
+                selection = .missions
+            } else {
+                Task {
+                    await actions.startMission(
+                        record.recordID
+                    )
+                }
+            }
+        case .newCapture:
+            actions.beginCapture()
+        case .openRecentArtifact(let revisionID):
+            openRevisionInLibrary(revisionID)
+        case .retryDelivery:
+            selection = .deliveries
+        case .none:
+            break
+        }
+    }
+
+    private func workItemSymbol(
+        _ kind: HomeWorkItem.Kind
+    ) -> String {
+        switch kind {
+        case .resumeDraft:
+            return "arrow.clockwise"
+        case .continueMission, .startMission:
+            return "tray.full"
+        case .missionFollowUp:
+            return "exclamationmark.bubble"
+        case .retryDelivery:
+            return "exclamationmark.arrow.up.circle"
+        case .reviewArtifact:
+            return "doc.magnifyingglass"
+        }
+    }
+
+    private func performWorkItem(
+        _ item: HomeWorkItem
+    ) {
+        switch item.kind {
+        case .resumeDraft:
+            if let draft = persistedInventory
+                .recoverableDrafts.first(where: {
+                    $0.url.path == item.identity
+                })
+            {
+                actions.openRecoveredDraft(draft)
+            }
+        case .continueMission, .startMission,
+             .missionFollowUp:
+            selection = .missions
+        case .retryDelivery:
+            selection = .deliveries
+        case .reviewArtifact:
+            if let revisionID = CaptureRevisionID(
+                canonicalString: item.identity
+            ) {
+                openRevisionInLibrary(revisionID)
+            }
+        }
+    }
+
+    /// Select the series containing a revision — review happens in
+    /// the series detail column, keeping the landing
+    /// series-first.
+    private func openRevisionInLibrary(
+        _ revisionID: CaptureRevisionID
+    ) {
+        guard let record = persistedInventory.captures
+            .first(where: {
+                $0.captureRevisionID == revisionID
+            })
+        else {
+            return
+        }
+        selection = .series(record.captureSeriesID)
     }
 
     /// Delivery queue row caption: honest counts by state (#387).
@@ -764,6 +1195,8 @@ public struct CaptureHomeView: View {
                     group: group,
                     libraryMetadata: libraryMetadata,
                     persistedWorkspace: persistedWorkspace,
+                    persistedWorkspaceRoomPlanObjects:
+                        persistedWorkspaceRoomPlanObjects,
                     allRecords: persistedInventory.captures,
                     deliveryJobs: deliveryJobs,
                     missionRecords: missionRecords,
@@ -1048,12 +1481,12 @@ private struct LibrarySearchModifier: ViewModifier {
         content.searchable(
             text: $query,
             placement: .sidebar,
-            prompt: Text("Search captures")
+            prompt: Text("Search library")
         )
         #else
         content.searchable(
             text: $query,
-            prompt: Text("Search captures")
+            prompt: Text("Search library")
         )
         #endif
     }
@@ -1067,6 +1500,10 @@ private struct CaptureSeriesDetailView: View {
     let group: CaptureSeriesGroup
     let libraryMetadata: CaptureLibraryMetadataDocument
     let persistedWorkspace: CaptureReviewWorkspaceModel?
+    /// RoomPlan bindables for the persisted viewer's read-only
+    /// 3D scene and survey (#408/#409).
+    let persistedWorkspaceRoomPlanObjects:
+        [RoomPlanBindableObject]
     /// Every persisted record — the retention previews read
     /// cross-series lineage (parents) from it (#394).
     let allRecords: [PersistedCaptureRecord]
@@ -1249,7 +1686,9 @@ private struct CaptureSeriesDetailView: View {
         ) {
             if let persistedWorkspace {
                 CaptureReviewWorkspaceView(
-                    model: persistedWorkspace
+                    model: persistedWorkspace,
+                    roomPlanObjects:
+                        persistedWorkspaceRoomPlanObjects
                 )
             } else {
                 ProgressView("Loading capture…")

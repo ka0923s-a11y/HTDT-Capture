@@ -114,6 +114,9 @@ private struct HTDTCaptureHostView: View {
                 coordinator.persistedInventory,
             reviewWorkspace: coordinator.reviewWorkspace,
             persistedWorkspace: coordinator.persistedWorkspace,
+            persistedWorkspaceRoomPlanObjects:
+                coordinator
+                    .persistedWorkspaceRoomPlanObjects,
             roomFrameOriginPending:
                 coordinator.roomFrameOriginPending,
             openingCenterPending:
@@ -612,6 +615,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// the library (#294). Independent of the live-capture workspace.
     @Published private(set)
     var persistedWorkspace: CaptureReviewWorkspaceModel?
+    /// RoomPlan bindables decoded beside `persistedWorkspace`
+    /// (#408/#409) — drive the read-only 3D scene + survey targets
+    /// in the persisted viewer.
+    @Published private(set)
+    var persistedWorkspaceRoomPlanObjects:
+        [RoomPlanBindableObject] = []
     /// First captured point of the pending two-point room reference
     /// frame capture (issue #232).
     @Published private(set)
@@ -1403,6 +1412,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewWorkspace = nil
         taskPlanMission = nil
         persistedWorkspace = nil
+        persistedWorkspaceRoomPlanObjects = []
         roomFrameOriginPending = nil
         openingCenterPending = nil
         danglingSpatialIssues = []
@@ -4648,6 +4658,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewWorkspace = nil
         taskPlanMission = nil
         persistedWorkspace = nil
+        persistedWorkspaceRoomPlanObjects = []
         roomFrameOriginPending = nil
         openingCenterPending = nil
         danglingSpatialIssues = []
@@ -4731,6 +4742,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewWorkspace = nil
         taskPlanMission = nil
         persistedWorkspace = nil
+        persistedWorkspaceRoomPlanObjects = []
         roomFrameOriginPending = nil
         openingCenterPending = nil
         danglingSpatialIssues = []
@@ -4852,6 +4864,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewWorkspace = nil
         taskPlanMission = nil
         persistedWorkspace = nil
+        persistedWorkspaceRoomPlanObjects = []
         roomFrameOriginPending = nil
         openingCenterPending = nil
         danglingSpatialIssues = []
@@ -5051,6 +5064,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         endScanPreflightBlocked = false
         reviewWorkspace = nil
         persistedWorkspace = nil
+        persistedWorkspaceRoomPlanObjects = []
         roomFrameOriginPending = nil
         danglingSpatialIssues = []
         failedInspection = nil
@@ -5628,24 +5642,39 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.persistedWorkspaceLoadInFlight = false }
-            let model = await Task.detached(
+            let loaded = await Task.detached(
                 priority: .userInitiated
-            ) { () -> CaptureReviewWorkspaceModel? in
+            ) {
+                () -> (
+                    CaptureReviewWorkspaceModel?,
+                    [RoomPlanBindableObject]
+                ) in
                 guard let directory = record.finalizedDirectory
                 else {
-                    return nil
+                    return (nil, [])
                 }
                 guard let manifest = record.finalizedValidation?
                     .manifest
                 else {
-                    return nil
+                    return (nil, [])
                 }
-                return CaptureReviewWorkspaceLoader.loadPersisted(
-                    directory: directory,
-                    manifest: manifest
+                return (
+                    CaptureReviewWorkspaceLoader.loadPersisted(
+                        directory: directory,
+                        manifest: manifest
+                    ),
+                    // #408/#409: bindables from the persisted
+                    // bundle's captured-room.json — the read-only
+                    // 3D scene and survey targets over the same
+                    // committed surface list.
+                    Self.loadRoomPlanObjects(
+                        rootDirectory: directory
+                    )
                 )
             }.value
-            self.persistedWorkspace = model
+            self.persistedWorkspace = loaded.0
+            self.persistedWorkspaceRoomPlanObjects = loaded.1
+            let model = loaded.0
             if model == nil {
                 self.workingSetStatus = String(localized: "The persisted capture could not be opened read-only")
             }
@@ -6654,8 +6683,57 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Starts or resumes a mission record: dependencies are evaluated
     /// before Start, a single mission may be active at a time, and
     /// the embedded plan becomes the capture's task plan (#386).
+    /// Launch routing (issue #410): the mission workflow never assumes
+    /// spatial capture — the boundary classifies the record into a
+    /// spatial, field-return, artifact-review, or unsupported route.
     func startMission(_ recordID: String) async {
         guard let store = missionInboxStore else { return }
+        let decision = missionLaunchDecision(
+            recordID: recordID
+        )
+        switch decision.route {
+        case .fieldReturn:
+            // Start still activates the record — the non-spatial
+            // path continues in the field-return workspace, never
+            // in a scan session (#410).
+            do {
+                _ = try store.startMission(
+                    recordID: recordID,
+                    inventory: persistedInventory,
+                    deliveryQueue: deliveryQueueStore,
+                    activeCatalog: equipmentCatalog
+                )
+            } catch {
+                refreshMissionDeliveryStores()
+                workingSetStatus = HostLocalization.text(
+                    "Mission cannot start: \(error)",
+                    "ミッションを開始できません: \(error)"
+                )
+                return
+            }
+            _ = await openFieldReturnWorkspace(
+                missionRecordID: recordID
+            )
+            refreshMissionDeliveryStores()
+            workingSetStatus = HostLocalization.text(
+                "Mission activated — its tasks need no spatial capture; continue in Field return",
+                "ミッションを有効化しました — 空間キャプチャは不要です。フィールドリターンで続けてください"
+            )
+            return
+        case .artifactReview:
+            workingSetStatus = HostLocalization.text(
+                "Mission is past field work — its captures are reviewable from the inbox",
+                "ミッションはフィールド作業を終えています — キャプチャはインボックスから確認できます"
+            )
+            return
+        case .unsupported(let reason):
+            workingSetStatus = missionLaunchUnsupportedText(
+                reason
+            )
+            return
+        case .spatialCapture:
+            break
+        }
         do {
             let resume = try store.startMission(
                 recordID: recordID,
@@ -6672,6 +6750,51 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             workingSetStatus = String(
                 format: String(localized: "Mission cannot start: %@"),
                 String(describing: error)
+            )
+        }
+    }
+
+    /// Mission launch routing (issue #410): re-decodes the record's
+    /// embedded plan and classifies its items spatial vs field —
+    /// the route a mission takes is decided at the boundary, never
+    /// inside whichever surface Start was pressed on.
+    func missionLaunchDecision(
+        recordID: String
+    ) -> MissionLaunchDecision {
+        guard let store = missionInboxStore,
+              let record = try? store.record(id: recordID)
+        else {
+            return MissionLaunchDecision(
+                route: .unsupported(reason: .planUnavailable)
+            )
+        }
+        let plan = try? store.plan(for: record)
+        return MissionLaunchRouter.route(
+            for: record,
+            plan: plan,
+            spatialAvailable: capabilities
+                .roomPlanMeshEligible
+        )
+    }
+
+    private func missionLaunchUnsupportedText(
+        _ reason: MissionLaunchUnsupportedReason
+    ) -> String {
+        switch reason {
+        case .spatialCaptureUnavailable:
+            return HostLocalization.text(
+                "Mission requires spatial capture, which is unavailable on this device",
+                "このミッションには空間キャプチャが必要ですが、このデバイスでは利用できません"
+            )
+        case .planUnavailable:
+            return HostLocalization.text(
+                "Mission cannot start: its task plan could not be read",
+                "ミッションを開始できません: タスクプランを読み取れませんでした"
+            )
+        case .noExecutableTasks:
+            return HostLocalization.text(
+                "Mission has no tasks this device can execute",
+                "このミッションにはこのデバイスで実行できるタスクがありません"
             )
         }
     }

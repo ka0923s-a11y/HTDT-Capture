@@ -2635,7 +2635,7 @@ extension SharedARSessionController {
             )
         }
         for surface in room.walls + room.windows
-            + room.doors + room.openings
+            + room.doors + room.openings + room.floors
         {
             guard let transform = try? matrix4x4F(
                 surface.transform
