@@ -3578,3 +3578,9 @@
 "This instrument version is not in the known profile set." = "この機器バージョンは既知のプロファイルセットにありません。";
 "Each endpoint needs a distinct identity — bind it, capture its position, or label it — and endpoints A and B must differ." = "各エンドポイントには固有の識別情報が必要です — バインド・位置のキャプチャ・ラベルのいずれかを行い、エンドポイント A と B は異なる必要があります。";
 "Hidden path sections are recorded as unknown — remove waypoints or a surface binding from them." = "隠蔽パス区間は「不明」として記録されます — ウェイポイントまたはサーフェスバインドを削除してください。";
+
+// Dynamic UX review fixes — spatial-registration refusal text,
+// survey progress counts.
+"The pair could not be aligned — a shared field datum must exist in both revisions and yield at least three non-degenerate correspondences." = "このペアは位置合わせできませんでした — 共有フィールド原点が両方のリビジョンに存在し、少なくとも3つの非縮退な対応点が必要です。";
+"The registration was refused — a registration for this revision pair already exists." = "登録は拒否されました — このリビジョンペアの登録はすでに存在します。";
+"%lld of %lld" = "%lld / %lld";

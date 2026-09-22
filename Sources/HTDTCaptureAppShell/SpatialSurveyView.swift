@@ -67,7 +67,11 @@ public struct SpatialSurveyView: View {
                 LabeledContent(
                     "Reviewed",
                     value:
-                        "\(summary.reviewedCount) of \(summary.totalCount)"
+                        SpatialSurveyPresentation
+                            .reviewedProgressText(
+                                reviewedCount: summary.reviewedCount,
+                                totalCount: summary.totalCount
+                            )
                 )
                 if summary.missionRequiredGapCount > 0 {
                     LabeledContent(
@@ -336,6 +340,18 @@ public enum SpatialSurveyPresentation {
         case .equipmentInstallation:
             return String(localized: "Equipment")
         }
+    }
+
+    /// "Reviewed" value in the Progress section.
+    public static func reviewedProgressText(
+        reviewedCount: Int,
+        totalCount: Int
+    ) -> String {
+        String(
+            format: String(localized: "%lld of %lld"),
+            reviewedCount,
+            totalCount
+        )
     }
 
     /// Caption under the mode picker — which records each filter

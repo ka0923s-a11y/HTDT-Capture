@@ -2200,8 +2200,10 @@ private struct CaptureSeriesDetailView: View {
                             if let proposal {
                                 registrationProposal = proposal
                             } else {
-                                registrationError =
-                                    "The pair could not be aligned — a shared field datum must exist in both revisions and yield at least three non-degenerate correspondences."
+                                registrationError = String(
+                                    localized:
+                                        "The pair could not be aligned — a shared field datum must exist in both revisions and yield at least three non-degenerate correspondences."
+                                )
                             }
                         }
                     } label: {
@@ -2244,7 +2246,7 @@ private struct CaptureSeriesDetailView: View {
                     )
                     LabeledContent(
                         "Scale policy",
-                        value: "rigid"
+                        value: String(localized: "rigid")
                     )
                 }
                 Section {
@@ -2265,8 +2267,10 @@ private struct CaptureSeriesDetailView: View {
                             if accepted != nil {
                                 registrationSheetShown = false
                             } else {
-                                registrationError =
-                                    "The registration was refused — a registration for this revision pair already exists."
+                                registrationError = String(
+                                    localized:
+                                        "The registration was refused — a registration for this revision pair already exists."
+                                )
                             }
                         }
                     }

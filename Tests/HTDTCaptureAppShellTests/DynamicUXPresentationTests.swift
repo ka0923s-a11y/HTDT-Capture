@@ -199,4 +199,21 @@ final class DynamicUXPresentationTests: XCTestCase {
             "2/5 completed · 3 required open"
         )
     }
+
+    func testReviewedProgressText() {
+        XCTAssertEqual(
+            SpatialSurveyPresentation.reviewedProgressText(
+                reviewedCount: 0,
+                totalCount: 1
+            ),
+            "0 of 1"
+        )
+        XCTAssertEqual(
+            SpatialSurveyPresentation.reviewedProgressText(
+                reviewedCount: 4,
+                totalCount: 12
+            ),
+            "4 of 12"
+        )
+    }
 }
