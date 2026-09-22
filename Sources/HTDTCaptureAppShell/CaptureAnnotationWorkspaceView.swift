@@ -323,6 +323,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         .onChange(of: annotations) { _, _ in scheduleDraftSave() }
         .onChange(of: measurements) { _, _ in scheduleDraftSave() }
         .onChange(of: identityRecords) { _, _ in scheduleDraftSave() }
+        .onChange(of: authorities) { _, _ in scheduleDraftSave() }
         .onDisappear {
             // Final flush — an interrupting view teardown must still
             // leave the draft durable.
@@ -378,7 +379,8 @@ public struct CaptureAnnotationWorkspaceView: View {
             annotations: annotations,
             measurements: measurements,
             equipmentIdentityRecords: identityRecords,
-            speakerLayoutPlan: speakerLayoutPlan
+            speakerLayoutPlan: speakerLayoutPlan,
+            theaterAuthorities: authorities
         )
         try? draftStore.save(draft)
     }

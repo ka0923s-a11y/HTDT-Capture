@@ -2218,7 +2218,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     equipmentIdentityRecords:
                         draft.equipmentIdentityRecords,
                     speakerLayoutPlan: draft.speakerLayoutPlan,
-                    isRestoredDraft: true
+                    isRestoredDraft: true,
+                    authorities: draft.theaterAuthorities
                 )
             }
         }

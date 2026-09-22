@@ -25,6 +25,9 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
     /// Ordered channel-role plan the speaker-layout flow is running
     /// through, when the operator started one (#278).
     public var speakerLayoutPlan: SpeakerLayoutPlan?
+    /// Staged theater-semantic authorities (#350); nil in drafts
+    /// written before this field existed.
+    public var theaterAuthorities: TheaterAuthorityCollection?
 
     public init(
         captureRevisionID: CaptureRevisionID,
@@ -33,7 +36,8 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         annotations: [CaptureAnnotationEntity] = [],
         measurements: [CaptureMeasurement] = [],
         equipmentIdentityRecords: [EquipmentIdentityRecord] = [],
-        speakerLayoutPlan: SpeakerLayoutPlan? = nil
+        speakerLayoutPlan: SpeakerLayoutPlan? = nil,
+        theaterAuthorities: TheaterAuthorityCollection? = nil
     ) {
         self.schemaName = Self.schema
         self.schemaVersionValue = Self.schemaVersion
@@ -44,6 +48,7 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         self.measurements = measurements
         self.equipmentIdentityRecords = equipmentIdentityRecords
         self.speakerLayoutPlan = speakerLayoutPlan
+        self.theaterAuthorities = theaterAuthorities
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -56,6 +61,7 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
         case measurements
         case equipmentIdentityRecords = "equipment_identity_records"
         case speakerLayoutPlan = "speaker_layout_plan"
+        case theaterAuthorities = "theater_authorities"
     }
 }
 
