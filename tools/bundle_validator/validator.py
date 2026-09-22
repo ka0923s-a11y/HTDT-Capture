@@ -84,6 +84,30 @@ SCHEMA_DIR = (
 # Opaque external authority payloads (roomplan/captured-room*.json)
 # are declared as external families: no project-owned schema applies,
 # they are governed by media type plus lineage binding.
+# Path -> schema mapping for HTDT-Capture-owned JSON payloads. Opaque
+# Apple/raw artifacts (for example roomplan/captured-room*.json) are
+# deliberately absent: no project-owned schema describes them.
+SCHEMA_OWNED_PATHS = {
+    "manifest.json": "manifest.schema.json",
+    "session/capture-session.json": "session.schema.json",
+    "session/device.json": "device.schema.json",
+    "session/capabilities.json": "capabilities.schema.json",
+    "session/capture-configuration.json": "capture-configuration.schema.json",
+    "session/timing.json": "timing.schema.json",
+    "mesh/anchors.json": "mesh-anchors.schema.json",
+    "annotations/entities.json": "entities.schema.json",
+    "annotations/measurements.json": "measurements.schema.json",
+    "annotations/opening-review.json": "opening-review.schema.json",
+    "annotations/authorities.json": "authorities.schema.json",
+    "quality/capture-quality.json": "quality.schema.json",
+    "session/room-reference-frame.json": "room-reference-frame.schema.json",
+    "quality/capture-advisory.json": "capture-advisory.schema.json",
+    "derived/operator-profiles.json": "operator-profiles.schema.json",
+    "derived/field-evidence.json": "field-evidence.schema.json",
+    "derived/instrument-profiles.json": "instrument-profiles.schema.json",
+    "derived/settings-observations.json": "settings-observations.schema.json",
+    "derived/wiring-routes.json": "wiring-routes.schema.json",
+}
 FRAME_DESCRIPTOR_RE = re.compile(r"^evidence/frames/[^/]+\.json$")
 
 _SUPPORT_MATRIX_PATH = SCHEMA_DIR / "support-matrix.json"

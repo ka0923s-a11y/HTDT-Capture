@@ -18,6 +18,11 @@ public struct MeasurementFormView: View {
     public let endpointCandidates: [CaptureAnnotationEntity]
     public let evidenceFrames: [EvidenceFramePresentation]
     public let otherEvidenceRefs: [String]
+    /// Instrument profiles staged for this revision (#331); picking
+    /// one binds the measurement to the exact immutable profile
+    /// version + digest. The legacy make/model text stays fillable
+    /// alongside it.
+    public let instrumentProfiles: [MeasurementInstrumentProfile]
     public let onSave: (CaptureMeasurement) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -31,6 +36,8 @@ public struct MeasurementFormView: View {
     @State private var sourceValueText: String
     @State private var instrumentClass: String
     @State private var instrumentModel: String
+    @State private var instrumentAuthority:
+        MeasurementInstrumentReference?
     @State private var selectedEvidenceRefs: Set<String>
     @State private var endpointA = ""
     @State private var endpointB = ""
@@ -54,6 +61,7 @@ public struct MeasurementFormView: View {
         endpointCandidates: [CaptureAnnotationEntity] = [],
         evidenceFrames: [EvidenceFramePresentation] = [],
         otherEvidenceRefs: [String] = [],
+        instrumentProfiles: [MeasurementInstrumentProfile] = [],
         onSave: @escaping (CaptureMeasurement) -> Void
     ) {
         self.editingMeasurement = editingMeasurement
@@ -61,6 +69,7 @@ public struct MeasurementFormView: View {
         self.endpointCandidates = endpointCandidates
         self.evidenceFrames = evidenceFrames
         self.otherEvidenceRefs = otherEvidenceRefs
+        self.instrumentProfiles = instrumentProfiles
         self.onSave = onSave
 
         let seed = editingMeasurement
@@ -97,6 +106,9 @@ public struct MeasurementFormView: View {
         )
         _instrumentModel = State(
             initialValue: seed?.instrument?.makeModel ?? ""
+        )
+        _instrumentAuthority = State(
+            initialValue: seed?.instrumentAuthority
         )
         _selectedEvidenceRefs = State(
             initialValue: Set(seed?.evidenceRefs ?? [])
@@ -242,6 +254,50 @@ public struct MeasurementFormView: View {
                             "Make/model (optional)"),
                         text: $instrumentModel
                     )
+                }
+            }
+
+            if !instrumentProfiles.isEmpty {
+                Section(
+                    String(localized: "Instrument authority")
+                ) {
+                    Picker(
+                        String(localized: "Instrument profile"),
+                        selection: $instrumentAuthority
+                    ) {
+                        Text(String(localized: "None"))
+                            .tag(
+                                MeasurementInstrumentReference?
+                                    .none
+                            )
+                        ForEach(
+                            instrumentProfiles,
+                            id: \.id
+                        ) { profile in
+                            Text(
+                                [
+                                    profile.manufacturer,
+                                    profile.model,
+                                    profile.serialOrAssetID,
+                                    "v"
+                                        + String(
+                                            profile.profileVersion
+                                        ),
+                                ]
+                                .compactMap { $0 }
+                                .joined(separator: " ")
+                            )
+                            .tag(
+                                MeasurementInstrumentReference?
+                                    .some(profile.reference)
+                            )
+                        }
+                    }
+                    Text(
+                        "Binds the measurement to the exact instrument profile version + digest — a later recalibration mints a new version and can never rewrite this binding."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
 
@@ -393,7 +449,7 @@ public struct MeasurementFormView: View {
                 }
 
             let endpoints = try endpointRefs()
-            let measurement: CaptureMeasurement
+            var measurement: CaptureMeasurement
             if let editingMeasurement {
                 measurement =
                     try MeasurementEditSupport
@@ -432,6 +488,8 @@ public struct MeasurementFormView: View {
                             selectedEvidenceRefs.sorted()
                     )
             }
+            measurement = try measurement
+                .withInstrumentAuthority(instrumentAuthority)
             onSave(measurement)
             dismiss()
         } catch {

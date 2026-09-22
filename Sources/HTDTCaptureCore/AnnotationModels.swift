@@ -1371,6 +1371,10 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
     /// legacy records means the lineage was never asserted — consumers
     /// read it as `relation_unknown`, never as `same_physical_entity`.
     public let lineage: AnnotationEntityLineage?
+    /// Optional app-local author/operator binding (issue #310):
+    /// `operator_id` from `derived/operator-profiles.json`. Optional
+    /// and explicit — anonymous records remain valid.
+    public let authorOperatorID: OperatorProfileID?
 
     public init(
         entityID: AnnotationEntityID = AnnotationEntityID(),
@@ -1394,6 +1398,8 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         lifecycle: AnnotationLifecycle? = nil,
         referencePoint: ReferencePointAuthority? = nil,
         lineage: AnnotationEntityLineage? = nil
+        referencePoint: ReferencePointAuthority? = nil,
+        authorOperatorID: OperatorProfileID? = nil
     ) throws {
         let normalizedLabel = SchemaOwnedText.nfc(label)
         guard !normalizedLabel.isEmpty else {
@@ -1494,6 +1500,38 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         self.lifecycle = lifecycle
         self.referencePoint = referencePoint
         self.lineage = lineage
+        self.authorOperatorID = authorOperatorID
+    }
+
+    /// A copy of this entity with `author_operator_id` set to
+    /// `operatorID` — the workspace stamps the selected operator
+    /// profile onto newly authored records (issue #310).
+    public func withAuthorOperator(
+        _ operatorID: OperatorProfileID?
+    ) throws -> CaptureAnnotationEntity {
+        try CaptureAnnotationEntity(
+            entityID: entityID,
+            type: type,
+            coordinateSpaceID: coordinateSpaceID,
+            worldFromAnnotation: worldFromAnnotation,
+            referencePointSemantics: referencePointSemantics,
+            label: label,
+            provenanceClass: provenanceClass,
+            verificationState: verificationState,
+            placement: placement,
+            orientation: orientation,
+            channelRole: channelRole,
+            acousticCenter: acousticCenter,
+            equipmentRef: equipmentRef,
+            evidenceRefs: evidenceRefs,
+            physicalEnvelope: physicalEnvelope,
+            listeningRole: listeningRole,
+            uncertainty: uncertainty,
+            authority: authority,
+            lifecycle: lifecycle,
+            referencePoint: referencePoint,
+            authorOperatorID: operatorID
+        )
     }
 
     /// Compatibility between this entity's `equipment_ref` and its
@@ -1559,6 +1597,8 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
             lifecycle: base.revised(at: updatedAtUTC),
             referencePoint: referencePoint,
             lineage: lineage
+            referencePoint: referencePoint,
+            authorOperatorID: authorOperatorID
         )
     }
 
@@ -1584,6 +1624,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         case lifecycle
         case referencePoint = "reference_point"
         case lineage
+        case authorOperatorID = "author_operator_id"
     }
 
     public init(from decoder: Decoder) throws {
@@ -1669,6 +1710,10 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
             lineage: container.decodeIfPresent(
                 AnnotationEntityLineage.self,
                 forKey: .lineage
+            ),
+            authorOperatorID: container.decodeIfPresent(
+                OperatorProfileID.self,
+                forKey: .authorOperatorID
             )
         )
     }

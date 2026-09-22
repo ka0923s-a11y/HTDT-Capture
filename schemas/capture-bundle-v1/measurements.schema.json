@@ -195,6 +195,23 @@
             }
           ]
         },
+        "instrument_authority": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/instrumentReference"
+            }
+          ]
+        },
+        "author_operator_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
         "evidence_refs": {
           "type": "array",
           "uniqueItems": true,
@@ -202,6 +219,29 @@
             "type": "string",
             "minLength": 1
           }
+        }
+      }
+    },
+    "instrumentReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instrument_id",
+        "profile_version",
+        "profile_sha256"
+      ],
+      "properties": {
+        "instrument_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "profile_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "profile_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         }
       }
     },
