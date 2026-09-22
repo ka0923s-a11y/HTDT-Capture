@@ -1061,6 +1061,7 @@
 "Mission: %@ — %d required and %d optional items. Mission completeness is advisory and never gates ingestion readiness." = "ミッション: %@ — 必須 %d 件・任意 %d 件。ミッション達成度は助言であり、取り込み準備の条件にはなりません。";
 "Mission: HTDT task plan %@ v%@ — %d required and %d optional checklist items. Mission completeness is tracked in Review and never gates ingestion readiness." = "ミッション: HTDT タスク計画 %@ v%@ — 必須 %d 件・任意 %d 件のチェックリスト項目。ミッション達成度はレビューで追跡され、取り込み準備の条件にはなりません。";
 "Mission completeness is reviewed against the bound plan — it is workflow intent, not observed truth, and never replaces technical readiness." = "ミッションの達成度は紐付けられた計画に対してレビューされます。ワークフロー上の意図であり観測された真実ではなく、技術的な完了判定を置き換えることはありません。";
+"Mission intent is bound when scanning starts; changing it mid-scan is an explicit recorded action." = "ミッションの意図はスキャン開始時に紐付けられます。スキャン中の変更は明示的な記録付き操作です。";
 "Mission intent is bound when scanning starts; changing it mid-scan is an explicit recorded action. Capture strategy profiles (#307) plug into this setup in a future update." = "ミッションの意図はスキャン開始時に紐付けられます。スキャン中の変更は明示的な記録付き操作です。キャプチャ戦略プロファイル（#307）は将来のアップデートでこのセットアップに統合されます。";
 "Task profile" = "タスクプロファイル";
 "No task profile" = "タスクプロファイルなし";
@@ -1425,6 +1426,9 @@
 "New capture" = "新規キャプチャ";
 "Captures" = "キャプチャ";
 "No captures yet" = "キャプチャはまだありません";
+"No captures match this filter" = "このフィルタに一致するキャプチャはありません";
+"1 of %d revisions matches — %@" = "%d 件中 1 件のリビジョンが一致 — %@";
+"%d of %d revisions match this filter" = "%d 件中 %d 件のリビジョンがこのフィルタに一致";
 "Select a capture" = "キャプチャを選択";
 "Choose a theater or series to see its revisions." = "シアターまたはシリーズを選択するとリビジョンが表示されます。";
 "Unnamed series" = "名称未設定のシリーズ";

@@ -211,10 +211,41 @@ public struct CaptureTaskProfile: Sendable, Equatable, Codable {
         )
     }
 
-    /// Theater layout profile: exactly one MLP, at least one screen or
-    /// display, one annotation per selected speaker role, and a
-    /// configurable subwoofer count. The role list is caller-chosen so
-    /// nonstandard topologies stay representable (#217).
+    /// The "Theater layout" preset offered at Capture setup and in
+    /// the annotation workspace (#426): one shared definition
+    /// derived from `SpeakerLayoutProfiles.surround7_1_4`, so the two
+    /// surfaces can never drift into different role-token sets.
+    public static var theaterLayout: CaptureTaskProfile {
+        theaterLayout(
+            layoutProfile: SpeakerLayoutProfiles.surround7_1_4
+        )
+    }
+
+    /// Theater layout derived from a versioned speaker-layout
+    /// profile (#426): each `speaker_role_<roleID>` requirement takes
+    /// its token from `layoutProfile.roles`, so the identifier always
+    /// names a `role_binding` role ID the annotation vocabulary
+    /// offers, and the subwoofer requirement carries the sub roles'
+    /// combined `minimum_count`.
+    public static func theaterLayout(
+        layoutProfile: SpeakerLayoutProfile
+    ) -> CaptureTaskProfile {
+        theaterLayout(
+            speakerRoles: layoutProfile.roles
+                .filter { !$0.isSubwoofer }
+                .map(\.roleID),
+            subwooferCount: layoutProfile.roles
+                .filter(\.isSubwoofer)
+                .reduce(0) { $0 + $1.minimumCount }
+        )
+    }
+
+    /// Theater layout profile from an explicit role list: exactly
+    /// one MLP, at least one screen or display, one annotation per
+    /// selected speaker role, and a configurable subwoofer count. The
+    /// role list is caller-chosen so nonstandard topologies stay
+    /// representable (#217); the built-in `theaterLayout` preset
+    /// derives its list from `SpeakerLayoutProfiles` instead (#426).
     public static func theaterLayout(
         speakerRoles: [String],
         subwooferCount: Int = 0

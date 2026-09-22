@@ -627,10 +627,11 @@ public struct CaptureHomeView: View {
             }
 
             Section {
-                if activeLibraryGroups.isEmpty
-                    && archivedLibraryGroups.isEmpty
-                {
-                    Text("No captures yet")
+                if filteredLibraryGroups.isEmpty {
+                    // #428: a filter that removes every series is a
+                    // result-less filter, not an empty library — say
+                    // so instead of claiming no captures exist.
+                    Text(libraryEmptyLabel)
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(activeLibraryGroups) { group in
@@ -1373,6 +1374,16 @@ public struct CaptureHomeView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                if let originCaption = originMatchCaption(
+                    for: group
+                ) {
+                    Text(originCaption)
+                        .font(.caption)
+                        .foregroundStyle(
+                            CaptureColorRole.accent.color
+                        )
+                        .lineLimit(1)
+                }
                 if let note = presentation.note, !note.isEmpty {
                     Text(note)
                         .font(.caption)
@@ -1428,6 +1439,49 @@ public struct CaptureHomeView: View {
                 || kind == .receivedFromHTDT
                 || kind == .sharedOther
         }
+    }
+
+    /// #428: an origin or search filter that removes every series is
+    /// a result-less filter, not an empty library.
+    private var libraryEmptyLabel: String {
+        libraryGroups.isEmpty
+            ? String(localized: "No captures yet")
+            : String(localized: "No captures match this filter")
+    }
+
+    /// #428: under an active origin filter the row names the series'
+    /// match scope — a partially-matching series is mixed-origin, and
+    /// when exactly one revision matched the row says which. Every
+    /// revision carrying the filter's origin still resolves inside
+    /// the series detail, where each row labels its own origin.
+    private func originMatchCaption(
+        for group: CaptureSeriesGroup
+    ) -> String? {
+        guard libraryOriginFilter != .all else { return nil }
+        let matching = group.revisions.filter(matchesOriginFilter)
+        guard !matching.isEmpty,
+              matching.count < group.revisions.count
+        else { return nil }
+        if matching.count == 1,
+           let date = CaptureSeriesPresentation.dateLabel(
+               for: matching[0].finalizedAtUTC
+           )
+        {
+            return String(
+                format: String(
+                    localized: "1 of %d revisions matches — %@"
+                ),
+                group.revisions.count,
+                date
+            )
+        }
+        return String(
+            format: String(
+                localized: "%d of %d revisions match this filter"
+            ),
+            matching.count,
+            group.revisions.count
+        )
     }
 
     /// #394: archived series are filtered out of the default list
