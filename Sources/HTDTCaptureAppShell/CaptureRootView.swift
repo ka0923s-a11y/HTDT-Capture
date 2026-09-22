@@ -259,6 +259,17 @@ public struct CaptureRootActions {
     /// explicit protected-marks override.
     public let deleteSeries:
         (CaptureSeriesID, Bool) -> Void
+    /// Derived export support (#306/#318): availability probe plus the
+    /// two export actions. All take the finalized capture's revision
+    /// id — the host resolves the finalized directory itself.
+    public let derivedExportInfo:
+        (CaptureRevisionID) async -> DerivedExportInfo?
+    public let exportDerived3D:
+        (CaptureRevisionID, Derived3DExportSelection)
+            async -> DerivedExportOutcome
+    public let exportSurveyReport:
+        (CaptureRevisionID, SurveyReportSelection)
+            async -> DerivedExportOutcome
     /// Persists a new app-local settings document (#338). The host
     /// owns the store and applies side effects (backup policy,
     /// guidance cues).
@@ -523,6 +534,22 @@ public struct CaptureRootActions {
                 = { _, _ in },
         deleteSeries: @escaping
             (CaptureSeriesID, Bool) -> Void = { _, _ in },
+        derivedExportInfo: @escaping
+            (CaptureRevisionID) async -> DerivedExportInfo? = {
+                _ in nil
+            },
+        exportDerived3D: @escaping (
+            CaptureRevisionID,
+            Derived3DExportSelection
+        ) async -> DerivedExportOutcome = { _, _ in
+            DerivedExportOutcome(files: [], error: nil)
+        },
+        exportSurveyReport: @escaping (
+            CaptureRevisionID,
+            SurveyReportSelection
+        ) async -> DerivedExportOutcome = { _, _ in
+            DerivedExportOutcome(files: [], error: nil)
+        },
         updateAppSettings: @escaping
             (CaptureAppSettings) -> Void = { _ in },
         clearEquipmentCatalogCache: @escaping () -> Void = {},
@@ -664,6 +691,9 @@ public struct CaptureRootActions {
         self.setSeriesArchived = setSeriesArchived
         self.updateRevisionMark = updateRevisionMark
         self.deleteSeries = deleteSeries
+        self.derivedExportInfo = derivedExportInfo
+        self.exportDerived3D = exportDerived3D
+        self.exportSurveyReport = exportSurveyReport
         self.updateAppSettings = updateAppSettings
         self.clearEquipmentCatalogCache = clearEquipmentCatalogCache
         self.selectCaptureStrategy = selectCaptureStrategy
@@ -917,6 +947,10 @@ public struct CaptureRootView: View {
     @State private var importingPlanReference = false
     @State private var confirmingExport = false
     @State private var diagnosticShareURL: URL?
+    /// Derived export sheets (#306/#318): which validated finalized
+    /// capture to export from — the active adoption or a library row.
+    @State private var derived3DTarget: DerivedExportTarget?
+    @State private var surveyReportTarget: DerivedExportTarget?
     @State private var missionWorkflowsShown = false
     @State private var importingMissionDocument = false
     /// Per-destination endpoint preflight results keyed by
@@ -1527,6 +1561,32 @@ public struct CaptureRootView: View {
                                 )
                             }
                         }
+                        Button("Export derived 3D model…") {
+                            derived3DTarget = DerivedExportTarget(
+                                revisionID:
+                                    validationReport.manifest
+                                        .captureRevisionID,
+                                displayName:
+                                    libraryMetadata.revisions[
+                                        validationReport.manifest
+                                            .captureRevisionID
+                                            .description
+                                    ]?.displayName
+                            )
+                        }
+                        Button("Export survey report…") {
+                            surveyReportTarget = DerivedExportTarget(
+                                revisionID:
+                                    validationReport.manifest
+                                        .captureRevisionID,
+                                displayName:
+                                    libraryMetadata.revisions[
+                                        validationReport.manifest
+                                            .captureRevisionID
+                                            .description
+                                    ]?.displayName
+                            )
+                        }
                     } header: {
                         Text("Finalized bundle")
                     } footer: {
@@ -1779,6 +1839,18 @@ public struct CaptureRootView: View {
                             "Revision comparison"
                         )
                     }
+                }
+                .sheet(item: $derived3DTarget) { target in
+                    Derived3DExportSheet(
+                        target: target,
+                        actions: actions
+                    )
+                }
+                .sheet(item: $surveyReportTarget) { target in
+                    SurveyReportExportSheet(
+                        target: target,
+                        actions: actions
+                    )
                 }
                 .confirmationDialog(
                     "Delete local capture?",
