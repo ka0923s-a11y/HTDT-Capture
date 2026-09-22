@@ -221,8 +221,7 @@ private struct HTDTCaptureHostView: View {
                 exportDerived3D:
                     coordinator.exportDerived3D,
                 exportSurveyReport:
-                    coordinator.exportSurveyReport
-                    coordinator.updateLibraryEntry,
+                    coordinator.exportSurveyReport,
                 retryCameraPermission:
                     coordinator.retryCameraPermission,
                 openCameraSettings:
