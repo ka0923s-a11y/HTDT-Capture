@@ -27,6 +27,40 @@ public struct CaptureLibraryEntryMetadata:
     }
 }
 
+/// The operator's explicit branch choice for a forked capture series
+/// (issue #396). App-local metadata — never part of any bundle — so an
+/// automatic update is impossible: only the operator's explicit action
+/// writes it, and a stored choice that no longer names a current graph
+/// head is ignored rather than silently re-pointed.
+public struct CaptureSeriesPreferredHead:
+    Codable,
+    Sendable,
+    Equatable
+{
+    /// Canonical capture_revision_id text of the preferred head.
+    public let preferredHeadRevisionID: String
+    /// When the operator made the selection (UTC timestamp text).
+    public let selectedAtUTC: String
+    /// Optional operator note carried beside the selection.
+    public let note: String?
+
+    public init(
+        preferredHeadRevisionID: String,
+        selectedAtUTC: String,
+        note: String? = nil
+    ) {
+        self.preferredHeadRevisionID = preferredHeadRevisionID
+        self.selectedAtUTC = selectedAtUTC
+        self.note = note
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case preferredHeadRevisionID = "preferred_head_revision_id"
+        case selectedAtUTC = "selected_at"
+        case note
+    }
+}
+
 /// Series-level retention lifecycle state (issue #394): `archived`
 /// removes a finished series from the default library view without
 /// touching a single canonical byte — revisions, receipts, mission
@@ -111,7 +145,8 @@ public struct CaptureRevisionMark:
 /// the retention-lifecycle maps (issue #394); `supportedReadVersions`
 /// names the versions this build can still open — v1.0.0 documents
 /// migrate forward through `LocalStateMigrator` before the store
-/// reads them (#390).
+/// reads them (#390). `preferred_heads` (#396) decodes optionally so
+/// documents written before the field existed still open.
 public struct CaptureLibraryMetadataDocument:
     Codable,
     Sendable,
@@ -133,12 +168,19 @@ public struct CaptureLibraryMetadataDocument:
     /// Revision importance marks keyed by the canonical
     /// capture_revision_id; absent entries are unmarked (#394).
     public let revisionMarks: [String: CaptureRevisionMark]
+    /// Operator-chosen preferred head per series, keyed by the
+    /// canonical capture_series_id (issue #396). Absent in documents
+    /// written before the field existed — decode is optional.
+    public let preferredHeads:
+        [String: CaptureSeriesPreferredHead]
 
     public init(
         series: [String: CaptureLibraryEntryMetadata] = [:],
         revisions: [String: CaptureLibraryEntryMetadata] = [:],
         seriesStates: [String: CaptureSeriesLibraryState] = [:],
-        revisionMarks: [String: CaptureRevisionMark] = [:]
+        revisionMarks: [String: CaptureRevisionMark] = [:],
+        preferredHeads:
+            [String: CaptureSeriesPreferredHead] = [:]
     ) {
         self.schema = Self.schema
         self.schemaVersion = Self.schemaVersion
@@ -146,6 +188,7 @@ public struct CaptureLibraryMetadataDocument:
         self.revisions = revisions
         self.seriesStates = seriesStates
         self.revisionMarks = revisionMarks
+        self.preferredHeads = preferredHeads
     }
 
     public init(from decoder: Decoder) throws {
@@ -167,7 +210,8 @@ public struct CaptureLibraryMetadataDocument:
         )
         // The v1.0.0 document predates the lifecycle maps; absent keys
         // decode as empty so a supported read-version document still
-        // opens before the migration step rewrites it (#390).
+        // opens before the migration step rewrites it (#390). The
+        // preferred-head map (#396) follows the same convention.
         seriesStates = try container.decodeIfPresent(
             [String: CaptureSeriesLibraryState].self,
             forKey: .seriesStates
@@ -175,6 +219,10 @@ public struct CaptureLibraryMetadataDocument:
         revisionMarks = try container.decodeIfPresent(
             [String: CaptureRevisionMark].self,
             forKey: .revisionMarks
+        ) ?? [:]
+        preferredHeads = try container.decodeIfPresent(
+            [String: CaptureSeriesPreferredHead].self,
+            forKey: .preferredHeads
         ) ?? [:]
     }
 
@@ -199,6 +247,7 @@ public struct CaptureLibraryMetadataDocument:
         case revisions
         case seriesStates = "series_states"
         case revisionMarks = "revision_marks"
+        case preferredHeads = "preferred_heads"
     }
 }
 
@@ -310,7 +359,8 @@ public struct CaptureLibraryMetadataStore: Sendable {
                 series: series,
                 revisions: document.revisions,
                 seriesStates: document.seriesStates,
-                revisionMarks: document.revisionMarks
+                revisionMarks: document.revisionMarks,
+                preferredHeads: document.preferredHeads
             )
         )
     }
@@ -337,7 +387,58 @@ public struct CaptureLibraryMetadataStore: Sendable {
                 series: document.series,
                 revisions: revisions,
                 seriesStates: document.seriesStates,
-                revisionMarks: document.revisionMarks
+                revisionMarks: document.revisionMarks,
+                preferredHeads: document.preferredHeads
+            )
+        )
+    }
+
+    /// Records the operator's explicit preferred head for a forked
+    /// series (issue #396): app-local metadata only, never written to
+    /// a bundle. The caller is responsible for validating that
+    /// `revisionID` is a current head of the series' revision graph —
+    /// stale selections are ignored at read time.
+    public func updatePreferredHead(
+        _ seriesID: CaptureSeriesID,
+        revisionID: CaptureRevisionID,
+        note: String? = nil,
+        selectedAtUTC: String = BundleTimestamp.utcString(
+            from: Date()
+        )
+    ) throws {
+        var document = try load()
+        var heads = document.preferredHeads
+        heads[seriesID.description] = CaptureSeriesPreferredHead(
+            preferredHeadRevisionID: revisionID.description,
+            selectedAtUTC: selectedAtUTC,
+            note: note
+        )
+        try save(
+            CaptureLibraryMetadataDocument(
+                series: document.series,
+                revisions: document.revisions,
+                seriesStates: document.seriesStates,
+                revisionMarks: document.revisionMarks,
+                preferredHeads: heads
+            )
+        )
+    }
+
+    /// Clears a series' explicit preferred head — reverting to
+    /// per-head presentation with no branch favored.
+    public func clearPreferredHead(
+        _ seriesID: CaptureSeriesID
+    ) throws {
+        var document = try load()
+        var heads = document.preferredHeads
+        heads.removeValue(forKey: seriesID.description)
+        try save(
+            CaptureLibraryMetadataDocument(
+                series: document.series,
+                revisions: document.revisions,
+                seriesStates: document.seriesStates,
+                revisionMarks: document.revisionMarks,
+                preferredHeads: heads
             )
         )
     }
@@ -367,7 +468,8 @@ public struct CaptureLibraryMetadataStore: Sendable {
                 series: document.series,
                 revisions: document.revisions,
                 seriesStates: states,
-                revisionMarks: document.revisionMarks
+                revisionMarks: document.revisionMarks,
+                preferredHeads: document.preferredHeads
             )
         )
     }
@@ -391,7 +493,8 @@ public struct CaptureLibraryMetadataStore: Sendable {
                 series: document.series,
                 revisions: document.revisions,
                 seriesStates: document.seriesStates,
-                revisionMarks: marks
+                revisionMarks: marks,
+                preferredHeads: document.preferredHeads
             )
         )
     }
@@ -420,15 +523,29 @@ public struct CaptureSeriesGroup:
     public let captureSeriesID: CaptureSeriesID
     public let revisions: [PersistedCaptureRecord]
     public let metadata: CaptureLibraryEntryMetadata?
+    /// The read-side lineage graph for this series (issue #396):
+    /// declared parent edges, roots, heads, and lineage diagnostics.
+    public let revisionGraph: CaptureSeriesRevisionGraph
+    /// The operator's stored preferred-head choice, unvalidated —
+    /// `effectivePreferredHeadID` applies the graph check.
+    public let storedPreferredHead: CaptureSeriesPreferredHead?
 
     public init(
         captureSeriesID: CaptureSeriesID,
         revisions: [PersistedCaptureRecord],
-        metadata: CaptureLibraryEntryMetadata?
+        metadata: CaptureLibraryEntryMetadata?,
+        revisionGraph: CaptureSeriesRevisionGraph? = nil,
+        storedPreferredHead: CaptureSeriesPreferredHead? = nil
     ) {
         self.captureSeriesID = captureSeriesID
         self.revisions = revisions
         self.metadata = metadata
+        self.revisionGraph = revisionGraph
+            ?? CaptureSeriesRevisionGraph(
+                allRecords: revisions,
+                captureSeriesID: captureSeriesID
+            )
+        self.storedPreferredHead = storedPreferredHead
     }
 
     public var id: CaptureSeriesID { captureSeriesID }
@@ -439,8 +556,58 @@ public struct CaptureSeriesGroup:
         metadata?.displayName
     }
 
+    /// The newest finalized revision by timestamp. Chronology only —
+    /// in a branched series this is NOT a leadership claim; use
+    /// `preferredRevision`/`headRevisions` for selection semantics.
     public var latestRevision: PersistedCaptureRecord? {
         revisions.last
+    }
+
+    /// The stored preferred head validated against the live graph:
+    /// a selection that names a revision which is no longer a head
+    /// (or no longer present) is ignored rather than silently
+    /// re-pointed at another tip.
+    public var effectivePreferredHeadID: CaptureRevisionID? {
+        guard let stored = storedPreferredHead,
+              let id = CaptureRevisionID(
+                  canonicalString: stored.preferredHeadRevisionID
+              ),
+              revisionGraph.heads.contains(id)
+        else {
+            return nil
+        }
+        return id
+    }
+
+    /// The head records in graph display order (finalizedAtUTC, id).
+    public var headRevisions: [PersistedCaptureRecord] {
+        revisionGraph.heads.compactMap { head in
+            revisions.first {
+                $0.captureRevisionID == head
+            }
+        }
+    }
+
+    /// The operator-selected head when it still resolves, else the
+    /// single head when the series is linear — nil when the series is
+    /// branched with no valid preference, so callers never substitute
+    /// "newest" for "selected".
+    public var preferredRevision: PersistedCaptureRecord? {
+        if let preferred = effectivePreferredHeadID {
+            return revisions.first {
+                $0.captureRevisionID == preferred
+            }
+        }
+        guard revisionGraph.hasSingleHead else {
+            return nil
+        }
+        return headRevisions.first
+    }
+
+    /// True when more than one branch tip exists — the "Latest"
+    /// presentation must not be used.
+    public var isBranched: Bool {
+        revisionGraph.isBranched
     }
 }
 
@@ -470,7 +637,14 @@ public enum CaptureSeriesGrouper {
                 CaptureSeriesGroup(
                     captureSeriesID: seriesID,
                     revisions: sorted,
-                    metadata: metadata.series[seriesID.description]
+                    metadata: metadata.series[seriesID.description],
+                    revisionGraph: CaptureSeriesRevisionGraph(
+                        allRecords: records,
+                        captureSeriesID: seriesID
+                    ),
+                    storedPreferredHead: metadata.preferredHeads[
+                        seriesID.description
+                    ]
                 )
             )
         }
