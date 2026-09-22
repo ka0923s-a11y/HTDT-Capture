@@ -70,6 +70,10 @@ public struct CaptureAnnotationWorkspaceView: View {
     public let meshAnchors: [CapturedSurfaceOption]
     public let statusMessage: String?
     public let replacesCommittedAuthority: Bool
+    /// Spatial authority sealed for finalization (#276): live capture
+    /// affordances stay hidden (cameraPreview is nil) while label,
+    /// role, equipment, and scalar corrections remain editable.
+    public let spatialCaptureSealed: Bool
     /// Shared AR preview for the camera capture sheets (#214).
     public let cameraPreview: AnyView?
     /// Pollable reticle probe (#214/#246).
@@ -120,6 +124,10 @@ public struct CaptureAnnotationWorkspaceView: View {
     public let taskProfile: CaptureTaskProfile?
     public let onSelectTaskProfile:
         (CaptureTaskProfile?, Set<String>) -> Void
+    /// True while the host is committing the staged authority
+    /// (#309): Save stays disabled and shows progress instead of
+    /// looking tappable while `onCommit` would be guarded out.
+    public let commitInFlight: Bool
     public let onCommit: (
         [CaptureAnnotationEntity],
         [CaptureMeasurement],
@@ -131,12 +139,32 @@ public struct CaptureAnnotationWorkspaceView: View {
     /// confirm, stop, and remove the whole working revision.
     public let onDiscard: () -> Void
 
+    /// One snapshot of every staged collection (#330). Undo/redo
+    /// operate only on these staged values — never on committed
+    /// canonical authority, which changes only through `onCommit`.
+    private struct StagedSnapshot: Equatable {
+        var annotations: [CaptureAnnotationEntity]
+        var measurements: [CaptureMeasurement]
+        var identityRecords: [EquipmentIdentityRecord]
+        var speakerLayoutPlan: SpeakerLayoutPlan?
+        var authorities: TheaterAuthorityCollection
+    }
+
+    /// Staged state at workspace open: the committed authority seed,
+    /// or a recovered draft (#266). Dirty means staged ≠ baseline;
+    /// a restored draft is treated as dirty until Save commits it.
+    private let seedBaseline: StagedSnapshot
+
     @State private var annotations: [CaptureAnnotationEntity]
     @State private var measurements: [CaptureMeasurement]
     @State private var identityRecords: [EquipmentIdentityRecord]
     @State private var speakerLayoutPlan: SpeakerLayoutPlan?
     @State private var restoredFromDraft: Bool
     @State private var authorities: TheaterAuthorityCollection
+    /// Bounded local undo/redo over staged snapshots (#330).
+    @State private var undoStack: [StagedSnapshot] = []
+    @State private var redoStack: [StagedSnapshot] = []
+    @State private var confirmingCancel = false
     @State private var addingAnnotation = false
     @State private var editingAnnotationID: AnnotationEntityID?
     @State private var addingMeasurement = false
@@ -152,9 +180,14 @@ public struct CaptureAnnotationWorkspaceView: View {
     @State private var equipmentCatalogError: String?
     @State private var draftSaveTask: Task<Void, Never>?
 
+    /// Undo-history bound (#330): snapshots are deep value copies, so
+    /// the stack is capped at a deterministic depth.
+    private let maxUndoDepth = 64
+
     public init(
         coordinateSpaceID: CoordinateSpaceID,
         captureRevisionID: CaptureRevisionID,
+        commitInFlight: Bool = false,
         availableEvidenceRefs: [String] = [],
         evidenceFrames: [EvidenceFramePresentation] = [],
         roomPlanSurfaces: [CapturedSurfaceOption] = [],
@@ -162,6 +195,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         statusMessage: String? = nil,
         seed: AnnotationWorkspaceSeed? = nil,
         replacesCommittedAuthority: Bool = false,
+        spatialCaptureSealed: Bool = false,
         equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil,
         cameraPreview: AnyView? = nil,
         probePlacementTarget: @escaping
@@ -226,6 +260,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         self.statusMessage = statusMessage
         self.replacesCommittedAuthority =
             replacesCommittedAuthority
+        self.spatialCaptureSealed = spatialCaptureSealed
         self.cameraPreview = cameraPreview
         self.probePlacementTarget = probePlacementTarget
         self.probeCameraHeading = probeCameraHeading
@@ -268,6 +303,14 @@ public struct CaptureAnnotationWorkspaceView: View {
             initialValue: seed?.authorities ?? .empty
         )
         _equipmentCatalog = State(initialValue: equipmentCatalog)
+        self.commitInFlight = commitInFlight
+        seedBaseline = StagedSnapshot(
+            annotations: seed?.annotations ?? [],
+            measurements: seed?.measurements ?? [],
+            identityRecords: seed?.equipmentIdentityRecords ?? [],
+            speakerLayoutPlan: seed?.speakerLayoutPlan,
+            authorities: seed?.authorities ?? .empty
+        )
     }
 
     /// Frame presentations for refs the loader could decode; the rest
@@ -282,6 +325,7 @@ public struct CaptureAnnotationWorkspaceView: View {
     public var body: some View {
         List {
             statusSection
+            sealedSpatialNotice
             restoredDraftNotice
             equipmentCatalogSection
             taskProfileSection
@@ -309,6 +353,7 @@ public struct CaptureAnnotationWorkspaceView: View {
                     evidenceFrames: evidenceFrames,
                     otherEvidenceRefs: otherEvidenceRefs
                 ) { measurement in
+                    recordUndoableEdit()
                     measurements.append(measurement)
                     scheduleDraftSave()
                 }
@@ -330,6 +375,23 @@ public struct CaptureAnnotationWorkspaceView: View {
             allowsMultipleSelection: false
         ) { result in
             importEquipmentCatalog(result)
+        }
+        .confirmationDialog(
+            "Discard unsaved changes?",
+            isPresented: $confirmingCancel,
+            titleVisibility: .visible
+        ) {
+            Button(
+                "Discard changes",
+                role: .destructive
+            ) {
+                cancel()
+            }
+            Button("Keep editing", role: .cancel) {}
+        } message: {
+            Text(
+                "Staged annotations, measurements, and identity records that have not been saved are dropped. This does not change the previously saved authority."
+            )
         }
         // Autosave drafts on any staged change and when the workspace
         // disappears (#266).
@@ -358,6 +420,7 @@ public struct CaptureAnnotationWorkspaceView: View {
     private func removeAnnotations(
         at offsets: IndexSet
     ) {
+        recordUndoableEdit()
         let removedIDs = offsets.map {
             annotations[$0].entityID
         }
@@ -368,6 +431,168 @@ public struct CaptureAnnotationWorkspaceView: View {
             removedIDs.contains($0.entityID)
         }
         scheduleDraftSave()
+    }
+
+    // MARK: Workspace edit transaction (#330)
+
+    private var stagedSnapshot: StagedSnapshot {
+        StagedSnapshot(
+            annotations: annotations,
+            measurements: measurements,
+            identityRecords: identityRecords,
+            speakerLayoutPlan: speakerLayoutPlan,
+            authorities: authorities
+        )
+    }
+
+    /// Staged ≠ seed baseline, or the seed itself was a recovered
+    /// draft that was never committed authority (#266).
+    private var isDirty: Bool {
+        restoredFromDraft || stagedSnapshot != seedBaseline
+    }
+
+    /// Push the pre-mutation staged state onto the bounded undo stack
+    /// and clear redo — a fresh edit branch invalidates it.
+    private func recordUndoableEdit() {
+        undoStack.append(stagedSnapshot)
+        if undoStack.count > maxUndoDepth {
+            undoStack.removeFirst(
+                undoStack.count - maxUndoDepth
+            )
+        }
+        redoStack.removeAll()
+    }
+
+    private func applyStagedSnapshot(
+        _ snapshot: StagedSnapshot
+    ) {
+        annotations = snapshot.annotations
+        measurements = snapshot.measurements
+        identityRecords = snapshot.identityRecords
+        speakerLayoutPlan = snapshot.speakerLayoutPlan
+        authorities = snapshot.authorities
+    }
+
+    private func undo() {
+        guard let snapshot = undoStack.popLast() else {
+            return
+        }
+        redoStack.append(stagedSnapshot)
+        applyStagedSnapshot(snapshot)
+        scheduleDraftSave()
+    }
+
+    private func redo() {
+        guard let snapshot = redoStack.popLast() else {
+            return
+        }
+        undoStack.append(stagedSnapshot)
+        applyStagedSnapshot(snapshot)
+        scheduleDraftSave()
+    }
+
+    /// Concise replacement preview (#330): how the staged collections
+    /// differ from the committed seed, by stable entity/measurement
+    /// identity.
+    private var stagedChangeSummary: String? {
+        guard isDirty else {
+            return nil
+        }
+
+        var added = 0
+        var removed = 0
+        var edited = 0
+
+        func diffIdentified<ID: Hashable, T: Equatable>(
+            staged: [T],
+            baseline: [T],
+            identity: (T) -> ID
+        ) {
+            let baselineByID = Dictionary(
+                baseline.map { (identity($0), $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            let stagedIDs = Set(staged.map(identity))
+            for item in staged {
+                if let before = baselineByID[identity(item)] {
+                    if before != item {
+                        edited += 1
+                    }
+                } else {
+                    added += 1
+                }
+            }
+            removed += baseline.filter {
+                !stagedIDs.contains(identity($0))
+            }.count
+        }
+
+        diffIdentified(
+            staged: annotations,
+            baseline: seedBaseline.annotations,
+            identity: { $0.entityID }
+        )
+        diffIdentified(
+            staged: measurements,
+            baseline: seedBaseline.measurements,
+            identity: { $0.measurementID }
+        )
+        diffIdentified(
+            staged: identityRecords,
+            baseline: seedBaseline.identityRecords,
+            identity: { $0.entityID }
+        )
+
+        if speakerLayoutPlan != seedBaseline.speakerLayoutPlan
+            || authorities != seedBaseline.authorities
+        {
+            edited += 1
+        }
+
+        var parts: [String] = []
+        if added > 0 {
+            parts.append(
+                String(
+                    format: String(localized: "+%d added"),
+                    added
+                )
+            )
+        }
+        if removed > 0 {
+            parts.append(
+                String(
+                    format: String(localized: "−%d removed"),
+                    removed
+                )
+            )
+        }
+        if edited > 0 {
+            parts.append(
+                String(
+                    format: String(localized: "%d edited"),
+                    edited
+                )
+            )
+        }
+        if parts.isEmpty, restoredFromDraft {
+            return String(localized: "Unsaved restored draft")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// #276 seal notice: every raycast/orientation/scan affordance is
+    /// already hidden via `cameraPreview == nil`; this names why.
+    @ViewBuilder
+    private var sealedSpatialNotice: some View {
+        if spatialCaptureSealed {
+            Section {
+                Text(
+                    "Live spatial capture is sealed for finalization. Labels, roles, equipment, and scalar values can still be corrected; raycast placement, orientation capture, and additional scanning are unavailable."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
     }
 
     // MARK: Draft autosave (#266)
@@ -407,6 +632,16 @@ public struct CaptureAnnotationWorkspaceView: View {
     private func commit() {
         discardDraft()
         onCommit(annotations, measurements, identityRecords, authorities)
+    }
+
+    /// Cancel is one tap when nothing was staged (#330); a dirty
+    /// workspace requires an explicit discard decision first.
+    private func requestCancel() {
+        if isDirty {
+            confirmingCancel = true
+        } else {
+            cancel()
+        }
     }
 
     private func cancel() {
@@ -683,6 +918,7 @@ public struct CaptureAnnotationWorkspaceView: View {
                     .buttonStyle(.plain)
                 }
                 .onDelete { offsets in
+                    recordUndoableEdit()
                     measurements.remove(atOffsets: offsets)
                     scheduleDraftSave()
                 }
@@ -696,6 +932,53 @@ public struct CaptureAnnotationWorkspaceView: View {
     @ViewBuilder
     private var commitSection: some View {
         Section {
+            // #330: the workspace edit transaction — undo/redo over
+            // staged state, a dirty marker, and a replacement preview
+            // before the single canonical commit.
+            HStack(spacing: 16) {
+                Button {
+                    undo()
+                } label: {
+                    Label(
+                        String(localized: "Undo"),
+                        systemImage: "arrow.uturn.backward"
+                    )
+                }
+                .disabled(undoStack.isEmpty || commitInFlight)
+                Button {
+                    redo()
+                } label: {
+                    Label(
+                        String(localized: "Redo"),
+                        systemImage: "arrow.uturn.forward"
+                    )
+                }
+                .disabled(redoStack.isEmpty || commitInFlight)
+                Spacer()
+                if isDirty {
+                    Text(String(localized: "Unsaved changes"))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
+            }
+            .font(.callout)
+
+            if let stagedChangeSummary {
+                Text(stagedChangeSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if commitInFlight {
+                HStack(spacing: 12) {
+                    ProgressView()
+                    Text(
+                        String(
+                            localized: "Saving annotation authority…"
+                        )
+                    )
+                }
+            }
             Button(
                 replacesCommittedAuthority
                 ? String(
@@ -708,12 +991,14 @@ public struct CaptureAnnotationWorkspaceView: View {
             ) {
                 commit()
             }
+            .disabled(!isDirty || commitInFlight)
             Button(
                 String(localized: "Cancel"),
                 role: .cancel
             ) {
-                cancel()
+                requestCancel()
             }
+            .disabled(commitInFlight)
         } footer: {
             if replacesCommittedAuthority {
                 Text(
@@ -748,6 +1033,7 @@ public struct CaptureAnnotationWorkspaceView: View {
                 captureSpeakerOrientation,
             captureIdentityPhoto: captureIdentityPhoto,
             onEntity: { entity, record in
+                recordUndoableEdit()
                 annotations.append(entity)
                 if let record {
                     upsertIdentityRecord(record)
@@ -755,6 +1041,7 @@ public struct CaptureAnnotationWorkspaceView: View {
                 scheduleDraftSave()
             },
             onPlan: { updatedPlan in
+                recordUndoableEdit()
                 speakerLayoutPlan = updatedPlan
                 scheduleDraftSave()
             }
@@ -780,6 +1067,7 @@ public struct CaptureAnnotationWorkspaceView: View {
             capturePointOrientation: capturePointOrientation,
             captureIdentityPhoto: captureIdentityPhoto
         ) { entity, record in
+            recordUndoableEdit()
             annotations.append(entity)
             if let record {
                 upsertIdentityRecord(record)
@@ -802,6 +1090,7 @@ public struct CaptureAnnotationWorkspaceView: View {
                     evidenceFrames: evidenceFrames,
                     otherEvidenceRefs: otherEvidenceRefs
                 ) { updated in
+                    recordUndoableEdit()
                     measurements.replaceAll(
                         where: {
                             $0.measurementID == updated.measurementID
@@ -828,7 +1117,19 @@ public struct CaptureAnnotationWorkspaceView: View {
                 plannedTargets: plannedTargets,
                 establishedAlignment: establishedAlignment,
                 taskPlanStatus: taskPlanStatus,
-                authorities: $authorities
+                authorities: Binding(
+                    get: { authorities },
+                    set: { newValue in
+                        // #330: theater-authority edits join the same
+                        // staged undo transaction.
+                        guard newValue != authorities else {
+                            return
+                        }
+                        recordUndoableEdit()
+                        authorities = newValue
+                        scheduleDraftSave()
+                    }
+                )
             )
         }
     }
@@ -864,6 +1165,7 @@ public struct CaptureAnnotationWorkspaceView: View {
                         capturePointOrientation,
                     captureIdentityPhoto: captureIdentityPhoto
                 ) { updated, record in
+                    recordUndoableEdit()
                     annotations.replaceAll(
                         where: { $0.entityID == updated.entityID },
                         with: updated
