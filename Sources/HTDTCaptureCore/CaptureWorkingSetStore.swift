@@ -50,6 +50,21 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     /// `strategy_id`, a policy echo that does not match the published
     /// profile, or an invalid `selected_at` timestamp (#307).
     case invalidCaptureStrategy
+    /// `session/revision-state.json` decoded but with a schema or
+    /// version this build does not own (issue #297).
+    case unsupportedRevisionStateSchema
+    /// A relaunch tried to restore a working revision whose phase
+    /// marker is absent, undecodable, or still `live_scan_incomplete` —
+    /// none of those prove an accepted End boundary (issue #297).
+    case workingRevisionNotRecoverable
+    /// A mutation that needs live AR authority (frame/depth/mesh
+    /// capture, an End transaction, its rollback) reached a working set
+    /// restored from disk. Recovered drafts are spatially sealed: their
+    /// coordinate authority ended with the process (issue #297).
+    case spatialAuthorityNotLive
+    /// Finalization was requested on a practice working set. Practice
+    /// captures never produce a real bundle (issue #320).
+    case practiceWorkingSetNotFinalizable
 }
 
 public struct CaptureWorkingSetIdentity: Sendable, Equatable {
@@ -108,6 +123,16 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
     public let captureStrategy: CaptureStrategyDocument?
     /// Committed plan-reference underlay document (issue #322), if any.
     public let planUnderlay: PlanUnderlayDocument?
+    /// Durable lifecycle phase mirrored to
+    /// `session/revision-state.json` (issue #297).
+    public let revisionPhase: WorkingRevisionPhase?
+    /// False only on a store rebuilt from disk: its AR coordinate
+    /// authority ended with the prior process so live spatial mutation
+    /// is permanently unavailable (issue #297).
+    public let spatialAuthorityLive: Bool
+    /// True for a practice-mode working set (issue #320): never
+    /// finalizable, never a real capture.
+    public let practiceCapture: Bool
 
     public init(
         identity: CaptureWorkingSetIdentity,
@@ -129,6 +154,9 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         roomReferenceFrame: RoomReferenceFrameDocument? = nil,
         roomFieldDatum: RoomFieldDatumDocument? = nil,
         openingReview: OpeningReviewDocument? = nil,
+        revisionPhase: WorkingRevisionPhase? = nil,
+        spatialAuthorityLive: Bool = true,
+        practiceCapture: Bool = false,
         endBoundaryFrameIDs: [EvidenceFrameID] = [],
         captureStrategy: CaptureStrategyDocument? = nil,
         planUnderlay: PlanUnderlayDocument? = nil
@@ -152,6 +180,9 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
         self.roomReferenceFrame = roomReferenceFrame
         self.roomFieldDatum = roomFieldDatum
         self.openingReview = openingReview
+        self.revisionPhase = revisionPhase
+        self.spatialAuthorityLive = spatialAuthorityLive
+        self.practiceCapture = practiceCapture
         self.endBoundaryFrameIDs = endBoundaryFrameIDs
         self.captureStrategy = captureStrategy
         self.planUnderlay = planUnderlay
@@ -529,6 +560,33 @@ public actor CaptureWorkingSetStore {
     /// non-throwing observation sinks. Exposed for diagnostics because
     /// the non-throwing sinks cannot surface the typed error.
     private var sealedMutationRejectionCount = 0
+
+    /// Durable lifecycle phase mirrored to
+    /// `session/revision-state.json` (issue #297). Written
+    /// `liveScanIncomplete` at foundation commit, `endAccepted` inside
+    /// the End RoomPlan transaction, `semanticAuthoring` on the first
+    /// post-End semantic commit, `readyToFinalize` inside the seal.
+    private var revisionPhase: WorkingRevisionPhase =
+        .liveScanIncomplete
+    /// Phase the store held when the current seal was taken, so
+    /// `unseal` restores the truthful marker rather than a guess.
+    private var phaseBeforeSeal: WorkingRevisionPhase?
+    /// False only on a store rebuilt from disk by
+    /// `restoreWorkingRevision` (issue #297): its AR coordinate
+    /// authority ended with the prior process, so every mutation that
+    /// presumes live spatial authority fails closed.
+    private var liveSpatialAuthority = true
+    /// Advisory RoomPlan coaching history recovered from the phase
+    /// checkpoint; used instead of the empty tracker's history so a
+    /// restored draft does not report scan-time guidance as absent.
+    private var recoveredRoomPlanGuidance: RoomPlanGuidanceSummary?
+    /// Recovered mesh-anchor lifecycle summary, same rationale.
+    private var recoveredMeshLifecycle: MeshAnchorLifecycleSummary?
+    /// Practice-mode marker (issue #320): practice working sets write
+    /// the flag into `session/revision-state.json` and refuse
+    /// `sealForFinalization`, so a rehearsal can never produce a real
+    /// bundle or pass the inventory as a real draft.
+    private let isPracticeWorkingSet: Bool
     /// Suspended seal drains waiting for `inFlightMutations` to reach
     /// zero. Resumed by the last mutation exit — a direct wakeup instead
     /// of a writer-actor fence poll, which could starve queued writes
@@ -563,7 +621,8 @@ public actor CaptureWorkingSetStore {
     public init(
         identity: CaptureWorkingSetIdentity = CaptureWorkingSetIdentity(),
         rootDirectory: URL,
-        admissionController: CaptureStoreAdmissionController? = nil
+        admissionController: CaptureStoreAdmissionController? = nil,
+        practice: Bool = false
     ) throws {
         self.identity = identity
         self.rootDirectory = rootDirectory
@@ -575,6 +634,7 @@ public actor CaptureWorkingSetStore {
                 maxBytes: Self.defaultAdmissionMaxPendingBytes,
                 maxItems: Self.defaultAdmissionMaxPendingItems
             )
+        self.isPracticeWorkingSet = practice
     }
 
     public func persistSessionFoundation(
@@ -639,7 +699,21 @@ public actor CaptureWorkingSetStore {
         // attempt creates roll back on a mid-write failure,
         // byte-identical leftovers from an interrupted attempt are
         // adopted, and conflicting pre-existing bytes fail closed.
-        try await package.persist(using: writer)
+        // The revision phase marker (issue #297) joins the same batch so
+        // every working revision is born with a durable, atomic
+        // `live_scan_incomplete` record — a relaunch never has to guess
+        // whether a directory died before or after its first commit.
+        let phaseDocument = revisionStateDocument(
+            phase: .liveScanIncomplete
+        )
+        let phaseWrite = try CaptureFileWriteRequest(
+            data: phaseDocument.encoded(),
+            path: CaptureStorePath(WorkingRevisionStateDocument.path)
+        )
+        try await package.persist(
+            using: writer,
+            additionalFileWrites: [phaseWrite]
+        )
 
         // The store actor may have re-entered while the writer ran: an
         // identical reentrant commit is harmless, anything else fails
@@ -673,12 +747,15 @@ public actor CaptureWorkingSetStore {
         for declaration in package.payloadDeclarations {
             declarations[declaration.path] = declaration
         }
+        try register(phaseDocument.payloadDeclaration)
+        revisionPhase = .liveScanIncomplete
         sessionFoundation = package
     }
 
     public func persistTimingPackage(
         _ package: CaptureTimingPackage
     ) async throws {
+        try requireLiveSpatialAuthority()
         try requireMutable()
         inFlightMutations += 1
         defer { mutationDidFinish() }
@@ -737,6 +814,7 @@ public actor CaptureWorkingSetStore {
         roomPlanLineage: RoomPlanArtifactLineage
     ) async throws {
         try requireMutable()
+        try requireLiveSpatialAuthority()
         inFlightMutations += 1
         defer { mutationDidFinish() }
 
@@ -984,12 +1062,34 @@ public actor CaptureWorkingSetStore {
         processedRoomPlanDescriptor = processed.descriptor
         capturedRoomMetadata = metadata.document
         coordinateSpacePolicy = policy.document
+
+        // Durable phase transition (issue #297): the marker flips to
+        // `end_accepted` only after every End file is durable and bound,
+        // and the rewrite re-verifies post-suspension that a racing
+        // rollback did not lift the commit mid-write.
+        try await persistRevisionState(
+            .endAccepted,
+            commitCheck: { [self] in
+                guard timingDocument == timingPackage.document,
+                      rawRoomPlanDescriptor == raw.descriptor,
+                      processedRoomPlanDescriptor
+                        == processed.descriptor,
+                      coordinateSpacePolicy == policy.document
+                else {
+                    throw CaptureWorkingSetError
+                        .integrityVerificationFailed
+                }
+            }
+        )
     }
 
     public func rollbackAcceptedEndTransaction(
         removeOwnedMesh: Bool
     ) async throws {
         try requireMutable()
+        // Rollback is the live "Continue scanning" path: it must never
+        // run on a store restored from disk (issue #297).
+        try requireLiveSpatialAuthority()
         inFlightMutations += 1
         defer { mutationDidFinish() }
 
@@ -1319,17 +1419,37 @@ public actor CaptureWorkingSetStore {
         // its markers must not outlive the accepted transaction
         // (issue #241).
         endBoundaryFrameIDs = []
+        // The accepted End context is likewise part of that boundary:
+        // keeping it would let a resumed scan advertise coverage for a
+        // transaction that was rolled back (issue #297).
+        advisoryEndContext = nil
 
         if removeOwnedMesh {
             meshIndex = nil
             meshAnchorCount = nil
             usableMeshAnchorCount = nil
         }
+
+        // Roll the durable marker back to `live_scan_incomplete` — the
+        // revision once again belongs to a live scan, and a relaunch
+        // must not reopen it as a draft. The rewrite verifies
+        // post-suspension that no End transaction committed meanwhile.
+        try await persistRevisionState(.liveScanIncomplete) { [self] in
+            guard timingDocument == nil,
+                  rawRoomPlanDescriptor == nil,
+                  processedRoomPlanDescriptor == nil,
+                  coordinateSpacePolicy == nil
+            else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+        }
     }
 
     public func persistRawRoomPlan(
         _ payload: RoomPlanRawArtifactPayload
     ) async throws {
+        try requireLiveSpatialAuthority()
         try requireMutable()
         inFlightMutations += 1
         defer { mutationDidFinish() }
@@ -1451,6 +1571,7 @@ public actor CaptureWorkingSetStore {
     public func persistProcessedRoomPlan(
         _ payload: RoomPlanProcessedArtifactPayload
     ) async throws {
+        try requireLiveSpatialAuthority()
         try requireMutable()
         inFlightMutations += 1
         defer { mutationDidFinish() }
@@ -1641,6 +1762,7 @@ public actor CaptureWorkingSetStore {
     public func persistMeshPackage(
         _ package: MeshEvidencePackage
     ) async throws {
+        try requireLiveSpatialAuthority()
         try requireMutable()
         inFlightMutations += 1
         defer { mutationDidFinish() }
@@ -1958,6 +2080,7 @@ public actor CaptureWorkingSetStore {
     public func persistFramePackage(
         _ package: FrameEvidencePackage
     ) async throws {
+        try requireLiveSpatialAuthority()
         try requireMutable()
         inFlightMutations += 1
         defer { mutationDidFinish() }
@@ -2103,6 +2226,7 @@ public actor CaptureWorkingSetStore {
     public func discardUncommittedFramePackage(
         _ package: FrameEvidencePackage
     ) async throws {
+        try requireLiveSpatialAuthority()
         try requireMutable()
         inFlightMutations += 1
         defer { mutationDidFinish() }
@@ -2713,6 +2837,11 @@ public actor CaptureWorkingSetStore {
         if let authorityPackage {
             authorityCollection = authorityPackage.collection
         }
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Replaces the canonical annotation+measurement pair committed
@@ -2853,6 +2982,11 @@ public actor CaptureWorkingSetStore {
         if let authorityPackage {
             authorityCollection = authorityPackage.collection
         }
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Persists the derived equipment-identity document (issue #239).
@@ -2930,6 +3064,11 @@ public actor CaptureWorkingSetStore {
         }
 
         declarations[declaration.path] = declaration
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Removes the derived equipment-identity document when the
@@ -2953,6 +3092,11 @@ public actor CaptureWorkingSetStore {
             at: CaptureStorePath(EquipmentIdentityEvidencePackage.path)
         )
         declarations[declaration.path] = nil
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Persists the derived external-authority dependency manifest
@@ -3410,6 +3554,11 @@ public actor CaptureWorkingSetStore {
         )
         declarations[declaration.path] = declaration
         roomReferenceFrame = document
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Commits or replaces the operator-declared field/install datum
@@ -3528,6 +3677,11 @@ public actor CaptureWorkingSetStore {
             forKey: RoomReferenceFramePackage.path
         )
         roomReferenceFrame = nil
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Commits or replaces the operator's opening-review document
@@ -3605,6 +3759,11 @@ public actor CaptureWorkingSetStore {
         )
         declarations[declaration.path] = declaration
         openingReviewDocument = document
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Removes the opening-review document (issue #231). The document
@@ -3624,6 +3783,11 @@ public actor CaptureWorkingSetStore {
             forKey: OpeningReviewPackage.path
         )
         openingReviewDocument = nil
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Marks frames committed by the current accepted End boundary
@@ -3639,6 +3803,11 @@ public actor CaptureWorkingSetStore {
         inFlightMutations += 1
         defer { mutationDidFinish() }
         endBoundaryFrameIDs.formUnion(frameIDs)
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Removes one unreferenced optional evidence frame and all of its
@@ -3826,6 +3995,11 @@ public actor CaptureWorkingSetStore {
             usableDepthSampleCount = usableSamples
             usableDepthEvidenceCount = usableFrames
         }
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Post-commit spatial evidence issues (#236): after a re-End the
@@ -4001,6 +4175,11 @@ public actor CaptureWorkingSetStore {
         annotationKeysPresent = Set(
             package.collection.entities.map(annotationQualityKey)
         )
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     public func persistMeasurementPackage(
@@ -4110,6 +4289,11 @@ public actor CaptureWorkingSetStore {
         measurementQuantityTypesPresent = Set(
             package.collection.measurements.map(\.quantityType)
         )
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Commits a supplemental feature payload (issues #222/#226/#227/
@@ -4182,6 +4366,11 @@ public actor CaptureWorkingSetStore {
         }
         declarations[document.path] = document.declaration
         supplementalDocuments[document.path] = document.data
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Replaces a committed supplemental document (e.g. evolving
@@ -4250,6 +4439,11 @@ public actor CaptureWorkingSetStore {
         }
         declarations[document.path] = document.declaration
         supplementalDocuments[document.path] = document.data
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Records one tracking-quality sample into bounded canonical history.
@@ -4265,6 +4459,10 @@ public actor CaptureWorkingSetStore {
         // Non-throwing observation sink: while the working set is sealed
         // for finalization the event is dropped and counted rather than
         // mutating sealed quality inputs (issue #180).
+        guard liveSpatialAuthority else {
+            sealedMutationRejectionCount += 1
+            return
+        }
         guard sealState == .mutable else {
             sealedMutationRejectionCount += 1
             return
@@ -4337,6 +4535,7 @@ public actor CaptureWorkingSetStore {
         sessionTimestampSeconds: Double? = nil
     ) throws {
         try requireMutable()
+        try requireLiveSpatialAuthority()
 
         guard let bound = coordinateSpaceID else {
             throw CaptureWorkingSetError
@@ -4376,6 +4575,10 @@ public actor CaptureWorkingSetStore {
         // Non-throwing observation sink: while the working set is sealed
         // for finalization the event is dropped and counted rather than
         // mutating sealed quality inputs (issue #180).
+        guard liveSpatialAuthority else {
+            sealedMutationRejectionCount += 1
+            return
+        }
         guard sealState == .mutable else {
             sealedMutationRejectionCount += 1
             return
@@ -4392,6 +4595,10 @@ public actor CaptureWorkingSetStore {
     public func recordRoomPlanGuidanceInstruction(
         _ observation: RoomPlanGuidanceObservation
     ) {
+        guard liveSpatialAuthority else {
+            sealedMutationRejectionCount += 1
+            return
+        }
         guard sealState == .mutable else {
             sealedMutationRejectionCount += 1
             return
@@ -4405,6 +4612,10 @@ public actor CaptureWorkingSetStore {
     /// degraded source explicitly instead of looking like a clean
     /// session (#260).
     public func recordRoomPlanGuidanceUnavailable() {
+        guard liveSpatialAuthority else {
+            sealedMutationRejectionCount += 1
+            return
+        }
         guard sealState == .mutable else {
             sealedMutationRejectionCount += 1
             return
@@ -4421,6 +4632,10 @@ public actor CaptureWorkingSetStore {
         anchorID: UUID,
         sessionTimestampSeconds: Double
     ) {
+        guard liveSpatialAuthority else {
+            sealedMutationRejectionCount += 1
+            return
+        }
         guard sealState == .mutable else {
             sealedMutationRejectionCount += 1
             return
@@ -4438,6 +4653,10 @@ public actor CaptureWorkingSetStore {
     public func recordAdvisoryEndContext(
         _ summary: CaptureEndCoverageSummary
     ) {
+        guard liveSpatialAuthority else {
+            sealedMutationRejectionCount += 1
+            return
+        }
         guard sealState == .mutable else {
             sealedMutationRejectionCount += 1
             return
@@ -4451,7 +4670,7 @@ public actor CaptureWorkingSetStore {
     public func recordTaskProfile(
         _ profile: CaptureTaskProfile?,
         skippedRequirementIDs: Set<String> = []
-    ) throws {
+    ) async throws {
         try requireMutable()
         if let profile {
             guard !profile.identifier.isEmpty,
@@ -4464,6 +4683,11 @@ public actor CaptureWorkingSetStore {
         }
         taskProfile = profile
         skippedTaskRequirementIDs = skippedRequirementIDs
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Persists the operator/plan capture-strategy selection as the
@@ -4556,7 +4780,7 @@ public actor CaptureWorkingSetStore {
     /// Binds benchmark references into the quality report (#285). Only
     /// immutable/versioned `slug@semver` refs pass validation; anything
     /// else fails closed.
-    public func recordBenchmarkReferences(_ refs: [String]) throws {
+    public func recordBenchmarkReferences(_ refs: [String]) async throws {
         try requireMutable()
         for ref in refs
         where !BenchmarkReferenceValidator.isValid(ref) {
@@ -4565,6 +4789,11 @@ public actor CaptureWorkingSetStore {
         }
         benchmarkRefs = CaptureQualityEvaluator
             .canonicalBenchmarkRefs(refs)
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Evaluates the advisory diagnostics layer from current state
@@ -4587,13 +4816,15 @@ public actor CaptureWorkingSetStore {
                     skippedRequirementIDs: skippedTaskRequirementIDs
                 ),
             roomPlanGuidance: roomPlanGuidanceAvailable
-                ? roomPlanGuidanceTracker.history()
+                ? (recoveredRoomPlanGuidance?.history
+                    ?? roomPlanGuidanceTracker.history())
                 : RoomPlanGuidanceHistory(
                     source: .unavailable,
                     transitions: [],
                     truncated: false
                 ),
-            meshLifecycle: meshLifecycleTracker
+            meshLifecycle: recoveredMeshLifecycle
+                ?? meshLifecycleTracker
                 .summary(endSessionTimestampSeconds: endTimestamp),
             depthSufficiency: depthSufficiencyAccumulator.summary,
             conflicts: CaptureConflictAnalyzer.analyze(
@@ -4688,6 +4919,11 @@ public actor CaptureWorkingSetStore {
                 role: .derived
             )
         )
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// The advisory findings currently recorded, exposed as the
@@ -4832,6 +5068,12 @@ public actor CaptureWorkingSetStore {
         case .mutable:
             break
         }
+        // Practice working sets never produce a real bundle
+        // (issue #320): the rehearsal ends at Review.
+        guard !isPracticeWorkingSet else {
+            throw CaptureWorkingSetError
+                .practiceWorkingSetNotFinalizable
+        }
         sealState = .sealed
         sealGeneration += 1
         let generation = sealGeneration
@@ -4864,6 +5106,23 @@ public actor CaptureWorkingSetStore {
                     try await persistAdvisoryDiagnosticsPayload(
                         advisory
                     )
+            }
+
+            // Durable phase transition (issue #297): quality and
+            // advisory verdicts are committed, so the marker records a
+            // revision with nothing left but the finalization write.
+            // `unseal` restores the pre-seal phase.
+            phaseBeforeSeal = revisionPhase
+            if revisionPhase.isRecoverableDraft {
+                try await persistRevisionState(.readyToFinalize) {
+                    [self] in
+                    guard sealState == .sealed,
+                          sealGeneration == generation
+                    else {
+                        throw CaptureWorkingSetError
+                            .integrityVerificationFailed
+                    }
+                }
             }
 
             // The report write released the actor; drain any mutation
@@ -4924,6 +5183,10 @@ public actor CaptureWorkingSetStore {
                 sealedQualityReport = nil
                 sealState = .mutable
                 sealGeneration += 1
+                if let priorPhase = phaseBeforeSeal {
+                    phaseBeforeSeal = nil
+                    try? await persistRevisionState(priorPhase)
+                }
             }
             throw error
         }
@@ -4989,6 +5252,14 @@ public actor CaptureWorkingSetStore {
         }
         sealState = .mutable
         sealGeneration += 1
+
+        // The seal had advanced the durable marker to
+        // `ready_to_finalize`; lifting it returns the revision to
+        // whatever phase it held before sealing (issue #297).
+        if let priorPhase = phaseBeforeSeal {
+            phaseBeforeSeal = nil
+            try? await persistRevisionState(priorPhase)
+        }
     }
 
     /// Marks the sealed working set as permanently consumed after the
@@ -5138,6 +5409,9 @@ public actor CaptureWorkingSetStore {
             roomReferenceFrame: roomReferenceFrame,
             roomFieldDatum: roomFieldDatum,
             openingReview: openingReviewDocument,
+            revisionPhase: revisionPhase,
+            spatialAuthorityLive: liveSpatialAuthority,
+            practiceCapture: isPracticeWorkingSet,
             endBoundaryFrameIDs: endBoundaryFrameIDs.sorted {
                 $0.description < $1.description
             },
@@ -5998,6 +6272,113 @@ public actor CaptureWorkingSetStore {
         declarations[declaration.path] = declaration
     }
 
+    // MARK: - Working-revision phase marker (issue #297)
+
+    /// Builds the persisted lifecycle record for `path
+    /// session/revision-state.json`. The checkpoint captures every
+    /// volatile input `evaluateQuality`/`evaluateAdvisoryDiagnostics`
+    /// cannot re-derive from committed payload bytes, so a relaunched
+    /// draft re-evaluates from real history rather than reporting the
+    /// scan-time trackers as absent.
+    private func revisionStateDocument(
+        phase: WorkingRevisionPhase
+    ) -> WorkingRevisionStateDocument {
+        WorkingRevisionStateDocument(
+            identity: identity,
+            captureSessionID: captureSessionID,
+            coordinateSpaceID: coordinateSpaceID,
+            phase: phase,
+            updatedAtUTC: BundleTimestamp.utcString(from: Date()),
+            practice: isPracticeWorkingSet,
+            checkpoint: phase.isRecoverableDraft
+                ? revisionCheckpoint()
+                : nil
+        )
+    }
+
+    private func revisionCheckpoint() -> WorkingRevisionCheckpoint {
+        WorkingRevisionCheckpoint(
+            trackingIntervals: trackingIntervals.map {
+                WorkingRevisionTrackingInterval(
+                    state: $0.state,
+                    reason: $0.reason,
+                    firstSeconds: $0.firstSeconds,
+                    lastSeconds: $0.lastSeconds,
+                    sampleCount: $0.sampleCount
+                )
+            },
+            resourceEvents: resourceEvents,
+            benchmarkRefs: benchmarkRefs,
+            taskProfile: taskProfile,
+            skippedTaskRequirementIDs: skippedTaskRequirementIDs
+                .sorted(),
+            endBoundaryFrameIDs: endBoundaryFrameIDs.sorted {
+                $0.description < $1.description
+            },
+            endCoverage: advisoryEndContext,
+            roomPlanGuidanceAvailable: roomPlanGuidanceAvailable,
+            roomPlanGuidance: roomPlanGuidanceAvailable
+                ? RoomPlanGuidanceSummary(
+                    roomPlanGuidanceTracker.history()
+                )
+                : nil,
+            meshLifecycle: meshLifecycleTracker.summary(
+                endSessionTimestampSeconds:
+                    advisoryEndContext?.endSessionTimestampSeconds
+            ),
+            advisoryNotes: advisoryNotes
+        )
+    }
+
+    /// Atomically rewrites the phase marker, keeping its declaration
+    /// stable. Phase content changes never change the declaration, so
+    /// `register`/`verifyIntegrity` stay consistent. `commitCheck`
+    /// re-runs after the writer suspension: the write interleaves with
+    /// other actor work, so a caller whose transaction must still be
+    /// committed supplies the check (a racing rollback unwinds the
+    /// marker before the phase is published, never after).
+    private func persistRevisionState(
+        _ phase: WorkingRevisionPhase,
+        commitCheck: () throws -> Void = {}
+    ) async throws {
+        let document = revisionStateDocument(phase: phase)
+        try await writer.writeBatchReplacing([
+            try CaptureFileWriteRequest(
+                data: document.encoded(),
+                path: CaptureStorePath(
+                    WorkingRevisionStateDocument.path
+                )
+            ),
+        ])
+        try commitCheck()
+        try register(document.payloadDeclaration)
+        revisionPhase = phase
+    }
+
+    /// Advances the durable phase from `end_accepted` to
+    /// `semantic_authoring` — or refreshes the checkpoint while the
+    /// phase is already post-End — after a semantic mutation commit.
+    /// No-op for live (pre-End) revisions and for sealed/consumed
+    /// stores, where the phase is managed by the seal lifecycle.
+    private func refreshRevisionStateAfterSemanticCommit() async throws {
+        guard sealState == .mutable,
+              revisionPhase.isRecoverableDraft
+        else {
+            return
+        }
+        try await persistRevisionState(.semanticAuthoring)
+    }
+
+    /// Rejects mutations that presume a live AR coordinate authority on
+    /// a store restored from disk (issue #297). Recovered drafts are
+    /// spatially sealed: semantic authoring is allowed, live capture is
+    /// not.
+    private func requireLiveSpatialAuthority() throws {
+        guard liveSpatialAuthority else {
+            throw CaptureWorkingSetError.spatialAuthorityNotLive
+        }
+    }
+
     /// Every mutation entry point calls this before doing any work. The
     /// seal path flips `sealState` before it first suspends, so a
     /// mutation that arrives after seal acquisition fails
@@ -6138,6 +6519,872 @@ public actor CaptureWorkingSetStore {
         case .unknownReservation:
             return "admission_rejected unknown_reservation"
         }
+    }
+
+
+    // MARK: - Working-revision restore (issue #297)
+
+    /// Reopens an end-accepted working revision left behind by a prior
+    /// process. The relaunch reads `session/revision-state.json`,
+    /// decodes every committed payload back into working-set state, and
+    /// returns a store whose spatial authority is permanently sealed:
+    /// semantic authoring and finalization work, live capture does not.
+    ///
+    /// Restore is all-or-nothing on *canonical* payloads: a missing or
+    /// corrupt End-transaction file fails the whole restore rather than
+    /// surfacing a half-true draft. Unrecognized extra files are kept,
+    /// declared generically, and reported — never silently dropped.
+    public static func restoreWorkingRevision(
+        _ draft: RecoverableWorkingRevision
+    ) async throws -> (
+        store: CaptureWorkingSetStore,
+        report: WorkingRevisionRestoreReport
+    ) {
+        let stateData: Data
+        do {
+            stateData = try Data(
+                contentsOf: draft.url
+                    .appendingPathComponent(
+                        "session",
+                        isDirectory: true
+                    )
+                    .appendingPathComponent(
+                        "revision-state.json",
+                        isDirectory: false
+                    )
+            )
+        } catch {
+            throw CaptureWorkingSetError
+                .workingRevisionNotRecoverable
+        }
+        let state: WorkingRevisionStateDocument
+        do {
+            state = try WorkingRevisionStateDocument.decode(stateData)
+        } catch {
+            throw CaptureWorkingSetError
+                .workingRevisionNotRecoverable
+        }
+        guard state.phase.isRecoverableDraft,
+              !state.practice,
+              state.captureRevisionID == draft.revisionID
+        else {
+            throw CaptureWorkingSetError
+                .workingRevisionNotRecoverable
+        }
+        let store = try CaptureWorkingSetStore(
+            identity: CaptureWorkingSetIdentity(
+                captureSeriesID: state.captureSeriesID,
+                captureRevisionID: state.captureRevisionID,
+                parentRevisionID: state.parentRevisionID,
+                createdAtUTC: state.createdAtUTC
+            ),
+            rootDirectory: draft.url
+        )
+        let report =
+            try await store.restoreWorkingRevisionFromDisk(
+                stateDocument: state
+            )
+        return (store, report)
+    }
+
+    private func restoreWorkingRevisionFromDisk(
+        stateDocument state: WorkingRevisionStateDocument
+    ) async throws -> WorkingRevisionRestoreReport {
+        guard sealState == .mutable,
+              sessionFoundation == nil,
+              declarations.isEmpty
+        else {
+            throw CaptureWorkingSetError.workingSetSealed
+        }
+        guard let checkpoint = state.checkpoint else {
+            throw CaptureWorkingSetError
+                .workingRevisionNotRecoverable
+        }
+
+        let scanned = try BundleDirectoryScanner.scan(
+            root: rootDirectory
+        )
+        var scannedByPath = Dictionary(
+            uniqueKeysWithValues: scanned.map { ($0.path, $0) }
+        )
+        func readConsumed(
+            _ path: String,
+            required: Bool = true
+        ) throws -> Data? {
+            guard let file = scannedByPath.removeValue(
+                forKey: path
+            )
+            else {
+                if required {
+                    throw CaptureWorkingSetError
+                        .integrityVerificationFailed
+                }
+                return nil
+            }
+            return try Data(contentsOf: file.url)
+        }
+        func consumeIfPresent(_ path: String) {
+            scannedByPath.removeValue(forKey: path)
+        }
+
+        var supersededPaths: [String] = []
+        var missingCheckpoint: [String] = []
+
+        // 1. Session foundation (required: written before any spatial
+        //    commit and bound by the End transaction).
+        guard
+            let capabilitiesData = try readConsumed(
+                CaptureSessionFoundationPackage.capabilitiesPath
+            ),
+            let configurationData = try readConsumed(
+                CaptureSessionFoundationPackage.configurationPath
+            ),
+            let deviceData = try readConsumed(
+                CaptureSessionFoundationPackage.devicePath
+            ),
+            let sessionData = try readConsumed(
+                CaptureSessionFoundationPackage.sessionPath
+            )
+        else {
+            throw CaptureWorkingSetError
+                .invalidSessionFoundationPackage
+        }
+        let decoder = JSONDecoder()
+        guard
+            let capabilities = try? decoder.decode(
+                CaptureCapabilitiesDocument.self,
+                from: capabilitiesData
+            ),
+            let configuration = try? decoder.decode(
+                CaptureConfigurationDocument.self,
+                from: configurationData
+            ),
+            let device = try? decoder.decode(
+                CaptureDeviceDocument.self,
+                from: deviceData
+            ),
+            let session = try? decoder.decode(
+                CaptureSessionDocument.self,
+                from: sessionData
+            )
+        else {
+            throw CaptureWorkingSetError
+                .invalidSessionFoundationPackage
+        }
+        let foundation = CaptureSessionFoundationPackage(
+            session: session,
+            capabilities: capabilities,
+            configuration: configuration,
+            device: device,
+            sessionData: sessionData,
+            capabilitiesData: capabilitiesData,
+            configurationData: configurationData,
+            deviceData: deviceData
+        )
+        try publishAuthority(
+            captureSessionID: session.captureSessionID,
+            coordinateSpaceID: session.coordinateSpaceID
+        )
+        for declaration in foundation.payloadDeclarations {
+            try register(declaration)
+        }
+        sessionFoundation = foundation
+        // The marker itself is declared but not re-read from the scan
+        // set — remove it so the leftover sweep cannot re-register it.
+        consumeIfPresent(WorkingRevisionStateDocument.path)
+        try register(state.payloadDeclaration)
+
+        // 2. The End RoomPlan transaction — required in full because
+        //    the phase marker only advances when it committed.
+        guard
+            let timingData = try readConsumed(
+                CaptureTimingPackage.path
+            ),
+            let metadataData = try readConsumed(
+                RoomPlanEvidenceArtifactBuilder.metadataPath
+            ),
+            let policyData = try readConsumed(
+                CoordinateSpacePolicyPackage.path
+            )
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+        guard
+            let timingDoc = try? decoder.decode(
+                CaptureTimingDocument.self,
+                from: timingData
+            ),
+            let metadataDoc = try? decoder.decode(
+                CapturedRoomMetadataDocument.self,
+                from: metadataData
+            ),
+            let policyDoc = try? decoder.decode(
+                CoordinateSpacePolicyDocument.self,
+                from: policyData
+            )
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+        // The lineage document carries every descriptor field, so the
+        // raw/processed descriptors rebuild deterministically and the
+        // recorded hashes re-verify the payloads on disk.
+        let rawDescriptor = RoomPlanRawEvidenceDescriptor(
+            captureSessionID: metadataDoc.captureSessionID,
+            coordinateSpaceID: metadataDoc.coordinateSpaceID,
+            relativePath: metadataDoc.rawPayloadPath,
+            byteCount: metadataDoc.rawByteCount,
+            sha256: metadataDoc.rawSHA256,
+            serializationFormat: metadataDoc.rawSerializationFormat,
+            runtime: metadataDoc.runtime
+        )
+        guard
+            let rawData = try readConsumed(
+                rawDescriptor.relativePath
+            ),
+            rawData.count == rawDescriptor.byteCount,
+            EvidenceIntegrity.sha256(of: rawData)
+                == rawDescriptor.sha256
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+        guard
+            let processedPath = metadataDoc.processedPayloadPath,
+            let processedSHA = metadataDoc.processedSHA256,
+            let processedBytes = metadataDoc.processedByteCount,
+            let processedFormat =
+                metadataDoc.processedSerializationFormat
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+        let processedDescriptor = RoomPlanProcessedEvidenceDescriptor(
+            captureSessionID: metadataDoc.captureSessionID,
+            coordinateSpaceID: metadataDoc.coordinateSpaceID,
+            relativePath: processedPath,
+            byteCount: processedBytes,
+            sha256: processedSHA,
+            sourceRawSHA256: rawDescriptor.sha256,
+            serializationFormat: processedFormat,
+            capturedRoomVersion: metadataDoc.capturedRoomVersion,
+            runtime: metadataDoc.runtime
+        )
+        guard
+            let processedData = try readConsumed(
+                processedDescriptor.relativePath
+            ),
+            processedData.count == processedDescriptor.byteCount,
+            EvidenceIntegrity.sha256(of: processedData)
+                == processedDescriptor.sha256,
+            metadataDoc.captureRevisionID
+                == identity.captureRevisionID,
+            metadataDoc.captureSessionID == captureSessionID,
+            metadataDoc.coordinateSpaceID == coordinateSpaceID
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+        guard policyDoc.captureRevisionID
+                == identity.captureRevisionID,
+              policyDoc.captureSessionID == captureSessionID,
+              policyDoc.coordinateSpaceID == coordinateSpaceID
+        else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
+        timingDocument = timingDoc
+        try register(
+            CaptureTimingPackage(
+                document: timingDoc,
+                data: timingData
+            ).payloadDeclaration
+        )
+        try register(
+            BundlePayloadDeclaration(
+                path: rawDescriptor.relativePath,
+                mediaType: "application/json",
+                producer: "roomplan_capture",
+                provenanceClass: .appleRoomPlanRawScan,
+                role: .canonical
+            )
+        )
+        try register(
+            BundlePayloadDeclaration(
+                path: processedDescriptor.relativePath,
+                mediaType: "application/json",
+                producer: "roomplan_builder",
+                provenanceClass: .appleRoomPlanInference,
+                role: .canonical,
+                sourceRefs: [
+                    "sha256:\(rawDescriptor.sha256.description)"
+                ]
+            )
+        )
+        try register(
+            roomPlanMetadataDeclaration(
+                raw: rawDescriptor,
+                processed: processedDescriptor
+            )
+        )
+        try register(
+            CoordinateSpacePolicyPackage(
+                document: policyDoc,
+                data: policyData
+            ).payloadDeclaration
+        )
+        rawRoomPlanDescriptor = rawDescriptor
+        processedRoomPlanDescriptor = processedDescriptor
+        capturedRoomMetadata = metadataDoc
+        coordinateSpacePolicy = policyDoc
+
+        // 3. Mesh index + geometry (optional).
+        if let indexData = try readConsumed(
+            MeshEvidencePackage.indexPath,
+            required: false
+        ) {
+            guard
+                let index = try? decoder.decode(
+                    MeshAnchorEvidenceIndex.self,
+                    from: indexData
+                )
+            else {
+                throw CaptureWorkingSetError.invalidMeshPackage
+            }
+            var geometryRefs: [String] = []
+            var usableAnchors = 0
+            for record in index.anchors {
+                guard
+                    let geometryData = try readConsumed(
+                        record.geometryPath
+                    ),
+                    geometryData.count > 0,
+                    EvidenceIntegrity.sha256(of: geometryData)
+                        == record.geometrySHA256,
+                    let geometry = try? MeshBinaryCodec.decode(
+                        geometryData
+                    ),
+                    geometry.vertices.count == record.vertexCount,
+                    geometry.faceCount == record.faceCount
+                else {
+                    throw CaptureWorkingSetError.invalidMeshPackage
+                }
+                if !geometry.vertices.isEmpty,
+                   geometry.faceCount > 0
+                {
+                    usableAnchors += 1
+                }
+                meshGeometryProfile.record(
+                    worldFromAnchor: record.worldFromAnchor,
+                    geometry: geometry
+                )
+                geometryRefs.append("path:" + record.geometryPath)
+                try register(
+                    BundlePayloadDeclaration(
+                        path: record.geometryPath,
+                        mediaType:
+                            "application/vnd.htdt.meshbin",
+                        producer: "mesh_capture",
+                        provenanceClass:
+                            .arkitMeshReconstruction,
+                        role: .canonical
+                    )
+                )
+            }
+            try register(
+                BundlePayloadDeclaration(
+                    path: MeshEvidencePackage.indexPath,
+                    mediaType: "application/json",
+                    producer: "mesh_capture",
+                    provenanceClass: .arkitMeshReconstruction,
+                    role: .canonical,
+                    sourceRefs: geometryRefs.isEmpty
+                        ? nil
+                        : geometryRefs.sorted()
+                )
+            )
+            meshIndex = index
+            meshAnchorCount = index.anchors.count
+            usableMeshAnchorCount = usableAnchors
+        }
+
+        // 4. Evidence frames (optional set): each committed frame is a
+        //    descriptor JSON plus its declared sibling payloads. The
+        //    builder revalidates every recorded hash.
+        let frameDescriptorPaths = scannedByPath.keys.filter {
+            $0.hasPrefix("evidence/frames/") && $0.hasSuffix(".json")
+        }
+        .sorted(by: BundleLogicalPath.utf8Less)
+        for descriptorPath in frameDescriptorPaths {
+            guard
+                let descriptorData = try readConsumed(descriptorPath),
+                let descriptor = try? decoder.decode(
+                    FrameEvidenceDescriptor.self,
+                    from: descriptorData
+                ),
+                descriptorPath
+                    == "evidence/frames/"
+                        + descriptor.frameID.description + ".json"
+            else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+            let pixelPath = descriptor.pixelRelativePath
+            guard
+                let pixelData = try readConsumed(pixelPath)
+            else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+            var depthData: Data?
+            var confidenceData: Data?
+            if let depth = descriptor.depth {
+                depthData = try readConsumed(depth.depthRelativePath)
+                guard depthData != nil else {
+                    throw CaptureWorkingSetError
+                        .integrityVerificationFailed
+                }
+                if let confidencePath = depth.confidenceRelativePath {
+                    confidenceData = try readConsumed(confidencePath)
+                    guard confidenceData != nil else {
+                        throw CaptureWorkingSetError
+                            .integrityVerificationFailed
+                    }
+                }
+            }
+            let previewPath =
+                "evidence/frames/"
+                    + descriptor.frameID.description
+                    + ".preview.heic"
+            let previewData = try readConsumed(
+                previewPath,
+                required: false
+            )
+            // The builder enforces canonical paths plus byte-count and
+            // SHA-256 agreement across the whole package.
+            let package = try FrameEvidencePackageBuilder.build(
+                descriptor: descriptor,
+                pixelPayload: pixelData,
+                depthPayload: depthData,
+                confidencePayload: confidenceData,
+                previewPayload: previewData
+            )
+            try validateAuthority(
+                captureSessionID: descriptor.captureSessionID,
+                coordinateSpaceID: descriptor.coordinateSpaceID
+            )
+            for declaration in package.payloadDeclarations {
+                try register(declaration)
+            }
+            frameDescriptors.append(package.descriptor)
+            evidenceFrameCount += 1
+            depthEvidenceCount += package.capturedDepthCount
+            let usableSamples = Self.usableDepthSamples(
+                in: package.depthPayload
+            )
+            usableDepthSampleCount += usableSamples
+            if usableSamples > 0 {
+                usableDepthEvidenceCount += 1
+            }
+            if let depthPayload = package.depthPayload,
+               let depth = try? DepthBinaryCodec.decode(depthPayload)
+            {
+                let confidence = package.confidencePayload
+                    .flatMap { try? ConfidenceBinaryCodec.decode($0) }
+                depthSufficiencyAccumulator.record(
+                    depth: depth,
+                    confidence: confidence
+                )
+            }
+            if let preview = package.preview,
+               !framePreviews.contains(preview)
+            {
+                framePreviews.append(preview)
+            }
+        }
+
+        // 5. Semantic authoring payloads (optional). They reuse the
+        //    exact commit-time validators, so a restored draft cannot
+        //    carry authority that would fail the live path.
+        if let annotationData = try readConsumed(
+            AnnotationEvidencePackage.path,
+            required: false
+        ) {
+            guard
+                let collection = try? decoder.decode(
+                    CaptureAnnotationCollection.self,
+                    from: annotationData
+                )
+            else {
+                throw CaptureWorkingSetError
+                    .invalidAnnotationPackage
+            }
+            let spaces = Set(
+                collection.entities.map(\.coordinateSpaceID)
+            )
+            guard spaces.count <= 1 else {
+                throw CaptureWorkingSetError.authorityMismatch
+            }
+            for entity in collection.entities {
+                try requireSpatialEvidenceCongruence(entity: entity)
+            }
+            try register(
+                BundlePayloadDeclaration(
+                    path: AnnotationEvidencePackage.path,
+                    mediaType: "application/json",
+                    producer: "annotation",
+                    provenanceClass:
+                        try annotationCollectionProvenance(
+                            collection
+                        ),
+                    role: .canonical
+                )
+            )
+            annotationCollection = collection
+            annotationKeysPresent = Set(
+                collection.entities.map(annotationQualityKey)
+            )
+        }
+        if let measurementData = try readConsumed(
+            MeasurementEvidencePackage.path,
+            required: false
+        ) {
+            guard
+                let collection = try? decoder.decode(
+                    CaptureMeasurementCollection.self,
+                    from: measurementData
+                )
+            else {
+                throw CaptureWorkingSetError
+                    .invalidMeasurementPackage
+            }
+            let spaces = Set(
+                collection.measurements.compactMap(
+                    \.coordinateSpaceID
+                )
+            )
+            guard spaces.count <= 1 else {
+                throw CaptureWorkingSetError.authorityMismatch
+            }
+            for measurement in collection.measurements {
+                try requireSpatialEvidenceCongruence(
+                    measurement: measurement
+                )
+            }
+            try register(
+                BundlePayloadDeclaration(
+                    path: MeasurementEvidencePackage.path,
+                    mediaType: "application/json",
+                    producer: "measurement",
+                    provenanceClass:
+                        try measurementCollectionProvenance(
+                            collection
+                        ),
+                    role: .canonical
+                )
+            )
+            measurementCollection = collection
+            measurementQuantityTypesPresent = Set(
+                collection.measurements.map(\.quantityType)
+            )
+        }
+        if let authorityData = try readConsumed(
+            TheaterAuthorityPackage.path,
+            required: false
+        ) {
+            guard
+                let collection = try? decoder.decode(
+                    TheaterAuthorityCollection.self,
+                    from: authorityData
+                )
+            else {
+                throw CaptureWorkingSetError
+                    .invalidAuthorityPackage
+            }
+            let validated = try validateTheaterAuthorityPackage(
+                TheaterAuthorityPackage(
+                    collection: collection,
+                    data: authorityData
+                ),
+                entities: annotationCollection?.entities ?? []
+            )
+            try register(validated.authorityDeclaration)
+            authorityCollection = collection
+        }
+        if let identityData = try readConsumed(
+            EquipmentIdentityEvidencePackage.path,
+            required: false
+        ) {
+            guard
+                let document = try? decoder.decode(
+                    EquipmentIdentityDocument.self,
+                    from: identityData
+                ),
+                let committedEntities =
+                    annotationCollection?.entities
+            else {
+                throw CaptureWorkingSetError
+                    .invalidAnnotationPackage
+            }
+            _ = try EquipmentIdentityDocument(
+                captureRevisionID: document.captureRevisionID,
+                coordinateSpaceID: document.coordinateSpaceID,
+                records: document.records,
+                entities: committedEntities,
+                recordedAtUTC: document.recordedAtUTC
+            )
+            let package = try EquipmentIdentityEvidencePackage(
+                document: document
+            )
+            try register(
+                BundlePayloadDeclaration(
+                    path: EquipmentIdentityEvidencePackage.path,
+                    mediaType: "application/json",
+                    producer: "capture_app",
+                    provenanceClass: .captureAppDerived,
+                    role: .derived,
+                    sourceRefs: package.sourceRefs
+                )
+            )
+        }
+        if let frameData = try readConsumed(
+            RoomReferenceFramePackage.path,
+            required: false
+        ) {
+            guard
+                let document = try? decoder.decode(
+                    RoomReferenceFrameDocument.self,
+                    from: frameData
+                ),
+                document.captureRevisionID
+                    == identity.captureRevisionID,
+                document.captureSessionID == captureSessionID,
+                document.coordinateSpaceID == coordinateSpaceID
+            else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+            try register(
+                RoomReferenceFramePackage(
+                    document: document,
+                    data: frameData
+                ).payloadDeclaration
+            )
+            roomReferenceFrame = document
+        }
+        if let reviewData = try readConsumed(
+            OpeningReviewPackage.path,
+            required: false
+        ) {
+            guard
+                let document = try? decoder.decode(
+                    OpeningReviewDocument.self,
+                    from: reviewData
+                ),
+                document.captureRevisionID
+                    == identity.captureRevisionID,
+                document.captureSessionID == captureSessionID,
+                document.coordinateSpaceID == coordinateSpaceID
+            else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+            for opening in document.openings {
+                for ref in opening.evidenceRefs {
+                    try requireSpatialEvidenceLinkCongruence(
+                        ref,
+                        coordinateSpaceID:
+                            document.coordinateSpaceID
+                    )
+                }
+            }
+            try register(
+                OpeningReviewPackage(
+                    document: document,
+                    data: reviewData
+                ).payloadDeclaration
+            )
+            openingReviewDocument = document
+        }
+        if let advisoryData = try readConsumed(
+            CaptureAdvisoryNoteDocument.path,
+            required: false
+        ) {
+            guard
+                let document = try? decoder.decode(
+                    CaptureAdvisoryNoteDocument.self,
+                    from: advisoryData
+                ),
+                document.captureRevisionID
+                    == identity.captureRevisionID
+            else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+            advisoryNotes = document.notes
+            try register(
+                BundlePayloadDeclaration(
+                    path: CaptureAdvisoryNoteDocument.path,
+                    mediaType: "application/json",
+                    producer: "capture_advisory",
+                    provenanceClass: .captureAppDerived,
+                    role: .derived
+                )
+            )
+        } else {
+            advisoryNotes = checkpoint.advisoryNotes
+            if !advisoryNotes.isEmpty {
+                missingCheckpoint.append("operator_advisories_file")
+            }
+        }
+
+        // 6. Operator supplemental payloads at reserved paths — these
+        //    carry the workflow state (task plan/status, connected
+        //    spaces, reference targets, derived candidates, as-built)
+        //    the recovered Review must show again.
+        for (path, binding) in BundleReservedPaths.exact {
+            switch path {
+            case
+                "session/capture-task-plan.json",
+                "session/task-plan-status.json",
+                "session/connected-spaces.json",
+                "evidence/reference-targets.json",
+                "derived/geometry-candidates.json",
+                "verification/as-built.json":
+                break
+            default:
+                continue
+            }
+            guard let data = try readConsumed(
+                path,
+                required: false
+            ) else {
+                continue
+            }
+            try register(
+                BundlePayloadDeclaration(
+                    path: path,
+                    mediaType: binding.mediaType,
+                    producer: binding.producer,
+                    provenanceClass: binding.provenanceClass,
+                    role: binding.role
+                )
+            )
+            supplementalDocuments[path] = data
+        }
+
+        // 7. Stale seal-time outputs are superseded by definition: a
+        //    relaunched draft re-evaluates quality from restored state,
+        //    so remove them (and report it) rather than let a prior
+        //    process's verdict shadow the recovered one.
+        for superseded in [
+            "quality/capture-quality.json",
+            "quality/capture-advisory.json",
+        ] where scannedByPath[superseded] != nil {
+            consumeIfPresent(superseded)
+            try await writer.removeIfPresent(
+                CaptureStorePath(superseded)
+            )
+            supersededPaths.append(superseded)
+        }
+
+        // 8. Anything the inventory could not classify stays on disk,
+        //    declared generically, and is reported as unsupported —
+        //    never silently dropped and never blocking recovery.
+        var unsupportedPaths: [String] = []
+        for path in scannedByPath.keys.sorted(
+            by: BundleLogicalPath.utf8Less
+        ) {
+            unsupportedPaths.append(path)
+            try register(
+                BundlePayloadDeclaration(
+                    path: path,
+                    mediaType: "application/octet-stream",
+                    producer: "capture_app",
+                    provenanceClass: .captureAppDerived,
+                    role: .derived
+                )
+            )
+        }
+
+        // 9. Checkpoint → volatile evaluation inputs.
+        trackingIntervals = checkpoint.trackingIntervals.map {
+            TrackingInterval(
+                state: $0.state,
+                reason: $0.reason,
+                firstSeconds: $0.firstSeconds,
+                lastSeconds: $0.lastSeconds,
+                sampleCount: $0.sampleCount
+            )
+        }
+        resourceEvents = checkpoint.resourceEvents
+        benchmarkRefs = checkpoint.benchmarkRefs
+        taskProfile = checkpoint.taskProfile
+        skippedTaskRequirementIDs = Set(
+            checkpoint.skippedTaskRequirementIDs
+        )
+        endBoundaryFrameIDs = Set(checkpoint.endBoundaryFrameIDs)
+        advisoryEndContext = checkpoint.endCoverage
+        if checkpoint.endCoverage == nil {
+            missingCheckpoint.append("end_coverage")
+        }
+        roomPlanGuidanceAvailable =
+            checkpoint.roomPlanGuidanceAvailable
+        recoveredRoomPlanGuidance = checkpoint.roomPlanGuidance
+        if checkpoint.roomPlanGuidanceAvailable,
+           checkpoint.roomPlanGuidance == nil
+        {
+            missingCheckpoint.append("roomplan_guidance")
+        }
+        recoveredMeshLifecycle = checkpoint.meshLifecycle
+        if checkpoint.meshLifecycle == nil {
+            missingCheckpoint.append("mesh_lifecycle")
+        }
+        if checkpoint.taskProfile == nil,
+           !checkpoint.skippedTaskRequirementIDs.isEmpty
+        {
+            missingCheckpoint.append("task_profile")
+        }
+
+        liveSpatialAuthority = false
+        revisionPhase = state.phase
+
+        // Everything now mirrors what the live commit path produced;
+        // run the same byte-vs-declaration proof a seal runs.
+        try verifyIntegrity()
+
+        return WorkingRevisionRestoreReport(
+            unsupportedPaths: unsupportedPaths,
+            supersededPaths: supersededPaths,
+            missingCheckpointFields: missingCheckpoint.sorted()
+        )
+    }
+
+    /// Reads the durable phase marker of a `working/<uuid>` directory
+    /// without mutating anything. Used by the inventory to separate
+    /// recoverable post-End drafts from mid-scan leftovers (issue #297).
+    public static func peekRevisionPhase(
+        workingRevisionURL url: URL
+    ) -> WorkingRevisionStateDocument? {
+        guard
+            let data = try? Data(
+                contentsOf: url
+                    .appendingPathComponent(
+                        "session",
+                        isDirectory: true
+                    )
+                    .appendingPathComponent(
+                        "revision-state.json",
+                        isDirectory: false
+                    )
+            ),
+            let document = try? WorkingRevisionStateDocument
+                .decode(data)
+        else {
+            return nil
+        }
+        return document
     }
 
     /// Bounded append for resource diagnostics so persistence and

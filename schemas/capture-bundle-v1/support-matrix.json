@@ -391,6 +391,19 @@
       "read": [
         "1.0.0"
       ]
+    },
+    "revision-state": {
+      "schema_id": "htdt.working-revision-state",
+      "paths": [
+        "session/revision-state.json"
+      ],
+      "documents": {
+        "1.0.0": "revision-state"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
     }
   }
 }
