@@ -1019,10 +1019,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 $0.outcome != .migrated
             }
             if !preserved.isEmpty {
-                localStateUpgradeNotice = HostLocalization.text(
-                    "Some saved app data was written by a different app version and was kept unchanged so nothing was lost",
-                    "異なるバージョンのアプリで保存されたデータは失われないよう変更せずに保持しました"
-                )
+                localStateUpgradeNotice = String(localized: "Some saved app data was written by a different app version and was kept unchanged so nothing was lost")
             }
         }
 
@@ -7235,16 +7232,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
         switch availability {
         case .idleOnly:
-            workingSetStatus = HostLocalization.text(
-                "This document can only be imported while no capture is active",
-                "キャプチャ実行中はこのドキュメントを読み込めません"
-            )
+            workingSetStatus = String(localized: "This document can only be imported while no capture is active")
             return
         case .unsupported:
-            workingSetStatus = HostLocalization.text(
-                "The selected file is not a recognized HTDT document",
-                "選択したファイルは認識できるHTDTドキュメントではありません"
-            )
+            workingSetStatus = String(localized: "The selected file is not a recognized HTDT document")
             return
         case .allowed, .storableDuringActiveCapture:
             break
@@ -7275,10 +7266,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let access = SecurityScopedAccess(url: url)
         defer { access.finish() }
         guard let data = try? Data(contentsOf: url) else {
-            workingSetStatus = HostLocalization.text(
-                "The equipment catalog could not be read",
-                "機器カタログを読み込めませんでした"
-            )
+            workingSetStatus = String(localized: "The equipment catalog could not be read")
             return
         }
         do {
@@ -7293,25 +7281,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 _ = try equipmentCatalogStore?
                     .storeAndActivate(encoded)
                 equipmentCatalog = snapshot
-                workingSetStatus = HostLocalization.text(
-                    "Equipment catalog imported",
-                    "機器カタログを読み込みました"
-                )
+                workingSetStatus = String(localized: "Equipment catalog imported")
             } else {
                 _ = try equipmentCatalogStore?.store(encoded)
-                workingSetStatus = HostLocalization.text(
-                    "Equipment catalog stored; activate it from the catalog picker",
-                    "機器カタログを保存しました。カタログピッカーから有効化してください"
-                )
+                workingSetStatus = String(localized: "Equipment catalog stored; activate it from the catalog picker")
             }
             equipmentCatalogLibrary =
                 equipmentCatalogStore?.list()
                     ?? equipmentCatalogLibrary
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The equipment catalog could not be imported",
-                "機器カタログを読み込めませんでした"
-            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            workingSetStatus = String(localized: "The equipment catalog could not be imported") + " [" + Self.persistenceDiagnostic(error) + "]"
         }
     }
 
@@ -7321,10 +7300,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// until `confirmLibraryImport`.
     func importLibraryPackage(from url: URL) {
         guard state == .idle else {
-            workingSetStatus = HostLocalization.text(
-                "A library package can only be imported while no capture is active",
-                "キャプチャ実行中はライブラリパッケージを読み込めません"
-            )
+            workingSetStatus = String(localized: "A library package can only be imported while no capture is active")
             return
         }
         guard !importOperationInFlight,
@@ -7337,10 +7313,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         let access = SecurityScopedAccess(url: url)
         importOperationInFlight = true
-        workingSetStatus = HostLocalization.text(
-            "Validating the library package",
-            "ライブラリパッケージを検証しています"
-        )
+        workingSetStatus = String(localized: "Validating the library package")
         let localRecords = persistedInventory.captures
         Task { @MainActor [weak self] in
             guard let self else {
@@ -7381,24 +7354,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.libraryImportPreview = preview
                 self.workingSetStatus =
                     preview.importableCount > 0
-                    ? HostLocalization.text(
-                        "Library package ready: \(preview.importableCount) revision(s) to import",
-                        "ライブラリパッケージを読み込めます: \(preview.importableCount) リビジョン"
-                    )
-                    : HostLocalization.text(
-                        "Nothing new to import from this library package",
-                        "このライブラリパッケージから読み込む新しいリビジョンはありません"
-                    )
+                    ? String(localized: "Library package ready: \(preview.importableCount) revision(s) to import")
+                    : String(localized: "Nothing new to import from this library package")
             } catch {
                 try? FileManager.default.removeItem(
                     at: staging
                 )
                 guard self.state == .idle else { return }
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "The library package failed validation; nothing was imported",
-                        "ライブラリパッケージの検証に失敗したため何も読み込まれませんでした"
-                    )
+                    String(localized: "The library package failed validation; nothing was imported")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -7418,10 +7382,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
         importOperationInFlight = true
-        workingSetStatus = HostLocalization.text(
-            "Importing the library package",
-            "ライブラリパッケージを読み込んでいます"
-        )
+        workingSetStatus = String(localized: "Importing the library package")
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
@@ -7440,30 +7401,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }.value
                 self.loadPersistedCaptures()
                 self.refreshMissionDeliveryStores()
-                var status = HostLocalization.text(
-                    "Imported \(result.imported.count) revision(s)",
-                    "\(result.imported.count) リビジョンを読み込みました"
-                )
+                var status = String(localized: "Imported \(result.imported.count) revision(s)")
                 if !result.failed.isEmpty {
-                    status += HostLocalization.text(
-                        "; \(result.failed.count) could not be imported and were left untouched",
-                        "。\(result.failed.count) 件は読み込めず変更されていません"
-                    )
+                    status += String(localized: "; \(result.failed.count) could not be imported and were left untouched")
                 }
                 if !result.conflicts.isEmpty {
-                    status += HostLocalization.text(
-                        "; \(result.conflicts.count) conflict(s) skipped",
-                        "。\(result.conflicts.count) 件の競合をスキップしました"
-                    )
+                    status += String(localized: "; \(result.conflicts.count) conflict(s) skipped")
                 }
                 self.workingSetStatus = status
             } catch {
                 self.loadPersistedCaptures()
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "The library package import did not complete",
-                        "ライブラリパッケージの読み込みが完了しませんでした"
-                    )
+                    String(localized: "The library package import did not complete")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -7492,10 +7441,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
         exportOperationInFlight = true
-        workingSetStatus = HostLocalization.text(
-            "Exporting the capture library",
-            "キャプチャライブラリを書き出しています"
-        )
+        workingSetStatus = String(localized: "Exporting the capture library")
         let records = persistedInventory.captures
         let metadata = libraryMetadata
         let receipts = handoffReceipts
@@ -7534,23 +7480,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     )
                 }.value
                 self.libraryExportURL = result.packageURL
-                var status = HostLocalization.text(
-                    "Library package exported (\(result.revisionCount) revision(s))",
-                    "ライブラリパッケージを書き出しました（\(result.revisionCount) リビジョン）"
-                )
+                var status = String(localized: "Library package exported (\(result.revisionCount) revision(s))")
                 if !result.skippedRevisions.isEmpty {
-                    status += HostLocalization.text(
-                        "; \(result.skippedRevisions.count) revision(s) had no exportable evidence",
-                        "。\(result.skippedRevisions.count) リビジョンには書き出せるエビデンスがありませんでした"
-                    )
+                    status += String(localized: "; \(result.skippedRevisions.count) revision(s) had no exportable evidence")
                 }
                 self.workingSetStatus = status
             } catch {
                 self.workingSetStatus =
-                    HostLocalization.text(
-                        "The library package could not be exported",
-                        "ライブラリパッケージを書き出せませんでした"
-                    )
+                    String(localized: "The library package could not be exported")
                     + " ["
                     + Self.persistenceDiagnostic(error)
                     + "]"
@@ -7582,19 +7519,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             libraryMetadata = try store.load()
             workingSetStatus = archived
-                ? HostLocalization.text(
-                    "Series archived; its captures and history are unchanged",
-                    "シリーズをアーカイブしました。キャプチャと履歴は変更されていません"
-                )
-                : HostLocalization.text(
-                    "Series restored to the active library",
-                    "シリーズをアクティブなライブラリに戻しました"
-                )
+                ? String(localized: "Series archived; its captures and history are unchanged")
+                : String(localized: "Series restored to the active library")
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The series state could not be saved",
-                "シリーズの状態を保存できませんでした"
-            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            workingSetStatus = String(localized: "The series state could not be saved") + " [" + Self.persistenceDiagnostic(error) + "]"
         }
     }
 
@@ -7618,10 +7546,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             libraryMetadata = try store.load()
         } catch {
-            workingSetStatus = HostLocalization.text(
-                "The revision mark could not be saved",
-                "リビジョンのマークを保存できませんでした"
-            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            workingSetStatus = String(localized: "The revision mark could not be saved") + " [" + Self.persistenceDiagnostic(error) + "]"
         }
     }
 
@@ -7644,10 +7569,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let jobs = deliveryJobs
         let missions = missionRecords
         let receipts = handoffReceipts
-        workingSetStatus = HostLocalization.text(
-            "Deleting the series",
-            "シリーズを削除しています"
-        )
+        workingSetStatus = String(localized: "Deleting the series")
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.persistedDeletionInFlight = false }
@@ -7671,21 +7593,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             }.value
             self.loadPersistedCaptures()
-            var status = HostLocalization.text(
-                "Deleted \(result.deleted.count) revision(s)",
-                "\(result.deleted.count) リビジョンを削除しました"
-            )
+            var status = String(localized: "Deleted \(result.deleted.count) revision(s)")
             if !result.skipped.isEmpty {
-                status += HostLocalization.text(
-                    "; \(result.skipped.count) blocked revision(s) were kept",
-                    "。\(result.skipped.count) 件はブロックされ残っています"
-                )
+                status += String(localized: "; \(result.skipped.count) blocked revision(s) were kept")
             }
             if !result.remaining.isEmpty {
-                status += HostLocalization.text(
-                    "; \(result.remaining.count) revision(s) could not be fully removed",
-                    "。\(result.remaining.count) 件は完全に削除できませんでした"
-                )
+                status += String(localized: "; \(result.remaining.count) revision(s) could not be fully removed")
             }
             self.workingSetStatus = status
         }
