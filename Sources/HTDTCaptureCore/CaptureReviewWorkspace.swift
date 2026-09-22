@@ -114,6 +114,7 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
             case annotation
             case roomFrameOrigin
             case roomFrameFront
+<<<<<<< HEAD
             // Committed spatial-authority entities (issue #367): the
             // glyph grammar distinguishes equipment classes instead of
             // one generic object dot.
@@ -125,6 +126,11 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
             case measurement
             case referencePoint
             case genericEntity
+||||||| 4bf7c9b
+=======
+            /// An unresolved operator revisit flag (#325).
+            case revisitFlag
+>>>>>>> origin/main
         }
 
         public let kind: Kind
@@ -247,6 +253,14 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
     /// finalization (issue #276): semantic edits remain allowed but
     /// live spatial capture is unavailable.
     public let spatialCaptureSealed: Bool
+    /// Operator revisit flags dropped during scanning (#325) — every
+    /// unresolved flag must surface here for mandatory review.
+    public let revisitFlags: [ScanRevisitFlag]
+    /// The imported HTDT task plan bound before scanning (#352), when
+    /// the capture carries one. Mission intent, not observed truth.
+    public let captureTaskPlan: HTDTCaptureTaskPlan?
+    /// Task-plan item outcomes as of Review time (#352).
+    public let taskPlanStatus: CaptureTaskPlanStatusDocument?
     /// Decoding/enumeration problems that degraded the workspace. A
     /// missing optional payload is not an issue; an unreadable declared
     /// payload is listed so the UI can degrade to text while naming
@@ -274,6 +288,9 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
         qualityReport: CaptureQualityReport?,
         readOnly: Bool,
         spatialCaptureSealed: Bool,
+        revisitFlags: [ScanRevisitFlag] = [],
+        captureTaskPlan: HTDTCaptureTaskPlan? = nil,
+        taskPlanStatus: CaptureTaskPlanStatusDocument? = nil,
         issues: [String] = []
     ) {
         self.captureRevisionID = captureRevisionID
@@ -295,6 +312,9 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
         self.qualityReport = qualityReport
         self.readOnly = readOnly
         self.spatialCaptureSealed = spatialCaptureSealed
+        self.revisitFlags = revisitFlags
+        self.captureTaskPlan = captureTaskPlan
+        self.taskPlanStatus = taskPlanStatus
         self.issues = issues
     }
 }
@@ -463,6 +483,22 @@ public enum CaptureReviewWorkspaceLoader {
             CoordinateSpacePolicyDocument.self,
             CoordinateSpacePolicyPackage.path
         )
+        let revisitFlagDocument = decodeIfDeclared(
+            CaptureRevisitFlagDocument.self,
+            CaptureRevisitFlagDocument.path
+        )
+        // #352: the mission authority the capture was bound to before
+        // scanning — the verbatim imported plan plus the live item
+        // status derived alongside it. The plan file stores the plan
+        // bytes verbatim (no envelope).
+        let captureTaskPlan = decodeIfDeclared(
+            HTDTCaptureTaskPlan.self,
+            CaptureTaskPlanImport.path
+        )
+        let taskPlanStatus = decodeIfDeclared(
+            CaptureTaskPlanStatusDocument.self,
+            CaptureTaskPlanStatusDocument.path
+        )
 
         // Frame descriptors are enumerated from the declared set, not
         // from the filesystem listing alone.
@@ -624,6 +660,9 @@ public enum CaptureReviewWorkspaceLoader {
             qualityReport: quality,
             readOnly: readOnly,
             spatialCaptureSealed: spatialCaptureSealed,
+            revisitFlags: revisitFlagDocument?.flags ?? [],
+            captureTaskPlan: captureTaskPlan,
+            taskPlanStatus: taskPlanStatus,
             issues: issues
         )
     }

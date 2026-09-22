@@ -24,6 +24,22 @@ public struct CaptureReviewWorkspaceView: View {
     public let captureRoomFrameOrigin: () -> Void
     public let confirmRoomReferenceFrame: () -> Void
     public let roomFrameOriginPending: WorldPoint3D?
+    /// #325: resolves a revisit flag — the outcome names the real
+    /// authority it resolved to (or acknowledge/unavailable); the
+    /// marker itself is never mutated into an annotation.
+    public let resolveRevisitFlag:
+        (
+            String,
+            ScanRevisitFlagResolution.Outcome,
+            String?
+        ) -> Void
+    /// #325: reopens a resolved/skipped flag when the marker needs
+    /// review again.
+    public let reopenRevisitFlag: (String) -> Void
+    /// #352: marks one imported task-plan checklist item
+    /// skipped/unavailable from Review.
+    public let markTaskPlanItem:
+        (String, TaskPlanItemOutcome) -> Void
     /// #232: confirms a field/install datum derived from the
     /// committed room reference frame. Returns false when the room
     /// frame is missing or the commit failed.
@@ -66,6 +82,15 @@ public struct CaptureReviewWorkspaceView: View {
             ([RoomOpeningCandidate]) async -> Bool = { _ in false },
         captureRoomFrameOrigin: @escaping () -> Void = {},
         confirmRoomReferenceFrame: @escaping () -> Void = {},
+        resolveRevisitFlag: @escaping
+            (
+                String,
+                ScanRevisitFlagResolution.Outcome,
+                String?
+            ) -> Void = { _, _, _ in },
+        reopenRevisitFlag: @escaping (String) -> Void = { _ in },
+        markTaskPlanItem: @escaping
+            (String, TaskPlanItemOutcome) -> Void = { _, _ in },
         confirmFieldDatumFromRoomFrame: @escaping
             () async -> Bool = { false },
         removeRoomFieldDatum: @escaping () async -> Void = {},
@@ -80,6 +105,9 @@ public struct CaptureReviewWorkspaceView: View {
         self.commitOpeningReview = commitOpeningReview
         self.captureRoomFrameOrigin = captureRoomFrameOrigin
         self.confirmRoomReferenceFrame = confirmRoomReferenceFrame
+        self.resolveRevisitFlag = resolveRevisitFlag
+        self.reopenRevisitFlag = reopenRevisitFlag
+        self.markTaskPlanItem = markTaskPlanItem
         self.confirmFieldDatumFromRoomFrame =
             confirmFieldDatumFromRoomFrame
         self.removeRoomFieldDatum = removeRoomFieldDatum
@@ -129,6 +157,10 @@ public struct CaptureReviewWorkspaceView: View {
                     .foregroundStyle(.secondary)
                 }
             }
+
+            captureMissionSection
+
+            revisitFlagsSection
 
             Section(
                 model.readOnly
@@ -747,11 +779,262 @@ public struct CaptureReviewWorkspaceView: View {
         }
     }
 
+<<<<<<< HEAD
     /// Preview-first evidence row (issue #367): thumbnail, human
     /// retention label, linked subjects, status symbols. Exact refs —
     /// frame ID, byte count, source paths — stay one disclosure away,
     /// and removal lives in the context menu, never in the primary
     /// row.
+||||||| 4bf7c9b
+=======
+    /// #352: the mission bound before acquisition. Mission
+    /// completeness is displayed against committed outcomes and stays
+    /// distinct from the technical `ready_for_htdt_ingestion` verdict.
+    @ViewBuilder
+    private var captureMissionSection: some View {
+        if let plan = model.captureTaskPlan {
+            Section {
+                LabeledContent(
+                    "Plan",
+                    value: "\(plan.planID) · v\(plan.planVersion)"
+                )
+                LabeledContent("Room", value: plan.roomName)
+                LabeledContent(
+                    "Issued",
+                    value: plan.issuedAtUTC ?? "—"
+                )
+                if let status = model.taskPlanStatus {
+                    let done = status.items.filter {
+                        $0.outcome == .completed
+                    }.count
+                    let pending = status.items.filter {
+                        $0.outcome == .pending
+                    }.count
+                    LabeledContent(
+                        "Checklist",
+                        value: String(
+                            format: String(
+                                localized:
+                                    "%d complete · %d pending · %d items"
+                            ),
+                            done,
+                            pending,
+                            status.items.count
+                        )
+                    )
+                } else {
+                    Text("No checklist outcomes recorded")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                NavigationLink("Review mission checklist") {
+                    CaptureTaskPlanChecklistView(
+                        plan: plan,
+                        outcomes:
+                            model.taskPlanStatus?.items ?? [],
+                        onMark: markTaskPlanItem
+                    )
+                }
+            } header: {
+                Text("Capture mission")
+            } footer: {
+                Text(
+                    "Mission completeness is reviewed against the bound plan — it is workflow intent, not observed truth, and never replaces technical readiness."
+                )
+            }
+        }
+    }
+
+    /// #325: every unresolved flag dropped during scanning is listed
+    /// for mandatory review, each with its location, suggested
+    /// remediation route, and explicit resolve/skip actions. Resolving
+    /// links a real authority rather than editing the marker.
+    @ViewBuilder
+    private var revisitFlagsSection: some View {
+        if !model.revisitFlags.isEmpty {
+            Section {
+                ForEach(model.revisitFlags) { flag in
+                    revisitFlagRow(flag)
+                }
+            } header: {
+                Text("Review flags")
+            } footer: {
+                Text(
+                    "Flags are operator intent markers, not measurements. Resolve each against a remediation workflow or acknowledge it; unresolved flags stay listed until explicit disposition."
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func revisitFlagRow(
+        _ flag: ScanRevisitFlag
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(
+                    systemName: flag.status == .unresolved
+                        ? "flag.fill"
+                        : "flag"
+                )
+                .foregroundStyle(revisitFlagTint(flag))
+                Text(
+                    flag.category.map {
+                        revisitFlagCategoryLabel($0)
+                    } ?? String(localized: "Flag")
+                )
+                .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(flag.status.rawValue)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(flag.locationSummary)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+
+            if let note = flag.note {
+                Text(note)
+                    .font(.caption)
+            }
+
+            Text(
+                revisitFlagRemediationLabel(
+                    flag.suggestedRemediation
+                )
+            )
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+
+            if !model.readOnly {
+                switch flag.status {
+                case .unresolved:
+                    HStack(spacing: 10) {
+                        Menu("Resolve") {
+                            Button(
+                                "Link to authority"
+                            ) {
+                                resolveRevisitFlag(
+                                    flag.flagID,
+                                    .linkedAuthority,
+                                    nil
+                                )
+                            }
+                            Button("Acknowledged") {
+                                resolveRevisitFlag(
+                                    flag.flagID,
+                                    .acknowledged,
+                                    nil
+                                )
+                            }
+                            Button(
+                                "Mark unavailable"
+                            ) {
+                                resolveRevisitFlag(
+                                    flag.flagID,
+                                    .markedUnavailable,
+                                    nil
+                                )
+                            }
+                        }
+                        .font(.caption)
+                        Button("Skip") {
+                            resolveRevisitFlag(
+                                flag.flagID,
+                                .acknowledged,
+                                nil
+                            )
+                        }
+                        .font(.caption)
+                    }
+                case .resolved, .skipped, .unavailable:
+                    Button("Reopen") {
+                        reopenRevisitFlag(flag.flagID)
+                    }
+                    .font(.caption)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func revisitFlagTint(
+        _ flag: ScanRevisitFlag
+    ) -> Color {
+        switch flag.status {
+        case .unresolved:
+            return .orange
+        case .resolved:
+            return .green
+        case .skipped:
+            return .secondary
+        case .unavailable:
+            return .gray
+        }
+    }
+
+    private func revisitFlagRemediationLabel(
+        _ remediation: ScanRevisitRemediation
+    ) -> String {
+        switch remediation {
+        case .targetedRescan:
+            return String(
+                localized:
+                    "Suggested: targeted rescan"
+            )
+        case .annotation:
+            return String(
+                localized:
+                    "Suggested: annotate in Review"
+            )
+        case .reobserve:
+            return String(
+                localized:
+                    "Suggested: re-observe region"
+            )
+        case .measurement:
+            return String(
+                localized:
+                    "Suggested: re-measure"
+            )
+        case .equipmentNote:
+            return String(
+                localized:
+                    "Suggested: equipment note"
+            )
+        case .generalReview:
+            return String(
+                localized:
+                    "Suggested: general review"
+            )
+        }
+    }
+
+    private func revisitFlagCategoryLabel(
+        _ category: ScanRevisitFlagCategory
+    ) -> String {
+        switch category {
+        case .geometry:
+            return String(localized: "Geometry")
+        case .opening:
+            return String(localized: "Opening")
+        case .reflectiveTransparent:
+            return String(
+                localized: "Reflective / transparent"
+            )
+        case .objectDetail:
+            return String(localized: "Object detail")
+        case .measurement:
+            return String(localized: "Measurement")
+        case .equipment:
+            return String(localized: "Equipment")
+        case .other:
+            return String(localized: "Other")
+        }
+    }
+
+>>>>>>> origin/main
     @ViewBuilder
     private func evidenceRow(
         _ item: ReviewEvidenceItem
@@ -1006,6 +1289,193 @@ public struct CaptureReviewWorkspaceView: View {
 }
 
 
+<<<<<<< HEAD
+||||||| 4bf7c9b
+    public init(model: RoomPlanPreviewModel) {
+        self.model = model
+    }
+
+    public var body: some View {
+        Canvas { context, size in
+            let spanX = max(model.maxX - model.minX, 0.01)
+            let spanZ = max(model.maxZ - model.minZ, 0.01)
+            let scale = min(
+                Double(size.width) / spanX,
+                Double(size.height) / spanZ
+            ) * 0.9
+            let offsetX =
+                (Double(size.width) - spanX * scale) / 2
+            let offsetY =
+                (Double(size.height) - spanZ * scale) / 2
+
+            func point(_ x: Double, _ z: Double) -> CGPoint {
+                CGPoint(
+                    x: offsetX
+                        + (x - model.minX) * scale,
+                    y: offsetY
+                        + (z - model.minZ) * scale
+                )
+            }
+
+            for wall in model.walls {
+                var path = Path()
+                path.move(
+                    to: point(wall.startX, wall.startZ)
+                )
+                path.addLine(
+                    to: point(wall.endX, wall.endZ)
+                )
+                context.stroke(
+                    path,
+                    with: .color(.primary),
+                    lineWidth: 2
+                )
+            }
+
+            for marker in model.markers {
+                let p = point(marker.x, marker.z)
+                let color: Color =
+                    switch marker.kind {
+                    case .door: .green
+                    case .window: .blue
+                    case .opening: .teal
+                    case .object: .gray
+                    case .annotation: .orange
+                    case .roomFrameOrigin: .red
+                    case .roomFrameFront: .purple
+                    }
+                let rect = CGRect(
+                    x: p.x - 4,
+                    y: p.y - 4,
+                    width: 8,
+                    height: 8
+                )
+                context.fill(
+                    Path(ellipseIn: rect),
+                    with: .color(color)
+                )
+                if let dirX = marker.dirX,
+                   let dirZ = marker.dirZ
+                {
+                    let len = max(
+                        (dirX * dirX + dirZ * dirZ)
+                            .squareRoot(),
+                        0.001
+                    )
+                    var arrow = Path()
+                    arrow.move(to: p)
+                    arrow.addLine(
+                        to: CGPoint(
+                            x: p.x + dirX / len * 14,
+                            y: p.y + dirZ / len * 14
+                        )
+                    )
+                    context.stroke(
+                        arrow,
+                        with: .color(color),
+                        lineWidth: 1
+                    )
+                }
+            }
+        }
+        .background(.quaternary)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+=======
+    public init(model: RoomPlanPreviewModel) {
+        self.model = model
+    }
+
+    public var body: some View {
+        Canvas { context, size in
+            let spanX = max(model.maxX - model.minX, 0.01)
+            let spanZ = max(model.maxZ - model.minZ, 0.01)
+            let scale = min(
+                Double(size.width) / spanX,
+                Double(size.height) / spanZ
+            ) * 0.9
+            let offsetX =
+                (Double(size.width) - spanX * scale) / 2
+            let offsetY =
+                (Double(size.height) - spanZ * scale) / 2
+
+            func point(_ x: Double, _ z: Double) -> CGPoint {
+                CGPoint(
+                    x: offsetX
+                        + (x - model.minX) * scale,
+                    y: offsetY
+                        + (z - model.minZ) * scale
+                )
+            }
+
+            for wall in model.walls {
+                var path = Path()
+                path.move(
+                    to: point(wall.startX, wall.startZ)
+                )
+                path.addLine(
+                    to: point(wall.endX, wall.endZ)
+                )
+                context.stroke(
+                    path,
+                    with: .color(.primary),
+                    lineWidth: 2
+                )
+            }
+
+            for marker in model.markers {
+                let p = point(marker.x, marker.z)
+                let color: Color =
+                    switch marker.kind {
+                    case .door: .green
+                    case .window: .blue
+                    case .opening: .teal
+                    case .object: .gray
+                    case .annotation: .orange
+                    case .roomFrameOrigin: .red
+                    case .roomFrameFront: .purple
+                    case .revisitFlag: .pink
+                    }
+                let rect = CGRect(
+                    x: p.x - 4,
+                    y: p.y - 4,
+                    width: 8,
+                    height: 8
+                )
+                context.fill(
+                    Path(ellipseIn: rect),
+                    with: .color(color)
+                )
+                if let dirX = marker.dirX,
+                   let dirZ = marker.dirZ
+                {
+                    let len = max(
+                        (dirX * dirX + dirZ * dirZ)
+                            .squareRoot(),
+                        0.001
+                    )
+                    var arrow = Path()
+                    arrow.move(to: p)
+                    arrow.addLine(
+                        to: CGPoint(
+                            x: p.x + dirX / len * 14,
+                            y: p.y + dirZ / len * 14
+                        )
+                    )
+                    context.stroke(
+                        arrow,
+                        with: .color(color),
+                        lineWidth: 1
+                    )
+                }
+            }
+        }
+        .background(.quaternary)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+>>>>>>> origin/main
 
 #if os(iOS)
 /// Loads a preview HEIC lazily for the evidence gallery. Previews are

@@ -883,6 +883,7 @@ final class ScanningUXPolicyTests: XCTestCase {
             limitedTrackingObservationCount: 0,
             lastObservedTimestampSeconds: Double(observations),
             viewAngleBucketMask: mask,
+            elevationBucketMask: 0,
             latestDistanceBucket: distance,
             depthObservationCount: observations,
             meshSupportCount: observations,
