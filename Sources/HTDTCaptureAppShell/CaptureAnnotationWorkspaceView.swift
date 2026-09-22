@@ -103,6 +103,13 @@ public struct CaptureAnnotationWorkspaceView: View {
     /// ever seeds the workspace when both IDs match exactly.
     public let draftStore: AnnotationWorkspaceDraftStore?
     public let draftRevisionID: CaptureRevisionID?
+    /// Live task-plan tracker — when bound, the authority workspace
+    /// deep-links mission items into record authoring (#357/#359).
+    public let taskPlanStatus: Binding<CaptureTaskPlanStatus>?
+    /// Design targets for the placement-verification flow (#346).
+    public let plannedTargets: [PlannedAsBuiltSpec]
+    /// Proven plan alignment the placement assist runs under (#293).
+    public let establishedAlignment: PlanAlignmentAuthority?
     /// Validates and adopts an imported catalog snapshot through the
     /// host (#211). The host keeps the catalog alive across this view's
     /// lifecycle (and relaunch, via an app-support cache); the default
@@ -187,6 +194,9 @@ public struct CaptureAnnotationWorkspaceView: View {
         speakerLayoutPlans: [SpeakerLayoutPlan] = [],
         draftStore: AnnotationWorkspaceDraftStore? = nil,
         draftRevisionID: CaptureRevisionID? = nil,
+        taskPlanStatus: Binding<CaptureTaskPlanStatus>? = nil,
+        plannedTargets: [PlannedAsBuiltSpec] = [],
+        establishedAlignment: PlanAlignmentAuthority? = nil,
         onImportEquipmentCatalog: @escaping
             (Data) throws -> HTDTEquipmentCatalogSnapshot = { data in
                 try JSONDecoder().decode(
@@ -230,6 +240,9 @@ public struct CaptureAnnotationWorkspaceView: View {
         self.speakerLayoutPlans = speakerLayoutPlans
         self.draftStore = draftStore
         self.draftRevisionID = draftRevisionID
+        self.taskPlanStatus = taskPlanStatus
+        self.plannedTargets = plannedTargets
+        self.establishedAlignment = establishedAlignment
         self.onImportEquipmentCatalog = onImportEquipmentCatalog
         self.taskProfile = taskProfile
         self.onSelectTaskProfile = onSelectTaskProfile
@@ -323,6 +336,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         .onChange(of: annotations) { _, _ in scheduleDraftSave() }
         .onChange(of: measurements) { _, _ in scheduleDraftSave() }
         .onChange(of: identityRecords) { _, _ in scheduleDraftSave() }
+        .onChange(of: authorities) { _, _ in scheduleDraftSave() }
         .onDisappear {
             // Final flush — an interrupting view teardown must still
             // leave the draft durable.
@@ -378,7 +392,8 @@ public struct CaptureAnnotationWorkspaceView: View {
             annotations: annotations,
             measurements: measurements,
             equipmentIdentityRecords: identityRecords,
-            speakerLayoutPlan: speakerLayoutPlan
+            speakerLayoutPlan: speakerLayoutPlan,
+            authorities: authorities
         )
         try? draftStore.save(draft)
     }
@@ -807,8 +822,12 @@ public struct CaptureAnnotationWorkspaceView: View {
                 captureRevisionID: captureRevisionID,
                 availableEvidenceRefs: availableEvidenceRefs,
                 entities: annotations,
+                measurements: measurements,
                 roomPlanSurfaces: roomPlanSurfaces,
                 meshAnchors: meshAnchors,
+                plannedTargets: plannedTargets,
+                establishedAlignment: establishedAlignment,
+                taskPlanStatus: taskPlanStatus,
                 authorities: $authorities
             )
         }
