@@ -53,6 +53,25 @@
                 <string>application/vnd.htdt.capture+zip</string>
             </dict>
         </dict>
+        <dict>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.zip-archive</string>
+            </array>
+            <key>UTTypeDescription</key>
+            <string>HTDT Capture Library Package</string>
+            <key>UTTypeIdentifier</key>
+            <string>com.hometheaterdigitaltwin.capture-library</string>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>htdtcapturelibrary</string>
+                </array>
+                <key>public.mime-type</key>
+                <string>application/vnd.htdt.capture-library+zip</string>
+            </dict>
+        </dict>
     </array>
     <key>CFBundleDocumentTypes</key>
     <array>
@@ -66,6 +85,30 @@
             <key>LSItemContentTypes</key>
             <array>
                 <string>com.hometheaterdigitaltwin.capture-bundle</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>HTDT Capture Library Package</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.hometheaterdigitaltwin.capture-library</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>HTDT Mission Package</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.json</string>
             </array>
         </dict>
     </array>
