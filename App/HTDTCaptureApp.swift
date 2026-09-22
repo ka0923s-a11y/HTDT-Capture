@@ -113,6 +113,8 @@ private struct HTDTCaptureHostView: View {
             persistedWorkspace: coordinator.persistedWorkspace,
             roomFrameOriginPending:
                 coordinator.roomFrameOriginPending,
+            openingCenterPending:
+                coordinator.openingCenterPending,
             danglingSpatialIssues:
                 coordinator.danglingSpatialIssues,
             handoffDestinations:
@@ -213,6 +215,15 @@ private struct HTDTCaptureHostView: View {
                     coordinator.captureRoomFrameOriginPoint,
                 confirmRoomReferenceFrame:
                     coordinator.confirmRoomReferenceFrame,
+                confirmFieldDatumFromRoomFrame:
+                    coordinator
+                        .confirmFieldDatumFromRoomFrame,
+                removeRoomFieldDatum:
+                    coordinator.removeRoomFieldDatum,
+                captureOpeningCenter:
+                    coordinator.captureOpeningCenterPoint,
+                clearOpeningCenter:
+                    coordinator.clearOpeningCenterPoint,
                 openingReviewCandidates:
                     coordinator.openingReviewCandidates,
                 commitOpeningReview:
@@ -404,6 +415,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// frame capture (issue #232).
     @Published private(set)
     var roomFrameOriginPending: WorldPoint3D?
+    /// Camera-captured center pending a user-declared opening
+    /// candidate (issue #231).
+    @Published private(set)
+    var openingCenterPending: WorldPoint3D?
     /// Spatial evidence links on committed annotations/measurements
     /// that no longer resolve after a re-End (issue #236). Surfaced for
     /// repair; never silently dropped.
@@ -983,6 +998,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewWorkspace = nil
         persistedWorkspace = nil
         roomFrameOriginPending = nil
+        openingCenterPending = nil
         danglingSpatialIssues = []
         failedInspection = nil
         observationStabilityTracker =
@@ -4193,6 +4209,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewWorkspace = nil
         persistedWorkspace = nil
         roomFrameOriginPending = nil
+        openingCenterPending = nil
         danglingSpatialIssues = []
         failedInspection = nil
         observationStabilityTracker =
@@ -4260,6 +4277,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewWorkspace = nil
         persistedWorkspace = nil
         roomFrameOriginPending = nil
+        openingCenterPending = nil
         danglingSpatialIssues = []
         failedInspection = nil
         resourceMonitor?.stop()
@@ -4384,6 +4402,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewWorkspace = nil
         persistedWorkspace = nil
         roomFrameOriginPending = nil
+        openingCenterPending = nil
         danglingSpatialIssues = []
         failedInspection = nil
         handoffDestinations = []
@@ -4602,6 +4621,163 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     "部屋の基準フレームを保存できませんでした"
                 ) + " [" + Self.persistenceDiagnostic(error) + "]"
             }
+        }
+    }
+
+    /// Captures the camera position as the center for a
+    /// user-declared opening candidate (issue #231).
+    func captureOpeningCenterPoint() {
+        guard state == .reviewing || state == .annotating,
+              !spatialAuthoritySealedForFinalization
+        else {
+            return
+        }
+        do {
+            let sample =
+                try sessionController.currentScanCoverageSample()
+            guard let position = sample.cameraPosition else {
+                throw PlatformCaptureError.currentFrameUnavailable
+            }
+            openingCenterPending = WorldPoint3D(
+                x: position.x,
+                y: position.y,
+                z: position.z
+            )
+            workingSetStatus = HostLocalization.text(
+                "Opening center captured",
+                "開口部の中心を記録しました"
+            )
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "Camera position unavailable for the opening",
+                "開口部用のカメラ位置を取得できません"
+            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
+    /// Clears the pending user-declared opening center so another
+    /// candidate can be marked (issue #231).
+    func clearOpeningCenterPoint() {
+        openingCenterPending = nil
+    }
+
+    /// Confirms the field/install datum (issue #232): derived from
+    /// the committed room reference frame and the processed
+    /// payload's finished-floor level, then committed as
+    /// `session/room-field-datum.json`. Never a
+    /// `T_scene_from_capture_world` — promotion into HTDT's scene is
+    /// still the operator's explicit downstream step.
+    func confirmFieldDatumFromRoomFrame() async -> Bool {
+        guard state == .reviewing || state == .annotating,
+              !spatialAuthoritySealedForFinalization,
+              let store = workingSetStore
+        else {
+            return false
+        }
+        let snapshot = await store.snapshot()
+        guard let frame = snapshot.roomReferenceFrame else {
+            workingSetStatus = HostLocalization.text(
+                "Confirm a room reference frame first",
+                "先に部屋の基準フレームを確定してください"
+            )
+            return false
+        }
+        var floorY: Double?
+        let processedURL = snapshot.rootDirectory
+            .appendingPathComponent(
+                "roomplan/captured-room.json",
+                isDirectory: false
+            )
+        if let data = try? Data(contentsOf: processedURL) {
+            #if os(iOS) && canImport(RoomPlan)
+            if #available(iOS 17.0, *) {
+                floorY = RoomPlanReviewDeriver
+                    .finishedFloorElevationMeters(
+                        processedPayload: data
+                    )
+            }
+            #endif
+        }
+        guard let zeroElevation = floorY else {
+            workingSetStatus = HostLocalization.text(
+                "No finished floor in the RoomPlan payload; field datum needs a floor level",
+                "RoomPlanペイロードに仕上げ床がありません。フィールド原点には床レベルが必要です"
+            )
+            return false
+        }
+        do {
+            let sessionID = frame.captureSessionID
+            let origin = try RoomFieldDatumOrigin(
+                kind: .roomFrameOrigin,
+                ref: "room_reference_frame",
+                pointMeters: frame.originMeters
+            )
+            let axis = try RoomFieldDatumAxis(
+                kind: .roomFrameFront,
+                refs: ["room_reference_frame"],
+                directionMeters: frame.frontDirection
+            )
+            let vertical = try RoomFieldDatumVertical(
+                kind: .finishedFloor,
+                ref: "room_reference_frame",
+                zeroElevationMeters: zeroElevation
+            )
+            let transform = try RoomFieldDatumPackageBuilder
+                .fieldTransform(
+                    origin: origin,
+                    axis: axis,
+                    verticalDatum: vertical
+                )
+            let document = try RoomFieldDatumDocument(
+                captureRevisionID:
+                    snapshot.identity.captureRevisionID,
+                captureSessionID: sessionID,
+                coordinateSpaceID: frame.coordinateSpaceID,
+                origin: origin,
+                axis: axis,
+                verticalDatum: vertical,
+                fieldFromCaptureWorld: transform,
+                uncertaintyMeters: nil,
+                residualMeters: nil,
+                sourceEvidenceRefs: ["room_reference_frame"],
+                confirmedAtUTC: BundleTimestamp.utcString(
+                    from: Date()
+                )
+            )
+            let package = try RoomFieldDatumPackageBuilder.build(
+                document: document
+            )
+            try await store.commitRoomFieldDatum(package)
+            refreshReviewWorkspace()
+            workingSetStatus = HostLocalization.text(
+                "Field datum confirmed and saved",
+                "フィールド原点を確定して保存しました"
+            )
+            return true
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The field datum could not be saved",
+                "フィールド原点を保存できませんでした"
+            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            return false
+        }
+    }
+
+    /// Removes the committed field datum payload (issue #232).
+    func removeRoomFieldDatum() async {
+        guard let store = workingSetStore else { return }
+        do {
+            try await store.removeRoomFieldDatum()
+            refreshReviewWorkspace()
+            workingSetStatus = HostLocalization.text(
+                "Field datum removed",
+                "フィールド原点を削除しました"
+            )
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The field datum could not be removed",
+                "フィールド原点を削除できませんでした"
+            ) + " [" + Self.persistenceDiagnostic(error) + "]"
         }
     }
 

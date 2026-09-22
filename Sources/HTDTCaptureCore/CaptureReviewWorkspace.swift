@@ -8,8 +8,13 @@ public enum EvidenceRetentionReason: String, Sendable, Equatable {
     /// Continue scanning → End again.
     case endBoundary = "end_boundary"
     /// The frame is referenced by at least one committed annotation,
-    /// measurement, opening candidate, or the room reference frame.
+    /// measurement, opening candidate, room reference frame, or field
+    /// datum.
     case linkedToAuthority = "linked_to_authority"
+    /// The bounded automatic-keyframe policy retained the frame during
+    /// scanning (issue #241): identified through the committed advisory
+    /// notes so it is never mistaken for an operator pick.
+    case automaticKeyframe = "automatic_keyframe"
     /// Operator-saved evidence not referenced by any authority; an
     /// optional visual frame eligible for privacy removal.
     case operatorSaved = "operator_saved"
@@ -196,6 +201,11 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
     public let wiringRoutes: [AsBuiltWiringRoute]
     public let openingReview: OpeningReviewDocument?
     public let roomReferenceFrame: RoomReferenceFrameDocument?
+    /// Committed field/install datum (issue #232), if any.
+    public let roomFieldDatum: RoomFieldDatumDocument?
+    /// Staleness of the committed datum against this workspace's own
+    /// reference universe; nil when no datum is committed.
+    public let roomFieldDatumStaleness: RoomFieldDatumStaleness?
     public let qualityReport: CaptureQualityReport?
     /// True for the persisted-capture viewer (#294): everything
     /// renders read-only.
@@ -226,6 +236,8 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
         wiringRoutes: [AsBuiltWiringRoute] = [],
         openingReview: OpeningReviewDocument?,
         roomReferenceFrame: RoomReferenceFrameDocument?,
+        roomFieldDatum: RoomFieldDatumDocument? = nil,
+        roomFieldDatumStaleness: RoomFieldDatumStaleness? = nil,
         qualityReport: CaptureQualityReport?,
         readOnly: Bool,
         spatialCaptureSealed: Bool,
@@ -245,6 +257,8 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
         self.wiringRoutes = wiringRoutes
         self.openingReview = openingReview
         self.roomReferenceFrame = roomReferenceFrame
+        self.roomFieldDatum = roomFieldDatum
+        self.roomFieldDatumStaleness = roomFieldDatumStaleness
         self.qualityReport = qualityReport
         self.readOnly = readOnly
         self.spatialCaptureSealed = spatialCaptureSealed
@@ -360,6 +374,34 @@ public enum CaptureReviewWorkspaceLoader {
             RoomReferenceFrameDocument.self,
             RoomReferenceFramePackage.path
         )
+        let roomFieldDatum = decodeIfDeclared(
+            RoomFieldDatumDocument.self,
+            RoomFieldDatumPackage.path
+        )
+        // Automatic-keyframe retention (issue #241): committed
+        // advisory notes name which frames the bounded policy
+        // retained, so review classifies them separately from
+        // operator picks.
+        var automaticKeyframeFrameIDs = Set<EvidenceFrameID>()
+        if let advisories = decodeIfDeclared(
+            CaptureAdvisoryNoteDocument.self,
+            "advisory/operator-advisories.json"
+        ) {
+            for note in advisories.notes
+            where note.kind == .automaticKeyframe {
+                if let token = note.detail
+                    .split(separator: " ")
+                    .first(where: { $0.hasPrefix("frame=") }),
+                   let frameID = EvidenceFrameID(
+                    canonicalString: String(
+                        token.dropFirst("frame=".count)
+                    )
+                   )
+                {
+                    automaticKeyframeFrameIDs.insert(frameID)
+                }
+            }
+        }
         let quality = qualityReport ?? decodeIfDeclared(
             CaptureQualityReport.self,
             "quality/capture-quality.json"
@@ -421,8 +463,104 @@ public enum CaptureReviewWorkspaceLoader {
                 fieldEvidence: fieldEvidenceDoc?.records ?? [],
                 openings: openingReview?.openings ?? [],
                 roomReferenceFrame: roomReferenceFrame,
+                roomFieldDatum: roomFieldDatum,
                 endBoundaryFrameIDs: endBoundaryFrameIDs,
+                automaticKeyframeFrameIDs: automaticKeyframeFrameIDs,
                 readOnly: readOnly
+            )
+        }
+
+        // Datum staleness (issue #232): every token the datum
+        // carries must resolve against this revision's evidence
+        // universe — declared paths, frame/entity/measurement/
+        // opening identities, `room_reference_frame` when committed,
+        // mesh-anchor ids, reference-target ids, and the raw RoomPlan
+        // payload bytes so `roomplan:*:<uuid>` tokens resolve at
+        // surface-id level.
+        var datumTokens = Set<String>()
+        for path in declaredPaths {
+            datumTokens.insert("path:\(path)")
+        }
+        for descriptor in descriptors {
+            datumTokens.insert("frame:\(descriptor.frameID)")
+        }
+        for entity in annotationCollection?.entities ?? [] {
+            datumTokens.insert("entity:\(entity.entityID)")
+        }
+        for measurement
+            in measurementCollection?.measurements ?? []
+        {
+            datumTokens.insert(
+                "measurement:\(measurement.measurementID)"
+            )
+        }
+        for opening in openingReview?.openings ?? [] {
+            datumTokens.insert("opening:\(opening.sourceRef)")
+        }
+        if roomReferenceFrame != nil {
+            datumTokens.insert("room_reference_frame")
+        }
+        if let meshIndex = decodeIfDeclared(
+            MeshAnchorEvidenceIndex.self,
+            MeshEvidencePackage.indexPath
+        ) {
+            for record in meshIndex.anchors {
+                datumTokens.insert("mesh_anchor:\(record.anchorID)")
+            }
+        }
+        if let targets = decodeIfDeclared(
+            ReferenceTargetCaptureDocument.self,
+            ReferenceTargetCapturePackage.path
+        ) {
+            for target in targets.targets {
+                datumTokens.insert(
+                    "reference_target:\(target.targetID)"
+                )
+            }
+        }
+        // `roomplan:` refs resolve against whichever RoomPlan
+        // payload enumerates surfaces — the processed capture room,
+        // falling back to the raw payload.
+        let roomPlanPayload = (
+            declaredPaths.contains(
+                RoomPlanEvidenceArtifactBuilder.processedPath
+            )
+                ? try? Data(
+                    contentsOf:
+                        RoomPlanEvidenceArtifactBuilder.processedPath
+                        .split(separator: "/")
+                        .reduce(root) {
+                            $0.appendingPathComponent(
+                                String($1),
+                                isDirectory: false
+                            )
+                        }
+                )
+                : nil
+        ) ?? (
+            declaredPaths.contains(
+                RoomPlanEvidenceArtifactBuilder.rawPath
+            )
+                ? try? Data(
+                    contentsOf:
+                        RoomPlanEvidenceArtifactBuilder.rawPath
+                        .split(separator: "/")
+                        .reduce(root) {
+                            $0.appendingPathComponent(
+                                String($1),
+                                isDirectory: false
+                            )
+                        }
+                )
+                : nil
+        )
+        let roomFieldDatumStaleness = roomFieldDatum.map {
+            RoomFieldDatumStalenessEvaluator.evaluate(
+                datum: $0,
+                universe: RoomFieldDatumReferenceUniverse(
+                    tokens: datumTokens,
+                    roomPlanPayload: roomPlanPayload
+                )
             )
         }
 
@@ -448,6 +586,8 @@ public enum CaptureReviewWorkspaceLoader {
             wiringRoutes: wiringDoc?.routes ?? [],
             openingReview: openingReview,
             roomReferenceFrame: roomReferenceFrame,
+            roomFieldDatum: roomFieldDatum,
+            roomFieldDatumStaleness: roomFieldDatumStaleness,
             qualityReport: quality,
             readOnly: readOnly,
             spatialCaptureSealed: spatialCaptureSealed,
@@ -468,7 +608,9 @@ public enum CaptureReviewWorkspaceLoader {
         fieldEvidence: [FieldEvidenceRecord],
         openings: [RoomOpeningCandidate],
         roomReferenceFrame: RoomReferenceFrameDocument?,
+        roomFieldDatum: RoomFieldDatumDocument?,
         endBoundaryFrameIDs: Set<EvidenceFrameID>,
+        automaticKeyframeFrameIDs: Set<EvidenceFrameID>,
         readOnly: Bool
     ) -> ReviewEvidenceItem {
         let descriptorPath =
@@ -541,6 +683,11 @@ public enum CaptureReviewWorkspaceLoader {
         {
             referencedBy.append("room_reference_frame")
         }
+        if let datum = roomFieldDatum,
+           refsFrame(datum.referenceTokens)
+        {
+            referencedBy.append("room_field_datum")
+        }
 
         let isEndBoundary =
             endBoundaryFrameIDs.contains(descriptor.frameID)
@@ -549,6 +696,10 @@ public enum CaptureReviewWorkspaceLoader {
             retentionReason = .endBoundary
         } else if !referencedBy.isEmpty {
             retentionReason = .linkedToAuthority
+        } else if automaticKeyframeFrameIDs.contains(
+            descriptor.frameID
+        ) {
+            retentionReason = .automaticKeyframe
         } else {
             retentionReason = .operatorSaved
         }
@@ -610,6 +761,16 @@ public struct PersistedCaptureContents: Sendable, Equatable {
     public let measurements: [CaptureMeasurement]
     public let openingReview: OpeningReviewDocument?
     public let roomReferenceFrame: RoomReferenceFrameDocument?
+    public let roomFieldDatum: RoomFieldDatumDocument?
+    /// Decoded mesh anchor index (issue #232 datum staleness), iff
+    /// declared.
+    public let meshAnchorIndex: MeshAnchorEvidenceIndex?
+    /// Decoded reference-target document (issue #227), iff declared.
+    public let referenceTargets: ReferenceTargetCaptureDocument?
+    /// Raw `roomplan/captured-room-data.json` bytes when declared —
+    /// lets `roomplan:*:<uuid>` datum refs resolve at surface-id
+    /// level on any platform.
+    public let roomPlanPayload: Data?
     public let frameDescriptors: [FrameEvidenceDescriptor]
     /// Decoded payloads that were declared but unreadable — surfaced so
     /// the viewer degrades to text instead of hiding the gap.
@@ -629,6 +790,10 @@ public struct PersistedCaptureContents: Sendable, Equatable {
         measurements: [CaptureMeasurement],
         openingReview: OpeningReviewDocument?,
         roomReferenceFrame: RoomReferenceFrameDocument?,
+        roomFieldDatum: RoomFieldDatumDocument? = nil,
+        meshAnchorIndex: MeshAnchorEvidenceIndex? = nil,
+        referenceTargets: ReferenceTargetCaptureDocument? = nil,
+        roomPlanPayload: Data? = nil,
         frameDescriptors: [FrameEvidenceDescriptor],
         issues: [String],
         revisionIntent: CaptureRevisionIntentDocument? = nil
@@ -642,9 +807,54 @@ public struct PersistedCaptureContents: Sendable, Equatable {
         self.measurements = measurements
         self.openingReview = openingReview
         self.roomReferenceFrame = roomReferenceFrame
+        self.roomFieldDatum = roomFieldDatum
+        self.meshAnchorIndex = meshAnchorIndex
+        self.referenceTargets = referenceTargets
+        self.roomPlanPayload = roomPlanPayload
         self.frameDescriptors = frameDescriptors
         self.issues = issues
         self.revisionIntent = revisionIntent
+    }
+
+    /// The revision's reference universe for field-datum staleness
+    /// evaluation (issue #232): every enumerable identity plus the
+    /// raw RoomPlan payload for surface-id resolution.
+    public var datumReferenceUniverse:
+        RoomFieldDatumReferenceUniverse
+    {
+        var tokens = Set<String>()
+        for file in manifest.files {
+            tokens.insert("path:\(file.path)")
+        }
+        for descriptor in frameDescriptors {
+            tokens.insert("frame:\(descriptor.frameID)")
+        }
+        for entity in entities {
+            tokens.insert("entity:\(entity.entityID)")
+        }
+        for measurement in measurements {
+            tokens.insert(
+                "measurement:\(measurement.measurementID)"
+            )
+        }
+        for opening in openingReview?.openings ?? [] {
+            tokens.insert("opening:\(opening.sourceRef)")
+        }
+        if roomReferenceFrame != nil {
+            tokens.insert("room_reference_frame")
+        }
+        for record in meshAnchorIndex?.anchors ?? [] {
+            tokens.insert("mesh_anchor:\(record.anchorID)")
+        }
+        for target in referenceTargets?.targets ?? [] {
+            tokens.insert(
+                "reference_target:\(target.targetID)"
+            )
+        }
+        return RoomFieldDatumReferenceUniverse(
+            tokens: tokens,
+            roomPlanPayload: roomPlanPayload
+        )
     }
 }
 
@@ -738,6 +948,51 @@ public enum PersistedCaptureContentsLoader {
             roomReferenceFrame: decodeIfDeclared(
                 RoomReferenceFrameDocument.self,
                 RoomReferenceFramePackage.path
+            ),
+            roomFieldDatum: decodeIfDeclared(
+                RoomFieldDatumDocument.self,
+                RoomFieldDatumPackage.path
+            ),
+            meshAnchorIndex: decodeIfDeclared(
+                MeshAnchorEvidenceIndex.self,
+                MeshEvidencePackage.indexPath
+            ),
+            referenceTargets: decodeIfDeclared(
+                ReferenceTargetCaptureDocument.self,
+                ReferenceTargetCapturePackage.path
+            ),
+            roomPlanPayload: (
+                declaredPaths.contains(
+                    RoomPlanEvidenceArtifactBuilder.processedPath
+                )
+                    ? try? Data(
+                        contentsOf:
+                            RoomPlanEvidenceArtifactBuilder.processedPath
+                            .split(separator: "/")
+                            .reduce(directory) {
+                                $0.appendingPathComponent(
+                                    String($1),
+                                    isDirectory: false
+                                )
+                            }
+                    )
+                    : nil
+            ) ?? (
+                declaredPaths.contains(
+                    RoomPlanEvidenceArtifactBuilder.rawPath
+                )
+                    ? try? Data(
+                        contentsOf:
+                            RoomPlanEvidenceArtifactBuilder.rawPath
+                            .split(separator: "/")
+                            .reduce(directory) {
+                                $0.appendingPathComponent(
+                                    String($1),
+                                    isDirectory: false
+                                )
+                            }
+                    )
+                    : nil
             ),
             frameDescriptors: descriptors,
             issues: issues,
@@ -923,6 +1178,50 @@ public enum CaptureRevisionComparator {
                     ? "absent" : "confirmed",
                 child: child.roomReferenceFrame == nil
                     ? "absent" : "confirmed"
+            )
+        )
+        func datumSummary(
+            _ contents: PersistedCaptureContents
+        ) -> String {
+            guard let datum = contents.roomFieldDatum else {
+                return "absent"
+            }
+            return "confirmed "
+                + datum.origin.kind.rawValue
+                + " / "
+                + datum.verticalDatum.kind.rawValue
+        }
+        fields.append(
+            RevisionFieldComparison(
+                field: "room_field_datum",
+                parent: datumSummary(parent),
+                child: datumSummary(child)
+            )
+        )
+        // Field-datum staleness (issue #232): a datum committed
+        // against the parent is evaluated against the child's
+        // reference universe — removed walls/corners/platforms must
+        // surface as unresolved rather than silently rebinding.
+        let parentDatumStaleness: String
+        if let datum = parent.roomFieldDatum {
+            switch RoomFieldDatumStalenessEvaluator.evaluate(
+                datum: datum,
+                universe: child.datumReferenceUniverse
+            ) {
+            case .current:
+                parentDatumStaleness = "current"
+            case .stale(let unresolved):
+                parentDatumStaleness =
+                    "stale — \(unresolved.count) unresolved ref(s)"
+            }
+        } else {
+            parentDatumStaleness = "—"
+        }
+        fields.append(
+            RevisionFieldComparison(
+                field: "parent_field_datum_staleness",
+                parent: "—",
+                child: parentDatumStaleness
             )
         )
         fields.append(

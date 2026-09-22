@@ -839,6 +839,71 @@ public enum ExistingExportArchiveClassifier {
     }
 }
 
+/// Reads a single stored entry out of a `.htdtcapture` archive without
+/// walking the whole package (issue #219): archive entries use the ZIP
+/// STORE method with no data descriptors, so an entry's bytes sit at a
+/// known offset after its local header. Intended for small derived
+/// payloads such as frame previews; the archive must already have
+/// passed `StoredCaptureBundleArchiveValidator`.
+public enum StoredCaptureBundleArchiveReader {
+    public static func readEntry(
+        archive: URL,
+        path: String
+    ) -> Data? {
+        guard let handle = try? FileHandle(forReadingFrom: archive)
+        else { return nil }
+        defer { try? handle.close() }
+        guard let fileSize = try? handle.seekToEnd() else {
+            return nil
+        }
+        var cursor: UInt64 = 0
+        while cursor < fileSize {
+            guard (try? handle.seek(toOffset: cursor)) != nil,
+                  let signature: UInt32 =
+                    try? handle.readLE()
+            else { return nil }
+            if signature == 0x02014b50 {
+                return nil
+            }
+            guard signature == 0x04034b50,
+                  let _: UInt16 = try? handle.readLE(),
+                  let _: UInt16 = try? handle.readLE(),
+                  let method: UInt16 = try? handle.readLE(),
+                  method == 0,
+                  let _: UInt16 = try? handle.readLE(),
+                  let _: UInt16 = try? handle.readLE(),
+                  let _: UInt32 = try? handle.readLE(),
+                  let compressedSize: UInt32 =
+                    try? handle.readLE(),
+                  let size: UInt32 = try? handle.readLE(),
+                  compressedSize == size,
+                  let nameLength: UInt16 = try? handle.readLE(),
+                  let _: UInt16 = try? handle.readLE(),
+                  let nameData = try? handle.readExact(
+                      count: Int(nameLength)
+                  ),
+                  let name = String(
+                      data: nameData,
+                      encoding: .utf8
+                  )
+            else { return nil }
+            let dataOffset =
+                cursor + 30 + UInt64(nameLength)
+            if name == path {
+                guard (try? handle.seek(toOffset: dataOffset))
+                        != nil,
+                      let data = try? handle.readExact(
+                          count: Int(size)
+                      )
+                else { return nil }
+                return data
+            }
+            cursor = dataOffset + UInt64(size)
+        }
+        return nil
+    }
+}
+
 private extension FileHandle {
     func readExact(count: Int) throws -> Data {
         guard count >= 0 else {

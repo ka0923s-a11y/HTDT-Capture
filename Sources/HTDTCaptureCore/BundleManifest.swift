@@ -731,6 +731,12 @@ enum BundleReservedPaths {
             provenanceClass: .userAnnotation,
             role: .canonical
         ),
+        "session/room-field-datum.json": Binding(
+            mediaType: "application/json",
+            producer: "room_frame",
+            provenanceClass: .userAnnotation,
+            role: .canonical
+        ),
         "session/timing.json": Binding(
             mediaType: "application/json",
             producer: "capture_session",

@@ -1003,7 +1003,7 @@
 "The plan is reference only. Scale and alignment come from the plan document; observed coverage is never replaced by plan geometry." = "平面は参照専用です。縮尺と位置合わせはプランドキュメントに基づき、観測済みカバレッジが平面ジオメトリに置き換わることはありません。";
 "Import plan reference…" = "平面参照を取り込み…";
 "Replace plan reference…" = "平面参照を差し替え…";
-"Origin" = "由来";
+"Capture origin" = "キャプチャ由来";
 "This device" = "この端末";
 "Imported or received" = "取り込み／受信";
 "Created on this device" = "この端末で作成";
@@ -1032,6 +1032,24 @@
 "Physical match attested" = "実物一致を証明";
 "Stated uncertainty" = "明示的不確かさ";
 "This creates a new revision that corrects annotations, measurements, and equipment metadata. The room is not rescanned; the original capture's sensor evidence is preserved exactly." = "アノテーション・計測・機器メタデータを修正する新しいリビジョンを作成します。部屋は再スキャンされず、元のキャプチャのセンサー証拠はそのまま保持されます。";
+"Add opening candidate" = "開口部候補を追加";
+"Width m" = "幅 m";
+"Height m" = "高さ m";
+"Mark opening center" = "開口部の中心を記録";
+"Center captured" = "中心を記録済み";
+"Add candidate" = "候補を追加";
+"Field datum (HTDT promotion)" = "フィールド原点（HTDT 昇格）";
+"Origin" = "原点";
+"Axis" = "軸";
+"Vertical datum" = "垂直原点";
+"Promotion reference only: records the capture-world→field datum convention and its exact transform. It is not T_scene_from_capture_world." = "昇格参照のみ。キャプチャワールドからフィールド原点への規約と正確な変換を記録します。T_scene_from_capture_world ではありません。";
+"Remove field datum" = "フィールド原点を削除";
+"No field datum confirmed" = "フィールド原点が確定していません";
+"Confirm from room frame" = "部屋フレームから確定";
+"Confirm a room reference frame first." = "先に部屋の基準フレームを確定してください。";
+"Automatic keyframe" = "自動キーフレーム";
+"Export includes visual evidence?" = "視覚証拠をエクスポートに含めますか？";
+"The archive packages %lld retained camera frame pixel payload(s) with the capture. Open Visual evidence review first if you need to remove unreferenced frames for privacy." = "アーカイブには保持済みカメラフレーム画素ペイロード %lld 件がキャプチャと共に含まれます。プライバシーのため未参照フレームを削除する場合は、先に視覚証拠レビューを開いてください。";
 
 /* #302 multi-catalog snapshot identity */
 "Catalog" = "カタログ";

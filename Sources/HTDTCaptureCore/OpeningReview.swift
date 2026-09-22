@@ -6,13 +6,44 @@ public struct OpeningID: CaptureIdentifier {
 }
 
 /// Kind of room opening candidate (issue #231).
+///
+/// Door/window/opening are the RoomPlan-inferable portal kinds; the
+/// remaining kinds are the operator-only boundary openings the
+/// refinement calls out (HVAC supply/return or open duct, transfer
+/// grille, intentionally characterized door undercut, cable/service
+/// penetration). Candidates of any kind are review records only — a
+/// confirmed penetration is never auto-promoted into solver Portal
+/// physics.
 public enum RoomOpeningKind: String, Codable, Sendable, CaseIterable {
     case door
     case window
     /// A portal/opening that is neither a door nor a window (e.g. an
     /// open passage between rooms).
     case opening
+    /// HVAC supply/return grille or open duct.
+    case hvacGrille = "hvac_grille"
+    /// Transfer grille between rooms.
+    case transferGrille = "transfer_grille"
+    /// Door undercut/gap when intentionally characterized as an
+    /// opening.
+    case doorUndercut = "door_undercut"
+    /// Cable/service penetration through a room boundary.
+    case servicePenetration = "service_penetration"
     case other
+}
+
+/// Whether the boundary opening was open or closed when observed
+/// (issue #231). `unknown` is the default and covers candidates where
+/// the state was not observable or not meaningful to record.
+public enum RoomOpeningState: String, Codable, Sendable, CaseIterable {
+    /// Air/people can pass through — e.g. an open duct, transfer
+    /// grille, or a door observed open.
+    case open
+    /// The opening is present but closed off — e.g. a closed door or
+    /// a covered grille.
+    case closed
+    /// Not observed or not meaningful for this candidate.
+    case unknown
 }
 
 /// How the candidate entered the review set (issue #231). Source
@@ -63,6 +94,10 @@ public struct RoomOpeningCandidate: Codable, Sendable, Equatable {
     public let widthMeters: Double?
     public let heightMeters: Double?
     public var disposition: RoomOpeningDisposition
+    /// Open/closed/unknown as observed; defaults to `.unknown` so
+    /// review documents written before the field existed decode
+    /// unchanged.
+    public var openState: RoomOpeningState
     /// UTC the operator last set `disposition`; nil while unreviewed.
     public var reviewedAtUTC: String?
     /// Spatial evidence links (`path:`/`frame:`/`mesh_anchor:`) the
@@ -78,6 +113,7 @@ public struct RoomOpeningCandidate: Codable, Sendable, Equatable {
         widthMeters: Double? = nil,
         heightMeters: Double? = nil,
         disposition: RoomOpeningDisposition = .unreviewed,
+        openState: RoomOpeningState = .unknown,
         reviewedAtUTC: String? = nil,
         evidenceRefs: [String] = []
     ) throws {
@@ -104,6 +140,7 @@ public struct RoomOpeningCandidate: Codable, Sendable, Equatable {
         self.widthMeters = widthMeters
         self.heightMeters = heightMeters
         self.disposition = disposition
+        self.openState = openState
         self.reviewedAtUTC = reviewedAtUTC
         self.evidenceRefs = evidenceRefs
     }
@@ -117,8 +154,79 @@ public struct RoomOpeningCandidate: Codable, Sendable, Equatable {
         case widthMeters = "width_m"
         case heightMeters = "height_m"
         case disposition
+        case openState = "open_state"
         case reviewedAtUTC = "reviewed_at"
         case evidenceRefs = "evidence_refs"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            openingID: container.decode(
+                OpeningID.self,
+                forKey: .openingID
+            ),
+            kind: container.decode(
+                RoomOpeningKind.self,
+                forKey: .kind
+            ),
+            source: container.decode(
+                RoomOpeningSource.self,
+                forKey: .source
+            ),
+            sourceRef: container.decode(
+                String.self,
+                forKey: .sourceRef
+            ),
+            centerMeters: container.decodeIfPresent(
+                WorldPoint3D.self,
+                forKey: .centerMeters
+            ),
+            widthMeters: container.decodeIfPresent(
+                Double.self,
+                forKey: .widthMeters
+            ),
+            heightMeters: container.decodeIfPresent(
+                Double.self,
+                forKey: .heightMeters
+            ),
+            disposition: container.decode(
+                RoomOpeningDisposition.self,
+                forKey: .disposition
+            ),
+            openState: container.decodeIfPresent(
+                RoomOpeningState.self,
+                forKey: .openState
+            ) ?? .unknown,
+            reviewedAtUTC: container.decodeIfPresent(
+                String.self,
+                forKey: .reviewedAtUTC
+            ),
+            evidenceRefs: container.decode(
+                [String].self,
+                forKey: .evidenceRefs
+            )
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(openingID, forKey: .openingID)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(source, forKey: .source)
+        try container.encode(sourceRef, forKey: .sourceRef)
+        try container.encodeIfPresent(centerMeters, forKey: .centerMeters)
+        try container.encodeIfPresent(widthMeters, forKey: .widthMeters)
+        try container.encodeIfPresent(heightMeters, forKey: .heightMeters)
+        try container.encode(disposition, forKey: .disposition)
+        // `open_state` always encodes: a candidate re-saved after review
+        // states what was recorded, including an explicit `unknown`.
+        try container.encode(openState, forKey: .openState)
+        try container.encodeIfPresent(
+            reviewedAtUTC,
+            forKey: .reviewedAtUTC
+        )
+        try container.encode(evidenceRefs, forKey: .evidenceRefs)
     }
 }
 
@@ -276,5 +384,57 @@ public enum OpeningReviewEditor {
         updated[index].reviewedAtUTC =
             disposition == .unreviewed ? nil : reviewedAtUTC
         return updated
+    }
+
+    /// Sets the observed open/closed/unknown state of one candidate
+    /// (issue #231). Returns nil when the opening id is not part of the
+    /// review set.
+    public static func setOpenState(
+        _ openState: RoomOpeningState,
+        openingID: OpeningID,
+        in openings: [RoomOpeningCandidate]
+    ) -> [RoomOpeningCandidate]? {
+        var updated = openings
+        guard let index = updated.firstIndex(where: {
+            $0.openingID == openingID
+        }) else {
+            return nil
+        }
+        updated[index].openState = openState
+        return updated
+    }
+
+    /// Appends an operator-declared candidate of any review kind,
+    /// including the non-RoomPlan boundary kinds (vent/grille,
+    /// penetration). Returns nil when `sourceRef` collides with an
+    /// already-tracked candidate.
+    public static func addUserDeclaredCandidate(
+        kind: RoomOpeningKind,
+        sourceRef: String,
+        centerMeters: WorldPoint3D? = nil,
+        widthMeters: Double? = nil,
+        heightMeters: Double? = nil,
+        openState: RoomOpeningState = .unknown,
+        evidenceRefs: [String] = [],
+        to openings: [RoomOpeningCandidate]
+    ) -> [RoomOpeningCandidate]? {
+        guard !openings.contains(where: {
+            $0.sourceRef == sourceRef
+        }) else {
+            return nil
+        }
+        guard let candidate = try? RoomOpeningCandidate(
+            kind: kind,
+            source: .userDeclared,
+            sourceRef: sourceRef,
+            centerMeters: centerMeters,
+            widthMeters: widthMeters,
+            heightMeters: heightMeters,
+            openState: openState,
+            evidenceRefs: evidenceRefs
+        ) else {
+            return nil
+        }
+        return openings + [candidate]
     }
 }
