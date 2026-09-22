@@ -12077,7 +12077,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         finalizedRevision = finalized
         exportURL = nil
         reviewWorkspace = nil
-        taskPlanMission = nil
+        // #364 §11: the mission summary survives finalization — the
+        // finalized surface reports required-task completion for the
+        // capture just committed. Every fresh capture/reset path
+        // clears it before a new working set begins.
         danglingSpatialIssues = []
 
         // Acquisition provenance (#317): a bundle produced by this

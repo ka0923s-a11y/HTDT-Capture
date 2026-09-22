@@ -1104,6 +1104,9 @@ public struct CaptureRootView: View {
     @State private var importingCaptureArchive = false
     @State private var confirmingDiscard = false
     @State private var reviewWorkspaceShown = false
+    /// #364 §11: read-only re-open of the committed capture from the
+    /// finalized summary.
+    @State private var viewingFinalizedCapture = false
     @State private var handoffDestinationsShown = false
     @State private var shareArchiveForHandoff = false
     @State private var revisionComparison:
@@ -1717,6 +1720,14 @@ public struct CaptureRootView: View {
                 if (state == .finalized || state == .exported),
                    let validationReport
                 {
+                    finalizedSummarySection(
+                        validation: validationReport
+                    )
+                }
+
+                if (state == .finalized || state == .exported),
+                   let validationReport
+                {
                     Section {
                         CaptureStatusContent(
                             "Validator",
@@ -1860,6 +1871,44 @@ public struct CaptureRootView: View {
                         )
                     } else {
                         ProgressView("Loading workspace…")
+                    }
+                }
+                .navigationDestination(
+                    isPresented: $viewingFinalizedCapture
+                ) {
+                    // #364 §11: read-only re-open of the committed
+                    // capture — same pattern as the home surface's
+                    // persisted viewer (#294).
+                    if let persistedWorkspace {
+                        CaptureReviewWorkspaceView(
+                            model: persistedWorkspace,
+                            roomPlanObjects:
+                                persistedWorkspaceRoomPlanObjects
+                        )
+                    } else {
+                        ProgressView("Loading capture…")
+                    }
+                }
+                // #364 §7.5: Review carries exactly one prominent
+                // primary action in a persistent bottom bar instead
+                // of a CTA row that scrolls away mid-list — same
+                // pattern as the Setup stage's Begin footer.
+                .safeAreaInset(edge: .bottom) {
+                    if state == .reviewing {
+                        VStack(
+                            spacing: CaptureDesign.Spacing.row
+                        ) {
+                            reviewingPrimaryAction
+                        }
+                        .padding(
+                            .horizontal,
+                            CaptureDesign.Spacing.edge
+                        )
+                        .padding(
+                            .vertical,
+                            CaptureDesign.Spacing.row
+                        )
+                        .background(.bar)
                     }
                 }
                 .confirmationDialog(
@@ -2373,109 +2422,9 @@ public struct CaptureRootView: View {
                 .foregroundStyle(.secondary)
             }
 
-            // One dominant action per stage (#372): a blocking
-            // integrity problem → Review diagnostics; required
-            // mission tasks outstanding → Complete required tasks;
-            // coverage unknown → Continue scanning; otherwise →
-            // Validate and finalize.
-            switch journey.primaryAction {
-            case .reviewDiagnostics:
-                if let qualityReport {
-                    NavigationLink("Review diagnostics") {
-                        CaptureReviewView(
-                            quality: qualityReport,
-                            advisory: advisoryReport,
-                            spatialFindings:
-                                spatialPlausibilityFindings
-                        )
-                    }
-                    .capturePrimaryAction()
-                }
-            case .completeRequiredTasks:
-                Button(
-                    "Complete required tasks",
-                    action: actions.beginAnnotation
-                )
-                .capturePrimaryAction()
-                .disabled(hostBusy)
-            case .continueScanning:
-                Button(
-                    "Continue scanning",
-                    action: actions.continueScanning
-                )
-                .capturePrimaryAction()
-                .disabled(hostBusy)
-            case .validateAndFinalize:
-                if practiceCaptureActive {
-                    Text(
-                        "Practice captures are never finalized; use Discard to end practice."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                } else {
-                    Button(
-                        "Validate and finalize",
-                        action: actions.finalizeCapture
-                    )
-                    .capturePrimaryAction()
-                    .disabled(
-                        !(qualityReport?.readyForHTDTIngestion ?? false)
-                        || qualityReport?.integrityStatus != .pass
-                        || hostBusy
-                    )
-                    // #298: the disabled gate names its blocking
-                    // reasons inline instead of leaving the operator
-                    // to hunt through the diagnostics section.
-                    let blockers = (qualityReport?.diagnostics ?? [])
-                        .filter { $0.severity == .error }
-                    if !blockers.isEmpty {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(
-                                "Blocked by quality diagnostics:"
-                            )
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            ForEach(
-                                Array(blockers.enumerated()),
-                                id: \.offset
-                            ) { _, diagnostic in
-                                Button {
-                                    actions.performRemediation(
-                                        QualityRemediationCatalog
-                                            .remediation(
-                                                for: diagnostic
-                                            ).actions.first
-                                            ?? .discardDraft
-                                    )
-                                } label: {
-                                    Text(diagnostic.code)
-                                        .font(.caption)
-                                }
-                            }
-                        }
-                    }
-                }
-                Button(
-                    "Validate and finalize",
-                    action: actions.finalizeCapture
-                )
-                .capturePrimaryAction()
-                .disabled(
-                    !(qualityReport?.readyForHTDTIngestion ?? false)
-                    || qualityReport?.integrityStatus != .pass
-                    || hostBusy
-                )
-            case .openReviewWorkspace:
-                reviewWorkspaceButton()
-                    .capturePrimaryAction()
-            default:
-                EmptyView()
-            }
-            if let blocked = journey.primaryActionBlockedKey {
-                Text(LocalizedStringKey(blocked))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            // #364 §7.5: the stage's single primary action is pinned
+            // to the persistent bottom bar (see the safeAreaInset on
+            // this screen) — the list keeps only secondary actions.
             if annotationAuthorityCommitted {
                 Text("Details saved.")
                     .font(.caption)
@@ -2629,6 +2578,232 @@ public struct CaptureRootView: View {
                 }
                 .disabled(hostBusy)
             }
+        }
+    }
+
+    /// #364 §7.5: the review stage's single primary action lives in a
+    /// persistent bottom bar — always present, always exactly one
+    /// prominent action, chosen by the same journey rule as before
+    /// (#372): a blocking integrity problem → Review diagnostics;
+    /// required mission tasks outstanding → Complete required tasks;
+    /// coverage unknown → Continue scanning; otherwise → Validate and
+    /// finalize.
+    @ViewBuilder
+    private var reviewingPrimaryAction: some View {
+        switch journey.primaryAction {
+        case .reviewDiagnostics:
+            if let qualityReport {
+                NavigationLink("Review diagnostics") {
+                    CaptureReviewView(
+                        quality: qualityReport,
+                        advisory: advisoryReport,
+                        spatialFindings:
+                            spatialPlausibilityFindings
+                    )
+                }
+                .capturePrimaryAction()
+            }
+        case .completeRequiredTasks:
+            Button(
+                "Complete required tasks",
+                action: actions.beginAnnotation
+            )
+            .capturePrimaryAction()
+            .disabled(hostBusy)
+        case .continueScanning:
+            Button(
+                "Continue scanning",
+                action: actions.continueScanning
+            )
+            .capturePrimaryAction()
+            .disabled(hostBusy)
+        case .validateAndFinalize:
+            if practiceCaptureActive {
+                Text(
+                    "Practice captures are never finalized; use Discard to end practice."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            } else {
+                Button(
+                    "Validate and finalize",
+                    action: actions.finalizeCapture
+                )
+                .capturePrimaryAction()
+                .disabled(
+                    !(qualityReport?.readyForHTDTIngestion ?? false)
+                    || qualityReport?.integrityStatus != .pass
+                    || hostBusy
+                )
+                // #298: the disabled gate names its blocking
+                // reasons inline instead of leaving the operator
+                // to hunt through the diagnostics section.
+                let blockers = (qualityReport?.diagnostics ?? [])
+                    .filter { $0.severity == .error }
+                if !blockers.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(
+                            "Blocked by quality diagnostics:"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        ForEach(
+                            Array(blockers.enumerated()),
+                            id: \.offset
+                        ) { _, diagnostic in
+                            Button {
+                                actions.performRemediation(
+                                    QualityRemediationCatalog
+                                        .remediation(
+                                            for: diagnostic
+                                        ).actions.first
+                                        ?? .discardDraft
+                                )
+                            } label: {
+                                Text(diagnostic.code)
+                                    .font(.caption)
+                            }
+                        }
+                    }
+                }
+            }
+        case .openReviewWorkspace:
+            reviewWorkspaceButton()
+                .capturePrimaryAction()
+        default:
+            EmptyView()
+        }
+        if let blocked = journey.primaryActionBlockedKey {
+            Text(LocalizedStringKey(blocked))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// #364 §11: the finalized surface opens with a plain-language
+    /// summary — what was committed, how much evidence it carries and
+    /// the mission outcome — before the export/handoff controls.
+    /// Counts come from the validated manifest and quality report,
+    /// never re-derived from filesystem guesses.
+    private func finalizedSummarySection(
+        validation: BundleValidationReport
+    ) -> some View {
+        let manifest = validation.manifest
+        let revisionID = manifest.captureRevisionID
+        let entry = libraryMetadata.revisions[revisionID.description]
+        let seriesEntry =
+            libraryMetadata.series[manifest.captureSeriesID.description]
+        let dateLabel = CaptureSeriesPresentation.dateLabel(
+            for: manifest.finalizedAtUTC
+        ) ?? manifest.finalizedAtUTC
+        let displayName =
+            (entry?.displayName?.isEmpty == false
+                ? entry?.displayName : nil)
+            ?? (seriesEntry?.displayName?.isEmpty == false
+                ? seriesEntry?.displayName : nil)
+        let titleDetail = displayName.map {
+            String(format: String(localized: "%@ · %@"), $0, dateLabel)
+        } ?? dateLabel
+        let evidenceFrameCount = manifest.files.filter {
+            $0.provenanceClass == .arkitFrameObservation
+        }.count
+        let annotationCount =
+            qualityReport?.annotationCompleteness.present.count ?? 0
+        let measurementCount =
+            qualityReport?.measurementCompleteness.present.count ?? 0
+        return Section {
+            VStack(
+                alignment: .leading,
+                spacing: CaptureDesign.Spacing.micro
+            ) {
+                Text("Capture finalized")
+                    .font(CaptureDesign.Typography.taskHeadline)
+                Text(titleDetail)
+                    .font(CaptureDesign.Typography.secondary)
+                    .foregroundStyle(.secondary)
+            }
+            .listRowSeparator(.hidden)
+
+            finalizedSummaryRow(
+                validation.valid ? .verified : .blocked,
+                String(localized: "Bundle validated")
+            )
+            finalizedSummaryRow(
+                evidenceFrameCount > 0 ? .verified : .incomplete,
+                String(
+                    format: String(localized: "%lld evidence frames"),
+                    evidenceFrameCount
+                )
+            )
+            if qualityReport != nil {
+                finalizedSummaryRow(
+                    annotationCount > 0 ? .verified : .incomplete,
+                    String(
+                        format: String(localized: "%lld annotations"),
+                        annotationCount
+                    )
+                )
+                finalizedSummaryRow(
+                    measurementCount > 0 ? .verified : .incomplete,
+                    String(
+                        format: String(
+                            localized: "%lld measurements"
+                        ),
+                        measurementCount
+                    )
+                )
+            }
+            if let mission = taskPlanMission {
+                finalizedSummaryRow(
+                    mission.outstanding == 0
+                        ? .verified : .incomplete,
+                    String(
+                        format: String(
+                            localized: "Required tasks %lld/%lld"
+                        ),
+                        mission.requiredCompleted,
+                        mission.requiredTotal
+                    )
+                )
+            }
+
+            // #364 §11: the committed capture reopens read-only in the
+            // same review workspace the operator already knows.
+            if finalizedPersistedRecord != nil {
+                Button("View capture") {
+                    if let record = finalizedPersistedRecord {
+                        actions.loadPersistedWorkspace(record)
+                        viewingFinalizedCapture = true
+                    }
+                }
+            }
+        }
+    }
+
+    private func finalizedSummaryRow(
+        _ status: CaptureSemanticStatus,
+        _ label: String
+    ) -> some View {
+        HStack(spacing: CaptureDesign.Spacing.row) {
+            Image(systemName: status.symbolName)
+                .foregroundStyle(status.colorRole.color)
+            Text(label)
+                .font(CaptureDesign.Typography.secondary)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    /// The validated persisted record for the capture currently on
+    /// screen — required to reopen it read-only through
+    /// `loadPersistedWorkspace` (#294).
+    private var finalizedPersistedRecord: PersistedCaptureRecord? {
+        guard let revisionID =
+                validationReport?.manifest.captureRevisionID
+        else {
+            return nil
+        }
+        return persistedInventory.captures.first {
+            $0.captureRevisionID == revisionID && $0.canOpen
         }
     }
 
