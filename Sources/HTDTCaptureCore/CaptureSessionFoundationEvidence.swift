@@ -398,27 +398,40 @@ public struct CaptureSessionFoundationPackage: Sendable, Equatable {
         }
     }
 
+    /// The canonical write batch for the foundation: kept as a property
+    /// so callers committing an atomic transaction may append sibling
+    /// files (for example the working-revision phase marker, issue
+    /// #297) instead of writing a second, non-atomic batch.
+    public var fileWriteRequests: [CaptureFileWriteRequest] {
+        get throws {
+            [
+                try CaptureFileWriteRequest(
+                    data: capabilitiesData,
+                    path: CaptureStorePath(Self.capabilitiesPath)
+                ),
+                try CaptureFileWriteRequest(
+                    data: configurationData,
+                    path: CaptureStorePath(Self.configurationPath)
+                ),
+                try CaptureFileWriteRequest(
+                    data: deviceData,
+                    path: CaptureStorePath(Self.devicePath)
+                ),
+                try CaptureFileWriteRequest(
+                    data: sessionData,
+                    path: CaptureStorePath(Self.sessionPath)
+                ),
+            ]
+        }
+    }
+
     public func persist(
-        using writer: AtomicCaptureFileWriter
+        using writer: AtomicCaptureFileWriter,
+        additionalFileWrites: [CaptureFileWriteRequest] = []
     ) async throws {
-        try await writer.writeBatchIfIdentical([
-            try CaptureFileWriteRequest(
-                data: capabilitiesData,
-                path: CaptureStorePath(Self.capabilitiesPath)
-            ),
-            try CaptureFileWriteRequest(
-                data: configurationData,
-                path: CaptureStorePath(Self.configurationPath)
-            ),
-            try CaptureFileWriteRequest(
-                data: deviceData,
-                path: CaptureStorePath(Self.devicePath)
-            ),
-            try CaptureFileWriteRequest(
-                data: sessionData,
-                path: CaptureStorePath(Self.sessionPath)
-            ),
-        ])
+        try await writer.writeBatchIfIdentical(
+            fileWriteRequests + additionalFileWrites
+        )
     }
 }
 

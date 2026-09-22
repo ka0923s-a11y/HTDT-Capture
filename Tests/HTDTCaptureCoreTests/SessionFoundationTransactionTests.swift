@@ -151,7 +151,7 @@ final class SessionFoundationTransactionTests: XCTestCase {
                 recovered.payloadDeclarations
                     .filter { $0.path.hasPrefix("session/") }
                     .count,
-                4
+                5
             )
             XCTAssertEqual(
                 recovered.captureSessionIDs,
@@ -212,7 +212,7 @@ final class SessionFoundationTransactionTests: XCTestCase {
             snapshot.payloadDeclarations
                 .filter { $0.path.hasPrefix("session/") }
                 .count,
-            4
+            5
         )
         XCTAssertEqual(
             snapshot.captureSessionIDs,
@@ -314,7 +314,7 @@ final class SessionFoundationTransactionTests: XCTestCase {
             snapshot.payloadDeclarations
                 .filter { $0.path.hasPrefix("session/") }
                 .count,
-            4
+            5
         )
 
         // A different foundation is a conflicting canonical payload.
@@ -365,7 +365,7 @@ final class SessionFoundationTransactionTests: XCTestCase {
             snapshot.payloadDeclarations
                 .filter { $0.path.hasPrefix("session/") }
                 .count,
-            4
+            5
         )
         for path in writeOrder {
             XCTAssertEqual(
