@@ -135,6 +135,14 @@ private struct HTDTCaptureHostView: View {
                 coordinator.planUnderlayDocument,
             semanticCorrectionContext:
                 coordinator.semanticCorrectionContext,
+            liveSpatialAuthority:
+                coordinator.workingSetSpatialAuthorityLive,
+            recoveredDraftReport:
+                coordinator.recoveredDraftReport,
+            practiceCaptureActive:
+                coordinator.practiceCaptureActive,
+            practicePromptShown:
+                coordinator.practicePromptShown,
             activeOperations: coordinator.activeOperations,
             operationTargetRevisionID:
                 coordinator.operationTargetRevisionID,
@@ -254,6 +262,18 @@ private struct HTDTCaptureHostView: View {
                     coordinator.commitSemanticCorrection,
                 cancelSemanticCorrection:
                     coordinator.cancelSemanticCorrection,
+                openRecoveredDraft:
+                    coordinator.openRecoveredDraft,
+                discardRecoveredDraft:
+                    coordinator.discardRecoveredDraft,
+                suspendReview:
+                    coordinator.suspendReviewAndFinishLater,
+                performRemediation:
+                    coordinator.performRemediation,
+                beginPracticeCapture:
+                    coordinator.beginPracticeCapture,
+                dismissPracticePrompt:
+                    coordinator.dismissPracticePrompt,
                 retryCameraPermission:
                     coordinator.retryCameraPermission,
                 openCameraSettings:
@@ -557,6 +577,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         didSet { syncActiveOperations() }
     }
     private var spatialAuthoritySealedForFinalization = false
+    /// #297: false when the working set was rebuilt from disk by
+    /// `restoreWorkingRevision` — its AR coordinate authority ended
+    /// with the prior process, so live spatial mutation is
+    /// permanently unavailable.
+    @Published private(set) var workingSetSpatialAuthorityLive = true
+    /// Recovery provenance for the currently open recovered draft
+    /// (#297): unsupported/superseded files the restore pass found.
+    @Published private(set)
+    var recoveredDraftReport: WorkingRevisionRestoreReport?
+    /// #320: the active working set is a practice rehearsal — it is
+    /// never finalizable and never sendable to HTDT.
+    @Published private(set) var practiceCaptureActive = false
+    /// First-launch practice prompt (#320): shown until the operator
+    /// dismisses it; "Don't show again" suppresses it permanently.
+    @Published private(set) var practicePromptShown = false
+    private var activeCaptureIsPractice = false
+    private static let practicePromptDismissedDefaultsKey =
+        "practice_prompt_dismissed"
     /// Explicit commit-point policy for the finalization transaction
     /// (#185). While claimed, terminal lifecycle/resource failures are
     /// fenced instead of invalidating the capture generation; a fenced
@@ -738,6 +776,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             CaptureAcquisitionOriginStore(captureRoot: $0)
         }
 
+        // #320: the first-launch practice prompt is suppressed only by
+        // an explicit permanent dismissal; "Not now" hides it for this
+        // run while practice stays reachable from the home surface.
+        practicePromptShown = !UserDefaults.standard.bool(
+            forKey: Self.practicePromptDismissedDefaultsKey
+        )
+
         // At-rest policy is applied before the first inventory scan so
         // the app-owned roots carry their backup/protection attributes
         // even when no capture has ever run (#136, #166). Failures are
@@ -848,6 +893,31 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         beginCapture(revisionLineage: nil)
     }
 
+    /// #320 practice mode: a full rehearsal of the real capture flow —
+    /// scan guidance, End, Review, quality diagnostics — on a working
+    /// set that can never finalize or send to HTDT.
+    func beginPracticeCapture() {
+        guard state == .idle,
+              capabilities.roomPlanMeshEligible
+        else {
+            return
+        }
+        practicePromptShown = false
+        beginCapture(revisionLineage: nil, practice: true)
+    }
+
+    /// #320: "Not now" hides the prompt for this run; "Don't show
+    /// again" writes the durable opt-out.
+    func dismissPracticePrompt(permanently: Bool) {
+        practicePromptShown = false
+        if permanently {
+            UserDefaults.standard.set(
+                true,
+                forKey: Self.practicePromptDismissedDefaultsKey
+            )
+        }
+    }
+
     /// Starts a correction capture for a stored finalized revision: the
     /// record is revalidated on disk before its manifest identity is
     /// used as lineage authority, then an ordinary new scan begins.
@@ -953,7 +1023,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private func beginCapture(
-        revisionLineage: RevisionLineage?
+        revisionLineage: RevisionLineage?,
+        practice: Bool = false
     ) {
         // A persisted-library operation in flight holds authority over
         // the inventory/import pipeline; starting a capture mid-flight
@@ -967,6 +1038,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         activeRevisionLineage = revisionLineage
+        activeCaptureIsPractice = practice
+        practiceCaptureActive = practice
+        workingSetSpatialAuthorityLive = true
+        recoveredDraftReport = nil
         workingSetIdentity = nil
         annotationRevisionSeed = nil
         pendingFieldAuthority = FieldAuthorityWorkspace()
@@ -2277,6 +2352,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
               !isEndingScan,
               !reviewOperationInFlight,
               !spatialAuthoritySealedForFinalization,
+              workingSetSpatialAuthorityLive,
               acceptedRoomPlanRawSHA256 != nil,
               let store = workingSetStore
         else {
@@ -2393,6 +2469,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // `annotationCoordinateSpaceID` is nil.
         guard !spatialAuthoritySealedForFinalization
                 || annotationAuthorityCommitted
+                || !workingSetSpatialAuthorityLive
         else {
             return
         }
@@ -3817,9 +3894,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     func finalizeCapture() {
+        // #320: a practice working set is never finalizable — the
+        // store also rejects the seal, so the gate here is just the
+        // early, honest refusal.
         guard state == .reviewing,
               !isEndingScan,
               !reviewOperationInFlight,
+              !practiceCaptureActive,
               let store = workingSetStore
         else {
             return
@@ -4200,6 +4281,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         planUnderlayDocument = nil
         semanticCorrectionContext = nil
         semanticCorrectionParent = nil
+        workingSetSpatialAuthorityLive = true
+        recoveredDraftReport = nil
+        practiceCaptureActive = false
+        activeCaptureIsPractice = false
         finalizationCommit.reset()
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
@@ -4384,6 +4469,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         planUnderlayDocument = nil
         semanticCorrectionContext = nil
         semanticCorrectionParent = nil
+        workingSetSpatialAuthorityLive = true
+        recoveredDraftReport = nil
+        practiceCaptureActive = false
+        activeCaptureIsPractice = false
         finalizationCommit.reset()
         scanCoverageTracker = AdvisoryScanCoverageTracker()
         scanCoverage = .empty
@@ -4437,6 +4526,312 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
+    /// #297: reopen an end-accepted working revision that survived a
+    /// relaunch. `restoreWorkingRevision` rebuilds a full working-set
+    /// store whose spatial authority is permanently sealed; the host
+    /// lands in Review where semantic authoring and finalization work
+    /// but live-capture affordances are gone.
+    func openRecoveredDraft(_ draft: RecoverableWorkingRevision) {
+        guard state == .idle,
+              workingSetStore == nil,
+              !persistedAdoptionInFlight,
+              !persistedDeletionInFlight,
+              !importOperationInFlight
+        else {
+            return
+        }
+
+        persistedAdoptionInFlight = true
+        workingSetStatus = HostLocalization.text(
+            "Reopening the saved draft",
+            "保存済みの下書きを再開しています"
+        )
+
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            do {
+                let restored =
+                    try await CaptureWorkingSetStore
+                        .restoreWorkingRevision(draft)
+                guard self.state == .idle else {
+                    self.persistedAdoptionInFlight = false
+                    return
+                }
+                let store = restored.store
+                let snapshot = await store.snapshot()
+                self.captureGeneration = UUID()
+                self.workingSetStore = store
+                self.workingSetIdentity = snapshot.identity
+                self.workingSetSpatialAuthorityLive = false
+                self.recoveredDraftReport = restored.report
+                self.activeCaptureIsPractice = false
+                self.practiceCaptureActive = false
+                // Not the #112/#276 resource seal — the review controls
+                // still run; only live-spatial paths are gated, by
+                // `workingSetSpatialAuthorityLive`.
+                self.spatialAuthoritySealedForFinalization = false
+                self.activeRevisionLineage = nil
+                self.annotationAuthorityCommitted =
+                    (try? Self.committedAnnotationSeed(
+                        rootDirectory: snapshot.rootDirectory
+                    )) != nil
+                self.annotationEditIsRevision =
+                    self.annotationAuthorityCommitted
+                if let document =
+                    CaptureWorkingSetStore.peekRevisionPhase(
+                        workingRevisionURL: draft.url
+                    )
+                {
+                    self.taskProfile =
+                        document.checkpoint?.taskProfile
+                    self.skippedTaskRequirementIDs = Set(
+                        document.checkpoint?
+                            .skippedTaskRequirementIDs ?? []
+                    )
+                }
+                do {
+                    try self.transition(.reopenDraft)
+                } catch {
+                    self.fail(.unknown)
+                    return
+                }
+                self.persistedAdoptionInFlight = false
+                self.workingSetStatus = HostLocalization.text(
+                    "Draft reopened for review; spatial capture is sealed",
+                    "下書きを確認用に再開しました。空間キャプチャは封印されています"
+                )
+                let generation = self.captureGeneration
+                await self.refreshQuality(
+                    store: store,
+                    generation: generation
+                )
+                self.refreshReviewWorkspace()
+            } catch {
+                self.persistedAdoptionInFlight = false
+                self.workingSetStatus = HostLocalization.text(
+                    "The recoverable draft could not be reopened; it stays listed",
+                    "復旧可能な下書きを再開できませんでした。一覧には残っています"
+                )
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+            }
+        }
+    }
+
+    /// #297 "Save and finish later": leave Review without discarding.
+    /// The working revision's phase document already says
+    /// end-accepted, so it stays listed as a recoverable draft on the
+    /// home surface and on the next launch.
+    func suspendReviewAndFinishLater() {
+        guard state == .reviewing,
+              !isEndingScan,
+              !reviewOperationInFlight,
+              !annotationCommitInFlight,
+              !exportOperationInFlight,
+              workingSetStore != nil
+        else {
+            return
+        }
+
+        // Fence every in-flight callback before teardown, exactly like
+        // discard — except the working revision stays on disk.
+        captureGeneration = UUID()
+        scanCoverageTask?.cancel()
+        scanCoverageTask = nil
+        resourceMonitor?.stop()
+        resourceMonitor = nil
+        sessionController.stopAndPauseARSession()
+
+        do {
+            try transition(.suspendReview)
+        } catch {
+            return
+        }
+
+        sessionController = SharedARSessionController()
+        workingSetStore = nil
+        finalizedRevision = nil
+        qualityReport = nil
+        advisoryReport = nil
+        taskProfile = nil
+        skippedTaskRequirementIDs = []
+        validationReport = nil
+        exportURL = nil
+        annotationAuthorityCommitted = false
+        annotationEvidenceRefs = []
+        annotationEvidenceFrames = []
+        annotationRoomPlanObjects = []
+        annotationRoomPlanObjectsLoaded = false
+        spatialPlausibilityContext = SpatialPlausibilityContext()
+        spatialPlausibilityFindings = nil
+        annotationRetentionKinds = [:]
+        committedIdentityDocData = nil
+        // Draft autosaves bound to this revision stay on disk (#266):
+        // the draft is meant to be reopened, so unlike
+        // discard/reset this does not purge the annotation-draft
+        // store.
+        annotationRoomPlanSurfaces = []
+        annotationMeshAnchors = []
+        activeRevisionLineage = nil
+        workingSetIdentity = nil
+        annotationRevisionSeed = nil
+        annotationEditIsRevision = false
+        captureStartTimingCorrelation = nil
+        acceptedRoomPlanRawSHA256 = nil
+        acceptedEndMeshWasPersisted = false
+        annotationCommitInFlight = false
+        reviewOperationInFlight = false
+        exportOperationInFlight = false
+        spatialAuthoritySealedForFinalization = false
+        workingSetSpatialAuthorityLive = true
+        recoveredDraftReport = nil
+        practiceCaptureActive = false
+        activeCaptureIsPractice = false
+        finalizationCommit.reset()
+        scanCoverageTracker = AdvisoryScanCoverageTracker()
+        scanCoverage = .empty
+        observationStabilityTracker = ObservationStabilityTracker()
+        observationStability = .empty
+        spatialCoverageAggregator = SpatialScanCoverageAggregator()
+        spatialCoverage = .empty
+        motionGuidanceTracker = ScanMotionGuidanceTracker()
+        motionGuidance = nil
+        scanGuidanceProgress = .empty
+        derivedShapePreview = .empty
+        derivedPreviewSuspendedForMemoryPressure = false
+        scanEvidenceFrameCount = 0
+        scanDepthEvidenceCount = 0
+        endScanGuidance = nil
+        endScanPreflightBlocked = false
+        reviewWorkspace = nil
+        persistedWorkspace = nil
+        roomFrameOriginPending = nil
+        danglingSpatialIssues = []
+        failedInspection = nil
+        handoffDestinations = []
+        handoffReceipts = []
+        scanTrackingTransitionGate.reset()
+        isEndingScan = false
+        isCapturingEvidenceFrame = false
+        evidenceFrameSaveTask = nil
+        workingSetStatus = HostLocalization.text(
+            "Draft saved; reopen it any time from Recoverable drafts",
+            "下書きを保存しました。「復旧可能な下書き」からいつでも再開できます"
+        )
+        loadPersistedCaptures()
+    }
+
+    /// Permanently remove a recoverable draft's working revision
+    /// (#297). Routed through the same path-safety-verified working-root
+    /// removal as abandoned revisions.
+    func discardRecoveredDraft(
+        _ draft: RecoverableWorkingRevision
+    ) {
+        guard state == .idle,
+              !persistedDeletionInFlight,
+              !persistedAdoptionInFlight,
+              !importOperationInFlight,
+              let store = persistedStore
+        else {
+            return
+        }
+
+        persistedDeletionInFlight = true
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            defer {
+                self.persistedDeletionInFlight = false
+                self.loadPersistedCaptures()
+            }
+            do {
+                try await Task.detached(
+                    priority: .userInitiated
+                ) {
+                    try store.removeWorkingOrphan(
+                        PersistedCaptureWorkingOrphan(
+                            kind: .abandonedRevision,
+                            url: draft.url,
+                            retainedBytes: draft.retainedBytes
+                        )
+                    )
+                }.value
+                guard self.state == .idle else {
+                    return
+                }
+                self.workingSetStatus = HostLocalization.text(
+                    "Draft deleted",
+                    "下書きを削除しました"
+                )
+            } catch {
+                guard self.state == .idle else {
+                    return
+                }
+                self.workingSetStatus = HostLocalization.text(
+                    "The draft could not be deleted; it stays listed for retry",
+                    "下書きを削除できませんでした。一覧に残っているので再試行できます"
+                ) + " [" + Self.persistenceDiagnostic(error) + "]"
+            }
+        }
+    }
+
+    /// #298 remediation router: each action routes to the surface that
+    /// can legitimately clear the finding — never a quality-gate
+    /// bypass. Actions the current working set cannot support were
+    /// already filtered out by the view layer.
+    func performRemediation(
+        _ action: CaptureRemediationAction
+    ) {
+        switch action {
+        case .continueScanning:
+            continueScanningFromReview()
+        case .saveEvidenceFrame:
+            // Still-frame capture lives on the scanning surface; the
+            // honest route to it from Review is Continue scanning.
+            continueScanningFromReview()
+        case .addAnnotation,
+             .addMeasurement,
+             .reviewTaskRequirements:
+            // The annotation workspace hosts entity/measurement
+            // authoring plus the task-profile picker (#217/#259).
+            beginAnnotation()
+        case .verifyIntegrityAgain:
+            guard state == .reviewing,
+                  let store = workingSetStore
+            else {
+                return
+            }
+            let generation = captureGeneration
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    return
+                }
+                await self.refreshQuality(
+                    store: store,
+                    generation: generation
+                )
+                self.refreshReviewWorkspace()
+            }
+        case .startReplacementRevision:
+            guard state == .reviewing else {
+                return
+            }
+            // For a recovered draft there is no AR session to stop —
+            // discard removes the working revision; for a live review
+            // this is the ordinary discard path. Either way the
+            // operator lands in Idle and immediately starts the
+            // replacement's setup flow.
+            discardActiveCapture()
+            beginCapture()
+        case .discardDraft:
+            discardActiveCapture()
+        }
+    }
+
     /// Rebuilds the review workspace model from the live working set
     /// (issues #213, #231, #232, #241). Called on entry to Review and
     /// after every authority commit that changes committed payloads.
@@ -4446,7 +4841,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         else {
             return
         }
+        // A recovered draft's spatial authority ended with the prior
+        // process (#297): the workspace renders it sealed even though
+        // the #276 finalization seal flag is unset.
         let sealed = spatialAuthoritySealedForFinalization
+            || !workingSetSpatialAuthorityLive
         Task { @MainActor [weak self] in
             guard let self else { return }
             let snapshot = await store.snapshot()
@@ -7460,6 +7859,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 saturatedWeakRegionCount:
                     progress.saturatedWeakRegionCount,
                 guidanceComplete: progress.isComplete,
+                guidanceCompletionSource:
+                    progress.completionSource.rawValue,
                 // #347: unresolved weak regions beyond the displayed
                 // map window, and #336: the retention capacity outcome
                 // — both persist with the end advisory so a completed
@@ -9095,9 +9496,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 isDirectory: true
             )
 
+        // #320: a practice working set carries the marker in its
+        // durable state document — it can never be finalized and is
+        // never listed as a recoverable draft.
         let store = try CaptureWorkingSetStore(
             identity: identity,
-            rootDirectory: root
+            rootDirectory: root,
+            practice: activeCaptureIsPractice
         )
 
         // The revision directory exists now: apply the transient-working
