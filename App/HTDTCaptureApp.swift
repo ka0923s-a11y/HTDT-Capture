@@ -152,6 +152,10 @@ private struct HTDTCaptureHostView: View {
                 coordinator.practiceCaptureActive,
             practicePromptShown:
                 coordinator.practicePromptShown,
+            crossRevisionRegistrations:
+                coordinator.crossRevisionRegistrations,
+            missionProgressEvaluations:
+                coordinator.missionProgressEvaluations,
             activeOperations: coordinator.activeOperations,
             operationTargetRevisionID:
                 coordinator.operationTargetRevisionID,
@@ -322,7 +326,15 @@ private struct HTDTCaptureHostView: View {
                 openCameraSettings:
                     coordinator.openCameraSettings,
                 cancelCaptureStart:
-                    coordinator.cancelCaptureStart
+                    coordinator.cancelCaptureStart,
+                preferRevisionHead:
+                    coordinator.preferRevisionHead,
+                proposeRevisionAlignment:
+                    coordinator.proposeRevisionAlignment,
+                acceptRevisionAlignment:
+                    coordinator.acceptRevisionAlignment,
+                waiveMissionItem:
+                    coordinator.waiveMissionItem
             )
         )
         .onOpenURL { url in
@@ -532,6 +544,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Durable delivery-queue ledger (#387).
     @Published private(set)
     var deliveryJobs: [HTDTDeliveryJob] = []
+    /// Accepted cross-revision spatial registrations (#395) — the
+    /// app-local transform authority the library surfaces.
+    @Published private(set)
+    var crossRevisionRegistrations:
+        [CrossRevisionRegistration] = []
+    /// Replayed mission progress keyed by inbox record id (#397) —
+    /// completeness recomputed from the append-only ledger, never a
+    /// stored percentage.
+    @Published private(set)
+    var missionProgressEvaluations:
+        [String: MissionProgressEvaluation] = [:]
     /// SHA of the plan bytes bound to `taskPlan` (#386): the mission's
     /// embedded plan import carries its own content digest.
     private var taskPlanSHA256: EvidenceSHA256?
@@ -5899,6 +5922,31 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         deliveryJobs = (try? HTDTDeliveryQueue(
             captureRoot: captureRoot
         ).jobs()) ?? []
+        crossRevisionRegistrations =
+            (try? CrossRevisionRegistrationStore(
+                captureRoot: captureRoot
+            ).load().registrations) ?? []
+        // #397: replay each mission's ledger into an evaluation —
+        // plan compatibility is required to evaluate, so a record
+        // whose embedded plan cannot decode simply yields no
+        // evaluation rather than a guessed one.
+        let ledgerStore = MissionProgressLedgerStore(
+            captureRoot: captureRoot
+        )
+        var evaluations:
+            [String: MissionProgressEvaluation] = [:]
+        for record in missionRecords {
+            guard let plan = try? inbox.plan(for: record),
+                  let evaluation = try? ledgerStore.evaluate(
+                      record: record,
+                      plan: plan
+                  )
+            else {
+                continue
+            }
+            evaluations[record.recordID] = evaluation
+        }
+        missionProgressEvaluations = evaluations
     }
 
     private var missionInboxStore: HTDTMissionInboxStore? {
@@ -5916,6 +5964,259 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var deliveryQueueStore: HTDTDeliveryQueue? {
         Self.captureRootDirectory().map {
             HTDTDeliveryQueue(captureRoot: $0)
+        }
+    }
+
+    private var crossRevisionRegistrationStore:
+        CrossRevisionRegistrationStore?
+    {
+        Self.captureRootDirectory().map {
+            CrossRevisionRegistrationStore(captureRoot: $0)
+        }
+    }
+
+    private var missionProgressLedgerStore:
+        MissionProgressLedgerStore?
+    {
+        Self.captureRootDirectory().map {
+            MissionProgressLedgerStore(captureRoot: $0)
+        }
+    }
+
+    /// Sets or clears the operator's preferred head for a branched
+    /// series (issue #396). App-local metadata only — the choice
+    /// never mutates any revision bundle.
+    func preferRevisionHead(
+        _ seriesID: CaptureSeriesID,
+        _ revisionID: CaptureRevisionID?
+    ) {
+        guard let captureRoot = Self.captureRootDirectory()
+        else {
+            return
+        }
+        let store = CaptureLibraryMetadataStore(
+            captureRoot: captureRoot
+        )
+        do {
+            if let revisionID {
+                try store.updatePreferredHead(
+                    seriesID,
+                    revisionID: revisionID
+                )
+            } else {
+                try store.clearPreferredHead(seriesID)
+            }
+            libraryMetadata = try store.load()
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The preferred head could not be saved",
+                "優先ヘッドを保存できませんでした"
+            ) + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
+    /// The declared field datum of a persisted finalized revision
+    /// (#395): the shared physical anchor a registration is
+    /// established from. nil when the revision never recorded one or
+    /// its bytes no longer decode — the caller fails closed.
+    private func fieldDatumDocument(
+        for record: PersistedCaptureRecord
+    ) -> RoomFieldDatumDocument? {
+        guard let directory = record.finalizedDirectory
+        else {
+            return nil
+        }
+        let url = directory.appendingPathComponent(
+            RoomFieldDatumPackage.path,
+            isDirectory: false
+        )
+        guard let data = try? Data(contentsOf: url)
+        else {
+            return nil
+        }
+        return try? JSONDecoder().decode(
+            RoomFieldDatumDocument.self,
+            from: data
+        )
+    }
+
+    private func coordinateSpaceID(
+        for record: PersistedCaptureRecord
+    ) -> CoordinateSpaceID? {
+        record.finalizedValidation?.manifest.coordinateSpaceIDs.first
+    }
+
+    /// Computes the inspectable shared-field-datum fit for a revision
+    /// pair (#395) without persisting anything — the UI shows the
+    /// residuals before any accept decision.
+    func proposeRevisionAlignment(
+        _ sourceRevisionID: CaptureRevisionID,
+        _ targetRevisionID: CaptureRevisionID
+    ) async -> CrossRevisionRegistrationSolve? {
+        guard let source = persistedInventory.captures.first(where: {
+            $0.captureRevisionID == sourceRevisionID
+        }), let target = persistedInventory.captures.first(where: {
+            $0.captureRevisionID == targetRevisionID
+        }), let sourceDatum = fieldDatumDocument(for: source),
+            let targetDatum = fieldDatumDocument(for: target),
+            let store = crossRevisionRegistrationStore,
+            let correspondences =
+                try? CrossRevisionCorrespondenceGather
+                    .fromSharedFieldDatums(
+                        source: sourceDatum,
+                        target: targetDatum
+                    )
+        else {
+            return nil
+        }
+        return try? store.propose(
+            correspondences: correspondences,
+            scalePolicy: .rigidOnly
+        )
+    }
+
+    /// Accepts the shared-field-datum registration for the pair as
+    /// immutable authority (#395): re-solves from the same declared
+    /// correspondences, refuses when a registration already binds the
+    /// directed pair, and never rewrites either revision.
+    @discardableResult
+    func acceptRevisionAlignment(
+        _ sourceRevisionID: CaptureRevisionID,
+        _ targetRevisionID: CaptureRevisionID
+    ) async -> CrossRevisionRegistration? {
+        guard let source = persistedInventory.captures.first(where: {
+            $0.captureRevisionID == sourceRevisionID
+        }), let target = persistedInventory.captures.first(where: {
+            $0.captureRevisionID == targetRevisionID
+        }), let sourceDatum = fieldDatumDocument(for: source),
+            let targetDatum = fieldDatumDocument(for: target),
+            let sourceSpace = coordinateSpaceID(for: source),
+            let targetSpace = coordinateSpaceID(for: target),
+            let store = crossRevisionRegistrationStore,
+            let correspondences =
+                try? CrossRevisionCorrespondenceGather
+                    .fromSharedFieldDatums(
+                        source: sourceDatum,
+                        target: targetDatum
+                    )
+        else {
+            return nil
+        }
+        let accepted = try? store.accept(
+            sourceRevisionID: sourceRevisionID,
+            sourceCoordinateSpaceID: sourceSpace,
+            targetRevisionID: targetRevisionID,
+            targetCoordinateSpaceID: targetSpace,
+            mechanism: .sharedFieldDatum,
+            correspondences: correspondences,
+            scalePolicy: .rigidOnly,
+            evidenceRefs: [
+                "path:\(RoomFieldDatumPackage.path)"
+            ]
+        )
+        if accepted != nil {
+            crossRevisionRegistrations =
+                (try? store.load().registrations)
+                    ?? crossRevisionRegistrations
+        }
+        return accepted
+    }
+
+    /// Commits `revision/registrations.json` into the working set
+    /// (#395): when accepted registrations name this revision, the
+    /// exported bundle carries the transform authority as a declared
+    /// supplemental document for HTDT. Best-effort — a commit
+    /// failure never blocks finalization; the app-local registry
+    /// stays the standing authority.
+    private func commitCrossRevisionRegistrations(
+        _ store: CaptureWorkingSetStore
+    ) async {
+        guard let revisionID = workingSetIdentity?.captureRevisionID,
+              let registrationStore = crossRevisionRegistrationStore,
+              let document = try? CrossRevisionRegistrationBundleDocument(
+                captureRevisionID: revisionID,
+                registrations: registrationStore.load().registrations
+                    .filter {
+                        $0.sourceRevisionID == revisionID
+                            || $0.targetRevisionID == revisionID
+                    }
+              ),
+              !document.registrations.isEmpty,
+              let package = try? CrossRevisionRegistrationPackageBuilder
+                .build(document: document),
+              let supplemental = try? WorkingSetSupplementalDocument(
+                path: CrossRevisionRegistrationPackage.path,
+                data: package.data,
+                declaration: package.payloadDeclaration
+              )
+        else {
+            return
+        }
+        try? await store.replaceSupplementalDocument(supplemental)
+    }
+
+    /// Ingests a finalized revision's task-plan status document into
+    /// the mission progress ledger (#397): exact plan compatibility
+    /// gates acceptance, and the ledger is app-local — failures never
+    /// disturb the committed revision.
+    private func ingestMissionProgress(
+        finalizedDirectory: URL,
+        missionRecordID: String
+    ) {
+        guard let inbox = missionInboxStore,
+              let ledger = missionProgressLedgerStore,
+              let record = try? inbox.record(id: missionRecordID),
+              let plan = try? inbox.plan(for: record)
+        else {
+            return
+        }
+        let statusURL = finalizedDirectory.appendingPathComponent(
+            "session/task-plan-status.json",
+            isDirectory: false
+        )
+        guard let data = try? Data(contentsOf: statusURL),
+              let statusDocument = try? JSONDecoder().decode(
+                CaptureTaskPlanStatusDocument.self,
+                from: data
+              )
+        else {
+            return
+        }
+        try? ledger.ingestStatusDocument(
+            statusDocument,
+            for: record,
+            plan: plan,
+            sourceStatusSHA256: EvidenceIntegrity.sha256(of: data)
+        )
+    }
+
+    /// Explicit mission-level waiver for a plan item (#397) —
+    /// auditable and distinct from a revision-local skip.
+    func waiveMissionItem(
+        _ recordID: String,
+        _ itemID: String,
+        _ note: String?
+    ) async {
+        guard let inbox = missionInboxStore,
+              let ledger = missionProgressLedgerStore,
+              let record = try? inbox.record(id: recordID),
+              let plan = try? inbox.plan(for: record)
+        else {
+            return
+        }
+        do {
+            try ledger.waive(
+                itemID: itemID,
+                for: record,
+                plan: plan,
+                note: note
+            )
+            refreshMissionDeliveryStores()
+        } catch {
+            workingSetStatus = HostLocalization.text(
+                "The mission waiver could not be recorded",
+                "ミッション免除を記録できませんでした"
+            ) + " [" + Self.persistenceDiagnostic(error) + "]"
         }
     }
 
@@ -9888,6 +10189,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             try await store.persistQualityReport(quality)
 
+            // #395: when accepted cross-revision registrations name
+            // this revision, commit the registrations document now —
+            // before the seal — so the frozen snapshot's payload
+            // declarations include the transform authority.
+            await commitCrossRevisionRegistrations(store)
+
             // CONTRACT (#180): the sibling store agent adds
             // sealForFinalization()/unseal() on CaptureWorkingSetStore.
             // The seal drains in-flight writes, then rejects further
@@ -10201,6 +10508,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 recordID: missionID,
                 captureRevisionID:
                     finalized.captureRevisionID
+            )
+            // #397: the revision's accepted item outcomes join the
+            // mission's append-only ledger — replayable completeness
+            // across every associated revision, never a stored
+            // percentage.
+            ingestMissionProgress(
+                finalizedDirectory: finalized.directory,
+                missionRecordID: missionID
             )
             refreshMissionDeliveryStores()
         }

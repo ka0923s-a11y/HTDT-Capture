@@ -40,10 +40,14 @@ private enum CaptureHomeSelection: Hashable {
 }
 
 /// The pending delete-local-capture confirmation: which validated
-/// revision is selected and whether its canonical export slot exists.
+/// revision is selected, whether its canonical export slot exists,
+/// and how many descendant revisions declare it as parent (#396 —
+/// deleting a parent leaves their `parent_revision_id` refs
+/// unresolved, so the confirmation names the lineage cost).
 struct PendingCaptureDeletion: Equatable {
     let revisionID: CaptureRevisionID
     let includesExport: Bool
+    var descendantCount: Int = 0
 }
 
 /// Identifiable target for the library-metadata editor sheet (#219):
@@ -161,6 +165,12 @@ public struct CaptureHomeView: View {
     public let pairedDestinations: [PairedHTDTDestination]
     /// Durable delivery-queue jobs (#387).
     public let deliveryJobs: [HTDTDeliveryJob]
+    /// Accepted cross-revision spatial registrations (#395).
+    public let crossRevisionRegistrations:
+        [CrossRevisionRegistration]
+    /// Replayed mission progress keyed by inbox record id (#397).
+    public let missionProgressEvaluations:
+        [String: MissionProgressEvaluation]
     public let actions: CaptureRootActions
 
     @State private var selection: CaptureHomeSelection?
@@ -187,6 +197,10 @@ public struct CaptureHomeView: View {
         activeMissionRecordID: String? = nil,
         pairedDestinations: [PairedHTDTDestination] = [],
         deliveryJobs: [HTDTDeliveryJob] = [],
+        crossRevisionRegistrations:
+            [CrossRevisionRegistration] = [],
+        missionProgressEvaluations:
+            [String: MissionProgressEvaluation] = [:],
         actions: CaptureRootActions = CaptureRootActions()
     ) {
         self.capabilities = capabilities
@@ -199,6 +213,10 @@ public struct CaptureHomeView: View {
         self.activeMissionRecordID = activeMissionRecordID
         self.pairedDestinations = pairedDestinations
         self.deliveryJobs = deliveryJobs
+        self.crossRevisionRegistrations =
+            crossRevisionRegistrations
+        self.missionProgressEvaluations =
+            missionProgressEvaluations
         self.actions = actions
     }
 
@@ -251,10 +269,16 @@ public struct CaptureHomeView: View {
                 )
             }
             Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text(
-                "This permanently deletes the finalized capture and any export archive stored for it from this device."
-            )
+        } message: { pending in
+            if pending.descendantCount > 0 {
+                Text(
+                    "This permanently deletes the finalized capture and any export archive stored for it from this device. \(pending.descendantCount) revision(s) declare it as their parent — their lineage link will no longer resolve."
+                )
+            } else {
+                Text(
+                    "This permanently deletes the finalized capture and any export archive stored for it from this device."
+                )
+            }
         }
     }
 
@@ -559,6 +583,9 @@ public struct CaptureHomeView: View {
                     metadataEditorTarget: $metadataEditorTarget,
                     pendingDeletion: $pendingDeletion,
                     captureOrigins: captureOrigins,
+                    allRecords: persistedInventory.captures,
+                    crossRevisionRegistrations:
+                        crossRevisionRegistrations,
                     actions: actions
                 )
             } else {
@@ -585,6 +612,7 @@ public struct CaptureHomeView: View {
             HTDTMissionInboxView(
                 records: missionRecords,
                 activeMissionRecordID: activeMissionRecordID,
+                progressEvaluations: missionProgressEvaluations,
                 actions: actions
             )
         case .destinations:
@@ -688,7 +716,8 @@ public struct CaptureHomeView: View {
     ) -> some View {
         let presentation = CaptureSeriesPresentation(
             group: group,
-            revisionMetadata: group.latestRevision.flatMap {
+            revisionMetadata: (group.preferredRevision
+                ?? group.latestRevision).flatMap {
                 libraryMetadata.revisions[
                     $0.captureRevisionID.description
                 ]
@@ -839,7 +868,34 @@ private struct CaptureSeriesDetailView: View {
     @Binding var pendingDeletion: PendingCaptureDeletion?
     let captureOrigins:
         [CaptureRevisionID: CaptureAcquisitionOriginRecord]
+    /// Every persisted record — candidate endpoints for a
+    /// cross-revision registration (#395).
+    let allRecords: [PersistedCaptureRecord]
+    let crossRevisionRegistrations:
+        [CrossRevisionRegistration]
     let actions: CaptureRootActions
+
+    /// Pending registration flow (#395): the revision the operator
+    /// chose to align, the picked counterpart, the inspected proposal,
+    /// and any failure text.
+    @State private var registrationSource:
+        PersistedCaptureRecord?
+    @State private var registrationTarget:
+        PersistedCaptureRecord?
+    @State private var registrationProposal:
+        CrossRevisionRegistrationSolve?
+    @State private var registrationError: String?
+    @State private var registrationBusy = false
+    @State private var registrationSheetShown = false
+
+    /// The revision the "Latest" surface presents (#396): the stored
+    /// preferred head when the graph is branched and the pick is
+    /// still valid, the single head otherwise, or nil while a branch
+    /// has no accepted pick — newest `finalized_at` never wins on its
+    /// own.
+    private var presentedRevision: PersistedCaptureRecord? {
+        group.preferredRevision
+    }
 
     var body: some View {
         List {
@@ -851,22 +907,51 @@ private struct CaptureSeriesDetailView: View {
                 )
             }
 
-            if let latest = group.latestRevision {
-                Section("Latest") {
-                    revisionRow(latest, isLatest: true)
+            if let presented = presentedRevision {
+                Section(
+                    group.isBranched
+                        ? "Preferred head" : "Latest"
+                ) {
+                    revisionRow(presented, isLatest: true)
                 }
             }
 
-            let history = Array(
-                group.revisions.dropLast().reversed()
-            )
+            if group.isBranched {
+                Section("Branch heads") {
+                    ForEach(group.headRevisions) { record in
+                        headRow(record)
+                    }
+                    if group.storedPreferredHead == nil {
+                        Text(
+                            "Several heads exist — pick a preferred head so the series shows one Latest. Newest by date is never assumed."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    } else {
+                        Button("Clear preferred head") {
+                            actions.preferRevisionHead(
+                                group.captureSeriesID,
+                                nil
+                            )
+                        }
+                        .font(.caption)
+                    }
+                }
+            }
+
+            let history = group.revisions.filter {
+                $0.captureRevisionID
+                    != presentedRevision?.captureRevisionID
+            }.reversed()
             if !history.isEmpty {
                 Section("History") {
-                    ForEach(history) { record in
+                    ForEach(Array(history)) { record in
                         revisionRow(record, isLatest: false)
                     }
                 }
             }
+
+            spatialLineageSection
 
             if let note = group.metadata?.note, !note.isEmpty {
                 Section("Notes") {
@@ -933,8 +1018,366 @@ private struct CaptureSeriesDetailView: View {
 
     private var latestStatus: CaptureSemanticStatus {
         CaptureSeriesPresentation.status(
-            for: group.latestRevision
+            for: presentedRevision ?? group.latestRevision
         )
+    }
+
+    /// One branch head in the heads section (#396): the same identity
+    /// treatment as a revision row plus a preferred marker and the
+    /// prefer action — the pick writes app-local metadata only.
+    private func headRow(
+        _ record: PersistedCaptureRecord
+    ) -> some View {
+        let isPreferred = group.effectivePreferredHeadID
+            == record.captureRevisionID
+        return HStack(spacing: CaptureDesign.Spacing.row) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(
+                    CaptureSeriesPresentation.dateLabel(
+                        for: record.finalizedAtUTC
+                    ) ?? record.finalizedAtUTC
+                )
+                .font(CaptureDesign.Typography.sectionHeading)
+                .lineLimit(1)
+                HStack(spacing: 6) {
+                    CaptureStatusView(
+                        CaptureSeriesPresentation.status(
+                            for: record
+                        )
+                    )
+                    if isPreferred {
+                        Text("Preferred head")
+                            .font(.caption)
+                            .foregroundStyle(
+                                CaptureColorRole.accent.color
+                            )
+                    }
+                }
+            }
+            Spacer(minLength: 4)
+            if !isPreferred {
+                Button("Prefer") {
+                    actions.preferRevisionHead(
+                        group.captureSeriesID,
+                        record.captureRevisionID
+                    )
+                }
+                .captureSecondaryAction()
+            }
+        }
+        .padding(.vertical, 2)
+        .contextMenu {
+            revisionMenu(record)
+        }
+    }
+
+    /// Cross-revision spatial registration surface (#395): accepted
+    /// registrations involving this series, the resolved path between
+    /// every head pair (direct vs chained, with accumulated
+    /// uncertainty), and the explicit register action.
+    @ViewBuilder
+    private var spatialLineageSection: some View {
+        let revisionIDs = Set(
+            group.revisions.map(\.captureRevisionID)
+        )
+        let involving = crossRevisionRegistrations.filter {
+            revisionIDs.contains($0.sourceRevisionID)
+                || revisionIDs.contains($0.targetRevisionID)
+        }
+        let heads = group.headRevisions
+        let graph = CrossRevisionRegistrationGraph(
+            registrations: crossRevisionRegistrations
+        )
+        Section("Spatial lineage") {
+            ForEach(involving) { registration in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(
+                        "\(shortRevisionID(registration.sourceRevisionID)) → \(shortRevisionID(registration.targetRevisionID))"
+                    )
+                    .font(CaptureDesign.Typography.sectionHeading)
+                    Text(
+                        "\(mechanismLabel(registration.mechanism)) · RMS \(metersLabel(registration.rmsMeters)) · max \(metersLabel(registration.maxResidualMeters)) · \(registration.scalePolicy == .rigidOnly ? "rigid" : "scale \(scaleLabel(registration.uniformScale))")"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            if heads.count > 1 {
+                ForEach(0..<(heads.count - 1), id: \.self) { i in
+                    ForEach((i + 1)..<heads.count, id: \.self) { j in
+                        headPathRow(
+                            from: heads[i],
+                            to: heads[j],
+                            path: graph.resolve(
+                                from: heads[i].captureRevisionID,
+                                to: heads[j].captureRevisionID
+                            )
+                        )
+                    }
+                }
+            }
+            if involving.isEmpty && heads.count < 2 {
+                Text(
+                    "No spatial registrations link this series' revisions to other captures yet."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            Button("Register spatial link…") {
+                registrationSource = nil
+                registrationTarget = nil
+                registrationProposal = nil
+                registrationError = nil
+                registrationSheetShown = true
+            }
+        }
+        .sheet(isPresented: $registrationSheetShown) {
+            NavigationStack {
+                registrationSheet
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    /// Resolved transform path between two branch heads — direct
+    /// edge, chained path with accumulated uncertainty, or an honest
+    /// "no registered path" (#395).
+    private func headPathRow(
+        from source: PersistedCaptureRecord,
+        to target: PersistedCaptureRecord,
+        path: CrossRevisionTransformPath
+    ) -> some View {
+        let label: String
+        switch path {
+        case .identity:
+            label = "same revision"
+        case .direct(let registration):
+            label = "direct registration · uncertainty \(metersLabel(registration.uncertaintyMeters))"
+        case .chained(let registrations, _, let uncertainty):
+            label = "chained via \(registrations.count) registration(s) · uncertainty \(metersLabel(uncertainty))"
+        case .unresolved:
+            label = "no registered spatial path"
+        }
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(
+                "\(shortRevisionID(source.captureRevisionID)) → \(shortRevisionID(target.captureRevisionID))"
+            )
+            .font(CaptureDesign.Typography.sectionHeading)
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// The register-a-spatial-link flow (#395): pick source and
+    /// target revisions, inspect the proposed transform's residuals,
+    /// then explicitly accept — never registered silently.
+    @ViewBuilder
+    private var registrationSheet: some View {
+        List {
+            Section("Source revision") {
+                ForEach(allRecords) { record in
+                    Button {
+                        registrationSource = record
+                        registrationProposal = nil
+                        registrationError = nil
+                    } label: {
+                        registrationPickRow(
+                            record,
+                            selected:
+                                registrationSource?
+                                .captureRevisionID
+                                == record.captureRevisionID
+                        )
+                    }
+                }
+            }
+            if let source = registrationSource {
+                Section("Target revision") {
+                    ForEach(
+                        allRecords.filter {
+                            $0.captureRevisionID
+                                != source.captureRevisionID
+                        }
+                    ) { record in
+                        Button {
+                            registrationTarget = record
+                            registrationProposal = nil
+                            registrationError = nil
+                        } label: {
+                            registrationPickRow(
+                                record,
+                                selected:
+                                    registrationTarget?
+                                    .captureRevisionID
+                                    == record.captureRevisionID
+                            )
+                        }
+                    }
+                }
+            }
+            if registrationSource != nil,
+               registrationTarget != nil
+            {
+                Section {
+                    Button {
+                        registrationBusy = true
+                        registrationError = nil
+                        let source = registrationSource!
+                        let target = registrationTarget!
+                        Task {
+                            let proposal = await actions
+                                .proposeRevisionAlignment(
+                                    source.captureRevisionID,
+                                    target.captureRevisionID
+                                )
+                            registrationBusy = false
+                            if let proposal {
+                                registrationProposal = proposal
+                            } else {
+                                registrationError =
+                                    "The pair could not be aligned — a shared field datum must exist in both revisions and yield at least three non-degenerate correspondences."
+                            }
+                        }
+                    } label: {
+                        if registrationBusy {
+                            ProgressView()
+                        } else {
+                            Text(
+                                "Preview shared-field-datum alignment"
+                            )
+                        }
+                    }
+                    .disabled(registrationBusy)
+                } footer: {
+                    Text(
+                        "Alignment is derived from the room field datum recorded in each revision — rigid transform only; residuals are shown before anything is recorded."
+                    )
+                    .font(.caption)
+                }
+            }
+            if let proposal = registrationProposal {
+                Section("Proposed alignment") {
+                    ForEach(proposal.residuals) { residual in
+                        LabeledContent(
+                            residual.ref,
+                            value: metersLabel(
+                                residual.residualMeters
+                            )
+                        )
+                        .font(.caption.monospaced())
+                    }
+                    LabeledContent(
+                        "RMS residual",
+                        value: metersLabel(proposal.rmsMeters)
+                    )
+                    LabeledContent(
+                        "Max residual",
+                        value: metersLabel(
+                            proposal.maxResidualMeters
+                        )
+                    )
+                    LabeledContent(
+                        "Scale policy",
+                        value: "rigid"
+                    )
+                }
+                Section {
+                    Button("Accept registration") {
+                        registrationBusy = true
+                        let source = registrationSource!
+                        let target = registrationTarget!
+                        Task {
+                            let accepted = await actions
+                                .acceptRevisionAlignment(
+                                    source.captureRevisionID,
+                                    target.captureRevisionID
+                                )
+                            registrationBusy = false
+                            if accepted != nil {
+                                registrationSheetShown = false
+                            } else {
+                                registrationError =
+                                    "The registration was refused — a registration for this revision pair already exists."
+                            }
+                        }
+                    }
+                    .disabled(registrationBusy)
+                } footer: {
+                    Text(
+                        "Accepting records an immutable transform authority; it never rewrites either revision."
+                    )
+                    .font(.caption)
+                }
+            }
+            if let error = registrationError {
+                Section {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+        }
+        .navigationTitle("Register spatial link")
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Close") {
+                    registrationSheetShown = false
+                }
+            }
+        }
+    }
+
+    private func registrationPickRow(
+        _ record: PersistedCaptureRecord,
+        selected: Bool
+    ) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(
+                    CaptureSeriesPresentation.dateLabel(
+                        for: record.finalizedAtUTC
+                    ) ?? record.finalizedAtUTC
+                )
+                Text(shortRevisionID(record.captureRevisionID))
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if selected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(
+                        CaptureColorRole.accent.color
+                    )
+            }
+        }
+    }
+
+    private func shortRevisionID(
+        _ revisionID: CaptureRevisionID
+    ) -> String {
+        String(revisionID.description.prefix(8))
+    }
+
+    private func metersLabel(_ meters: Double) -> String {
+        String(format: "%.3f m", meters)
+    }
+
+    private func scaleLabel(_ scale: Double) -> String {
+        String(format: "×%.4f", scale)
+    }
+
+    private func mechanismLabel(
+        _ kind: CrossRevisionCorrespondenceKind
+    ) -> String {
+        switch kind {
+        case .sharedFieldDatum:
+            return String(localized: "shared field datum")
+        case .referenceTarget:
+            return String(localized: "reference targets")
+        case .manualPoint:
+            return String(localized: "manual points")
+        }
     }
 
     /// One revision row: human identity + concise status + storage,
@@ -1021,7 +1464,11 @@ private struct CaptureSeriesDetailView: View {
             Button("Delete", role: .destructive) {
                 pendingDeletion = PendingCaptureDeletion(
                     revisionID: record.captureRevisionID,
-                    includesExport: record.exportArchive != nil
+                    includesExport: record.exportArchive != nil,
+                    descendantCount: group.revisionGraph
+                        .descendants(
+                            of: record.captureRevisionID
+                        ).count
                 )
             }
         }
@@ -1100,6 +1547,20 @@ private struct CaptureSeriesDetailView: View {
                 actions.revisePersistedCapture(record)
             }
         }
+        if group.isBranched,
+           group.effectivePreferredHeadID
+               != record.captureRevisionID,
+           group.revisionGraph.heads.contains(
+               record.captureRevisionID
+           )
+        {
+            Button("Prefer as series head") {
+                actions.preferRevisionHead(
+                    group.captureSeriesID,
+                    record.captureRevisionID
+                )
+            }
+        }
         if record.canOpen {
             Button("Correct metadata…") {
                 actions.beginSemanticCorrection(record)
@@ -1129,7 +1590,11 @@ private struct CaptureSeriesDetailView: View {
         Button("Delete…", role: .destructive) {
             pendingDeletion = PendingCaptureDeletion(
                 revisionID: record.captureRevisionID,
-                includesExport: record.exportArchive != nil
+                includesExport: record.exportArchive != nil,
+                descendantCount: group.revisionGraph
+                    .descendants(
+                        of: record.captureRevisionID
+                    ).count
             )
         }
     }

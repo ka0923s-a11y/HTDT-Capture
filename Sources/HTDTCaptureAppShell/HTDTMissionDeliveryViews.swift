@@ -11,6 +11,9 @@ import HTDTCaptureCore
 struct HTDTMissionInboxView: View {
     let records: [HTDTMissionRecord]
     let activeMissionRecordID: String?
+    /// Replayed mission progress per record id (#397) — never a
+    /// stored percentage.
+    let progressEvaluations: [String: MissionProgressEvaluation]
     let actions: CaptureRootActions
 
     @State private var importingMission = false
@@ -122,6 +125,96 @@ struct HTDTMissionInboxView: View {
                 dependencyError = String(describing: error)
             }
         }
+    }
+
+    /// Aggregated field progress replayed from the mission progress
+    /// ledger (#397): per-kind tallies, outstanding items with the
+    /// explicit waiver action (mission-level, auditable — never a
+    /// revision-local skip), contested items where two heads claimed
+    /// the same item, and the field-complete verdict kept separate
+    /// from delivered.
+    @ViewBuilder
+    private func missionProgressSection(
+        _ record: HTDTMissionRecord,
+        _ progress: MissionProgressEvaluation
+    ) -> some View {
+        Section("Field progress") {
+            if progress.fieldComplete {
+                Label(
+                    "Field complete",
+                    systemImage: "checkmark.seal"
+                )
+                .foregroundStyle(.green)
+            } else if progress.requiredItemsResolved {
+                Label(
+                    "All required resolved — some via waiver",
+                    systemImage: "checkmark.circle"
+                )
+                .foregroundStyle(.orange)
+            }
+            ForEach(progress.kinds, id: \.kind) { kind in
+                LabeledContent(
+                    kindLabel(kind.kind),
+                    value:
+                        "\(kind.completedCount)/\(kind.itemCount) completed"
+                        + (kind.requiredOutstandingCount > 0
+                            ? " · \(kind.requiredOutstandingCount) required open"
+                            : "")
+                )
+                .font(.caption)
+            }
+            if !progress.contestedItemIDs.isEmpty {
+                Label(
+                    "Contested: \(progress.contestedItemIDs.joined(separator: ", "))",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
+            ForEach(
+                progress.items.filter { !$0.resolved },
+                id: \.taskItemID
+            ) { item in
+                HStack {
+                    Text(item.taskItemID)
+                        .font(.caption.monospaced())
+                        .lineLimit(1)
+                    Spacer()
+                    if item.requirement == .required {
+                        Text("required")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                    Button("Waive") {
+                        Task {
+                            await actions.waiveMissionItem(
+                                record.recordID,
+                                item.taskItemID,
+                                nil
+                            )
+                        }
+                    }
+                    .font(.caption)
+                }
+            }
+            ForEach(
+                progress.items.filter { $0.waived },
+                id: \.taskItemID
+            ) { item in
+                Label(
+                    "\(item.taskItemID) — waived",
+                    systemImage: "flag"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func kindLabel(
+        _ kind: MissionLedgerTaskKind
+    ) -> String {
+        kind.rawValue.replacingOccurrences(of: "_", with: " ")
     }
 
     @ViewBuilder
@@ -239,6 +332,10 @@ struct HTDTMissionInboxView: View {
                         value: String(record.deliveryJobIDs.count)
                     )
                 }
+            }
+
+            if let progress = progressEvaluations[record.recordID] {
+                missionProgressSection(record, progress)
             }
 
             if let report = dependencyReport {
