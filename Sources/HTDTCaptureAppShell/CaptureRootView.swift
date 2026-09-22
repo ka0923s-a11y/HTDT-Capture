@@ -58,6 +58,14 @@ public struct CaptureRootActions {
     /// Captures a plain evidence frame for equipment-identity photos
     /// (#239); returns its canonical `path:` ref.
     public let captureIdentityPhoto: () async throws -> String
+    /// Captures a dedicated close-up photo for field evidence
+    /// (#314): image bytes + dims, no frame descriptor persisted.
+    public let captureFieldEvidencePhoto:
+        () async throws -> CapturedFieldPhoto
+    /// Persists the staged field-authority workspace on Save (#300/
+    /// #301/#310/#314/#324/#331).
+    public let commitFieldAuthority:
+        (FieldAuthorityWorkspace) -> Void
     public let commitAnnotationAuthority: (
         [CaptureAnnotationEntity],
         [CaptureMeasurement],
@@ -189,6 +197,12 @@ public struct CaptureRootActions {
             () async throws -> String = {
                 throw ManualAuthorityBuilderError.invalidPosition
             },
+        captureFieldEvidencePhoto: @escaping
+            () async throws -> CapturedFieldPhoto = {
+                throw ManualAuthorityBuilderError.invalidPosition
+            },
+        commitFieldAuthority: @escaping
+            (FieldAuthorityWorkspace) -> Void = { _ in },
         commitAnnotationAuthority: @escaping (
             [CaptureAnnotationEntity],
             [CaptureMeasurement],
@@ -282,6 +296,9 @@ public struct CaptureRootActions {
         self.probeCameraHeading = probeCameraHeading
         self.captureTargetedPlacement = captureTargetedPlacement
         self.captureIdentityPhoto = captureIdentityPhoto
+        self.captureFieldEvidencePhoto =
+            captureFieldEvidencePhoto
+        self.commitFieldAuthority = commitFieldAuthority
         self.commitAnnotationAuthority =
             commitAnnotationAuthority
         self.cancelAnnotation = cancelAnnotation
@@ -804,6 +821,10 @@ public struct CaptureRootView: View {
                         actions.capturePointOrientation,
                     captureIdentityPhoto:
                         actions.captureIdentityPhoto,
+                    captureFieldEvidencePhoto:
+                        actions.captureFieldEvidencePhoto,
+                    onCommitFieldAuthority:
+                        actions.commitFieldAuthority,
                     roomPlanObjects: annotationRoomPlanObjects,
                     plausibilityContext:
                         annotationPlausibilityContext,
