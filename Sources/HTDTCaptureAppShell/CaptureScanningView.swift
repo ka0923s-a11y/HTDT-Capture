@@ -2182,41 +2182,6 @@ public struct CaptureScanningView: View {
     private func relativeDirectionLabel(
         sectorIndex: Int
     ) -> String {
-        octantDisplayName(
-            ScanDirectionOctant(
-                sectorIndex: sectorIndex,
-                sectorCount: coverage.sectorCount
-            )
-        )
-    }
-}
-
-/// Localized display name for a principal direction — the same
-/// octant vocabulary VoiceOver summaries use (#342).
-private func octantDisplayName(
-    _ octant: ScanDirectionOctant
-) -> String {
-    switch octant {
-    case .front:
-        return String(localized: "Front")
-    case .frontRight:
-        return String(localized: "Front right")
-    case .right:
-        return String(localized: "Right")
-    case .rearRight:
-        return String(localized: "Rear right")
-    case .rear:
-        return String(localized: "Rear")
-    case .rearLeft:
-        return String(localized: "Rear left")
-    case .left:
-        return String(localized: "Left")
-    case .frontLeft:
-        return String(localized: "Front left")
-    }
-    private func relativeDirectionLabel(
-        sectorIndex: Int
-    ) -> String {
         let normalized =
             ((sectorIndex % coverage.sectorCount)
              + coverage.sectorCount)
@@ -2441,6 +2406,31 @@ private func octantDisplayName(
         case .unknown:
             return .secondary
         }
+    }
+}
+
+/// Localized display name for a principal direction — the same
+/// octant vocabulary VoiceOver summaries use (#342).
+private func octantDisplayName(
+    _ octant: ScanDirectionOctant
+) -> String {
+    switch octant {
+    case .front:
+        return String(localized: "Front")
+    case .frontRight:
+        return String(localized: "Front right")
+    case .right:
+        return String(localized: "Right")
+    case .rearRight:
+        return String(localized: "Rear right")
+    case .rear:
+        return String(localized: "Rear")
+    case .rearLeft:
+        return String(localized: "Rear left")
+    case .left:
+        return String(localized: "Left")
+    case .frontLeft:
+        return String(localized: "Front left")
     }
 }
 
