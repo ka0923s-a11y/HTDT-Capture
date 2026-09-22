@@ -21,6 +21,7 @@ struct HTDTCaptureApplication: App {
 @MainActor
 private struct HTDTCaptureHostView: View {
     @StateObject private var coordinator = HTDTCaptureHostCoordinator()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         CaptureRootView(
@@ -36,6 +37,8 @@ private struct HTDTCaptureHostView: View {
             exportURL: coordinator.exportURL,
             annotationCoordinateSpaceID:
                 coordinator.annotationCoordinateSpaceID,
+            annotationWorkspaceCoordinateSpaceID:
+                coordinator.annotationWorkspaceCoordinateSpaceID,
             annotationEvidenceRefs:
                 coordinator.annotationEvidenceRefs,
             annotationRoomPlanSurfaces:
@@ -120,6 +123,9 @@ private struct HTDTCaptureHostView: View {
             spatialCaptureSealed:
                 coordinator.annotationCoordinateSpaceID == nil
                     && coordinator.annotationAuthorityCommitted,
+            activeOperations: coordinator.activeOperations,
+            operationTargetRevisionID:
+                coordinator.operationTargetRevisionID,
             actions: CaptureRootActions(
                 beginCapture: coordinator.beginCapture,
                 beginScanning: coordinator.beginScanning,
@@ -212,11 +218,24 @@ private struct HTDTCaptureHostView: View {
                 deleteExportArchive:
                     coordinator.deleteExportArchive,
                 updateLibraryEntry:
-                    coordinator.updateLibraryEntry
+                    coordinator.updateLibraryEntry,
+                retryCameraPermission:
+                    coordinator.retryCameraPermission,
+                openCameraSettings:
+                    coordinator.openCameraSettings,
+                cancelCaptureStart:
+                    coordinator.cancelCaptureStart
             )
         )
         .onOpenURL { url in
             coordinator.importCaptureArchive(from: url)
+        }
+        // Foregrounding is when an iOS-Settings permission change
+        // takes effect (#295).
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                coordinator.sceneDidBecomeActive()
+            }
         }
     }
 }
@@ -451,10 +470,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var acceptedRoomPlanRawSHA256: EvidenceSHA256?
     private var acceptedEndMeshWasPersisted = false
     private var pendingEndAttempt: PendingEndScanAttempt?
-    private var roomPlanCompletionInFlight = false
-    private var annotationCommitInFlight = false
-    private var reviewOperationInFlight = false
-    private var exportOperationInFlight = false
+    private var roomPlanCompletionInFlight = false {
+        didSet { syncActiveOperations() }
+    }
+    private var annotationCommitInFlight = false {
+        didSet { syncActiveOperations() }
+    }
+    private var reviewOperationInFlight = false {
+        didSet { syncActiveOperations() }
+    }
+    private var exportOperationInFlight = false {
+        didSet { syncActiveOperations() }
+    }
     private var spatialAuthoritySealedForFinalization = false
     /// Explicit commit-point policy for the finalization transaction
     /// (#185). While claimed, terminal lifecycle/resource failures are
@@ -465,9 +492,63 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var finalizationCommit = FinalizationCommitPolicy()
     private var persistedStore: PersistedCaptureInventory?
     private var persistedInventoryRequest = 0
-    private var persistedAdoptionInFlight = false
-    private var persistedDeletionInFlight = false
-    private var importOperationInFlight = false
+    private var persistedAdoptionInFlight = false {
+        didSet { syncActiveOperations() }
+    }
+    private var persistedDeletionInFlight = false {
+        didSet { syncActiveOperations() }
+    }
+    private var importOperationInFlight = false {
+        didSet { syncActiveOperations() }
+    }
+    /// Read-only persisted workspace load (#309: the View row was the
+    /// one library action with no in-flight guard at all).
+    private var persistedWorkspaceLoadInFlight = false {
+        didSet { syncActiveOperations() }
+    }
+    private var exportDiagnosticsInFlight = false {
+        didSet { syncActiveOperations() }
+    }
+    /// In-flight host operations published for busy-state UI (#309):
+    /// controls disable visibly instead of silently no-op'ing against
+    /// the guards in each action.
+    @Published private(set)
+    var activeOperations: Set<CaptureHostOperation> = []
+    /// Revision a persisted-library operation is currently acting on,
+    /// so that row can show its own progress affordance (#309).
+    @Published private(set)
+    var operationTargetRevisionID: CaptureRevisionID?
+
+    private func syncActiveOperations() {
+        var operations = Set<CaptureHostOperation>()
+        if importOperationInFlight {
+            operations.insert(.importArchive)
+        }
+        if persistedAdoptionInFlight
+            || persistedWorkspaceLoadInFlight
+        {
+            operations.insert(.openPersisted)
+        }
+        if persistedDeletionInFlight {
+            operations.insert(.deletePersisted)
+        }
+        if exportOperationInFlight {
+            operations.insert(.prepareExport)
+        }
+        if reviewOperationInFlight {
+            operations.insert(.reviewOperation)
+        }
+        if annotationCommitInFlight {
+            operations.insert(.annotationCommit)
+        }
+        if exportDiagnosticsInFlight {
+            operations.insert(.exportDiagnostics)
+        }
+        activeOperations = operations
+        if operations.isEmpty {
+            operationTargetRevisionID = nil
+        }
+    }
     /// Lineage for the working revision being prepared: nil for a fresh
     /// series root, or the validated parent identity for a
     /// revise-existing capture.
@@ -645,7 +726,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return sessionController.context.coordinateSpaceID
     }
 
-    func beginCapture() {
+    /// Bound space for the annotation workspace. While live capture
+    /// runs this is the active session space; once spatial authority
+    /// is sealed after a committed annotation pass (#276), the same
+    /// working-set space stays the correct binding for non-spatial
+    /// corrections — sealing pauses AR, it does not rebind the
+    /// committed authority.
+    var annotationWorkspaceCoordinateSpaceID: CoordinateSpaceID? {
+        if !spatialAuthoritySealedForFinalization {
+            return annotationCoordinateSpaceID
+        }
+        guard annotationAuthorityCommitted,
+              state == .reviewing || state == .annotating
+        else {
+            return nil
+        }
+        return sessionController.context.coordinateSpaceID
+    }
+
+    func beginCapture() { 
         beginCapture(revisionLineage: nil)
     }
 
@@ -673,6 +772,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         persistedAdoptionInFlight = true
+        operationTargetRevisionID = record.captureRevisionID
         workingSetStatus = HostLocalization.text(
             "Revalidating the parent revision",
             "親リビジョンを再検証しています"
@@ -755,7 +855,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private func beginCapture(
         revisionLineage: RevisionLineage?
     ) {
-        guard state == .idle else {
+        // A persisted-library operation in flight holds authority over
+        // the inventory/import pipeline; starting a capture mid-flight
+        // would collide with its completion (#309).
+        guard state == .idle,
+              !importOperationInFlight,
+              !persistedAdoptionInFlight,
+              !persistedDeletionInFlight
+        else {
             return
         }
 
@@ -922,7 +1029,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             deviceReadiness: deviceReadiness,
             resolvedMode: capabilities.roomPlanMeshEligible
                 ? .roomPlanMesh
-                : nil
+                : nil,
+            cameraPermission:
+                CameraPermissionController.currentStatus()
         )
     }
 
@@ -2474,7 +2583,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func capturePointOrientation()
         async throws -> AnnotationOrientationAuthority
     {
-        guard state == .annotating,
+        guard !spatialAuthoritySealedForFinalization,
+              state == .annotating,
               let store = workingSetStore
         else {
             throw PlatformCaptureError.orientationUnavailable
@@ -3091,7 +3201,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     document: try EquipmentIdentityDocument(
                         captureRevisionID: workingRevisionID,
                         coordinateSpaceID:
-                            annotationCoordinateSpaceID,
+                            annotationWorkspaceCoordinateSpaceID,
                         records: identityRecords,
                         entities: annotations
                     )
@@ -4315,13 +4425,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func loadPersistedWorkspace(
         _ record: PersistedCaptureRecord
     ) {
+        // #309: the read-only open had no in-flight guard at all —
+        // every tap re-launched the decode. Guard + mark the row busy.
         guard state == .idle || state == .finalized
-                || state == .exported
+                || state == .exported,
+              !persistedWorkspaceLoadInFlight
         else {
             return
         }
+        persistedWorkspaceLoadInFlight = true
+        operationTargetRevisionID = record.captureRevisionID
         Task { @MainActor [weak self] in
             guard let self else { return }
+            defer { self.persistedWorkspaceLoadInFlight = false }
             let model = await Task.detached(
                 priority: .userInitiated
             ) { () -> CaptureReviewWorkspaceModel? in
@@ -4428,7 +4544,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// bounded JSON report — not a capture bundle — listing retained
     /// files plus decoded session/authority context.
     func exportFailedCaptureDiagnostics() async -> URL? {
-        guard state == .failed else { return nil }
+        // #309: exporting a diagnostic package is a real IO
+        // operation — guard against concurrent taps and surface it in
+        // the busy-operation set.
+        guard state == .failed,
+              !exportDiagnosticsInFlight
+        else { return nil }
+        exportDiagnosticsInFlight = true
+        defer { exportDiagnosticsInFlight = false }
         let inspection: FailedCaptureInspection?
         if let failedInspection {
             inspection = failedInspection
@@ -4651,6 +4774,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
         persistedDeletionInFlight = true
+        operationTargetRevisionID = record.captureRevisionID
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.persistedDeletionInFlight = false }
@@ -4782,6 +4906,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         persistedAdoptionInFlight = true
+        operationTargetRevisionID = captureRevisionID
         workingSetStatus = HostLocalization.text(
             "Revalidating the persisted capture",
             "保存済みキャプチャを再検証しています"
@@ -4912,6 +5037,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         persistedDeletionInFlight = true
+        operationTargetRevisionID = captureRevisionID
         workingSetStatus = HostLocalization.text(
             "Deleting local capture data",
             "ローカルのキャプチャデータを削除しています"
@@ -5372,7 +5498,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         guard cameraPermission == .authorized else {
-            fail(.permissionDenied)
+            // #295: a denied/restricted/unavailable camera is a
+            // recoverable prerequisite, not a failed capture. Stay in
+            // `.permissions` so the operator can open iOS Settings or
+            // retry; no working revision is created for a pre-capture
+            // permission failure.
+            workingSetStatus = HostLocalization.text(
+                "Camera permission is required before capture can start",
+                "カメラへのアクセスを許可しないとキャプチャを開始できません"
+            )
             return
         }
 
@@ -5383,6 +5517,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        await continueCapturePreparation()
+    }
+
+    /// Everything after the permission gate (#295): working-set
+    /// creation, handler binding, `.prepared` → `.scanning`. Reached
+    /// from `continueBeginCapture` or from a permission retry after
+    /// the operator enabled camera access in Settings.
+    private func continueCapturePreparation() async {
         let prepared: (
             store: CaptureWorkingSetStore,
             identity: CaptureWorkingSetIdentity,
@@ -5685,6 +5827,91 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             "Scanning; live RoomPlan camera and active AR configuration are ready",
             "スキャン中：ライブカメラと実行中の AR 設定を確認しました"
         )
+    }
+
+    /// Re-check camera authorization while the permission gate is
+    /// open (#295): granted resumes the ordinary preparation
+    /// pipeline; anything else only refreshes the displayed state.
+    func retryCameraPermission() {
+        guard state == .permissions else {
+            return
+        }
+        cameraPermission =
+            CameraPermissionController.currentStatus()
+        guard cameraPermission == .notDetermined else {
+            continueAfterPermissionIfAuthorized()
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            cameraPermission = await CameraPermissionController
+                .requestAccessIfNeeded()
+            continueAfterPermissionIfAuthorized()
+        }
+    }
+
+    /// Foreground refresh (#295): an iOS Settings trip can flip camera
+    /// authorization; an authorized status resumes capture
+    /// preparation and refreshes the setup presentation when pending.
+    func sceneDidBecomeActive() {
+        cameraPermission =
+            CameraPermissionController.currentStatus()
+        if state == .permissions {
+            continueAfterPermissionIfAuthorized()
+        } else if state == .setup {
+            refreshCaptureSetupPresentation()
+        }
+    }
+
+    /// Opens the app's iOS Settings page where the operator can enable
+    /// camera access (#295). Platforms without a Settings deep link
+    /// treat this as a no-op.
+    func openCameraSettings() {
+        #if os(iOS) && canImport(UIKit)
+        guard let url = URL(
+            string: UIApplication.openSettingsURLString
+        ) else {
+            return
+        }
+        UIApplication.shared.open(url)
+        #endif
+    }
+
+    /// Leaves the capability/permission gate without a capture (#295):
+    /// nothing was started, so no working revision exists to clean up.
+    func cancelCaptureStart() {
+        guard state == .capabilityCheck
+                || state == .permissions
+        else {
+            return
+        }
+        do {
+            try transition(.reset)
+        } catch {
+            fail(.unknown)
+            return
+        }
+        workingSetStatus = HostLocalization.text(
+            "Ready",
+            "開始可能です"
+        )
+    }
+
+    private func continueAfterPermissionIfAuthorized() {
+        guard state == .permissions,
+              cameraPermission == .authorized
+        else {
+            return
+        }
+        do {
+            try transition(.permissionsGranted)
+        } catch {
+            fail(.unknown)
+            return
+        }
+        Task { @MainActor [weak self] in
+            await self?.continueCapturePreparation()
+        }
     }
 
     private func updateLiveEndScanGuidance() {
@@ -6287,7 +6514,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     progress.actionableWeakRegionCount,
                 saturatedWeakRegionCount:
                     progress.saturatedWeakRegionCount,
-                guidanceComplete: progress.isComplete
+                guidanceComplete: progress.isComplete,
+                // #347: unresolved weak regions beyond the displayed
+                // map window, and #336: the retention capacity outcome
+                // — both persist with the end advisory so a completed
+                // capture's global/capacity state is never lost.
+                remoteWeakRegionCount:
+                    progress.remoteWeakRegionCount,
+                spatialMaxRegionCount:
+                    spatial.capacity.maxRegionCount,
+                spatialPeakRegionCount:
+                    spatial.capacity.peakRegionCount,
+                spatialRegionEvictionCount:
+                    spatial.capacity.evictionCount,
+                spatialCapacitySaturated:
+                    spatial.capacity.isSaturated,
+                // #343: sector/octant labels on this capture resolve
+                // against the starting facing direction.
+                directionReference:
+                    StartRelativeDirection.convention
             )
         )
         try? await store.recordTaskProfile(

@@ -156,6 +156,67 @@ public struct SpatialCoverageBounds: Sendable, Equatable {
     }
 }
 
+/// Bounded diagnostics describing how the spatial coverage grid has
+/// used its live region budget (#336). Eviction is never silent: the
+/// counters and timestamps here are published in the live summary, the
+/// end-review surface, and the persisted end-coverage advisory so a
+/// saturated grid can always be distinguished from a fully observed
+/// one.
+public struct SpatialCoverageCapacityDiagnostics: Sendable, Equatable {
+    /// The configured hard bound on retained regions.
+    public let maxRegionCount: Int
+    /// Largest number of regions retained at once this scan.
+    public let peakRegionCount: Int
+    /// Total region entries ever inserted into the bounded map,
+    /// including keys later evicted. Exceeds `peakRegionCount` once the
+    /// budget has evicted at least one region.
+    public let regionEntryCount: Int
+    /// Number of regions dropped to make room for new cells.
+    public let evictionCount: Int
+    /// Session timestamp of the first eviction, when any occurred.
+    public let firstEvictionTimestampSeconds: Double?
+    /// Session timestamp of the most recent eviction, when any
+    /// occurred.
+    public let lastEvictionTimestampSeconds: Double?
+    /// True while the bounded map is at capacity, meaning the next new
+    /// cell observation drops a retained region.
+    public let isSaturated: Bool
+
+    public init(
+        maxRegionCount: Int,
+        peakRegionCount: Int,
+        regionEntryCount: Int,
+        evictionCount: Int,
+        firstEvictionTimestampSeconds: Double?,
+        lastEvictionTimestampSeconds: Double?,
+        isSaturated: Bool
+    ) {
+        self.maxRegionCount = maxRegionCount
+        self.peakRegionCount = peakRegionCount
+        self.regionEntryCount = regionEntryCount
+        self.evictionCount = evictionCount
+        self.firstEvictionTimestampSeconds =
+            firstEvictionTimestampSeconds
+        self.lastEvictionTimestampSeconds =
+            lastEvictionTimestampSeconds
+        self.isSaturated = isSaturated
+    }
+
+    public static func none(
+        maxRegionCount: Int
+    ) -> SpatialCoverageCapacityDiagnostics {
+        SpatialCoverageCapacityDiagnostics(
+            maxRegionCount: maxRegionCount,
+            peakRegionCount: 0,
+            regionEntryCount: 0,
+            evictionCount: 0,
+            firstEvictionTimestampSeconds: nil,
+            lastEvictionTimestampSeconds: nil,
+            isSaturated: false
+        )
+    }
+}
+
 public struct SpatialCoverageRegion: Sendable, Equatable {
     public let key: SpatialCoverageCellKey
     public let observationCount: Int
@@ -216,6 +277,14 @@ public struct SpatialScanCoverageSummary: Sendable, Equatable {
     public let meshAvailability: MeshAvailabilityDiagnostic
     public let regions: [SpatialCoverageRegion]
     public let displayBounds: SpatialCoverageBounds?
+    /// Live region-budget usage (#336); never silent when the bounded
+    /// grid has dropped previously observed cells.
+    public let capacity: SpatialCoverageCapacityDiagnostics
+    /// Bounded recency list of cell keys dropped by capacity eviction
+    /// (#336). Lets consumers distinguish `unknown` cells that were
+    /// never observed from cells previously observed but no longer
+    /// retained inside the live budget.
+    public let recentlyEvictedKeys: Set<SpatialCoverageCellKey>
 
     public init(
         cellSizeMeters: Double,
@@ -228,7 +297,9 @@ public struct SpatialScanCoverageSummary: Sendable, Equatable {
         latestHasSceneDepth: Bool,
         meshAvailability: MeshAvailabilityDiagnostic,
         regions: [SpatialCoverageRegion],
-        displayBounds: SpatialCoverageBounds?
+        displayBounds: SpatialCoverageBounds?,
+        capacity: SpatialCoverageCapacityDiagnostics? = nil,
+        recentlyEvictedKeys: Set<SpatialCoverageCellKey> = []
     ) {
         self.cellSizeMeters = cellSizeMeters
         self.maxRegionCount = maxRegionCount
@@ -241,11 +312,23 @@ public struct SpatialScanCoverageSummary: Sendable, Equatable {
         self.meshAvailability = meshAvailability
         self.regions = regions
         self.displayBounds = displayBounds
+        self.capacity = capacity
+            ?? SpatialCoverageCapacityDiagnostics(
+                maxRegionCount: maxRegionCount,
+                peakRegionCount: regions.count,
+                regionEntryCount: regions.count,
+                evictionCount: 0,
+                firstEvictionTimestampSeconds: nil,
+                lastEvictionTimestampSeconds: nil,
+                isSaturated: regions.count >= maxRegionCount
+            )
+        self.recentlyEvictedKeys = recentlyEvictedKeys
     }
 
     public static let empty = SpatialScanCoverageSummary(
         cellSizeMeters: 0.5,
-        maxRegionCount: 256,
+        maxRegionCount: SpatialScanCoverageTracker
+            .defaultMaxRegionCount,
         referenceOriginWorld: nil,
         referenceYawRadians: nil,
         currentCameraPosition: nil,
@@ -294,6 +377,17 @@ public struct SpatialScanCoverageSummary: Sendable, Equatable {
             ?? .unknown
     }
 
+    /// Whether a cell currently classified `unknown` (not retained) was
+    /// previously observed and later dropped by the capacity budget
+    /// (#336). A retained region is never reported evicted: the recency
+    /// list drops the key the moment a fresh observation re-enters.
+    public func wasRecentlyEvicted(
+        at key: SpatialCoverageCellKey
+    ) -> Bool {
+        recentlyEvictedKeys.contains(key)
+            && classification(at: key) == .unknown
+    }
+
     public func region(
         at key: SpatialCoverageCellKey
     ) -> SpatialCoverageRegion? {
@@ -302,6 +396,14 @@ public struct SpatialScanCoverageSummary: Sendable, Equatable {
 }
 
 public struct SpatialScanCoverageTracker: Sendable {
+    /// Default live region budget (#336). The legacy 256-cell budget
+    /// silently forgot completed regions in an ordinary room once its
+    /// 0.5 m grid covered more than ~64 m² of distinct surface cells;
+    /// the default now covers a large multi-room path while staying
+    /// deterministically bounded. A capture strategy/profile may still
+    /// choose a different budget through the initializer.
+    public static let defaultMaxRegionCount = 2048
+
     public let cellSizeMeters: Double
     public let maxRegionCount: Int
     public let minimumNormalObservations: Int
@@ -327,10 +429,23 @@ public struct SpatialScanCoverageTracker: Sendable {
     private var latestHasSceneDepth = false
     private var latestMeshAvailability: MeshAvailabilityDiagnostic = .unavailable
     private var regions: [SpatialCoverageCellKey: StoredRegion] = [:]
+    // #336 capacity diagnostics: bounded counters so eviction is
+    // observable, and a bounded recency list of dropped keys so an
+    // `unknown` cell can be distinguished from a previously observed
+    // one the budget dropped. The recency list is capped at
+    // `maxRegionCount` entries, so retention memory stays proportional
+    // to the configured budget.
+    private var peakRegionCount = 0
+    private var regionEntryCount = 0
+    private var evictionCount = 0
+    private var firstEvictionTimestampSeconds: Double?
+    private var lastEvictionTimestampSeconds: Double?
+    private var recentlyEvictedKeys: [SpatialCoverageCellKey] = []
+    private var recentlyEvictedKeySet: Set<SpatialCoverageCellKey> = []
 
     public init(
         cellSizeMeters: Double = 0.5,
-        maxRegionCount: Int = 256,
+        maxRegionCount: Int = Self.defaultMaxRegionCount,
         minimumNormalObservations: Int = 3,
         minimumViewAngleBuckets: Int = 2,
         displayRadiusCells: Int = 6
@@ -410,7 +525,18 @@ public struct SpatialScanCoverageTracker: Sendable {
             if regions[key] == nil,
                regions.count >= maxRegionCount
             {
-                evictOldestRegion()
+                evictLowestValueRegion(
+                    atTimestampSeconds:
+                        sample.sessionTimestampSeconds
+                )
+            }
+
+            if regions[key] == nil {
+                regionEntryCount += 1
+                if recentlyEvictedKeySet.remove(key) != nil {
+                    // A re-observed cell is no longer a forgotten one.
+                    recentlyEvictedKeys.removeAll { $0 == key }
+                }
             }
 
             var region = regions[key] ?? StoredRegion()
@@ -444,6 +570,7 @@ public struct SpatialScanCoverageTracker: Sendable {
             }
 
             regions[key] = region
+            peakRegionCount = max(peakRegionCount, regions.count)
         }
 
         return summary()
@@ -480,7 +607,19 @@ public struct SpatialScanCoverageTracker: Sendable {
             latestHasSceneDepth: latestHasSceneDepth,
             meshAvailability: latestMeshAvailability,
             regions: publicRegions,
-            displayBounds: displayBounds()
+            displayBounds: displayBounds(),
+            capacity: SpatialCoverageCapacityDiagnostics(
+                maxRegionCount: maxRegionCount,
+                peakRegionCount: peakRegionCount,
+                regionEntryCount: regionEntryCount,
+                evictionCount: evictionCount,
+                firstEvictionTimestampSeconds:
+                    firstEvictionTimestampSeconds,
+                lastEvictionTimestampSeconds:
+                    lastEvictionTimestampSeconds,
+                isSaturated: regions.count >= maxRegionCount
+            ),
+            recentlyEvictedKeys: recentlyEvictedKeySet
         )
     }
 
@@ -537,8 +676,32 @@ public struct SpatialScanCoverageTracker: Sendable {
         )
     }
 
-    private mutating func evictOldestRegion() {
+    /// Capacity eviction (#336) is value-aware and recorded: low-
+    /// information regions (weak/transient) are dropped before a
+    /// high-confidence `observed` region, and only among the same tier
+    /// does the stalest last-observation lose. The dropped key joins a
+    /// bounded recency list so consumers can distinguish it from a
+    /// never-observed `unknown` cell.
+    private mutating func evictLowestValueRegion(
+        atTimestampSeconds timestamp: Double
+    ) {
+        func evictionTier(
+            _ region: StoredRegion
+        ) -> Int {
+            switch classification(region) {
+            case .observed:
+                return 1
+            case .weak, .unknown:
+                return 0
+            }
+        }
+
         guard let candidate = regions.min(by: { lhs, rhs in
+            let lhsTier = evictionTier(lhs.value)
+            let rhsTier = evictionTier(rhs.value)
+            if lhsTier != rhsTier {
+                return lhsTier < rhsTier
+            }
             if lhs.value.lastObservedTimestampSeconds
                 != rhs.value.lastObservedTimestampSeconds
             {
@@ -551,6 +714,20 @@ public struct SpatialScanCoverageTracker: Sendable {
         }
 
         regions.removeValue(forKey: candidate.key)
+        evictionCount += 1
+        if firstEvictionTimestampSeconds == nil {
+            firstEvictionTimestampSeconds = timestamp
+        }
+        lastEvictionTimestampSeconds = timestamp
+
+        if !recentlyEvictedKeySet.insert(candidate.key).inserted {
+            recentlyEvictedKeys.removeAll { $0 == candidate.key }
+        }
+        recentlyEvictedKeys.append(candidate.key)
+        if recentlyEvictedKeys.count > maxRegionCount {
+            let stale = recentlyEvictedKeys.removeFirst()
+            recentlyEvictedKeySet.remove(stale)
+        }
     }
 
     private static func relativePoint(
