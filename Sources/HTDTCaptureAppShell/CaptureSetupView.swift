@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import HTDTCaptureCore
+import HTDTCapturePlatform
 
 /// Presentation model for the pre-capture setup screen (#212).
 /// Built by the host while the session is in `.setup` — before
@@ -18,6 +19,10 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
     /// states the actual behavior before the operator confirms
     /// (#305).
     public let finalizedBackupPolicy: FinalizedBackupPolicy
+    /// Last-known camera authorization shown as denied-state UI
+    /// (#295): setup surfaces a denied prerequisite with a direct
+    /// Settings path instead of letting Begin run into a failure.
+    public let cameraPermission: CameraPermissionStatus?
 
     public init(
         capabilities: CaptureCapabilityMatrix,
@@ -26,12 +31,15 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
         resolvedMode: CaptureMode?,
         finalizedBackupPolicy: FinalizedBackupPolicy
             = .backupEligible
+        resolvedMode: CaptureMode?,
+        cameraPermission: CameraPermissionStatus? = nil
     ) {
         self.capabilities = capabilities
         self.storagePreflight = storagePreflight
         self.deviceReadiness = deviceReadiness
         self.resolvedMode = resolvedMode
         self.finalizedBackupPolicy = finalizedBackupPolicy
+        self.cameraPermission = cameraPermission
     }
 }
 
@@ -46,15 +54,21 @@ public struct CaptureSetupView: View {
     public let presentation: CaptureSetupPresentation
     public let beginScanning: () -> Void
     public let cancel: () -> Void
+    /// Opens the app's iOS Settings page (#295). The host decides
+    /// whether the platform offers a direct path; the default is a
+    /// no-op so previews/tests stay platform-neutral.
+    public let openCameraSettings: () -> Void
 
     public init(
         presentation: CaptureSetupPresentation,
         beginScanning: @escaping () -> Void = {},
-        cancel: @escaping () -> Void = {}
+        cancel: @escaping () -> Void = {},
+        openCameraSettings: @escaping () -> Void = {}
     ) {
         self.presentation = presentation
         self.beginScanning = beginScanning
         self.cancel = cancel
+        self.openCameraSettings = openCameraSettings
     }
 
     public var body: some View {
@@ -117,6 +131,7 @@ public struct CaptureSetupView: View {
                     .font(.caption)
                     .foregroundStyle(.red)
                 }
+                cameraPermissionRows
             }
 
             Section("Room preparation") {
@@ -199,6 +214,55 @@ public struct CaptureSetupView: View {
                 localized:
                     "After a successful capture, the finalized capture and its export archive stay in this app's storage on this device and are excluded from device backup."
             )
+        }
+    }
+
+    /// Camera-authorization state in setup (#295): denied gets a
+    /// direct path to iOS Settings where the platform permits it,
+    /// restricted is explained as device-managed, and a valid
+    /// authorization adds no friction.
+    @ViewBuilder
+    private var cameraPermissionRows: some View {
+        switch presentation.cameraPermission {
+        case .denied:
+            LabeledContent(
+                "Camera permission",
+                value: String(localized: "Denied")
+            )
+            Text(
+                "Camera access is off for this app. HTDT Capture needs the camera to record RoomPlan and AR evidence — enable it in iOS Settings, then Begin scanning."
+            )
+            .font(.caption)
+            .foregroundStyle(.orange)
+            #if os(iOS)
+            Button(
+                String(localized: "Open Settings"),
+                action: openCameraSettings
+            )
+            .font(.callout)
+            #endif
+        case .restricted:
+            LabeledContent(
+                "Camera permission",
+                value: String(localized: "Restricted")
+            )
+            Text(
+                "Camera access is restricted on this device — for example by Screen Time or a device-management profile — so it cannot be enabled in Settings."
+            )
+            .font(.caption)
+            .foregroundStyle(.orange)
+        case .unavailable:
+            LabeledContent(
+                "Camera permission",
+                value: String(localized: "Unavailable")
+            )
+            Text(
+                "The camera is unavailable on this device, so capture cannot start."
+            )
+            .font(.caption)
+            .foregroundStyle(.orange)
+        case .authorized, .notDetermined, nil:
+            EmptyView()
         }
     }
 
