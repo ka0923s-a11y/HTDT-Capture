@@ -801,6 +801,9 @@ public struct HTDTMissionInboxStore: Sendable {
 
     /// Re-opens a mission that is already in progress — same record,
     /// same plan bytes; the live AR session is never claimed resumed.
+    /// New starts go through `startMission`, which also re-evaluates
+    /// dependencies — this path must not become a second Start that
+    /// bypasses them.
     public func resumeMission(
         recordID: String
     ) throws -> HTDTMissionResume {
@@ -811,7 +814,7 @@ public struct HTDTMissionInboxStore: Sendable {
             throw HTDTMissionInboxError.unknownMission(recordID)
         }
         var record = document.records[index]
-        guard record.lifecycle.canStart else {
+        guard record.lifecycle == .inProgress else {
             throw HTDTMissionInboxError.invalidLifecycleTransition(
                 record.lifecycle.rawValue
             )

@@ -893,4 +893,59 @@ final class HTDTFieldReturnTests: XCTestCase {
             )
         )
     }
+
+    /// #450: recording an outcome on a finalized workspace throws the
+    /// finalized-container error — a container that *is* finalized
+    /// must not report itself as not finalized.
+    func testOutcomeRecordingOnFinalizedWorkspaceThrowsAlreadyFinalized()
+        throws
+    {
+        var workspace = HTDTFieldReturnWorkspace(
+            missionID: "m-1",
+            planID: "plan-field-1",
+            createdAtUTC: "2026-09-22T00:00:00Z"
+        )
+        try workspace.seedTaskLedger(
+            preflight: HTDTFieldTaskPreflightEvaluator.evaluate(
+                plan: try plan(),
+                spatialAvailable: false
+            )
+        )
+        workspace.finalizedAtUTC = "2026-09-22T01:00:00Z"
+        XCTAssertThrowsError(
+            try workspace.recordTaskOutcome(
+                itemRef: "task_item:inventory-amps",
+                outcome: .fulfilled,
+                fulfilledByRefs: ["task_item:inventory-amps"]
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? HTDTFieldReturnError,
+                .artifactAlreadyFinalized
+            )
+        }
+    }
+
+    /// #453: envelope families live in the `htdt.field_return.*`
+    /// namespace — a capture-side `htdt.capture.*` schema id must
+    /// never name an envelope family, or the two namespaces drift as
+    /// parallel vocabularies describing the same records.
+    func testEnvelopeFamiliesNeverClaimCaptureSchemaIds() {
+        let captureIDs = [
+            OperatorProfileDocument.schema,
+            InstrumentProfileDocument.schema,
+            FieldEvidenceDocument.schema,
+            InstalledSettingsDocument.schema,
+            AsBuiltWiringDocument.schema,
+            "htdt.capture.authorities",
+            "htdt.capture.inventory-items",
+            "htdt.capture.room-state-observations",
+        ]
+        for id in captureIDs {
+            XCTAssertNil(
+                FieldContributionDocs.Family(rawValue: id),
+                "\(id) must not name an envelope family"
+            )
+        }
+    }
 }

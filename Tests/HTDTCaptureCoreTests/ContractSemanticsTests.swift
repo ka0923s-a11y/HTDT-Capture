@@ -797,6 +797,31 @@ func statusDocumentRejectsFulfillmentOnNonCompletedOutcome() throws {
     }
 }
 
+/// #449: `fulfillment_ref` is the same decoration under a second
+/// representation — a non-completed outcome must reject it exactly
+/// as it rejects `fulfillment`.
+@Test
+func statusDocumentRejectsFulfillmentRefOnNonCompletedOutcome()
+    throws
+{
+    #expect(throws: CaptureTaskPlanError.invalidFulfillmentLink) {
+        try CaptureTaskPlanStatusDocument(
+            captureRevisionID: CaptureRevisionID(),
+            captureSessionID: CaptureSessionID(),
+            planID: "p",
+            planVersion: "1",
+            planSHA256: EvidenceIntegrity.sha256(of: Data("x".utf8)),
+            items: [
+                .init(
+                    itemID: "ev-1",
+                    outcome: .pending,
+                    fulfillmentRef: "frame_1"
+                ),
+            ]
+        )
+    }
+}
+
 // MARK: - #356 as-built deviation + uncertainty verdicts
 
 @Test
