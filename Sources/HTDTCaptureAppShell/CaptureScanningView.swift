@@ -189,6 +189,7 @@ public struct CaptureScanningView: View {
             ScanCoverageEndReview(
                 coverage: coverage,
                 spatialCoverage: spatialCoverage,
+                guidanceProgress: guidanceProgress,
                 continueScanning: {
                     showingEndScanReview = false
                 },
@@ -583,6 +584,16 @@ public struct CaptureScanningView: View {
                         }
                         .font(.caption2)
 
+                        if !spatialCoverage.recentlyEvictedKeys
+                            .isEmpty
+                        {
+                            spatialLegend(
+                                "Dropped (capacity)",
+                                color: .gray,
+                                dashed: true
+                            )
+                        }
+
                         if spatialCoverage.usesDepthFallback {
                             Label(
                                 "Scene-depth fallback active",
@@ -590,6 +601,38 @@ public struct CaptureScanningView: View {
                             )
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.cyan)
+                        }
+
+                        if spatialCoverage.capacity.evictionCount > 0 {
+                            Label(
+                                String(
+                                    format: String(
+                                        localized:
+                                            "Coverage map reached its %d-cell limit and dropped %d earlier cells. Dropped cells were observed before — they are not the same as never-observed cells."
+                                    ),
+                                    spatialCoverage.capacity
+                                        .maxRegionCount,
+                                    spatialCoverage.capacity
+                                        .evictionCount
+                                ),
+                                systemImage: "exclamationmark.triangle"
+                            )
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.orange)
+                        } else if spatialCoverage.capacity.isSaturated {
+                            Label(
+                                String(
+                                    format: String(
+                                        localized:
+                                            "Coverage map is at its %d-cell limit; scanning new areas drops the least-observed cells."
+                                    ),
+                                    spatialCoverage.capacity
+                                        .maxRegionCount
+                                ),
+                                systemImage: "exclamationmark.triangle"
+                            )
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.orange)
                         }
                     }
                     .padding(.top, 6)
@@ -976,11 +1019,24 @@ public struct CaptureScanningView: View {
     @ViewBuilder
     private func spatialLegend(
         _ label: LocalizedStringKey,
-        color: Color
+        color: Color,
+        dashed: Bool = false
     ) -> some View {
         HStack(spacing: 4) {
             Circle()
-                .fill(color)
+                .fill(color.opacity(dashed ? 0.35 : 1))
+                .overlay {
+                    if dashed {
+                        Circle()
+                            .stroke(
+                                color,
+                                style: StrokeStyle(
+                                    lineWidth: 1,
+                                    dash: [2, 1.5]
+                                )
+                            )
+                    }
+                }
                 .frame(width: 7, height: 7)
             Text(label)
         }
@@ -993,10 +1049,18 @@ public struct CaptureScanningView: View {
     }
 
     private var spatialCoverageCounts: String {
-        String(
+        let base = String(
             format: String(localized: "%d observed · %d weak"),
             spatialCoverage.observedRegionCount,
             spatialCoverage.weakRegionCount
+        )
+        // #336: dropped cells are reported, never silently forgotten.
+        guard spatialCoverage.capacity.evictionCount > 0 else {
+            return base
+        }
+        return base + String(
+            format: String(localized: " · %d dropped"),
+            spatialCoverage.capacity.evictionCount
         )
     }
 
@@ -2079,6 +2143,11 @@ private struct RelativeGuidanceCompass: View {
 private struct ScanCoverageEndReview: View {
     let coverage: ScanCoverageSummary
     let spatialCoverage: SpatialScanCoverageSummary
+    /// Global unresolved-weak accounting (#347): the display window
+    /// is presentation scope only, so the review must distinguish
+    /// retained weak regions beyond the current map view from the
+    /// unknown cells inside it.
+    let guidanceProgress: ScanGuidanceProgress
     let continueScanning: () -> Void
     let endAnyway: () -> Void
 
@@ -2129,12 +2198,41 @@ private struct ScanCoverageEndReview: View {
                         "Weak regions",
                         value: String(spatialCoverage.weakRegionCount)
                     )
+                    if guidanceProgress.remoteWeakRegionCount > 0 {
+                        LabeledContent(
+                            "Weak beyond map view",
+                            value: String(
+                                guidanceProgress
+                                    .remoteWeakRegionCount
+                            )
+                        )
+                    }
                     LabeledContent(
-                        "Unknown map cells",
+                        "Unknown cells in map view",
                         value: String(
                             spatialCoverage.displayUnknownRegionCount
                         )
                     )
+                    if spatialCoverage.capacity.evictionCount > 0 {
+                        LabeledContent(
+                            "Dropped for capacity",
+                            value: String(
+                                format: String(
+                                    localized:
+                                        "%d of %d cells"
+                                ),
+                                spatialCoverage.capacity
+                                    .evictionCount,
+                                spatialCoverage.capacity
+                                    .maxRegionCount
+                            )
+                        )
+                        Text(
+                            "The coverage map reached its live cell budget and dropped the least-observed cells. A dropped cell was observed before; it is not the same as a never-observed unknown cell."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    }
 
                     if !weakSpatialLabels.isEmpty {
                         Text(
@@ -2159,12 +2257,35 @@ private struct ScanCoverageEndReview: View {
                         )
                         .font(.caption)
                     }
+
+                    if !droppedSpatialLabels.isEmpty {
+                        Text(
+                            String(
+                                format: String(
+                                    localized: "Dropped: %@"
+                                ),
+                                droppedSpatialLabels
+                                    .prefix(4)
+                                    .joined(separator: " · ")
+                            )
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
                 } header: {
                     Text("Spatial coverage")
                 } footer: {
-                    Text(
-                        "Spatial coverage is advisory. Unknown means no observation authority, not a missing wall, and it is never a finalization gate."
-                    )
+                    VStack(
+                        alignment: .leading,
+                        spacing: 4
+                    ) {
+                        Text(
+                            "Spatial coverage is advisory. Unknown means no observation authority, not a missing wall, and it is never a finalization gate."
+                        )
+                        Text(
+                            "Direction names are relative to your starting facing direction (marked Start direction), not to the room's front."
+                        )
+                    }
                 }
 
                 if !gapSectors.isEmpty {
@@ -2274,6 +2395,28 @@ private struct ScanCoverageEndReview: View {
         spatialLabels(for: .unknown)
     }
 
+    /// Previously observed cells the capacity budget dropped inside
+    /// the current map view (#336) — labeled so 'unknown' is never
+    /// conflated with 'forgotten'.
+    private var droppedSpatialLabels: [String] {
+        guard let bounds = spatialCoverage.displayBounds else {
+            return []
+        }
+
+        var labels: Set<String> = []
+        for z in bounds.minZ...bounds.maxZ {
+            for x in bounds.minX...bounds.maxX {
+                let key = SpatialCoverageCellKey(x: x, z: z)
+                guard spatialCoverage.wasRecentlyEvicted(at: key)
+                else {
+                    continue
+                }
+                labels.insert(spatialRegionLabel(key))
+            }
+        }
+        return labels.sorted()
+    }
+
     private func spatialLabels(
         for classification: SpatialCoverageClassification
     ) -> [String] {
@@ -2306,41 +2449,16 @@ private struct ScanCoverageEndReview: View {
             (Double(key.z) + 0.5)
             * spatialCoverage.cellSizeMeters
         let angle = atan2(x, z)
-        let fullTurn = 2 * Double.pi
-        let shifted =
-            (angle + Double.pi / 8)
-                .truncatingRemainder(dividingBy: fullTurn)
-        let positive =
-            shifted >= 0
-            ? shifted
-            : shifted + fullTurn
-        let sector = Int(
-            floor(positive / (Double.pi / 4))
-        ) % 8
 
-        let direction: String
-        switch sector {
-        case 0:
-            direction = String(localized: "Front")
-        case 1:
-            direction = String(localized: "Front right")
-        case 2:
-            direction = String(localized: "Right")
-        case 3:
-            direction = String(localized: "Rear right")
-        case 4:
-            direction = String(localized: "Rear")
-        case 5:
-            direction = String(localized: "Rear left")
-        case 6:
-            direction = String(localized: "Left")
-        default:
-            direction = String(localized: "Front left")
-        }
-
+        // #343: labels are start-relative; the scan's reference yaw
+        // is the operator's arbitrary start heading, never a room
+        // 'Front'.
         return String(
-            format: String(localized: "%@ region"),
-            direction
+            format: String(localized: "Region %@"),
+            StartRelativeDirectionCopy.octantName(
+                StartRelativeDirection
+                    .octant(forRelativeAngleRadians: angle)
+            )
         )
     }
 
@@ -2401,27 +2519,69 @@ private struct ScanCoverageEndReview: View {
     }
 
     private func directionLabel(_ sectorIndex: Int) -> String {
-        let count = max(coverage.sectorCount, 1)
-        let normalized =
-            ((sectorIndex % count) + count) % count
+        StartRelativeDirectionCopy.sectorLabel(
+            sectorIndex: sectorIndex,
+            sectorCount: coverage.sectorCount
+        )
+    }
+}
 
-        switch normalized {
+/// Localized direction copy for coverage surfaces (#343). Every label
+/// is relative to the operator's start heading — captured as the
+/// scan's reference yaw — never an unqualified room 'Front'/'Rear'.
+/// A confirmed room reference frame (#232) is the only authority that
+/// may rename these, and only through its exact reference yaw.
+private enum StartRelativeDirectionCopy {
+    static func sectorLabel(
+        sectorIndex: Int,
+        sectorCount: Int
+    ) -> String {
+        let signed = StartRelativeDirection.sectorSignedDegrees(
+            sectorIndex: sectorIndex,
+            sectorCount: sectorCount
+        )
+        switch signed {
         case 0:
-            return String(localized: "Front")
-        case 1, 2:
-            return String(localized: "Front right")
-        case 3:
-            return String(localized: "Right")
-        case 4, 5:
-            return String(localized: "Rear right")
-        case 6:
-            return String(localized: "Rear")
-        case 7, 8:
-            return String(localized: "Rear left")
-        case 9:
-            return String(localized: "Left")
+            return String(localized: "Start direction")
+        case 180, -180:
+            return String(localized: "Behind start")
+        case let value where value > 0:
+            return String(
+                format: String(
+                    localized: "%d° right of start"
+                ),
+                value
+            )
         default:
-            return String(localized: "Front left")
+            return String(
+                format: String(
+                    localized: "%d° left of start"
+                ),
+                -signed
+            )
+        }
+    }
+
+    static func octantName(
+        _ octant: StartRelativeDirection.Octant
+    ) -> String {
+        switch octant {
+        case .ahead:
+            return String(localized: "ahead of start")
+        case .aheadRight:
+            return String(localized: "ahead-right of start")
+        case .right:
+            return String(localized: "right of start")
+        case .behindRight:
+            return String(localized: "behind-right of start")
+        case .behind:
+            return String(localized: "behind start")
+        case .behindLeft:
+            return String(localized: "behind-left of start")
+        case .left:
+            return String(localized: "left of start")
+        case .aheadLeft:
+            return String(localized: "ahead-left of start")
         }
     }
 }
@@ -2474,6 +2634,20 @@ private struct SpatialCoverageMapView: View {
                             Path(rect),
                             with: .color(color)
                         )
+
+                        // #336: a cell dropped by the capacity budget
+                        // is drawn as a dashed outline, distinct from
+                        // a never-observed unknown cell.
+                        if summary.wasRecentlyEvicted(at: key) {
+                            context.stroke(
+                                Path(rect),
+                                with: .color(.gray.opacity(0.7)),
+                                style: StrokeStyle(
+                                    lineWidth: 1,
+                                    dash: [2, 1.5]
+                                )
+                            )
+                        }
                     }
                 }
 

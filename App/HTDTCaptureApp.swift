@@ -21,6 +21,7 @@ struct HTDTCaptureApplication: App {
 @MainActor
 private struct HTDTCaptureHostView: View {
     @StateObject private var coordinator = HTDTCaptureHostCoordinator()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         CaptureRootView(
@@ -36,6 +37,8 @@ private struct HTDTCaptureHostView: View {
             exportURL: coordinator.exportURL,
             annotationCoordinateSpaceID:
                 coordinator.annotationCoordinateSpaceID,
+            annotationWorkspaceCoordinateSpaceID:
+                coordinator.annotationWorkspaceCoordinateSpaceID,
             annotationEvidenceRefs:
                 coordinator.annotationEvidenceRefs,
             annotationRoomPlanSurfaces:
@@ -127,6 +130,9 @@ private struct HTDTCaptureHostView: View {
             spatialCaptureSealed:
                 coordinator.annotationCoordinateSpaceID == nil
                     && coordinator.annotationAuthorityCommitted,
+            activeOperations: coordinator.activeOperations,
+            operationTargetRevisionID:
+                coordinator.operationTargetRevisionID,
             actions: CaptureRootActions(
                 beginCapture: coordinator.beginCapture,
                 beginScanning: coordinator.beginScanning,
@@ -165,6 +171,10 @@ private struct HTDTCaptureHostView: View {
                     coordinator.captureTargetedPlacement,
                 captureIdentityPhoto:
                     coordinator.captureIdentityPhoto,
+                captureFieldEvidencePhoto:
+                    coordinator.captureFieldEvidencePhoto,
+                commitFieldAuthority:
+                    coordinator.commitFieldAuthority,
                 commitAnnotationAuthority:
                     coordinator.commitAnnotationAuthority,
                 cancelAnnotation: coordinator.cancelAnnotation,
@@ -225,11 +235,24 @@ private struct HTDTCaptureHostView: View {
                 commitSemanticCorrection:
                     coordinator.commitSemanticCorrection,
                 cancelSemanticCorrection:
-                    coordinator.cancelSemanticCorrection
+                    coordinator.cancelSemanticCorrection,
+                retryCameraPermission:
+                    coordinator.retryCameraPermission,
+                openCameraSettings:
+                    coordinator.openCameraSettings,
+                cancelCaptureStart:
+                    coordinator.cancelCaptureStart
             )
         )
         .onOpenURL { url in
             coordinator.importCaptureArchive(from: url)
+        }
+        // Foregrounding is when an iOS-Settings permission change
+        // takes effect (#295).
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                coordinator.sceneDidBecomeActive()
+            }
         }
     }
 }
@@ -460,6 +483,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// record set on the next revision commit discards byte-identical
     /// rather than leaving a stale attestation (#239).
     private var committedIdentityDocData: Data?
+    /// Field-authority workspace staged by the annotation editor,
+    /// consumed inside `commitAnnotationAuthority` (#300/#301/#310/
+    /// #314/#324/#331).
+    private var pendingFieldAuthority = FieldAuthorityWorkspace()
     private var annotationRoomPlanObjectsLoaded = false
 
     private var stateMachine = CaptureStateMachine()
@@ -484,10 +511,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var acceptedRoomPlanRawSHA256: EvidenceSHA256?
     private var acceptedEndMeshWasPersisted = false
     private var pendingEndAttempt: PendingEndScanAttempt?
-    private var roomPlanCompletionInFlight = false
-    private var annotationCommitInFlight = false
-    private var reviewOperationInFlight = false
-    private var exportOperationInFlight = false
+    private var roomPlanCompletionInFlight = false {
+        didSet { syncActiveOperations() }
+    }
+    private var annotationCommitInFlight = false {
+        didSet { syncActiveOperations() }
+    }
+    private var reviewOperationInFlight = false {
+        didSet { syncActiveOperations() }
+    }
+    private var exportOperationInFlight = false {
+        didSet { syncActiveOperations() }
+    }
     private var spatialAuthoritySealedForFinalization = false
     /// Explicit commit-point policy for the finalization transaction
     /// (#185). While claimed, terminal lifecycle/resource failures are
@@ -498,9 +533,63 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var finalizationCommit = FinalizationCommitPolicy()
     private var persistedStore: PersistedCaptureInventory?
     private var persistedInventoryRequest = 0
-    private var persistedAdoptionInFlight = false
-    private var persistedDeletionInFlight = false
-    private var importOperationInFlight = false
+    private var persistedAdoptionInFlight = false {
+        didSet { syncActiveOperations() }
+    }
+    private var persistedDeletionInFlight = false {
+        didSet { syncActiveOperations() }
+    }
+    private var importOperationInFlight = false {
+        didSet { syncActiveOperations() }
+    }
+    /// Read-only persisted workspace load (#309: the View row was the
+    /// one library action with no in-flight guard at all).
+    private var persistedWorkspaceLoadInFlight = false {
+        didSet { syncActiveOperations() }
+    }
+    private var exportDiagnosticsInFlight = false {
+        didSet { syncActiveOperations() }
+    }
+    /// In-flight host operations published for busy-state UI (#309):
+    /// controls disable visibly instead of silently no-op'ing against
+    /// the guards in each action.
+    @Published private(set)
+    var activeOperations: Set<CaptureHostOperation> = []
+    /// Revision a persisted-library operation is currently acting on,
+    /// so that row can show its own progress affordance (#309).
+    @Published private(set)
+    var operationTargetRevisionID: CaptureRevisionID?
+
+    private func syncActiveOperations() {
+        var operations = Set<CaptureHostOperation>()
+        if importOperationInFlight {
+            operations.insert(.importArchive)
+        }
+        if persistedAdoptionInFlight
+            || persistedWorkspaceLoadInFlight
+        {
+            operations.insert(.openPersisted)
+        }
+        if persistedDeletionInFlight {
+            operations.insert(.deletePersisted)
+        }
+        if exportOperationInFlight {
+            operations.insert(.prepareExport)
+        }
+        if reviewOperationInFlight {
+            operations.insert(.reviewOperation)
+        }
+        if annotationCommitInFlight {
+            operations.insert(.annotationCommit)
+        }
+        if exportDiagnosticsInFlight {
+            operations.insert(.exportDiagnostics)
+        }
+        activeOperations = operations
+        if operations.isEmpty {
+            operationTargetRevisionID = nil
+        }
+    }
     /// Lineage for the working revision being prepared: nil for a fresh
     /// series root, or the validated parent identity for a
     /// revise-existing capture.
@@ -699,7 +788,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return sessionController.context.coordinateSpaceID
     }
 
-    func beginCapture() {
+    /// Bound space for the annotation workspace. While live capture
+    /// runs this is the active session space; once spatial authority
+    /// is sealed after a committed annotation pass (#276), the same
+    /// working-set space stays the correct binding for non-spatial
+    /// corrections — sealing pauses AR, it does not rebind the
+    /// committed authority.
+    var annotationWorkspaceCoordinateSpaceID: CoordinateSpaceID? {
+        if !spatialAuthoritySealedForFinalization {
+            return annotationCoordinateSpaceID
+        }
+        guard annotationAuthorityCommitted,
+              state == .reviewing || state == .annotating
+        else {
+            return nil
+        }
+        return sessionController.context.coordinateSpaceID
+    }
+
+    func beginCapture() { 
         beginCapture(revisionLineage: nil)
     }
 
@@ -727,6 +834,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         persistedAdoptionInFlight = true
+        operationTargetRevisionID = record.captureRevisionID
         workingSetStatus = HostLocalization.text(
             "Revalidating the parent revision",
             "親リビジョンを再検証しています"
@@ -809,13 +917,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private func beginCapture(
         revisionLineage: RevisionLineage?
     ) {
-        guard state == .idle else {
+        // A persisted-library operation in flight holds authority over
+        // the inventory/import pipeline; starting a capture mid-flight
+        // would collide with its completion (#309).
+        guard state == .idle,
+              !importOperationInFlight,
+              !persistedAdoptionInFlight,
+              !persistedDeletionInFlight
+        else {
             return
         }
 
         activeRevisionLineage = revisionLineage
         workingSetIdentity = nil
         annotationRevisionSeed = nil
+        pendingFieldAuthority = FieldAuthorityWorkspace()
         annotationEditIsRevision = false
         qualityReport = nil
         validationReport = nil
@@ -995,7 +1111,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             deviceReadiness: deviceReadiness,
             resolvedMode: capabilities.roomPlanMeshEligible
                 ? .roomPlanMesh
-                : nil
+                : nil,
+            cameraPermission:
+                CameraPermissionController.currentStatus()
         )
     }
 
@@ -2314,7 +2432,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     equipmentIdentityRecords:
                         draft.equipmentIdentityRecords,
                     speakerLayoutPlan: draft.speakerLayoutPlan,
-                    isRestoredDraft: true
+                    isRestoredDraft: true,
+                    fieldAuthority: draft.fieldAuthority
+                        ?? FieldAuthorityWorkspace()
                 )
             }
         }
@@ -2388,12 +2508,39 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             TheaterAuthorityCollection.self,
             at: TheaterAuthorityPackage.path
         )
+        // Committed field-authority documents (#300/#301/#310/#314/
+        // #324/#331) seed the editor as the effective state; asset
+        // payloads stay on disk (write-once), so only newly captured
+        // assets re-enter the staged-asset list.
+        let fieldAuthority = FieldAuthorityWorkspace(
+            operatorProfiles: try loadCollection(
+                OperatorProfileDocument.self,
+                at: OperatorProfilePackage.path
+            )?.operators ?? [],
+            fieldEvidence: try loadCollection(
+                FieldEvidenceDocument.self,
+                at: FieldEvidencePackage.path
+            )?.records ?? [],
+            instruments: try loadCollection(
+                InstrumentProfileDocument.self,
+                at: InstrumentProfilePackage.path
+            )?.instruments ?? [],
+            settingsObservations: try loadCollection(
+                InstalledSettingsDocument.self,
+                at: InstalledSettingsPackage.path
+            )?.observations ?? [],
+            wiringRoutes: try loadCollection(
+                AsBuiltWiringDocument.self,
+                at: AsBuiltWiringPackage.path
+            )?.routes ?? []
+        )
         return (
             AnnotationWorkspaceSeed(
                 annotations: annotations,
                 measurements: measurements,
                 equipmentIdentityRecords: identityRecords ?? [],
-                authorities: authorities
+                authorities: authorities,
+                fieldAuthority: fieldAuthority
             ),
             identityData
         )
@@ -2547,7 +2694,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func capturePointOrientation()
         async throws -> AnnotationOrientationAuthority
     {
-        guard state == .annotating,
+        guard !spatialAuthoritySealedForFinalization,
+              state == .annotating,
               let store = workingSetStore
         else {
             throw PlatformCaptureError.orientationUnavailable
@@ -2834,6 +2982,51 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// frame during annotation editing and returns its canonical
     /// `path:` ref so the form can bind it as identity evidence —
     /// distinct from spatial placement authority.
+    /// Captures a dedicated close-up photo for a field-evidence
+    /// record (#314): a fresh AR frame is materialized and its
+    /// high-resolution HEIC rendering is returned as image bytes. No
+    /// frame descriptor or spatial metadata is persisted, so a
+    /// close-up can never impersonate canonical frame authority.
+    func captureFieldEvidencePhoto() async throws
+        -> CapturedFieldPhoto
+    {
+        guard state == .annotating else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+        let generation = captureGeneration
+        let snapshot =
+            try sessionController.snapshotFrameEvidenceCapture(
+                depthSelection: .none
+            )
+        let artifacts =
+            try await ARFrameArtifactAdapter.materialize(snapshot)
+        guard captureGeneration == generation,
+              state == .annotating
+        else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+        guard let preview = artifacts.previewPayload else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+        return CapturedFieldPhoto(
+            data: preview,
+            mediaType: .heic,
+            pixelWidth: artifacts.descriptor.imageWidth,
+            pixelHeight: artifacts.descriptor.imageHeight
+        )
+    }
+
+    /// Stashes the field-authority workspace staged in the annotation
+    /// editor; `commitAnnotationAuthority` persists it inside the same
+    /// commit pass so the derived documents land atomically with the
+    /// canonical collections they reference (#300/#301/#310/#314/
+    /// #324/#331).
+    func commitFieldAuthority(
+        _ workspace: FieldAuthorityWorkspace
+    ) {
+        pendingFieldAuthority = workspace
+    }
+
     func captureIdentityPhoto() async throws -> String {
         guard state == .annotating,
               let store = workingSetStore
@@ -2875,6 +3068,74 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             "機器識別の証拠写真を保存しました"
         )
         return evidenceRef
+    }
+
+    /// Builds the field-authority bundle from the staged workspace —
+    /// one derived package per non-empty document family plus staged
+    /// asset writes/removals (#300/#301/#310/#314/#324/#331).
+    private func buildFieldAuthorityBundle(
+        _ workspace: FieldAuthorityWorkspace,
+        revisionID: CaptureRevisionID
+    ) throws -> FieldAuthorityBundle {
+        try FieldAuthorityBundle(
+            operators: workspace.operatorProfiles.isEmpty
+                ? nil
+                : OperatorProfilePackage(
+                    document: OperatorProfileDocument(
+                        captureRevisionID: revisionID,
+                        operators: workspace.operatorProfiles
+                    )
+                ),
+            fieldEvidence: workspace.fieldEvidence.isEmpty
+                ? nil
+                : FieldEvidencePackage(
+                    document: FieldEvidenceDocument(
+                        captureRevisionID: revisionID,
+                        records: workspace.fieldEvidence
+                    )
+                ),
+            instruments: workspace.instruments.isEmpty
+                ? nil
+                : InstrumentProfilePackage(
+                    document: InstrumentProfileDocument(
+                        captureRevisionID: revisionID,
+                        instruments: workspace.instruments
+                    )
+                ),
+            settings: workspace.settingsObservations.isEmpty
+                ? nil
+                : InstalledSettingsPackage(
+                    document: InstalledSettingsDocument(
+                        captureRevisionID: revisionID,
+                        observations:
+                            workspace.settingsObservations
+                    )
+                ),
+            wiring: workspace.wiringRoutes.isEmpty
+                ? nil
+                : AsBuiltWiringPackage(
+                    document: AsBuiltWiringDocument(
+                        captureRevisionID: revisionID,
+                        routes: workspace.wiringRoutes
+                    )
+                ),
+            assetWrites: workspace.fieldEvidenceAssets
+                .filter { !$0.removal }
+                .map {
+                    try FieldEvidenceAssetPayload(
+                        path: $0.path,
+                        data: $0.data
+                    )
+                },
+            assetRemovals: workspace.fieldEvidenceAssets
+                .filter { $0.removal }
+                .map {
+                    try FieldEvidenceAssetPayload(
+                        path: $0.path,
+                        data: $0.data
+                    )
+                }
+        )
     }
 
     private static func placementMethod(
@@ -3107,6 +3368,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             try transition(.beginReview)
             annotationRevisionSeed = nil
+            pendingFieldAuthority = FieldAuthorityWorkspace()
             annotationEditIsRevision = false
             workingSetStatus = HostLocalization.text(
                 "Annotation editing cancelled; staged records not written",
@@ -3164,7 +3426,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     document: try EquipmentIdentityDocument(
                         captureRevisionID: workingRevisionID,
                         coordinateSpaceID:
-                            annotationCoordinateSpaceID,
+                            annotationWorkspaceCoordinateSpaceID,
                         records: identityRecords,
                         entities: annotations
                     )
@@ -3256,12 +3518,35 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
 
+                // Field-authority family (#300/#301/#310/#314/#324/
+                // #331): the staged derived documents are validated
+                // against the just-committed canonical collections —
+                // the canonical write happens first so entity,
+                // measurement and inventory bindings resolve.
+                let fieldAuthority = self.pendingFieldAuthority
+                if fieldAuthority.hasContent {
+                    let bundle = try self.buildFieldAuthorityBundle(
+                        fieldAuthority,
+                        revisionID: workingRevisionID
+                    )
+                    if !bundle.isEmpty {
+                        try await store
+                            .persistFieldAuthorityBundle(bundle)
+                    }
+                }
+                guard self.captureGeneration == generation,
+                      self.state == .annotating
+                else {
+                    return
+                }
+
                 // Commit consumed the draft (#266).
                 self.discardAnnotationDraft()
                 self.annotationAuthorityCommitted = true
                 self.annotationCommitInFlight = false
                 self.annotationEditIsRevision = false
                 self.annotationRevisionSeed = nil
+                self.pendingFieldAuthority = FieldAuthorityWorkspace()
                 try self.transition(.beginReview)
                 await self.refreshQuality(
                     store: store,
@@ -3739,6 +4024,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         activeRevisionLineage = nil
         workingSetIdentity = nil
         annotationRevisionSeed = nil
+        pendingFieldAuthority = FieldAuthorityWorkspace()
         annotationEditIsRevision = false
         captureStartTimingCorrelation = nil
         acceptedRoomPlanRawSHA256 = nil
@@ -3920,6 +4206,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         activeRevisionLineage = nil
         workingSetIdentity = nil
         annotationRevisionSeed = nil
+        pendingFieldAuthority = FieldAuthorityWorkspace()
         annotationEditIsRevision = false
         captureStartTimingCorrelation = nil
         acceptedRoomPlanRawSHA256 = nil
@@ -4270,13 +4557,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func loadPersistedWorkspace(
         _ record: PersistedCaptureRecord
     ) {
+        // #309: the read-only open had no in-flight guard at all —
+        // every tap re-launched the decode. Guard + mark the row busy.
         guard state == .idle || state == .finalized
-                || state == .exported
+                || state == .exported,
+              !persistedWorkspaceLoadInFlight
         else {
             return
         }
+        persistedWorkspaceLoadInFlight = true
+        operationTargetRevisionID = record.captureRevisionID
         Task { @MainActor [weak self] in
             guard let self else { return }
+            defer { self.persistedWorkspaceLoadInFlight = false }
             let model = await Task.detached(
                 priority: .userInitiated
             ) { () -> CaptureReviewWorkspaceModel? in
@@ -4383,7 +4676,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// bounded JSON report — not a capture bundle — listing retained
     /// files plus decoded session/authority context.
     func exportFailedCaptureDiagnostics() async -> URL? {
-        guard state == .failed else { return nil }
+        // #309: exporting a diagnostic package is a real IO
+        // operation — guard against concurrent taps and surface it in
+        // the busy-operation set.
+        guard state == .failed,
+              !exportDiagnosticsInFlight
+        else { return nil }
+        exportDiagnosticsInFlight = true
+        defer { exportDiagnosticsInFlight = false }
         let inspection: FailedCaptureInspection?
         if let failedInspection {
             inspection = failedInspection
@@ -4606,6 +4906,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
         persistedDeletionInFlight = true
+        operationTargetRevisionID = record.captureRevisionID
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.persistedDeletionInFlight = false }
@@ -4775,6 +5076,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         persistedAdoptionInFlight = true
+        operationTargetRevisionID = captureRevisionID
         workingSetStatus = HostLocalization.text(
             "Revalidating the persisted capture",
             "保存済みキャプチャを再検証しています"
@@ -4905,6 +5207,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         persistedDeletionInFlight = true
+        operationTargetRevisionID = captureRevisionID
         workingSetStatus = HostLocalization.text(
             "Deleting local capture data",
             "ローカルのキャプチャデータを削除しています"
@@ -5675,7 +5978,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         guard cameraPermission == .authorized else {
-            fail(.permissionDenied)
+            // #295: a denied/restricted/unavailable camera is a
+            // recoverable prerequisite, not a failed capture. Stay in
+            // `.permissions` so the operator can open iOS Settings or
+            // retry; no working revision is created for a pre-capture
+            // permission failure.
+            workingSetStatus = HostLocalization.text(
+                "Camera permission is required before capture can start",
+                "カメラへのアクセスを許可しないとキャプチャを開始できません"
+            )
             return
         }
 
@@ -5686,6 +5997,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        await continueCapturePreparation()
+    }
+
+    /// Everything after the permission gate (#295): working-set
+    /// creation, handler binding, `.prepared` → `.scanning`. Reached
+    /// from `continueBeginCapture` or from a permission retry after
+    /// the operator enabled camera access in Settings.
+    private func continueCapturePreparation() async {
         let prepared: (
             store: CaptureWorkingSetStore,
             identity: CaptureWorkingSetIdentity,
@@ -6122,6 +6441,91 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return nil
         }
         return Int64(max(0, value))
+    }
+
+    /// Re-check camera authorization while the permission gate is
+    /// open (#295): granted resumes the ordinary preparation
+    /// pipeline; anything else only refreshes the displayed state.
+    func retryCameraPermission() {
+        guard state == .permissions else {
+            return
+        }
+        cameraPermission =
+            CameraPermissionController.currentStatus()
+        guard cameraPermission == .notDetermined else {
+            continueAfterPermissionIfAuthorized()
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            cameraPermission = await CameraPermissionController
+                .requestAccessIfNeeded()
+            continueAfterPermissionIfAuthorized()
+        }
+    }
+
+    /// Foreground refresh (#295): an iOS Settings trip can flip camera
+    /// authorization; an authorized status resumes capture
+    /// preparation and refreshes the setup presentation when pending.
+    func sceneDidBecomeActive() {
+        cameraPermission =
+            CameraPermissionController.currentStatus()
+        if state == .permissions {
+            continueAfterPermissionIfAuthorized()
+        } else if state == .setup {
+            refreshCaptureSetupPresentation()
+        }
+    }
+
+    /// Opens the app's iOS Settings page where the operator can enable
+    /// camera access (#295). Platforms without a Settings deep link
+    /// treat this as a no-op.
+    func openCameraSettings() {
+        #if os(iOS) && canImport(UIKit)
+        guard let url = URL(
+            string: UIApplication.openSettingsURLString
+        ) else {
+            return
+        }
+        UIApplication.shared.open(url)
+        #endif
+    }
+
+    /// Leaves the capability/permission gate without a capture (#295):
+    /// nothing was started, so no working revision exists to clean up.
+    func cancelCaptureStart() {
+        guard state == .capabilityCheck
+                || state == .permissions
+        else {
+            return
+        }
+        do {
+            try transition(.reset)
+        } catch {
+            fail(.unknown)
+            return
+        }
+        workingSetStatus = HostLocalization.text(
+            "Ready",
+            "開始可能です"
+        )
+    }
+
+    private func continueAfterPermissionIfAuthorized() {
+        guard state == .permissions,
+              cameraPermission == .authorized
+        else {
+            return
+        }
+        do {
+            try transition(.permissionsGranted)
+        } catch {
+            fail(.unknown)
+            return
+        }
+        Task { @MainActor [weak self] in
+            await self?.continueCapturePreparation()
+        }
     }
 
     private func updateLiveEndScanGuidance() {
@@ -6724,7 +7128,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     progress.actionableWeakRegionCount,
                 saturatedWeakRegionCount:
                     progress.saturatedWeakRegionCount,
-                guidanceComplete: progress.isComplete
+                guidanceComplete: progress.isComplete,
+                // #347: unresolved weak regions beyond the displayed
+                // map window, and #336: the retention capacity outcome
+                // — both persist with the end advisory so a completed
+                // capture's global/capacity state is never lost.
+                remoteWeakRegionCount:
+                    progress.remoteWeakRegionCount,
+                spatialMaxRegionCount:
+                    spatial.capacity.maxRegionCount,
+                spatialPeakRegionCount:
+                    spatial.capacity.peakRegionCount,
+                spatialRegionEvictionCount:
+                    spatial.capacity.evictionCount,
+                spatialCapacitySaturated:
+                    spatial.capacity.isSaturated,
+                // #343: sector/octant labels on this capture resolve
+                // against the starting facing direction.
+                directionReference:
+                    StartRelativeDirection.convention
             )
         )
         try? await store.recordTaskProfile(

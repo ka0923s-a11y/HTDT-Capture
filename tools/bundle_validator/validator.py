@@ -98,6 +98,11 @@ SCHEMA_OWNED_PATHS = {
     "session/capture-strategy.json": "capture-strategy.schema.json",
     "revision/intent.json": "revision-intent.schema.json",
     "reference/plan-underlay.json": "plan-underlay.schema.json",
+    "derived/operator-profiles.json": "operator-profiles.schema.json",
+    "derived/field-evidence.json": "field-evidence.schema.json",
+    "derived/instrument-profiles.json": "instrument-profiles.schema.json",
+    "derived/settings-observations.json": "settings-observations.schema.json",
+    "derived/wiring-routes.json": "wiring-routes.schema.json",
 }
 FRAME_DESCRIPTOR_RE = re.compile(r"^evidence/frames/[^/]+\.json$")
 

@@ -58,6 +58,14 @@ public struct CaptureRootActions {
     /// Captures a plain evidence frame for equipment-identity photos
     /// (#239); returns its canonical `path:` ref.
     public let captureIdentityPhoto: () async throws -> String
+    /// Captures a dedicated close-up photo for field evidence
+    /// (#314): image bytes + dims, no frame descriptor persisted.
+    public let captureFieldEvidencePhoto:
+        () async throws -> CapturedFieldPhoto
+    /// Persists the staged field-authority workspace on Save (#300/
+    /// #301/#310/#314/#324/#331).
+    public let commitFieldAuthority:
+        (FieldAuthorityWorkspace) -> Void
     public let commitAnnotationAuthority: (
         [CaptureAnnotationEntity],
         [CaptureMeasurement],
@@ -150,6 +158,15 @@ public struct CaptureRootActions {
     public let commitSemanticCorrection:
         (SemanticChildRevisionEdits) async -> Bool
     public let cancelSemanticCorrection: () -> Void
+    /// #295 permission-recovery actions for the `.permissions` and
+    /// `.setup` states: re-check the camera permission and resume the
+    /// pre-capture pipeline, open iOS Settings, or leave the
+    /// prerequisite flow back to idle without fabricating a failed
+    /// capture.
+    public let retryCameraPermission: () -> Void
+    public let openCameraSettings: () -> Void
+    /// Leaves `.capabilityCheck`/`.permissions` back to `.idle`.
+    public let cancelCaptureStart: () -> Void
 
     public init(
         beginCapture: @escaping () -> Void = {},
@@ -199,6 +216,12 @@ public struct CaptureRootActions {
             () async throws -> String = {
                 throw ManualAuthorityBuilderError.invalidPosition
             },
+        captureFieldEvidencePhoto: @escaping
+            () async throws -> CapturedFieldPhoto = {
+                throw ManualAuthorityBuilderError.invalidPosition
+            },
+        commitFieldAuthority: @escaping
+            (FieldAuthorityWorkspace) -> Void = { _ in },
         commitAnnotationAuthority: @escaping (
             [CaptureAnnotationEntity],
             [CaptureMeasurement],
@@ -270,7 +293,10 @@ public struct CaptureRootActions {
             (SemanticChildRevisionEdits) async -> Bool = {
                 _ in false
             },
-        cancelSemanticCorrection: @escaping () -> Void = {}
+        cancelSemanticCorrection: @escaping () -> Void = {},
+        retryCameraPermission: @escaping () -> Void = {},
+        openCameraSettings: @escaping () -> Void = {},
+        cancelCaptureStart: @escaping () -> Void = {}
     ) {
         self.beginCapture = beginCapture
         self.beginScanning = beginScanning
@@ -299,6 +325,9 @@ public struct CaptureRootActions {
         self.probeCameraHeading = probeCameraHeading
         self.captureTargetedPlacement = captureTargetedPlacement
         self.captureIdentityPhoto = captureIdentityPhoto
+        self.captureFieldEvidencePhoto =
+            captureFieldEvidencePhoto
+        self.commitFieldAuthority = commitFieldAuthority
         self.commitAnnotationAuthority =
             commitAnnotationAuthority
         self.cancelAnnotation = cancelAnnotation
@@ -339,6 +368,9 @@ public struct CaptureRootActions {
         self.commitSemanticCorrection =
             commitSemanticCorrection
         self.cancelSemanticCorrection = cancelSemanticCorrection
+        self.retryCameraPermission = retryCameraPermission
+        self.openCameraSettings = openCameraSettings
+        self.cancelCaptureStart = cancelCaptureStart
     }
 }
 
@@ -588,6 +620,18 @@ public struct CaptureRootView: View {
     /// nil when no correction sheet is open.
     public let semanticCorrectionContext:
         SemanticChildRevisionContext?
+    /// Long-running host operations currently in flight (#309).
+    /// Controls whose underlying guard would silently no-op are
+    /// disabled and each in-flight op shows explicit progress.
+    public let activeOperations: Set<CaptureHostOperation>
+    /// The persisted revision an open/delete operation targets, so
+    /// the library row itself can show its busy state (#309).
+    public let operationTargetRevisionID: CaptureRevisionID?
+    /// Bound space for the annotation workspace (#276): while live
+    /// capture runs it is the active session space; once sealed after
+    /// a committed pass it stays bound so non-spatial corrections can
+    /// reopen the saved authority.
+    public let annotationWorkspaceCoordinateSpaceID: CoordinateSpaceID?
     public let actions: CaptureRootActions
 
     @State private var pendingDeletion:
@@ -620,6 +664,7 @@ public struct CaptureRootView: View {
         validationReport: BundleValidationReport? = nil,
         exportURL: URL? = nil,
         annotationCoordinateSpaceID: CoordinateSpaceID? = nil,
+        annotationWorkspaceCoordinateSpaceID: CoordinateSpaceID? = nil,
         annotationEvidenceRefs: [String] = [],
         annotationRoomPlanSurfaces: [CapturedSurfaceOption] = [],
         annotationMeshAnchors: [CapturedSurfaceOption] = [],
@@ -678,6 +723,8 @@ public struct CaptureRootView: View {
         planUnderlayDocument: PlanUnderlayDocument? = nil,
         semanticCorrectionContext:
             SemanticChildRevisionContext? = nil,
+        activeOperations: Set<CaptureHostOperation> = [],
+        operationTargetRevisionID: CaptureRevisionID? = nil,
         actions: CaptureRootActions = CaptureRootActions()
     ) {
         self.state = state
@@ -692,6 +739,8 @@ public struct CaptureRootView: View {
         self.exportURL = exportURL
         self.annotationCoordinateSpaceID =
             annotationCoordinateSpaceID
+        self.annotationWorkspaceCoordinateSpaceID =
+            annotationWorkspaceCoordinateSpaceID
         self.annotationEvidenceRefs = annotationEvidenceRefs
         self.annotationRoomPlanSurfaces =
             annotationRoomPlanSurfaces
@@ -747,6 +796,9 @@ public struct CaptureRootView: View {
         self.planUnderlayDocument = planUnderlayDocument
         self.semanticCorrectionContext =
             semanticCorrectionContext
+        self.activeOperations = activeOperations
+        self.operationTargetRevisionID =
+            operationTargetRevisionID
         self.actions = actions
     }
 
@@ -811,17 +863,21 @@ public struct CaptureRootView: View {
                         importingPlanReference = true
                     },
                     beginScanning: actions.beginScanning,
-                    cancel: actions.cancelCaptureSetup
+                    cancel: actions.cancelCaptureSetup,
+                    openCameraSettings: actions.openCameraSettings
                 )
             } else if state == .annotating,
                let coordinateSpaceID =
-                    annotationCoordinateSpaceID,
+                    annotationWorkspaceCoordinateSpaceID,
                let captureRevisionID =
                     workingSetIdentity?.captureRevisionID
             {
                 CaptureAnnotationWorkspaceView(
                     coordinateSpaceID: coordinateSpaceID,
                     captureRevisionID: captureRevisionID,
+                    commitInFlight: activeOperations.contains(
+                        .annotationCommit
+                    ),
                     availableEvidenceRefs:
                         annotationEvidenceRefs,
                     evidenceFrames: annotationEvidenceFrames,
@@ -832,11 +888,16 @@ public struct CaptureRootView: View {
                     seed: annotationRevisionSeed,
                     replacesCommittedAuthority:
                         annotationAuthorityCommitted,
+                    spatialCaptureSealed: spatialCaptureSealed,
                     equipmentCatalog: equipmentCatalog,
                     // The same shared AR surface renders inside the
                     // camera capture sheets — no second session
-                    // (#214).
-                    cameraPreview: scanningPreview,
+                    // (#214). Under a finalization seal (#276) the
+                    // session is torn down: passing nil hides every
+                    // raycast/orientation/scan capture affordance in
+                    // the workspace and its sheets.
+                    cameraPreview:
+                        spatialCaptureSealed ? nil : scanningPreview,
                     probePlacementTarget:
                         actions.probePlacementTarget,
                     probeCameraHeading:
@@ -849,11 +910,16 @@ public struct CaptureRootView: View {
                         actions.capturePointOrientation,
                     captureIdentityPhoto:
                         actions.captureIdentityPhoto,
+                    captureFieldEvidencePhoto:
+                        actions.captureFieldEvidencePhoto,
+                    onCommitFieldAuthority:
+                        actions.commitFieldAuthority,
                     roomPlanObjects: annotationRoomPlanObjects,
                     plausibilityContext:
                         annotationPlausibilityContext,
                     equipmentRecents: equipmentRecents,
-                    speakerLayoutPlans: speakerLayoutPlans,
+                    speakerLayoutPlans:
+                        spatialCaptureSealed ? [] : speakerLayoutPlans,
                     draftStore: annotationDraftStore,
                     draftRevisionID: annotationDraftRevisionID,
                     onImportEquipmentCatalog:
@@ -1347,24 +1413,57 @@ public struct CaptureRootView: View {
         }
     }
 
+    /// True while any long-running host operation is in flight
+    /// (#309): controls whose coordinator guard would silently no-op
+    /// are rendered disabled with the in-flight progress instead.
+    private var hostBusy: Bool {
+        !activeOperations.isEmpty
+    }
+
     @ViewBuilder
     private var controls: some View {
         switch state {
         case .idle:
             Button("Start capture", action: actions.beginCapture)
-                .disabled(!capabilities.roomPlanMeshEligible)
-
-        case .setup:
-            EmptyView()
+                .disabled(
+                    !capabilities.roomPlanMeshEligible || hostBusy
+                )
+            ForEach(
+                Array(activeOperations),
+                id: \.self
+            ) { operation in
+                progressRow(operationLabel(operation))
+            }
             Button("Import .htdtcapture") {
                 importingCaptureArchive = true
             }
+            .disabled(hostBusy)
+
+        case .setup:
+            EmptyView()
+            if hostBusy {
+                ForEach(
+                    Array(activeOperations),
+                    id: \.self
+                ) { operation in
+                    progressRow(operationLabel(operation))
+                }
+            }
+            Button("Import .htdtcapture") {
+                importingCaptureArchive = true
+            }
+            .disabled(hostBusy)
 
         case .capabilityCheck:
             progressRow("Checking device capabilities…")
+            Button(
+                "Cancel",
+                role: .cancel,
+                action: actions.cancelCaptureStart
+            )
 
         case .permissions:
-            progressRow("Requesting camera permission…")
+            permissionRecoveryControls
 
         case .preparing:
             progressRow("Preparing capture working set…")
@@ -1388,6 +1487,7 @@ public struct CaptureRootView: View {
                 actions.refreshReviewWorkspace()
                 reviewWorkspaceShown = true
             }
+            .disabled(hostBusy)
 
             if annotationCoordinateSpaceID != nil {
                 // Saved annotations/measurements survive a reopen
@@ -1398,11 +1498,13 @@ public struct CaptureRootView: View {
                     "Continue scanning",
                     action: actions.continueScanning
                 )
+                .disabled(hostBusy)
                 if !annotationAuthorityCommitted {
                     Button(
                         "Add annotations & measurements",
                         action: actions.beginAnnotation
                     )
+                    .disabled(hostBusy)
                 } else {
                     Text("Annotation authority saved.")
                     Button(
@@ -1411,6 +1513,7 @@ public struct CaptureRootView: View {
                             : "Edit saved annotations & measurements",
                         action: actions.beginAnnotation
                     )
+                    .disabled(hostBusy)
                 }
             } else if annotationAuthorityCommitted {
                 Text("Annotation authority saved.")
@@ -1418,8 +1521,10 @@ public struct CaptureRootView: View {
                     "Edit labels, roles, equipment, and values",
                     action: actions.beginAnnotation
                 )
+                .disabled(hostBusy)
             }
             discardButton
+                .disabled(hostBusy)
 
             if let qualityReport {
                 Button(
@@ -1429,7 +1534,11 @@ public struct CaptureRootView: View {
                 .disabled(
                     !qualityReport.readyForHTDTIngestion
                     || qualityReport.integrityStatus != .pass
+                    || hostBusy
                 )
+                if activeOperations.contains(.reviewOperation) {
+                    progressRow("Finalizing capture…")
+                }
             } else {
                 progressRow("Waiting for persisted evidence…")
             }
@@ -1439,6 +1548,10 @@ public struct CaptureRootView: View {
                 "Inspect retained evidence",
                 action: actions.inspectFailedCapture
             )
+            .disabled(hostBusy)
+            if activeOperations.contains(.exportDiagnostics) {
+                progressRow("Preparing diagnostic package…")
+            }
             Button("Export diagnostic package") {
                 Task {
                     diagnosticShareURL =
@@ -1446,6 +1559,7 @@ public struct CaptureRootView: View {
                             .exportFailedCaptureDiagnostics()
                 }
             }
+            .disabled(hostBusy)
             if let diagnosticShareURL {
                 ShareLink(item: diagnosticShareURL) {
                     Label(
@@ -1457,11 +1571,13 @@ public struct CaptureRootView: View {
             Button("Start new capture") {
                 confirmingDiscard = true
             }
+            .disabled(hostBusy)
             Button(
                 "Discard failed capture",
                 role: .destructive,
                 action: actions.resetCapture
             )
+            .disabled(hostBusy)
 
         case .annotating:
             EmptyView()
@@ -1470,10 +1586,14 @@ public struct CaptureRootView: View {
             progressRow("Validating and finalizing capture…")
 
         case .finalized:
+            if activeOperations.contains(.prepareExport) {
+                progressRow("Preparing archive…")
+            }
             Button(
                 "Prepare .htdtcapture",
                 action: actions.prepareExport
             )
+            .disabled(hostBusy)
             revisionControls
             if let revisionID =
                 validationReport?.manifest.captureRevisionID
@@ -1487,6 +1607,7 @@ public struct CaptureRootView: View {
                         includesExport: exportURL != nil
                     )
                 }
+                .disabled(hostBusy)
             }
 
         case .exported:
@@ -1497,9 +1618,11 @@ public struct CaptureRootView: View {
                 Button("Send to HTDT…") {
                     handoffDestinationsShown = true
                 }
+                .disabled(hostBusy)
                 Button("Share .htdtcapture") {
                     shareArchiveForHandoff = true
                 }
+                .disabled(hostBusy)
             }
             revisionControls
             if let revisionID =
@@ -1514,7 +1637,92 @@ public struct CaptureRootView: View {
                         includesExport: exportURL != nil
                     )
                 }
+                .disabled(hostBusy)
             }
+        }
+    }
+
+    /// The `.permissions` state is a prerequisite/recovery surface
+    /// (#295), never a failed capture: a denied operator gets a direct
+    /// path to iOS Settings and an in-place retry, a restricted device
+    /// gets a distinct explanation, and either path can always cancel
+    /// back to idle without fabricating a working revision.
+    @ViewBuilder
+    private var permissionRecoveryControls: some View {
+        switch cameraPermission {
+        case .denied:
+            Text(
+                "Camera access is off. HTDT Capture needs the camera to record RoomPlan and AR evidence — nothing is captured until you allow it."
+            )
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            Button(
+                "Open Settings",
+                action: actions.openCameraSettings
+            )
+            Button(
+                "Check again",
+                action: actions.retryCameraPermission
+            )
+            Button(
+                "Cancel",
+                role: .cancel,
+                action: actions.cancelCaptureStart
+            )
+        case .restricted:
+            Text(
+                "Camera access is restricted on this device — for example by Screen Time or a device-management profile — so it cannot be enabled in Settings. Contact the device administrator."
+            )
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            Button(
+                "Check again",
+                action: actions.retryCameraPermission
+            )
+            Button(
+                "Cancel",
+                role: .cancel,
+                action: actions.cancelCaptureStart
+            )
+        case .unavailable:
+            Text(
+                "The camera is unavailable on this device, so capture cannot start."
+            )
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            Button(
+                "Cancel",
+                role: .cancel,
+                action: actions.cancelCaptureStart
+            )
+        case .notDetermined, .authorized, nil:
+            progressRow("Requesting camera permission…")
+            Button(
+                "Cancel",
+                role: .cancel,
+                action: actions.cancelCaptureStart
+            )
+        }
+    }
+
+    private func operationLabel(
+        _ operation: CaptureHostOperation
+    ) -> LocalizedStringKey {
+        switch operation {
+        case .importArchive:
+            return "Importing capture…"
+        case .openPersisted:
+            return "Opening capture…"
+        case .deletePersisted:
+            return "Deleting local capture…"
+        case .prepareExport:
+            return "Preparing archive…"
+        case .reviewOperation:
+            return "Finalizing capture…"
+        case .annotationCommit:
+            return "Saving annotation authority…"
+        case .exportDiagnostics:
+            return "Preparing diagnostic package…"
         }
     }
 
@@ -1526,6 +1734,7 @@ public struct CaptureRootView: View {
             "Start new capture",
             action: actions.resetCapture
         )
+        .disabled(hostBusy)
         if validationReport?.manifest.parentRevisionID != nil {
             Button("Compare with revised capture") {
                 comparisonLoading = true
@@ -1536,12 +1745,13 @@ public struct CaptureRootView: View {
                     comparisonLoading = false
                 }
             }
-            .disabled(comparisonLoading)
+            .disabled(comparisonLoading || hostBusy)
         }
         Button(
             "Rescan as new revision",
             action: actions.reviseAdoptedCapture
         )
+        .disabled(hostBusy)
         Text(
             "Rescan starts a fresh scan with its own coordinate space. The revised capture stays finalized and unchanged."
         )
@@ -1787,17 +1997,36 @@ public struct CaptureRootView: View {
                 value: String(record.retainedByteCount)
             )
 
+            // #309: while a host operation targets this revision the
+            // row shows its busy state; during any in-flight persisted
+            // operation the guarded actions are disabled rather than
+            // silently no-op'd.
+            let rowBusy =
+                operationTargetRevisionID
+                    == record.captureRevisionID
+            if rowBusy {
+                ForEach(
+                    Array(activeOperations),
+                    id: \.self
+                ) { operation in
+                    progressRow(operationLabel(operation))
+                        .font(.caption)
+                }
+            }
+
             HStack(spacing: 16) {
                 if record.canOpen {
                     Button("View") {
                         actions.loadPersistedWorkspace(record)
                         persistedViewerShown = true
                     }
+                    .disabled(hostBusy)
                     Button("Adopt") {
                         actions.openPersistedCapture(
                             record.captureRevisionID
                         )
                     }
+                    .disabled(hostBusy)
                 }
                 if record.canOpen || record.exportArchive != nil {
                     Button("Rescan") {
@@ -1805,6 +2034,7 @@ public struct CaptureRootView: View {
                             record
                         )
                     }
+                    .disabled(hostBusy)
                 }
                 if record.canOpen {
                     Button("Correct metadata") {
@@ -1821,6 +2051,7 @@ public struct CaptureRootView: View {
                             seriesID: nil
                         )
                 }
+                .disabled(rowBusy)
                 Spacer()
                 Button("Delete", role: .destructive) {
                     pendingDeletion = PendingCaptureDeletion(
@@ -1829,6 +2060,7 @@ public struct CaptureRootView: View {
                             record.exportArchive != nil
                     )
                 }
+                .disabled(hostBusy)
             }
             if record.exportArchive != nil,
                record.finalizedDirectory != nil
@@ -1840,6 +2072,7 @@ public struct CaptureRootView: View {
                     actions.deleteExportArchive(record)
                 }
                 .font(.caption)
+                .disabled(hostBusy)
             }
         }
     }
@@ -1861,6 +2094,7 @@ public struct CaptureRootView: View {
             Button("Delete", role: .destructive) {
                 actions.removeWorkingOrphan(orphan)
             }
+            .disabled(hostBusy)
         }
     }
 
@@ -1878,6 +2112,7 @@ public struct CaptureRootView: View {
             Button("Remove artifact", role: .destructive) {
                 actions.removeQuarantinedArtifact(artifact)
             }
+            .disabled(hostBusy)
         }
     }
 
