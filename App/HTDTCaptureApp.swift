@@ -586,9 +586,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // context. A missing or invalid entry is surfaced to the
         // workspace rather than silently substituted.
         if let equipmentCatalogStore {
-            try? equipmentCatalogStore.migrateLegacyIfNeeded()
+            // list()/active() fold the pre-#302 single-slot cache into
+            // the library on first read.
             equipmentCatalogLibrary = equipmentCatalogStore.list()
-            equipmentCatalog = equipmentCatalogStore.active()
+            equipmentCatalog = equipmentCatalogStore.active()?.snapshot
         }
 
         #if canImport(UIKit)
@@ -3321,7 +3322,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // Store under its content key and make it active (#302); a
         // write failure leaves the previously adopted catalog active
         // and the in-session context usable.
-        _ = try? equipmentCatalogStore?.storeAndActivate(snapshot)
+        if let encoded = try? JSONEncoder().encode(snapshot) {
+            _ = try? equipmentCatalogStore?.storeAndActivate(encoded)
+        }
         equipmentCatalog = snapshot
         equipmentCatalogLibrary =
             equipmentCatalogStore?.list()

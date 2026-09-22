@@ -30,11 +30,11 @@ enum EquipmentLabelVisionScan {
 
             let barcodeRequest = VNDetectBarcodesRequest()
             barcodeRequest.symbologies = [
-                .qr, .qrMicro, .aztec, .dataMatrix,
+                .qr, .microQR, .aztec, .dataMatrix,
                 .code39, .code39Checksum, .code39FullASCII,
                 .code93, .code128,
                 .ean8, .ean13, .upce,
-                .pdf417, .itf14, .interleaved2of5,
+                .pdf417, .itf14, .i2of5,
             ]
 
             let handler = VNImageRequestHandler(
@@ -75,7 +75,7 @@ enum EquipmentLabelVisionScan {
                 }
                 let basis: EquipmentLabelScanBasis =
                     barcode.symbology == .qr
-                        || barcode.symbology == .qrMicro
+                        || barcode.symbology == .microQR
                         ? .qrCode
                         : .barcode
                 observations.append(
