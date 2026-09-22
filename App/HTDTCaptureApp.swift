@@ -51,6 +51,9 @@ private struct HTDTCaptureHostView: View {
                 coordinator.annotationRevisionSeed,
             equipmentCatalog:
                 coordinator.equipmentCatalog,
+            equipmentCatalogLibrary:
+                coordinator.equipmentCatalogLibrary,
+            taskPlan: coordinator.taskPlan,
             workingSetIdentity:
                 coordinator.workingSetIdentity,
             annotationEvidenceFrames:
@@ -169,6 +172,8 @@ private struct HTDTCaptureHostView: View {
                     coordinator.captureTargetedPlacement,
                 captureIdentityPhoto:
                     coordinator.captureIdentityPhoto,
+                scanEquipmentLabel:
+                    coordinator.scanEquipmentLabel,
                 captureFieldEvidencePhoto:
                     coordinator.captureFieldEvidencePhoto,
                 commitFieldAuthority:
@@ -179,6 +184,8 @@ private struct HTDTCaptureHostView: View {
                 selectTaskProfile: coordinator.selectTaskProfile,
                 importEquipmentCatalog:
                     coordinator.importEquipmentCatalog,
+                selectEquipmentCatalog:
+                    coordinator.selectEquipmentCatalog,
                 finalizeCapture: coordinator.finalizeCapture,
                 prepareExport: coordinator.prepareExport,
                 resetCapture: coordinator.resetCapture,
@@ -401,8 +408,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// tuple as immutable authority.
     @Published private(set)
     var equipmentCatalog: HTDTEquipmentCatalogSnapshot?
-    private let equipmentCatalogCache =
-        HTDTCaptureHostCoordinator.makeEquipmentCatalogCache()
+    /// Every catalog snapshot stored in the multi-catalog library
+    /// (#302); the annotation workspace lists them for explicit
+    /// operator selection.
+    @Published private(set)
+    var equipmentCatalogLibrary:
+        [HTDTEquipmentCatalogLibrary.StoredCatalog] = []
+    /// Imported capture task plan (#240), if the host has supplied one;
+    /// its catalog pin and layout profile drive workspace behavior
+    /// (#302/#315). No in-app import path exists yet.
+    @Published private(set)
+    var taskPlan: HTDTCaptureTaskPlan?
+    private let equipmentCatalogStore =
+        HTDTCaptureHostCoordinator.makeEquipmentCatalogLibrary()
 
     /// Visual presentation for each retained evidence frame (#255),
     /// refreshed whenever the workspace's linkable ref set changes.
@@ -697,12 +715,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         loadPersistedCaptures()
 
-        // #211: restore the last validated equipment-catalog snapshot so
-        // the operator's reference context survives relaunch. A missing
-        // or no-longer-valid cache simply means the annotation workspace
-        // asks for an explicit re-import; annotation authority already
-        // committed in any capture is unaffected.
-        equipmentCatalog = equipmentCatalogCache?.load()
+        // #211/#302: restore the catalog library — the legacy
+        // single-slot cache migrates in-place, then the active (or
+        // sole) stored snapshot becomes the operator's reference
+        // context. A missing or invalid entry is surfaced to the
+        // workspace rather than silently substituted.
+        if let equipmentCatalogStore {
+            // list()/active() fold the pre-#302 single-slot cache into
+            // the library on first read.
+            equipmentCatalogLibrary = equipmentCatalogStore.list()
+            equipmentCatalog = equipmentCatalogStore.active()?.snapshot
+        }
 
         #if canImport(UIKit)
         memoryWarningCancellable =
@@ -3500,6 +3523,39 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
 
+                // #337: the finalized bundle declares every external
+                // authority it depends on — exact equipment-definition
+                // tuples + layout-profile bindings + the task plan —
+                // so another HTDT instance resolves them portably and
+                // never guesses a missing dependency.
+                let dependencyPackage =
+                    try ExternalAuthorityDependencyPackage(
+                        manifest:
+                            ExternalAuthorityDependencyBuilder
+                                .manifest(
+                                    entities: annotations,
+                                    catalog: equipmentCatalog,
+                                    identityRecords:
+                                        identityRecords,
+                                    taskPlan: taskPlan,
+                                    taskPlanSHA256: nil,
+                                    generatedAtUTC:
+                                        BundleTimestamp.utcString(
+                                            from: Date()
+                                        )
+                                )
+                    )
+                try await store
+                    .persistOrReplaceAuthorityDependencies(
+                        dependencyPackage
+                    )
+
+                guard self.captureGeneration == generation,
+                      self.state == .annotating
+                else {
+                    return
+                }
+
                 // Field-authority family (#300/#301/#310/#314/#324/
                 // #331): the staged derived documents are validated
                 // against the just-committed canonical collections —
@@ -3626,12 +3682,103 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             HTDTEquipmentCatalogSnapshot.self,
             from: data
         )
+        // Store under its content key and make it active (#302); a
+        // write failure leaves the previously adopted catalog active
+        // and the in-session context usable.
+        if let encoded = try? JSONEncoder().encode(snapshot) {
+            _ = try? equipmentCatalogStore?.storeAndActivate(encoded)
+        }
         equipmentCatalog = snapshot
-        // Best-effort durable mirror of the exact imported bytes. A
-        // failure only means the next launch requires an explicit
-        // re-import; the in-session context remains usable.
-        _ = try? equipmentCatalogCache?.store(data)
+        equipmentCatalogLibrary =
+            equipmentCatalogStore?.list()
+                ?? equipmentCatalogLibrary
         return snapshot
+    }
+
+    /// Explicit operator catalog selection (#302): activates a stored
+    /// snapshot by content key; an unknown key is ignored rather than
+    /// silently substituting a different catalog.
+    func selectEquipmentCatalog(contentKey: String) {
+        guard let equipmentCatalogStore else { return }
+        guard let stored = equipmentCatalogStore.list().first(where: {
+            $0.contentKey == contentKey
+        }) else {
+            return
+        }
+        try? equipmentCatalogStore.setActive(contentKey: contentKey)
+        equipmentCatalog = stored.snapshot
+        equipmentCatalogLibrary = equipmentCatalogStore.list()
+    }
+
+    /// Label-scan assist (#345): captures a fresh close-up frame,
+    /// persists it as equipment-identity evidence, runs Vision
+    /// OCR/barcode recognition, and returns suggestion candidates.
+    /// Nothing is committed — the sheet only suggests; the operator
+    /// confirms a candidate explicitly (or cancels and types manually).
+    func scanEquipmentLabel() async throws
+        -> EquipmentLabelScanResult
+    {
+        guard state == .annotating,
+              let store = workingSetStore
+        else {
+            throw EquipmentLabelScanError.scanUnavailable
+        }
+
+        let generation = captureGeneration
+        let snapshot =
+            try sessionController.snapshotFrameEvidenceCapture(
+                depthSelection: .discrete
+            )
+        // Recognition runs on the retained pixel buffer before the
+        // expensive materialization; both stay off the AR boundary.
+        let observations =
+            try await EquipmentLabelVisionScan.recognize(
+                snapshot.capturedImage
+            )
+        let artifacts =
+            try await ARFrameArtifactAdapter.materialize(snapshot)
+        let package = try FrameEvidencePackageBuilder.build(
+            descriptor: artifacts.descriptor,
+            pixelPayload: artifacts.pixelPayload,
+            depthPayload: artifacts.depthPayload,
+            confidencePayload: artifacts.confidencePayload,
+            previewPayload: artifacts.previewPayload
+        )
+        try await store.persistFramePackage(package)
+
+        guard captureGeneration == generation,
+              state == .annotating
+        else {
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        let evidenceRef = "path:" + package.descriptorPath
+        annotationRetentionKinds[evidenceRef] = .equipmentIdentity
+        let workingSnapshot = await store.snapshot()
+        annotationEvidenceRefs = workingSnapshot.evidenceFrameRefs
+        refreshAnnotationEvidenceFrames(
+            rootDirectory: await store.rootDirectory
+        )
+
+        let candidates = EquipmentLabelScanMatcher.candidates(
+            from: observations,
+            catalog: equipmentCatalog?.definitions ?? []
+        )
+        workingSetStatus = HostLocalization.text(
+            "Label scanned — review the suggestions",
+            "ラベルをスキャンしました。候補を確認してください"
+        )
+        return EquipmentLabelScanResult(
+            algorithm: EquipmentLabelScanMatcher.algorithm,
+            algorithmVersion:
+                EquipmentLabelScanMatcher.algorithmVersion,
+            evidenceRef: evidenceRef,
+            candidates: candidates,
+            rawObservations:
+                EquipmentLabelScanMatcher.rawStrings(
+                    from: observations
+                )
+        )
     }
 
     func finalizeCapture() {
@@ -5881,17 +6028,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    /// App-owned cache for the last validated HTDT equipment-catalog
-    /// snapshot (#211). It lives directly under the capture app-support
-    /// root — outside `finalized/`, `exports/` and `working/` — so the
-    /// persisted-capture inventory never classifies it as a capture
-    /// artifact and no catalog bytes ever enter a bundle.
-    private static func makeEquipmentCatalogCache()
-        -> HTDTEquipmentCatalogCache?
+    /// App-owned catalog library (#302): every imported snapshot kept
+    /// under its content key with an explicit active-selection pointer.
+    /// The legacy single-slot cache file (`imported-equipment-catalog
+    /// .json`, #211) migrates in on first use. The directory lives
+    /// directly under the capture app-support root — outside
+    /// `finalized/`, `exports/` and `working/` — so the persisted-
+    /// capture inventory never classifies it as a capture artifact and
+    /// no catalog bytes ever enter a bundle.
+    private static func makeEquipmentCatalogLibrary()
+        -> HTDTEquipmentCatalogLibrary?
     {
         captureRootDirectory().map {
-            HTDTEquipmentCatalogCache(
-                fileURL: $0.appendingPathComponent(
+            HTDTEquipmentCatalogLibrary(
+                directory: $0.appendingPathComponent(
+                    "equipment-catalogs",
+                    isDirectory: true
+                ),
+                legacyFileURL: $0.appendingPathComponent(
                     "imported-equipment-catalog.json",
                     isDirectory: false
                 )

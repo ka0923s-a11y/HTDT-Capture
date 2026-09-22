@@ -3003,6 +3003,79 @@ public actor CaptureWorkingSetStore {
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
+    /// Persists the derived external-authority dependency manifest
+    /// (#337). `derived/authority-dependencies.json` is a derived-role
+    /// payload rewritten wholesale each commit — the declaration
+    /// always reflects the entity collection it was built from, and a
+    /// fresh commit atomically replaces it rather than accumulating
+    /// stale authority pins.
+    public func persistOrReplaceAuthorityDependencies(
+        _ package: ExternalAuthorityDependencyPackage
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        let admissionReservation = try reserveAdmission(
+            bytes: package.data.count
+        )
+        defer { releaseAdmission(admissionReservation) }
+
+        guard
+            let decoded = try? JSONDecoder().decode(
+                ExternalAuthorityDependencyManifest.self,
+                from: package.data
+            ),
+            decoded == package.manifest
+        else {
+            throw CaptureWorkingSetError.invalidAnnotationPackage
+        }
+
+        let declaration = BundlePayloadDeclaration(
+            path: ExternalAuthorityDependencyPackage.path,
+            mediaType: "application/json",
+            producer: "capture_app",
+            provenanceClass: .captureAppDerived,
+            role: .derived,
+            sourceRefs: package.sourceRefs
+        )
+
+        try await writer.writeBatchReplacing([
+            try CaptureFileWriteRequest(
+                data: package.data,
+                path: CaptureStorePath(
+                    ExternalAuthorityDependencyPackage.path
+                )
+            ),
+        ])
+
+        declarations[declaration.path] = declaration
+    }
+
+    /// Removes the dependency manifest when a revision carries no
+    /// external authority dependencies at all — the declaration list
+    /// must never name a document the revision no longer emits.
+    /// `data` must be the exact bytes this revision wrote.
+    public func discardAuthorityDependencies(
+        data: Data
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        guard let declaration = declarations[
+            ExternalAuthorityDependencyPackage.path
+        ]
+        else {
+            return
+        }
+        _ = try await writer.removeIfIdentical(
+            data,
+            at: CaptureStorePath(
+                ExternalAuthorityDependencyPackage.path
+            )
+        )
+        declarations[declaration.path] = nil
+    }
+
     /// Commits the field-authority bundle (issues #300/#301/#310/
     /// #314/#324/#331): operator profiles, typed field-evidence
     /// records, instrument profiles, installed-settings observations,

@@ -95,11 +95,7 @@ SCHEMA_OWNED_PATHS = {
     "quality/capture-quality.json": "quality.schema.json",
     "session/room-reference-frame.json": "room-reference-frame.schema.json",
     "quality/capture-advisory.json": "capture-advisory.schema.json",
-    "derived/operator-profiles.json": "operator-profiles.schema.json",
-    "derived/field-evidence.json": "field-evidence.schema.json",
-    "derived/instrument-profiles.json": "instrument-profiles.schema.json",
-    "derived/settings-observations.json": "settings-observations.schema.json",
-    "derived/wiring-routes.json": "wiring-routes.schema.json",
+    "derived/authority-dependencies.json": "authority-dependencies.schema.json",
 }
 FRAME_DESCRIPTOR_RE = re.compile(r"^evidence/frames/[^/]+\.json$")
 
@@ -1026,6 +1022,116 @@ def _cross_check_frame_descriptor(
                 )
 
 
+def _cross_check_authority_dependencies(
+    document: dict,
+    entities_document,
+    declared_entries: dict,
+) -> None:
+    """Bind derived/authority-dependencies.json to entities.json (#337).
+
+    Rules:
+    - (kind, authority_id, authority_version) tuples are unique — a
+      manifest never declares the same authority twice.
+    - every equipment_definition dependency's hash equals the
+      equipment_ref hash entities carry for that tuple, and every
+      entity equipment_ref is covered by exactly one dependency.
+    - every entity role_binding's (profile_id, profile_version) is
+      covered by a layout_profile dependency.
+    - bound_entity_refs name entity_ids actually present in
+      annotations/entities.json (when entities.json is declared).
+    - every embedded_ref `path:` target is a declared bundle payload.
+    """
+    path = "derived/authority-dependencies.json"
+    dependencies = document["dependencies"]
+
+    seen = set()
+    for index, dep in enumerate(dependencies):
+        field = f"{path}:dependencies[{index}]"
+        key = (dep["kind"], dep["authority_id"], dep["authority_version"])
+        if key in seen:
+            raise ValidationError(f"{field} duplicates dependency {key}")
+        seen.add(key)
+
+        embedded_ref = dep.get("embedded_ref")
+        if embedded_ref is not None:
+            if not embedded_ref.startswith("path:"):
+                raise ValidationError(
+                    f"{field}.embedded_ref must be a 'path:' ref, "
+                    f"got {embedded_ref!r}"
+                )
+            _require_declared_payload(
+                embedded_ref[len("path:"):], declared_entries,
+                f"{field}.embedded_ref",
+            )
+
+    entity_ids = set()
+    equipment_refs = {}
+    role_bindings = set()
+    if entities_document is not None:
+        for entity in entities_document["entities"]:
+            entity_ids.add(entity["entity_id"])
+            ref = entity.get("equipment_ref")
+            if ref is not None:
+                equipment_refs[
+                    (ref["equipment_id"], ref["equipment_version"])
+                ] = ref
+            binding = entity.get("role_binding")
+            if binding is not None:
+                role_bindings.add(
+                    (binding["profile_id"], binding["profile_version"])
+                )
+
+    # Exact coverage: a manifest carrying no dependency for an
+    # entity-carried equipment tuple leaves the ref unresolvable on
+    # another instance — that is a bundle defect, not a soft warning.
+    covered_equipment = {
+        (dep["authority_id"], dep["authority_version"])
+        for dep in dependencies
+        if dep["kind"] == "equipment_definition"
+    }
+    covered_profiles = {
+        (dep["authority_id"], dep["authority_version"])
+        for dep in dependencies
+        if dep["kind"] == "layout_profile"
+    }
+    uncovered = sorted(set(equipment_refs) - covered_equipment)
+    if uncovered:
+        raise ValidationError(
+            f"{path}: entity equipment_refs lack "
+            f"equipment_definition dependencies: {uncovered}"
+        )
+    uncovered_profiles = sorted(role_bindings - covered_profiles)
+    if uncovered_profiles:
+        raise ValidationError(
+            f"{path}: entity role_bindings lack layout_profile "
+            f"dependencies: {uncovered_profiles}"
+        )
+
+    # Hash pinning: the declared equipment hash must equal the hash
+    # the entity carries — a same-ID/different-hash declaration would
+    # be ambiguous authority, not an exact pin.
+    entity_kinds = {"equipment_definition", "layout_profile"}
+    for index, dep in enumerate(dependencies):
+        field = f"{path}:dependencies[{index}]"
+        if dep["kind"] == "equipment_definition":
+            key = (dep["authority_id"], dep["authority_version"])
+            ref = equipment_refs.get(key)
+            if (
+                ref is not None
+                and dep["authority_sha256"] != ref["equipment_hash"]
+            ):
+                raise ValidationError(
+                    f"{field}.authority_sha256 does not match the "
+                    f"equipment_ref hash entities carry for {key}"
+                )
+        for ref_text in dep.get("bound_entity_refs", []):
+            if dep["kind"] in entity_kinds and ref_text not in entity_ids:
+                raise ValidationError(
+                    f"{field}.bound_entity_refs names an entity_id "
+                    f"absent from annotations/entities.json: {ref_text!r}"
+                )
+
+
 def validate_bundle(path: Path) -> dict:
     source = DirectorySource(path) if path.is_dir() else ZipSource(path)
     actual_files = source.list_files()
@@ -1160,6 +1266,18 @@ def validate_bundle(path: Path) -> dict:
             _cross_check_frame_descriptor(
                 path_text, document, binary_facts, declared_entries, manifest
             )
+
+    # External authority dependencies (#337): when the manifest is
+    # declared, every entity-carried external reference must be covered
+    # by an exact-pin dependency, embedded copies must name declared
+    # payloads, and bound entity refs must resolve.
+    deps_document = schema_documents.get("derived/authority-dependencies.json")
+    if deps_document is not None:
+        _cross_check_authority_dependencies(
+            deps_document,
+            schema_documents.get("annotations/entities.json"),
+            declared_entries,
+        )
 
     bundle_digest = hashlib.sha256(manifest_bytes).hexdigest()
     return {

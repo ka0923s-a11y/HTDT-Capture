@@ -299,6 +299,7 @@ public enum AnnotationModelError: Error, Sendable, Equatable {
     case invalidReferencePointAuthority
     case invalidAuthorityComponent
     case incompatibleListeningRole
+    case incompatibleRoleBinding
     case incompatibleEquipmentReference
     case unknownEquipmentAuthority
     case invalidReferencePointSemantics
@@ -1215,6 +1216,11 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
     public let placement: PlacementProvenance
     public let orientation: OrientationAxes?
     public let channelRole: ChannelRole?
+    /// Logical role binding against a versioned layout profile (#315):
+    /// `(profile_id, profile_version, role_id)`. Nil on entities
+    /// written before profile authority existed — they decode as
+    /// `unbound`, the migration-safe fallback for unknown roles.
+    public let roleBinding: SpeakerRoleBinding?
     public let acousticCenter: AcousticCenterOffsetAuthority?
     public let equipmentRef: HTDTEquipmentReference?
     public let evidenceRefs: [String]
@@ -1249,6 +1255,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         placement: PlacementProvenance,
         orientation: OrientationAxes? = nil,
         channelRole: ChannelRole? = nil,
+        roleBinding: SpeakerRoleBinding? = nil,
         acousticCenter: AcousticCenterOffsetAuthority? = nil,
         equipmentRef: HTDTEquipmentReference? = nil,
         evidenceRefs: [String] = [],
@@ -1288,6 +1295,15 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
             throw AnnotationModelError.incompatibleListeningRole
         }
 
+        // `role_binding` is logical layout vocabulary for physical
+        // loudspeakers only (#315); a bound role on any other type is
+        // a category error.
+        guard roleBinding == nil
+                || type == .speaker || type == .subwoofer
+        else {
+            throw AnnotationModelError.incompatibleRoleBinding
+        }
+
         // A reference-point construction record must be coherent with
         // the placement method that produced the position (#291): a
         // surface-derived placement may only carry surface-aware
@@ -1322,7 +1338,8 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
                   (authority.referencePoint != nil)
                         == (referencePoint != nil),
                   (authority.semanticRole != nil)
-                        == (channelRole != nil || listeningRole != nil)
+                        == (channelRole != nil || listeningRole != nil
+                            || roleBinding != nil)
             else {
                 throw AnnotationModelError.invalidAuthorityComponent
             }
@@ -1349,6 +1366,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         self.placement = placement
         self.orientation = orientation
         self.channelRole = channelRole
+        self.roleBinding = roleBinding
         self.acousticCenter = acousticCenter
         self.equipmentRef = equipmentRef
         self.evidenceRefs = normalizedEvidence
@@ -1445,6 +1463,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
             placement: placement,
             orientation: orientation,
             channelRole: channelRole,
+            roleBinding: roleBinding,
             acousticCenter: acousticCenter,
             equipmentRef: equipmentRef,
             evidenceRefs: evidenceRefs,
@@ -1470,6 +1489,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
         case placement
         case orientation
         case channelRole = "channel_role"
+        case roleBinding = "role_binding"
         case acousticCenter = "acoustic_center"
         case equipmentRef = "equipment_ref"
         case evidenceRefs = "evidence_refs"
@@ -1525,6 +1545,10 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
             channelRole: container.decodeIfPresent(
                 ChannelRole.self,
                 forKey: .channelRole
+            ),
+            roleBinding: container.decodeIfPresent(
+                SpeakerRoleBinding.self,
+                forKey: .roleBinding
             ),
             acousticCenter: container.decodeIfPresent(
                 AcousticCenterOffsetAuthority.self,
