@@ -2371,12 +2371,6 @@ private struct ScanCoverageEndReview: View {
     }
 
     private func directionLabel(_ sectorIndex: Int) -> String {
-        octantDisplayName(
-            ScanDirectionOctant(
-                sectorIndex: sectorIndex,
-                sectorCount: max(coverage.sectorCount, 1)
-            )
-        )
         StartRelativeDirectionCopy.sectorLabel(
             sectorIndex: sectorIndex,
             sectorCount: coverage.sectorCount

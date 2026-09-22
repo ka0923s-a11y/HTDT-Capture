@@ -30,8 +30,7 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
         deviceReadiness: CaptureDeviceReadiness?,
         resolvedMode: CaptureMode?,
         finalizedBackupPolicy: FinalizedBackupPolicy
-            = .backupEligible
-        resolvedMode: CaptureMode?,
+            = .backupEligible,
         cameraPermission: CameraPermissionStatus? = nil
     ) {
         self.capabilities = capabilities

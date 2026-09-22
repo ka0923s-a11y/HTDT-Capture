@@ -259,8 +259,7 @@ public struct CaptureRootActions {
         ) -> Void = { _, _, _ in },
         updateAppSettings: @escaping
             (CaptureAppSettings) -> Void = { _ in },
-        clearEquipmentCatalogCache: @escaping () -> Void = {}
-        ) -> Void = { _, _, _ in },
+        clearEquipmentCatalogCache: @escaping () -> Void = {},
         retryCameraPermission: @escaping () -> Void = {},
         openCameraSettings: @escaping () -> Void = {},
         cancelCaptureStart: @escaping () -> Void = {}
