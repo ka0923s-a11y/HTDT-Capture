@@ -410,6 +410,43 @@ public enum FieldNoteBindingResolver {
         }
     }
 
+    /// Caption-length explanation of what a note category means —
+    /// shown under each option so the choice is understandable.
+    public static func categoryDescription(
+        _ category: CaptureFieldNoteCategory
+    ) -> String {
+        switch category.rawValue {
+        case CaptureFieldNoteCategory.general.rawValue:
+            return String(localized:
+                "A general note that does not fit a narrower category.")
+        case CaptureFieldNoteCategory.roomCondition.rawValue:
+            return String(localized:
+                "Something about the room's current condition — lighting, clutter, occupancy.")
+        case CaptureFieldNoteCategory.obstruction.rawValue:
+            return String(localized:
+                "Something blocking the room or equipment — a sofa in front of a speaker, a door swing.")
+        case CaptureFieldNoteCategory.equipmentState.rawValue:
+            return String(localized:
+                "The observed state of a device — powered off, on standby, in a mode.")
+        case CaptureFieldNoteCategory.geometryCaveat.rawValue:
+            return String(localized:
+                "A warning that the captured geometry may be wrong here — thin walls, reflections.")
+        case CaptureFieldNoteCategory.measurementCaveat.rawValue:
+            return String(localized:
+                "A warning that a measurement may be unreliable — noisy environment, weak signal.")
+        case CaptureFieldNoteCategory.followUp.rawValue:
+            return String(localized:
+                "Something to come back to later — a task or an open question.")
+        case CaptureFieldNoteCategory
+            .installationObservation.rawValue:
+            return String(localized:
+                "A fact noticed during install — cable routing, mounting, connections.")
+        default:
+            return String(localized:
+                "An operator-defined category written into the note.")
+        }
+    }
+
     /// Localized label for a note status.
     public static func statusName(
         _ status: CaptureFieldNoteStatus

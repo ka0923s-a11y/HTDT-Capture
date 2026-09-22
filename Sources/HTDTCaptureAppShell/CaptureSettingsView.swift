@@ -71,17 +71,25 @@ public struct CaptureSettingsView: View {
                     \.presentation.lengthDisplayUnit
                 )
             ) {
-                Text(
-                    String(localized: "Meters")
+                DescribedPickerOption(
+                    title: String(localized: "Meters"),
+                    detail: String(localized:
+                        "Distances shown in meters (m).")
                 ).tag(LengthDisplayUnit.meter)
-                Text(
-                    String(localized: "Millimeters")
+                DescribedPickerOption(
+                    title: String(localized: "Millimeters"),
+                    detail: String(localized:
+                        "Distances shown in millimeters (mm).")
                 ).tag(LengthDisplayUnit.millimeter)
-                Text(
-                    String(localized: "Inches")
+                DescribedPickerOption(
+                    title: String(localized: "Inches"),
+                    detail: String(localized:
+                        "Distances shown in inches (in).")
                 ).tag(LengthDisplayUnit.inch)
-                Text(
-                    String(localized: "Feet")
+                DescribedPickerOption(
+                    title: String(localized: "Feet"),
+                    detail: String(localized:
+                        "Distances shown in feet (ft).")
                 ).tag(LengthDisplayUnit.foot)
             }
             Button(
@@ -120,15 +128,26 @@ public struct CaptureSettingsView: View {
                     }
                 )
             ) {
-                Text(
-                    String(localized: "Choose for each capture")
+                DescribedPickerOption(
+                    title: String(localized:
+                        "Choose for each capture"),
+                    detail: String(localized:
+                        "Ask which task profile to use every time a new capture starts.")
                 ).tag(nil as String?)
                 ForEach(
                     CaptureTaskProfile.standalonePresets,
                     id: \.identifier
                 ) { profile in
-                    Text(profile.title)
-                        .tag(profile.identifier as String?)
+                    DescribedPickerOption(
+                        title: CaptureMissionNeeds.taskProfileName(
+                            profile
+                        ),
+                        detail: CaptureMissionNeeds
+                            .taskProfileDescription(
+                                identifier: profile.identifier
+                            )
+                    )
+                    .tag(profile.identifier as String?)
                 }
             }
             Toggle(
@@ -160,11 +179,16 @@ public struct CaptureSettingsView: View {
                     \.storagePrivacy.finalizedBackupPolicy
                 )
             ) {
-                Text(
-                    String(localized: "May join device backup")
+                DescribedPickerOption(
+                    title: String(localized:
+                        "May join device backup"),
+                    detail: String(localized:
+                        "Finalized captures may be included in the device backup, depending on system settings.")
                 ).tag(FinalizedBackupPolicy.backupEligible)
-                Text(
-                    String(localized: "Excluded from backup")
+                DescribedPickerOption(
+                    title: String(localized: "Excluded from backup"),
+                    detail: String(localized:
+                        "Finalized captures are kept out of the device backup.")
                 ).tag(FinalizedBackupPolicy.excludedFromBackup)
             }
             LabeledContent(

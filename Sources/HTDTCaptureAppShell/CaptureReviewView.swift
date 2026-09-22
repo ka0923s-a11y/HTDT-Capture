@@ -375,7 +375,10 @@ public struct CaptureReviewView: View {
         if let title = report.profileTitle {
             LabeledContent(
                 "Profile",
-                value: title
+                value: CaptureMissionNeeds.taskProfileName(
+                    identifier: report.profileIdentifier ?? "",
+                    fallbackTitle: title
+                )
             )
         }
         switch report.evaluationState {
@@ -401,8 +404,15 @@ public struct CaptureReviewView: View {
                 id: \.offset
             ) { _, outcome in
                 VStack(alignment: .leading, spacing: 4) {
+                    Text(
+                        CaptureMissionNeeds.requirementName(
+                            outcome.requirement
+                        )
+                    )
+                    .font(.caption)
                     Text(outcome.requirement.identifier)
-                        .font(.caption.monospaced())
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.tertiary)
                     CaptureStatusView(
                         taskRequirementStatus(
                             outcome.status

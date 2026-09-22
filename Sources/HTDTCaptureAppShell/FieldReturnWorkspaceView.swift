@@ -1145,9 +1145,11 @@ struct HTDTFieldReturnWorkspaceView: View {
                         FieldEvidenceKind.allCases,
                         id: \.self
                     ) { kind in
-                        Text(
-                            FieldAuthorityPresentation
-                                .evidenceKindName(kind)
+                        DescribedPickerOption(
+                            title: FieldAuthorityPresentation
+                                .evidenceKindName(kind),
+                            detail: FieldAuthorityPresentation
+                                .evidenceKindDescription(kind)
                         ).tag(kind)
                     }
                 }
@@ -1358,9 +1360,11 @@ struct HTDTFieldReturnWorkspaceView: View {
                         InventoryEquipmentClass.allCases,
                         id: \.self
                     ) { value in
-                        Text(
-                            FieldReturnPresentation
-                                .equipmentClassName(value)
+                        DescribedPickerOption(
+                            title: FieldReturnPresentation
+                                .equipmentClassName(value),
+                            detail: FieldReturnPresentation
+                                .equipmentClassDescription(value)
                         ).tag(value)
                     }
                 }
@@ -1452,9 +1456,11 @@ struct HTDTFieldReturnWorkspaceView: View {
                         RoomStateKind.allCases,
                         id: \.self
                     ) { value in
-                        Text(
-                            FieldReturnPresentation
-                                .roomStateKindName(value)
+                        DescribedPickerOption(
+                            title: FieldReturnPresentation
+                                .roomStateKindName(value),
+                            detail: FieldReturnPresentation
+                                .roomStateKindDescription(value)
                         ).tag(value)
                     }
                 }
@@ -1466,9 +1472,11 @@ struct HTDTFieldReturnWorkspaceView: View {
                         RoomStateValue.allCases,
                         id: \.self
                     ) { value in
-                        Text(
-                            FieldReturnPresentation
-                                .roomStateValueName(value)
+                        DescribedPickerOption(
+                            title: FieldReturnPresentation
+                                .roomStateValueName(value),
+                            detail: FieldReturnPresentation
+                                .roomStateValueDescription(value)
                         ).tag(value)
                     }
                 }
@@ -1746,6 +1754,114 @@ enum FieldReturnPresentation {
             String(localized: "Unknown")
         case .other:
             String(localized: "Other")
+        }
+    }
+
+    // MARK: Option descriptions
+    //
+    // One-line explanations rendered as the caption under each
+    // selectable option — a picker never shows a bare label.
+
+    static func equipmentClassDescription(
+        _ value: InventoryEquipmentClass
+    ) -> String {
+        switch value {
+        case .avReceiver:
+            String(localized:
+                "AV receiver or integrated amplifier.")
+        case .avProcessor:
+            String(localized:
+                "AV preamp/processor — no speaker outputs of its own.")
+        case .powerAmplifier:
+            String(localized: "A power amplifier.")
+        case .dspUnit:
+            String(localized:
+                "A DSP or room-correction processing unit.")
+        case .projector:
+            String(localized: "A video projection unit.")
+        case .display:
+            String(localized: "A TV or monitor.")
+        case .sourceDevice:
+            String(localized:
+                "A player or streamer feeding content in.")
+        case .measurementInterface:
+            String(localized:
+                "Measurement interface hardware (audio I/O).")
+        case .other:
+            String(localized:
+                "Equipment not covered by the other classes.")
+        }
+    }
+
+    static func roomStateKindDescription(
+        _ kind: RoomStateKind
+    ) -> String {
+        switch kind {
+        case .curtain:
+            String(localized:
+                "Curtain or blind state — affects reflections and light.")
+        case .movablePanel:
+            String(localized:
+                "A movable partition or panel position.")
+        case .door:
+            String(localized: "Door open/closed state.")
+        case .window:
+            String(localized: "Window open/closed state.")
+        case .screenMasking:
+            String(localized:
+                "Variable screen-masking position.")
+        case .seatPosture:
+            String(localized:
+                "Seat recline/posture affecting occupancy geometry.")
+        case .hvac:
+            String(localized:
+                "HVAC equipment running state — a noise source.")
+        case .airPurifier:
+            String(localized:
+                "Air purifier running state — a noise source.")
+        case .lighting:
+            String(localized: "Lighting state in the room.")
+        case .removableElement:
+            String(localized:
+                "A removable room element that may or may not be present.")
+        case .other:
+            String(localized:
+                "A room-state variable not covered above.")
+        }
+    }
+
+    static func roomStateValueDescription(
+        _ value: RoomStateValue
+    ) -> String {
+        switch value {
+        case .open:
+            String(localized: "Open.")
+        case .closed:
+            String(localized: "Closed.")
+        case .deployed:
+            String(localized:
+                "Extended or deployed into position.")
+        case .stowed:
+            String(localized: "Put away or retracted.")
+        case .on:
+            String(localized: "Running.")
+        case .off:
+            String(localized: "Not running.")
+        case .reclined:
+            String(localized: "Reclined position.")
+        case .upright:
+            String(localized: "Upright position.")
+        case .present:
+            String(localized: "The element is present in the room.")
+        case .absent:
+            String(localized:
+                "The element is absent from the room.")
+        case .unknown:
+            String(localized:
+                "The state could not be checked.")
+        case .other:
+            String(localized:
+                "A state not covered above — describe it in the note.")
         }
     }
 }

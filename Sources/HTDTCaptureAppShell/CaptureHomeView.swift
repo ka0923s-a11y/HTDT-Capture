@@ -502,14 +502,14 @@ public struct CaptureHomeView: View {
                             ) {
                                 Text(item.title)
                                     .font(.callout)
-                                    .lineLimit(1)
+                                    .lineLimit(2)
                                 if let subtitle = item.subtitle {
                                     Text(subtitle)
                                         .font(.caption)
                                         .foregroundStyle(
                                             .secondary
                                         )
-                                        .lineLimit(1)
+                                        .lineLimit(2)
                                 }
                             }
                             Spacer()
@@ -668,16 +668,24 @@ public struct CaptureHomeView: View {
                             String(localized: "Capture origin"),
                             selection: $libraryOriginFilter
                         ) {
-                            Text(String(localized: "All"))
-                                .tag(CaptureOriginFilter.all)
-                            Text(
-                                String(localized: "This device")
+                            DescribedPickerOption(
+                                title: String(localized: "All"),
+                                detail: String(localized:
+                                    "Show every capture — this device's and imported ones.")
+                            )
+                            .tag(CaptureOriginFilter.all)
+                            DescribedPickerOption(
+                                title: String(localized: "This device"),
+                                detail: String(localized:
+                                    "Show only captures recorded on this device.")
                             )
                             .tag(CaptureOriginFilter.device)
-                            Text(
-                                String(
+                            DescribedPickerOption(
+                                title: String(
                                     localized: "Imported or received"
-                                )
+                                ),
+                                detail: String(localized:
+                                    "Show only captures imported from files or received from elsewhere.")
                             )
                             .tag(CaptureOriginFilter.external)
                         }
@@ -1362,7 +1370,7 @@ public struct CaptureHomeView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(presentation.title)
                     .font(CaptureDesign.Typography.sectionHeading)
-                    .lineLimit(1)
+                    .lineLimit(2)
                 Text(
                     [
                         presentation.latestDateLabel,
@@ -1373,7 +1381,7 @@ public struct CaptureHomeView: View {
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .lineLimit(2)
                 if let originCaption = originMatchCaption(
                     for: group
                 ) {
@@ -1382,13 +1390,13 @@ public struct CaptureHomeView: View {
                         .foregroundStyle(
                             CaptureColorRole.accent.color
                         )
-                        .lineLimit(1)
+                        .lineLimit(2)
                 }
                 if let note = presentation.note, !note.isEmpty {
                     Text(note)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(2)
                 }
             }
             Spacer(minLength: 4)
@@ -1789,7 +1797,7 @@ private struct CaptureSeriesDetailView: View {
                     ) ?? record.finalizedAtUTC
                 )
                 .font(CaptureDesign.Typography.sectionHeading)
-                .lineLimit(1)
+                .lineLimit(2)
                 HStack(spacing: 6) {
                     CaptureStatusView(
                         CaptureSeriesPresentation.status(
@@ -2164,7 +2172,7 @@ private struct CaptureSeriesDetailView: View {
                             ?? dateLabel
                     )
                     .font(CaptureDesign.Typography.sectionHeading)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     HStack(spacing: 6) {
                         CaptureStatusView(
                             CaptureSeriesPresentation.status(

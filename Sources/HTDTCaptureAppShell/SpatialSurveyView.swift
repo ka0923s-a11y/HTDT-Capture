@@ -50,6 +50,12 @@ public struct SpatialSurveyView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                Text(
+                    SpatialSurveyPresentation
+                        .modeDescription(mode)
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             } footer: {
                 Text(
                     "States are derived from committed records — this list never edits authorities."
@@ -160,7 +166,7 @@ public struct SpatialSurveyView: View {
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .lineLimit(2)
             }
             Spacer()
             if entry.target.isMissionRequired,
@@ -314,6 +320,25 @@ public enum SpatialSurveyPresentation {
             return String(localized: "Room state")
         case .equipmentInstallation:
             return String(localized: "Equipment")
+        }
+    }
+
+    /// Caption under the mode picker — which records each filter
+    /// shows.
+    public static func modeDescription(_ mode: SurveyMode) -> String {
+        switch mode {
+        case .all:
+            return String(localized:
+                "Shows every survey record.")
+        case .construction:
+            return String(localized:
+                "Only construction records — openings, structure.")
+        case .roomState:
+            return String(localized:
+                "Only variable room-state records — curtains, doors, seating.")
+        case .equipmentInstallation:
+            return String(localized:
+                "Only equipment-installation records.")
         }
     }
 

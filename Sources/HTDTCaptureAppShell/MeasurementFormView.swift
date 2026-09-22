@@ -143,7 +143,14 @@ public struct MeasurementFormView: View {
                         AnnotationPresentation
                             .measurementTemplates
                     ) { template in
-                        Text(template.title).tag(template.id)
+                        DescribedPickerOption(
+                            title: template.title,
+                            detail: AnnotationPresentation
+                                .measurementTemplateDescription(
+                                    id: template.id
+                                )
+                        )
+                        .tag(template.id)
                     }
                 }
                 .onChange(of: templateID) { _, newID in
@@ -178,9 +185,11 @@ public struct MeasurementFormView: View {
                         ],
                         id: \.self
                     ) { unit in
-                        Text(
-                            AnnotationPresentation
-                                .unitName(unit)
+                        DescribedPickerOption(
+                            title: AnnotationPresentation
+                                .unitName(unit),
+                            detail: AnnotationPresentation
+                                .measurementUnitDescription(unit)
                         )
                         .tag(unit)
                     }
@@ -191,9 +200,13 @@ public struct MeasurementFormView: View {
                     selection: $method
                 ) {
                     ForEach(methods, id: \.self) { method in
-                        Text(
-                            AnnotationPresentation
-                                .acquisitionMethodName(method)
+                        DescribedPickerOption(
+                            title: AnnotationPresentation
+                                .acquisitionMethodName(method),
+                            detail: AnnotationPresentation
+                                .acquisitionMethodDescription(
+                                    method
+                                )
                         )
                         .tag(method)
                     }
@@ -290,11 +303,15 @@ public struct MeasurementFormView: View {
                         String(localized: "Instrument profile"),
                         selection: $instrumentAuthority
                     ) {
-                        Text(String(localized: "None"))
-                            .tag(
-                                MeasurementInstrumentReference?
-                                    .none
-                            )
+                        DescribedPickerOption(
+                            title: String(localized: "None"),
+                            detail: String(localized:
+                                "Record the measurement without binding it to an instrument profile.")
+                        )
+                        .tag(
+                            MeasurementInstrumentReference?
+                                .none
+                        )
                         ForEach(
                             instrumentProfiles,
                             id: \.id
@@ -390,9 +407,11 @@ public struct MeasurementFormView: View {
             selection: $importMethod
         ) {
             ForEach(importMethods, id: \.self) { method in
-                Text(
-                    AnnotationPresentation
-                        .acquisitionMethodName(method)
+                DescribedPickerOption(
+                    title: AnnotationPresentation
+                        .acquisitionMethodName(method),
+                    detail: AnnotationPresentation
+                        .acquisitionMethodDescription(method)
                 )
                 .tag(method)
             }
@@ -413,7 +432,9 @@ public struct MeasurementFormView: View {
                     .font(.subheadline.weight(.semibold))
                 Text(
                     String(pending.reading.value) + " "
-                        + pending.reading.unit.rawValue
+                        + MissionPresentation.measurementUnitSymbol(
+                            pending.reading.unit
+                        )
                 )
                 Text(
                     String(
@@ -720,7 +741,12 @@ private struct EndpointPicker: View {
 
     var body: some View {
         Picker(title, selection: $selection) {
-            Text(String(localized: "None")).tag("")
+            DescribedPickerOption(
+                title: String(localized: "None"),
+                detail: String(localized:
+                    "Leave this endpoint unbound.")
+            )
+            .tag("")
             ForEach(candidates, id: \.entityID) { entity in
                 Text(
                     entity.label + " · "

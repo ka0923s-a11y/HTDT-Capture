@@ -359,9 +359,11 @@ public struct AnnotationEntityForm: View {
                         AnnotationPresentation.entityTemplates,
                         id: \.self
                     ) { value in
-                        Text(
-                            AnnotationPresentation
-                                .entityTypeName(value)
+                        DescribedPickerOption(
+                            title: AnnotationPresentation
+                                .entityTypeName(value),
+                            detail: AnnotationPresentation
+                                .entityTypeDescription(value)
                         )
                         .tag(value)
                     }
@@ -433,9 +435,11 @@ public struct AnnotationEntityForm: View {
                             ListeningPositionRole.allCases,
                             id: \.self
                         ) { role in
-                            Text(
-                                AnnotationPresentation
-                                    .listeningRoleName(role)
+                            DescribedPickerOption(
+                                title: AnnotationPresentation
+                                    .listeningRoleName(role),
+                                detail: AnnotationPresentation
+                                    .listeningRoleDescription(role)
                             )
                             .tag(role)
                         }
@@ -462,17 +466,25 @@ public struct AnnotationEntityForm: View {
                         String(localized: "Semantics"),
                         selection: $semanticsSelection
                     ) {
-                        Text(String(localized: "Type default"))
-                            .tag("")
+                        DescribedPickerOption(
+                            title: String(localized: "Type default"),
+                            detail: String(localized:
+                                "Use the semantics the item type normally implies.")
+                        )
+                        .tag("")
                         ForEach(
                             semantics.sorted {
                                 $0.rawValue < $1.rawValue
                             },
                             id: \.self
                         ) { token in
-                            Text(
-                                MissionPresentation
-                                    .referencePointSemanticsName(token)
+                            DescribedPickerOption(
+                                title: MissionPresentation
+                                    .referencePointSemanticsName(token),
+                                detail: MissionPresentation
+                                    .referencePointSemanticsDescription(
+                                        token
+                                    )
                             ).tag(token.rawValue)
                         }
                     }
@@ -676,12 +688,21 @@ public struct AnnotationEntityForm: View {
                     String(localized: "Construction"),
                     selection: $referencePointConstruction
                 ) {
-                    Text(
-                        String(localized: "Confirmed surface hit")
+                    DescribedPickerOption(
+                        title: String(localized:
+                            "Confirmed surface hit"),
+                        detail: AnnotationPresentation
+                            .constructionDescription(
+                                .surfaceHitConfirmed
+                            )
                     )
                     .tag(ReferencePointConstruction.surfaceHitConfirmed)
-                    Text(
-                        String(localized: "Offset from surface")
+                    DescribedPickerOption(
+                        title: String(localized: "Offset from surface"),
+                        detail: AnnotationPresentation
+                            .constructionDescription(
+                                .offsetFromSurface
+                            )
                     )
                     .tag(ReferencePointConstruction.offsetFromSurface)
                 }
@@ -747,14 +768,22 @@ public struct AnnotationEntityForm: View {
                             : String(localized: "Logical role"),
                         selection: $selectedRoleBindingID
                     ) {
-                        Text(String(localized: "Not assigned"))
-                            .tag("")
+                        DescribedPickerOption(
+                            title: String(localized: "Not assigned"),
+                            detail: String(localized:
+                                "This item is not bound to a profile role.")
+                        )
+                        .tag("")
                         ForEach(roles, id: \.roleID) { role in
-                            Text(
-                                role.displayName
+                            DescribedPickerOption(
+                                title: role.displayName
                                     + " (" + role.roleID + ")"
                                     + (role.allowsMultipleBindings
-                                        ? " *" : "")
+                                        ? " *" : ""),
+                                detail: MissionPresentation
+                                    .channelRoleName(
+                                        role.channelRole
+                                    )
                             )
                             .tag(role.roleID)
                         }
@@ -785,8 +814,12 @@ public struct AnnotationEntityForm: View {
                             : String(localized: "Channel role"),
                         selection: $channelRole
                     ) {
-                        Text(String(localized: "Not set"))
-                            .tag(ChannelRole?.none)
+                        DescribedPickerOption(
+                            title: String(localized: "Not set"),
+                            detail: String(localized:
+                                "No channel role — the item is not tied to the audio plan.")
+                        )
+                        .tag(ChannelRole?.none)
                         ForEach(
                             type == .subwoofer
                                 ? ChannelRole.subwooferRoles
@@ -1424,8 +1457,12 @@ public struct AnnotationEntityForm: View {
         let roleName =
             AnnotationPresentation.channelRoleName(role)
             + " (" + role.rawValue + ")"
-        return Text(roleName)
-            .tag(ChannelRole?.some(role))
+        return DescribedPickerOption(
+            title: roleName,
+            detail: AnnotationPresentation
+                .channelRoleDescription(role)
+        )
+        .tag(ChannelRole?.some(role))
     }
 
     private static func coordText(_ value: Float) -> String {

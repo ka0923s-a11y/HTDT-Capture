@@ -214,6 +214,13 @@ public struct CaptureReviewWorkspaceView: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
+                    Text(
+                        geometryMode == .plan
+                            ? "Flat 2D plan view of the room and its markers."
+                            : "Interactive 3D view of the captured room geometry."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     if geometryMode == .plan {
                         if let plan = model.planPreview {
                             ReviewPlanSurface(
@@ -686,9 +693,11 @@ public struct CaptureReviewWorkspaceView: View {
                                 RoomOpeningKind.allCases,
                                 id: \.self
                             ) { kind in
-                                Text(
-                                    TheaterAuthorityPresentation
-                                        .openingKindName(kind)
+                                DescribedPickerOption(
+                                    title: TheaterAuthorityPresentation
+                                        .openingKindName(kind),
+                                    detail: TheaterAuthorityPresentation
+                                        .openingKindDescription(kind)
                                 )
                                 .tag(kind)
                             }
@@ -710,6 +719,14 @@ public struct CaptureReviewWorkspaceView: View {
                             }
                         }
                         .pickerStyle(.segmented)
+                        Text(
+                            TheaterAuthorityPresentation
+                                .openingStateDescription(
+                                    newOpeningState
+                                )
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         HStack(spacing: 8) {
                             TextField(
                                 "Width m",
@@ -1415,7 +1432,8 @@ public struct CaptureReviewWorkspaceView: View {
                 .foregroundStyle(revisitFlagTint(flag))
                 Text(
                     flag.category.map {
-                        revisitFlagCategoryLabel($0)
+                        MissionPresentation
+                            .scanRevisitFlagCategoryName($0)
                     } ?? String(localized: "Flag")
                 )
                 .font(.subheadline.weight(.semibold))
@@ -1547,29 +1565,6 @@ public struct CaptureReviewWorkspaceView: View {
                 localized:
                     "Suggested: general review"
             )
-        }
-    }
-
-    private func revisitFlagCategoryLabel(
-        _ category: ScanRevisitFlagCategory
-    ) -> String {
-        switch category {
-        case .geometry:
-            return String(localized: "Geometry")
-        case .opening:
-            return String(localized: "Opening")
-        case .reflectiveTransparent:
-            return String(
-                localized: "Reflective / transparent"
-            )
-        case .objectDetail:
-            return String(localized: "Object detail")
-        case .measurement:
-            return String(localized: "Measurement")
-        case .equipment:
-            return String(localized: "Equipment")
-        case .other:
-            return String(localized: "Other")
         }
     }
 

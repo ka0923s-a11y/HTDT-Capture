@@ -125,7 +125,12 @@ public struct EquipmentCatalogPickerSheet: View {
                         String(localized: "Manufacturer"),
                         selection: $manufacturerFilter
                     ) {
-                        Text(String(localized: "All")).tag("")
+                        DescribedPickerOption(
+                            title: String(localized: "All"),
+                            detail: String(localized:
+                                "Show definitions from every manufacturer.")
+                        )
+                        .tag("")
                         ForEach(manufacturers, id: \.self) {
                             Text($0).tag($0)
                         }

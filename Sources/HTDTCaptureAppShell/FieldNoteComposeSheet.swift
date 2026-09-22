@@ -145,13 +145,20 @@ public struct FieldNoteComposeSheet: View {
                             categoryOptions,
                             id: \.rawValue
                         ) { token in
-                            Text(
-                                FieldNoteBindingResolver
-                                    .categoryName(token)
+                            DescribedPickerOption(
+                                title: FieldNoteBindingResolver
+                                    .categoryName(token),
+                                detail: FieldNoteBindingResolver
+                                    .categoryDescription(token)
                             )
                             .tag(token.rawValue)
                         }
-                        Text("Custom…").tag(Self.customToken)
+                        DescribedPickerOption(
+                            title: String(localized: "Custom…"),
+                            detail: String(localized:
+                                "Type your own category — stored on the note verbatim.")
+                        )
+                        .tag(Self.customToken)
                     }
                     if categoryToken == Self.customToken {
                         TextField(
@@ -203,11 +210,19 @@ public struct FieldNoteComposeSheet: View {
                             "Bind to",
                             selection: $bindingSelection
                         ) {
-                            Text("Nothing yet")
-                                .tag(Self.noBinding)
+                            DescribedPickerOption(
+                                title: String(localized: "Nothing yet"),
+                                detail: String(localized:
+                                    "The note is not bound to a subject yet — you can bind it later.")
+                            )
+                            .tag(Self.noBinding)
                             ForEach(bindingCandidates) { candidate in
-                                Text(candidate.title)
-                                    .tag(candidate.ref)
+                                DescribedPickerOption(
+                                    title: candidate.title,
+                                    detail: String(localized:
+                                        "Bind the note to this subject.")
+                                )
+                                .tag(candidate.ref)
                             }
                         }
                         .accessibilityLabel(

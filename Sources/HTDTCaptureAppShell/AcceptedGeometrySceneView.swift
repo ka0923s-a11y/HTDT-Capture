@@ -39,6 +39,32 @@ public struct AcceptedGeometrySceneView: View {
         scene.elements.first { $0.elementID == selectedElementID }
     }
 
+    /// Caption describing what the selected camera preset shows —
+    /// segmented controls carry no per-option detail, so the choice
+    /// is explained under the picker instead.
+    private var presetCaption: String {
+        switch preset {
+        case .orbit:
+            return String(localized:
+                "Orbit freely around the room at a readable diagonal angle.")
+        case .frontElevation:
+            return String(localized:
+                "Flat elevation view looking toward the room front.")
+        case .sideElevation:
+            return String(localized:
+                "Flat elevation view looking in from the room's right side.")
+        case .topPlan:
+            return String(localized:
+                "Straight-down plan view matching the 2D layout.")
+        case .fitRoom:
+            return String(localized:
+                "Frames every captured element in view at once.")
+        case .focusElement:
+            return String(localized:
+                "Orbits around the element selected in the list.")
+        }
+    }
+
     public var body: some View {
         VStack(spacing: 8) {
             if scene.elements.isEmpty {
@@ -68,6 +94,10 @@ public struct AcceptedGeometrySceneView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+
+                Text(presetCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 #if os(iOS)
                 GeometrySceneRepresentable(

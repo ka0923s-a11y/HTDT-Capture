@@ -142,7 +142,8 @@ public struct SpeakerLayoutFlowView: View {
             if let role = activeRole {
                 Section(
                     String(localized: "Now capturing: ")
-                        + role.displayName
+                        + MissionPresentation
+                            .layoutRoleDisplayName(role)
                         + " (" + role.channelRole.rawValue + ")"
                 ) {
                     TextField(
@@ -283,7 +284,8 @@ public struct SpeakerLayoutFlowView: View {
         }
         .onAppear {
             if label.isEmpty, let role = activeRole {
-                label = role.displayName
+                label = MissionPresentation
+                    .layoutRoleDisplayName(role)
             }
         }
     }
@@ -293,7 +295,8 @@ public struct SpeakerLayoutFlowView: View {
         let state = progress.state(for: role.roleID)
         Button {
             activeRoleID = role.roleID
-            label = role.displayName
+            label = MissionPresentation
+                .layoutRoleDisplayName(role)
             placementAuthority = nil
             orientationAuthority = nil
             reuseEquipment = false
@@ -305,7 +308,7 @@ public struct SpeakerLayoutFlowView: View {
             HStack {
                 Image(systemName: iconName(for: state))
                     .foregroundStyle(color(for: state))
-                Text(role.displayName)
+                Text(MissionPresentation.layoutRoleDisplayName(role))
                     .foregroundStyle(.primary)
                 Spacer()
                 Text(stateName(state))
@@ -459,7 +462,9 @@ public struct SpeakerLayoutFlowView: View {
             let entity = try seed.buildEntity(
                 coordinateSpaceID: coordinateSpaceID,
                 type: role.isSubwoofer ? .subwoofer : .speaker,
-                label: label.isEmpty ? role.displayName : label,
+                label: label.isEmpty
+                    ? MissionPresentation.layoutRoleDisplayName(role)
+                    : label,
                 channelRole: role.channelRole,
                 roleBinding: roleBinding,
                 equipmentRef: equipment,
@@ -509,7 +514,8 @@ public struct SpeakerLayoutFlowView: View {
         activeRoleID =
             progress.nextPendingRole(in: plan)?.roleID
         if let activeRole {
-            label = activeRole.displayName
+            label = MissionPresentation
+                .layoutRoleDisplayName(activeRole)
         }
     }
 

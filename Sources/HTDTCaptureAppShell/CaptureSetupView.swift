@@ -568,17 +568,47 @@ public struct CaptureSetupView: View {
                     }
                 )
             ) {
-                Text("No task profile")
-                    .tag("none")
-                Text("Geometry only")
-                    .tag(CaptureTaskProfile.geometryOnly.identifier)
-                Text("Room + listening position")
-                    .tag(
-                        CaptureTaskProfile
-                            .roomAndListeningPosition.identifier
-                    )
-                Text("Theater layout")
-                    .tag(Self.theaterProfile.identifier)
+                DescribedPickerOption(
+                    title: String(localized: "No task profile"),
+                    detail: String(localized:
+                        "Plain capture — geometry is recorded and no task requirements are checked.")
+                )
+                .tag("none")
+                DescribedPickerOption(
+                    title: CaptureMissionNeeds.taskProfileName(
+                        CaptureTaskProfile.geometryOnly
+                    ),
+                    detail: CaptureMissionNeeds
+                        .taskProfileDescription(
+                            identifier: CaptureTaskProfile
+                                .geometryOnly.identifier
+                        )
+                )
+                .tag(CaptureTaskProfile.geometryOnly.identifier)
+                DescribedPickerOption(
+                    title: CaptureMissionNeeds.taskProfileName(
+                        CaptureTaskProfile.roomAndListeningPosition
+                    ),
+                    detail: CaptureMissionNeeds
+                        .taskProfileDescription(
+                            identifier: CaptureTaskProfile
+                                .roomAndListeningPosition.identifier
+                        )
+                )
+                .tag(
+                    CaptureTaskProfile
+                        .roomAndListeningPosition.identifier
+                )
+                DescribedPickerOption(
+                    title: CaptureMissionNeeds.taskProfileName(
+                        Self.theaterProfile
+                    ),
+                    detail: CaptureMissionNeeds
+                        .taskProfileDescription(
+                            identifier: Self.theaterProfile.identifier
+                        )
+                )
+                .tag(Self.theaterProfile.identifier)
             }
             .disabled(presentation.importedTaskPlan != nil)
 

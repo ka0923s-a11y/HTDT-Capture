@@ -19,6 +19,18 @@ enum DerivedPreviewMode: String, CaseIterable, Identifiable {
             return "Compare"
         }
     }
+
+    /// Caption under the mode picker — what the selected mode draws.
+    var detail: LocalizedStringKey {
+        switch self {
+        case .roomPlan:
+            return "The camera view shows the RoomPlan semantic structure; HTDT observed geometry is hidden."
+        case .observation:
+            return "Only the geometry this app observed is drawn."
+        case .overlay:
+            return "Both representations are overlaid for comparison."
+        }
+    }
 }
 
 struct DerivedShapePreviewPanel: View {
@@ -42,6 +54,10 @@ struct DerivedShapePreviewPanel: View {
                 }
             }
             .pickerStyle(.segmented)
+
+            Text(mode.detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             if let decomposition = snapshot.objectDecomposition {
                 decompositionSummary(decomposition)

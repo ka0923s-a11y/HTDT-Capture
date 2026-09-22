@@ -471,6 +471,13 @@ public struct SurveyReportExportSheet: View {
                             .tag(SurveyReportLanguage.japanese)
                     }
                     .pickerStyle(.segmented)
+                    Text(
+                        language == .english
+                            ? "The exported survey report is written in English."
+                            : "The exported survey report is written in Japanese."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
 
                 Section {

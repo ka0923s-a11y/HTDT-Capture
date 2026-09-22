@@ -220,6 +220,21 @@ public struct AnnotationCameraCaptureSheet: View {
                             .tag(PlacementTargetPreference.plane)
                     }
                     .pickerStyle(.segmented)
+                    Text(
+                        preference == .automatic
+                            ? String(localized:
+                                "Let the app choose the best surface or object under the reticle.")
+                            : preference == .mesh
+                                ? String(localized:
+                                    "Place the point on the scanned surface mesh under the reticle.")
+                                : preference == .roomPlanObject
+                                    ? String(localized:
+                                        "Place the point on a RoomPlan-detected object under the reticle.")
+                                        : String(localized:
+                                            "Place the point on a detected plane under the reticle.")
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                     Button {
                         capture()

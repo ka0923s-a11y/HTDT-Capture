@@ -922,20 +922,36 @@ public struct CaptureAnnotationWorkspaceView: View {
                 }
             )
         ) {
-            Text(
-                String(
-                    localized: "Geometry only (no task requirements)"
-                )
+            DescribedPickerOption(
+                title: CaptureMissionNeeds.taskProfileName(
+                    identifier: "geometry_only"
+                ),
+                detail: CaptureMissionNeeds
+                    .taskProfileDescription(
+                        identifier: "geometry_only"
+                    )
             )
             .tag("geometry_only")
-            Text(
-                String(
-                    localized: "Room + listening position"
-                )
+            DescribedPickerOption(
+                title: CaptureMissionNeeds.taskProfileName(
+                    identifier: "room_and_listening_position"
+                ),
+                detail: CaptureMissionNeeds
+                    .taskProfileDescription(
+                        identifier: "room_and_listening_position"
+                    )
             )
             .tag("room_and_listening_position")
-            Text(String(localized: "Theater layout"))
-                .tag("theater_layout")
+            DescribedPickerOption(
+                title: CaptureMissionNeeds.taskProfileName(
+                    identifier: "theater_layout"
+                ),
+                detail: CaptureMissionNeeds
+                    .taskProfileDescription(
+                        identifier: "theater_layout"
+                    )
+            )
+            .tag("theater_layout")
         }
         if let taskProfile, !taskProfile.requirements.isEmpty {
             ForEach(
@@ -943,8 +959,16 @@ public struct CaptureAnnotationWorkspaceView: View {
                 id: \.identifier
             ) { requirement in
                 HStack {
-                    Text(requirement.identifier)
-                        .font(.caption.monospaced())
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(
+                            CaptureMissionNeeds
+                                .requirementName(requirement)
+                        )
+                        .font(.caption)
+                        Text(requirement.identifier)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.tertiary)
+                    }
                     Spacer()
                     Text(
                         requirement.minimumCount
@@ -1343,7 +1367,10 @@ public struct CaptureAnnotationWorkspaceView: View {
                                     .evidenceKindName(
                                         record.kind
                                     ),
-                                record.acquisition.rawValue,
+                                TheaterAuthorityPresentation
+                                    .fieldEvidenceAcquisitionName(
+                                        record.acquisition
+                                    ),
                                 String(
                                     record.targetRefs.count
                                 ) + " target(s)",
@@ -1834,7 +1861,11 @@ public struct CaptureAnnotationWorkspaceView: View {
                 [
                     AnnotationPresentation
                         .entityTypeName(entity.type),
-                    entity.channelRole?.rawValue,
+                    entity.channelRole.map { role in
+                        AnnotationPresentation
+                            .channelRoleName(role)
+                            + " (" + role.rawValue + ")"
+                    },
                     AnnotationPresentation
                         .placementMethodName(
                             entity.placement.method
@@ -1933,7 +1964,9 @@ public struct CaptureAnnotationWorkspaceView: View {
                 )
             } else {
                 detail = String(value) + " "
-                    + measurement.unit.rawValue
+                    + MissionPresentation.measurementUnitSymbol(
+                        measurement.unit
+                    )
             }
         case let .vector3(x, y, z):
             if measurement.unit == .meter {
@@ -1948,7 +1981,9 @@ public struct CaptureAnnotationWorkspaceView: View {
                     + "] " + lengthDisplayUnit.rawValue
             } else {
                 detail = "[\(x), \(y), \(z)] "
-                    + measurement.unit.rawValue
+                    + MissionPresentation.measurementUnitSymbol(
+                        measurement.unit
+                    )
             }
         }
         if let sourceValueText = measurement.sourceValueText,
@@ -1957,8 +1992,12 @@ public struct CaptureAnnotationWorkspaceView: View {
             detail += " (source: " + sourceValueText + ")"
         }
         detail +=
-            " · " + measurement.acquisitionMethod.rawValue
-            + " · " + measurement.provenanceClass.rawValue
+            " · " + AnnotationPresentation.acquisitionMethodName(
+                measurement.acquisitionMethod
+            )
+            + " · " + AnnotationPresentation.provenanceClassName(
+                measurement.provenanceClass
+            )
         if !measurement.endpointRefs.isEmpty {
             detail += " · "
                 + measurement.endpointRefs
