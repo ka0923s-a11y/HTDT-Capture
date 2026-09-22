@@ -1851,10 +1851,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// tuples they recorded — the cache is convenience, never
     /// authority.
     func clearEquipmentCatalogCache() {
-        if let fileURL = equipmentCatalogCache?.fileURL {
-            try? FileManager.default.removeItem(at: fileURL)
+        if let equipmentCatalogStore {
+            for stored in equipmentCatalogStore.list() {
+                try? equipmentCatalogStore.remove(
+                    contentKey: stored.contentKey
+                )
+            }
+            if let legacyFileURL = equipmentCatalogStore.legacyFileURL {
+                try? FileManager.default.removeItem(at: legacyFileURL)
+            }
         }
         equipmentCatalog = nil
+        equipmentCatalogLibrary = []
     }
 
     /// Applies the stored backup policy to a share archive (#305);
