@@ -1,1 +1,355 @@
-{"schema":"htdt.capture.bundle-support-matrix","matrix_version":"1.0.0","description":"#332 payload-version contract: maps each schema-owned payload family to its versions, the emitted version, and read support. Statuses: native (this build emits), supported_read_only (readable, not emitted). Unlisted versions are unsupported (newer or legacy by semver comparison). External families are validated by media type + lineage binding, not by a project-owned schema.","families":{"manifest":{"schema_id":"htdt.capture.bundle","paths":["manifest.json"],"documents":{"1.0.0":"manifest"},"emitted":"1.0.0","read":["1.0.0"]},"session":{"schema_id":"htdt.capture.session","paths":["session/capture-session.json"],"documents":{"1.0.0":"session"},"emitted":"1.0.0","read":["1.0.0"]},"device":{"schema_id":"htdt.capture.device","paths":["session/device.json"],"documents":{"1.0.0":"device"},"emitted":"1.0.0","read":["1.0.0"]},"capabilities":{"schema_id":"htdt.capture.capabilities","paths":["session/capabilities.json"],"documents":{"1.0.0":"capabilities"},"emitted":"1.0.0","read":["1.0.0"]},"capture-configuration":{"schema_id":"htdt.capture.configuration","paths":["session/capture-configuration.json"],"documents":{"1.0.0":"capture-configuration"},"emitted":"1.0.0","read":["1.0.0"]},"timing":{"schema_id":"htdt.capture.timing","paths":["session/timing.json"],"documents":{"1.0.0":"timing"},"emitted":"1.0.0","read":["1.0.0"]},"mesh-anchors":{"schema_id":"htdt.capture.mesh-anchors","paths":["mesh/anchors.json"],"documents":{"1.0.0":"mesh-anchors"},"emitted":"1.0.0","read":["1.0.0"]},"entities":{"schema_id":"htdt.capture.entities","paths":["annotations/entities.json"],"documents":{"1.0.0":"entities","1.1.0":"entities-1.1.0"},"emitted":"1.1.0","read":["1.0.0","1.1.0"]},"measurements":{"schema_id":"htdt.capture.measurements","paths":["annotations/measurements.json"],"documents":{"1.0.0":"measurements","1.1.0":"measurements-1.1.0"},"emitted":"1.1.0","read":["1.0.0","1.1.0"]},"authorities":{"schema_id":"htdt.capture.authorities","paths":["annotations/authorities.json"],"documents":{"1.0.0":"authorities"},"emitted":"1.0.0","read":["1.0.0"]},"opening-review":{"schema_id":"htdt.capture.opening-review","paths":["annotations/opening-review.json"],"documents":{"1.0.0":"opening-review"},"emitted":"1.0.0","read":["1.0.0"]},"quality":{"schema_id":"htdt.capture.quality","paths":["quality/capture-quality.json"],"documents":{"1.0.0":"quality"},"emitted":"1.0.0","read":["1.0.0"]},"capture-advisory":{"schema_id":"htdt.capture.advisory","paths":["quality/capture-advisory.json"],"documents":{"1.0.0":"capture-advisory"},"emitted":"1.0.0","read":["1.0.0"]},"advisory-notes":{"schema_id":"htdt.capture.advisory_notes","paths":["advisory/operator-advisories.json"],"documents":{"1.0.0":"advisory-notes"},"emitted":"1.0.0","read":["1.0.0"]},"room-reference-frame":{"schema_id":"htdt.capture.room-reference-frame","paths":["session/room-reference-frame.json"],"documents":{"1.0.0":"room-reference-frame"},"emitted":"1.0.0","read":["1.0.0"]},"coordinate-space-policy":{"schema_id":"htdt.coordinate-space-policy","paths":["session/coordinate-space-policy.json"],"documents":{"1.0.0":"coordinate-space-policy"},"emitted":"1.0.0","read":["1.0.0"]},"connected-spaces":{"schema_id":"htdt.capture.connected-spaces","paths":["session/connected-spaces.json"],"documents":{"1.0.0":"connected-spaces"},"emitted":"1.0.0","read":["1.0.0"]},"capture-task-plan":{"schema_id":"htdt.capture-task-plan","paths":["session/capture-task-plan.json"],"documents":{"1.0.0":"capture-task-plan"},"emitted":"1.0.0","read":["1.0.0"]},"task-plan-status":{"schema_id":"htdt.capture-task-plan-status","paths":["session/task-plan-status.json"],"documents":{"1.0.0":"task-plan-status-1.0.0","1.1.0":"task-plan-status-1.1.0"},"emitted":"1.1.0","read":["1.0.0","1.1.0"]},"derived-geometry-candidates":{"schema_id":"htdt.capture.derived-geometry-candidates","paths":["derived/geometry-candidates.json"],"documents":{"1.0.0":"derived-geometry-candidates"},"emitted":"1.0.0","read":["1.0.0"]},"equipment-identity":{"schema_id":"htdt.equipment-identity","paths":["derived/equipment-identity.json"],"documents":{"1.0.0":"equipment-identity"},"emitted":"1.0.0","read":["1.0.0"]},"reference-targets":{"schema_id":"htdt.capture.reference-targets","paths":["evidence/reference-targets.json"],"documents":{"1.0.0":"reference-targets"},"emitted":"1.0.0","read":["1.0.0"]},"as-built":{"schema_id":"htdt.capture.as-built-verification","paths":["verification/as-built.json"],"documents":{"1.0.0":"as-built-verification-1.0.0","1.1.0":"as-built-verification-1.1.0"},"emitted":"1.1.0","read":["1.0.0","1.1.0"]},"frame":{"schema_id":null,"paths":["evidence/frames/<frame_id>.json"],"unversioned":true,"documents":{"unversioned":"frame"},"emitted":"unversioned","read":["unversioned"],"description":"Frame descriptors carry no schema/schema_version envelope; the v1 frame contract is unversioned."},"roomplan":{"schema_id":null,"external":true,"paths":["roomplan/captured-room.json","roomplan/captured-room-data.json","roomplan/captured-room-metadata.json"],"documents":{},"emitted":null,"read":[],"description":"Opaque Apple RoomPlan authority payloads — governed by media type, canonical-bytes and raw-lineage binding, not a project-owned schema."},"authority-dependencies":{"schema_id":"htdt.capture.authority-dependencies","paths":["derived/authority-dependencies.json"],"documents":{"1.0.0":"authority-dependencies"},"emitted":"1.0.0","read":["1.0.0"]}}}
+{
+  "schema": "htdt.capture.bundle-support-matrix",
+  "matrix_version": "1.0.0",
+  "description": "#332 payload-version contract: maps each schema-owned payload family to its versions, the emitted version, and read support. Statuses: native (this build emits), supported_read_only (readable, not emitted). Unlisted versions are unsupported (newer or legacy by semver comparison). External families are validated by media type + lineage binding, not by a project-owned schema.",
+  "families": {
+    "manifest": {
+      "schema_id": "htdt.capture.bundle",
+      "paths": [
+        "manifest.json"
+      ],
+      "documents": {
+        "1.0.0": "manifest"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "session": {
+      "schema_id": "htdt.capture.session",
+      "paths": [
+        "session/capture-session.json"
+      ],
+      "documents": {
+        "1.0.0": "session"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "device": {
+      "schema_id": "htdt.capture.device",
+      "paths": [
+        "session/device.json"
+      ],
+      "documents": {
+        "1.0.0": "device"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "capabilities": {
+      "schema_id": "htdt.capture.capabilities",
+      "paths": [
+        "session/capabilities.json"
+      ],
+      "documents": {
+        "1.0.0": "capabilities"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "capture-configuration": {
+      "schema_id": "htdt.capture.configuration",
+      "paths": [
+        "session/capture-configuration.json"
+      ],
+      "documents": {
+        "1.0.0": "capture-configuration"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "timing": {
+      "schema_id": "htdt.capture.timing",
+      "paths": [
+        "session/timing.json"
+      ],
+      "documents": {
+        "1.0.0": "timing"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "mesh-anchors": {
+      "schema_id": "htdt.capture.mesh-anchors",
+      "paths": [
+        "mesh/anchors.json"
+      ],
+      "documents": {
+        "1.0.0": "mesh-anchors"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "entities": {
+      "schema_id": "htdt.capture.entities",
+      "paths": [
+        "annotations/entities.json"
+      ],
+      "documents": {
+        "1.0.0": "entities",
+        "1.1.0": "entities-1.1.0"
+      },
+      "emitted": "1.1.0",
+      "read": [
+        "1.0.0",
+        "1.1.0"
+      ]
+    },
+    "measurements": {
+      "schema_id": "htdt.capture.measurements",
+      "paths": [
+        "annotations/measurements.json"
+      ],
+      "documents": {
+        "1.0.0": "measurements",
+        "1.1.0": "measurements-1.1.0"
+      },
+      "emitted": "1.1.0",
+      "read": [
+        "1.0.0",
+        "1.1.0"
+      ]
+    },
+    "authorities": {
+      "schema_id": "htdt.capture.authorities",
+      "paths": [
+        "annotations/authorities.json"
+      ],
+      "documents": {
+        "1.0.0": "authorities"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "opening-review": {
+      "schema_id": "htdt.capture.opening-review",
+      "paths": [
+        "annotations/opening-review.json"
+      ],
+      "documents": {
+        "1.0.0": "opening-review"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "quality": {
+      "schema_id": "htdt.capture.quality",
+      "paths": [
+        "quality/capture-quality.json"
+      ],
+      "documents": {
+        "1.0.0": "quality"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "capture-advisory": {
+      "schema_id": "htdt.capture.advisory",
+      "paths": [
+        "quality/capture-advisory.json"
+      ],
+      "documents": {
+        "1.0.0": "capture-advisory"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "advisory-notes": {
+      "schema_id": "htdt.capture.advisory_notes",
+      "paths": [
+        "advisory/operator-advisories.json"
+      ],
+      "documents": {
+        "1.0.0": "advisory-notes"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "room-reference-frame": {
+      "schema_id": "htdt.capture.room-reference-frame",
+      "paths": [
+        "session/room-reference-frame.json"
+      ],
+      "documents": {
+        "1.0.0": "room-reference-frame"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "coordinate-space-policy": {
+      "schema_id": "htdt.coordinate-space-policy",
+      "paths": [
+        "session/coordinate-space-policy.json"
+      ],
+      "documents": {
+        "1.0.0": "coordinate-space-policy"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "connected-spaces": {
+      "schema_id": "htdt.capture.connected-spaces",
+      "paths": [
+        "session/connected-spaces.json"
+      ],
+      "documents": {
+        "1.0.0": "connected-spaces"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "capture-task-plan": {
+      "schema_id": "htdt.capture-task-plan",
+      "paths": [
+        "session/capture-task-plan.json"
+      ],
+      "documents": {
+        "1.0.0": "capture-task-plan"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "task-plan-status": {
+      "schema_id": "htdt.capture-task-plan-status",
+      "paths": [
+        "session/task-plan-status.json"
+      ],
+      "documents": {
+        "1.0.0": "task-plan-status-1.0.0",
+        "1.1.0": "task-plan-status-1.1.0"
+      },
+      "emitted": "1.1.0",
+      "read": [
+        "1.0.0",
+        "1.1.0"
+      ]
+    },
+    "derived-geometry-candidates": {
+      "schema_id": "htdt.capture.derived-geometry-candidates",
+      "paths": [
+        "derived/geometry-candidates.json"
+      ],
+      "documents": {
+        "1.0.0": "derived-geometry-candidates"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "equipment-identity": {
+      "schema_id": "htdt.equipment-identity",
+      "paths": [
+        "derived/equipment-identity.json"
+      ],
+      "documents": {
+        "1.0.0": "equipment-identity"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "reference-targets": {
+      "schema_id": "htdt.capture.reference-targets",
+      "paths": [
+        "evidence/reference-targets.json"
+      ],
+      "documents": {
+        "1.0.0": "reference-targets"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "as-built": {
+      "schema_id": "htdt.capture.as-built-verification",
+      "paths": [
+        "verification/as-built.json"
+      ],
+      "documents": {
+        "1.0.0": "as-built-verification-1.0.0",
+        "1.1.0": "as-built-verification-1.1.0"
+      },
+      "emitted": "1.1.0",
+      "read": [
+        "1.0.0",
+        "1.1.0"
+      ]
+    },
+    "frame": {
+      "schema_id": null,
+      "paths": [
+        "evidence/frames/<frame_id>.json"
+      ],
+      "unversioned": true,
+      "documents": {
+        "unversioned": "frame"
+      },
+      "emitted": "unversioned",
+      "read": [
+        "unversioned"
+      ],
+      "description": "Frame descriptors carry no schema/schema_version envelope; the v1 frame contract is unversioned."
+    },
+    "roomplan": {
+      "schema_id": null,
+      "external": true,
+      "paths": [
+        "roomplan/captured-room.json",
+        "roomplan/captured-room-data.json",
+        "roomplan/captured-room-metadata.json"
+      ],
+      "documents": {},
+      "emitted": null,
+      "read": [],
+      "description": "Opaque Apple RoomPlan authority payloads — governed by media type, canonical-bytes and raw-lineage binding, not a project-owned schema."
+    },
+    "authority-dependencies": {
+      "schema_id": "htdt.capture.authority-dependencies",
+      "paths": [
+        "derived/authority-dependencies.json"
+      ],
+      "documents": {
+        "1.0.0": "authority-dependencies"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    }
+  }
+}
