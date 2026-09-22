@@ -31,6 +31,12 @@ private enum CaptureHomeSelection: Hashable {
     /// Device capability / permission diagnostics — detail level, not
     /// permanent top-level telemetry.
     case readiness
+    /// Issued HTDT missions awaiting/between capture runs (#386).
+    case missions
+    /// QR-paired, identity-pinned HTDT receivers (#379).
+    case destinations
+    /// Durable endpoint delivery queue (#387).
+    case deliveries
 }
 
 /// The pending delete-local-capture confirmation: which validated
@@ -148,6 +154,13 @@ public struct CaptureHomeView: View {
     /// device-created ones everywhere the library surfaces them.
     public let captureOrigins:
         [CaptureRevisionID: CaptureAcquisitionOriginRecord]
+    /// Mission inbox records (#386) and the active record id.
+    public let missionRecords: [HTDTMissionRecord]
+    public let activeMissionRecordID: String?
+    /// QR-paired HTDT receivers (#379).
+    public let pairedDestinations: [PairedHTDTDestination]
+    /// Durable delivery-queue jobs (#387).
+    public let deliveryJobs: [HTDTDeliveryJob]
     public let actions: CaptureRootActions
 
     @State private var selection: CaptureHomeSelection?
@@ -170,6 +183,10 @@ public struct CaptureHomeView: View {
         persistedWorkspace: CaptureReviewWorkspaceModel? = nil,
         captureOrigins:
             [CaptureRevisionID: CaptureAcquisitionOriginRecord] = [:],
+        missionRecords: [HTDTMissionRecord] = [],
+        activeMissionRecordID: String? = nil,
+        pairedDestinations: [PairedHTDTDestination] = [],
+        deliveryJobs: [HTDTDeliveryJob] = [],
         actions: CaptureRootActions = CaptureRootActions()
     ) {
         self.capabilities = capabilities
@@ -178,6 +195,10 @@ public struct CaptureHomeView: View {
         self.libraryMetadata = libraryMetadata
         self.persistedWorkspace = persistedWorkspace
         self.captureOrigins = captureOrigins
+        self.missionRecords = missionRecords
+        self.activeMissionRecordID = activeMissionRecordID
+        self.pairedDestinations = pairedDestinations
+        self.deliveryJobs = deliveryJobs
         self.actions = actions
     }
 
@@ -394,6 +415,62 @@ public struct CaptureHomeView: View {
 
             Section {
                 NavigationLink(
+                    value: CaptureHomeSelection.missions
+                ) {
+                    Label {
+                        missionRowLabel
+                    } icon: {
+                        Image(systemName: "tray.full")
+                    }
+                }
+                NavigationLink(
+                    value: CaptureHomeSelection.destinations
+                ) {
+                    Label {
+                        VStack(
+                            alignment: .leading,
+                            spacing: 2
+                        ) {
+                            Text("Destinations")
+                            Text(
+                                String(
+                                    format: String(
+                                        localized:
+                                            "%d paired receiver(s)"
+                                    ),
+                                    pairedDestinations.count
+                                )
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "qrcode.viewfinder")
+                    }
+                }
+                NavigationLink(
+                    value: CaptureHomeSelection.deliveries
+                ) {
+                    Label {
+                        VStack(
+                            alignment: .leading,
+                            spacing: 2
+                        ) {
+                            Text("Deliveries")
+                            Text(
+                                deliveryRowCaption
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(
+                            systemName:
+                                "arrow.up.circle"
+                        )
+                    }
+                }
+                NavigationLink(
                     value: CaptureHomeSelection.readiness
                 ) {
                     Label(
@@ -404,6 +481,47 @@ public struct CaptureHomeView: View {
             }
         }
         .modifier(LibrarySearchModifier(query: $libraryQuery))
+    }
+
+    /// Mission inbox row caption: active mission first, then counts
+    /// (#386).
+    @ViewBuilder
+    private var missionRowLabel: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Missions")
+            let visible = missionRecords.filter {
+                $0.lifecycle != .archived
+                    && $0.lifecycle != .superseded
+            }
+            Text(
+                String(
+                    format: String(
+                        localized: "%d mission(s)"
+                    ),
+                    visible.count
+                )
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Delivery queue row caption: honest counts by state (#387).
+    private var deliveryRowCaption: String {
+        let pending = deliveryJobs.filter { !$0.isTerminal }
+        if pending.isEmpty {
+            return String(
+                format: String(localized: "%d delivery job(s)"),
+                deliveryJobs.count
+            )
+        }
+        return String(
+            format: String(
+                localized: "%d pending of %d delivery job(s)"
+            ),
+            pending.count,
+            deliveryJobs.count
+        )
     }
 
     /// The app tagline + identity block above the primary actions.
@@ -462,6 +580,22 @@ public struct CaptureHomeView: View {
             CaptureDeviceReadinessView(
                 capabilities: capabilities,
                 cameraPermission: cameraPermission
+            )
+        case .missions:
+            HTDTMissionInboxView(
+                records: missionRecords,
+                activeMissionRecordID: activeMissionRecordID,
+                actions: actions
+            )
+        case .destinations:
+            PairedHTDTDestinationsView(
+                destinations: pairedDestinations,
+                actions: actions
+            )
+        case .deliveries:
+            HTDTDeliveryQueueView(
+                jobs: deliveryJobs,
+                actions: actions
             )
         case nil:
             if libraryGroups.isEmpty {
