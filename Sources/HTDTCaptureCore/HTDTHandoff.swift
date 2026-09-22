@@ -76,6 +76,12 @@ public struct HTDTHandoffReceipt:
     /// `failed` otherwise with `detail` naming the reason.
     public let outcome: String
     public let detail: String?
+    /// Paired receiver identity the send was bound to (#379); nil for
+    /// share-sheet or legacy raw-endpoint handoffs.
+    public let pairedDestinationID: String?
+    /// Delivery-queue job that produced this attempt (#387); nil for
+    /// direct sends.
+    public let deliveryJobID: String?
 
     public init(
         receiptID: String,
@@ -87,7 +93,9 @@ public struct HTDTHandoffReceipt:
         destination: HTDTHandoffDestination,
         initiatedAtUTC: String,
         outcome: String,
-        detail: String? = nil
+        detail: String? = nil,
+        pairedDestinationID: String? = nil,
+        deliveryJobID: String? = nil
     ) {
         self.schema = Self.schema
         self.schemaVersion = Self.schemaVersion
@@ -101,6 +109,8 @@ public struct HTDTHandoffReceipt:
         self.initiatedAtUTC = initiatedAtUTC
         self.outcome = outcome
         self.detail = detail
+        self.pairedDestinationID = pairedDestinationID
+        self.deliveryJobID = deliveryJobID
     }
 
     public var id: String { receiptID }
@@ -118,6 +128,8 @@ public struct HTDTHandoffReceipt:
         case initiatedAtUTC = "initiated_at"
         case outcome
         case detail
+        case pairedDestinationID = "paired_destination_id"
+        case deliveryJobID = "delivery_job_id"
     }
 }
 
@@ -125,28 +137,50 @@ public enum HTDTHandoffError: Error, Sendable, Equatable {
     case invalidEndpointURL
     case archiveIdentityMismatch
     case serverRejected(String)
+    /// Non-2xx HTTP status from the endpoint. The status code drives
+    /// delivery-queue retry classification (#387): 5xx/408/429 are
+    /// transient, other 4xx are semantic rejections.
+    case endpointRejected(statusCode: Int)
     case malformedServerReceipt
     case transportFailed(String)
+    /// The receiver's presented TLS identity did not match the
+    /// identity pinned during the pairing ceremony (#379).
+    case pinnedIdentityMismatch
 }
 
 /// Server-side ingestion receipt returned by an HTDT endpoint. The
 /// endpoint must echo the exact digest it ingested so the receipt can
 /// never stand in for a different bundle (issue #225).
 public struct HTDTIngestionResponse: Codable, Sendable, Equatable {
+    /// Endpoint accepted the bytes for staging.
+    public static let outcomeAccepted = "accepted"
+    /// Endpoint rejected the bundle semantically.
+    public static let outcomeRejected = "rejected"
+    /// Endpoint already holds this exact digest — a retry resolved to
+    /// the same staging identity, so duplicate deliveries are
+    /// idempotent (issue #387).
+    public static let outcomeAlreadyStaged = "already_staged"
+
     public let ingestionOutcome: String
     public let captureRevisionID: String
     public let bundleDigest: String
+    /// Server-side staging/receipt identity when the receiver reports
+    /// one; nil for receivers that do not name their staging slot
+    /// (issue #387).
+    public let stagingRef: String?
     public let detail: String?
 
     public init(
         ingestionOutcome: String,
         captureRevisionID: String,
         bundleDigest: String,
+        stagingRef: String? = nil,
         detail: String? = nil
     ) {
         self.ingestionOutcome = ingestionOutcome
         self.captureRevisionID = captureRevisionID
         self.bundleDigest = bundleDigest
+        self.stagingRef = stagingRef
         self.detail = detail
     }
 
@@ -154,6 +188,7 @@ public struct HTDTIngestionResponse: Codable, Sendable, Equatable {
         case ingestionOutcome = "ingestion_outcome"
         case captureRevisionID = "capture_revision_id"
         case bundleDigest = "bundle_digest"
+        case stagingRef = "staging_ref"
         case detail
     }
 }
@@ -171,7 +206,8 @@ public enum HTDTHandoffRequestBuilder {
         archiveSHA256: EvidenceSHA256,
         archiveByteCount: Int64,
         captureRevisionID: CaptureRevisionID,
-        bundleDigest: EvidenceSHA256
+        bundleDigest: EvidenceSHA256,
+        deliveryID: String? = nil
     ) throws -> URLRequest {
         guard endpoint.scheme?.lowercased() == "https",
               endpoint.host != nil
@@ -200,6 +236,15 @@ public enum HTDTHandoffRequestBuilder {
             String(archiveByteCount),
             forHTTPHeaderField: "X-HTDT-Archive-Bytes"
         )
+        if let deliveryID {
+            // Idempotency key (#387): every retry of one delivery job
+            // carries the same identity so the receiver treats
+            // duplicates idempotently.
+            request.setValue(
+                deliveryID,
+                forHTTPHeaderField: "X-HTDT-Delivery-ID"
+            )
+        }
         return request
     }
 
@@ -223,8 +268,12 @@ public enum HTDTHandoffRequestBuilder {
         else {
             throw HTDTHandoffError.archiveIdentityMismatch
         }
-        guard response.ingestionOutcome == "accepted"
-                || response.ingestionOutcome == "rejected"
+        guard response.ingestionOutcome
+                == HTDTIngestionResponse.outcomeAccepted
+                || response.ingestionOutcome
+                    == HTDTIngestionResponse.outcomeRejected
+                || response.ingestionOutcome
+                    == HTDTIngestionResponse.outcomeAlreadyStaged
         else {
             throw HTDTHandoffError.malformedServerReceipt
         }
@@ -242,6 +291,17 @@ public struct HTDTHandoffClient: Sendable {
     /// Uploads `archive` to `endpoint` and returns the validated
     /// server-side ingestion response. The caller records the
     /// `HTDTHandoffReceipt`.
+    ///
+    /// `deliveryID` is the delivery-queue idempotency key (#387); every
+    /// retry of one queued job sends the same value so a receiver that
+    /// already staged those bytes answers `already_staged` instead of
+    /// ingesting a duplicate.
+    ///
+    /// `pinnedIdentity` ("sha256:<64hex>" of the receiver's leaf TLS
+    /// certificate, from #379 pairing) switches the upload onto a
+    /// session that accepts only that certificate. TLS verification is
+    /// never disabled globally — the pin replaces CA trust only for
+    /// this paired destination's exact certificate.
     public func submit(
         archive: URL,
         archiveSHA256: EvidenceSHA256,
@@ -249,6 +309,8 @@ public struct HTDTHandoffClient: Sendable {
         captureRevisionID: CaptureRevisionID,
         bundleDigest: EvidenceSHA256,
         endpoint: URL,
+        deliveryID: String? = nil,
+        pinnedIdentity: String? = nil,
         session: URLSession = .shared
     ) async throws -> HTDTIngestionResponse {
         let request = try HTDTHandoffRequestBuilder.buildRequest(
@@ -257,14 +319,20 @@ public struct HTDTHandoffClient: Sendable {
             archiveSHA256: archiveSHA256,
             archiveByteCount: archiveByteCount,
             captureRevisionID: captureRevisionID,
-            bundleDigest: bundleDigest
+            bundleDigest: bundleDigest,
+            deliveryID: deliveryID
         )
+        let transport = pinnedIdentity.map {
+            HTDTIdentityPinningSession.session(pinnedIdentity: $0)
+        } ?? session
         let (data, response): (Data, URLResponse)
         do {
-            (data, response) = try await session.upload(
+            (data, response) = try await transport.upload(
                 for: request,
                 fromFile: archive
             )
+        } catch let error as HTDTHandoffError {
+            throw error
         } catch {
             throw HTDTHandoffError.transportFailed(
                 String(describing: error)
@@ -274,8 +342,8 @@ public struct HTDTHandoffClient: Sendable {
             throw HTDTHandoffError.malformedServerReceipt
         }
         guard (200..<300).contains(http.statusCode) else {
-            throw HTDTHandoffError.serverRejected(
-                "http_" + String(http.statusCode)
+            throw HTDTHandoffError.endpointRejected(
+                statusCode: http.statusCode
             )
         }
         return try HTDTHandoffRequestBuilder.validateServerReceipt(
@@ -285,6 +353,93 @@ public struct HTDTHandoffClient: Sendable {
         )
     }
 }
+
+/// Builds a URLSession whose server-trust evaluation is pinned to the
+/// exact leaf certificate recorded during #379 QR pairing. The pin is
+/// scoped to this session only — it never relaxes TLS validation for
+/// other destinations, and a certificate that does not match the pin is
+/// refused even if it would validate under normal CA rules.
+public enum HTDTIdentityPinningSession {
+    public static func session(pinnedIdentity: String) -> URLSession {
+        URLSession(
+            configuration: .ephemeral,
+            delegate: HTDTIdentityPinningDelegate(
+                pinnedIdentity: pinnedIdentity
+            ),
+            delegateQueue: nil
+        )
+    }
+}
+
+#if canImport(Security)
+import Security
+
+public final class HTDTIdentityPinningDelegate: NSObject,
+    URLSessionDelegate, @unchecked Sendable
+{
+    public let pinnedIdentity: String
+
+    public init(pinnedIdentity: String) {
+        self.pinnedIdentity = pinnedIdentity
+    }
+
+    public func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (
+            URLSession.AuthChallengeDisposition,
+            URLCredential?
+        ) -> Void
+    ) {
+        guard challenge.protectionSpace.authenticationMethod
+                == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust
+        else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        guard let chain = SecTrustCopyCertificateChain(trust)
+                as? [SecCertificate],
+              let leaf = chain.first
+        else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+        let leafDigest = EvidenceIntegrity.sha256(
+            of: SecCertificateCopyData(leaf) as Data
+        ).value
+        guard HTDTPinnedIdentity.digestText(pinnedIdentity)
+                == leafDigest
+        else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+        completionHandler(.useCredential, URLCredential(trust: trust))
+    }
+}
+#else
+
+public final class HTDTIdentityPinningDelegate: NSObject,
+    URLSessionDelegate, @unchecked Sendable
+{
+    public let pinnedIdentity: String
+
+    public init(pinnedIdentity: String) {
+        self.pinnedIdentity = pinnedIdentity
+    }
+
+    public func urlSession(
+        _ session: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (
+            URLSession.AuthChallengeDisposition,
+            URLCredential?
+        ) -> Void
+    ) {
+        completionHandler(.cancelAuthenticationChallenge, nil)
+    }
+}
+#endif
 
 /// App-local ledger of handoff receipts (issue #225):
 /// `<captureRoot>/handoff-receipts.json`. Read-modify-write is atomic

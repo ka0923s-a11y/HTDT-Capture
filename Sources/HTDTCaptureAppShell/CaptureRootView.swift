@@ -151,6 +151,43 @@ public struct CaptureRootActions {
     /// Explicit Send-to-HTDT handoff (#225).
     public let sendCaptureToHTDT:
         (HTDTHandoffDestination) async -> Void
+    /// Mission inbox (#386): import a mission package file, start or
+    /// resume a record, deactivate the active mission, archive a
+    /// record, and evaluate a record's dependency report for display
+    /// before Start.
+    public let importMissionPackage: (URL) async -> Void
+    public let startMission: (String) async -> Void
+    public let deactivateMission: () async -> Void
+    public let archiveMission: (String) async -> Void
+    public let evaluateMissionDependencies:
+        (String) async throws -> HTDTMissionDependencyReport
+    /// Destination pairing (#379): decode+validate a pasted/scanned
+    /// QR payload, then confirm (stores the pinned pairing), forget,
+    /// or revoke a pairing, and refresh a paired receiver's cached
+    /// capability snapshot.
+    public let pairDestinationPayload:
+        (Data) throws -> HTDTReceiverPairingPayload
+    public let confirmPairing:
+        (HTDTReceiverPairingPayload) async -> Void
+    public let forgetDestination: (String) async -> Void
+    public let revokeDestination: (String) async -> Void
+    public let refreshEndpointCapabilities:
+        (String) async -> Void
+    /// Delivery queue (#387): operator controls for the durable job
+    /// ledger — retry-now skips backoff, pause/resume gate attempts,
+    /// cancel marks the job terminal, purge frees the queue-owned
+    /// payload copy.
+    public let deliveryRetryNow: (String) async -> Void
+    public let deliveryPause: (String) async -> Void
+    public let deliveryResume: (String) async -> Void
+    public let deliveryCancel: (String) async -> Void
+    public let deliveryPurgePayload: (String) async -> Void
+    /// Endpoint capability preflight (#374): fetches (or reads the
+    /// cached snapshot of) the destination's capability document and
+    /// classifies the current export's compatibility.
+    public let preflightDestination:
+        (HTDTHandoffDestination) async
+            -> HTDTCompatibilityVerdict
     /// Independent export-archive deletion (#251).
     public let deleteExportArchive:
         (PersistedCaptureRecord) -> Void
@@ -325,6 +362,39 @@ public struct CaptureRootActions {
             () async -> URL? = { nil },
         sendCaptureToHTDT: @escaping
             (HTDTHandoffDestination) async -> Void = { _ in },
+        importMissionPackage: @escaping (URL) async -> Void
+            = { _ in },
+        startMission: @escaping (String) async -> Void = { _ in },
+        deactivateMission: @escaping () async -> Void = {},
+        archiveMission: @escaping (String) async -> Void = { _ in },
+        evaluateMissionDependencies: @escaping
+            (String) async throws -> HTDTMissionDependencyReport = { _ in
+                HTDTMissionDependencyReport()
+            },
+        pairDestinationPayload: @escaping
+            (Data) throws -> HTDTReceiverPairingPayload = { data in
+                try HTDTReceiverPairingPayload(data: data)
+            },
+        confirmPairing: @escaping
+            (HTDTReceiverPairingPayload) async -> Void = { _ in },
+        forgetDestination: @escaping (String) async -> Void
+            = { _ in },
+        revokeDestination: @escaping (String) async -> Void
+            = { _ in },
+        refreshEndpointCapabilities: @escaping
+            (String) async -> Void = { _ in },
+        deliveryRetryNow: @escaping (String) async -> Void
+            = { _ in },
+        deliveryPause: @escaping (String) async -> Void = { _ in },
+        deliveryResume: @escaping (String) async -> Void = { _ in },
+        deliveryCancel: @escaping (String) async -> Void = { _ in },
+        deliveryPurgePayload: @escaping (String) async -> Void
+            = { _ in },
+        preflightDestination: @escaping
+            (HTDTHandoffDestination) async
+                -> HTDTCompatibilityVerdict = { _ in
+                    .unknown(reason: "No preflight host bound")
+                },
         deleteExportArchive: @escaping
             (PersistedCaptureRecord) -> Void = { _ in },
         updateLibraryEntry: @escaping (
@@ -430,6 +500,24 @@ public struct CaptureRootActions {
         self.exportFailedCaptureDiagnostics =
             exportFailedCaptureDiagnostics
         self.sendCaptureToHTDT = sendCaptureToHTDT
+        self.importMissionPackage = importMissionPackage
+        self.startMission = startMission
+        self.deactivateMission = deactivateMission
+        self.archiveMission = archiveMission
+        self.evaluateMissionDependencies =
+            evaluateMissionDependencies
+        self.pairDestinationPayload = pairDestinationPayload
+        self.confirmPairing = confirmPairing
+        self.forgetDestination = forgetDestination
+        self.revokeDestination = revokeDestination
+        self.refreshEndpointCapabilities =
+            refreshEndpointCapabilities
+        self.deliveryRetryNow = deliveryRetryNow
+        self.deliveryPause = deliveryPause
+        self.deliveryResume = deliveryResume
+        self.deliveryCancel = deliveryCancel
+        self.deliveryPurgePayload = deliveryPurgePayload
+        self.preflightDestination = preflightDestination
         self.deleteExportArchive = deleteExportArchive
         self.updateLibraryEntry = updateLibraryEntry
         self.derivedExportInfo = derivedExportInfo
@@ -576,6 +664,13 @@ public struct CaptureRootView: View {
     /// Operator-visible Send-to-HTDT destinations + receipts (#225).
     public let handoffDestinations: [HTDTHandoffDestination]
     public let handoffReceipts: [HTDTHandoffReceipt]
+    /// Mission inbox records (#386), the active record id, QR-paired
+    /// receivers (#379) and the durable delivery-job ledger (#387) —
+    /// surfaced on the home screen's sidebar.
+    public let missionRecords: [HTDTMissionRecord]
+    public let activeMissionRecordID: String?
+    public let pairedDestinations: [PairedHTDTDestination]
+    public let deliveryJobs: [HTDTDeliveryJob]
     /// App-local capture names/notes/series metadata (#219).
     public let libraryMetadata: CaptureLibraryMetadataDocument
     /// Retained-evidence inspection for a failed capture (#224).
@@ -631,6 +726,11 @@ public struct CaptureRootView: View {
     /// capture to export from — the active adoption or a library row.
     @State private var derived3DTarget: DerivedExportTarget?
     @State private var surveyReportTarget: DerivedExportTarget?
+    /// Per-destination endpoint preflight results keyed by
+    /// destination id (#374).
+    @State private var preflightVerdicts:
+        [String: HTDTCompatibilityVerdict] = [:]
+    @State private var preflightInFlight: Set<String> = []
 
     public init(
         state: CaptureState,
@@ -694,6 +794,10 @@ public struct CaptureRootView: View {
         danglingSpatialIssues: [SpatialEvidenceIssue] = [],
         handoffDestinations: [HTDTHandoffDestination] = [],
         handoffReceipts: [HTDTHandoffReceipt] = [],
+        missionRecords: [HTDTMissionRecord] = [],
+        activeMissionRecordID: String? = nil,
+        pairedDestinations: [PairedHTDTDestination] = [],
+        deliveryJobs: [HTDTDeliveryJob] = [],
         libraryMetadata: CaptureLibraryMetadataDocument
             = CaptureLibraryMetadataDocument(),
         failedInspection: FailedCaptureInspection? = nil,
@@ -768,6 +872,10 @@ public struct CaptureRootView: View {
         self.danglingSpatialIssues = danglingSpatialIssues
         self.handoffDestinations = handoffDestinations
         self.handoffReceipts = handoffReceipts
+        self.missionRecords = missionRecords
+        self.activeMissionRecordID = activeMissionRecordID
+        self.pairedDestinations = pairedDestinations
+        self.deliveryJobs = deliveryJobs
         self.libraryMetadata = libraryMetadata
         self.failedInspection = failedInspection
         self.spatialCaptureSealed = spatialCaptureSealed
@@ -845,6 +953,10 @@ public struct CaptureRootView: View {
                     persistedInventory: persistedInventory,
                     libraryMetadata: libraryMetadata,
                     persistedWorkspace: persistedWorkspace,
+                    missionRecords: missionRecords,
+                    activeMissionRecordID: activeMissionRecordID,
+                    pairedDestinations: pairedDestinations,
+                    deliveryJobs: deliveryJobs,
                     actions: actions
                 )
             } else {
@@ -1220,10 +1332,41 @@ public struct CaptureRootView: View {
                                 ForEach(
                                     handoffDestinations
                                 ) { destination in
-                                    Button(destination.name) {
-                                        selectHandoffDestination(
-                                            destination
+                                    VStack(
+                                        alignment: .leading,
+                                        spacing: 4
+                                    ) {
+                                        Button(destination.name) {
+                                            selectHandoffDestination(
+                                                destination
+                                            )
+                                        }
+                                        if destination.kind
+                                            == .endpoint
+                                        {
+                                            preflightRow(
+                                                for: destination
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            if !deliveryJobs.isEmpty {
+                                Section("Delivery queue") {
+                                    ForEach(
+                                        deliveryJobs.filter {
+                                            !$0.isTerminal
+                                        }
+                                    ) { job in
+                                        LabeledContent(
+                                            job.destination.name,
+                                            value: job.state.rawValue
+                                                .replacingOccurrences(
+                                                    of: "_",
+                                                    with: " "
+                                                )
                                         )
+                                        .font(.caption)
                                     }
                                 }
                             }
@@ -2295,6 +2438,79 @@ public struct CaptureRootView: View {
             Task {
                 await actions.sendCaptureToHTDT(destination)
             }
+        }
+    }
+
+    /// Endpoint capability preflight row (#374): an explicit "check
+    /// compatibility" action per endpoint destination, then the
+    /// verdict rendered as the exact gap list — never a bare pass.
+    @ViewBuilder
+    private func preflightRow(
+        for destination: HTDTHandoffDestination
+    ) -> some View {
+        if let verdict = preflightVerdicts[destination.id] {
+            switch verdict {
+            case .compatible:
+                Label(
+                    "Compatible",
+                    systemImage: "checkmark.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(.green)
+            case .compatibleWithOmissions(let gaps):
+                VStack(alignment: .leading, spacing: 2) {
+                    Label(
+                        "Compatible with omissions",
+                        systemImage:
+                            "exclamationmark.triangle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    ForEach(
+                        Array(gaps.enumerated()),
+                        id: \.offset
+                    ) { _, gap in
+                        Text(gap.detail)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            case .incompatible(let gaps):
+                VStack(alignment: .leading, spacing: 2) {
+                    Label(
+                        "Incompatible",
+                        systemImage: "xmark.octagon"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    ForEach(
+                        Array(gaps.enumerated()),
+                        id: \.offset
+                    ) { _, gap in
+                        Text(gap.detail)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            case .unknown(let reason):
+                Label(reason, systemImage: "questionmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } else if preflightInFlight.contains(destination.id) {
+            ProgressView()
+                .controlSize(.small)
+        } else {
+            Button("Check compatibility") {
+                preflightInFlight.insert(destination.id)
+                Task {
+                    let verdict = await actions
+                        .preflightDestination(destination)
+                    preflightInFlight.remove(destination.id)
+                    preflightVerdicts[destination.id] = verdict
+                }
+            }
+            .font(.caption)
         }
     }
 
