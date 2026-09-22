@@ -65,10 +65,37 @@ public struct CaptureRootActions {
         TheaterAuthorityCollection
     ) -> Void
     public let cancelAnnotation: () -> Void
-    /// Operator capture-task profile selection (#217/#259): sets the
-    /// capture intent plus optional skipped-requirement outcome.
+    /// Operator capture-task profile selection (#217/#259/#352):
+    /// on the setup screen it sets pending mission intent bound at
+    /// Begin; once a working set exists it is an explicit recorded
+    /// mission change. Carries optional skipped-requirement outcome.
     public let selectTaskProfile:
         (CaptureTaskProfile?, Set<String>) -> Void
+    /// #352: imports an HTDT task plan file from the setup screen,
+    /// before acquisition starts.
+    public let importTaskPlan: (URL) -> Void
+    /// #352: removes the pending imported plan during setup.
+    public let clearTaskPlan: () -> Void
+    /// #325: one-tap revisit flag while scanning; returns the new
+    /// flag id when persisted (the view may then offer the optional
+    /// category/note sheet), nil when the flag could not be recorded.
+    public let flagForReview: () -> String?
+    /// #325: saves the optional flag category/note sheet.
+    public let updateRevisitFlagDetails:
+        (String, ScanRevisitFlagCategory?, String?) -> Void
+    /// #325: Review-side flag resolution — links authority,
+    /// acknowledges, or marks unavailable.
+    public let resolveRevisitFlag:
+        (
+            String,
+            ScanRevisitFlagResolution.Outcome,
+            String?
+        ) -> Void
+    /// #325: reopens a resolved/skipped/unavailable flag.
+    public let reopenRevisitFlag: (String) -> Void
+    /// #352: marks a bound task-plan checklist item in Review.
+    public let markTaskPlanItem:
+        (String, TaskPlanItemOutcome) -> Void
     /// Validates and adopts an imported HTDT equipment-catalog snapshot
     /// (#211). The host owns the catalog context for the app session and
     /// mirrors it to a durable app-support cache; the default simply
@@ -190,6 +217,21 @@ public struct CaptureRootActions {
         selectTaskProfile: @escaping
             (CaptureTaskProfile?, Set<String>) -> Void
                 = { _, _ in },
+        importTaskPlan: @escaping (URL) -> Void = { _ in },
+        clearTaskPlan: @escaping () -> Void = {},
+        flagForReview: @escaping () -> String? = { nil },
+        updateRevisitFlagDetails: @escaping
+            (String, ScanRevisitFlagCategory?, String?) -> Void
+                = { _, _, _ in },
+        resolveRevisitFlag: @escaping
+            (
+                String,
+                ScanRevisitFlagResolution.Outcome,
+                String?
+            ) -> Void = { _, _, _ in },
+        reopenRevisitFlag: @escaping (String) -> Void = { _ in },
+        markTaskPlanItem: @escaping
+            (String, TaskPlanItemOutcome) -> Void = { _, _ in },
         importEquipmentCatalog: @escaping
             (Data) throws -> HTDTEquipmentCatalogSnapshot = { data in
                 try JSONDecoder().decode(
@@ -274,6 +316,13 @@ public struct CaptureRootActions {
             commitAnnotationAuthority
         self.cancelAnnotation = cancelAnnotation
         self.selectTaskProfile = selectTaskProfile
+        self.importTaskPlan = importTaskPlan
+        self.clearTaskPlan = clearTaskPlan
+        self.flagForReview = flagForReview
+        self.updateRevisitFlagDetails = updateRevisitFlagDetails
+        self.resolveRevisitFlag = resolveRevisitFlag
+        self.reopenRevisitFlag = reopenRevisitFlag
+        self.markTaskPlanItem = markTaskPlanItem
         self.importEquipmentCatalog = importEquipmentCatalog
         self.finalizeCapture = finalizeCapture
         self.prepareExport = prepareExport
@@ -506,6 +555,10 @@ public struct CaptureRootView: View {
     public let loopClosureCheckActive: Bool
     public let loopClosureAssessment: LoopClosureAssessment?
     public let guidanceCuesEnabled: Bool
+    /// Revisit flags dropped during the live scan (#325).
+    public let revisitFlags: [ScanRevisitFlag]
+    /// True when the bounded flag store is full.
+    public let revisitFlagsFull: Bool
     public let persistedInventory:
         PersistedCaptureInventoryResult
     /// Live review-workspace model (#213); rebuilt by the host on
@@ -593,6 +646,8 @@ public struct CaptureRootView: View {
         loopClosureCheckActive: Bool = false,
         loopClosureAssessment: LoopClosureAssessment? = nil,
         guidanceCuesEnabled: Bool = true,
+        revisitFlags: [ScanRevisitFlag] = [],
+        revisitFlagsFull: Bool = false,
         persistedInventory:
             PersistedCaptureInventoryResult
                 = PersistedCaptureInventoryResult(),
@@ -658,6 +713,8 @@ public struct CaptureRootView: View {
         self.loopClosureCheckActive = loopClosureCheckActive
         self.loopClosureAssessment = loopClosureAssessment
         self.guidanceCuesEnabled = guidanceCuesEnabled
+        self.revisitFlags = revisitFlags
+        self.revisitFlagsFull = revisitFlagsFull
         self.persistedInventory = persistedInventory
         self.reviewWorkspace = reviewWorkspace
         self.persistedWorkspace = persistedWorkspace
@@ -696,6 +753,13 @@ public struct CaptureRootView: View {
                     loopClosureCheckActive: loopClosureCheckActive,
                     loopClosureAssessment: loopClosureAssessment,
                     guidanceCuesEnabled: guidanceCuesEnabled,
+                    revisitFlagCount: revisitFlags.filter {
+                        $0.status == .unresolved
+                    }.count,
+                    revisitFlagsFull: revisitFlagsFull,
+                    flagForReview: actions.flagForReview,
+                    updateRevisitFlagDetails:
+                        actions.updateRevisitFlagDetails,
                     beginTargetScan: actions.beginTargetScan,
                     retakeTargetScan: actions.retakeTargetScan,
                     acceptTargetScan: actions.acceptTargetScan,
@@ -722,7 +786,12 @@ public struct CaptureRootView: View {
                 CaptureSetupView(
                     presentation: captureSetup,
                     beginScanning: actions.beginScanning,
-                    cancel: actions.cancelCaptureSetup
+                    cancel: actions.cancelCaptureSetup,
+                    selectTaskProfile: { profile in
+                        actions.selectTaskProfile(profile, [])
+                    },
+                    importTaskPlan: actions.importTaskPlan,
+                    clearTaskPlan: actions.clearTaskPlan
                 )
             } else if state == .annotating,
                let coordinateSpaceID =
@@ -1012,7 +1081,13 @@ public struct CaptureRootView: View {
                             captureRoomFrameOrigin: actions
                                 .captureRoomFrameOrigin,
                             confirmRoomReferenceFrame: actions
-                                .confirmRoomReferenceFrame
+                                .confirmRoomReferenceFrame,
+                            resolveRevisitFlag: actions
+                                .resolveRevisitFlag,
+                            reopenRevisitFlag: actions
+                                .reopenRevisitFlag,
+                            markTaskPlanItem: actions
+                                .markTaskPlanItem
                         )
                     } else {
                         ProgressView("Loading workspace…")

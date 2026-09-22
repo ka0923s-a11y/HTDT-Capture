@@ -331,6 +331,33 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
     public let actionableWeakRegionCount: Int
     public let saturatedWeakRegionCount: Int
     public let guidanceComplete: Bool
+    // #329 additive 3D-coverage fields — all optional so payloads
+    // written before the vertical layer existed remain
+    // backward-readable (their absence means azimuth-only 2D
+    // semantics).
+    /// Which viewpoint-diversity model this summary reports:
+    /// `azimuth_2d` (legacy) or `azimuth_elevation_3d`.
+    public let viewpointDiversitySemantics: String?
+    /// Start-relative voxel height in meters used by the 3D layer.
+    public let verticalCellSizeMeters: Double?
+    public let verticalVoxelCount: Int?
+    public let verticalObservedVoxelCount: Int?
+    public let verticalWeakVoxelCount: Int?
+    /// `"x,z,yBand"` keys of weak voxels, so Review can point at the
+    /// vertical gaps the 2D grid hid.
+    public let verticalWeakVoxelKeys: [String]?
+    /// Per-display-band voxel tallies keyed by band name
+    /// (`lowest`..`highest`), each `{voxel_count, observed_count,
+    /// weak_count}`.
+    public let verticalBandSummaries:
+        [String: CaptureVerticalBandSummary]?
+
+    /// `verticalBandSummaries` keys in floor→ceiling display order.
+    public var sortedVerticalBandKeys: [String] {
+        SpatialVerticalDisplayBand.allCases
+            .map(\.rawValue)
+            .filter { verticalBandSummaries?[$0] != nil }
+    }
 
 
     public init(
@@ -360,7 +387,15 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
         guidanceMaximumAttempts: Int,
         actionableWeakRegionCount: Int,
         saturatedWeakRegionCount: Int,
-        guidanceComplete: Bool
+        guidanceComplete: Bool,
+        viewpointDiversitySemantics: String? = nil,
+        verticalCellSizeMeters: Double? = nil,
+        verticalVoxelCount: Int? = nil,
+        verticalObservedVoxelCount: Int? = nil,
+        verticalWeakVoxelCount: Int? = nil,
+        verticalWeakVoxelKeys: [String]? = nil,
+        verticalBandSummaries:
+            [String: CaptureVerticalBandSummary]? = nil
     ) {
         self.algorithm = algorithm
         self.algorithmVersion = algorithmVersion
@@ -393,6 +428,13 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
         self.saturatedWeakRegionCount =
             saturatedWeakRegionCount
         self.guidanceComplete = guidanceComplete
+        self.viewpointDiversitySemantics = viewpointDiversitySemantics
+        self.verticalCellSizeMeters = verticalCellSizeMeters
+        self.verticalVoxelCount = verticalVoxelCount
+        self.verticalObservedVoxelCount = verticalObservedVoxelCount
+        self.verticalWeakVoxelCount = verticalWeakVoxelCount
+        self.verticalWeakVoxelKeys = verticalWeakVoxelKeys
+        self.verticalBandSummaries = verticalBandSummaries
     }
 
 
@@ -424,6 +466,38 @@ public struct CaptureEndCoverageSummary: Sendable, Equatable, Codable {
         case actionableWeakRegionCount = "actionable_weak_region_count"
         case saturatedWeakRegionCount = "saturated_weak_region_count"
         case guidanceComplete = "guidance_complete"
+        case viewpointDiversitySemantics =
+            "viewpoint_diversity_semantics"
+        case verticalCellSizeMeters = "vertical_cell_size_meters"
+        case verticalVoxelCount = "vertical_voxel_count"
+        case verticalObservedVoxelCount =
+            "vertical_observed_voxel_count"
+        case verticalWeakVoxelCount = "vertical_weak_voxel_count"
+        case verticalWeakVoxelKeys = "vertical_weak_voxel_keys"
+        case verticalBandSummaries = "vertical_band_summaries"
+    }
+}
+
+/// Persisted tallies for one vertical display band (#329).
+public struct CaptureVerticalBandSummary: Sendable, Equatable, Codable {
+    public let voxelCount: Int
+    public let observedCount: Int
+    public let weakCount: Int
+
+    public init(
+        voxelCount: Int,
+        observedCount: Int,
+        weakCount: Int
+    ) {
+        self.voxelCount = voxelCount
+        self.observedCount = observedCount
+        self.weakCount = weakCount
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case voxelCount = "voxel_count"
+        case observedCount = "observed_count"
+        case weakCount = "weak_count"
     }
 }
 

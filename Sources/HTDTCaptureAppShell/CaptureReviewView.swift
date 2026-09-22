@@ -524,7 +524,9 @@ public struct CaptureReviewView: View {
         )
         LabeledContent(
             "Movement mode",
-            value: summary.movementCapability
+            value: movementCapabilityLabel(
+                summary.movementCapability
+            )
         )
         LabeledContent(
             "Guidance",
@@ -536,6 +538,43 @@ public struct CaptureReviewView: View {
                     summary.guidanceMaximumAttempts
                 )
         )
+        // #329: the 3D vertical layer, when persisted, is reported
+        // separately so a floor-level "observed" cannot hide an
+        // unobserved ceiling at the same X/Z cell.
+        if let voxelCount = summary.verticalVoxelCount,
+           voxelCount > 0
+        {
+            LabeledContent(
+                "Vertical cells",
+                value: String(
+                    format: String(
+                        localized: "%d total · %d observed · %d weak"
+                    ),
+                    voxelCount,
+                    summary.verticalObservedVoxelCount ?? 0,
+                    summary.verticalWeakVoxelCount ?? 0
+                )
+            )
+            ForEach(
+                summary.sortedVerticalBandKeys,
+                id: \.self
+            ) { bandKey in
+                if let band = summary.verticalBandSummaries?[bandKey] {
+                    LabeledContent(
+                        verticalBandReviewLabel(bandKey),
+                        value: String(
+                            format: String(
+                                localized:
+                                    "%d cells · %d observed · %d weak"
+                            ),
+                            band.voxelCount,
+                            band.observedCount,
+                            band.weakCount
+                        )
+                    )
+                }
+            }
+        }
         Text(
             String(
                 localized: "Coverage is advisory; unobserved areas do not prove missing geometry."
@@ -543,6 +582,44 @@ public struct CaptureReviewView: View {
         )
         .font(.caption)
         .foregroundStyle(.secondary)
+    }
+
+    private func movementCapabilityLabel(
+        _ raw: String
+    ) -> String {
+        switch ScanMovementCapability(rawValue: raw) {
+        case .unrestricted:
+            return String(localized: "Free movement")
+        case .stationaryOnly:
+            return String(
+                localized: "Stayed in place (operator chose)"
+            )
+        case .safetyConstrained:
+            return String(
+                localized: "Movement marked unsafe by operator"
+            )
+        case nil:
+            return raw
+        }
+    }
+
+    private func verticalBandReviewLabel(
+        _ bandKey: String
+    ) -> String {
+        switch bandKey {
+        case "lowest":
+            return String(localized: "Floor band")
+        case "lower":
+            return String(localized: "Lower band")
+        case "middle":
+            return String(localized: "Middle band")
+        case "upper":
+            return String(localized: "Upper band")
+        case "highest":
+            return String(localized: "Ceiling band")
+        default:
+            return bandKey
+        }
     }
 
     @ViewBuilder
