@@ -371,6 +371,12 @@ public enum SurveyPlanRenderer {
         case .roomFrameOrigin: "#dc2626"
         case .roomFrameFront: "#9333ea"
         case .revisitFlag: "#f59e0b"
+        case .speaker, .display: "#4f46e5"
+        case .seat: "#92400e"
+        case .screen: "#0891b2"
+        case .projector: "#10b981"
+        case .measurement, .referencePoint: "#db2777"
+        case .genericEntity: "#9ca3af"
         }
     }
 
