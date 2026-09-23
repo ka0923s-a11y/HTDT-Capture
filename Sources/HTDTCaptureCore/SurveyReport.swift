@@ -380,6 +380,7 @@ public enum SurveyPlanRenderer {
         case .projector: "#10b981"
         case .measurement, .referencePoint: "#db2777"
         case .genericEntity: "#9ca3af"
+        case .plannedTarget: "#6b7280"
         }
     }
 

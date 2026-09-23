@@ -90,7 +90,34 @@ public struct ReviewPlanSurface: View {
                             lineWidth: 1.5
                         )
                     }
-                    // Layers 2–4: semantic objects, review items and
+                    // Layer 2: deviation connectors (issue #293) —
+                    // planned ghost → observed actual links drawn under
+                    // the markers, dashed so they read as derived
+                    // emphasis rather than geometry.
+                    for connector in model.connectors {
+                        var link = Path()
+                        link.move(
+                            to: transform.point(
+                                connector.startX, connector.startZ
+                            )
+                        )
+                        link.addLine(
+                            to: transform.point(
+                                connector.endX, connector.endZ
+                            )
+                        )
+                        context.stroke(
+                            link,
+                            with: .color(
+                                connectorColor(connector.status)
+                            ),
+                            style: StrokeStyle(
+                                lineWidth: 1.5,
+                                dash: [5, 4]
+                            )
+                        )
+                    }
+                    // Layers 3–5: semantic objects, review items and
                     // temporary state — glyph shape carries the
                     // category, status only adds a badge (#367).
                     for marker in markers {
@@ -747,6 +774,25 @@ public struct ReviewPlanSurface: View {
             pennant.addLine(to: CGPoint(x: p.x - 4, y: p.y - 1))
             pennant.closeSubpath()
             context.fill(pennant, with: .color(color))
+        case .plannedTarget:
+            // Ghost ring (issue #293): dashed outline reads as a
+            // planned/reference target — design authority, never an
+            // observed position. Direction ticks (planned front) are
+            // drawn by the direction pass above.
+            context.stroke(
+                Path(ellipseIn: CGRect(
+                    x: p.x - r - 1, y: p.y - r - 1,
+                    width: (r + 1) * 2, height: (r + 1) * 2
+                )),
+                with: .color(color),
+                style: StrokeStyle(lineWidth: 1.8, dash: [4, 3])
+            )
+            context.fill(
+                Path(ellipseIn: CGRect(
+                    x: p.x - 1.5, y: p.y - 1.5, width: 3, height: 3
+                )),
+                with: .color(color)
+            )
         case .object, .genericEntity:
             context.stroke(
                 Path(CGRect(
@@ -755,6 +801,20 @@ public struct ReviewPlanSurface: View {
                 )),
                 with: .color(color), lineWidth: 1.6
             )
+        }
+    }
+
+    /// Connector emphasis (issue #293): the deviation status picks
+    /// the stroke color; the dashed style carries "derived link",
+    /// never geometry.
+    private func connectorColor(
+        _ status: PlanMarkerReviewStatus
+    ) -> Color {
+        switch status {
+        case .confirmed: return .green
+        case .needsAttention: return .orange
+        case .intentionallySkipped: return .secondary
+        case .pending, .nominal: return .secondary
         }
     }
 
@@ -779,6 +839,7 @@ public struct ReviewPlanSurface: View {
         case .measurement, .referencePoint: return .pink
         case .genericEntity: return .secondary
         case .revisitFlag: return .yellow
+        case .plannedTarget: return .secondary
         }
     }
 }
@@ -883,6 +944,20 @@ private struct LegendGlyph: View {
                 path.addLine(to: CGPoint(x: p.x - 3, y: p.y - 1))
                 path.closeSubpath()
                 context.fill(path, with: .color(color))
+            case .plannedTarget:
+                context.stroke(
+                    Path(ellipseIn: CGRect(
+                        x: p.x - 7, y: p.y - 7, width: 14, height: 14
+                    )),
+                    with: .color(color),
+                    style: StrokeStyle(lineWidth: 1.8, dash: [4, 3])
+                )
+                context.fill(
+                    Path(ellipseIn: CGRect(
+                        x: p.x - 1.5, y: p.y - 1.5, width: 3, height: 3
+                    )),
+                    with: .color(color)
+                )
             case .object, .genericEntity:
                 context.stroke(
                     Path(CGRect(
@@ -905,6 +980,7 @@ public extension RoomPlanPreviewModel.PlanMarker.Kind {
             .measurement, .referencePoint, .annotation,
             .object, .genericEntity,
             .roomFrameOrigin, .roomFrameFront, .revisitFlag,
+            .plannedTarget,
         ]
     }
 }
@@ -919,5 +995,6 @@ fileprivate extension ReviewPlanSurface {
         .screen: .cyan, .projector: .mint,
         .measurement: .pink, .referencePoint: .pink,
         .genericEntity: .secondary,
+        .revisitFlag: .yellow, .plannedTarget: .secondary,
     ]
 }

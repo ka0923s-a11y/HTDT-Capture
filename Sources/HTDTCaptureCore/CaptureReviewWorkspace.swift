@@ -127,6 +127,11 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
             case genericEntity
             /// An unresolved operator revisit flag (#325).
             case revisitFlag
+            /// A planned as-built target projected through the
+            /// installed alignment authority (issue #293): rendered as
+            /// a ghost/reference marker — design authority, never
+            /// observed truth.
+            case plannedTarget
         }
 
         public let kind: Kind
@@ -176,6 +181,32 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
         }
     }
 
+    /// A plan-space link between two markers — e.g. an as-built
+    /// planned ghost and its observed actual (issue #293). Drawn as a
+    /// connector under the markers; status colors the deviation
+    /// emphasis, never the geometry meaning.
+    public struct PlanConnector: Sendable, Equatable {
+        public let startX: Double
+        public let startZ: Double
+        public let endX: Double
+        public let endZ: Double
+        public let status: PlanMarkerReviewStatus
+
+        public init(
+            startX: Double,
+            startZ: Double,
+            endX: Double,
+            endZ: Double,
+            status: PlanMarkerReviewStatus = .nominal
+        ) {
+            self.startX = startX
+            self.startZ = startZ
+            self.endX = endX
+            self.endZ = endZ
+            self.status = status
+        }
+    }
+
     /// Axis-aligned bounds over all content in meters, XZ plane.
     public let minX: Double
     public let maxX: Double
@@ -183,6 +214,7 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
     public let maxZ: Double
     public let walls: [PlanWall]
     public let markers: [PlanMarker]
+    public let connectors: [PlanConnector]
 
     public init(
         minX: Double,
@@ -190,7 +222,8 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
         minZ: Double,
         maxZ: Double,
         walls: [PlanWall],
-        markers: [PlanMarker]
+        markers: [PlanMarker],
+        connectors: [PlanConnector] = []
     ) {
         self.minX = minX
         self.maxX = maxX
@@ -198,10 +231,11 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
         self.maxZ = maxZ
         self.walls = walls
         self.markers = markers
+        self.connectors = connectors
     }
 
     public var isEmpty: Bool {
-        walls.isEmpty && markers.isEmpty
+        walls.isEmpty && markers.isEmpty && connectors.isEmpty
     }
 }
 

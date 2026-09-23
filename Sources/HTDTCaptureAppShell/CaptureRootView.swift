@@ -1117,6 +1117,14 @@ public struct CaptureRootView: View {
     public let asBuiltItems: [AsBuiltVerificationItem]
     public let asBuiltGhostOverlayEnabled: Bool
     public let asBuiltAlignmentInstalled: Bool
+    /// The installed plan→capture alignment authority (#293), when
+    /// established — surfaced in the mission as-built destination.
+    public let asBuiltAlignment: PlanAlignmentAuthority?
+    /// Ghost-overlay plan model for the as-built destination (#293);
+    /// nil until an explicit alignment authority is installed.
+    public let asBuiltOverlayModel: RoomPlanPreviewModel?
+    /// Versioned tolerance policy supplied by the plan (#293).
+    public let asBuiltTolerancePolicyRef: String?
     public let asBuiltActualCandidates: [CaptureAnnotationEntity]
     public let roomFrameAvailable: Bool
     public let repairTaskRows: [HTDTRepairTaskRow]
@@ -1303,6 +1311,9 @@ public struct CaptureRootView: View {
         asBuiltItems: [AsBuiltVerificationItem] = [],
         asBuiltGhostOverlayEnabled: Bool = false,
         asBuiltAlignmentInstalled: Bool = false,
+        asBuiltAlignment: PlanAlignmentAuthority? = nil,
+        asBuiltOverlayModel: RoomPlanPreviewModel? = nil,
+        asBuiltTolerancePolicyRef: String? = nil,
         asBuiltActualCandidates: [CaptureAnnotationEntity] = [],
         roomFrameAvailable: Bool = false,
         repairTaskRows: [HTDTRepairTaskRow] = [],
@@ -1419,6 +1430,9 @@ public struct CaptureRootView: View {
         self.asBuiltGhostOverlayEnabled =
             asBuiltGhostOverlayEnabled
         self.asBuiltAlignmentInstalled = asBuiltAlignmentInstalled
+        self.asBuiltAlignment = asBuiltAlignment
+        self.asBuiltOverlayModel = asBuiltOverlayModel
+        self.asBuiltTolerancePolicyRef = asBuiltTolerancePolicyRef
         self.asBuiltActualCandidates = asBuiltActualCandidates
         self.roomFrameAvailable = roomFrameAvailable
         self.repairTaskRows = repairTaskRows
@@ -2416,6 +2430,10 @@ public struct CaptureRootView: View {
                             asBuiltGhostOverlayEnabled,
                         asBuiltAlignmentInstalled:
                             asBuiltAlignmentInstalled,
+                        asBuiltAlignment: asBuiltAlignment,
+                        asBuiltOverlayModel: asBuiltOverlayModel,
+                        asBuiltTolerancePolicyRef:
+                            asBuiltTolerancePolicyRef,
                         asBuiltActualCandidates:
                             asBuiltActualCandidates,
                         roomFrameAvailable: roomFrameAvailable,

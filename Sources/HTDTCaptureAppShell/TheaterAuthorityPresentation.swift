@@ -859,6 +859,23 @@ public enum TheaterAuthorityPresentation {
             return String(localized: "Entity")
         case .revisitFlag:
             return String(localized: "Revisit flag")
+        case .plannedTarget:
+            return String(localized: "Planned target")
+        }
+    }
+
+    /// Human name for the as-built plan→capture alignment mechanism
+    /// (issue #293) — the authority the ghost overlay rests on.
+    public static func planAlignmentMechanismName(
+        _ mechanism: PlanAlignmentMechanism
+    ) -> String {
+        switch mechanism {
+        case .roomReferenceFrame:
+            return String(localized: "Room reference frame")
+        case .referenceTarget:
+            return String(localized: "Reference target")
+        case .manualSurvey:
+            return String(localized: "Manual survey")
         }
     }
 
