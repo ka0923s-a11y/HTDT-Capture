@@ -1385,6 +1385,129 @@ final class AdvancedWorkflowTests: XCTestCase {
         )
     }
 
+    // MARK: - #293 ghost overlay plan model
+
+    func testAsBuiltOverlayRequiresAlignment() throws {
+        let session = try AsBuiltVerificationSession(
+            planID: "plan-9",
+            planVersion: "1",
+            planSHA256: EvidenceIntegrity.sha256(
+                of: Data("plan".utf8)
+            ),
+            coordinateSpaceID: spaceID,
+            specs: [try makeSpec()]
+        )
+        // No explicit authority -> no overlay may be produced; the
+        // surface degrades to the non-spatial checklist.
+        XCTAssertNil(
+            AsBuiltPlanOverlay.model(
+                items: try session.items(),
+                alignment: session.alignment
+            )
+        )
+    }
+
+    func testAsBuiltOverlayProjectsGhostsAndActuals() throws {
+        var session = try AsBuiltVerificationSession(
+            planID: "plan-9",
+            planVersion: "1",
+            planSHA256: EvidenceIntegrity.sha256(
+                of: Data("plan".utf8)
+            ),
+            tolerancePolicyRef: "policy-v1",
+            coordinateSpaceID: spaceID,
+            specs: [try makeSpec()]
+        )
+        // sceneFromCapture shifts world -> scene by +0.5 on X, so the
+        // planned scene point (1,1,0) lands at world (0.5,1,0).
+        session.installAlignment(
+            try makeAlignment(dx: 0.5, residualMeters: 0.005)
+        )
+        try session.recordActual(
+            AsBuiltObservation(
+                plannedEntityID: "speaker-l",
+                positionWorld: try SpatialVector3F(0.53, 1, 0.01),
+                coordinateSpaceID: spaceID,
+                uncertainty: try SpatialUncertaintyAuthority(
+                    isotropicMeters: 0.005,
+                    basis: .instrumentStated
+                )
+            )
+        )
+        let overlay = try XCTUnwrap(
+            AsBuiltPlanOverlay.model(
+                items: try session.items(),
+                alignment: session.alignment
+            )
+        )
+        let planned = overlay.markers.first {
+            $0.kind == .plannedTarget
+        }
+        let ghost = try XCTUnwrap(planned)
+        XCTAssertEqual(ghost.x, 0.5, accuracy: 1e-4)
+        XCTAssertEqual(ghost.z, 0, accuracy: 1e-4)
+        // Verified state carries the confirmed badge.
+        XCTAssertEqual(ghost.reviewStatus, .confirmed)
+        XCTAssertTrue(ghost.selectable)
+        XCTAssertEqual(
+            ghost.identifier, "asbuilt:planned:speaker-l"
+        )
+
+        let actual = overlay.markers.first {
+            $0.identifier == "asbuilt:actual:speaker-l"
+        }
+        let actualMarker = try XCTUnwrap(actual)
+        // The actual glyph follows the entity-type grammar — a
+        // speaker stays a speaker triangle.
+        XCTAssertEqual(actualMarker.kind, .speaker)
+        XCTAssertEqual(actualMarker.x, 0.53, accuracy: 1e-4)
+        XCTAssertEqual(actualMarker.z, 0.01, accuracy: 1e-4)
+        XCTAssertEqual(actualMarker.reviewStatus, .nominal)
+
+        // Exactly one planned -> actual deviation connector.
+        let connector = try XCTUnwrap(overlay.connectors.first)
+        XCTAssertEqual(overlay.connectors.count, 1)
+        XCTAssertEqual(connector.startX, ghost.x, accuracy: 1e-6)
+        XCTAssertEqual(connector.startZ, ghost.z, accuracy: 1e-6)
+        XCTAssertEqual(connector.endX, actualMarker.x, accuracy: 1e-6)
+        XCTAssertEqual(connector.endZ, actualMarker.z, accuracy: 1e-6)
+        XCTAssertEqual(connector.status, .confirmed)
+
+        // Bounds cover both endpoints with padding.
+        XCTAssertLessThanOrEqual(overlay.minX, 0.5)
+        XCTAssertGreaterThanOrEqual(overlay.maxX, 0.53)
+        XCTAssertTrue(overlay.walls.isEmpty)
+    }
+
+    func testAsBuiltOverlayPendingItemHasNoConnector() throws {
+        var session = try AsBuiltVerificationSession(
+            planID: "plan-9",
+            planVersion: "1",
+            planSHA256: EvidenceIntegrity.sha256(
+                of: Data("plan".utf8)
+            ),
+            coordinateSpaceID: spaceID,
+            specs: [try makeSpec()]
+        )
+        session.installAlignment(try makeAlignment())
+        let overlay = try XCTUnwrap(
+            AsBuiltPlanOverlay.model(
+                items: try session.items(),
+                alignment: session.alignment
+            )
+        )
+        // A pending item renders its ghost marker only — no actual,
+        // no connector.
+        XCTAssertEqual(overlay.markers.count, 1)
+        XCTAssertEqual(
+            overlay.markers.first?.kind, .plannedTarget
+        )
+        XCTAssertEqual(
+            overlay.markers.first?.reviewStatus, .pending
+        )
+        XCTAssertTrue(overlay.connectors.isEmpty)
+    }
+
     // MARK: - manifest integration
 
     func testSupplementalPathsCarryReservedBindings() throws {

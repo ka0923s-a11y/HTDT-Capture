@@ -1343,6 +1343,17 @@
 "Actual" = "実測";
 "Choose entity" = "エンティティを選択";
 "Import an as-built plan (.json) to compare planned positions against captured observations." = "アズビルトプラン（.json）を読み込み、計画位置と取得済み観測値を比較します。";
+"Planned positions" = "計画位置";
+"Dashed rings are planned targets (design reference). Solid glyphs are captured actuals; dashed links show the measured deviation. Tapping a marker selects its item." = "破線リングは計画ターゲット（設計参照）です。実線グリフは取得済み実測値、破線リンクは測定偏差を示します。マーカーをタップすると対象項目が選択されます。";
+"Residual" = "残差";
+"Not declared" = "未宣言";
+"The ghost overlay and spatial verdicts rest on this explicit authority. Without it the workflow degrades to the non-spatial checklist." = "ゴーストオーバーレイと空間判定はこの明示的権威に基づきます。権威がない場合、ワークフローは非空間チェックリストに縮退します。";
+"Heading Δ %.1f°" = "向き Δ %.1f°";
+"Tolerance %.1f cm (no policy — not evaluated)" = "許容差 %.1f cm（ポリシーなし — 未評価）";
+"Tolerance %.1f cm" = "許容差 %.1f cm";
+"Uncertainty band not declared — verdicts stay indeterminate under a tolerance policy." = "不確かさ帯は未宣言です — 許容差ポリシー下では判定は不定のままです。";
+"Uncertainty band ±%.1f cm (observation %.1f + residual %.1f)" = "不確かさ帯 ±%.1f cm（観測 %.1f + 残差 %.1f）";
+"Δ %.1f / %.1f / %.1f cm" = "Δ %.1f / %.1f / %.1f cm";
 "Label, role, and measure the captured room in the annotation workspace. Committed records stay bound to the live coordinate authority." = "注釈ワークスペースで取得した部屋のラベル付け・役割設定・計測を行います。確定済みレコードはライブ座標権威に束縛されたままです。";
 "Open a measurement form inside the annotation workspace and use the Instrument reading section to import a reading file — the staged value is confirmed explicitly before it commits." = "注釈ワークスペースの計測フォームで「計器読み値」セクションから読み値ファイルを取り込みます。取り込まれた値は確定前に明示的に確認されます。";
 "Open annotation workspace" = "注釈ワークスペースを開く";

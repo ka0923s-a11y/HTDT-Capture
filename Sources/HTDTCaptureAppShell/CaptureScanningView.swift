@@ -220,6 +220,12 @@ public struct CaptureScanningView: View {
 
                 preview
                     .ignoresSafeArea()
+                    // #73: the framework miniature 3D model renders at
+                    // the bottom of the preview — reserve unobstructed
+                    // space for it above the bottom controls (and the
+                    // expanded bottom HUD when it overlays compact
+                    // widths) instead of covering it.
+                    .padding(.bottom, previewModelReserve(in: geometry))
 
                 HStack(spacing: 0) {
                     VStack(spacing: 8) {
@@ -463,6 +469,22 @@ public struct CaptureScanningView: View {
                 }
             }
         }
+    }
+
+    /// #73: vertical space reserved below the preview so the framework
+    /// miniature 3D model (rendered at the preview's bottom edge) is
+    /// never covered by the bottom control row or the expanded HUD
+    /// when it overlays compact widths. On regular width the HUD is a
+    /// trailing inspector, so only the control strip is reserved.
+    private func previewModelReserve(
+        in geometry: GeometryProxy
+    ) -> CGFloat {
+        // Bottom control row (~54) + its 8pt bottom padding.
+        let controls: CGFloat = 62
+        guard isHUDExpanded, !expandedHUDIsInspector else {
+            return controls
+        }
+        return controls + geometry.size.height * 0.36 + 8
     }
 
     private var compactStatusHUD: some View {

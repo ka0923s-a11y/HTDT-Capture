@@ -20,6 +20,17 @@ public struct MissionWorkflowsView: View {
     public let asBuiltItems: [AsBuiltVerificationItem]
     public let asBuiltGhostOverlayEnabled: Bool
     public let asBuiltAlignmentInstalled: Bool
+    /// The installed plan→capture alignment authority, when one has
+    /// been established (issue #293) — mechanism/residual surface in
+    /// the alignment section.
+    public let asBuiltAlignment: PlanAlignmentAuthority?
+    /// Ghost-overlay plan model (issue #293): planned targets
+    /// projected through the alignment authority plus observed
+    /// actuals and deviation connectors; nil without alignment.
+    public let asBuiltOverlayModel: RoomPlanPreviewModel?
+    /// Versioned tolerance policy under which deviations are
+    /// evaluated, when the plan supplies one.
+    public let asBuiltTolerancePolicyRef: String?
     /// Committed annotation entities offered as "actual" observations
     /// for as-built items.
     public let asBuiltActualCandidates: [CaptureAnnotationEntity]
@@ -52,6 +63,12 @@ public struct MissionWorkflowsView: View {
     @State private var segmentKind: CaptureRegionKind = .room
     @State private var actualSelections:
         [String: AnnotationEntityID] = [:]
+    // Ghost-overlay plan surface state (issue #293): selection only —
+    // it never persists into any authority document.
+    @State private var overlaySelection:
+        RoomPlanPreviewModel.PlanMarker?
+    @State private var overlayFocusToken = 0
+    @State private var overlayLabelMode: ReviewPlanLabelMode = .important
     @Environment(\.dismiss) private var dismiss
 
     public init(
@@ -65,6 +82,9 @@ public struct MissionWorkflowsView: View {
         asBuiltItems: [AsBuiltVerificationItem] = [],
         asBuiltGhostOverlayEnabled: Bool = false,
         asBuiltAlignmentInstalled: Bool = false,
+        asBuiltAlignment: PlanAlignmentAuthority? = nil,
+        asBuiltOverlayModel: RoomPlanPreviewModel? = nil,
+        asBuiltTolerancePolicyRef: String? = nil,
         asBuiltActualCandidates: [CaptureAnnotationEntity] = [],
         roomFrameAvailable: Bool = false,
         repairRows: [HTDTRepairTaskRow] = [],
@@ -99,6 +119,9 @@ public struct MissionWorkflowsView: View {
         self.asBuiltItems = asBuiltItems
         self.asBuiltGhostOverlayEnabled = asBuiltGhostOverlayEnabled
         self.asBuiltAlignmentInstalled = asBuiltAlignmentInstalled
+        self.asBuiltAlignment = asBuiltAlignment
+        self.asBuiltOverlayModel = asBuiltOverlayModel
+        self.asBuiltTolerancePolicyRef = asBuiltTolerancePolicyRef
         self.asBuiltActualCandidates = asBuiltActualCandidates
         self.roomFrameAvailable = roomFrameAvailable
         self.repairRows = repairRows
@@ -356,6 +379,63 @@ public struct MissionWorkflowsView: View {
                         )
                     }
                 }
+                // #293: the ghost overlay exists only under an explicit
+                // alignment authority — planned targets render as
+                // reference ghosts, never as observed geometry.
+                if let overlay = asBuiltOverlayModel {
+                    Section {
+                        ReviewPlanSurface(
+                            model: overlay,
+                            markers: overlay.markers,
+                            selection: $overlaySelection,
+                            focusToken: $overlayFocusToken,
+                            labelMode: $overlayLabelMode
+                        )
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 8, leading: 0,
+                                bottom: 8, trailing: 0
+                            )
+                        )
+                    } header: {
+                        Text("Planned positions")
+                    } footer: {
+                        Text(
+                            "Dashed rings are planned targets (design reference). Solid glyphs are captured actuals; dashed links show the measured deviation. Tapping a marker selects its item."
+                        )
+                    }
+                }
+                if let alignment = asBuiltAlignment {
+                    Section {
+                        LabeledContent(
+                            String(localized: "Mechanism"),
+                            value: TheaterAuthorityPresentation
+                                .planAlignmentMechanismName(
+                                    alignment.mechanism
+                                )
+                        )
+                        LabeledContent(
+                            String(localized: "Residual"),
+                            value: alignment.residualMeters.map {
+                                String(
+                                    format: "%.1f cm",
+                                    $0 * 100
+                                )
+                            } ?? String(localized: "Not declared")
+                        )
+                        LabeledContent(
+                            String(localized: "Authority"),
+                            value: alignment.authorityRef
+                        )
+                        .font(.caption)
+                    } header: {
+                        Text("Alignment")
+                    } footer: {
+                        Text(
+                            "The ghost overlay and spatial verdicts rest on this explicit authority. Without it the workflow degrades to the non-spatial checklist."
+                        )
+                    }
+                }
                 if !asBuiltItems.isEmpty {
                     Section("Planned items") {
                         ForEach(
@@ -391,18 +471,70 @@ public struct MissionWorkflowsView: View {
                 .foregroundStyle(.secondary)
             }
             if let deviation = item.deviation {
+                // #293: delta vector + heading + the declared
+                // tolerance and uncertainty band — the quantities
+                // stay separate authorities, never folded into a
+                // single favorable number.
                 Text(
                     String(
                         format: "%.1f cm",
                         deviation.distanceMeters * 100
                     )
                 )
-                .font(.caption)
+                .font(.caption.weight(.medium))
                 .foregroundStyle(
                     item.state == .deviated
                         ? .orange
                         : .secondary
                 )
+                let delta = deviation.translationScene
+                Text(
+                    String(
+                        format: String(
+                            localized: "Δ %.1f / %.1f / %.1f cm"
+                        ),
+                        Double(delta.x) * 100,
+                        Double(delta.y) * 100,
+                        Double(delta.z) * 100
+                    )
+                )
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+                if let heading = deviation.headingDeltaRadians {
+                    Text(
+                        String(
+                            format: String(
+                                localized: "Heading Δ %.1f°"
+                            ),
+                            heading * 180 / .pi
+                        )
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+                if let tolerance = item.spec.toleranceMeters {
+                    Text(
+                        asBuiltTolerancePolicyRef == nil
+                            ? String(
+                                format: String(
+                                    localized:
+                                        "Tolerance %.1f cm (no policy — not evaluated)"
+                                ),
+                                tolerance * 100
+                            )
+                            : String(
+                                format: String(
+                                    localized: "Tolerance %.1f cm"
+                                ),
+                                tolerance * 100
+                            )
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+                Text(asBuiltUncertaintySummary(item))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             if item.state == .pending {
                 HStack {
@@ -460,6 +592,33 @@ public struct MissionWorkflowsView: View {
                 .font(.caption)
             }
         }
+    }
+
+    /// #293/#356: the additive uncertainty band behind the verdict —
+    /// observation uncertainty and alignment residual stay separate
+    /// fields; an undeclared input is reported as undeclared, never
+    /// silently zero.
+    private func asBuiltUncertaintySummary(
+        _ item: AsBuiltVerificationItem
+    ) -> String {
+        let observation = item.observation?
+            .positionalUncertaintyMeters
+        let residual = asBuiltAlignment?.residualMeters
+        guard let observation, let residual else {
+            return String(
+                localized:
+                    "Uncertainty band not declared — verdicts stay indeterminate under a tolerance policy."
+            )
+        }
+        return String(
+            format: String(
+                localized:
+                    "Uncertainty band ±%.1f cm (observation %.1f + residual %.1f)"
+            ),
+            (observation + residual) * 100,
+            observation * 100,
+            residual * 100
+        )
     }
 
     private func actualSelection(

@@ -162,6 +162,10 @@ private struct HTDTCaptureHostView: View {
                 coordinator.asBuiltGhostOverlayEnabled,
             asBuiltAlignmentInstalled:
                 coordinator.asBuiltAlignmentInstalled,
+            asBuiltAlignment: coordinator.asBuiltAlignment,
+            asBuiltOverlayModel: coordinator.asBuiltOverlayModel,
+            asBuiltTolerancePolicyRef:
+                coordinator.asBuiltTolerancePolicyRef,
             asBuiltActualCandidates:
                 coordinator.asBuiltActualCandidates,
             roomFrameAvailable: coordinator.roomFrameAvailable,
@@ -13409,6 +13413,27 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         asBuiltSession?.ghostOverlayEnabled ?? false
     }
 
+    /// The installed plan→capture alignment authority (#293).
+    var asBuiltAlignment: PlanAlignmentAuthority? {
+        asBuiltSession?.alignment
+    }
+
+    /// Versioned tolerance policy the plan supplies (#293), when any.
+    var asBuiltTolerancePolicyRef: String? {
+        asBuiltSession?.tolerancePolicyRef
+    }
+
+    /// #293: ghost-overlay plan model — planned targets projected
+    /// through the installed alignment authority with observed
+    /// actuals and deviation connectors. nil until an explicit
+    /// alignment authority is established.
+    var asBuiltOverlayModel: RoomPlanPreviewModel? {
+        AsBuiltPlanOverlay.model(
+            items: asBuiltItems,
+            alignment: asBuiltSession?.alignment
+        )
+    }
+
     func setConnectedSpaceIntent(_ intent: Bool) {
         connectedSpaceIntent = intent
     }
@@ -13891,13 +13916,42 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         do {
             let position = entity.worldFromAnnotation.translationWorld
+            // `orientationWorld` is contracted in the capture world
+            // frame — the committed entity stores local axes, so the
+            // annotation transform rotates them into world before the
+            // observation is written (issue #293).
+            let orientationWorld: OrientationAxes? = try entity
+                .orientation.map { axes in
+                    let front = entity.worldFromAnnotation.applying(
+                        toDirection: Float3(
+                            axes.frontAxisLocal.x,
+                            axes.frontAxisLocal.y,
+                            axes.frontAxisLocal.z
+                        )
+                    )
+                    let up = entity.worldFromAnnotation.applying(
+                        toDirection: Float3(
+                            axes.upAxisLocal.x,
+                            axes.upAxisLocal.y,
+                            axes.upAxisLocal.z
+                        )
+                    )
+                    return try OrientationAxes(
+                        frontAxisLocal: SpatialVector3F(
+                            front.x, front.y, front.z
+                        ),
+                        upAxisLocal: SpatialVector3F(
+                            up.x, up.y, up.z
+                        )
+                    )
+                }
             try asBuiltSession?.recordActual(
                 AsBuiltObservation(
                     plannedEntityID: plannedEntityID,
                     positionWorld: SpatialVector3F(
                         position.x, position.y, position.z
                     ),
-                    orientationWorld: entity.orientation,
+                    orientationWorld: orientationWorld,
                     coordinateSpaceID:
                         sessionController.context.coordinateSpaceID,
                     placement: entity.placement,
@@ -13906,7 +13960,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     ),
                     evidenceRefs: [
                         "annotation:" + entity.entityID.description
-                    ]
+                    ],
+                    uncertainty: entity.uncertainty
                 )
             )
             asBuiltItems = (try? asBuiltSession?.items()) ?? []
