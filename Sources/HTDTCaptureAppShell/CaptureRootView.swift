@@ -110,8 +110,16 @@ public struct CaptureRootActions {
     /// #325: reopens a resolved/skipped/unavailable flag.
     public let reopenRevisitFlag: (String) -> Void
     /// #352: marks a bound task-plan checklist item in Review.
+    /// #364 §10: the optional third argument is the collected
+    /// reason, persisted as a mission-level waiver note (#397) when
+    /// the marked plan maps to a mission record.
     public let markTaskPlanItem:
-        (String, TaskPlanItemOutcome) -> Void
+        (String, TaskPlanItemOutcome, String?) -> Void
+    /// Whether a mission-inbox record exists for the given plan —
+    /// the waiver note is the only audited reason channel, so the
+    /// checklist's "with reason" items are gated on this (#364 §10).
+    public let canRecordTaskPlanMarkReason:
+        (HTDTCaptureTaskPlan) -> Bool
     /// Validates and adopts an imported HTDT equipment-catalog snapshot
     /// (#211). The host owns the catalog context for the app session and
     /// mirrors it to a durable app-support cache; the default simply
@@ -523,7 +531,10 @@ public struct CaptureRootActions {
             ) -> Void = { _, _, _ in },
         reopenRevisitFlag: @escaping (String) -> Void = { _ in },
         markTaskPlanItem: @escaping
-            (String, TaskPlanItemOutcome) -> Void = { _, _ in },
+            (String, TaskPlanItemOutcome, String?) -> Void =
+                { _, _, _ in },
+        canRecordTaskPlanMarkReason: @escaping
+            (HTDTCaptureTaskPlan) -> Bool = { _ in false },
         importEquipmentCatalog: @escaping
             (Data) throws -> HTDTEquipmentCatalogSnapshot = { data in
                 try JSONDecoder().decode(
@@ -797,6 +808,8 @@ public struct CaptureRootActions {
         self.resolveRevisitFlag = resolveRevisitFlag
         self.reopenRevisitFlag = reopenRevisitFlag
         self.markTaskPlanItem = markTaskPlanItem
+        self.canRecordTaskPlanMarkReason =
+            canRecordTaskPlanMarkReason
         self.importEquipmentCatalog = importEquipmentCatalog
         self.selectEquipmentCatalog = selectEquipmentCatalog
         self.finalizeCapture = finalizeCapture
@@ -2064,6 +2077,14 @@ public struct CaptureRootView: View {
                                 .reopenRevisitFlag,
                             markTaskPlanItem: actions
                                 .markTaskPlanItem,
+                            canRecordTaskPlanReason:
+                                reviewWorkspace.captureTaskPlan
+                                    .map {
+                                        actions
+                                            .canRecordTaskPlanMarkReason(
+                                                $0
+                                            )
+                                    } ?? false,
                             confirmFieldDatumFromRoomFrame:
                                 actions
                                     .confirmFieldDatumFromRoomFrame,
@@ -2430,6 +2451,11 @@ public struct CaptureRootView: View {
                             asBuiltActualCandidates,
                         roomFrameAvailable: roomFrameAvailable,
                         repairRows: repairTaskRows,
+                        canRecordReason: missionTaskPlan
+                            .map {
+                                actions
+                                    .canRecordTaskPlanMarkReason($0)
+                            } ?? false,
                         onMarkTaskPlanItem:
                             actions.markTaskPlanItem,
                         onSetConnectedSpaceIntent:

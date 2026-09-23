@@ -124,20 +124,43 @@ public struct ConnectedSpaceStatusView: View {
 /// Task-plan checklist surface (issue #240): every imported plan item
 /// shows its operator-visible outcome before finalization —
 /// completed, skipped, or unavailable — against committed evidence.
+/// #364 §10: when the plan maps to a mission record the "Mark" menu is
+/// task-specific — skip/unavailable collect a reason that persists as
+/// a mission-level waiver note (#397); the status document contract
+/// has no reason field and stays unchanged.
 public struct CaptureTaskPlanChecklistView: View {
     public let plan: HTDTCaptureTaskPlan
     public let outcomes:
         [CaptureTaskPlanStatusDocument.ItemOutcome]
-    public let onMark: (String, TaskPlanItemOutcome) -> Void
+    /// Whether a mission record exists for this plan so a reason can
+    /// persist as a waiver note — gates the "with reason" menu items.
+    public let canRecordReason: Bool
+    public let onMark:
+        (String, TaskPlanItemOutcome, String?) -> Void
+
+    @State private var reasonDraft = ""
+    @State private var reasonPrompt:
+        MarkReasonPrompt?
+
+    private struct MarkReasonPrompt: Identifiable {
+        let itemID: String
+        let outcome: TaskPlanItemOutcome
+        var id: String {
+            itemID + "\u{0}" + outcome.rawValue
+        }
+    }
 
     public init(
         plan: HTDTCaptureTaskPlan,
         outcomes: [CaptureTaskPlanStatusDocument.ItemOutcome],
-        onMark: @escaping (String, TaskPlanItemOutcome) -> Void =
-            { _, _ in }
+        canRecordReason: Bool = false,
+        onMark: @escaping
+            (String, TaskPlanItemOutcome, String?) -> Void =
+            { _, _, _ in }
     ) {
         self.plan = plan
         self.outcomes = outcomes
+        self.canRecordReason = canRecordReason
         self.onMark = onMark
     }
 
@@ -190,6 +213,56 @@ public struct CaptureTaskPlanChecklistView: View {
                 }
             }
         }
+        .sheet(item: $reasonPrompt) { prompt in
+            reasonSheet(prompt)
+        }
+    }
+
+    /// The reason interposes before the mark is written — a
+    /// reason-less non-evidence outcome can never reach the waiver
+    /// ledger, matching the field-return outcome contract (#418).
+    private func reasonSheet(
+        _ prompt: MarkReasonPrompt
+    ) -> some View {
+        NavigationStack {
+            Form {
+                TextField(
+                    String(localized: "Reason"),
+                    text: $reasonDraft,
+                    axis: .vertical
+                )
+            }
+            .navigationTitle(
+                String(localized: "Outcome reason")
+            )
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "Cancel")) {
+                        reasonPrompt = nil
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(String(localized: "Save")) {
+                        let reason =
+                            reasonDraft.trimmingCharacters(
+                                in: .whitespacesAndNewlines
+                            )
+                        onMark(
+                            prompt.itemID,
+                            prompt.outcome,
+                            reason.isEmpty ? nil : reason
+                        )
+                        reasonPrompt = nil
+                    }
+                    .disabled(
+                        reasonDraft.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ).isEmpty
+                    )
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 
     @ViewBuilder
@@ -226,19 +299,47 @@ public struct CaptureTaskPlanChecklistView: View {
                 .foregroundStyle(CaptureColorRole.attention.color)
             }
             Menu(String(localized: "Mark")) {
-                Button(
-                    MissionPresentation.taskPlanItemOutcomeName(
-                        .skipped
-                    )
-                ) {
-                    onMark(itemID, .skipped)
-                }
-                Button(
-                    MissionPresentation.taskPlanItemOutcomeName(
-                        .unavailable
-                    )
-                ) {
-                    onMark(itemID, .unavailable)
+                if canRecordReason {
+                    Button(
+                        String(
+                            localized: "Skip with reason…"
+                        )
+                    ) {
+                        reasonDraft = ""
+                        reasonPrompt = MarkReasonPrompt(
+                            itemID: itemID,
+                            outcome: .skipped
+                        )
+                    }
+                    Button(
+                        String(
+                            localized:
+                                "Mark unavailable with reason…"
+                        )
+                    ) {
+                        reasonDraft = ""
+                        reasonPrompt = MarkReasonPrompt(
+                            itemID: itemID,
+                            outcome: .unavailable
+                        )
+                    }
+                } else {
+                    Button(
+                        MissionPresentation
+                            .taskPlanItemOutcomeName(
+                                .skipped
+                            )
+                    ) {
+                        onMark(itemID, .skipped, nil)
+                    }
+                    Button(
+                        MissionPresentation
+                            .taskPlanItemOutcomeName(
+                                .unavailable
+                            )
+                    ) {
+                        onMark(itemID, .unavailable, nil)
+                    }
                 }
             }
             .font(.caption)

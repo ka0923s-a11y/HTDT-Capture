@@ -27,8 +27,11 @@ public struct MissionWorkflowsView: View {
     /// as-built plan→capture alignment.
     public let roomFrameAvailable: Bool
     public let repairRows: [HTDTRepairTaskRow]
+    /// #364 §10: whether the checklist's plan maps to a mission
+    /// record so marking can collect a reason (waiver note).
+    public let canRecordReason: Bool
     public let onMarkTaskPlanItem:
-        (String, TaskPlanItemOutcome) -> Void
+        (String, TaskPlanItemOutcome, String?) -> Void
     public let onSetConnectedSpaceIntent: (Bool) -> Void
     public let onBeginConnectedSegment:
         (String, CaptureRegionKind) -> Void
@@ -65,8 +68,10 @@ public struct MissionWorkflowsView: View {
         asBuiltActualCandidates: [CaptureAnnotationEntity] = [],
         roomFrameAvailable: Bool = false,
         repairRows: [HTDTRepairTaskRow] = [],
+        canRecordReason: Bool = false,
         onMarkTaskPlanItem: @escaping
-            (String, TaskPlanItemOutcome) -> Void = { _, _ in },
+            (String, TaskPlanItemOutcome, String?) -> Void =
+                { _, _, _ in },
         onSetConnectedSpaceIntent: @escaping (Bool) -> Void
             = { _ in },
         onBeginConnectedSegment: @escaping
@@ -97,6 +102,7 @@ public struct MissionWorkflowsView: View {
         self.asBuiltActualCandidates = asBuiltActualCandidates
         self.roomFrameAvailable = roomFrameAvailable
         self.repairRows = repairRows
+        self.canRecordReason = canRecordReason
         self.onMarkTaskPlanItem = onMarkTaskPlanItem
         self.onSetConnectedSpaceIntent = onSetConnectedSpaceIntent
         self.onBeginConnectedSegment = onBeginConnectedSegment
@@ -211,6 +217,7 @@ public struct MissionWorkflowsView: View {
             CaptureTaskPlanChecklistView(
                 plan: taskPlan,
                 outcomes: taskPlanOutcomes,
+                canRecordReason: canRecordReason,
                 onMark: onMarkTaskPlanItem
             )
             .navigationTitle("Task plan checklist")

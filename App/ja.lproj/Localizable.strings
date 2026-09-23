@@ -2675,6 +2675,11 @@
 "This permanently deletes the finalized capture and any export archive stored for it from this device. %lld revision(s) declare it as their parent — their lineage link will no longer resolve." = "確定済みキャプチャと保存済みの書き出しアーカイブをこのデバイスから完全に削除します。リビジョン %lld 件がこれを親として参照しています — 系統リンクは解決できなくなります。";
 "Unarchive series" = "シリーズのアーカイブを解除";
 "Waive" = "免除";
+"Waive with reason" = "理由を付けて免除";
+"Waive with reason…" = "理由を付けて免除…";
+"Skip with reason…" = "理由を付けてスキップ…";
+"Mark unavailable with reason…" = "理由を付けて利用不可にする…";
+"(the reason could not be attached to a mission record)" = "（理由をミッションレコードに関連付けできませんでした）";
 "%@ — waived" = "%@ — 免除";
 "%lld field return(s)" = "フィールドリターン %lld 件";
 "%lld revision(s) carry an importance mark. Leave this off to keep them." = "リビジョン %lld 件が重要マークを保持しています。保持するにはオフのままにしてください。";

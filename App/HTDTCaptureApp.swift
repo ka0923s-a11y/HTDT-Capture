@@ -249,7 +249,9 @@ private struct HTDTCaptureHostView: View {
                 resolveRevisitFlag: coordinator.resolveRevisitFlag,
                 reopenRevisitFlag: coordinator.reopenRevisitFlag,
                 markTaskPlanItem:
-                    coordinator.markTaskPlanItem(_:outcome:),
+                    coordinator.markTaskPlanItem(_:outcome:reason:),
+                canRecordTaskPlanMarkReason:
+                    coordinator.canRecordTaskPlanMarkReason,
                 importEquipmentCatalog:
                     coordinator.importEquipmentCatalog,
                 selectEquipmentCatalog:
@@ -8817,9 +8819,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// two statuses coexist: `boundTaskPlanStatus` tracks the
     /// mission-bound plan persisted via the working set, while
     /// `captureTaskPlanStatus` is the standalone imported plan.
+    /// #364 §10: an operator reason captured by the checklist's
+    /// "with reason" marks persists as a mission-level waiver note
+    /// (#397) on every mission record matching a marked plan.
     func markTaskPlanItem(
         _ itemID: String,
-        outcome: TaskPlanItemOutcome
+        outcome: TaskPlanItemOutcome,
+        reason: String? = nil
     ) {
         if var status = boundTaskPlanStatus,
            let store = workingSetStore,
@@ -8828,7 +8834,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             do {
                 try status.mark(itemID: itemID, as: outcome)
             } catch {
-                markTaskPlanItem(itemID, as: outcome)
+                markTaskPlanItem(
+                    itemID,
+                    as: outcome,
+                    reason: reason
+                )
                 return
             }
             boundTaskPlanStatus = status
@@ -8868,7 +8878,71 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.refreshReviewWorkspace()
             }
         }
-        markTaskPlanItem(itemID, as: outcome)
+        recordTaskPlanMarkWaiver(
+            itemID: itemID,
+            reason: reason,
+            plan: boundTaskPlanStatus?.planImport.plan
+        )
+        markTaskPlanItem(itemID, as: outcome, reason: reason)
+    }
+
+    /// #364 §10: whether a mission-inbox record exists for the
+    /// checklist's plan — the waiver note is the only audited reason
+    /// channel, so "with reason" marking is only offered when a
+    /// record can persist it.
+    func canRecordTaskPlanMarkReason(
+        _ plan: HTDTCaptureTaskPlan
+    ) -> Bool {
+        missionRecords.contains {
+            $0.planID == plan.planID
+                && $0.planVersion == plan.planVersion
+        }
+    }
+
+    /// Persists a marking reason as an explicit mission-level waiver
+    /// (#397) on the record matching the marked plan — append-only
+    /// and auditable, and the status document contract keeps its
+    /// unchanged no-reason field set. No matching record means no
+    /// ledger channel: the mark still lands, the reason is reported
+    /// dropped rather than silently lost.
+    private func recordTaskPlanMarkWaiver(
+        itemID: String,
+        reason: String?,
+        plan: HTDTCaptureTaskPlan?
+    ) {
+        guard let reason = reason?.trimmingCharacters(
+                in: .whitespacesAndNewlines),
+              !reason.isEmpty,
+              let plan
+        else {
+            return
+        }
+        guard let record = missionRecords.first(where: {
+            $0.planID == plan.planID
+                && $0.planVersion == plan.planVersion
+        }),
+              let inbox = missionInboxStore,
+              let ledger = missionProgressLedgerStore,
+              let recordPlan = try? inbox.plan(for: record)
+        else {
+            workingSetStatus += " "
+                + String(localized:
+                    "(the reason could not be attached to a mission record)")
+            return
+        }
+        do {
+            try ledger.waive(
+                itemID: itemID,
+                for: record,
+                plan: recordPlan,
+                note: reason
+            )
+            refreshMissionDeliveryStores()
+        } catch {
+            workingSetStatus += " "
+                + String(localized:
+                    "(the reason could not be attached to a mission record)")
+        }
     }
 
     /// Operator capture-strategy selection (#307). Advisory only —
@@ -13649,14 +13723,22 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Operator mark on a task-plan item (#240). Completion of
     /// entity/measurement items stays computed from committed
     /// evidence — explicit marks only assert non-evidence outcomes.
+    /// #364 §10: a collected reason persists as a mission waiver
+    /// note when the imported plan matches a mission record.
     func markTaskPlanItem(
         _ itemID: String,
-        as outcome: TaskPlanItemOutcome
+        as outcome: TaskPlanItemOutcome,
+        reason: String? = nil
     ) {
         do {
             try captureTaskPlanStatus?.mark(
                 itemID: itemID,
                 as: outcome
+            )
+            recordTaskPlanMarkWaiver(
+                itemID: itemID,
+                reason: reason,
+                plan: captureTaskPlan
             )
             Task { await refreshMissionOutcomes() }
         } catch {

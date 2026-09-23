@@ -37,9 +37,15 @@ public struct CaptureReviewWorkspaceView: View {
     /// review again.
     public let reopenRevisitFlag: (String) -> Void
     /// #352: marks one imported task-plan checklist item
-    /// skipped/unavailable from Review.
+    /// skipped/unavailable from Review. #364 §10: the optional third
+    /// argument carries the collected reason to the mission waiver
+    /// ledger; `canRecordTaskPlanReason` gates the prompt.
     public let markTaskPlanItem:
-        (String, TaskPlanItemOutcome) -> Void
+        (String, TaskPlanItemOutcome, String?) -> Void
+    /// Whether the bound plan maps to a mission record so a marking
+    /// reason can persist — the checklist only offers "with reason"
+    /// items when the waiver channel exists.
+    public let canRecordTaskPlanReason: Bool
     /// #232: confirms a field/install datum derived from the
     /// committed room reference frame. Returns false when the room
     /// frame is missing or the commit failed.
@@ -117,7 +123,9 @@ public struct CaptureReviewWorkspaceView: View {
             ) -> Void = { _, _, _ in },
         reopenRevisitFlag: @escaping (String) -> Void = { _ in },
         markTaskPlanItem: @escaping
-            (String, TaskPlanItemOutcome) -> Void = { _, _ in },
+            (String, TaskPlanItemOutcome, String?) -> Void =
+                { _, _, _ in },
+        canRecordTaskPlanReason: Bool = false,
         confirmFieldDatumFromRoomFrame: @escaping
             () async -> Bool = { false },
         removeRoomFieldDatum: @escaping () async -> Void = {},
@@ -151,6 +159,7 @@ public struct CaptureReviewWorkspaceView: View {
         self.resolveRevisitFlag = resolveRevisitFlag
         self.reopenRevisitFlag = reopenRevisitFlag
         self.markTaskPlanItem = markTaskPlanItem
+        self.canRecordTaskPlanReason = canRecordTaskPlanReason
         self.confirmFieldDatumFromRoomFrame =
             confirmFieldDatumFromRoomFrame
         self.removeRoomFieldDatum = removeRoomFieldDatum
@@ -406,6 +415,18 @@ public struct CaptureReviewWorkspaceView: View {
                                 entity.entityID.description
                             )
                         }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if let entityMarker {
+                                planSelection = entityMarker
+                                planFocusToken += 1
+                            }
+                        }
+                        .listRowBackground(
+                            isSelectedMarker(entityMarker)
+                                ? Color.accentColor.opacity(0.15)
+                                : Color.clear
+                        )
                     }
                 }
             }
@@ -1083,6 +1104,8 @@ public struct CaptureReviewWorkspaceView: View {
                         plan: plan,
                         outcomes:
                             model.taskPlanStatus?.items ?? [],
+                        canRecordReason:
+                            canRecordTaskPlanReason,
                         onMark: markTaskPlanItem
                     )
                 }
@@ -1170,6 +1193,7 @@ public struct CaptureReviewWorkspaceView: View {
     private func fieldNoteRow(
         _ note: CaptureFieldNote
     ) -> some View {
+        let noteMarker = marker(forFieldNoteID: note.noteID)
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(
@@ -1358,6 +1382,18 @@ public struct CaptureReviewWorkspaceView: View {
             }
         }
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let noteMarker {
+                planSelection = noteMarker
+                planFocusToken += 1
+            }
+        }
+        .listRowBackground(
+            isSelectedMarker(noteMarker)
+                ? Color.accentColor.opacity(0.15)
+                : Color.clear
+        )
     }
 
     /// #375: binds an unbound note by superseding it with the same
@@ -1702,6 +1738,7 @@ public struct CaptureReviewWorkspaceView: View {
         _ opening: RoomOpeningCandidate,
         interactive: Bool
     ) -> some View {
+        let openingMarker = marker(forOpening: opening)
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 LabeledContent(
@@ -1717,9 +1754,9 @@ public struct CaptureReviewWorkspaceView: View {
                                 opening.openState
                             )
                 )
-                if let marker = marker(forOpening: opening) {
+                if let openingMarker {
                     Button("Show on plan") {
-                        planSelection = marker
+                        planSelection = openingMarker
                         planFocusToken += 1
                     }
                     .font(.caption)
@@ -1759,6 +1796,18 @@ public struct CaptureReviewWorkspaceView: View {
             }
         }
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let openingMarker {
+                planSelection = openingMarker
+                planFocusToken += 1
+            }
+        }
+        .listRowBackground(
+            isSelectedMarker(openingMarker)
+                ? Color.accentColor.opacity(0.15)
+                : Color.clear
+        )
     }
 
     private func setDisposition(
@@ -1834,6 +1883,16 @@ public struct CaptureReviewWorkspaceView: View {
             overlay: ReviewPlanPresentation
                 .overlayMarkers(for: model)
         )
+    }
+
+    /// #364 §7.4: a list row reflects plan-marker selection —
+    /// tapping the row focuses the same marker on the plan, and
+    /// selecting the marker there highlights the row.
+    private func isSelectedMarker(
+        _ marker: RoomPlanPreviewModel.PlanMarker?
+    ) -> Bool {
+        marker?.identifier != nil
+            && planSelection?.identifier == marker?.identifier
     }
 
     private func marker(
