@@ -215,7 +215,10 @@ public struct MissionActions {
         (String, String?) async -> Void
     public let evaluateMissionDependencies: (String) async throws -> HTDTMissionDependencyReport
     public let waiveMissionItem: (String, String, String?) async -> Void
-    public let markTaskPlanItem: (String, TaskPlanItemOutcome) -> Void
+    public let markTaskPlanItem:
+        (String, TaskPlanItemOutcome, String?) -> Void
+    public let canRecordTaskPlanMarkReason:
+        (HTDTCaptureTaskPlan) -> Bool
     public let resolveRepairTask: (HTDTRepairTaskRow) -> Void
     public let importPlanReference: (URL) -> Void
     /// #422: bounded pairing-scoped Mission pull refresh.
@@ -235,6 +238,8 @@ public struct MissionActions {
         self.evaluateMissionDependencies = actions.evaluateMissionDependencies
         self.waiveMissionItem = actions.waiveMissionItem
         self.markTaskPlanItem = actions.markTaskPlanItem
+        self.canRecordTaskPlanMarkReason =
+            actions.canRecordTaskPlanMarkReason
         self.resolveRepairTask = actions.resolveRepairTask
         self.importPlanReference = actions.importPlanReference
         self.checkHTDTForMissions = actions.checkHTDTForMissions

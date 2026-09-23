@@ -1,0 +1,39 @@
+{
+  "schema": "htdt.equipment.catalog-snapshot",
+  "schema_version": 1,
+  "authority_version": "o100c-equipment-definition-1",
+  "catalog": {
+    "snapshot_id": "cat-sample-2026-09",
+    "label": "Sample home-theater catalog",
+    "catalog_version": "2026.09",
+    "generated_at": "2026-09-01T00:00:00Z",
+    "source_project": "example-theater",
+    "source_instance": "htdt-dev-01"
+  },
+  "definitions": [
+    {
+      "definition_id": "example-bookshelf-speaker",
+      "version": "2026-09",
+      "semantic_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "identity_kind": "manufacturer",
+      "manufacturer": "Example Audio",
+      "model": "Bookshelf B-100"
+    },
+    {
+      "definition_id": "example-tower-speaker",
+      "version": "2026-09",
+      "semantic_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "identity_kind": "manufacturer",
+      "manufacturer": "Example Audio",
+      "model": "Tower T-300"
+    },
+    {
+      "definition_id": "example-subwoofer",
+      "version": "2026-09",
+      "semantic_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "identity_kind": "manufacturer",
+      "manufacturer": "Acoustic Systems",
+      "model": "Sub S-12"
+    }
+  ]
+}

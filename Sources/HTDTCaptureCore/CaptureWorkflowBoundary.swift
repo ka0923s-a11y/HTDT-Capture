@@ -152,7 +152,8 @@ public enum CaptureWorkflowActionMap {
         "importTaskPlan", "clearTaskPlan", "importMissionDocument",
         "importMissionPackage", "startMission", "deactivateMission",
         "archiveMission", "evaluateMissionDependencies",
-        "waiveMissionItem", "markTaskPlanItem", "resolveRepairTask",
+        "waiveMissionItem", "markTaskPlanItem",
+        "canRecordTaskPlanMarkReason", "resolveRepairTask",
         "importPlanReference", "checkHTDTForMissions",
     ]
     public static let library: Set<String> = [

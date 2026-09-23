@@ -42,6 +42,18 @@ struct HTDTMissionInboxView: View {
     /// Operator note draft for the detail sheet (#463) — seeded
     /// from the record when the sheet opens.
     @State private var userNoteDraft = ""
+    /// Pending "waive with reason" prompt (#364 §10) — the waiver
+    /// records the operator's reason as its audited note.
+    @State private var waivingItem: WaivePrompt?
+    @State private var waiveReasonDraft = ""
+
+    private struct WaivePrompt: Identifiable {
+        let recordID: String
+        let taskItemID: String
+        var id: String {
+            recordID + "\u{0}" + taskItemID
+        }
+    }
 
     private var grouped:
         [String: [String: [HTDTMissionRecord]]]
@@ -280,14 +292,14 @@ struct HTDTMissionInboxView: View {
                             .font(.caption2)
                             .foregroundStyle(CaptureColorRole.attention.color)
                     }
-                    Button("Waive") {
-                        Task {
-                            await actions.waiveMissionItem(
-                                record.recordID,
-                                item.taskItemID,
-                                nil
-                            )
-                        }
+                    Button(
+                        String(localized: "Waive with reason…")
+                    ) {
+                        waiveReasonDraft = ""
+                        waivingItem = WaivePrompt(
+                            recordID: record.recordID,
+                            taskItemID: item.taskItemID
+                        )
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -751,6 +763,57 @@ struct HTDTMissionInboxView: View {
             }
         }
         .navigationTitle(record.roomName)
+        // #364 §10: waiving records the operator's reason as the
+        // waiver's audited note — the sheet stacks on the detail
+        // sheet's own host, not the inbox root's.
+        .sheet(item: $waivingItem) { prompt in
+            NavigationStack {
+                Form {
+                    TextField(
+                        String(localized: "Reason"),
+                        text: $waiveReasonDraft,
+                        axis: .vertical
+                    )
+                }
+                .navigationTitle(
+                    String(localized: "Waive with reason")
+                )
+                .toolbar {
+                    ToolbarItem(
+                        placement: .cancellationAction
+                    ) {
+                        Button(String(localized: "Cancel")) {
+                            waivingItem = nil
+                        }
+                    }
+                    ToolbarItem(
+                        placement: .confirmationAction
+                    ) {
+                        Button(String(localized: "Waive")) {
+                            let reason = waiveReasonDraft
+                                .trimmingCharacters(
+                                    in: .whitespacesAndNewlines
+                                )
+                            let item = prompt
+                            waivingItem = nil
+                            Task {
+                                await actions.waiveMissionItem(
+                                    item.recordID,
+                                    item.taskItemID,
+                                    reason.isEmpty ? nil : reason
+                                )
+                            }
+                        }
+                        .disabled(
+                            waiveReasonDraft.trimmingCharacters(
+                                in: .whitespacesAndNewlines
+                            ).isEmpty
+                        )
+                    }
+                }
+            }
+            .presentationDetents([.medium])
+        }
     }
 
     @ViewBuilder
