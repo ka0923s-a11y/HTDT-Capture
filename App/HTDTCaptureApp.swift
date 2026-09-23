@@ -210,6 +210,8 @@ private struct HTDTCaptureHostView: View {
                     coordinator.setGuidanceCuesEnabled,
                 setLoopClosureCheckActive:
                     coordinator.setLoopClosureCheckActive,
+                recordLoopClosureOutcome:
+                    coordinator.recordLoopClosureOutcome,
                 setScanMovementCapability:
                     coordinator.setScanMovementCapability,
                 continueScanning:
@@ -586,6 +588,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var loopClosureCheckActive = false
     @Published private(set)
     var loopClosureAssessment: LoopClosureAssessment?
+    /// The operator's response to the armed check ("accepted" /
+    /// "reobserve" / "continued") — advisory provenance recorded
+    /// beside the verdict at end-scan (#273).
+    private(set) var loopClosureOutcome: String?
+    /// Most recent assessment, retained after the check disarms so
+    /// the end-scan note keeps the residual + verdict the operator
+    /// answered (#273).
+    private(set) var loopClosureLastAssessment:
+        LoopClosureAssessment?
+    /// Evidence class that supplied the in-progress object pass'
+    /// aim anchor (#250), e.g. "existing_plane_geometry".
+    private var targetScanAnchorSource: String?
     /// Evidence frames retained by the automatic keyframe policy this
     /// scan (#216), shown next to the manual/total count.
     @Published private(set)
@@ -1580,6 +1594,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         boundTaskPlanStatus = nil
         loopClosureCheckActive = false
         loopClosureAssessment = nil
+        loopClosureLastAssessment = nil
+        loopClosureOutcome = nil
         latestScanTimestampSeconds = nil
         resourceMonitor?.stop()
         resourceMonitor = nil
@@ -2130,6 +2146,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     radiusMeters: 0.75
                 )
             )
+            // #250: which evidence class supplied the aim anchor —
+            // retained in the accept note's provenance.
+            targetScanAnchorSource =
+                placement.raycastProvenance?.target.rawValue
+            let initialDistance = spatialCoverage
+                .currentCameraPosition.map { camera in
+                    hypot(
+                        Double(camera.x)
+                            - Double(placement.positionWorld.x),
+                        Double(camera.z)
+                            - Double(placement.positionWorld.z)
+                    )
+                }
             targetScanStatus = TargetScanStatus(
                 angularCoverageFraction: 0,
                 observedBucketCount: 0,
@@ -2137,7 +2166,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 isComplete: false,
                 expired: false,
                 outOfRange: false,
-                guidance: .hold
+                guidance: .hold,
+                distanceToTargetMeters: initialDistance
             )
             workingSetStatus = String(localized: "Object pass started; keep the aimed object centered and move around it")
         } catch {
@@ -2162,6 +2192,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
         let status = targetScanStatus
+        let anchorSource = targetScanAnchorSource
         endTargetScan()
         if let status {
             let detail =
@@ -2169,7 +2200,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 + "\(status.totalBucketCount)"
                 + " expired=\(status.expired)"
                 + " anchor_x=\(tracker.target.x)"
+                + " anchor_y=\(tracker.target.y)"
                 + " anchor_z=\(tracker.target.z)"
+                + " radius_m=\(tracker.target.radiusMeters)"
+                + " anchor_source=\(anchorSource ?? "none")"
             recordAdvisoryNote(
                 CaptureAdvisoryNote(
                     kind: .targetScanPass,
@@ -2198,6 +2232,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private func endTargetScan() {
         targetScanTracker = nil
         targetScanStatus = nil
+        targetScanAnchorSource = nil
     }
 
     // MARK: - Operator-declared regions (#257)
@@ -2305,13 +2340,43 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Arm/disarm the optional loop-closure check. Arming records the
     /// intent; the assessment stays advisory and unavailable states
-    /// report `.unavailable`, never a fabricated pass.
+    /// report `.unavailable`, never a fabricated pass. Disarming keeps
+    /// the last assessment so the end-scan note retains what the
+    /// operator answered (#273).
     func setLoopClosureCheckActive(_ active: Bool) {
+        if loopClosureCheckActive, !active {
+            loopClosureLastAssessment =
+                loopClosureAssessment ?? loopClosureLastAssessment
+        }
         loopClosureCheckActive = active
         if active {
             updateLoopClosureAssessment()
         } else {
             loopClosureAssessment = nil
+        }
+    }
+
+    /// Record the operator's response to the armed check (#273) as
+    /// advisory provenance: "reobserve" clears the displayed
+    /// assessment and keeps the check armed for a fresh walk-back;
+    /// "accepted" / "continued" disarm the check. The response joins
+    /// the end-scan note next to the verdict + residuals — the check
+    /// never touches coordinates itself.
+    func recordLoopClosureOutcome(_ response: String) {
+        guard loopClosureCheckActive else {
+            return
+        }
+        loopClosureOutcome = response
+        loopClosureLastAssessment =
+            loopClosureAssessment ?? loopClosureLastAssessment
+        switch response {
+        case "reobserve":
+            loopClosureAssessment = nil
+        case "accepted", "continued":
+            loopClosureCheckActive = false
+            loopClosureAssessment = nil
+        default:
+            break
         }
     }
 
@@ -2784,8 +2849,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // #273: the return-to-start check, when the operator armed
             // it, leaves its verdict as advisory provenance. The check
             // never warps coordinates; an un-run or unavailable check
-            // records nothing rather than implying a pass.
-            if let assessment = self.loopClosureAssessment {
+            // records nothing rather than implying a pass. An answered
+            // check keeps the last assessment after disarm so the note
+            // retains verdict + residual + response together.
+            if let assessment = self.loopClosureAssessment
+                ?? self.loopClosureLastAssessment
+            {
                 var detail =
                     "verdict=\(assessment.verdict.rawValue)"
                 if let residual = assessment.residualMeters {
@@ -2793,6 +2862,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
                 if let heading = assessment.headingResidualRadians {
                     detail += " heading_rad=\(heading)"
+                }
+                detail += " reference="
+                    + (self.spatialCoverage
+                        .referenceOriginWorld != nil
+                        ? "scan_start_pose"
+                        : "unavailable")
+                if let response = self.loopClosureOutcome {
+                    detail += " response=\(response)"
                 }
                 self.recordAdvisoryNote(
                     CaptureAdvisoryNote(
@@ -2805,6 +2882,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
             self.loopClosureCheckActive = false
             self.loopClosureAssessment = nil
+            self.loopClosureLastAssessment = nil
+            self.loopClosureOutcome = nil
             self.endTargetScan()
 
             guard let prepared =
@@ -3426,11 +3505,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return authority
     }
 
-    /// Live reticle probe for the camera capture sheet (#214):
-    /// classifies what the shared session's center ray hits right now
-    /// — mesh, RoomPlan object, or plane — with no side effects.
+    /// Live reticle probe for the camera capture sheet and the
+    /// scanning-surface reticle (#214/#250): classifies what the
+    /// shared session's center ray hits right now — mesh, RoomPlan
+    /// object, or plane — with no side effects. During scanning the
+    /// RoomPlan object list is empty, so hits classify as mesh or
+    /// plane; the reticle still confirms the aim target before a
+    /// center raycast executes.
     func probePlacementTarget() async -> AnnotationPlacementProbe {
-        guard state == .annotating else {
+        guard state == .annotating || state == .scanning else {
             return .unavailable
         }
         return sessionController.probeCenterPlacementTarget(
@@ -4830,6 +4913,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         boundTaskPlanStatus = nil
         loopClosureCheckActive = false
         loopClosureAssessment = nil
+        loopClosureLastAssessment = nil
+        loopClosureOutcome = nil
         latestScanTimestampSeconds = nil
         captureSetup = nil
         deviceReadiness = nil
@@ -13167,6 +13252,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         endTargetScan()
         loopClosureCheckActive = false
         loopClosureAssessment = nil
+        loopClosureLastAssessment = nil
+        loopClosureOutcome = nil
         captureSetup = nil
         automaticFrameSaveTask?.cancel()
         automaticFrameSaveTask = nil

@@ -109,6 +109,7 @@ public enum CaptureWorkflowActionMap {
         "retakeTargetScan", "acceptTargetScan", "cancelTargetScan",
         "declareNearestUnresolvedRegion", "revokeOperatorRegion",
         "setGuidanceCuesEnabled", "setLoopClosureCheckActive",
+        "recordLoopClosureOutcome",
         "setScanMovementCapability", "continueScanning",
         "captureIdentityPhoto", "scanEquipmentLabel",
         "captureFieldEvidencePhoto", "flagForReview",

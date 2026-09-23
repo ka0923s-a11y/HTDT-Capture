@@ -57,6 +57,11 @@ public struct TargetScanStatus: Sendable, Equatable {
     /// auto-pauses rather than following the operator away.
     public let outOfRange: Bool
     public let guidance: TargetScanGuidance
+    /// Horizontal distance from the camera to the locked target
+    /// anchor in meters — the UI's continuous "which object is the
+    /// target" confirmation (#250). nil only on the initial status
+    /// before the first camera sample lands.
+    public let distanceToTargetMeters: Double?
 
     public init(
         angularCoverageFraction: Double,
@@ -65,7 +70,8 @@ public struct TargetScanStatus: Sendable, Equatable {
         isComplete: Bool,
         expired: Bool,
         outOfRange: Bool,
-        guidance: TargetScanGuidance
+        guidance: TargetScanGuidance,
+        distanceToTargetMeters: Double? = nil
     ) {
         self.angularCoverageFraction = angularCoverageFraction
         self.observedBucketCount = observedBucketCount
@@ -74,6 +80,7 @@ public struct TargetScanStatus: Sendable, Equatable {
         self.expired = expired
         self.outOfRange = outOfRange
         self.guidance = guidance
+        self.distanceToTargetMeters = distanceToTargetMeters
     }
 }
 
@@ -178,7 +185,9 @@ public struct TargetedObjectScanTracker: Sendable, Equatable {
                 distance: distance,
                 dx: dx,
                 dz: dz
-            )
+            ),
+            distanceToTargetMeters:
+                distance.isFinite ? distance : nil
         )
     }
 
