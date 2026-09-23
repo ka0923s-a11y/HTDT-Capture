@@ -81,6 +81,10 @@ public struct AnnotationEntityForm: View {
         AnnotationOrientationAuthority?
     @State private var yawText = ""
     @State private var yawEdited = false
+    // Speaker aim pitch (#228): tilted/Atmos speakers record
+    // elevation alongside azimuth.
+    @State private var elevationText = ""
+    @State private var elevationEdited = false
 
     // Contract detail fields: typed listening role (#243), explicit
     // reference-point semantics/construction (#291), optional
@@ -258,10 +262,18 @@ public struct AnnotationEntityForm: View {
             initialValue: Self.coordText(seed.positionMeters.z)
         )
         _positionEdited = State(initialValue: false)
+        // #228: a fresh speaker starts aim-unset — an entered yaw
+        // (or a captured heading) produces the aim; nothing
+        // fabricates one. Other types keep the legacy 0° default.
         _yawText = State(
             initialValue: seed.yawDegrees.map {
                 String(format: "%.0f", Double($0))
-            } ?? "0"
+            } ?? (seed.type == .speaker ? "" : "0")
+        )
+        _elevationText = State(
+            initialValue: seed.elevationDegrees.map {
+                String(format: "%.0f", Double($0))
+            } ?? ""
         )
         _includeEquipmentReference = State(
             initialValue: seed.equipmentRef != nil
@@ -848,6 +860,21 @@ public struct AnnotationEntityForm: View {
                         )
                     )
                 )
+                // #228: the captured aim is full-3D — surface tilt
+                // when the front axis is not gravity-horizontal.
+                let capturedPitch =
+                    asin(
+                        max(-1, min(1, Double(front.y)))
+                    ) * 180 / .pi
+                if abs(capturedPitch) > 0.5 {
+                    LabeledContent(
+                        String(localized: "Tilt"),
+                        value: String(
+                            format: "%+.0f°",
+                            capturedPitch
+                        )
+                    )
+                }
                 Button(
                     String(localized: "Capture heading again")
                 ) {
@@ -876,7 +903,7 @@ public struct AnnotationEntityForm: View {
                 }
                 Text(
                     isSpeakerLike
-                        ? String(localized: "Aim the phone the way the speaker faces, or enter a yaw angle in Advanced.")
+                        ? String(localized: "Aim the phone the way the speaker faces — tilt counts for Atmos and angled speakers — or enter yaw and elevation in Advanced. Leave both unset when no facing authority exists.")
                         : String(localized: "Aim the phone in the direction this item faces, or enter a yaw angle in Advanced. Leave it unset when no facing authority exists.")
                 )
                 .font(.caption)
@@ -1075,6 +1102,17 @@ public struct AnnotationEntityForm: View {
                     .decimalKeyboard()
                     .onChange(of: yawText) { _, _ in
                         yawEdited = true
+                    }
+                    if type == .speaker {
+                        TextField(
+                            String(localized:
+                                "Elevation degrees (+ up, - down)"),
+                            text: $elevationText
+                        )
+                        .decimalKeyboard()
+                        .onChange(of: elevationText) { _, _ in
+                            elevationEdited = true
+                        }
                     }
                 }
 
@@ -1309,25 +1347,53 @@ public struct AnnotationEntityForm: View {
             }
 
             var yawDegrees: Float?
+            var speakerElevationDegrees: Float?
             var orientationYawDegrees: Float?
+            // Explicit aim removal on edit (#228): clearing the yaw
+            // field drops the original aim; leaving it untouched
+            // preserves the recorded axes bit-for-bit.
+            let speakerAimRemoved =
+                type == .speaker && orientationAuthority == nil
+                && yawEdited
+                && yawText.trimmingCharacters(in: .whitespaces)
+                    .isEmpty
             if type.supportsOrientationAuthority,
                orientationAuthority == nil,
-               !isEditing || yawEdited
+               !isEditing || yawEdited || elevationEdited
             {
                 // Editing: an untouched yaw field keeps the original
                 // orientation axes bit-for-bit; only an edited value
-                // rebuilds them (#245). Speakers must produce a yaw —
-                // other orientation-capable types may leave it unset.
+                // rebuilds them (#245). Speaker aim is optional
+                // (#228): an unset azimuth leaves the record
+                // aim-unknown; other types may leave it unset too.
                 let entered =
                     yawText.trimmingCharacters(in: .whitespaces)
                 if type == .speaker {
-                    guard let parsed = Double(entered),
-                          parsed.isFinite
-                    else {
-                        throw ManualAuthorityBuilderError
-                            .invalidSpeakerYaw
+                    if !entered.isEmpty {
+                        guard let parsed = Double(entered),
+                              parsed.isFinite
+                        else {
+                            throw ManualAuthorityBuilderError
+                                .invalidSpeakerYaw
+                        }
+                        yawDegrees = Float(parsed)
                     }
-                    yawDegrees = Float(parsed)
+                    let elevationEntered =
+                        elevationText.trimmingCharacters(
+                            in: .whitespaces
+                        )
+                    if !elevationEntered.isEmpty {
+                        // Elevation only refines an azimuth — pitch
+                        // without a heading is meaningless.
+                        guard yawDegrees != nil,
+                              let parsed = Double(elevationEntered),
+                              parsed.isFinite
+                        else {
+                            throw ManualAuthorityBuilderError
+                                .invalidSpeakerElevation
+                        }
+                        speakerElevationDegrees = Float(parsed)
+                    }
                 } else if !entered.isEmpty {
                     guard let parsed = Double(entered),
                           parsed.isFinite
@@ -1409,6 +1475,8 @@ public struct AnnotationEntityForm: View {
                 roleBinding: roleBinding,
                 equipmentRef: equipment,
                 yawDegrees: yawDegrees,
+                speakerElevationDegrees: speakerElevationDegrees,
+                speakerAimRemoved: speakerAimRemoved,
                 orientationYawDegrees: orientationYawDegrees,
                 listeningRole:
                     type == .listeningPosition ? listeningRole : nil,

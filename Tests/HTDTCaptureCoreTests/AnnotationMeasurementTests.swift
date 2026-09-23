@@ -29,23 +29,25 @@ private func canonicalSpeaker(
 // #315: a speaker still requires body orientation, but a logical
 // role is optional — the unbound valid state is covered by
 // SpeakerRoleBindingTests.
+// #228: an unaimed speaker is a first-class record — aim unknown is
+// data, never synthesized. The info-level completeness finding is
+// covered by SpeakerRoleBindingTests.
 @Test
-func speakerRequiresOrientation() throws {
+func speakerAimUnknownIsAccepted() throws {
     let space = CoordinateSpaceID()
     let placement = try PlacementProvenance(method: .manualNumeric)
 
-    #expect(throws: AnnotationModelError.self) {
-        _ = try CaptureAnnotationEntity(
-            type: .speaker,
-            coordinateSpaceID: space,
-            worldFromAnnotation: .identity,
-            referencePointSemantics: .cabinetReferencePoint,
-            label: "Left",
-            placement: placement,
-            orientation: nil,
-            channelRole: .left
-        )
-    }
+    let entity = try CaptureAnnotationEntity(
+        type: .speaker,
+        coordinateSpaceID: space,
+        worldFromAnnotation: .identity,
+        referencePointSemantics: .cabinetReferencePoint,
+        label: "Left",
+        placement: placement,
+        orientation: nil,
+        channelRole: .left
+    )
+    #expect(entity.orientation == nil)
 }
 
 @Test

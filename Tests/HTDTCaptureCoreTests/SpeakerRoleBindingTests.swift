@@ -52,17 +52,19 @@ func unboundSpeakerIsValidAndEncodesNoPlaceholderRole() throws {
 }
 
 @Test
-func speakerOrientationInvariantIsUnchanged() throws {
-    #expect(throws: AnnotationModelError.speakerOrientationRequired) {
-        _ = try CaptureAnnotationEntity(
-            type: .speaker,
-            coordinateSpaceID: CoordinateSpaceID(),
-            worldFromAnnotation: .identity,
-            referencePointSemantics: .cabinetReferencePoint,
-            label: "Speaker",
-            placement: PlacementProvenance(method: .manualNumeric)
-        )
-    }
+func speakerAimUnknownIsAValidRecord() throws {
+    // #228: an un-aimed speaker is position-only evidence — the
+    // record is valid and nothing is fabricated.
+    let entity = try CaptureAnnotationEntity(
+        type: .speaker,
+        coordinateSpaceID: CoordinateSpaceID(),
+        worldFromAnnotation: .identity,
+        referencePointSemantics: .cabinetReferencePoint,
+        label: "Speaker",
+        placement: PlacementProvenance(method: .manualNumeric)
+    )
+    #expect(entity.orientation == nil)
+    #expect(entity.authority?.orientation == nil)
 }
 
 @Test
@@ -90,6 +92,72 @@ func legacyChannelRoleOnlyStaysReadable() throws {
     let entity = try makeSpeaker(channelRole: .left)
     let findings = AnnotationContractReview.findings(in: [entity])
     #expect(!findings.contains { $0.code == .speakerRoleUnbound })
+}
+
+@Test
+func unaimedSpeakerSurfacesInfoFindingNotError() throws {
+    // #228: missing aim is a completeness surface, never an
+    // invalidation.
+    let entity = try CaptureAnnotationEntity(
+        type: .speaker,
+        coordinateSpaceID: CoordinateSpaceID(),
+        worldFromAnnotation: .identity,
+        referencePointSemantics: .cabinetReferencePoint,
+        label: "Speaker",
+        placement: PlacementProvenance(method: .manualNumeric),
+        channelRole: .left
+    )
+    let findings = AnnotationContractReview.findings(in: [entity])
+    let missing = try #require(
+        findings.first { $0.code == .speakerAimMissing }
+    )
+    #expect(missing.severity == .info)
+}
+
+@Test
+func aimedSpeakerHasNoAimMissingFinding() throws {
+    let entity = try makeSpeaker()
+    let findings = AnnotationContractReview.findings(in: [entity])
+    #expect(!findings.contains { $0.code == .speakerAimMissing })
+}
+
+@Test
+func elevationRoundTripsThroughEncoder() throws {
+    // #228: azimuth+elevation aim survives an encode/decode round
+    // trip bit-for-bit.
+    let axes = try ManualAuthorityBuilder.speakerOrientationAxes(
+        azimuthDegrees: 30,
+        elevationDegrees: 15
+    )
+    let entity = try CaptureAnnotationEntity(
+        type: .speaker,
+        coordinateSpaceID: CoordinateSpaceID(),
+        worldFromAnnotation: .identity,
+        referencePointSemantics: .cabinetReferencePoint,
+        label: "Atmos",
+        placement: PlacementProvenance(method: .manualNumeric),
+        orientation: axes
+    )
+    let data = try JSONEncoder().encode(entity)
+    let decoded = try JSONDecoder().decode(
+        CaptureAnnotationEntity.self,
+        from: data
+    )
+    #expect(decoded.orientation == axes)
+}
+
+@Test
+func manualBuilderLeavesUnaimedSpeakerOrientationNil() throws {
+    // #228: no azimuth means no synthesized orientation.
+    let entity = try ManualAuthorityBuilder.annotation(
+        type: .speaker,
+        label: "Rear right",
+        xMeters: 1, yMeters: 0, zMeters: 0,
+        coordinateSpaceID: CoordinateSpaceID(),
+        speakerChannelRole: "R"
+    )
+    #expect(entity.orientation == nil)
+    #expect(entity.channelRole == .right)
 }
 
 @Test

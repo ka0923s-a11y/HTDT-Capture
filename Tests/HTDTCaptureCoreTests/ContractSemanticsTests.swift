@@ -203,8 +203,9 @@ func legacyMeasurementsDecodeWithoutLineage() throws {
 func supportMatrixDecodesEmbeddedDocument() throws {
     let matrix = CaptureBundleSchemaRegistry.supportMatrix
     #expect(matrix.schema == "htdt.capture.bundle-support-matrix")
-    #expect(matrix.families["entities"]?.emitted == "1.2.0")
-    #expect(matrix.families["entities"]?.read == ["1.0.0", "1.1.0", "1.2.0"])
+    #expect(matrix.families["entities"]?.emitted == "1.3.0")
+    #expect(matrix.families["entities"]?.read
+        == ["1.0.0", "1.1.0", "1.2.0", "1.3.0"])
     #expect(matrix.isExternalAuthorityPath(
         "roomplan/captured-room.json"
     ))
@@ -215,8 +216,12 @@ func supportMatrixDecodesEmbeddedDocument() throws {
 func versionCompatibilityMapping() throws {
     let matrix = CaptureBundleSchemaRegistry.supportMatrix
     #expect(
-        matrix.compatibility(family: "entities", version: "1.2.0")
+        matrix.compatibility(family: "entities", version: "1.3.0")
             == .native
+    )
+    #expect(
+        matrix.compatibility(family: "entities", version: "1.2.0")
+            == .supportedReadOnly
     )
     #expect(
         matrix.compatibility(family: "entities", version: "1.1.0")

@@ -273,7 +273,7 @@ func entityAuthorOperatorSchema() throws {
     #expect(
         try validateEncoded(
             collection,
-            schema: "entities-1.2.0"
+            schema: "entities-1.3.0"
         ) == nil
     )
 }

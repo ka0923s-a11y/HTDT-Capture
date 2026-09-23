@@ -1420,15 +1420,12 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
             throw AnnotationModelError.duplicateEvidenceReference
         }
 
-        if type == .speaker {
-            // Body orientation stays required (#230); a logical role
-            // does not (#315): `channel_role` and `role_binding` are
-            // both optional — an unbound physical speaker is a valid
-            // record, never silently assigned a placeholder token.
-            guard orientation != nil else {
-                throw AnnotationModelError.speakerOrientationRequired
-            }
-        }
+        // A physical speaker may carry no aim authority (#228): nil
+        // orientation is the first-class "aim unknown" state — Review
+        // reports the missing aim and nothing is synthesized. A
+        // logical role is likewise optional (#315): `channel_role`
+        // and `role_binding` stay unassigned rather than claiming a
+        // placeholder token.
 
         // `listening_role` is typed authority for listening positions
         // only (#243); on any other type it is a contradiction.
@@ -1804,6 +1801,10 @@ public struct AnnotationContractFinding:
         /// allowed to coexist while legacy records migrate, but a
         /// mismatch is a distinct conflict state for Review.
         case speakerRoleConflict = "speaker_role_conflict"
+        /// A speaker carries no orientation authority (#228) — a
+        /// first-class "aim unknown" state, not an invalid record.
+        /// Info-severity: completeness surfaces it as a missing input.
+        case speakerAimMissing = "speaker_aim_missing"
     }
 
     public let entityID: AnnotationEntityID
@@ -1902,6 +1903,20 @@ public enum AnnotationContractReview {
             // never has to invent a placeholder role. Only built-in
             // profiles are resolved — custom vocabularies stay
             // deployment-defined and are never flagged unverifiable.
+            if entity.type == .speaker {
+                if entity.orientation == nil {
+                    findings.append(
+                        AnnotationContractFinding(
+                            entityID: entity.entityID,
+                            code: .speakerAimMissing,
+                            severity: .info,
+                            detail: "speaker has no aim authority; "
+                                + "position-only evidence"
+                        )
+                    )
+                }
+            }
+
             if entity.type == .speaker || entity.type == .subwoofer {
                 if entity.channelRole == nil,
                    entity.roleBinding == nil
@@ -2061,16 +2076,19 @@ public struct CaptureAnnotationCollection: Codable, Sendable, Equatable {
     public static let expectedSchema = "htdt.capture.entities"
     /// The payload version this build emits (#332). v1.1.0 adds the
     /// shared typed relation graph (#333), entity lineage (#303), and
-    /// the open-token namespace policy (#344).
-    public static let expectedSchemaVersion = "1.2.0"
+    /// the open-token namespace policy (#344); v1.3.0 relaxes the
+    /// speaker-orientation requirement to an explicit "aim unknown"
+    /// state (#228).
+    public static let expectedSchemaVersion = "1.3.0"
     /// Every payload version this build can decode (#332): 1.0.0
     /// records are legacy — lineage is unknown and unscoped tokens
     /// classify `legacy_custom_unscoped`. 1.2.0 adds the
     /// `same_physical_equipment` relation token and the first-class
-    /// `inventory_item:` endpoint namespace (#403); 1.1.0 payloads
-    /// remain readable.
+    /// `inventory_item:` endpoint namespace (#403); 1.3.0 accepts
+    /// speakers without an orientation record (#228); 1.1.0 and 1.2.0
+    /// payloads remain readable.
     public static let supportedSchemaVersions: [String] = [
-        "1.0.0", "1.1.0", "1.2.0",
+        "1.0.0", "1.1.0", "1.2.0", "1.3.0",
     ]
 
     public let schema: String

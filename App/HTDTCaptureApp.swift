@@ -288,6 +288,8 @@ private struct HTDTCaptureHostView: View {
                         .confirmFieldDatumFromRoomFrame,
                 removeRoomFieldDatum:
                     coordinator.removeRoomFieldDatum,
+                commitFieldDatum:
+                    coordinator.commitFieldDatum,
                 captureOpeningCenter:
                     coordinator.captureOpeningCenterPoint,
                 clearOpeningCenter:
@@ -3094,6 +3096,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // #324/#331) seed the editor as the effective state; asset
         // payloads stay on disk (write-once), so only newly captured
         // assets re-enter the staged-asset list.
+        let targetsDoc = try loadCollection(
+            ReferenceTargetCaptureDocument.self,
+            at: ReferenceTargetCapturePackage.path
+        )
         let fieldAuthority = FieldAuthorityWorkspace(
             operatorProfiles: try loadCollection(
                 OperatorProfileDocument.self,
@@ -3114,7 +3120,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             wiringRoutes: try loadCollection(
                 AsBuiltWiringDocument.self,
                 at: AsBuiltWiringPackage.path
-            )?.routes ?? []
+            )?.routes ?? [],
+            // #227: committed targets/observations seed the editor so
+            // they stay visible and editable; a byte-identical
+            // re-commit is a no-op.
+            referenceTargets: targetsDoc?.targets,
+            referenceTargetObservations:
+                targetsDoc?.observations
         )
         return (
             AnnotationWorkspaceSeed(
@@ -3685,6 +3697,22 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         captureRevisionID: revisionID,
                         routes: workspace.wiringRoutes
                     )
+                ),
+            // #227: only carried when the operator declared targets —
+            // the builder computes scale/revisit diagnostics at pack
+            // time so the committed document is self-contained.
+            referenceTargets:
+                (workspace.referenceTargets?.isEmpty ?? true)
+                    && (workspace.referenceTargetObservations?
+                        .isEmpty ?? true)
+                ? nil
+                : try ReferenceTargetCaptureBuilder.build(
+                    captureRevisionID: revisionID,
+                    captureSessionID:
+                        sessionController.context.captureSessionID,
+                    targets: workspace.referenceTargets ?? [],
+                    observations:
+                        workspace.referenceTargetObservations ?? []
                 ),
             assetWrites: workspace.fieldEvidenceAssets
                 .filter { !$0.removal }
@@ -5419,6 +5447,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     settingsObservations:
                         model.settingsObservations,
                     wiringRoutes: model.wiringRoutes,
+                    referenceTargets: model.referenceTargets,
                     openingReview: model.openingReview,
                     roomReferenceFrame: model.roomReferenceFrame,
                     roomFieldDatum: model.roomFieldDatum,
@@ -5454,6 +5483,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         evidenceItems: model.evidenceItems,
                         annotations: model.annotations,
                         measurements: model.measurements,
+                        referenceTargets: model.referenceTargets,
                         openingReview: model.openingReview,
                         roomReferenceFrame: model.roomReferenceFrame,
                         qualityReport: model.qualityReport,
@@ -5715,6 +5745,76 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             try await store.commitRoomFieldDatum(package)
             refreshReviewWorkspace()
             workingSetStatus = String(localized: "Field datum confirmed and saved")
+            return true
+        } catch {
+            workingSetStatus = String(localized: "The field datum could not be saved") + " [" + Self.persistenceDiagnostic(error) + "]"
+            return false
+        }
+    }
+
+    /// Commits a field datum declared from bounded operands —
+    /// entity/measurement/room-frame/stated picks authored in
+    /// Review (issue #232). Resolution is pure (entity positions,
+    /// measurement endpoints, frame vectors); the host only binds
+    /// revision/session/space and commits.
+    func commitFieldDatum(
+        _ request: RoomFieldDatumAuthoringRequest
+    ) async -> Bool {
+        guard state == .reviewing || state == .annotating,
+              !spatialAuthoritySealedForFinalization,
+              let store = workingSetStore,
+              let model = reviewWorkspace
+        else {
+            return false
+        }
+        do {
+            let resolution = try RoomFieldDatumAuthoring.resolve(
+                origin: request.origin,
+                statedOriginMeters: request.statedOriginMeters,
+                axis: request.axis,
+                statedDirectionMeters:
+                    request.statedDirectionMeters,
+                vertical: request.vertical,
+                entities: model.annotations,
+                measurements: model.measurements,
+                roomReferenceFrame: model.roomReferenceFrame
+            )
+            let transform = try RoomFieldDatumPackageBuilder
+                .fieldTransform(
+                    origin: resolution.origin,
+                    axis: resolution.axis,
+                    verticalDatum: resolution.verticalDatum
+                )
+            let document = try RoomFieldDatumDocument(
+                captureRevisionID:
+                    await store.snapshot().identity
+                        .captureRevisionID,
+                captureSessionID:
+                    sessionController.context.captureSessionID,
+                coordinateSpaceID:
+                    model.roomReferenceFrame?.coordinateSpaceID
+                        ?? sessionController.context
+                            .coordinateSpaceID,
+                origin: resolution.origin,
+                axis: resolution.axis,
+                verticalDatum: resolution.verticalDatum,
+                fieldFromCaptureWorld: transform,
+                uncertaintyMeters: nil,
+                residualMeters: nil,
+                sourceEvidenceRefs:
+                    resolution.sourceEvidenceRefs,
+                confirmedAtUTC: BundleTimestamp.utcString(
+                    from: Date()
+                )
+            )
+            let package = try RoomFieldDatumPackageBuilder.build(
+                document: document
+            )
+            try await store.commitRoomFieldDatum(package)
+            refreshReviewWorkspace()
+            workingSetStatus = String(
+                localized: "Field datum confirmed and saved"
+            )
             return true
         } catch {
             workingSetStatus = String(localized: "The field datum could not be saved") + " [" + Self.persistenceDiagnostic(error) + "]"

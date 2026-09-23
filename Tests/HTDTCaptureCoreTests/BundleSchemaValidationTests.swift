@@ -476,6 +476,77 @@ func entitiesConditionalSchemaApplied() throws {
     }
 }
 
+/// #228: entities-1.3.0 — a speaker's aim is optional, so an
+/// aim-unknown record (orientation null or absent) validates while
+/// the channel_role contract is unchanged.
+@Test
+func entities13SpeakerWithoutAimValidates() throws {
+    let root = try makeTemporaryDirectory()
+    defer { BundleValidationFixture.remove(root) }
+
+    let speakerBody: [(String, StrictJSONValue)] = [
+        (
+            "entity_id",
+            .string(BundleValidationFixture.anchorUUID)
+        ),
+        ("type", .string("speaker")),
+        (
+            "coordinate_space_id",
+            .string(BundleValidationFixture.spaceUUID)
+        ),
+        (
+            "T_world_from_annotation",
+            BundleValidationFixture.matrix4Value()
+        ),
+        (
+            "reference_point_semantics",
+            .string("acoustic_center")
+        ),
+        ("label", .string("speaker L")),
+        ("provenance_class", .string("user_annotation")),
+        ("verification_state", .string("user_attested")),
+        (
+            "placement",
+            .object([
+                ("method", .string("manual_numeric")),
+                (
+                    "source_evidence_refs",
+                    .array([.string("path:a")])
+                ),
+            ])
+        ),
+        ("channel_role", .string("L")),
+        ("evidence_refs", .array([.string("path:a")])),
+    ]
+    let entities: StrictJSONValue = .object([
+        ("schema", .string("htdt.capture.entities")),
+        ("schema_version", .string("1.3.0")),
+        ("relations", .array([])),
+        (
+            "entities",
+            .array([
+                // Explicit null aim.
+                .object(speakerBody + [("orientation", .null)]),
+                // Absent aim key.
+                .object(speakerBody),
+            ])
+        ),
+    ])
+
+    try BundleValidationFixture.stage(
+        root,
+        payloads: [
+            (
+                path: "annotations/entities.json",
+                data: try BundleValidationFixture.canonical(entities),
+                mediaType: "application/json"
+            ),
+        ]
+    )
+
+    _ = try BundleDirectoryValidator.validate(root: root)
+}
+
 @Test
 func schemaCompilerFailsClosedOnUnsupportedConstructs() throws {
     let remoteRef = try StrictJSON.parse(

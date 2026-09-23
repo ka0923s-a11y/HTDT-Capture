@@ -237,6 +237,9 @@ public struct CaptureAnnotationWorkspaceView: View {
         MeasurementInstrumentProfile?
     @State private var addingObservation = false
     @State private var addingRoute = false
+    @State private var addingReferenceTarget = false
+    @State private var observingTarget:
+        ReferenceTargetDeclaration?
 
     /// Undo-history bound (#330): snapshots are deep value copies, so
     /// the stack is capped at a deterministic depth.
@@ -569,6 +572,41 @@ public struct CaptureAnnotationWorkspaceView: View {
                         captureTargetedPlacement
                 ) { route in
                     fieldAuthority.wiringRoutes.append(route)
+                    scheduleDraftSave()
+                }
+            }
+        }
+        .sheet(isPresented: $addingReferenceTarget) {
+            NavigationStack {
+                ReferenceTargetDeclarationSheet {
+                    declaration in
+                    var staged =
+                        fieldAuthority.referenceTargets ?? []
+                    staged.append(declaration)
+                    fieldAuthority.referenceTargets = staged
+                    scheduleDraftSave()
+                }
+            }
+        }
+        .sheet(item: $observingTarget) { target in
+            NavigationStack {
+                ReferenceTargetObservationSheet(
+                    target: target,
+                    coordinateSpaceID: coordinateSpaceID,
+                    observationIndex: (
+                        fieldAuthority
+                            .referenceTargetObservations ?? []
+                    ).filter {
+                        $0.targetID == target.targetID
+                    }.count,
+                    captureTargetedPlacement:
+                        captureTargetedPlacement
+                ) { observation in
+                    var staged = fieldAuthority
+                        .referenceTargetObservations ?? []
+                    staged.append(observation)
+                    fieldAuthority
+                        .referenceTargetObservations = staged
                     scheduleDraftSave()
                 }
             }
@@ -1597,6 +1635,85 @@ public struct CaptureAnnotationWorkspaceView: View {
                 String(localized: "Record wiring route")
             ) {
                 addingRoute = true
+            }
+        }
+
+        // #227: declared fiducial/reference targets plus their
+        // evidence-linked sightings — the scale/drift/repeatability
+        // document built at commit time.
+        Section(String(localized: "Reference targets")) {
+            let targets = fieldAuthority.referenceTargets ?? []
+            let observations =
+                fieldAuthority.referenceTargetObservations ?? []
+            if targets.isEmpty {
+                Text(
+                    String(localized:
+                        "No reference targets declared.")
+                )
+                .foregroundStyle(.secondary)
+            } else {
+                ForEach(targets, id: \.targetID) { target in
+                    let count = observations.filter {
+                        $0.targetID == target.targetID
+                    }.count
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(target.targetType)
+                        Text(
+                            [
+                                String(
+                                    format: "%.3f m",
+                                    target
+                                        .knownDimensionMeters
+                                ),
+                                FieldAuthorityPresentation
+                                    .targetDimensionAuthorityName(
+                                        target
+                                            .dimensionAuthority
+                                    ),
+                                captureCountPhrase(
+                                    count,
+                                    singular: String(
+                                        localized:
+                                            "%lld sighting"
+                                    ),
+                                    plural: String(
+                                        localized:
+                                            "%lld sightings"
+                                    )
+                                ),
+                            ]
+                            .joined(separator: " · ")
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                    Button(
+                        String(localized: "Record sighting")
+                    ) {
+                        observingTarget = target
+                    }
+                    .font(.caption)
+                }
+                .onDelete { offsets in
+                    let removedIDs = Set(
+                        offsets.map { targets[$0].targetID }
+                    )
+                    fieldAuthority.referenceTargets =
+                        targets.enumerated().compactMap {
+                            index, value in
+                            offsets.contains(index) ? nil : value
+                        }
+                    fieldAuthority.referenceTargetObservations =
+                        observations.filter {
+                            !removedIDs.contains($0.targetID)
+                        }
+                    scheduleDraftSave()
+                }
+            }
+            Button(
+                String(localized: "Declare reference target")
+            ) {
+                addingReferenceTarget = true
             }
         }
     }

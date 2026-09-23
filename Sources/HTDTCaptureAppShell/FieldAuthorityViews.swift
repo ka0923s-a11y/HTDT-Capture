@@ -34,6 +34,20 @@ public enum FieldAuthorityPresentation {
         }
     }
 
+    /// #227: the authority a declared target dimension came from.
+    public static func targetDimensionAuthorityName(
+        _ authority: ReferenceTargetDimensionAuthority
+    ) -> String {
+        switch authority {
+        case .userSupplied:
+            return String(localized: "Measured on site")
+        case .manufacturerSpecification:
+            return String(localized: "Manufacturer spec")
+        case .calibrationAuthority:
+            return String(localized: "Calibration certificate")
+        }
+    }
+
     public static func instrumentClassName(
         _ instrumentClass: MeasurementInstrumentClass
     ) -> String {
@@ -2691,5 +2705,292 @@ private extension View {
 extension MeasurementInstrumentProfile: Identifiable {
     public var id: String {
         instrumentID.description + ":" + String(profileVersion)
+    }
+}
+
+extension ReferenceTargetDeclaration: Identifiable {
+    public var id: String { targetID.description }
+}
+
+// MARK: #227 reference-target capture
+
+/// Declares a fiducial/reference target (issue #227): the physical
+/// marker's type token, its known dimension, and the authority that
+/// dimension comes from — all operator-declared, never inferred.
+public struct ReferenceTargetDeclarationSheet: View {
+    public let onCommit: (ReferenceTargetDeclaration) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var targetType = "checkerboard"
+    @State private var dimensionText = ""
+    @State private var dimensionAuthority:
+        ReferenceTargetDimensionAuthority = .userSupplied
+    @State private var authorityRef = ""
+    @State private var errorText: String?
+
+    public init(
+        onCommit: @escaping (ReferenceTargetDeclaration) -> Void
+    ) {
+        self.onCommit = onCommit
+    }
+
+    private func authorityName(
+        _ value: ReferenceTargetDimensionAuthority
+    ) -> String {
+        FieldAuthorityPresentation
+            .targetDimensionAuthorityName(value)
+    }
+
+    public var body: some View {
+        Form {
+            Section(String(localized: "Target")) {
+                TextField(
+                    String(localized:
+                        "Target type (e.g. checkerboard_6x8, apriltag_36h11_100mm)"),
+                    text: $targetType
+                )
+                TextField(
+                    String(localized:
+                        "Known dimension (m)"),
+                    text: $dimensionText
+                )
+                .decimalKeyboard()
+            }
+            Section(String(localized: "Dimension authority")) {
+                Picker(
+                    String(localized: "Authority"),
+                    selection: $dimensionAuthority
+                ) {
+                    ForEach(
+                        [
+                            ReferenceTargetDimensionAuthority
+                                .userSupplied,
+                            .manufacturerSpecification,
+                            .calibrationAuthority,
+                        ],
+                        id: \.self
+                    ) { value in
+                        Text(authorityName(value)).tag(value)
+                    }
+                }
+                TextField(
+                    String(localized:
+                        "Authority reference (datasheet, certificate ID, or note)"),
+                    text: $authorityRef
+                )
+            }
+            if let errorText {
+                Text(errorText)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+        .navigationTitle(String(localized: "Declare target"))
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button(String(localized: "Cancel")) { dismiss() }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button(String(localized: "Add")) { save() }
+            }
+        }
+    }
+
+    private func save() {
+        guard let dimension = Double(
+            dimensionText.trimmingCharacters(in: .whitespaces)
+        ) else {
+            errorText = String(
+                localized:
+                    "Known dimension must be a number in meters."
+            )
+            return
+        }
+        do {
+            let declaration = try ReferenceTargetDeclaration(
+                targetType: targetType,
+                knownDimensionMeters: dimension,
+                dimensionAuthority: dimensionAuthority,
+                authorityRef: authorityRef
+            )
+            onCommit(declaration)
+            dismiss()
+        } catch {
+            errorText = String(
+                localized:
+                    "Target type and authority reference are required."
+            )
+        }
+    }
+}
+
+/// Records one evidence-linked sighting of a declared reference
+/// target (issue #227). A position capture binds the live reticle's
+/// world point plus its persisted frame evidence; the measured
+/// dimension stays optional because scale reads may come later from
+/// mesh analysis.
+public struct ReferenceTargetObservationSheet: View {
+    public let target: ReferenceTargetDeclaration
+    public let coordinateSpaceID: CoordinateSpaceID
+    public let observationIndex: Int
+    /// Reticle placement capture port — nil on hosts without a live
+    /// camera session; the sheet then records dimension-only
+    /// observations.
+    public let captureTargetedPlacement:
+        (PlacementTargetPreference) async throws
+            -> AnnotationPlacementAuthority?
+    public let onCommit: (ReferenceTargetObservation) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var dimensionText = ""
+    @State private var positionWorld: SpatialVector3F?
+    @State private var evidenceRefs: [String] = []
+    @State private var capturing = false
+    @State private var errorText: String?
+
+    public init(
+        target: ReferenceTargetDeclaration,
+        coordinateSpaceID: CoordinateSpaceID,
+        observationIndex: Int,
+        captureTargetedPlacement: @escaping (
+            PlacementTargetPreference
+        ) async throws -> AnnotationPlacementAuthority? = { _ in
+            nil
+        },
+        onCommit: @escaping (ReferenceTargetObservation) -> Void
+    ) {
+        self.target = target
+        self.coordinateSpaceID = coordinateSpaceID
+        self.observationIndex = observationIndex
+        self.captureTargetedPlacement = captureTargetedPlacement
+        self.onCommit = onCommit
+    }
+
+    public var body: some View {
+        Form {
+            Section(String(localized: "Observation")) {
+                LabeledContent(
+                    String(localized: "Target"),
+                    value: target.targetType
+                )
+                LabeledContent(
+                    String(localized: "Index"),
+                    value: String(observationIndex)
+                )
+                TextField(
+                    String(localized:
+                        "Measured dimension (m, optional)"),
+                    text: $dimensionText
+                )
+                .decimalKeyboard()
+            }
+            Section(String(localized: "Position")) {
+                if let positionWorld {
+                    LabeledContent(
+                        String(localized: "Center (m)"),
+                        value: String(
+                            format: "%.2f, %.2f, %.2f",
+                            Double(positionWorld.x),
+                            Double(positionWorld.y),
+                            Double(positionWorld.z)
+                        )
+                    )
+                } else {
+                    Text(
+                        String(localized:
+                            "No position captured — dimension-only observation.")
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                Button(
+                    String(localized: "Capture position at reticle")
+                ) {
+                    capturePosition()
+                }
+                .disabled(capturing)
+            }
+            if let errorText {
+                Text(errorText)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+        .navigationTitle(
+            String(localized: "Record observation")
+        )
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button(String(localized: "Cancel")) { dismiss() }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button(String(localized: "Add")) { save() }
+            }
+        }
+    }
+
+    private func capturePosition() {
+        capturing = true
+        errorText = nil
+        Task {
+            do {
+                if let authority =
+                    try await captureTargetedPlacement(.automatic)
+                {
+                    let p =
+                        authority.worldFromAnnotation
+                            .translationWorld
+                    positionWorld = try SpatialVector3F(
+                        p.x, p.y, p.z
+                    )
+                    evidenceRefs = authority.evidenceRefs
+                } else {
+                    errorText = String(
+                        localized:
+                            "Aim at the target surface and try again."
+                    )
+                }
+            } catch {
+                errorText = String(
+                    localized:
+                        "Position capture is unavailable."
+                )
+            }
+            capturing = false
+        }
+    }
+
+    private func save() {
+        let trimmed = dimensionText.trimmingCharacters(
+            in: .whitespaces
+        )
+        var measured: Double?
+        if !trimmed.isEmpty {
+            guard let value = Double(trimmed), value > 0 else {
+                errorText = String(
+                    localized:
+                        "Measured dimension must be a positive number of meters."
+                )
+                return
+            }
+            measured = value
+        }
+        do {
+            let observation = try ReferenceTargetObservation(
+                targetID: target.targetID,
+                coordinateSpaceID: coordinateSpaceID,
+                observationIndex: observationIndex,
+                positionWorld: positionWorld,
+                measuredDimensionMeters: measured,
+                evidenceRefs: evidenceRefs
+            )
+            onCommit(observation)
+            dismiss()
+        } catch {
+            errorText = String(
+                localized: "The observation could not be recorded."
+            )
+        }
     }
 }

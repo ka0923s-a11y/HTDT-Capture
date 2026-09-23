@@ -3315,6 +3315,7 @@ public actor CaptureWorkingSetStore {
             bundle.instruments?.data,
             bundle.settings?.data,
             bundle.wiring?.data,
+            bundle.referenceTargets?.data,
         ].compactMap(\.self).reduce(0) { $0 + $1.count }
             + bundle.assetWrites.reduce(0) { $0 + $1.data.count }
         let admissionReservation = try reserveAdmission(
@@ -3373,6 +3374,14 @@ public actor CaptureWorkingSetStore {
                 .invalidAnnotationPackage
             )
         }
+        let stagedReferenceTargets = try bundle.referenceTargets
+            .map {
+                try decodeVerify(
+                    ReferenceTargetCaptureDocument.self,
+                    $0.data,
+                    .invalidAnnotationPackage
+                )
+            }
         let documentsMatch =
             (stagedOperators == nil
                 || stagedOperators == bundle.operators?.document)
@@ -3386,6 +3395,9 @@ public actor CaptureWorkingSetStore {
                 || stagedSettings == bundle.settings?.document)
             && (stagedWiring == nil
                 || stagedWiring == bundle.wiring?.document)
+            && (stagedReferenceTargets == nil
+                || stagedReferenceTargets
+                    == bundle.referenceTargets?.document)
         guard documentsMatch else {
             throw CaptureWorkingSetError.invalidAnnotationPackage
         }
@@ -3406,6 +3418,7 @@ public actor CaptureWorkingSetStore {
             stagedInstruments?.captureRevisionID,
             stagedSettings?.captureRevisionID,
             stagedWiring?.captureRevisionID,
+            stagedReferenceTargets?.captureRevisionID,
         ].compactMap(\.self) {
             guard revision == identity.captureRevisionID else {
                 throw CaptureWorkingSetError.authorityMismatch
@@ -3529,6 +3542,11 @@ public actor CaptureWorkingSetStore {
             bundle.wiring.map { (
                 AsBuiltWiringPackage.path, $0.data, $0.sourceRefs
             ) },
+            bundle.referenceTargets.map { (
+                ReferenceTargetCapturePackage.path,
+                $0.data,
+                $0.sourceRefs
+            ) },
         ].compactMap(\.self) {
             docRequests.append(
                 try CaptureFileWriteRequest(
@@ -3584,6 +3602,11 @@ public actor CaptureWorkingSetStore {
             ) },
             bundle.wiring.map { (
                 AsBuiltWiringPackage.path, $0.data, $0.sourceRefs
+            ) },
+            bundle.referenceTargets.map { (
+                ReferenceTargetCapturePackage.path,
+                $0.data,
+                $0.sourceRefs
             ) },
         ].compactMap(\.self) {
             let declaration = BundlePayloadDeclaration(
@@ -5051,7 +5074,20 @@ public actor CaptureWorkingSetStore {
     /// The advisory findings currently recorded, exposed as the
     /// quality-evaluation input.
     public var advisoryFindings: [QualityDiagnostic] {
-        advisoryNotes.map(\.qualityDiagnostic)
+        var findings = advisoryNotes.map(\.qualityDiagnostic)
+        // #227: reference-target residuals join the advisory
+        // surface — read-only diagnostics derived from the committed
+        // document, never persisted advisories.
+        if let data = supplementalDocuments[
+            ReferenceTargetCapturePackage.path
+        ], let document = try? JSONDecoder().decode(
+            ReferenceTargetCaptureDocument.self,
+            from: data
+        ) {
+            findings += ReferenceTargetCaptureBuilder
+                .reviewDiagnostics(for: document)
+        }
+        return findings
     }
 
     /// The operator field notes recorded on this revision (issue
@@ -5284,9 +5320,7 @@ public actor CaptureWorkingSetStore {
                 resourceEvents: resourceEvents,
                 integrityStatus: integrityStatus,
                 benchmarkRefs: benchmarkRefs,
-                advisoryFindings: advisoryNotes.map(
-                    \.qualityDiagnostic
-                )
+                advisoryFindings: advisoryFindings
             ),
             requirements: requirements
         )

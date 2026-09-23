@@ -403,8 +403,18 @@ public struct AnnotationCameraCaptureSheet: View {
             Double(front.x),
             Double(-front.z)
         ) * 180 / .pi
-        return String(format:
+        var summary = String(format:
             String(localized: "Captured heading %.0f°"), yaw)
+        // #228: aim is full-3D — surface the tilt when the front
+        // axis is not gravity-horizontal.
+        let pitch =
+            asin(max(-1, min(1, Double(front.y))))
+                * 180 / .pi
+        if abs(pitch) > 0.5 {
+            summary += String(format:
+                String(localized: "\nTilt %+.0f°"), pitch)
+        }
+        return summary
     }
 }
 
