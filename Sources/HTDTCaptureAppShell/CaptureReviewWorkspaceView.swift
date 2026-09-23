@@ -53,6 +53,12 @@ public struct CaptureReviewWorkspaceView: View {
         () async -> Bool
     /// #232: removes the committed field datum payload.
     public let removeRoomFieldDatum: () async -> Void
+    /// #232: commits a field datum declared from bounded operands —
+    /// entity/measurement/room-frame/stated picks resolved by the
+    /// host into the persisted document. Returns false on a failed
+    /// or rejected commit.
+    public let commitFieldDatum:
+        (RoomFieldDatumAuthoringRequest) async -> Bool
     /// #231: captures the camera position as the center for a
     /// user-declared opening candidate.
     public let captureOpeningCenter: () -> Void
@@ -97,6 +103,7 @@ public struct CaptureReviewWorkspaceView: View {
     @State private var planFocusToken = 0
     @State private var planLabelMode: ReviewPlanLabelMode = .off
     @State private var composingFieldNote = false
+    @State private var authoringDatum = false
     @State private var supersedingFieldNote: CaptureFieldNote?
     @State private var bindingFieldNote: CaptureFieldNote?
     /// #408: Plan stays the default surface; the accepted-geometry
@@ -129,6 +136,9 @@ public struct CaptureReviewWorkspaceView: View {
         confirmFieldDatumFromRoomFrame: @escaping
             () async -> Bool = { false },
         removeRoomFieldDatum: @escaping () async -> Void = {},
+        commitFieldDatum: @escaping
+            (RoomFieldDatumAuthoringRequest) async -> Bool =
+            { _ in false },
         captureOpeningCenter: @escaping () -> Void = {},
         clearOpeningCenter: @escaping () -> Void = {},
         recordReviewFieldNote: @escaping
@@ -163,6 +173,7 @@ public struct CaptureReviewWorkspaceView: View {
         self.confirmFieldDatumFromRoomFrame =
             confirmFieldDatumFromRoomFrame
         self.removeRoomFieldDatum = removeRoomFieldDatum
+        self.commitFieldDatum = commitFieldDatum
         self.captureOpeningCenter = captureOpeningCenter
         self.clearOpeningCenter = clearOpeningCenter
         self.recordReviewFieldNote = recordReviewFieldNote
@@ -684,6 +695,8 @@ public struct CaptureReviewWorkspaceView: View {
                 }
             }
 
+            referenceTargetsSection
+
             Section("Opening review") {
                 if let review = model.openingReview {
                     Text(
@@ -970,6 +983,13 @@ public struct CaptureReviewWorkspaceView: View {
                         .disabled(
                             model.roomReferenceFrame == nil
                         )
+                        Button("Author datum from evidence") {
+                            authoringDatum = true
+                        }
+                        .disabled(
+                            model.roomReferenceFrame == nil
+                                && model.annotations.isEmpty
+                        )
                         if model.roomReferenceFrame == nil {
                             Text(
                                 "Confirm a room reference frame first."
@@ -996,6 +1016,14 @@ public struct CaptureReviewWorkspaceView: View {
         .navigationTitle(
             model.readOnly ? "Persisted capture" : "Review workspace"
         )
+        .sheet(isPresented: $authoringDatum) {
+            RoomFieldDatumAuthoringSheet(
+                annotations: model.annotations,
+                measurements: model.measurements,
+                roomReferenceFrame: model.roomReferenceFrame,
+                onCommit: commitFieldDatum
+            )
+        }
         .sheet(isPresented: $composingFieldNote) {
             FieldNoteComposeSheet(
                 allowsEvidenceAttachment: false,
@@ -1115,6 +1143,91 @@ public struct CaptureReviewWorkspaceView: View {
                 Text(
                     "Mission completeness is reviewed against the bound plan — it is workflow intent, not observed truth, and never replaces technical readiness."
                 )
+            }
+        }
+    }
+
+    /// #227: declared reference targets, their sighting counts, and
+    /// the scale-revisit diagnostics the builder computed at commit
+    /// time. Rendered only when a targets document was committed.
+    @ViewBuilder
+    private var referenceTargetsSection: some View {
+        if let document = model.referenceTargets,
+           !document.targets.isEmpty
+        {
+            Section("Reference targets") {
+                ForEach(document.targets, id: \.targetID) { target in
+                    referenceTargetRow(
+                        target: target,
+                        observations: document.observations.filter {
+                            $0.targetID == target.targetID
+                        },
+                        diagnostic: document.diagnostics.first {
+                            $0.targetID == target.targetID
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    private func referenceTargetRow(
+        target: ReferenceTargetDeclaration,
+        observations: [ReferenceTargetObservation],
+        diagnostic: ReferenceTargetDiagnostics?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(target.targetType)
+            Text(
+                [
+                    String(
+                        format: "%.3f m",
+                        target.knownDimensionMeters
+                    ),
+                    FieldAuthorityPresentation
+                        .targetDimensionAuthorityName(
+                            target.dimensionAuthority
+                        ),
+                    captureCountPhrase(
+                        observations.count,
+                        singular: String(
+                            localized: "%lld sighting"
+                        ),
+                        plural: String(
+                            localized: "%lld sightings"
+                        )
+                    ),
+                ]
+                .joined(separator: " · ")
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            if let diagnostic {
+                Text(
+                    [
+                        diagnostic.scaleResidualFraction.map {
+                            String(
+                                format: String(
+                                    localized:
+                                        "scale residual %+.2f%%"
+                                ),
+                                $0 * 100
+                            )
+                        },
+                        diagnostic.revisitDisplacementMeters.map {
+                            String(
+                                format: String(
+                                    localized: "revisit %.3f m"
+                                ),
+                                $0
+                            )
+                        },
+                    ]
+                    .compactMap { $0 }
+                    .joined(separator: " · ")
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             }
         }
     }
@@ -2036,3 +2149,437 @@ struct AsyncPreviewImage: View {
     }
 }
 #endif
+
+// MARK: #232 bounded field-datum authoring
+
+/// The bounded field-datum authoring sheet (issue #232 refinement):
+/// every operand maps to workspace evidence — an authored entity, a
+/// committed measurement, the confirmed room frame, or an
+/// operator-stated value — never a free arbitrary vector. The host
+/// resolves operands into the persisted record.
+struct RoomFieldDatumAuthoringSheet: View {
+    let annotations: [CaptureAnnotationEntity]
+    let measurements: [CaptureMeasurement]
+    let roomReferenceFrame: RoomReferenceFrameDocument?
+    let onCommit: (RoomFieldDatumAuthoringRequest) async -> Bool
+
+    @Environment(\.dismiss) private var dismiss
+
+    private enum OriginMode: String, CaseIterable {
+        case roomFrame, entity, stated
+    }
+    private enum AxisMode: String, CaseIterable {
+        case roomFrame, facing, twoPoints, measurement, stated
+    }
+    private enum VerticalMode: String, CaseIterable {
+        case roomFrame, entity, stated
+    }
+
+    @State private var originMode: OriginMode
+    @State private var originKind: RoomFieldDatumOriginKind =
+        .surveyedPoint
+    @State private var originEntityID = ""
+    @State private var originX = "0"
+    @State private var originY = "0"
+    @State private var originZ = "0"
+
+    @State private var axisMode: AxisMode
+    @State private var axisKind: RoomFieldDatumAxisKind =
+        .wallDirection
+    @State private var facingEntityID = ""
+    @State private var pointAID = ""
+    @State private var pointBID = ""
+    @State private var axisMeasurementID = ""
+    @State private var axisDirX = "1"
+    @State private var axisDirZ = "0"
+
+    @State private var verticalKind: RoomFieldDatumVerticalKind =
+        .finishedFloor
+    @State private var verticalMode: VerticalMode
+    @State private var verticalEntityID = ""
+    @State private var zeroText = "0"
+
+    @State private var saveError: String?
+    @State private var saving = false
+
+    /// Entities that can back a facing operand — facing requires a
+    /// recorded orientation.
+    private var facedEntities: [CaptureAnnotationEntity] {
+        annotations.filter { $0.orientation != nil }
+    }
+
+    /// Measurements resolvable into an axis — at least two `entity:`
+    /// endpoint refs.
+    private var axisMeasurements: [CaptureMeasurement] {
+        measurements.filter {
+            $0.endpointRefs.filter {
+                $0.hasPrefix("entity:")
+            }.count >= 2
+        }
+    }
+
+    private func entityRow(_ e: CaptureAnnotationEntity) -> some View {
+        Text(
+            e.label.isEmpty
+                ? TheaterAuthorityPresentation.entityTypeName(e.type)
+                : e.label
+        ).tag(e.entityID.description)
+    }
+
+    init(
+        annotations: [CaptureAnnotationEntity],
+        measurements: [CaptureMeasurement],
+        roomReferenceFrame: RoomReferenceFrameDocument?,
+        onCommit: @escaping (RoomFieldDatumAuthoringRequest)
+            async -> Bool
+    ) {
+        self.annotations = annotations
+        self.measurements = measurements
+        self.roomReferenceFrame = roomReferenceFrame
+        self.onCommit = onCommit
+        _originMode = State(
+            initialValue: roomReferenceFrame != nil
+                ? .roomFrame
+                : .entity
+        )
+        _axisMode = State(
+            initialValue: roomReferenceFrame != nil
+                ? .roomFrame
+                : .facing
+        )
+        _verticalMode = State(
+            initialValue: roomReferenceFrame != nil
+                ? .roomFrame
+                : .stated
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(String(localized: "Origin")) {
+                    Picker(
+                        String(localized: "Source"),
+                        selection: $originMode
+                    ) {
+                        if roomReferenceFrame != nil {
+                            Text(String(localized: "Room frame"))
+                                .tag(OriginMode.roomFrame)
+                        }
+                        Text(String(localized: "Annotated point"))
+                            .tag(OriginMode.entity)
+                        Text(String(localized: "Stated point"))
+                            .tag(OriginMode.stated)
+                    }
+                    if originMode == .entity {
+                        Picker(
+                            String(localized: "Point"),
+                            selection: $originEntityID
+                        ) {
+                            ForEach(
+                                annotations, id: \.entityID
+                            ) { entityRow($0) }
+                        }
+                        originKindPicker
+                    } else if originMode == .stated {
+                        originKindPicker
+                        HStack {
+                            TextField(String(localized: "X (m)"), text: $originX)
+                                .decimalKeyboard()
+                            TextField(String(localized: "Y (m)"), text: $originY)
+                                .decimalKeyboard()
+                            TextField(String(localized: "Z (m)"), text: $originZ)
+                                .decimalKeyboard()
+                        }
+                    }
+                }
+
+                Section(String(localized: "Front axis")) {
+                    Picker(
+                        String(localized: "Source"),
+                        selection: $axisMode
+                    ) {
+                        if roomReferenceFrame != nil {
+                            Text(String(localized: "Room frame front"))
+                                .tag(AxisMode.roomFrame)
+                        }
+                        Text(String(localized: "Item facing"))
+                            .tag(AxisMode.facing)
+                        Text(String(localized: "Two points"))
+                            .tag(AxisMode.twoPoints)
+                        Text(String(localized: "Measurement"))
+                            .tag(AxisMode.measurement)
+                        Text(String(localized: "Stated direction"))
+                            .tag(AxisMode.stated)
+                    }
+                    switch axisMode {
+                    case .facing:
+                        Picker(
+                            String(localized: "Item"),
+                            selection: $facingEntityID
+                        ) {
+                            ForEach(
+                                facedEntities, id: \.entityID
+                            ) { entityRow($0) }
+                        }
+                        axisKindPicker
+                    case .twoPoints:
+                        Picker(
+                            String(localized: "From point"),
+                            selection: $pointAID
+                        ) {
+                            ForEach(
+                                annotations, id: \.entityID
+                            ) { entityRow($0) }
+                        }
+                        Picker(
+                            String(localized: "Toward point"),
+                            selection: $pointBID
+                        ) {
+                            ForEach(
+                                annotations, id: \.entityID
+                            ) { entityRow($0) }
+                        }
+                    case .measurement:
+                        Picker(
+                            String(localized: "Measurement"),
+                            selection: $axisMeasurementID
+                        ) {
+                            ForEach(
+                                axisMeasurements,
+                                id: \.measurementID
+                            ) {
+                                Text($0.quantityType)
+                                    .tag($0.measurementID.description)
+                            }
+                        }
+                    case .stated:
+                        axisKindPicker
+                        HStack {
+                            TextField(String(localized: "X"), text: $axisDirX)
+                                .decimalKeyboard()
+                            TextField(String(localized: "Z"), text: $axisDirZ)
+                                .decimalKeyboard()
+                        }
+                    case .roomFrame:
+                        EmptyView()
+                    }
+                }
+
+                Section(String(localized: "Vertical datum")) {
+                    Picker(
+                        String(localized: "Kind"),
+                        selection: $verticalKind
+                    ) {
+                        Text(String(localized: "Finished floor"))
+                            .tag(RoomFieldDatumVerticalKind.finishedFloor)
+                        Text(String(localized: "Platform top"))
+                            .tag(RoomFieldDatumVerticalKind.platformTop)
+                    }
+                    Picker(
+                        String(localized: "Zero level from"),
+                        selection: $verticalMode
+                    ) {
+                        if roomReferenceFrame != nil {
+                            Text(String(localized: "Room frame"))
+                                .tag(VerticalMode.roomFrame)
+                        }
+                        Text(String(localized: "Annotated point"))
+                            .tag(VerticalMode.entity)
+                        Text(String(localized: "Stated elevation"))
+                            .tag(VerticalMode.stated)
+                    }
+                    if verticalMode == .entity {
+                        Picker(
+                            String(localized: "Point"),
+                            selection: $verticalEntityID
+                        ) {
+                            ForEach(
+                                annotations, id: \.entityID
+                            ) { entityRow($0) }
+                        }
+                    } else if verticalMode == .stated {
+                        TextField(
+                            String(localized: "Elevation (m)"),
+                            text: $zeroText
+                        )
+                        .decimalKeyboard()
+                    }
+                }
+
+                if let saveError {
+                    Text(saveError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+            .navigationTitle(String(localized: "Field datum"))
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "Cancel")) {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(String(localized: "Confirm")) {
+                        commit()
+                    }
+                    .disabled(saving)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var originKindPicker: some View {
+        Picker(
+            String(localized: "Kind"),
+            selection: $originKind
+        ) {
+            ForEach(
+                RoomFieldDatumOriginKind.allCases.filter {
+                    $0 != .roomFrameOrigin
+                },
+                id: \.self
+            ) {
+                Text(
+                    TheaterAuthorityPresentation
+                        .datumOriginKindName($0)
+                ).tag($0)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var axisKindPicker: some View {
+        Picker(
+            String(localized: "Kind"),
+            selection: $axisKind
+        ) {
+            ForEach(
+                [
+                    RoomFieldDatumAxisKind.wallDirection,
+                    .screenDirection,
+                ],
+                id: \.self
+            ) {
+                Text(
+                    TheaterAuthorityPresentation
+                        .datumAxisKindName($0)
+                ).tag($0)
+            }
+        }
+    }
+
+    private func entity(_ id: String) -> AnnotationEntityID? {
+        AnnotationEntityID(canonicalString: id)
+    }
+
+    private func commit() {
+        let request: RoomFieldDatumAuthoringRequest
+        do {
+            request = try buildRequest()
+        } catch {
+            saveError = String(
+                localized: "Check the datum inputs and try again."
+            )
+            return
+        }
+        saving = true
+        Task {
+            let ok = await onCommit(request)
+            saving = false
+            if ok {
+                dismiss()
+            } else {
+                saveError = String(
+                    localized: "The field datum could not be saved."
+                )
+            }
+        }
+    }
+
+    private func meters(
+        _ x: String, _ y: String, _ z: String
+    ) throws -> WorldPoint3D {
+        guard let xv = Double(x), let yv = Double(y),
+              let zv = Double(z)
+        else {
+            throw RoomFieldDatumAuthoringError.missingStatedValue
+        }
+        return WorldPoint3D(x: xv, y: yv, z: zv)
+    }
+
+    private func buildRequest(
+    ) throws -> RoomFieldDatumAuthoringRequest {
+        let origin: RoomFieldDatumOriginOperand
+        var statedOrigin: WorldPoint3D?
+        switch originMode {
+        case .roomFrame:
+            origin = .roomFrame
+        case .entity:
+            guard let id = entity(originEntityID) else {
+                throw RoomFieldDatumAuthoringError.entityNotFound
+            }
+            origin = .entity(id, originKind)
+        case .stated:
+            statedOrigin = try meters(originX, originY, originZ)
+            origin = .statedPoint(originKind)
+        }
+
+        let axis: RoomFieldDatumAxisOperand
+        var statedDirection: WorldPoint3D?
+        switch axisMode {
+        case .roomFrame:
+            axis = .roomFrameFront
+        case .facing:
+            guard let id = entity(facingEntityID) else {
+                throw RoomFieldDatumAuthoringError.entityNotFound
+            }
+            axis = .entityFacing(id, axisKind)
+        case .twoPoints:
+            guard let a = entity(pointAID),
+                  let b = entity(pointBID)
+            else {
+                throw RoomFieldDatumAuthoringError.entityNotFound
+            }
+            axis = .twoSurveyedEntities(a, b)
+        case .measurement:
+            guard let id = MeasurementID(
+                canonicalString: axisMeasurementID
+            ) else {
+                throw RoomFieldDatumAuthoringError
+                    .measurementNotFound
+            }
+            axis = .measuredDirection(id)
+        case .stated:
+            statedDirection = try meters(axisDirX, "0", axisDirZ)
+            axis = .statedDirection(axisKind)
+        }
+
+        let vertical: RoomFieldDatumVerticalOperand
+        switch verticalMode {
+        case .roomFrame:
+            vertical = .fromRoomFrame(verticalKind)
+        case .entity:
+            guard let id = entity(verticalEntityID) else {
+                throw RoomFieldDatumAuthoringError.entityNotFound
+            }
+            vertical = .fromEntity(verticalKind, id)
+        case .stated:
+            guard let zero = Double(zeroText) else {
+                throw RoomFieldDatumAuthoringError
+                    .missingStatedValue
+            }
+            vertical = .stated(verticalKind, zero)
+        }
+
+        return RoomFieldDatumAuthoringRequest(
+            origin: origin,
+            statedOriginMeters: statedOrigin,
+            axis: axis,
+            statedDirectionMeters: statedDirection,
+            vertical: vertical
+        )
+    }
+}

@@ -68,6 +68,9 @@ public struct AnnotationEditSeed: Sendable, Equatable {
     public let positionMeters: Float3
     /// Prior speaker yaw in degrees, derived from `orientation`.
     public let yawDegrees: Float?
+    /// Prior speaker elevation (pitch) in degrees, derived from
+    /// `orientation` — positive when the front axis aims up (#228).
+    public let elevationDegrees: Float?
     public let channelRole: ChannelRole?
     public let equipmentRef: HTDTEquipmentReference?
     /// Entity's logical role binding (#315); survives an edit verbatim
@@ -108,6 +111,7 @@ public struct AnnotationEditSeed: Sendable, Equatable {
         self.label = ""
         self.positionMeters = Float3(0, 0, 0)
         self.yawDegrees = nil
+        self.elevationDegrees = nil
         self.channelRole = nil
         self.equipmentRef = nil
         self.originalRoleBinding = nil
@@ -139,6 +143,13 @@ public struct AnnotationEditSeed: Sendable, Equatable {
                 ) * 180 / .pi
             )
         }
+        self.elevationDegrees = entity.orientation.map {
+            Float(
+                asin(
+                    max(-1, min(1, Double($0.frontAxisLocal.y)))
+                ) * 180 / .pi
+            )
+        }
         self.channelRole = entity.channelRole
         self.equipmentRef = entity.equipmentRef
         self.originalRoleBinding = entity.roleBinding
@@ -166,6 +177,11 @@ public struct AnnotationEditSeed: Sendable, Equatable {
         roleBinding: SpeakerRoleBinding? = nil,
         equipmentRef: HTDTEquipmentReference?,
         yawDegrees: Float?,
+        speakerElevationDegrees: Float? = nil,
+        /// Explicit aim removal (#228): an edit that clears the yaw
+        /// field drops a previously recorded speaker aim rather than
+        /// preserving it. Untouched fields never reach here.
+        speakerAimRemoved: Bool = false,
         orientationYawDegrees: Float? = nil,
         listeningRole: ListeningPositionRole? = nil,
         referencePointSemantics: ReferencePointSemantics? = nil,
@@ -281,6 +297,7 @@ public struct AnnotationEditSeed: Sendable, Equatable {
 
         let requestedOrientation =
             replacementOrientation != nil || yawDegrees != nil
+            || speakerElevationDegrees != nil
             || orientationYawDegrees != nil
         if requestedOrientation,
            !type.supportsOrientationAuthority
@@ -295,15 +312,16 @@ public struct AnnotationEditSeed: Sendable, Equatable {
             orientation = replacementOrientation.orientation
             orientationAuthority = replacementOrientation
         } else if let yawDegrees {
-            let radians = Double(yawDegrees) * .pi / 180
-            orientation = try OrientationAxes(
-                frontAxisLocal: .unit(
-                    Float(sin(radians)),
-                    0,
-                    Float(-cos(radians))
-                ),
-                upAxisLocal: .unit(0, 1, 0)
-            )
+            // Speaker aim (#228): azimuth plus optional elevation — at
+            // 0° elevation the axes equal the historical yaw-only aim.
+            orientation = try ManualAuthorityBuilder
+                .speakerOrientationAxes(
+                    azimuthDegrees: Double(yawDegrees),
+                    elevationDegrees:
+                        speakerElevationDegrees.map(Double.init)
+                )
+        } else if speakerElevationDegrees != nil {
+            throw ManualAuthorityBuilderError.invalidSpeakerElevation
         } else if let orientationYawDegrees {
             let radians = Double(orientationYawDegrees) * .pi / 180
             orientation = try OrientationAxes(
@@ -316,8 +334,10 @@ public struct AnnotationEditSeed: Sendable, Equatable {
             )
         } else {
             // A type that cannot carry orientation semantics drops a
-            // stale captured body orientation on save.
+            // stale captured body orientation on save; a cleared
+            // speaker aim is an explicit removal (#228), not a keep.
             orientation = type.supportsOrientationAuthority
+                && !speakerAimRemoved
                 ? originalOrientation
                 : nil
         }

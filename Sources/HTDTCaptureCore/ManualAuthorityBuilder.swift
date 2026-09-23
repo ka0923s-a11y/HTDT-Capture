@@ -303,7 +303,9 @@ public enum ManualAuthorityBuilder {
             orientation = try Self.yawOrientation(
                 degrees: orientationYawDegrees
             )
-        } else if type == .speaker {
+        } else if type == .speaker, speakerYawDegrees != nil {
+            // Aim is optional (#228): no azimuth means an "aim
+            // unknown" record — nothing is synthesized.
             orientation = try Self.speakerOrientationAxes(
                 azimuthDegrees: speakerYawDegrees,
                 elevationDegrees: speakerElevationDegrees

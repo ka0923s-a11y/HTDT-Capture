@@ -13,6 +13,9 @@ public struct FieldAuthorityBundle: Sendable, Equatable {
     public let instruments: InstrumentProfilePackage?
     public let settings: InstalledSettingsPackage?
     public let wiring: AsBuiltWiringPackage?
+    /// #227: fiducial/reference-target capture document — declared
+    /// targets plus their evidence-linked observations.
+    public let referenceTargets: ReferenceTargetCapturePackage?
     /// Binary assets (captured close-ups / imported files) to write —
     /// write-once; an already-declared identical path is a no-op.
     public let assetWrites: [FieldEvidenceAssetPayload]
@@ -26,6 +29,7 @@ public struct FieldAuthorityBundle: Sendable, Equatable {
         instruments: InstrumentProfilePackage? = nil,
         settings: InstalledSettingsPackage? = nil,
         wiring: AsBuiltWiringPackage? = nil,
+        referenceTargets: ReferenceTargetCapturePackage? = nil,
         assetWrites: [FieldEvidenceAssetPayload] = [],
         assetRemovals: [FieldEvidenceAssetPayload] = []
     ) {
@@ -34,13 +38,15 @@ public struct FieldAuthorityBundle: Sendable, Equatable {
         self.instruments = instruments
         self.settings = settings
         self.wiring = wiring
+        self.referenceTargets = referenceTargets
         self.assetWrites = assetWrites
         self.assetRemovals = assetRemovals
     }
 
     public var isEmpty: Bool {
         operators == nil && fieldEvidence == nil && instruments == nil
-            && settings == nil && wiring == nil && assetWrites.isEmpty
+            && settings == nil && wiring == nil
+            && referenceTargets == nil && assetWrites.isEmpty
             && assetRemovals.isEmpty
     }
 }
@@ -427,6 +433,13 @@ public struct FieldAuthorityWorkspace: Codable, Sendable, Equatable {
     public var instruments: [MeasurementInstrumentProfile]
     public var settingsObservations: [InstalledSettingsObservation]
     public var wiringRoutes: [AsBuiltWiringRoute]
+    /// #227: declared fiducial/reference targets and their
+    /// observations — staged with the rest of the field bag so a
+    /// draft round-trips them. Optional so drafts authored before
+    /// targets existed still decode.
+    public var referenceTargets: [ReferenceTargetDeclaration]?
+    public var referenceTargetObservations:
+        [ReferenceTargetObservation]?
 
     public init(
         operatorProfiles: [OperatorProfile] = [],
@@ -435,7 +448,10 @@ public struct FieldAuthorityWorkspace: Codable, Sendable, Equatable {
         fieldEvidenceAssets: [StagedFieldAsset] = [],
         instruments: [MeasurementInstrumentProfile] = [],
         settingsObservations: [InstalledSettingsObservation] = [],
-        wiringRoutes: [AsBuiltWiringRoute] = []
+        wiringRoutes: [AsBuiltWiringRoute] = [],
+        referenceTargets: [ReferenceTargetDeclaration]? = nil,
+        referenceTargetObservations:
+            [ReferenceTargetObservation]? = nil
     ) {
         self.operatorProfiles = operatorProfiles
         self.selectedOperatorID = selectedOperatorID
@@ -444,6 +460,9 @@ public struct FieldAuthorityWorkspace: Codable, Sendable, Equatable {
         self.instruments = instruments
         self.settingsObservations = settingsObservations
         self.wiringRoutes = wiringRoutes
+        self.referenceTargets = referenceTargets
+        self.referenceTargetObservations =
+            referenceTargetObservations
     }
 
     /// Any staged field-authority content worth committing.
@@ -451,6 +470,8 @@ public struct FieldAuthorityWorkspace: Codable, Sendable, Equatable {
         !operatorProfiles.isEmpty || !fieldEvidence.isEmpty
             || !fieldEvidenceAssets.isEmpty || !instruments.isEmpty
             || !settingsObservations.isEmpty || !wiringRoutes.isEmpty
+            || !(referenceTargets?.isEmpty ?? true)
+            || !(referenceTargetObservations?.isEmpty ?? true)
     }
 }
 

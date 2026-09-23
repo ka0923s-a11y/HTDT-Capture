@@ -172,6 +172,10 @@ public struct CaptureRootActions {
     /// datum payload.
     public let confirmFieldDatumFromRoomFrame: () async -> Bool
     public let removeRoomFieldDatum: () async -> Void
+    /// #232: commits a field datum declared from bounded
+    /// evidence operands (entity/measurement/frame/stated).
+    public let commitFieldDatum:
+        (RoomFieldDatumAuthoringRequest) async -> Bool
     /// Captures the camera position for a user-declared opening
     /// candidate's center (#231).
     public let captureOpeningCenter: () -> Void
@@ -571,6 +575,9 @@ public struct CaptureRootActions {
             () async -> Bool = { false },
         removeRoomFieldDatum: @escaping
             () async -> Void = {},
+        commitFieldDatum: @escaping
+            (RoomFieldDatumAuthoringRequest) async -> Bool =
+            { _ in false },
         captureOpeningCenter: @escaping () -> Void = {},
         clearOpeningCenter: @escaping () -> Void = {},
         openingReviewCandidates: @escaping
@@ -834,6 +841,7 @@ public struct CaptureRootActions {
         self.confirmFieldDatumFromRoomFrame =
             confirmFieldDatumFromRoomFrame
         self.removeRoomFieldDatum = removeRoomFieldDatum
+        self.commitFieldDatum = commitFieldDatum
         self.captureOpeningCenter = captureOpeningCenter
         self.clearOpeningCenter = clearOpeningCenter
         self.openingReviewCandidates = openingReviewCandidates
@@ -2104,6 +2112,8 @@ public struct CaptureRootView: View {
                                     .confirmFieldDatumFromRoomFrame,
                             removeRoomFieldDatum:
                                 actions.removeRoomFieldDatum,
+                            commitFieldDatum:
+                                actions.commitFieldDatum,
                             captureOpeningCenter:
                                 actions.captureOpeningCenter,
                             clearOpeningCenter:

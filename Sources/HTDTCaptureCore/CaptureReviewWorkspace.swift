@@ -268,6 +268,9 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
         [InstalledSettingsObservation]
     /// Committed as-built wiring routes (#324).
     public let wiringRoutes: [AsBuiltWiringRoute]
+    /// Committed fiducial/reference-target capture document (#227),
+    /// when declared targets exist.
+    public let referenceTargets: ReferenceTargetCaptureDocument?
     public let openingReview: OpeningReviewDocument?
     public let roomReferenceFrame: RoomReferenceFrameDocument?
     /// Committed field/install datum (issue #232), if any.
@@ -333,6 +336,7 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
         settingsObservations:
             [InstalledSettingsObservation] = [],
         wiringRoutes: [AsBuiltWiringRoute] = [],
+        referenceTargets: ReferenceTargetCaptureDocument? = nil,
         openingReview: OpeningReviewDocument?,
         roomReferenceFrame: RoomReferenceFrameDocument?,
         roomFieldDatum: RoomFieldDatumDocument? = nil,
@@ -363,6 +367,7 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
         self.instruments = instruments
         self.settingsObservations = settingsObservations
         self.wiringRoutes = wiringRoutes
+        self.referenceTargets = referenceTargets
         self.openingReview = openingReview
         self.roomReferenceFrame = roomReferenceFrame
         self.roomFieldDatum = roomFieldDatum
@@ -542,6 +547,10 @@ public enum CaptureReviewWorkspaceLoader {
         let wiringDoc = decodeIfDeclared(
             AsBuiltWiringDocument.self,
             AsBuiltWiringPackage.path
+        )
+        let referenceTargetsDoc = decodeIfDeclared(
+            ReferenceTargetCaptureDocument.self,
+            ReferenceTargetCapturePackage.path
         )
         let policy = decodeIfDeclared(
             CoordinateSpacePolicyDocument.self,
@@ -804,6 +813,7 @@ public enum CaptureReviewWorkspaceLoader {
             settingsObservations:
                 settingsDoc?.observations ?? [],
             wiringRoutes: wiringDoc?.routes ?? [],
+            referenceTargets: referenceTargetsDoc,
             openingReview: openingReview,
             roomReferenceFrame: roomReferenceFrame,
             roomFieldDatum: roomFieldDatum,

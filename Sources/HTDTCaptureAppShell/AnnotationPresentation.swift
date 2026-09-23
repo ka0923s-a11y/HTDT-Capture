@@ -364,7 +364,7 @@ enum AnnotationPresentation {
                     "An acoustic-center offset only applies to speakers and subwoofers.")
             case .invalidSpeakerYaw:
                 return String(localized:
-                    "Set the speaker facing direction: capture the heading or enter a yaw angle.")
+                    "Speaker yaw must be a finite number of degrees, or leave it empty to record no aim.")
             case .invalidSpeakerChannelRole:
                 return String(localized:
                     "Choose a channel role (e.g. L, C, R, SL) for this speaker.")

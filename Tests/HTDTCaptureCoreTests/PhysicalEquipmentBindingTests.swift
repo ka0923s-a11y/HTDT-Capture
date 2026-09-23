@@ -419,7 +419,7 @@ final class PhysicalEquipmentBindingTests: XCTestCase {
                 try binding(entity: projector, itemID: itemID)
             ]
         )
-        XCTAssertEqual(collection.schemaVersion, "1.2.0")
+        XCTAssertEqual(collection.schemaVersion, "1.3.0")
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

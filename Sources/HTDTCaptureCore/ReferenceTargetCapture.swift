@@ -393,6 +393,12 @@ public struct ReferenceTargetCapturePackage: Sendable, Equatable {
         self.document = document
         self.data = data
     }
+
+    /// Lineage refs for the store's derived-payload declaration —
+    /// the bound capture session.
+    public var sourceRefs: [String] {
+        ["capture_session:" + document.captureSessionID.description]
+    }
 }
 
 public enum ReferenceTargetCaptureBuilder {
