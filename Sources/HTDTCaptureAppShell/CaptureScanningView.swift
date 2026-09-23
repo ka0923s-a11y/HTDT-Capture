@@ -66,6 +66,17 @@ public struct CaptureScanningView: View {
         (SpatialCoverageCellKey) -> Void
     public let setGuidanceCuesEnabled: (Bool) -> Void
     public let setLoopClosureCheckActive: (Bool) -> Void
+    /// #273: records the operator's response to the armed
+    /// return-to-start check as advisory provenance.
+    public let recordLoopClosureOutcome: (String) -> Void
+    /// #273: "Rescan" response — discards the in-progress working
+    /// revision entirely (the host's own confirm contract applies).
+    public let discardCapture: () -> Void
+    /// #214/#250: live center-ray probe for the scanning-surface
+    /// reticle, so aim-based actions never fire a blind center
+    /// raycast.
+    public let probePlacementTarget:
+        () async -> AnnotationPlacementProbe
     /// #375: commits an operator field note bound to this revision
     /// during scanning — (text, category, needsAttention,
     /// attachLatestEvidence, dictated, anchorRequest). #421: the
@@ -87,6 +98,14 @@ public struct CaptureScanningView: View {
     @State private var flagDetailsCategory: ScanRevisitFlagCategory?
     @State private var flagDetailsNote = ""
     @State private var composingFieldNote = false
+    /// Live reticle probe over the scanning preview (#214/#250).
+    @State private var centerProbe = AnnotationPlacementProbe
+        .unavailable
+    @State private var centerProbeTask: Task<Void, Never>?
+    /// Two-tap arm for the loop-check "Rescan" response (#273) —
+    /// the discard is destructive, so the first tap only arms the
+    /// confirm label.
+    @State private var loopRescanArmed = false
 #if os(iOS)
     /// #364 §5/§16: on regular width the expanded HUD presents as a
     /// trailing inspector pane instead of a bottom overlay covering
@@ -135,6 +154,12 @@ public struct CaptureScanningView: View {
             (Bool) -> Void = { _ in },
         setLoopClosureCheckActive: @escaping
             (Bool) -> Void = { _ in },
+        recordLoopClosureOutcome: @escaping
+            (String) -> Void = { _ in },
+        discardCapture: @escaping () -> Void = {},
+        probePlacementTarget: @escaping
+            () async -> AnnotationPlacementProbe =
+            { .unavailable },
         recordFieldNote: @escaping
             (String, CaptureFieldNoteCategory, Bool, Bool, Bool,
              CaptureFieldNoteAnchorRequest) -> Void
@@ -178,6 +203,9 @@ public struct CaptureScanningView: View {
         self.setGuidanceCuesEnabled = setGuidanceCuesEnabled
         self.setLoopClosureCheckActive =
             setLoopClosureCheckActive
+        self.recordLoopClosureOutcome = recordLoopClosureOutcome
+        self.discardCapture = discardCapture
+        self.probePlacementTarget = probePlacementTarget
         self.recordFieldNote = recordFieldNote
         self.captureEvidenceFrame = captureEvidenceFrame
         self.setMovementCapability = setMovementCapability
@@ -239,6 +267,17 @@ public struct CaptureScanningView: View {
                         .allowsHitTesting(false)
                 }
 
+                // #214/#250: a live center reticle + hit probe over the
+                // shared preview, so aim-based actions ("Scan this
+                // object") never execute a blind center raycast — the
+                // operator sees the target class + distance first.
+                centerReticle
+                    .position(
+                        x: geometry.size.width / 2,
+                        y: geometry.size.height / 2
+                    )
+                    .allowsHitTesting(false)
+
                 if isEndingScan {
                     finishingCaptureOverlay
                         .allowsHitTesting(true)
@@ -297,6 +336,54 @@ public struct CaptureScanningView: View {
         ) {
             revisitFlagDetailsSheet
                 .presentationDetents([.medium])
+        }
+        .onAppear { startCenterProbe() }
+        .onDisappear { centerProbeTask?.cancel() }
+    }
+
+    /// Center reticle + live probe label over the scanning preview
+    /// (#214/#250). Same probe contract as the annotation camera
+    /// sheet: the ring turns green on a hit and the capsule names
+    /// the target class + distance; misses show only the dim ring.
+    private var centerReticle: some View {
+        VStack(spacing: 5) {
+            ZStack {
+                Circle()
+                    .stroke(
+                        centerProbe.status == .hit
+                            ? Color.green.opacity(0.9)
+                            : Color.white.opacity(0.5),
+                        lineWidth: 1.5
+                    )
+                    .frame(width: 24, height: 24)
+                Circle()
+                    .fill(Color.white.opacity(0.9))
+                    .frame(width: 3, height: 3)
+            }
+            if centerProbe.status == .hit {
+                Text(
+                    AnnotationPresentation.probeStatusText(
+                        centerProbe
+                    )
+                )
+                .font(.caption2.monospacedDigit())
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(.ultraThinMaterial)
+                .clipShape(Capsule())
+            }
+        }
+    }
+
+    /// Polls the shared-session center probe ~2x/second for the
+    /// scanning reticle. Side-effect-free; cancelled on disappear.
+    private func startCenterProbe() {
+        centerProbeTask?.cancel()
+        centerProbeTask = Task { @MainActor in
+            while !Task.isCancelled {
+                centerProbe = await probePlacementTarget()
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
         }
     }
 
@@ -1641,6 +1728,22 @@ public struct CaptureScanningView: View {
                 )
                 .tint(status.isComplete ? .green : .accentColor)
 
+                // #250: live distance to the locked target anchor —
+                // the continuous "which object" confirmation while
+                // the camera moves around it.
+                if let distance = status.distanceToTargetMeters {
+                    Text(
+                        String(
+                            format: String(
+                                localized: "Target ~%.1f m"
+                            ),
+                            distance
+                        )
+                    )
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                }
+
                 Text(targetGuidanceText(status))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1813,6 +1916,47 @@ public struct CaptureScanningView: View {
                             ? .orange
                             : .secondary
                     )
+
+                // #273 operator responses: every answer is recorded
+                // as advisory provenance; the check never corrects
+                // coordinates itself.
+                HStack(spacing: 8) {
+                    Button("Accept") {
+                        recordLoopClosureOutcome("accepted")
+                        loopRescanArmed = false
+                    }
+                    Button("Re-observe") {
+                        recordLoopClosureOutcome("reobserve")
+                        loopRescanArmed = false
+                    }
+                    Button("Continue scanning") {
+                        recordLoopClosureOutcome("continued")
+                        loopRescanArmed = false
+                    }
+                    // Two-tap: discarding the working revision is
+                    // destructive, so the first tap only arms the
+                    // confirm label.
+                    Button(
+                        loopRescanArmed
+                            ? String(
+                                localized:
+                                    "Discard this capture"
+                            )
+                            : String(localized: "Rescan"),
+                        role: .destructive
+                    ) {
+                        if loopRescanArmed {
+                            loopRescanArmed = false
+                            discardCapture()
+                        } else {
+                            loopRescanArmed = true
+                        }
+                    }
+                }
+                .font(.caption2)
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                .disabled(isEndingScan)
             } else {
                 Text(
                     "Walk back to where the scan started; a consistency result appears here."

@@ -27,6 +27,19 @@ public struct SpeakerLayoutRole: Codable, Sendable, Equatable, Identifiable {
         self.displayName = displayName ?? channelRole.description
     }
 
+    /// Channel-token match used when rebuilding progress from unbound
+    /// staged entities: exact for speakers; the whole LFE instance
+    /// family (`LFE`, `LFE1`…`LFE4`) for sub roles, so a staged
+    /// `LFE2` still completes the plan's generic `LFE` role.
+    public func matches(channelRole other: ChannelRole?) -> Bool {
+        guard let other else { return false }
+        if isSubwoofer {
+            return other == .lfe
+                || ChannelRole.subwooferRoles.contains(other)
+        }
+        return other == channelRole
+    }
+
     public var id: String { roleID }
 
     private enum CodingKeys: String, CodingKey {
@@ -131,20 +144,48 @@ public struct SpeakerLayoutProgress: Sendable, Equatable {
         self.entityByRole = [:]
     }
 
-    /// Rebuilds progress for `plan` against already-staged annotations:
-    /// an entity whose channel role matches a pending role completes it
-    /// (used when reopening a draft or continuing after edits).
+    /// Rebuilds progress for `plan` against already-staged annotations
+    /// (used when reopening a draft or continuing after edits). An
+    /// entity explicitly bound to a role via `role_binding` wins; an
+    /// unbound entity completes a role through the channel-token
+    /// match. One entity claims at most one role, so two roles
+    /// sharing a channel token never complete each other off a
+    /// single speaker, and an entity bound to a different role is
+    /// never silently re-counted.
     public init(
         plan: SpeakerLayoutPlan,
         annotations: [CaptureAnnotationEntity]
     ) {
         self.init(plan: plan)
+        var claimed = Set<AnnotationEntityID>()
         for role in plan.roles {
-            if let entity = annotations.first(where: {
-                $0.channelRole == role.channelRole
+            if let entity = annotations.first(where: { entity in
+                guard !claimed.contains(entity.entityID),
+                      let binding = entity.roleBinding,
+                      binding.roleID == role.roleID
+                else {
+                    return false
+                }
+                guard let identity = plan.profileIdentity else {
+                    return true
+                }
+                return binding.profileID == identity.profileID
+                    && binding.profileVersion
+                        == identity.profileVersion
             }) {
                 states[role.roleID] = .completed
                 entityByRole[role.roleID] = entity.entityID
+                claimed.insert(entity.entityID)
+                continue
+            }
+            if let entity = annotations.first(where: {
+                !claimed.contains($0.entityID)
+                    && $0.roleBinding == nil
+                    && role.matches(channelRole: $0.channelRole)
+            }) {
+                states[role.roleID] = .completed
+                entityByRole[role.roleID] = entity.entityID
+                claimed.insert(entity.entityID)
             }
         }
     }

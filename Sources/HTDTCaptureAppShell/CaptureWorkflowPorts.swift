@@ -28,6 +28,10 @@ public struct SpatialCaptureActions {
     public let revokeOperatorRegion: (SpatialCoverageCellKey) -> Void
     public let setGuidanceCuesEnabled: (Bool) -> Void
     public let setLoopClosureCheckActive: (Bool) -> Void
+    /// Records the operator's response to the armed return-to-start
+    /// check (#273): "accepted", "reobserve", or "continued" — kept as
+    /// advisory provenance next to the verdict + residuals.
+    public let recordLoopClosureOutcome: (String) -> Void
     public let setScanMovementCapability: (ScanMovementCapability) -> Void
     public let continueScanning: () -> Void
     public let captureIdentityPhoto: () async throws -> String
@@ -65,6 +69,7 @@ public struct SpatialCaptureActions {
         self.revokeOperatorRegion = actions.revokeOperatorRegion
         self.setGuidanceCuesEnabled = actions.setGuidanceCuesEnabled
         self.setLoopClosureCheckActive = actions.setLoopClosureCheckActive
+        self.recordLoopClosureOutcome = actions.recordLoopClosureOutcome
         self.setScanMovementCapability = actions.setScanMovementCapability
         self.continueScanning = actions.continueScanning
         self.captureIdentityPhoto = actions.captureIdentityPhoto

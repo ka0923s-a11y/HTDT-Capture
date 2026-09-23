@@ -30,6 +30,8 @@ public struct CaptureRootActions {
     public let setGuidanceCuesEnabled: (Bool) -> Void
     /// #273 return-to-start check arm/disarm.
     public let setLoopClosureCheckActive: (Bool) -> Void
+    /// Operator response to the armed loop-closure check (#273).
+    public let recordLoopClosureOutcome: (String) -> Void
     public let setScanMovementCapability:
         (ScanMovementCapability) -> Void
     public let continueScanning: () -> Void
@@ -455,6 +457,8 @@ public struct CaptureRootActions {
             (Bool) -> Void = { _ in },
         setLoopClosureCheckActive: @escaping
             (Bool) -> Void = { _ in },
+        recordLoopClosureOutcome: @escaping
+            (String) -> Void = { _ in },
         setScanMovementCapability: @escaping
             (ScanMovementCapability) -> Void = { _ in },
         continueScanning: @escaping () -> Void = {},
@@ -764,6 +768,7 @@ public struct CaptureRootActions {
         self.revokeOperatorRegion = revokeOperatorRegion
         self.setGuidanceCuesEnabled = setGuidanceCuesEnabled
         self.setLoopClosureCheckActive = setLoopClosureCheckActive
+        self.recordLoopClosureOutcome = recordLoopClosureOutcome
         self.setScanMovementCapability =
             setScanMovementCapability
         self.continueScanning = continueScanning
@@ -1597,6 +1602,11 @@ public struct CaptureRootView: View {
                         actions.setGuidanceCuesEnabled,
                     setLoopClosureCheckActive:
                         actions.setLoopClosureCheckActive,
+                    recordLoopClosureOutcome:
+                        actions.recordLoopClosureOutcome,
+                    discardCapture: actions.discardActiveCapture,
+                    probePlacementTarget:
+                        actions.probePlacementTarget,
                     recordFieldNote: actions.recordFieldNote,
                     captureEvidenceFrame:
                         actions.captureEvidenceFrame,

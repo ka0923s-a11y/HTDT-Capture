@@ -133,9 +133,13 @@ public struct CaptureTaskProfile: Sendable, Equatable, Codable {
     /// Built-in profiles that a device-local default may seed
     /// (#338). Project/task plans remain the override authority — a
     /// stored identifier only initializes an unset capture.
+    /// `theaterLayout` is included so the batch speaker-layout flow
+    /// (#278) can be chosen as the standalone default task, not only
+    /// per capture at setup.
     public static let standalonePresets: [CaptureTaskProfile] = [
         .geometryOnly,
         .roomAndListeningPosition,
+        .theaterLayout,
     ]
 
     /// Resolves a stored preset identifier to the built-in profile.

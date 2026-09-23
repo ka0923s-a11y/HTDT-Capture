@@ -1250,12 +1250,32 @@ public struct CaptureAnnotationWorkspaceView: View {
             .foregroundStyle(.secondary)
         }
     }
+    /// Layout plans the batch flow offers, always including the
+    /// task's own custom/nonstandard `layoutProfile` (#278) — the
+    /// preset list is no longer the only entry point.
+    private var offeredLayoutPlans: [SpeakerLayoutPlan] {
+        var plans = speakerLayoutPlans
+        if let profile = taskPlan?.layoutProfile {
+            let reference = profile.reference
+            let alreadyOffered = plans.contains {
+                $0.profileIdentity?.profileID
+                    == reference.profileID
+                    && $0.profileIdentity?.profileVersion
+                        == reference.profileVersion
+            }
+            if !alreadyOffered {
+                plans.insert(profile.makePlan(), at: 0)
+            }
+        }
+        return plans
+    }
+
     @ViewBuilder
     private var speakerLayoutSection: some View {
-        if !speakerLayoutPlans.isEmpty {
+        if !offeredLayoutPlans.isEmpty {
             Section(String(localized: "Speaker layout")) {
                 ForEach(
-                    speakerLayoutPlans,
+                    offeredLayoutPlans,
                     id: \.planName
                 ) { plan in
                     Button {

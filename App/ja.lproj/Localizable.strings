@@ -785,6 +785,7 @@
 "Step back so the whole object stays in view." = "対象全体が見えるように少し下がってください。";
 "Orbit clockwise around the object to cover new angles." = "対象を時計回りに回り込み、まだ見ていない角度を観測してください。";
 "Orbit counter-clockwise around the object to cover new angles." = "対象を反時計回りに回り込み、まだ見ていない角度を観測してください。";
+"Target ~%.1f m" = "対象まで約 %.1f m";
 "Mark nearest unresolved area…" = "最も近い未解決領域を記録…";
 "Revoke" = "取り消し";
 "Cannot reach" = "到達不可";
@@ -798,6 +799,7 @@
 "Back at the start, but the current pose disagrees with the start reference. Consider re-observing or rescanning." = "開始地点に戻りましたが、現在の姿勢が開始時の参照と一致しません。再観測または再スキャンを検討してください。";
 "Move back toward the scan start to complete the check." = "チェックを完了するにはスキャン開始地点へ戻ってください。";
 "Check unavailable: no start reference or tracking is not stable enough." = "チェック不可：開始時の参照がないか、トラッキングが不安定です。";
+"Re-observe" = "再観測";
 "Haptic & spoken cues" = "触覚・音声キュー";
 
 // Contract detail fields: listening role, reference point, envelope,
