@@ -5907,6 +5907,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     taskPlanStatus: model.taskPlanStatus,
                     fieldNotes: model.fieldNotes,
                     contactSheet: model.contactSheet,
+                    theaterAuthorities: model.theaterAuthorities,
+                    derivedGeometryCandidates:
+                        model.derivedGeometryCandidates,
+                    meshSnapshots: model.meshSnapshots,
                     issues: model.issues
                 )
             }
@@ -5929,9 +5933,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         evidenceItems: model.evidenceItems,
                         annotations: model.annotations,
                         measurements: model.measurements,
+                        operatorProfiles: model.operatorProfiles,
+                        fieldEvidence: model.fieldEvidence,
+                        instruments: model.instruments,
+                        settingsObservations:
+                            model.settingsObservations,
+                        wiringRoutes: model.wiringRoutes,
                         referenceTargets: model.referenceTargets,
                         openingReview: model.openingReview,
                         roomReferenceFrame: model.roomReferenceFrame,
+                        roomFieldDatum: model.roomFieldDatum,
+                        roomFieldDatumStaleness:
+                            model.roomFieldDatumStaleness,
                         qualityReport: model.qualityReport,
                         readOnly: model.readOnly,
                         spatialCaptureSealed:
@@ -5939,6 +5952,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         revisitFlags: model.revisitFlags,
                         captureTaskPlan: model.captureTaskPlan,
                         taskPlanStatus: model.taskPlanStatus,
+                        fieldNotes: model.fieldNotes,
+                        contactSheet: model.contactSheet,
+                        theaterAuthorities: model.theaterAuthorities,
+                        derivedGeometryCandidates:
+                            model.derivedGeometryCandidates,
+                        meshSnapshots: model.meshSnapshots,
                         issues: model.issues
                     )
                 }
