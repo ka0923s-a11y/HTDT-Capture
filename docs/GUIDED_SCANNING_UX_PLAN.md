@@ -164,6 +164,7 @@ Keep only primary scan actions on the camera screen:
 
 - **Save evidence frame**
 - **End scan and review**
+- **Stop** (two-tap discard — the only exit besides End)
 
 Secondary status/debug information remains available after the scan or in
 diagnostic views rather than displacing the camera.
