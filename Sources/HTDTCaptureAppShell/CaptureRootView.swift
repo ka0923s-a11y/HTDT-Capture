@@ -2821,6 +2821,21 @@ public struct CaptureRootView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         }
+                        if !report.unmanifestablePaths.isEmpty {
+                            Text(
+                                captureCountPhrase(
+                                    report.unmanifestablePaths.count,
+                                    singular: String(
+                                        localized: "%lld file could not be included in the bundle and was removed."
+                                    ),
+                                    plural: String(
+                                        localized: "%lld files could not be included in the bundle and were removed."
+                                    )
+                                )
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }

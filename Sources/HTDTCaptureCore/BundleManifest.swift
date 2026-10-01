@@ -797,6 +797,17 @@ enum BundleReservedPaths {
             provenanceClass: .captureAppDerived,
             role: .canonical
         ),
+        // Cross-revision spatial registrations (issue #395): transform
+        // authority between this revision and other finalized
+        // revisions — the v1 `source_refs` grammar cannot name an
+        // external revision, so the endpoint IDs live only in the
+        // document body.
+        "revision/registrations.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_app_derived",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
         // Floor-plan reference underlay (issue #322): imported
         // reference geometry used only as capture-time guidance —
         // never observed truth.

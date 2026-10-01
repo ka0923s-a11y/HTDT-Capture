@@ -368,6 +368,19 @@ public struct RecoverableWorkingRevision:
     /// dropped. Populated at inventory time so the operator sees the
     /// caveat before reopening.
     public let unsupportedPaths: [String]
+    /// True when a `liveScanIncomplete` marker sits next to the
+    /// complete durable End payload set — the marker-flip write was
+    /// lost after the atomic End batch committed, so the draft
+    /// actually reached End and restore heals the marker.
+    public let endEvidenceCommitted: Bool
+
+    /// Phase to present: a lost marker-flip draft reads as its true
+    /// post-End phase, not as an interrupted scan.
+    public var displayPhase: WorkingRevisionPhase {
+        phase == .liveScanIncomplete && endEvidenceCommitted
+            ? .endAccepted
+            : phase
+    }
 
     public init(
         url: URL,
@@ -376,7 +389,8 @@ public struct RecoverableWorkingRevision:
         captureSessionID: CaptureSessionID?,
         coordinateSpaceID: CoordinateSpaceID?,
         retainedBytes: Int64,
-        unsupportedPaths: [String] = []
+        unsupportedPaths: [String] = [],
+        endEvidenceCommitted: Bool = false
     ) {
         self.url = url
         self.revisionID = revisionID
@@ -385,6 +399,7 @@ public struct RecoverableWorkingRevision:
         self.coordinateSpaceID = coordinateSpaceID
         self.retainedBytes = retainedBytes
         self.unsupportedPaths = unsupportedPaths
+        self.endEvidenceCommitted = endEvidenceCommitted
     }
 
     public var id: URL { url }
@@ -400,6 +415,11 @@ public struct WorkingRevisionRestoreReport: Sendable, Equatable {
     /// Declared-but-superseded artifacts removed at restore because the
     /// store will recompute them (seal-time quality/advisory payloads).
     public let supersededPaths: [String]
+    /// Real payload files removed at restore because no legal manifest
+    /// declaration exists for them — consented evidence loss, listed
+    /// separately from recomputed artifacts so the operator sees what
+    /// is actually gone.
+    public let unmanifestablePaths: [String]
     /// Checkpoint fields the recovered phase document did not carry —
     /// informational, since a missing field degrades a report section
     /// rather than inventing it.
@@ -408,10 +428,12 @@ public struct WorkingRevisionRestoreReport: Sendable, Equatable {
     public init(
         unsupportedPaths: [String],
         supersededPaths: [String],
+        unmanifestablePaths: [String],
         missingCheckpointFields: [String]
     ) {
         self.unsupportedPaths = unsupportedPaths
         self.supersededPaths = supersededPaths
+        self.unmanifestablePaths = unmanifestablePaths
         self.missingCheckpointFields = missingCheckpointFields
     }
 }

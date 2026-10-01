@@ -492,13 +492,21 @@ extension LifecycleRecoveryTests {
             )
         )
 
-        // An unclassifiable payload from a newer app stays on disk and
-        // is reported as unsupported rather than dropped or fatal.
+        // An unclassifiable non-JSON payload from a newer app stays on
+        // disk and is reported as unsupported rather than dropped or
+        // fatal. An unowned `.json` stray cannot be declared — the
+        // validator accepts a declared `.json` only when it is
+        // schema-owned — so it is removed as un-manifestable.
         let stray = directory.appendingPathComponent(
+            "session/unknown-debug-v2.bin",
+            isDirectory: false
+        )
+        try Data([0x02]).write(to: stray)
+        let strayJSON = directory.appendingPathComponent(
             "session/unknown-debug-v2.json",
             isDirectory: false
         )
-        try Data(#"{"future":true}"#.utf8).write(to: stray)
+        try Data(#"{"future":true}"#.utf8).write(to: strayJSON)
 
         let inventory = PersistedCaptureInventory(
             captureRoot: captureRoot
@@ -539,16 +547,24 @@ extension LifecycleRecoveryTests {
         )
         XCTAssertEqual(
             report.unsupportedPaths,
+            ["session/unknown-debug-v2.bin"]
+        )
+        XCTAssertEqual(
+            report.unmanifestablePaths,
             ["session/unknown-debug-v2.json"]
         )
-        // The unknown payload is preserved, declared generically, and
-        // still passes the store's byte-vs-declaration proof.
+        // The unknown binary payload is preserved, declared
+        // generically, and still passes the store's
+        // byte-vs-declaration proof; the unowned JSON stray is gone.
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: stray.path)
         )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: strayJSON.path)
+        )
         XCTAssertTrue(
             snapshot.payloadDeclarations.contains {
-                $0.path == "session/unknown-debug-v2.json"
+                $0.path == "session/unknown-debug-v2.bin"
             }
         )
 
@@ -816,6 +832,230 @@ extension LifecycleRecoveryTests {
                 minimumEvidenceFrames: 0
             )
         )
+    }
+
+    /// A `.derived` leftover whose rebuilt refs all point at payloads
+    /// that never committed must be removed — reporting it as
+    /// un-manifestable — not declared with a dangling `path:` ref that
+    /// re-traps finalization. Unowned `.json` leftovers are likewise
+    /// un-manifestable (the validator accepts a declared `.json` only
+    /// when it is schema-owned), while unowned non-JSON payloads stay
+    /// declarable as canonical octet-stream and report as unsupported.
+    func testLeftoverRefPruningAndUnmanifestableJson()
+        async throws
+    {
+        let root = try makeCaptureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let captureRoot = root.appendingPathComponent(
+            "HTDTCapture",
+            isDirectory: true
+        )
+        let (_, directory, _, identity) =
+            try await makeEndAcceptedRevision(
+                captureRoot: captureRoot
+            )
+
+        let fileManager = FileManager.default
+        let derivedDirectory = directory
+            .appendingPathComponent("derived", isDirectory: true)
+        try fileManager.createDirectory(
+            at: derivedDirectory,
+            withIntermediateDirectories: true
+        )
+        // The operator-profiles doc refs `path:annotations/entities.json`,
+        // which this revision never committed.
+        let operatorsDoc = try OperatorProfileDocument(
+            captureRevisionID: identity.captureRevisionID,
+            operators: [
+                try OperatorProfile(
+                    displayName: "Field Tech",
+                    organization: "Installers Inc",
+                    role: "installer"
+                ),
+            ]
+        )
+        try FieldAuthorityCoding.encoder().encode(operatorsDoc).write(
+            to: derivedDirectory.appendingPathComponent(
+                "operator-profiles.json"
+            )
+        )
+        // A `.json` payload with no binding, schema family, or consume
+        // path — e.g. written by a newer build.
+        try Data(#"{"debug":true}"#.utf8).write(
+            to: directory
+                .appendingPathComponent("session", isDirectory: true)
+                .appendingPathComponent("unknown-debug-v2.json")
+        )
+        // An unowned non-JSON payload keeps its bytes under a generic
+        // canonical declaration.
+        let vendorDirectory = directory
+            .appendingPathComponent("vendor", isDirectory: true)
+        try fileManager.createDirectory(
+            at: vendorDirectory,
+            withIntermediateDirectories: true
+        )
+        try Data([0x02]).write(
+            to: vendorDirectory.appendingPathComponent("blob.bin")
+        )
+
+        let result = PersistedCaptureInventory(
+            captureRoot: captureRoot
+        ).scan()
+        let draft = try XCTUnwrap(result.recoverableDrafts.first)
+        let (restored, report) =
+            try await CaptureWorkingSetStore
+                .restoreWorkingRevision(draft)
+        let snapshot = await restored.snapshot()
+
+        XCTAssertTrue(
+            report.unmanifestablePaths.contains(
+                "derived/operator-profiles.json"
+            )
+        )
+        XCTAssertTrue(
+            report.unmanifestablePaths.contains(
+                "session/unknown-debug-v2.json"
+            )
+        )
+        XCTAssertTrue(
+            report.unsupportedPaths.contains("vendor/blob.bin")
+        )
+        XCTAssertFalse(
+            fileManager.fileExists(
+                atPath: derivedDirectory
+                    .appendingPathComponent("operator-profiles.json")
+                    .path
+            )
+        )
+        let declared = Set(snapshot.payloadDeclarations.map(\.path))
+        XCTAssertTrue(declared.contains("vendor/blob.bin"))
+
+        _ = try await restored.sealForFinalization(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
+                requireCompletedRoomPlan: false,
+                minimumActiveMeshAnchors: 0,
+                minimumEvidenceFrames: 0
+            )
+        )
+    }
+
+    /// `revision/registrations.json` is schema-owned but carried no
+    /// reserved-path binding: restore must re-register it under its
+    /// exact canonical metadata — application/json plus
+    /// capture_app_derived provenance — not a degraded octet-stream
+    /// generic entry.
+    func testRegistrationLeftoverRebindsUnderCanonicalMetadata()
+        async throws
+    {
+        let root = try makeCaptureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let captureRoot = root.appendingPathComponent(
+            "HTDTCapture",
+            isDirectory: true
+        )
+        let (_, directory, _, identity) =
+            try await makeEndAcceptedRevision(
+                captureRoot: captureRoot
+            )
+
+        let registration = try CrossRevisionRegistration(
+            sourceRevisionID: identity.captureRevisionID,
+            sourceCoordinateSpaceID: CoordinateSpaceID(),
+            targetRevisionID: CaptureRevisionID(),
+            targetCoordinateSpaceID: CoordinateSpaceID(),
+            mechanism: .sharedFieldDatum,
+            correspondences: [],
+            residuals: [],
+            rmsMeters: 0.02,
+            maxResidualMeters: 0.03,
+            scalePolicy: .rigidOnly,
+            uniformScale: 1,
+            targetFromSource: try Matrix4x4F(values: [
+                1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 2, 3, 1,
+            ]),
+            acceptedAtUTC: "2026-09-20T01:00:00Z",
+            evidenceRefs: ["path:session/room-field-datum.json"]
+        )
+        let package = try CrossRevisionRegistrationPackageBuilder
+            .build(
+                document: try CrossRevisionRegistrationBundleDocument(
+                    captureRevisionID: identity.captureRevisionID,
+                    registrations: [registration]
+                )
+            )
+        let revisionDirectory = directory
+            .appendingPathComponent("revision", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: revisionDirectory,
+            withIntermediateDirectories: true
+        )
+        try package.data.write(
+            to: revisionDirectory.appendingPathComponent(
+                "registrations.json"
+            )
+        )
+
+        let result = PersistedCaptureInventory(
+            captureRoot: captureRoot
+        ).scan()
+        let draft = try XCTUnwrap(result.recoverableDrafts.first)
+        let (restored, report) =
+            try await CaptureWorkingSetStore
+                .restoreWorkingRevision(draft)
+        let snapshot = await restored.snapshot()
+
+        let declaration = try XCTUnwrap(
+            snapshot.payloadDeclarations.first {
+                $0.path == CrossRevisionRegistrationPackage.path
+            }
+        )
+        XCTAssertEqual(declaration.mediaType, "application/json")
+        XCTAssertEqual(
+            declaration.provenanceClass,
+            .captureAppDerived
+        )
+        XCTAssertEqual(declaration.role, .canonical)
+        XCTAssertFalse(
+            report.unmanifestablePaths.contains(
+                CrossRevisionRegistrationPackage.path
+            )
+        )
+
+        _ = try await restored.sealForFinalization(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
+                requireCompletedRoomPlan: false,
+                minimumActiveMeshAnchors: 0,
+                minimumEvidenceFrames: 0
+            )
+        )
+    }
+
+    /// A `live_scan_incomplete` marker beside the complete durable End
+    /// payload set is a lost marker-flip write — the draft reached End
+    /// and presents as such, not as an interrupted scan.
+    func testLostEndMarkerDraftPresentsPostEndPhase() {
+        let draft = RecoverableWorkingRevision(
+            url: URL(fileURLWithPath: "/tmp/unused"),
+            revisionID: CaptureRevisionID(),
+            phase: .liveScanIncomplete,
+            captureSessionID: nil,
+            coordinateSpaceID: nil,
+            retainedBytes: 0,
+            endEvidenceCommitted: true
+        )
+        XCTAssertEqual(draft.displayPhase, .endAccepted)
+
+        let interrupted = RecoverableWorkingRevision(
+            url: URL(fileURLWithPath: "/tmp/unused"),
+            revisionID: CaptureRevisionID(),
+            phase: .liveScanIncomplete,
+            captureSessionID: nil,
+            coordinateSpaceID: nil,
+            retainedBytes: 0
+        )
+        XCTAssertEqual(interrupted.displayPhase, .liveScanIncomplete)
     }
 
     func testNewerSchemaRevisionIsNotRecoverable() async throws {

@@ -4048,6 +4048,40 @@ public actor CaptureWorkingSetStore {
                 )
         }
 
+        // Committed derived payloads carry the same frame refs and the
+        // manifest re-declares them as `path:` source refs — removing a
+        // frame one of them names would leave a dangling ref the next
+        // finalization cannot resolve.
+        let derivedDirectory = rootDirectory
+            .appendingPathComponent("derived", isDirectory: true)
+        if let derivedFiles = try? FileManager.default
+            .contentsOfDirectory(
+                at: derivedDirectory,
+                includingPropertiesForKeys: nil
+            )
+        {
+            let frameSubstrings = [
+                "evidence/frames/\(frameID.description)",
+                "evidence/depth/\(frameID.description)",
+                "frame:\(frameID.description)",
+            ]
+            for file in derivedFiles
+            where file.pathExtension == "json"
+            {
+                guard
+                    let bytes = try? Data(contentsOf: file),
+                    let text = String(data: bytes, encoding: .utf8),
+                    frameSubstrings.contains(where: text.contains)
+                else {
+                    continue
+                }
+                throw CaptureWorkingSetError
+                    .unresolvableSpatialEvidenceLink(
+                        "referenced:\(file.lastPathComponent)"
+                    )
+            }
+        }
+
         // Collect the frame's canonical + derived paths and verify the
         // committed descriptor bytes still match before deleting.
         let descriptorPath =
@@ -7378,11 +7412,11 @@ public actor CaptureWorkingSetStore {
 
         // The durable End payload set is proven at this point, so a
         // stale `live_scan_incomplete` marker can only be a lost
-        // marker-flip write — heal it to `end_accepted` now so the
-        // restored store and the next relaunch agree on the phase.
-        if state.phase == .liveScanIncomplete {
-            try await persistRevisionState(.endAccepted)
-        }
+        // marker-flip write — flag it for healing to `end_accepted`.
+        // The durable write waits for `verifyIntegrity` below: a marker
+        // healed before the rest of restore proves out would leave a
+        // post-End phase on a draft that still cannot reopen.
+        let healEndMarker = state.phase == .liveScanIncomplete
 
         // 3. Mesh index + geometry (optional).
         if let indexData = try readConsumed(
@@ -7903,6 +7937,7 @@ public actor CaptureWorkingSetStore {
             }
         }
         var unsupportedPaths: [String] = []
+        var unmanifestablePaths: [String] = []
         var deferredDerived: [String] = []
         for path in scannedByPath.keys.sorted(
             by: BundleLogicalPath.utf8Less
@@ -7942,9 +7977,23 @@ public actor CaptureWorkingSetStore {
                 try await writer.removeIfPresent(
                     CaptureStorePath(path)
                 )
-                supersededPaths.append(path)
+                unmanifestablePaths.append(path)
                 continue
             case .unknown:
+                if path.hasSuffix(".json") {
+                    // The bundle validator accepts a declared `.json`
+                    // only when it is schema-owned, an
+                    // external-authority path, or RoomPlan provenance —
+                    // a generic canonical declaration would fail
+                    // finalization outright, so an unowned JSON
+                    // leftover is un-manifestable.
+                    consumeIfPresent(path)
+                    try await writer.removeIfPresent(
+                        CaptureStorePath(path)
+                    )
+                    unmanifestablePaths.append(path)
+                    continue
+                }
                 unsupportedPaths.append(path)
                 leftoverDeclaration = BundlePayloadDeclaration(
                     path: path,
@@ -7966,19 +8015,76 @@ public actor CaptureWorkingSetStore {
                 supplementalDocuments[path] = data
             }
         }
-        // Second pass: every surviving payload is declared, so the
-        // deferred `.derived` leftovers can now rebuild source refs
-        // that resolve — leftovers that still cannot are removed.
+        // Second pass: `.derived` leftovers rebuild their source refs
+        // against the full declared set — a `path:` ref naming a
+        // payload that did not survive restore would re-trap
+        // finalization, so each rebuilt declaration is pruned to
+        // resolvable refs. Derived payloads can name siblings, so
+        // classify all of them first, then prune to a fixpoint: one
+        // whose refs all die is un-manifestable and removed.
+        var deferredDeclarations:
+            [String: BundlePayloadDeclaration] = [:]
         for path in deferredDerived {
-            guard
-                case .derivedWithSources(let declaration) =
-                    restoredLeftoverClassification(path)
-            else {
+            if case .derivedWithSources(let declaration) =
+                restoredLeftoverClassification(path)
+            {
+                deferredDeclarations[path] = declaration
+            } else {
                 consumeIfPresent(path)
                 try await writer.removeIfPresent(
                     CaptureStorePath(path)
                 )
-                supersededPaths.append(path)
+                unmanifestablePaths.append(path)
+            }
+        }
+        var refsPruned = true
+        while refsPruned {
+            refsPruned = false
+            let resolvable = Set(declarations.keys)
+                .union(deferredDeclarations.keys)
+            for path in deferredDeclarations.keys.sorted(
+                by: BundleLogicalPath.utf8Less
+            ) {
+                guard
+                    let declaration = deferredDeclarations[path]
+                else {
+                    continue
+                }
+                let refs = (declaration.sourceRefs ?? []).filter {
+                    guard $0.hasPrefix("path:") else {
+                        return true
+                    }
+                    return resolvable.contains(
+                        String($0.dropFirst(5))
+                    )
+                }
+                if refs.isEmpty {
+                    deferredDeclarations.removeValue(forKey: path)
+                    consumeIfPresent(path)
+                    try await writer.removeIfPresent(
+                        CaptureStorePath(path)
+                    )
+                    unmanifestablePaths.append(path)
+                    refsPruned = true
+                } else if refs != declaration.sourceRefs {
+                    deferredDeclarations[path] =
+                        BundlePayloadDeclaration(
+                            path: declaration.path,
+                            mediaType: declaration.mediaType,
+                            producer: declaration.producer,
+                            provenanceClass:
+                                declaration.provenanceClass,
+                            role: declaration.role,
+                            sourceRefs: refs
+                        )
+                }
+            }
+        }
+        for path in deferredDeclarations.keys.sorted(
+            by: BundleLogicalPath.utf8Less
+        ) {
+            guard let declaration = deferredDeclarations[path]
+            else {
                 continue
             }
             try register(declaration)
@@ -8040,9 +8146,14 @@ public actor CaptureWorkingSetStore {
         // run the same byte-vs-declaration proof a seal runs.
         try verifyIntegrity()
 
+        if healEndMarker {
+            try await persistRevisionState(.endAccepted)
+        }
+
         return WorkingRevisionRestoreReport(
             unsupportedPaths: unsupportedPaths,
             supersededPaths: supersededPaths,
+            unmanifestablePaths: unmanifestablePaths,
             missingCheckpointFields: missingCheckpoint.sorted()
         )
     }

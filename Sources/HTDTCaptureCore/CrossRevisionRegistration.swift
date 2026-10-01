@@ -1012,24 +1012,18 @@ public struct CrossRevisionRegistrationPackage: Sendable, Equatable {
         self.data = data
     }
 
-    /// Derived supplemental authority: computed from finalized
+    /// Supplemental authority: computed from finalized
     /// revision evidence, recorded by the capture app, never part of
-    /// either endpoint's canonical truth.
+    /// either endpoint's canonical truth. The v1 `source_refs`
+    /// grammar cannot reference a revision outside this bundle, so
+    /// the endpoint revision IDs live only in the document body.
     public var payloadDeclaration: BundlePayloadDeclaration {
         BundlePayloadDeclaration(
             path: Self.path,
             mediaType: "application/json",
             producer: "capture_app_derived",
             provenanceClass: .captureAppDerived,
-            role: .canonical,
-            sourceRefs: document.registrations.flatMap {
-                [
-                    "capture_revision:"
-                        + $0.sourceRevisionID.description,
-                    "capture_revision:"
-                        + $0.targetRevisionID.description,
-                ]
-            }
+            role: .canonical
         )
     }
 }

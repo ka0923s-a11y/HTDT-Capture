@@ -788,7 +788,10 @@ public struct PersistedCaptureInventory: Sendable {
                                 retainedBytes: retainedBytes(
                                     of: child,
                                     failures: &enumerationFailures
-                                )
+                                ),
+                                endEvidenceCommitted:
+                                    state.phase
+                                        == .liveScanIncomplete
                             )
                         )
                         continue

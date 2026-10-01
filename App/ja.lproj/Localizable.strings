@@ -3441,7 +3441,9 @@
 "%lld evidence references" = "証拠参照 %lld 件";
 "%lld field return" = "フィールドリターン %lld 件";
 "%lld field returns" = "フィールドリターン %lld 件";
+"%lld file could not be included in the bundle and was removed." = "%lld 件のファイルはバンドルに含められず、削除されました。";
 "%lld file kept but unsupported by this app version." = "%lld 件のファイルは保持されましたが、このアプリバージョンでは対応していません。";
+"%lld files could not be included in the bundle and were removed." = "%lld 件のファイルはバンドルに含められず、削除されました。";
 "%lld files kept but unsupported by this app version." = "%lld 件のファイルは保持されましたが、このアプリバージョンでは対応していません。";
 "%lld fulfillment reference points at records not in this field return" = "充足参照 %lld 件がこのフィールドリターンにないレコードを指しています";
 "%lld fulfillment references point at records not in this field return" = "充足参照 %lld 件がこのフィールドリターンにないレコードを指しています";

@@ -975,6 +975,55 @@ final class ReviewLibraryTests: XCTestCase {
         }
     }
 
+    func testRemoveEvidenceFrameBlocksDerivedDocReferences() async throws {
+        let root = try makeRoot()
+        defer { BundleValidationFixture.remove(root) }
+        let context = CaptureSessionContext()
+        let store = try await readyStore(
+            root: root,
+            context: context
+        )
+        let framePackage = try makeFramePackage(
+            sessionID: context.captureSessionID,
+            spaceID: context.coordinateSpaceID
+        )
+        try await store.persistFramePackage(framePackage)
+        let frameID = framePackage.descriptor.frameID
+
+        // A committed derived payload naming the frame: its manifest
+        // source_refs would dangle if the frame were deleted.
+        let derivedDirectory = root.appendingPathComponent(
+            "derived",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: derivedDirectory,
+            withIntermediateDirectories: true
+        )
+        try Data(
+            """
+            {"records":[{"evidence_refs":[\
+            "path:evidence/frames/\(frameID.description).json"]}]}
+            """.utf8
+        ).write(
+            to: derivedDirectory.appendingPathComponent(
+                "field-evidence.json"
+            )
+        )
+
+        do {
+            try await store.removeEvidenceFrame(frameID)
+            XCTFail(
+                "frame referenced by a committed derived payload"
+                    + " must not be removable"
+            )
+        } catch CaptureWorkingSetError
+            .unresolvableSpatialEvidenceLink(let detail)
+        {
+            XCTAssertTrue(detail.hasPrefix("referenced:"))
+        }
+    }
+
     func testRemoveEvidenceFrameDeletesPayloads() async throws {
         let root = try makeRoot()
         defer { BundleValidationFixture.remove(root) }

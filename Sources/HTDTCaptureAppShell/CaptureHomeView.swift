@@ -1148,7 +1148,7 @@ public struct CaptureHomeView: View {
     private var nextActionSubtitle: String {
         switch homeModel.nextAction {
         case .resumeDraft(let draft):
-            return workingRevisionPhaseName(draft.phase)
+            return workingRevisionPhaseName(draft.displayPhase)
         case .continueMission:
             return String(
                 localized: "Mission in progress — continue"
@@ -2738,7 +2738,9 @@ private struct CaptureLibraryMaintenanceView: View {
                     ForEach(inventory.recoverableDrafts) { draft in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(
-                                workingRevisionPhaseName(draft.phase)
+                                workingRevisionPhaseName(
+                                    draft.displayPhase
+                                )
                             )
                             CaptureTechnicalText(
                                 draft.revisionID.description
