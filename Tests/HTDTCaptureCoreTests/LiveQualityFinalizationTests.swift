@@ -364,4 +364,182 @@ final class LiveQualityFinalizationTests: XCTestCase {
         )
         try await store.persistFramePackage(framePackage)
     }
+
+    /// A RoomPlan-device capture that produced zero ARMeshAnchors but
+    /// real depth evidence must seal under the same published ruleset
+    /// the Review gate evaluated. Before the app passed its pinned
+    /// "1.2.0" requirements into sealForFinalization, the seal re-ran
+    /// under the unpublished "1.0.0" defaults (no depth fallback) and
+    /// every such capture failed finalization.
+    func testDepthFallbackWorkingSetSealsUnderPublishedRuleset()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let store = try CaptureWorkingSetStore(
+            rootDirectory: root
+        )
+        try await populateDepthFallbackWorkingSet(store)
+
+        let requirements = CaptureQualityRequirements(
+            rulesetVersion: "1.2.0",
+            allowDepthEvidenceAsMeshFallback: true
+        )
+        let quality = await store.evaluateQuality(
+            requirements: requirements
+        )
+        XCTAssertTrue(quality.readyForHTDTIngestion)
+        XCTAssertTrue(
+            quality.diagnostics.contains {
+                $0.code == "mesh_depth_fallback"
+                    && $0.severity == .warning
+            }
+        )
+
+        // The pre-fix call shape — default requirements resolve to the
+        // unpublished "1.0.0" params and reject depth-only captures.
+        do {
+            _ = try await store.sealForFinalization()
+            XCTFail(
+                "default-requirements seal must reject a depth-only "
+                    + "capture under unpublished ruleset params"
+            )
+        } catch CaptureWorkingSetError.qualityReportNotReady {
+        }
+
+        _ = try await store.sealForFinalization(
+            requirements: requirements
+        )
+        let sealed = await store.snapshot()
+        XCTAssertEqual(sealed.revisionPhase, .readyToFinalize)
+    }
+
+    private func populateDepthFallbackWorkingSet(
+        _ store: CaptureWorkingSetStore
+    ) async throws {
+        let context = CaptureSessionContext()
+        let sessionID = context.captureSessionID
+        let coordinateID = context.coordinateSpaceID
+        let foundation = try CaptureSessionFoundationPackageBuilder
+            .build(
+                context: context,
+                capabilities: CaptureCapabilityMatrix(
+                    roomPlanSupported: true,
+                    worldTrackingSupported: true,
+                    sceneReconstructionSupported: true,
+                    sceneDepthSupported: true,
+                    smoothedSceneDepthSupported: true
+                ),
+                configurationProfile: CaptureConfigurationProfile(
+                    captureMode: .roomPlanMesh,
+                    worldAlignment: "gravity",
+                    sceneReconstruction: "mesh_with_classification",
+                    frameSemantics: ["scene_depth"]
+                ),
+                startedAtUTC: "2026-09-20T01:00:00Z",
+                device: try CaptureDeviceDocument(
+                    osVersion: "iOS 20.0",
+                    hardwareModel: "iPhone99,1",
+                    appVersion: "0.1.0",
+                    appBuild: "1"
+                )
+            )
+        try await store.persistSessionFoundation(foundation)
+
+        let runtime = CaptureRuntimeProvenance(
+            osVersion: "test-os",
+            appVersion: "0.1.0",
+            appBuild: "test"
+        )
+        let raw = RoomPlanEvidenceArtifactBuilder.buildRaw(
+            data: Data(#"{"raw":true}"#.utf8),
+            captureSessionID: sessionID,
+            coordinateSpaceID: coordinateID,
+            runtime: runtime
+        )
+        let lineage = RoomPlanEvidenceArtifactBuilder.attachProcessed(
+            data: Data(#"{"processed":true}"#.utf8),
+            to: raw
+        )
+        try await store.persistEndRoomPlanTransaction(
+            timingPackage: try CaptureTimingPackageBuilder.build(
+                start: try CaptureTimingCorrelation(
+                    monotonicSeconds: 1.0,
+                    utc: "2026-09-20T01:00:00Z",
+                    method: "fixture"
+                ),
+                end: try CaptureTimingCorrelation(
+                    monotonicSeconds: 5.0,
+                    utc: "2026-09-20T01:00:04Z",
+                    method: "fixture"
+                )
+            ),
+            roomPlanLineage: lineage
+        )
+
+        // No mesh package: RoomPlan-scoped ARSession surfaces zero
+        // ARMeshAnchors, so the only geometry evidence is frame depth.
+        let pixel = try BundleValidationFixture.pixelPayload(
+            width: 1,
+            height: 1
+        )
+        // 32x32 fully valid, all-confident depth satisfies the pinned
+        // "1.2.0" DepthFallbackSufficiencyPolicy (>=512 valid, >=0.02
+        // best-frame valid fraction, >=0.5 spatial coverage, >=0.5
+        // confident).
+        let depth = try BundleValidationFixture.depthPayload(
+            width: 32,
+            height: 32
+        )
+        let confidence = try BundleValidationFixture.confidencePayload(
+            width: 32,
+            height: 32
+        )
+        let frameID = EvidenceFrameID()
+        let depthPath = "evidence/depth/\(frameID).depthbin"
+        let confidencePath = "evidence/depth/\(frameID).confidencebin"
+        let descriptor = try FrameEvidenceDescriptor(
+            frameID: frameID,
+            captureSessionID: sessionID,
+            coordinateSpaceID: coordinateID,
+            sessionTimestampSeconds: 1,
+            worldFromCamera: .identity,
+            intrinsics: try CameraIntrinsics3x3(
+                values: [
+                    1, 0, 0,
+                    0, 1, 0,
+                    0, 0, 1,
+                ]
+            ),
+            imageWidth: 1,
+            imageHeight: 1,
+            pixelFormatFourCC: 0x34323066,
+            pixelRelativePath:
+                "evidence/frames/\(frameID).pixelbin",
+            pixelByteCount: pixel.count,
+            pixelSHA256: EvidenceIntegrity.sha256(of: pixel),
+            depthStatus: .capturedSmoothed,
+            depth: try DepthEvidenceReference(
+                kind: .smoothedSceneDepth,
+                depthRelativePath: depthPath,
+                depthByteCount: depth.count,
+                depthSHA256: EvidenceIntegrity.sha256(of: depth),
+                confidenceRelativePath: confidencePath,
+                confidenceByteCount: confidence.count,
+                confidenceSHA256:
+                    EvidenceIntegrity.sha256(of: confidence)
+            )
+        )
+        let framePackage = try FrameEvidencePackageBuilder.build(
+            descriptor: descriptor,
+            pixelPayload: pixel,
+            depthPayload: depth,
+            confidencePayload: confidence
+        )
+        try await store.persistFramePackage(framePackage)
+    }
 }

@@ -1,19 +1,50 @@
-# IPA Build
+# Manual IPA build
 
-HTDT-Capture is primarily a Swift package. The repository therefore includes
-a minimal iOS host application generated with XcodeGen for packaging and device
-integration work.
+HTDT-Capture does not use CI or GitHub Actions. The IPA is built locally on a
+Mac with the script below.
 
-The GitHub Actions workflow `Build unsigned IPA` archives the host app with
-code signing disabled and uploads:
+## Requirements
 
-- `HTDT-Capture-unsigned.ipa`
-- its SHA-256 sidecar
+- macOS with Xcode installed and launched at least once (license accepted)
+- [XcodeGen](https://github.com/yonsm/XcodeGen) 2.42.0+: `brew install xcodegen`
+- For a device-installable (signed) IPA: an Apple ID joined to an Apple
+  Developer team, added in Xcode → Settings → Accounts
 
-The unsigned IPA is a build artifact, not an installable App Store/Ad Hoc
-package. Installation on a physical iPhone requires Apple signing credentials
-and a provisioning profile appropriate to the target device/distribution
-method.
+## Unsigned IPA (verification / parity with the former CI)
 
-The committed source of truth is `project.yml`; the generated
-`HTDTCapture.xcodeproj` is intentionally not committed.
+```sh
+scripts/build-ipa.sh
+```
+
+Produces `build/HTDT-Capture-unsigned.ipa` plus a `.sha256` checksum and
+`build-xcode.log`. An unsigned bundle cannot be installed on a device directly;
+it proves the app archives, embeds its asset catalog (`Assets.car`), and
+packages cleanly.
+
+## Signed, device-installable IPA
+
+```sh
+scripts/build-ipa.sh --team <TEAM_ID>
+```
+
+`<TEAM_ID>` is your 10-character Apple Developer team identifier (shown in
+Xcode's account settings). The script archives with automatic signing and runs
+`xcodebuild -exportArchive` (development distribution), producing
+`build/HTDT-Capture-signed.ipa`. The first run may need network access for
+provisioning-profile creation.
+
+Install the signed IPA via Apple Configurator 2, the Devices & Simulators
+window in Xcode, or `xcrun devicectl`.
+
+## What the script does
+
+1. `xcodegen generate --spec project.yml` — regenerates `HTDTCapture.xcodeproj`
+2. `xcodebuild -resolvePackageDependencies` — fetches the local SwiftPM package
+3. `xcodebuild archive -configuration Release -destination 'generic/platform=iOS'`
+4. Unsigned mode: packs `Payload/HTDTCapture.app` into a `.ipa` zip and asserts
+   `Assets.car` is present
+5. Signed mode: `xcodebuild -exportArchive` with a generated development
+   ExportOptions plist
+
+All artifacts land in `build/`. The script is `sh`, fail-fast (`set -euo
+pipefail`), and safe to re-run.

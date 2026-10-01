@@ -189,17 +189,21 @@ public enum ARFrameArtifactAdapter {
         )
     }
 
+    /// CIContext creation owns GPU/metal resources; one shared context
+    /// renders every preview instead of re-allocating per saved frame.
+    /// CIContext is documented as thread-safe for render calls.
+    private static let previewContext = CIContext()
+
     private static func captureHEICPreview(
         _ pixelBuffer: CVPixelBuffer
     ) -> Data? {
         let image = CIImage(cvPixelBuffer: pixelBuffer)
-        let context = CIContext()
         guard let colorSpace = CGColorSpace(
             name: CGColorSpace.sRGB
         ) else {
             return nil
         }
-        return context.heifRepresentation(
+        return previewContext.heifRepresentation(
             of: image,
             format: .RGBA8,
             colorSpace: colorSpace,
@@ -216,25 +220,46 @@ public enum ARFrameArtifactAdapter {
         confidencePayload: Data?
     ) {
         let frameID = snapshot.frameID
-        let selected: (ARDepthData?, DepthEvidenceKind, FrameDepthStatus)?
+        // The selection names the preferred depth map; when that map is
+        // absent the other map stands in so a session that only surfaces
+        // one kind (e.g. smoothed-only under RoomPlan) still retains
+        // real depth evidence. The descriptor records the map actually
+        // captured — provenance is never relabeled.
+        let candidates:
+            [(ARDepthData?, DepthEvidenceKind, FrameDepthStatus)]
         switch snapshot.depthSelection {
         case .none:
             return (.notRequested, nil, nil, nil)
         case .discrete:
-            selected = (
-                snapshot.discreteDepthData,
-                .discreteSceneDepth,
-                .capturedDiscrete
-            )
+            candidates = [
+                (
+                    snapshot.discreteDepthData,
+                    .discreteSceneDepth,
+                    .capturedDiscrete
+                ),
+                (
+                    snapshot.smoothedDepthData,
+                    .smoothedSceneDepth,
+                    .capturedSmoothed
+                ),
+            ]
         case .smoothed:
-            selected = (
-                snapshot.smoothedDepthData,
-                .smoothedSceneDepth,
-                .capturedSmoothed
-            )
+            candidates = [
+                (
+                    snapshot.smoothedDepthData,
+                    .smoothedSceneDepth,
+                    .capturedSmoothed
+                ),
+                (
+                    snapshot.discreteDepthData,
+                    .discreteSceneDepth,
+                    .capturedDiscrete
+                ),
+            ]
         }
 
-        guard let selected,
+        guard let selected =
+            candidates.first(where: { $0.0 != nil }),
               let depthData = selected.0
         else {
             return (.unavailable, nil, nil, nil)

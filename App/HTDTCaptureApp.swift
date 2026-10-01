@@ -6123,7 +6123,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 let root = await store.rootDirectory
                 let identity = await store.identity
                 let events: [CaptureResourceEvent]
-                if let report = try? await store.evaluateQuality() {
+                if let report = try? await store.evaluateQuality(
+                    requirements: self.qualityRequirements
+                ) {
                     events = report.resourceEvents
                 } else {
                     events = []
@@ -6168,7 +6170,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 let root = await store.rootDirectory
                 let identity = await store.identity
                 let events: [CaptureResourceEvent]
-                if let report = try? await store.evaluateQuality() {
+                if let report = try? await store.evaluateQuality(
+                    requirements: self.qualityRequirements
+                ) {
                     events = report.resourceEvents
                 } else {
                     events = []
@@ -12360,7 +12364,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         generation: UUID
     ) async {
         let report = await store.evaluateQuality(
-            requirements: qualityRequirements
+            requirements: self.qualityRequirements
         )
         let snapshot = await store.snapshot()
 
@@ -12461,8 +12465,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // The seal drains in-flight writes, then rejects further
             // working-set mutations for the rest of the commit
             // transaction so the snapshot and the finalizer's staging
-            // scan describe one frozen authority.
-            try await store.sealForFinalization()
+            // scan describe one frozen authority. The seal re-evaluates
+            // quality from the frozen state, so it must apply the same
+            // ruleset the Review gate used — the default requirements
+            // would reject the very report this transaction already
+            // persisted (e.g. dropping the depth fallback devices
+            // without ARMesh anchors rely on).
+            try await store.sealForFinalization(
+                requirements: self.qualityRequirements
+            )
 
             let snapshot = await store.snapshot()
 
