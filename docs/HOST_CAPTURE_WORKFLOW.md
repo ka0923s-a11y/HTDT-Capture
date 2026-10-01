@@ -122,9 +122,13 @@ coordinate authority. The host does not silently resume a failed scan.
 
 When the application enters the background during active capture, the working
 status is replaced with an explicit interruption reason. The failure UI explains
-that HTDT no longer assumes the same AR coordinate space remains valid and
-requires the operator to discard the failed working revision before beginning a
-fresh capture.
+that HTDT no longer assumes the same AR coordinate space remains valid. Two
+paths exist depending on how far the capture got: a mid-scan
+(`live_scan_incomplete`) failure can only be inspected/exported for
+diagnostics or discarded, while a working set that was already accepted by End
+may be preserved as a recoverable draft and reopened later as a sealed
+Review (#297/#437). Live capture never resumes in either case; a fresh
+capture starts a new coordinate authority.
 
 This is deliberately fail-closed. Same-session resume or relocalization must
 only be added after a concrete mechanism (for example an independently verified
@@ -132,24 +136,27 @@ ARWorldMap/relocalization workflow) demonstrates coordinate continuity.
 
 ## Still not completed
 
-The following remain implementation and/or physical-device gates:
+All of the following are physical-device acceptance gates — the corresponding
+software paths (bounded automatic keyframe evidence, live raycast-provenance
+annotation placement, live-working-set quality report generation, and the
+review -> validation -> atomic finalization -> share/export wiring) are
+implemented and unit-tested; what remains is proving them on real hardware:
 
 - physical-device acceptance of RoomPlan camera/overlay/coaching presentation
   and the advisory coverage HUD;
 - real LiDAR proof that the completion callback persists reopenable
   `CapturedRoomData`;
 - real RoomPlan/ARMesh same-world alignment evidence;
-- additional evidence-frame selection policy beyond the scan-end frame;
 - real sceneDepth behavior during RoomPlan and after same-session stop;
-- live annotation placement and raycast provenance;
-- quality report generation from the complete live working set;
-- review -> validation -> atomic finalization -> share/export wiring;
+- physical-device acceptance of the bounded automatic keyframe policy,
+  live annotation placement, raycast provenance, live quality reporting,
+  and the review -> validation -> finalization -> export flow;
 - physical-device interruption/background acceptance and future proven
   relocalization/resume behavior;
 - thermal/storage/persistence-pressure acceptance on physical devices;
 - physical accuracy benchmark under Issue #9.
 
-No capability or accuracy claim is promoted from a successful CI build.
+No capability or accuracy claim is promoted from a successful build.
 
 
 ## End-scan evidence failure domains
@@ -182,10 +189,11 @@ probe only and is discarded, while the committed package reflects a
 session-end correlation taken as close to the RoomPlan stop as the
 recoverable steps allow.
 
-A genuinely empty active-mesh set is represented by the valid empty
-`mesh/anchors.json` package. A mesh snapshot conversion failure does not erase
-already valid frame/depth evidence; review can continue and the quality gate
-remains responsible for declaring missing normative evidence.
+A mesh snapshot that succeeds but contains zero anchors is treated as
+mesh-unavailable: no `mesh/anchors.json` package is written and the depth
+evidence fallback applies instead. A mesh snapshot conversion failure does
+not erase already valid frame/depth evidence; review can continue and the
+quality gate remains responsible for declaring missing normative evidence.
 
 Actual writer/package persistence errors still fail closed. The working status
 now names the stage that failed so a physical-device defect can distinguish

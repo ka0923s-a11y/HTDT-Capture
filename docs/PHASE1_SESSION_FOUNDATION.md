@@ -34,7 +34,8 @@ Issue: #2
   - `session/capture-configuration.json`.
 - Session/configuration/capability files participate in the same re-read
   integrity preflight and finalization path as captured evidence.
-- Core contract tests and GitHub Actions iOS archive/unsigned IPA build.
+- Core contract tests and the iOS archive/unsigned IPA build (now manual-only;
+  no CI).
 
 See `docs/HOST_CAPTURE_WORKFLOW.md` for the host integration boundary.
 

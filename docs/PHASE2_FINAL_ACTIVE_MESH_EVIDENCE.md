@@ -71,7 +71,7 @@ Core tests cover:
 - fail-closed missing timestamp behavior;
 - duplicate anchor rejection.
 
-GitHub Actions also compiles the iOS platform target, exercising the real ARKit
+The iOS platform target is also compiled locally, exercising the real ARKit
 adapter surface at build time.
 
 ## Explicit non-claims

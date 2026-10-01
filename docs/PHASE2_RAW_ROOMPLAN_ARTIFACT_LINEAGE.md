@@ -65,7 +65,7 @@ Core tests verify:
 - processed evidence is hash-bound to the raw evidence;
 - session and coordinate-space identities are preserved across derivation.
 
-The iOS CI compile validates the RoomPlan delegate and RoomBuilder API surface.
+The local iOS compile validates the RoomPlan delegate and RoomBuilder API surface.
 
 ## Remaining hardware/integration gates
 

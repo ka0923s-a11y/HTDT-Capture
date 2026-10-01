@@ -13,7 +13,10 @@ The user-approved HTDT home-theater / digital-twin icon is the product icon for 
 - `ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon` binds the application target to that asset catalog.
 - The unsigned IPA workflow treats the asset catalog as part of the build and is triggered by branding changes.
 
-The generated PNG is ignored by Git because the compressed canonical artwork is the maintained source. This keeps generated image bytes out of normal diffs while preserving reproducible builds.
+The generated PNG is committed to the repository (an ignore rule alone cannot
+exclude a tracked file). `tools/prepare-app-icon.sh` regenerates it
+deterministically from the canonical artwork, so the committed copy exists
+only to keep asset compilation reproducible without running the tool.
 
 ## Validation
 

@@ -209,6 +209,12 @@ This one-shot commit matches the working-set no-overwrite rule. Records can be
 edited by deleting/re-adding them while staged; after canonical persistence the
 host does not pretend that the immutable payload can be edited in place.
 
+A bounded replace path also exists for revision commits:
+`replaceAnnotationAndMeasurementPackages` swaps the entities/measurements
+(and optionally authorities) packages atomically as one rollback-capable
+batch, re-validating authority references against the replacement so a
+deleted entity cannot leave a dangling reference.
+
 ### Spatial annotation inputs
 
 The current software-only editor supports:
@@ -281,7 +287,7 @@ where and in which direction a measurement microphone sat.
 
 ### Remaining hardware gates
 
-Still not claimed by software CI:
+Still not claimed by automated software checks:
 
 - physical verification of live raycast placement;
 - physical verification of speaker-heading capture;
