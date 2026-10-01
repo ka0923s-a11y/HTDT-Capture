@@ -1233,6 +1233,12 @@ public struct CaptureRootView: View {
     @State private var comparisonLoading = false
     @State private var importingPlanReference = false
     @State private var confirmingExport = false
+    /// A destructive remediation step awaiting confirmation: quality
+    /// chips and the diagnostics surface route discard-type actions
+    /// through this dialog instead of deleting the working set on a
+    /// single tap.
+    @State private var pendingRemediation:
+        CaptureRemediationAction?
     @State private var diagnosticShareURL: URL?
     /// Derived export sheets (#306/#318): which validated finalized
     /// capture to export from — the active adoption or a library row.
@@ -1518,6 +1524,21 @@ public struct CaptureRootView: View {
                 .exportRejectedPlan(exportRejection)
         default:
             return nil
+        }
+    }
+
+    /// Routes a quality-remediation affordance. Destructive steps
+    /// (replace-revision / discard) go through the pendingRemediation
+    /// confirmation dialog first — a one-tap chip or diagnostics row
+    /// must never delete the working set outright.
+    private func routeRemediation(
+        _ action: CaptureRemediationAction
+    ) {
+        switch action {
+        case .startReplacementRevision, .discardDraft:
+            pendingRemediation = action
+        default:
+            actions.performRemediation(action)
         }
     }
 
@@ -1970,7 +1991,7 @@ public struct CaptureRootView: View {
                                 practiceCapture:
                                     practiceCaptureActive,
                                 onRemediationAction:
-                                    actions.performRemediation
+                                    routeRemediation
                             )
                         }
                     }
@@ -2182,6 +2203,55 @@ public struct CaptureRootView: View {
                         )
                         .background(.bar)
                     }
+                }
+                .confirmationDialog(
+                    pendingRemediation
+                        == .startReplacementRevision
+                        ? "Start a replacement capture?"
+                        : "Discard the working capture?",
+                    isPresented: Binding(
+                        get: { pendingRemediation != nil },
+                        set: { presented in
+                            if !presented {
+                                pendingRemediation = nil
+                            }
+                        }
+                    ),
+                    titleVisibility: .visible
+                ) {
+                    if pendingRemediation
+                        == .startReplacementRevision
+                    {
+                        Button(
+                            "Discard and start replacement",
+                            role: .destructive
+                        ) {
+                            if let action = pendingRemediation {
+                                actions.performRemediation(action)
+                            }
+                            pendingRemediation = nil
+                        }
+                    } else {
+                        Button(
+                            "Discard capture",
+                            role: .destructive
+                        ) {
+                            if let action = pendingRemediation {
+                                actions.performRemediation(action)
+                            }
+                            pendingRemediation = nil
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {
+                        pendingRemediation = nil
+                    }
+                } message: {
+                    Text(
+                        pendingRemediation
+                            == .startReplacementRevision
+                            ? "Permanently removes this working revision and opens capture setup. Finalized captures are never touched."
+                            : "Permanently removes the working revision. Finalized captures are never touched."
+                    )
                 }
                 .confirmationDialog(
                     "Discard capture?",
@@ -3040,15 +3110,26 @@ public struct CaptureRootView: View {
                             Array(blockers.enumerated()),
                             id: \.offset
                         ) { _, diagnostic in
-                            Button {
-                                actions.performRemediation(
-                                    QualityRemediationCatalog
-                                        .remediation(
-                                            for: diagnostic
-                                        ).actions.first
-                                        ?? .discardDraft
-                                )
-                            } label: {
+                            let remediation =
+                                QualityRemediationCatalog
+                                    .remediation(
+                                        for: diagnostic
+                                    )
+                            let available = spatialCaptureSealed
+                                ? remediation.draftActions
+                                : remediation.actions
+                            if let first = available.first {
+                                Button {
+                                    routeRemediation(first)
+                                } label: {
+                                    Text(
+                                        localizedQualityDiagnosticMessage(
+                                            diagnostic
+                                        )
+                                    )
+                                        .font(.caption)
+                                }
+                            } else {
                                 Text(
                                     localizedQualityDiagnosticMessage(
                                         diagnostic

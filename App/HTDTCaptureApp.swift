@@ -13859,7 +13859,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 connectedSpaceActive: connectedSpaceTracker != nil,
                 asBuiltPlanLoaded: asBuiltPlan != nil,
                 spatialAuthorityLive: captureInProgress
-                    && !spatialAuthoritySealedForFinalization,
+                    && !spatialAuthoritySealedForFinalization
+                    && workingSetSpatialAuthorityLive,
                 captureInProgress: captureInProgress,
                 annotationWorkspaceEnterable:
                     state == .reviewing

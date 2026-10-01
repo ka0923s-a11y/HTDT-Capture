@@ -3675,3 +3675,12 @@
 "Review quality changed before finalization. Open Details to check the findings and correct non-spatial items, retry saving, save the draft for later, or discard." = "確定前にレビューの品質が変化しました。詳細を開いて検出内容を確認し、空間以外の項目を修正するか、保存を再試行するか、下書きとして保存するか、破棄してください。";
 "Re-validating the committed revision" = "コミット済みリビジョンを再検証しています";
 "RoomPlan started, but the running AR configuration cannot produce mesh (resolved mode: %@); the capture was stopped rather than persisting a mesh claim" = "RoomPlan は開始されましたが、実行中の AR 構成ではメッシュを生成できません（解決モード: %@）。メッシュの主張を永続化せずキャプチャを停止しました";
+"Discard and start replacement" = "破棄して置き換えを開始";
+"Discard?" = "破棄しますか？";
+"Stop" = "中止";
+"Start a replacement capture?" = "置き換えキャプチャを開始しますか？";
+"Discard the working capture?" = "作業中のキャプチャを破棄しますか？";
+"Permanently removes this working revision and opens capture setup. Finalized captures are never touched." = "この作業リビジョンを完全に削除し、キャプチャ設定を開きます。確定済みのキャプチャは変更されません。";
+"Permanently removes the working revision. Finalized captures are never touched." = "作業リビジョンを完全に削除します。確定済みのキャプチャは変更されません。";
+"Confirm discard capture" = "キャプチャの破棄を確認";
+"Stop scanning" = "スキャンを中止";

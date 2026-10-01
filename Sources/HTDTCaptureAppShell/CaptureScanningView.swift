@@ -106,6 +106,10 @@ public struct CaptureScanningView: View {
     /// the discard is destructive, so the first tap only arms the
     /// confirm label.
     @State private var loopRescanArmed = false
+    /// Two-tap arm for the always-available Stop control — the only
+    /// exit that discards the in-progress capture without ending
+    /// into Review.
+    @State private var stopScanArmed = false
 #if os(iOS)
     /// #364 §5/§16: on regular width the expanded HUD presents as a
     /// trailing inspector pane instead of a bottom overlay covering
@@ -799,6 +803,36 @@ public struct CaptureScanningView: View {
             )
 
             Spacer(minLength: 8)
+
+            // Always-available escape: discards the working revision
+            // and returns to Setup. Two taps because it is
+            // destructive — the arm label says what happens.
+            Button(
+                stopScanArmed
+                    ? String(
+                        localized: "Discard?"
+                    )
+                    : String(localized: "Stop"),
+                role: .destructive
+            ) {
+                if stopScanArmed {
+                    stopScanArmed = false
+                    discardCapture()
+                } else {
+                    stopScanArmed = true
+                }
+            }
+            .font(.callout)
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .disabled(isEndingScan)
+            .accessibilityLabel(
+                String(
+                    localized: stopScanArmed
+                        ? "Confirm discard capture"
+                        : "Stop scanning"
+                )
+            )
 
             Button(action: requestEndScan) {
                 Label(
