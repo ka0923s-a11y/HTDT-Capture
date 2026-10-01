@@ -36,6 +36,7 @@ func workingSetQualityIncludesTrackingAndResourceEvents() async throws {
 
     let report = await store.evaluateQuality(
         requirements: CaptureQualityRequirements(
+            rulesetVersion: "0.0.0-test",
             requireCompletedRoomPlan: false,
             minimumActiveMeshAnchors: 0,
             minimumEvidenceFrames: 0
@@ -77,6 +78,7 @@ func resourceErrorBlocksQualityReadiness() async throws {
 
     let report = await store.evaluateQuality(
         requirements: CaptureQualityRequirements(
+            rulesetVersion: "0.0.0-test",
             requireCompletedRoomPlan: false,
             minimumActiveMeshAnchors: 0,
             minimumEvidenceFrames: 0

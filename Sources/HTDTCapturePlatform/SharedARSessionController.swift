@@ -46,6 +46,12 @@ public enum PlatformCaptureError: Error {
     case raycastMiss
     case orientationUnavailable
     case configurationUnavailable
+    /// The running AR configuration resolved to a different capture
+    /// mode than the session requires — persisted documents must never
+    /// claim the requested mode the hardware is not actually running.
+    case requestedCaptureModeUnsatisfied(
+        resolved: CaptureMode
+    )
 }
 
 public struct CapturedSpeakerOrientation: Sendable {
@@ -263,16 +269,25 @@ private final class ARSessionLifecycleBridge:
         passthrough?.sessionInterruptionEnded?(session)
     }
 
+    /// The most recent session-clock timestamp observed by this
+    /// bridge. Delegate callbacks fire between frames; without it a
+    /// callback during a frame gap would stamp `0` — which reads as
+    /// "session start" in the recorded history.
+    nonisolated(unsafe) private var lastObservedTimestamp: Double?
+
     func session(
         _ session: ARSession,
         cameraDidChangeTrackingState camera: ARCamera
     ) {
+        if let timestamp = session.currentFrame?.timestamp {
+            lastObservedTimestamp = timestamp
+        }
         eventHandler?(
             .cameraTrackingStateChanged(
                 SharedARSessionController.trackingQualityEvent(
                     camera: camera,
                     sessionTimestampSeconds:
-                        session.currentFrame?.timestamp ?? 0
+                        lastObservedTimestamp ?? 0
                 )
             )
         )
@@ -303,6 +318,7 @@ private final class ARSessionLifecycleBridge:
     // store can keep bounded add/update/remove diagnostics (#268).
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
+        lastObservedTimestamp = frame.timestamp
         passthrough?.session?(session, didUpdate: frame)
     }
 
@@ -330,10 +346,13 @@ private final class ARSessionLifecycleBridge:
             ($0 as? ARMeshAnchor)?.identifier
         }
         guard !identifiers.isEmpty else { return }
+        if let timestamp = session.currentFrame?.timestamp {
+            lastObservedTimestamp = timestamp
+        }
         meshAnchorHandler?(
             kind,
             identifiers,
-            session.currentFrame?.timestamp ?? 0
+            lastObservedTimestamp ?? 0
         )
     }
 
@@ -412,16 +431,29 @@ private final class RoomPlanSessionInstructionBridge:
     nonisolated(unsafe) var instructionHandler: (
         @Sendable (RoomPlanGuidanceObservation) -> Void
     )?
+    /// Fires on every RoomCaptureSession end — inside the bounded End
+    /// transaction or on its own. The host distinguishes the two by
+    /// capture state; an end outside End is otherwise invisible.
+    nonisolated(unsafe) var endHandler: (
+        @Sendable (String?) -> Void
+    )?
+    /// Last session-clock timestamp seen through `arSession`; keeps a
+    /// mid-frame-gap callback from stamping `0` (reads as session
+    /// start) in recorded guidance.
+    nonisolated(unsafe) private var lastObservedTimestamp: Double?
 
     nonisolated func captureSession(
         _ session: RoomCaptureSession,
         didProvide instruction: RoomCaptureSession.Instruction
     ) {
+        if let timestamp = session.arSession.currentFrame?.timestamp {
+            lastObservedTimestamp = timestamp
+        }
         instructionHandler?(
             RoomPlanGuidanceObservation(
                 instruction: String(describing: instruction),
                 sessionTimestampSeconds:
-                    session.arSession.currentFrame?.timestamp ?? 0
+                    lastObservedTimestamp ?? 0
             )
         )
     }
@@ -455,7 +487,9 @@ private final class RoomPlanSessionInstructionBridge:
         _ session: RoomCaptureSession,
         didEndWith data: CapturedRoomData,
         error: (any Error)?
-    ) {}
+    ) {
+        endHandler?(error?.localizedDescription)
+    }
 }
 
 @available(iOS 17.0, *)
@@ -511,6 +545,20 @@ public final class SharedARSessionController {
         get { roomPlanInstructionBridge.instructionHandler }
         set {
             roomPlanInstructionBridge.instructionHandler = newValue
+        }
+    }
+
+    /// Fires with the error description (nil on a clean end) every time
+    /// the RoomCaptureSession ends — inside the bounded End transaction
+    /// or on its own. An end outside End stops the room model
+    /// accumulating while the host still shows a scanning surface, so
+    /// the host records it as provenance.
+    public var roomPlanDidEndHandler: (
+        @Sendable (String?) -> Void
+    )? {
+        get { roomPlanInstructionBridge.endHandler }
+        set {
+            roomPlanInstructionBridge.endHandler = newValue
         }
     }
 
@@ -2525,19 +2573,16 @@ extension SharedARSessionController {
             objects: roomPlanObjects,
             maxDistanceMeters: maxDistanceMeters
         )
-        candidates.planeHit = planeRaycastHit(
+        let planeHit = planeRaycastHit(
             origin: ray.origin,
             direction: ray.direction,
             maxDistanceMeters: maxDistanceMeters
-        )?.probe
+        )
+        candidates.planeHit = planeHit?.probe
 
         // The resolver decides which class wins; the full plane
         // provenance survives separately for the capture record.
-        let planeProvenance = planeRaycastHit(
-            origin: ray.origin,
-            direction: ray.direction,
-            maxDistanceMeters: maxDistanceMeters
-        )?.provenance
+        let planeProvenance = planeHit?.provenance
 
         let probe = PlacementProbeResolver.resolve(
             candidates: candidates,

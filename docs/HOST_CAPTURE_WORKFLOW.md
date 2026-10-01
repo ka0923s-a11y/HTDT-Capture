@@ -98,9 +98,13 @@ The working-set store binds the first spatial evidence to one exact
 `capture_session_id` and `coordinate_space_id`. RoomPlan and mesh evidence
 with a different authority are rejected rather than combined.
 
-The current production host has one RoomPlan scan per working revision. Future
-multi-scan support must model scan-segment identity before additional
-`run(configuration:)` calls are allowed.
+Each `run(configuration:)` builds a fresh room model, so a re-run on the same
+revision (Continue scanning from Review, or an End-attempt retry) is a new
+scanning segment: the next accepted `CapturedRoomData` covers only the final
+segment while mesh anchors and evidence frames keep accumulating across all
+segments. The host records every re-run as a `roomplan_rescan` advisory note
+with the segment ordinal so downstream review can see the room-model
+replacement; it never merges room models across segments.
 
 ## Camera permission
 
@@ -158,13 +162,25 @@ could still be retained.
 
 The corrected scan-end sequence separates those authorities:
 
-1. capture the selected ARFrame/depth evidence;
-2. capture end timing correlation;
-3. attempt the active mesh snapshot independently;
-4. stop RoomPlan while preserving the shared ARSession;
-5. persist timing;
-6. persist the selected frame/depth package;
-7. persist the mesh package only when the mesh snapshot/build is available.
+1. preflight — snapshot the selected ARFrame/depth, the tracking event, and
+   the active mesh anchors in one review-evidence snapshot, plus the end
+   timing correlation, and prove the frame/depth/timing packages build;
+2. persist the selected frame/depth package (one bounded retry) while
+   RoomPlan and the shared ARSession are still live;
+3. mark the committed End-boundary frame;
+4. re-read the end timing correlation fresh, then build the persisted
+   timing package;
+5. persist the mesh package only when the preflight snapshot/build produced
+   valid mesh evidence;
+6. record the tracking event;
+7. stop RoomPlan while preserving the shared ARSession and wait — under a
+   bounded timeout — for the completion callback that supplies the final
+   `CapturedRoomData`.
+
+The second timing snapshot is deliberate: the preflight build is a validation
+probe only and is discarded, while the committed package reflects a
+session-end correlation taken as close to the RoomPlan stop as the
+recoverable steps allow.
 
 A genuinely empty active-mesh set is represented by the valid empty
 `mesh/anchors.json` package. A mesh snapshot conversion failure does not erase

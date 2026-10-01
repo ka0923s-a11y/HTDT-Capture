@@ -55,6 +55,12 @@ public struct HomeWorkItem: Sendable, Equatable, Identifiable {
         case reviewArtifact = "review_artifact"
     }
 
+    /// Secondary-line value the model emits when a startable mission's
+    /// dependencies are unmet. The view compares against it to pick the
+    /// matching localized subtitle — keeping the only lifecycle
+    /// distinction the row needs inside the model.
+    public static let blockedMissionSubtitle = "Mission — dependencies unmet"
+
     public let kind: Kind
     /// Stable row identity — draft URL, mission record id, job id or
     /// revision id string.
@@ -260,7 +266,7 @@ public struct CaptureHomeModel: Sendable, Equatable {
                     identity: record.recordID,
                     title: record.purpose ?? record.missionID,
                     subtitle: record.lifecycle == .blockedDependency
-                        ? "Mission — dependencies unmet"
+                        ? HomeWorkItem.blockedMissionSubtitle
                         : "Mission ready"
                 )
             )

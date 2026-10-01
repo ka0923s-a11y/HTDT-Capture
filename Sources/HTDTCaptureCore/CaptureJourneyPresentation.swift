@@ -482,7 +482,7 @@ public struct CaptureJourneyPresentation: Sendable, Equatable {
                 isFailed: false
             )
 
-        case .scanning, .paused:
+        case .scanning:
             set(.prepare, .complete)
             set(.scan, .current)
             return CaptureJourneyPresentation(

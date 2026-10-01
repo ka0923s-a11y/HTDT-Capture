@@ -141,7 +141,10 @@ final class AnnotationMeasurementTransactionTests: XCTestCase {
                 $0.path == MeasurementEvidencePackage.path
             }
         )
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
 
@@ -189,7 +192,10 @@ final class AnnotationMeasurementTransactionTests: XCTestCase {
             from: annotationData
         )
         XCTAssertEqual(decoded.entities.first?.label, "first")
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
 
@@ -227,7 +233,10 @@ final class AnnotationMeasurementTransactionTests: XCTestCase {
         XCTAssertEqual(annotationDeclarations.count, 1)
         XCTAssertEqual(measurementDeclarations.count, 1)
 
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
 
@@ -297,7 +306,10 @@ final class AnnotationMeasurementTransactionTests: XCTestCase {
                 $0.path == MeasurementEvidencePackage.path
             }
         )
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
 

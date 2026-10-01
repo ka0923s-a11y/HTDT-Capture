@@ -12,6 +12,7 @@ final class FinalizationSealTests: XCTestCase {
     /// seal behavior can be tested without a full capture.
     private var relaxedRequirements: CaptureQualityRequirements {
         CaptureQualityRequirements(
+            rulesetVersion: "0.0.0-test",
             requireCompletedRoomPlan: false,
             minimumActiveMeshAnchors: 0,
             minimumEvidenceFrames: 0
@@ -362,7 +363,10 @@ final class FinalizationSealTests: XCTestCase {
         // Default requirements demand a completed RoomPlan capture, so
         // the seal cannot produce a ready report.
         do {
-            _ = try await store.sealForFinalization()
+            _ = try await store.sealForFinalization(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
             XCTFail("expected qualityReportNotReady")
         } catch let error as CaptureWorkingSetError {
             XCTAssertEqual(error, .qualityReportNotReady)
@@ -433,6 +437,7 @@ final class FinalizationSealTests: XCTestCase {
                 do {
                     _ = try await store.sealForFinalization(
                         requirements: CaptureQualityRequirements(
+                            rulesetVersion: "0.0.0-test",
                             requireCompletedRoomPlan: false,
                             minimumActiveMeshAnchors: 0,
                             minimumEvidenceFrames: 0
@@ -488,7 +493,10 @@ final class FinalizationSealTests: XCTestCase {
             snapshot.evidenceFrameCount,
             committedCount
         )
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(quality.integrityStatus, .pass)
 
         // After the seal, further mutations are rejected.

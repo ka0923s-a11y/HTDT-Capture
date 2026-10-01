@@ -154,7 +154,10 @@ final class EndRoomPlanTransactionReentrancyTests: XCTestCase {
             )
         }
 
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
 
@@ -238,7 +241,10 @@ final class EndRoomPlanTransactionReentrancyTests: XCTestCase {
 
         // The winning commit is fully intact: no failing attempt removed
         // any of its files.
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
 
@@ -346,7 +352,10 @@ final class EndRoomPlanTransactionReentrancyTests: XCTestCase {
             recovered.rawRoomPlanDescriptor,
             lineage.raw.descriptor
         )
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
 }

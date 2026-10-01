@@ -132,6 +132,10 @@ public struct CaptureRootActions {
     public let selectEquipmentCatalog: (String) -> Void
     public let finalizeCapture: () -> Void
     public let prepareExport: () -> Void
+    /// Re-runs independent validation on a committed-but-unverified
+    /// finalized revision — the manual recovery path when automatic
+    /// post-promotion validation could not prove the bundle.
+    public let revalidateAdoptedRevision: () -> Void
     public let resetCapture: () -> Void
     public let openPersistedCapture:
         (CaptureRevisionID) -> Void
@@ -549,6 +553,7 @@ public struct CaptureRootActions {
         selectEquipmentCatalog: @escaping (String) -> Void = { _ in },
         finalizeCapture: @escaping () -> Void = {},
         prepareExport: @escaping () -> Void = {},
+        revalidateAdoptedRevision: @escaping () -> Void = {},
         resetCapture: @escaping () -> Void = {},
         openPersistedCapture: @escaping
             (CaptureRevisionID) -> Void = { _ in },
@@ -821,6 +826,7 @@ public struct CaptureRootActions {
         self.selectEquipmentCatalog = selectEquipmentCatalog
         self.finalizeCapture = finalizeCapture
         self.prepareExport = prepareExport
+        self.revalidateAdoptedRevision = revalidateAdoptedRevision
         self.resetCapture = resetCapture
         self.openPersistedCapture = openPersistedCapture
         self.deletePersistedCapture = deletePersistedCapture
@@ -2685,12 +2691,6 @@ public struct CaptureRootView: View {
             Button("End scan and review", action: actions.beginReview)
             discardButton
 
-        case .paused:
-            Text(
-                "The host app does not enter a pseudo-paused RoomPlan state. Ending RoomPlan creates a scan boundary."
-            )
-            discardButton
-
         case .reviewing:
             // #437: a rejected finalize attempt names the specific
             // step and the ordered next-step set — retry, save the
@@ -2859,6 +2859,31 @@ public struct CaptureRootView: View {
                     progressRow("Preparing archive…")
                 }
                 revisionControls
+            } else if validationReport == nil {
+                // Committed-but-unverified: the promoted bytes are
+                // durable, but independent post-promotion validation
+                // did not prove them, so export/revision actions stay
+                // withheld. Offer explicit recovery — re-validate on
+                // demand or start over — instead of dead controls.
+                CaptureNotice(
+                    status: .needsReview,
+                    title: "Committed but unverified",
+                    message: "The finalized revision could not be proven by post-promotion validation; its bytes are preserved. Re-validate to unlock export, or start a new capture."
+                )
+                .listRowSeparator(.hidden)
+                Button("Re-validate bundle") {
+                    actions.revalidateAdoptedRevision()
+                }
+                .capturePrimaryAction()
+                .disabled(hostBusy)
+                if activeOperations.contains(.prepareExport) {
+                    progressRow("Re-validating bundle…")
+                }
+                Button(
+                    "Start new capture",
+                    action: actions.resetCapture
+                )
+                .disabled(hostBusy)
             } else {
                 // The export always packages every retained pixel
                 // payload; the operator confirms visual evidence is
@@ -3024,7 +3049,11 @@ public struct CaptureRootView: View {
                                         ?? .discardDraft
                                 )
                             } label: {
-                                Text(diagnostic.code)
+                                Text(
+                                    localizedQualityDiagnosticMessage(
+                                        diagnostic
+                                    )
+                                )
                                     .font(.caption)
                             }
                         }
@@ -3701,8 +3730,6 @@ public struct CaptureRootView: View {
             return String(localized: "Preparing")
         case .scanning:
             return String(localized: "Scanning")
-        case .paused:
-            return String(localized: "Paused")
         case .reviewing:
             return String(localized: "Reviewing")
         case .annotating:
@@ -3729,8 +3756,6 @@ public struct CaptureRootView: View {
              .preparing:
             return .pending
         case .scanning, .annotating:
-            return .pending
-        case .paused:
             return .pending
         case .reviewing:
             return .needsReview

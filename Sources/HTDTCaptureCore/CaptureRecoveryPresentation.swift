@@ -376,8 +376,12 @@ public enum CaptureRecoveryPresentation {
                 role: .guidance
             )
         case .qualityRegression:
+            // Live spatial capture is sealed on every finalize
+            // rejection — non-spatial findings can still be corrected
+            // in Details, but spatial findings leave retry/save-draft/
+            // discard as the honest options.
             reasonKey =
-                "Review quality changed before finalization — resolve the diagnostics, then retry."
+                "Review quality changed before finalization — non-spatial findings can still be corrected in Details; otherwise retry, save the draft, or discard."
         case .commitRejected:
             reasonKey =
                 "The save was aborted and rolled back — the capture stays in Review unchanged."
@@ -397,7 +401,7 @@ public enum CaptureRecoveryPresentation {
                     titleKey:
                         "Open Details and resolve the findings",
                     detailKey:
-                        "Opens the annotation workspace to address the flagged items.",
+                        "Opens the annotation workspace to correct the flagged items — spatial capture is sealed, so findings needing more scanning can only be retried, deferred, or discarded.",
                     action: .openAnnotations,
                     role: .primary
                 )

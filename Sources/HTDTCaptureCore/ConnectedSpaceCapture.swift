@@ -358,6 +358,17 @@ public struct ConnectedSpaceTracker: Sendable, Equatable {
         self.portals = []
     }
 
+    /// Rebuilds the tracker from its persisted document — segments
+    /// and portals restore verbatim, so a reopened draft keeps the
+    /// recorded connected-space map instead of silently restarting
+    /// empty.
+    public init(restoring document: ConnectedSpaceDocument) {
+        self.coordinateSpaceID = document.coordinateSpaceID
+        self.captureSessionID = document.captureSessionID
+        self.segments = document.segments
+        self.portals = document.portals
+    }
+
     public var activeSegment: CaptureRegionSegment? {
         segments.first { $0.state == .active }
     }

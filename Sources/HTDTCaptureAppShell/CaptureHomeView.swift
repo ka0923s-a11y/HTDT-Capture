@@ -563,10 +563,10 @@ public struct CaptureHomeView: View {
                                 alignment: .leading,
                                 spacing: 1
                             ) {
-                                Text(item.title)
+                                Text(workItemTitle(item))
                                     .font(.callout)
                                     .lineLimit(2)
-                                if let subtitle = item.subtitle {
+                                if let subtitle = workItemSubtitle(item) {
                                     Text(subtitle)
                                         .font(.caption)
                                         .foregroundStyle(
@@ -1220,6 +1220,38 @@ public struct CaptureHomeView: View {
             selection = .deliveries
         case .none:
             break
+        }
+    }
+
+    /// Work-queue rows carry the model's semantic strings — fixed
+    /// rows get localized titles/subtitles here so the model never
+    /// owns presentation language, while operator-authored values
+    /// (mission purpose, delivery error, ids) pass through as-is.
+    private func workItemTitle(_ item: HomeWorkItem) -> String {
+        switch item.kind {
+        case .resumeDraft:
+            return String(localized: "Resume draft")
+        case .retryDelivery:
+            return String(localized: "Delivery needs attention")
+        case .reviewArtifact:
+            return String(localized: "Review latest capture")
+        case .continueMission, .startMission, .missionFollowUp:
+            return item.title
+        }
+    }
+
+    private func workItemSubtitle(_ item: HomeWorkItem) -> String? {
+        switch item.kind {
+        case .continueMission:
+            return String(localized: "Mission in progress")
+        case .startMission:
+            return item.subtitle == HomeWorkItem.blockedMissionSubtitle
+                ? String(localized: "Mission — dependencies unmet")
+                : String(localized: "Mission ready")
+        case .missionFollowUp:
+            return String(localized: "Receiver requested follow-up")
+        case .resumeDraft, .retryDelivery, .reviewArtifact:
+            return item.subtitle
         }
     }
 

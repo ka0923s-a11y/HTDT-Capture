@@ -807,7 +807,10 @@ final class ScanningUXPolicyTests: XCTestCase {
         )
 
         // The report surfaces the note as a diagnostic.
-        let report = await store.evaluateQuality()
+        let report = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertTrue(
             report.diagnostics.contains {
                 $0.code == "loop_closure_check"

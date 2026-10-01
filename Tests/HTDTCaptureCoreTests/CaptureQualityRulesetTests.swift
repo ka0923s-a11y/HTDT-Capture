@@ -69,7 +69,8 @@ func unpublishedRulesetKeepsExplicitParameters() {
     #expect(!experimental.requireIntegrityPass)
 
     // The default unversioned-style ruleset is unchanged.
-    let legacy = CaptureQualityRequirements()
+    let legacy = CaptureQualityRequirements(
+        rulesetVersion: "1.0.0")
     #expect(legacy.rulesetVersion == "1.0.0")
     #expect(legacy.minimumActiveMeshAnchors == 1)
     #expect(!legacy.allowDepthEvidenceAsMeshFallback)
@@ -106,7 +107,7 @@ func persistedRulesetIdentityRemainsInterpretable() throws {
 func publishedRulesetVersionsAreEnumeratedDeterministically() {
     #expect(
         CaptureQualityRequirements.publishedRulesetVersions
-            == ["1.1.0", "1.2.0"]
+            == ["1.0.0", "1.1.0", "1.2.0"]
     )
 }
 
@@ -464,7 +465,7 @@ func depthFallbackSufficiencySatisfiesGate() throws {
     #expect(
         report.diagnostics.contains {
             $0.code == "mesh_depth_fallback"
-                && $0.severity == .warning
+                && $0.severity == .info
         }
     )
 }

@@ -39,6 +39,16 @@ public enum CaptureAdvisoryNoteKind: String, Codable, Sendable {
     /// The operator cleared a frame's privacy flag — the paired
     /// revocation of `privacy_flag`, mirroring declare/revoke (#460).
     case privacyFlagCleared = "privacy_flag_cleared"
+    /// RoomPlan was re-run on the same revision (Continue scanning or
+    /// an End-attempt retry). Each `run()` builds a fresh room model,
+    /// so the next accepted CapturedRoomData covers only the final
+    /// scanning segment while mesh anchors and evidence frames keep
+    /// accumulating across all segments.
+    case roomPlanRescan = "roomplan_rescan"
+    /// The RoomCaptureSession ended on its own — outside the bounded
+    /// End transaction — so the room model stopped accumulating while
+    /// the operator still sees a scanning surface.
+    case roomPlanSessionEnded = "roomplan_session_ended"
 }
 
 public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
@@ -111,6 +121,12 @@ public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
         case .privacyFlagCleared:
             code = "frame_privacy_flag_cleared"
             severity = .info
+        case .roomPlanRescan:
+            code = "roomplan_rescan"
+            severity = .warning
+        case .roomPlanSessionEnded:
+            code = "roomplan_session_ended"
+            severity = .warning
         }
         return QualityDiagnostic(
             code: code,

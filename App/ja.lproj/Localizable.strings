@@ -726,6 +726,14 @@
 "AR tracking was briefly unavailable but recovered within the allowed policy." = "AR トラッキングは一時的に利用不可でしたが、許容ポリシー内で復帰しました。";
 "The spatial coordinate space was reset during capture; earlier evidence may not line up." = "キャプチャ中に空間座標系がリセットされました。以前の証拠と一致しない可能性があります。";
 "Retained scene-depth evidence does not satisfy the depth-fallback sufficiency policy." = "保存された Scene Depth 証拠が深度フォールバック充足ポリシーを満たしていません。";
+"Retained scene-depth evidence does not satisfy the depth-fallback sufficiency policy:" = "保存された Scene Depth 証拠が深度フォールバック充足ポリシーを満たしていません:";
+"No usable depth samples were recorded — rescan with scene depth active." = "有効な深度サンプルが記録されていません — Scene Depth を有効にして再スキャンしてください。";
+"Too few valid depth samples — hold the scan on surfaces longer." = "有効な深度サンプルが不足しています — 各面をより長くスキャンしてください。";
+"Depth was mostly invalid even in the best frame — get closer to solid surfaces." = "最良フレームでも深度の大部分が無効でした — 確かな面に近づいてください。";
+"Depth evidence covers too little of the scene — sweep the room more evenly." = "深度証拠のカバー範囲が不足しています — 部屋をより均等になぞってください。";
+"Depth confidence is too low — rescan well-lit, textured surfaces." = "深度の信頼度が低すぎます — 明るく質感のある面を再スキャンしてください。";
+"Depth confidence was not recorded — keep scene depth enabled while scanning." = "深度の信頼度が記録されていません — スキャン中は Scene Depth を有効のままにしてください。";
+"Continue scanning targeting the listed depth failures — each names the evidence the gate still needs." = "表示された深度不足を狙ってスキャンを続けてください — 各項目がゲートに必要な証拠を示します。";
 "Mesh evidence is below minimum; retained scene depth is used as bounded fallback." = "メッシュ証拠が最小数を下回っています。保存済み Scene Depth を限定フォールバックとして使用します。";
 
 /* Capture task profile picker */
@@ -1057,6 +1065,10 @@
 
 /* #313 movement safety, #325 revisit flags, #329 vertical coverage, #352 pre-capture mission */
 "Capture mission" = "キャプチャミッション";
+"Mission in progress" = "ミッション進行中";
+"Mission ready" = "ミッション開始可";
+"Mission — dependencies unmet" = "ミッション — 前提条件未達";
+"Receiver requested follow-up" = "受信側が再対応を要求しています";
 "Mission: general capture" = "ミッション: 一般キャプチャ";
 "Mission: general capture — no task checklist. You can flag anything for review while scanning." = "ミッション: 一般キャプチャ — タスクチェックリストなし。スキャン中にレビュー対象をフラグできます。";
 "Mission: %@ — a general room capture with no required checklist items." = "ミッション: %@ — 必須チェック項目のない一般的な部屋キャプチャです。";
@@ -3654,3 +3666,10 @@
 "Calibration certificate" = "校正証明書";
 "Observation" = "観測";
 "Position" = "位置";
+"RoomPlan scanning ended unexpectedly; press End to finish with the evidence captured so far, or discard" = "RoomPlan のスキャンが予期せず終了しました。終了を押してこれまでに取得した証拠で完了するか、破棄してください";
+"The issue that blocked End may have cleared. Press End to try again." = "終了を妨げていた状態が解消された可能性があります。終了を押して再試行してください。";
+"Capture failed" = "キャプチャが失敗しました";
+"Committed but unverified" = "コミット済み・未検証";
+"Re-validate bundle" = "バンドルを再検証";
+"Re-validating bundle…" = "バンドルを再検証しています…";
+"Review quality changed before finalization. Open Details to check the findings and correct non-spatial items, retry saving, save the draft for later, or discard." = "確定前にレビューの品質が変化しました。詳細を開いて検出内容を確認し、空間以外の項目を修正するか、保存を再試行するか、下書きとして保存するか、破棄してください。";

@@ -145,7 +145,10 @@ final class CoordinateSpacePolicyTests: XCTestCase {
             }
         )
 
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
 
@@ -392,7 +395,10 @@ final class CoordinateSpacePolicyTests: XCTestCase {
             options: .atomic
         )
 
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(quality.integrityStatus, .fail)
     }
 

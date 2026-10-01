@@ -7,7 +7,6 @@ public enum CaptureState: String, Codable, Sendable, CaseIterable {
     case permissions
     case preparing
     case scanning
-    case paused
     case reviewing
     case annotating
     case validating
@@ -38,8 +37,6 @@ public enum CaptureEvent: Sendable, Equatable {
     case capabilitiesAccepted
     case permissionsGranted
     case prepared
-    case pause
-    case resume
     case beginReview
     case resumeScanning
     case beginAnnotation
@@ -116,10 +113,6 @@ public struct CaptureStateMachine: Sendable, Equatable {
             state = .preparing
         case (.preparing, .prepared):
             state = .scanning
-        case (.scanning, .pause):
-            state = .paused
-        case (.paused, .resume):
-            state = .scanning
         case (.scanning, .beginReview):
             state = .reviewing
         case (.reviewing, .resumeScanning):
@@ -151,7 +144,7 @@ public struct CaptureStateMachine: Sendable, Equatable {
         // commit transaction owns the fence there, and an abort mid-
         // commit would race promotion; the abort must wait for the
         // validating attempt to resolve back to Review or Failed.
-        case (.scanning, .abortCapture), (.paused, .abortCapture),
+        case (.scanning, .abortCapture),
              (.reviewing, .abortCapture), (.annotating, .abortCapture):
             state = .idle
             lastFailure = nil

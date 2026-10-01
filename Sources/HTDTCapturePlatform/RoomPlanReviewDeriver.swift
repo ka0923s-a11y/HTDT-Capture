@@ -35,10 +35,12 @@ public enum RoomPlanReviewDeriver {
     private static func decodeRoom(
         _ processedPayload: Data
     ) throws -> CapturedRoom {
-        guard let room = try? JSONDecoder().decode(
-            CapturedRoom.self,
-            from: processedPayload
-        ) else {
+        guard let room = try? RoomPlanArtifactEncoder.makeJSONDecoder()
+            .decode(
+                CapturedRoom.self,
+                from: processedPayload
+            )
+        else {
             throw DeriverError.undecodableRoomPayload
         }
         return room

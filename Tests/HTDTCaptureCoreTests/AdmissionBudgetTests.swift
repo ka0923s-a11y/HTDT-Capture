@@ -136,7 +136,10 @@ final class AdmissionBudgetTests: XCTestCase {
 
         // The rejection emitted a bounded persistence_backlog
         // diagnostic and left nothing reserved or written.
-        let report = await store.evaluateQuality()
+        let report = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertTrue(
             report.resourceEvents.contains {
                 $0.kind == .persistenceBacklog
@@ -227,7 +230,10 @@ final class AdmissionBudgetTests: XCTestCase {
         // remains integrity-clean.
         let snapshot = await store.snapshot()
         XCTAssertEqual(snapshot.evidenceFrameCount, committed)
-        let report = await store.evaluateQuality()
+        let report = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(report.integrityStatus, .pass)
     }
 
@@ -275,7 +281,10 @@ final class AdmissionBudgetTests: XCTestCase {
         let budget = await store.admissionBudgetSnapshot
         XCTAssertEqual(budget.reservedBytes, 0)
         XCTAssertEqual(budget.reservedItems, 0)
-        let report = await store.evaluateQuality()
+        let report = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(report.integrityStatus, .pass)
     }
 }

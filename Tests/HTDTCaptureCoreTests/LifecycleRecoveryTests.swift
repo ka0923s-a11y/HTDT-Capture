@@ -602,6 +602,7 @@ extension LifecycleRecoveryTests {
         // Quality re-evaluates cleanly against the restored bytes.
         let quality = await restored.evaluateQuality(
             requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
                 requireCompletedRoomPlan: true,
                 minimumActiveMeshAnchors: 0,
                 minimumEvidenceFrames: 0
@@ -785,13 +786,18 @@ extension LifecycleRecoveryTests {
             "integrity_not_checked",
             "integrity_failed",
         ]
+        // Findings whose evidence is expected provenance get a plan
+        // with no affordance — nothing the operator does clears them.
+        let nonActionable: Set<String> = ["mesh_depth_fallback"]
         for code in codes {
             let remediation = QualityRemediationCatalog
                 .remediation(for: diagnostic(code))
-            XCTAssertFalse(
-                remediation.actions.isEmpty,
-                "no remediation for \(code)"
-            )
+            if !nonActionable.contains(code) {
+                XCTAssertFalse(
+                    remediation.actions.isEmpty,
+                    "no remediation for \(code)"
+                )
+            }
             XCTAssertTrue(remediation.blocking)
             XCTAssertEqual(remediation.diagnosticCode, code)
         }
@@ -806,7 +812,6 @@ extension LifecycleRecoveryTests {
 
     func testAuthorityDamagedDiagnosticsOfferReplacement() {
         for code in [
-            "tracking_unavailable_unrecovered",
             "tracking_unavailable_extended",
             "tracking_coordinate_discontinuity",
         ] {
@@ -818,6 +823,22 @@ extension LifecycleRecoveryTests {
             )
             XCTAssertFalse(remediation.repairableInPlace)
         }
+    }
+
+    func testUnrecoveredTrackingSpanOffersContinueScanning() {
+        // The evaluator classifies spans from event history — a later
+        // normal sample converts an unrecovered span to recovered, so
+        // continuing the scan is a legitimate in-place repair, not a
+        // dead end that can only discard.
+        let remediation = QualityRemediationCatalog
+            .remediation(
+                for: diagnostic("tracking_unavailable_unrecovered")
+            )
+        XCTAssertEqual(
+            remediation.actions,
+            [.continueScanning, .startReplacementRevision]
+        )
+        XCTAssertTrue(remediation.repairableInPlace)
     }
 
     func testDraftActionsStripLiveOnlyAffordances() {
@@ -954,7 +975,10 @@ extension LifecycleRecoveryTests {
         XCTAssertEqual(snapshot.revisionPhase, .endAccepted)
 
         await XCTAssertThrowsErrorAsync(
-            try await store.sealForFinalization()
+            try await store.sealForFinalization(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         ) { error in
             XCTAssertEqual(
                 error as? CaptureWorkingSetError,

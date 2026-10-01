@@ -436,7 +436,10 @@ final class CaptureWorkingSetStoreTests: XCTestCase {
             )
         )
 
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
 
@@ -537,7 +540,10 @@ final class CaptureWorkingSetStoreTests: XCTestCase {
         let snapshot = await store.snapshot()
         XCTAssertEqual(snapshot.evidenceFrameCount, 1)
         XCTAssertEqual(snapshot.depthEvidenceCount, 1)
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
 
@@ -781,6 +787,7 @@ final class CaptureWorkingSetStoreTests: XCTestCase {
 
         let quality = await store.evaluateQuality(
             requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
                 requireCompletedRoomPlan: false,
                 minimumActiveMeshAnchors: 1,
                 minimumEvidenceFrames: 0

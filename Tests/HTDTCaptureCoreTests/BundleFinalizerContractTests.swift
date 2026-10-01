@@ -14,7 +14,8 @@ private func contractQualityReport(
             evidenceFrameCount: evidenceFrameCount,
             integrityStatus: .pass
         ),
-        requirements: CaptureQualityRequirements()
+        requirements: CaptureQualityRequirements(
+            rulesetVersion: "1.0.0")
     )
 }
 
@@ -211,7 +212,8 @@ func finalizerRejectsNonReadyStagedQualityPayload() async throws {
 
     let unready = CaptureQualityEvaluator.evaluate(
         CaptureQualityObservation(),
-        requirements: CaptureQualityRequirements()
+        requirements: CaptureQualityRequirements(
+            rulesetVersion: "1.0.0")
     )
     #expect(!unready.readyForHTDTIngestion)
     try stageQualityPayload(

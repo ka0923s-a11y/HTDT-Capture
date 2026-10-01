@@ -248,7 +248,11 @@ public struct CaptureReviewView: View {
                         let remediation = QualityRemediationCatalog
                             .remediation(for: diagnostic)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(localizedDiagnosticMessage(diagnostic))
+                            Text(
+                                localizedQualityDiagnosticMessage(
+                                    diagnostic
+                                )
+                            )
                                 .font(.headline)
                             Text(diagnostic.code)
                                 .font(.caption2.monospaced())
@@ -281,7 +285,7 @@ public struct CaptureReviewView: View {
                     ) { _, group in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(
-                                localizedResourceEventKind(
+                                localizedResourceEventKindLabel(
                                     group.event.kind
                                 )
                             )
@@ -1043,25 +1047,6 @@ public struct CaptureReviewView: View {
         }
     }
 
-    private func localizedResourceEventKind(
-        _ kind: CaptureResourceEventKind
-    ) -> String {
-        switch kind {
-        case .thermalPressure:
-            return String(localized: "Thermal pressure")
-        case .memoryPressure:
-            return String(localized: "Memory pressure")
-        case .storagePressure:
-            return String(localized: "Storage pressure")
-        case .persistenceBacklog:
-            return String(localized: "Persistence backlog")
-        case .persistenceFailure:
-            return String(localized: "Persistence failure")
-        case .interruption:
-            return String(localized: "Interruption")
-        }
-    }
-
     private func localizedResourceWarningSummary(
         _ group: ResourceWarningGroup
     ) -> String {
@@ -1114,75 +1099,6 @@ public struct CaptureReviewView: View {
                 localized:
                     "Movement-constrained scan; movement checks skipped"
             )
-        }
-    }
-
-    private func localizedDiagnosticMessage(
-        _ diagnostic: QualityDiagnostic
-    ) -> String {
-        switch diagnostic.code {
-        case "roomplan_not_completed":
-            return String(
-                localized: "RoomPlan capture has not completed successfully."
-            )
-        case "insufficient_mesh_anchors":
-            return String(
-                localized: "Active mesh anchor count is below the required minimum."
-            )
-        case "insufficient_evidence_frames":
-            return String(
-                localized: "Evidence frame count is below the required minimum."
-            )
-        case "depth_evidence_missing":
-            return String(
-                localized: "This quality ruleset requires at least one depth observation."
-            )
-        case "tracking_unavailable_observed":
-            return String(
-                localized: "AR tracking became unavailable during the capture."
-            )
-        case "tracking_limited_observed":
-            return String(
-                localized: "AR tracking was limited during part of the capture."
-            )
-        case "tracking_unavailable_unrecovered":
-            return String(
-                localized: "AR tracking became unavailable and never recovered."
-            )
-        case "tracking_unavailable_extended":
-            return String(
-                localized: "A recovered tracking-unavailable interval exceeded the recoverable duration for this ruleset."
-            )
-        case "tracking_unavailable_recovering":
-            return String(
-                localized: "Tracking recovered but has not yet stayed normal for the required stable interval."
-            )
-        case "tracking_unavailable_recovered":
-            return String(
-                localized: "AR tracking was briefly unavailable but recovered within the allowed policy."
-            )
-        case "tracking_coordinate_discontinuity":
-            return String(
-                localized: "The spatial coordinate space was reset during capture; earlier evidence may not line up."
-            )
-        case "depth_fallback_insufficient":
-            return String(
-                localized: "Retained scene-depth evidence does not satisfy the depth-fallback sufficiency policy."
-            )
-        case "mesh_depth_fallback":
-            return String(
-                localized: "Mesh evidence is below minimum; retained scene depth is used as bounded fallback."
-            )
-        case "integrity_not_checked":
-            return String(
-                localized: "Bundle integrity must pass before finalization."
-            )
-        case "integrity_failed":
-            return String(
-                localized: "Bundle integrity validation failed."
-            )
-        default:
-            return diagnostic.message
         }
     }
 
@@ -1242,10 +1158,16 @@ public struct CaptureReviewView: View {
                 localized: "Continue scanning lets RoomPlan finish its accepted geometry."
             )
         case "insufficient_mesh_anchors",
-             "depth_fallback_insufficient",
              "depth_evidence_missing":
             return consequence + " " + String(
                 localized: "More scan coverage adds the geometric or depth evidence the ruleset requires."
+            )
+        case "depth_fallback_insufficient":
+            // The diagnostic names the sub-gate(s) that failed; only
+            // the matching evidence clears it — more coverage alone
+            // cannot fix a confidence or per-frame-validity failure.
+            return consequence + " " + String(
+                localized: "Continue scanning targeting the listed depth failures — each names the evidence the gate still needs."
             )
         case "insufficient_evidence_frames":
             return consequence + " " + String(

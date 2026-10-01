@@ -394,6 +394,50 @@ public struct SpatialVerticalBandSummary: Sendable, Equatable {
     }
 }
 
+/// Live voxel-budget usage for the 3D coverage layer (#329): the
+/// same contract the 2D `SpatialCoverageCapacityDiagnostics` gives
+/// the region budget — a bounded voxel map can never drop a retained
+/// voxel silently.
+public struct SpatialVoxelCapacityDiagnostics: Sendable, Equatable {
+    /// The configured hard bound on retained voxels.
+    public let maxVoxelCount: Int
+    /// Largest number of voxels retained at once this scan.
+    public let peakVoxelCount: Int
+    /// Total voxel entries ever inserted into the bounded map,
+    /// including keys later evicted.
+    public let voxelEntryCount: Int
+    /// Number of voxels dropped to make room for new entries.
+    public let evictionCount: Int
+    /// Session timestamp of the first eviction, when any occurred.
+    public let firstEvictionTimestampSeconds: Double?
+    /// Session timestamp of the most recent eviction, when any
+    /// occurred.
+    public let lastEvictionTimestampSeconds: Double?
+    /// True while the bounded map is at capacity, meaning the next new
+    /// voxel observation drops a retained voxel.
+    public let isSaturated: Bool
+
+    public init(
+        maxVoxelCount: Int,
+        peakVoxelCount: Int,
+        voxelEntryCount: Int,
+        evictionCount: Int,
+        firstEvictionTimestampSeconds: Double?,
+        lastEvictionTimestampSeconds: Double?,
+        isSaturated: Bool
+    ) {
+        self.maxVoxelCount = maxVoxelCount
+        self.peakVoxelCount = peakVoxelCount
+        self.voxelEntryCount = voxelEntryCount
+        self.evictionCount = evictionCount
+        self.firstEvictionTimestampSeconds =
+            firstEvictionTimestampSeconds
+        self.lastEvictionTimestampSeconds =
+            lastEvictionTimestampSeconds
+        self.isSaturated = isSaturated
+    }
+}
+
 /// Summary of the additive bounded 3D coverage layer (issue #329).
 /// Voxels share the 2D layer's start-relative X/Z grid; the y-band axis
 /// is quantized relative to the scan-start camera height. Bounded to
@@ -408,6 +452,13 @@ public struct SpatialVerticalCoverageSummary: Sendable, Equatable {
     public let observedYBandMax: Int?
     public let voxels: [SpatialCoverageVoxel]
     public let displayBands: [SpatialVerticalBandSummary]
+    /// Live voxel-budget usage; never silent when the bounded map has
+    /// dropped previously observed voxels.
+    public let capacity: SpatialVoxelCapacityDiagnostics
+    /// Bounded recency list of voxel keys dropped by capacity
+    /// eviction, so consumers can distinguish a never-observed
+    /// elevation band from one the budget dropped.
+    public let recentlyEvictedKeys: Set<SpatialCoverageVoxelKey>
 
     public init(
         verticalCellSizeMeters: Double,
@@ -415,7 +466,9 @@ public struct SpatialVerticalCoverageSummary: Sendable, Equatable {
         observedYBandMin: Int?,
         observedYBandMax: Int?,
         voxels: [SpatialCoverageVoxel],
-        displayBands: [SpatialVerticalBandSummary]
+        displayBands: [SpatialVerticalBandSummary],
+        capacity: SpatialVoxelCapacityDiagnostics? = nil,
+        recentlyEvictedKeys: Set<SpatialCoverageVoxelKey> = []
     ) {
         self.verticalCellSizeMeters = verticalCellSizeMeters
         self.maxVoxelCount = maxVoxelCount
@@ -423,6 +476,17 @@ public struct SpatialVerticalCoverageSummary: Sendable, Equatable {
         self.observedYBandMax = observedYBandMax
         self.voxels = voxels
         self.displayBands = displayBands
+        self.capacity = capacity
+            ?? SpatialVoxelCapacityDiagnostics(
+                maxVoxelCount: maxVoxelCount,
+                peakVoxelCount: voxels.count,
+                voxelEntryCount: voxels.count,
+                evictionCount: 0,
+                firstEvictionTimestampSeconds: nil,
+                lastEvictionTimestampSeconds: nil,
+                isSaturated: voxels.count >= maxVoxelCount
+            )
+        self.recentlyEvictedKeys = recentlyEvictedKeys
     }
 
     public static let empty = SpatialVerticalCoverageSummary(
@@ -816,6 +880,19 @@ public struct SpatialScanCoverageTracker: Sendable {
     private var lastEvictionTimestampSeconds: Double?
     private var recentlyEvictedKeys: [SpatialCoverageCellKey] = []
     private var recentlyEvictedKeySet: Set<SpatialCoverageCellKey> = []
+    // Voxel-layer capacity diagnostics: identical contract to the 2D
+    // budget above — evictions are counted and the dropped keys join a
+    // bounded recency list so an elevation band that disappeared is
+    // distinguishable from one never observed.
+    private var peakVoxelCount = 0
+    private var voxelEntryCount = 0
+    private var voxelEvictionCount = 0
+    private var firstVoxelEvictionTimestampSeconds: Double?
+    private var lastVoxelEvictionTimestampSeconds: Double?
+    private var recentlyEvictedVoxelKeys:
+        [SpatialCoverageVoxelKey] = []
+    private var recentlyEvictedVoxelKeySet:
+        Set<SpatialCoverageVoxelKey> = []
 
     public init(
         cellSizeMeters: Double = 0.5,
@@ -1002,10 +1079,14 @@ public struct SpatialScanCoverageTracker: Sendable {
                 continue
             }
 
-            if voxels[voxelKey] == nil,
-               voxels.count >= maxVoxelCount
-            {
-                evictOldestVoxel()
+            if voxels[voxelKey] == nil {
+                if voxels.count >= maxVoxelCount {
+                    evictOldestVoxel(
+                        atTimestampSeconds:
+                            sample.sessionTimestampSeconds
+                    )
+                }
+                voxelEntryCount += 1
             }
 
             var voxel = voxels[voxelKey] ?? StoredVoxel()
@@ -1038,6 +1119,7 @@ public struct SpatialScanCoverageTracker: Sendable {
             }
 
             voxels[voxelKey] = voxel
+            peakVoxelCount = max(peakVoxelCount, voxels.count)
         }
 
         return summary()
@@ -1150,7 +1232,19 @@ public struct SpatialScanCoverageTracker: Sendable {
             observedYBandMin: observedMin,
             observedYBandMax: observedMax,
             voxels: publicVoxels,
-            displayBands: bands
+            displayBands: bands,
+            capacity: SpatialVoxelCapacityDiagnostics(
+                maxVoxelCount: maxVoxelCount,
+                peakVoxelCount: peakVoxelCount,
+                voxelEntryCount: voxelEntryCount,
+                evictionCount: voxelEvictionCount,
+                firstEvictionTimestampSeconds:
+                    firstVoxelEvictionTimestampSeconds,
+                lastEvictionTimestampSeconds:
+                    lastVoxelEvictionTimestampSeconds,
+                isSaturated: voxels.count >= maxVoxelCount
+            ),
+            recentlyEvictedKeys: recentlyEvictedVoxelKeySet
         )
     }
 
@@ -1336,8 +1430,12 @@ public struct SpatialScanCoverageTracker: Sendable {
 
     /// Oldest-first eviction for the additive voxel layer (#329). Kept
     /// separate from `evictOldestRegion` so the 2D budget policy
-    /// (including in-flight #336 changes) is untouched.
-    private mutating func evictOldestVoxel() {
+    /// (including in-flight #336 changes) is untouched. Eviction is
+    /// recorded: counters plus a bounded recency list let consumers
+    /// distinguish a never-observed elevation band from a dropped one.
+    private mutating func evictOldestVoxel(
+        atTimestampSeconds timestamp: Double
+    ) {
         guard let oldestKey = voxels.min(by: { lhs, rhs in
             if lhs.value.lastObservedTimestampSeconds
                 != rhs.value.lastObservedTimestampSeconds
@@ -1350,6 +1448,21 @@ public struct SpatialScanCoverageTracker: Sendable {
             return
         }
         voxels[oldestKey] = nil
+
+        voxelEvictionCount += 1
+        if firstVoxelEvictionTimestampSeconds == nil {
+            firstVoxelEvictionTimestampSeconds = timestamp
+        }
+        lastVoxelEvictionTimestampSeconds = timestamp
+
+        if !recentlyEvictedVoxelKeySet.insert(oldestKey).inserted {
+            recentlyEvictedVoxelKeys.removeAll { $0 == oldestKey }
+        }
+        recentlyEvictedVoxelKeys.append(oldestKey)
+        if recentlyEvictedVoxelKeys.count > maxVoxelCount {
+            let stale = recentlyEvictedVoxelKeys.removeFirst()
+            recentlyEvictedVoxelKeySet.remove(stale)
+        }
     }
 
     /// Capacity eviction (#336) is value-aware and recorded: low-
