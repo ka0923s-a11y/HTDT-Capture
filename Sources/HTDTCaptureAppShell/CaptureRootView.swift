@@ -2205,55 +2205,6 @@ public struct CaptureRootView: View {
                     }
                 }
                 .confirmationDialog(
-                    pendingRemediation
-                        == .startReplacementRevision
-                        ? "Start a replacement capture?"
-                        : "Discard the working capture?",
-                    isPresented: Binding(
-                        get: { pendingRemediation != nil },
-                        set: { presented in
-                            if !presented {
-                                pendingRemediation = nil
-                            }
-                        }
-                    ),
-                    titleVisibility: .visible
-                ) {
-                    if pendingRemediation
-                        == .startReplacementRevision
-                    {
-                        Button(
-                            "Discard and start replacement",
-                            role: .destructive
-                        ) {
-                            if let action = pendingRemediation {
-                                actions.performRemediation(action)
-                            }
-                            pendingRemediation = nil
-                        }
-                    } else {
-                        Button(
-                            "Discard capture",
-                            role: .destructive
-                        ) {
-                            if let action = pendingRemediation {
-                                actions.performRemediation(action)
-                            }
-                            pendingRemediation = nil
-                        }
-                    }
-                    Button("Cancel", role: .cancel) {
-                        pendingRemediation = nil
-                    }
-                } message: {
-                    Text(
-                        pendingRemediation
-                            == .startReplacementRevision
-                            ? "Permanently removes this working revision and opens capture setup. Finalized captures are never touched."
-                            : "Permanently removes the working revision. Finalized captures are never touched."
-                    )
-                }
-                .confirmationDialog(
                     "Discard capture?",
                     isPresented: $confirmingDiscard,
                     titleVisibility: .visible
@@ -2618,6 +2569,59 @@ public struct CaptureRootView: View {
                     cancel: actions.cancelSemanticCorrection
                 )
             }
+        }
+        // Anchored to the outermost container: the remediation
+        // trigger can live inside a pushed diagnostics detail, and a
+        // dialog attached to the list behind it would stay hidden
+        // until the operator navigates back.
+        .confirmationDialog(
+            pendingRemediation
+                == .startReplacementRevision
+                ? "Start a replacement capture?"
+                : "Discard the working capture?",
+            isPresented: Binding(
+                get: { pendingRemediation != nil },
+                set: { presented in
+                    if !presented {
+                        pendingRemediation = nil
+                    }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            if pendingRemediation
+                == .startReplacementRevision
+            {
+                Button(
+                    "Discard and start replacement",
+                    role: .destructive
+                ) {
+                    if let action = pendingRemediation {
+                        actions.performRemediation(action)
+                    }
+                    pendingRemediation = nil
+                }
+            } else {
+                Button(
+                    "Discard capture",
+                    role: .destructive
+                ) {
+                    if let action = pendingRemediation {
+                        actions.performRemediation(action)
+                    }
+                    pendingRemediation = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingRemediation = nil
+            }
+        } message: {
+            Text(
+                pendingRemediation
+                    == .startReplacementRevision
+                    ? "Permanently removes this working revision and opens capture setup. Finalized captures are never touched."
+                    : "Permanently removes the working revision. Finalized captures are never touched."
+            )
         }
     }
 
