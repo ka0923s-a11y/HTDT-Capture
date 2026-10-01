@@ -1552,18 +1552,6 @@ public struct CaptureRootView: View {
             actions.resumeFailedAsDraft()
         case .keepFailedAsDraft:
             actions.keepFailedAsDraft()
-        case .resumeDraft:
-            if let draft =
-                persistedInventory.recoverableDrafts.first
-            {
-                actions.openRecoveredDraft(draft)
-            }
-        case .discardDraft:
-            if let draft =
-                persistedInventory.recoverableDrafts.first
-            {
-                actions.discardRecoveredDraft(draft)
-            }
         case .retryFinalize:
             actions.finalizeCapture()
         case .openAnnotations:
@@ -1988,6 +1976,8 @@ public struct CaptureRootView: View {
                                     spatialPlausibilityFindings,
                                 spatialAuthorityLive:
                                     liveSpatialAuthority,
+                                spatialAuthoritySealed:
+                                    spatialCaptureSealed,
                                 practiceCapture:
                                     practiceCaptureActive,
                                 onRemediationAction:
@@ -2218,7 +2208,7 @@ public struct CaptureRootView: View {
                     Button("Cancel", role: .cancel) {}
                 } message: {
                     Text(
-                        "Stops scanning and permanently removes the working revision. Finalized captures are never touched."
+                        "Stops the capture and permanently removes the working revision. Finalized captures are never touched."
                     )
                 }
                 // #437: the destructive steps on the failed surface
@@ -2749,6 +2739,9 @@ public struct CaptureRootView: View {
 
         case .preparing:
             progressRow("Preparing capture working set…")
+            // Working-set creation is cancellable too — a stalled
+            // preparation must not strand the operator (#254).
+            discardButton
 
         case .scanning:
             if practiceCaptureActive {
@@ -3064,6 +3057,8 @@ public struct CaptureRootView: View {
                             spatialPlausibilityFindings,
                         spatialAuthorityLive:
                             liveSpatialAuthority,
+                        spatialAuthoritySealed:
+                            spatialCaptureSealed,
                         practiceCapture:
                             practiceCaptureActive,
                         onRemediationAction:

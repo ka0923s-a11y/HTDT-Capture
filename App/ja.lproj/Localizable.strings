@@ -3684,3 +3684,12 @@
 "Permanently removes the working revision. Finalized captures are never touched." = "作業リビジョンを完全に削除します。確定済みのキャプチャは変更されません。";
 "Confirm discard capture" = "キャプチャの破棄を確認";
 "Stop scanning" = "スキャンを中止";
+"Review quality changed before finalization — non-spatial findings can still be corrected in Details; otherwise retry, save the draft, or discard." = "確定前にレビューの品質が変化しました。空間以外の検出項目は詳細で修正できます。それ以外は再試行するか、下書きとして保存するか、破棄してください。";
+"Opens the annotation workspace to correct the flagged items — spatial capture is sealed, so findings needing more scanning can only be retried, deferred, or discarded." = "注釈ワークスペースを開いて指摘項目を修正します。空間キャプチャはシール済みのため、追加スキャンが必要な検出項目は再試行・延期・破棄のみ選択できます。";
+"Spatial capture is sealed for finalization — scanning actions are unavailable." = "空間キャプチャは確定のためにシールされています。スキャン操作は利用できません。";
+"Requires a live capture coordinate space" = "ライブのキャプチャ座標空間が必要です";
+"Available once the scan is reviewed" = "スキャンのレビューが完了すると利用できます";
+"%lld unresolved repair task" = "未解決の修復タスク %lld 件";
+"%lld unresolved repair tasks" = "未解決の修復タスク %lld 件";
+"Capture cancelled" = "キャプチャをキャンセルしました";
+"Stops the capture and permanently removes the working revision. Finalized captures are never touched." = "キャプチャを停止し、作業中のリビジョンを完全に削除します。確定済みのキャプチャは対象外です。";

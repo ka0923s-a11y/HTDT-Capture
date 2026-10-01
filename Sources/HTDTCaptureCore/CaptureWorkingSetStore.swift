@@ -1469,6 +1469,11 @@ public actor CaptureWorkingSetStore {
         }
     }
 
+    /// Pre-End primitive retained for tests. Production callers use
+    /// `persistEndRoomPlanTransaction`: evidence committed through
+    /// this path alone leaves the revision at `live_scan_incomplete`,
+    /// which recovery treats as abandoned working data unless the
+    /// rest of the durable End payload set is also present.
     public func persistRawRoomPlan(
         _ payload: RoomPlanRawArtifactPayload
     ) async throws {
@@ -1591,6 +1596,11 @@ public actor CaptureWorkingSetStore {
         capturedRoomMetadata = metadata.document
     }
 
+    /// Pre-End primitive retained for tests. Production callers use
+    /// `persistEndRoomPlanTransaction`: evidence committed through
+    /// this path alone leaves the revision at `live_scan_incomplete`,
+    /// which recovery treats as abandoned working data unless the
+    /// rest of the durable End payload set is also present.
     public func persistProcessedRoomPlan(
         _ payload: RoomPlanProcessedArtifactPayload
     ) async throws {
@@ -5027,7 +5037,7 @@ public actor CaptureWorkingSetStore {
         return (data, declaration)
     }
     /// Records one advisory provenance note and rewrites the bounded
-    /// `advisory/operator-advisories.json` derived payload. Exact
+    /// `advisory/operator-advisories.json` canonical payload. Exact
     /// duplicates (same kind/detail/timestamp) are idempotent so a
     /// retried record does not grow history.
     public func recordAdvisoryNote(
@@ -5061,7 +5071,7 @@ public actor CaptureWorkingSetStore {
                 mediaType: "application/json",
                 producer: "capture_advisory",
                 provenanceClass: .captureAppDerived,
-                role: .derived
+                role: .canonical
             )
         )
 
@@ -6913,7 +6923,19 @@ public actor CaptureWorkingSetStore {
             throw CaptureWorkingSetError
                 .workingRevisionNotRecoverable
         }
-        guard state.phase.isRecoverableDraft,
+        // A `live_scan_incomplete` marker with the complete durable
+        // End payload set means the atomic End batch landed and only
+        // the separate marker-flip write was lost: the revision is
+        // recoverable, and restore heals the marker durably.
+        guard (
+                state.phase.isRecoverableDraft
+                    || (
+                        state.phase == .liveScanIncomplete
+                            && Self.endTransactionEvidencePresent(
+                                workingRevisionURL: draft.url
+                            )
+                    )
+            ),
               !state.practice,
               state.captureRevisionID == draft.revisionID
         else {
@@ -6945,10 +6967,12 @@ public actor CaptureWorkingSetStore {
         else {
             throw CaptureWorkingSetError.workingSetSealed
         }
-        guard let checkpoint = state.checkpoint else {
-            throw CaptureWorkingSetError
-                .workingRevisionNotRecoverable
-        }
+        // `end_accepted`+ markers carry the volatile-evaluation
+        // checkpoint; a stale `live_scan_incomplete` marker (the
+        // marker-flip write was lost after the durable End batch)
+        // carries none — restore then reports every field missing
+        // instead of refusing the complete evidence.
+        let checkpoint = state.checkpoint
 
         let scanned = try BundleDirectoryScanner.scan(
             root: rootDirectory
@@ -6976,8 +7000,172 @@ public actor CaptureWorkingSetStore {
             scannedByPath.removeValue(forKey: path)
         }
 
+        enum LeftoverClassification {
+            case binding(BundleReservedPaths.Binding)
+            case derivedWithSources(BundlePayloadDeclaration)
+            case undeclarable
+            case unknown
+        }
+
+        // `.derived`-role payloads are only declarable with real
+        // source refs: each package family rebuilds them from its own
+        // document or from the restored evidence — the same refs the
+        // commit-time declaration carried — else the leftover can
+        // never pass the manifest.
+        func restoredLeftoverClassification(
+            _ path: String
+        ) -> LeftoverClassification {
+            let binding = BundleReservedPaths.binding(for: path)
+            func decodedDocument<D: Codable>(_ type: D.Type) -> D? {
+                guard
+                    let file = scannedByPath[path],
+                    let data = try? Data(contentsOf: file.url)
+                else {
+                    return nil
+                }
+                return try? decoder.decode(type, from: data)
+            }
+            func derivedDecl(
+                _ refs: [String]
+            ) -> BundlePayloadDeclaration {
+                BundlePayloadDeclaration(
+                    path: path,
+                    mediaType: binding?.mediaType ?? "application/json",
+                    producer: binding?.producer ?? "capture_app",
+                    provenanceClass: binding?.provenanceClass
+                        ?? .captureAppDerived,
+                    role: .derived,
+                    sourceRefs: refs
+                )
+            }
+            func derivedFromDocument<P>(
+                _ type: P.Type,
+                refs: (P) throws -> [String]
+            ) -> LeftoverClassification
+            where P: Codable {
+                guard
+                    let document = decodedDocument(type),
+                    let refs = try? refs(document),
+                    !refs.isEmpty
+                else {
+                    return .undeclarable
+                }
+                return .derivedWithSources(derivedDecl(refs))
+            }
+            switch path {
+            case ExternalAuthorityDependencyPackage.path:
+                guard
+                    let manifest = decodedDocument(
+                        ExternalAuthorityDependencyManifest.self
+                    ),
+                    let package =
+                        try? ExternalAuthorityDependencyPackage(
+                            manifest: manifest
+                        )
+                else {
+                    return .undeclarable
+                }
+                return .derivedWithSources(package.declaration)
+            case DerivedGeometryCandidatePackage.path:
+                var refs = declarations.keys
+                    .filter {
+                        $0 == MeshEvidencePackage.indexPath
+                            || ($0.hasPrefix("evidence/depth/")
+                                && $0.hasSuffix(".depthbin"))
+                    }
+                    .sorted(by: BundleLogicalPath.utf8Less)
+                    .map { "path:" + $0 }
+                if refs.count
+                    > BundleManifest.maxSourceRefsPerEntry
+                {
+                    refs = Array(
+                        refs.prefix(
+                            BundleManifest.maxSourceRefsPerEntry
+                        )
+                    )
+                }
+                guard !refs.isEmpty else {
+                    return .undeclarable
+                }
+                return .derivedWithSources(derivedDecl(refs))
+            case EquipmentIdentityEvidencePackage.path:
+                return derivedFromDocument(
+                    EquipmentIdentityDocument.self
+                ) {
+                    try EquipmentIdentityEvidencePackage(
+                        document: $0
+                    ).sourceRefs
+                }
+            case OperatorProfilePackage.path:
+                return derivedFromDocument(
+                    OperatorProfileDocument.self
+                ) {
+                    try OperatorProfilePackage(document: $0)
+                        .sourceRefs
+                }
+            case FieldEvidencePackage.path:
+                return derivedFromDocument(
+                    FieldEvidenceDocument.self
+                ) {
+                    try FieldEvidencePackage(document: $0)
+                        .sourceRefs
+                }
+            case InstrumentProfilePackage.path:
+                return derivedFromDocument(
+                    InstrumentProfileDocument.self
+                ) {
+                    try InstrumentProfilePackage(document: $0)
+                        .sourceRefs
+                }
+            case InstalledSettingsPackage.path:
+                return derivedFromDocument(
+                    InstalledSettingsDocument.self
+                ) {
+                    try InstalledSettingsPackage(document: $0)
+                        .sourceRefs
+                }
+            case AsBuiltWiringPackage.path:
+                return derivedFromDocument(
+                    AsBuiltWiringDocument.self
+                ) {
+                    try AsBuiltWiringPackage(document: $0)
+                        .sourceRefs
+                }
+            default:
+                break
+            }
+            guard let binding else {
+                return .unknown
+            }
+            guard binding.role == .derived else {
+                return .binding(binding)
+            }
+            // The only patterned `.derived` binding — a frame preview
+            // is declarable iff its descriptor survived.
+            if path.hasPrefix("evidence/frames/"),
+               path.hasSuffix(".preview.heic")
+            {
+                let stem = String(
+                    path.dropFirst("evidence/frames/".count)
+                        .dropLast(".preview.heic".count)
+                )
+                let descriptorPath =
+                    "evidence/frames/\(stem).json"
+                guard declarations[descriptorPath] != nil else {
+                    return .undeclarable
+                }
+                return .derivedWithSources(
+                    derivedDecl(["path:" + descriptorPath])
+                )
+            }
+            return .undeclarable
+        }
+
         var supersededPaths: [String] = []
         var missingCheckpoint: [String] = []
+        if checkpoint == nil {
+            missingCheckpoint.append("checkpoint_document")
+        }
 
         // 1. Session foundation (required: written before any spatial
         //    commit and bound by the End transaction).
@@ -7187,6 +7375,14 @@ public actor CaptureWorkingSetStore {
         processedRoomPlanDescriptor = processedDescriptor
         capturedRoomMetadata = metadataDoc
         coordinateSpacePolicy = policyDoc
+
+        // The durable End payload set is proven at this point, so a
+        // stale `live_scan_incomplete` marker can only be a lost
+        // marker-flip write — heal it to `end_accepted` now so the
+        // restored store and the next relaunch agree on the phase.
+        if state.phase == .liveScanIncomplete {
+            try await persistRevisionState(.endAccepted)
+        }
 
         // 3. Mesh index + geometry (optional).
         if let indexData = try readConsumed(
@@ -7579,11 +7775,11 @@ public actor CaptureWorkingSetStore {
                     mediaType: "application/json",
                     producer: "capture_advisory",
                     provenanceClass: .captureAppDerived,
-                    role: .derived
+                    role: .canonical
                 )
             )
         } else {
-            advisoryNotes = checkpoint.advisoryNotes
+            advisoryNotes = checkpoint?.advisoryNotes ?? []
             if !advisoryNotes.isEmpty {
                 missingCheckpoint.append("operator_advisories_file")
             }
@@ -7606,7 +7802,7 @@ public actor CaptureWorkingSetStore {
             fieldNotes = document.notes
             try register(Self.fieldNotesDeclaration)
         } else {
-            fieldNotes = checkpoint.fieldNotes
+            fieldNotes = checkpoint?.fieldNotes ?? []
             if !fieldNotes.isEmpty {
                 missingCheckpoint.append("field_notes_file")
             }
@@ -7624,7 +7820,6 @@ public actor CaptureWorkingSetStore {
                 "session/connected-spaces.json",
                 "session/field-notes.json",
                 "evidence/reference-targets.json",
-                "derived/geometry-candidates.json",
                 "verification/as-built.json":
                 break
             default:
@@ -7647,6 +7842,10 @@ public actor CaptureWorkingSetStore {
             )
             supplementalDocuments[path] = data
         }
+        // `derived/geometry-candidates.json` stays a leftover: its
+        // `.derived`-role source refs are only resolvable once every
+        // surviving payload is declared, so step 8's second pass
+        // classifies it.
 
         // 7. Stale seal-time outputs are superseded by definition: a
         //    relaunched draft re-evaluates quality from restored state,
@@ -7663,27 +7862,136 @@ public actor CaptureWorkingSetStore {
             supersededPaths.append(superseded)
         }
 
-        // 8. Anything the inventory could not classify stays on disk,
-        //    declared generically, and is reported as unsupported —
-        //    never silently dropped and never blocking recovery.
+        // 8. Remaining payloads must still be declarable at
+        //    finalization — the manifest rejects a declaration that
+        //    does not match its reserved-path binding or a derived
+        //    entry without source refs. Writer scratch (`.tmp-*`) and
+        //    a stray `manifest.json` left by a crash between manifest
+        //    write and the staging rename are removed like superseded
+        //    seal outputs: the manifest is byte-identically
+        //    regenerable by `finalize` and scratch bytes are partial
+        //    data, never committed evidence. Reserved/schema-owned
+        //    paths re-register under their canonical binding;
+        //    `.derived` bindings additionally rebuild their source
+        //    refs, and a derived payload whose sources did not
+        //    survive is removed and reported rather than trapping
+        //    finalization. Genuinely unknown payloads keep their
+        //    bytes, declare as unrestricted capture-app canonical
+        //    data, and are reported as unsupported — never silently
+        //    dropped and never blocking recovery.
+        // `.derived`-role payloads rebuild their source refs against
+        // the declared set, so none of them can classify until every
+        // non-derived leftover is declared — defer them all to the
+        // second pass regardless of how this pass would classify them.
+        func isDerivedPayloadPath(_ path: String) -> Bool {
+            if BundleReservedPaths.binding(for: path)?.role
+                == .derived
+            {
+                return true
+            }
+            // `.derived` packages with no binding-table entry.
+            switch path {
+            case EquipmentIdentityEvidencePackage.path,
+                 OperatorProfilePackage.path,
+                 FieldEvidencePackage.path,
+                 InstrumentProfilePackage.path,
+                 InstalledSettingsPackage.path,
+                 AsBuiltWiringPackage.path:
+                return true
+            default:
+                return false
+            }
+        }
         var unsupportedPaths: [String] = []
+        var deferredDerived: [String] = []
         for path in scannedByPath.keys.sorted(
             by: BundleLogicalPath.utf8Less
         ) {
-            unsupportedPaths.append(path)
-            try register(
-                BundlePayloadDeclaration(
+            let leaf = path.split(
+                separator: "/",
+                omittingEmptySubsequences: false
+            ).last.map(String.init) ?? path
+            if leaf.hasPrefix(".tmp-") || path == "manifest.json" {
+                consumeIfPresent(path)
+                try await writer.removeIfPresent(
+                    CaptureStorePath(path)
+                )
+                supersededPaths.append(path)
+                continue
+            }
+            if isDerivedPayloadPath(path) {
+                deferredDerived.append(path)
+                continue
+            }
+            let leftoverDeclaration: BundlePayloadDeclaration
+            switch restoredLeftoverClassification(path) {
+            case .binding(let binding):
+                leftoverDeclaration = BundlePayloadDeclaration(
+                    path: path,
+                    mediaType: binding.mediaType,
+                    producer: binding.producer,
+                    provenanceClass: binding.provenanceClass,
+                    role: binding.role
+                )
+            case .derivedWithSources:
+                // Unreachable: `isDerivedPayloadPath` deferred every
+                // `.derived`-role path above.
+                continue
+            case .undeclarable:
+                consumeIfPresent(path)
+                try await writer.removeIfPresent(
+                    CaptureStorePath(path)
+                )
+                supersededPaths.append(path)
+                continue
+            case .unknown:
+                unsupportedPaths.append(path)
+                leftoverDeclaration = BundlePayloadDeclaration(
                     path: path,
                     mediaType: "application/octet-stream",
                     producer: "capture_app",
                     provenanceClass: .captureAppDerived,
-                    role: .derived
+                    role: .canonical
                 )
-            )
+            }
+            try register(leftoverDeclaration)
+            // Supplemental document payloads must be readable through
+            // `supplementalDocuments` — field-authority and mission
+            // mutations merge committed collections through it, so a
+            // restored draft would otherwise treat them as absent.
+            if path.hasSuffix(".json"),
+               let file = scannedByPath[path],
+               let data = try? Data(contentsOf: file.url)
+            {
+                supplementalDocuments[path] = data
+            }
+        }
+        // Second pass: every surviving payload is declared, so the
+        // deferred `.derived` leftovers can now rebuild source refs
+        // that resolve — leftovers that still cannot are removed.
+        for path in deferredDerived {
+            guard
+                case .derivedWithSources(let declaration) =
+                    restoredLeftoverClassification(path)
+            else {
+                consumeIfPresent(path)
+                try await writer.removeIfPresent(
+                    CaptureStorePath(path)
+                )
+                supersededPaths.append(path)
+                continue
+            }
+            try register(declaration)
+            if path.hasSuffix(".json"),
+               let file = scannedByPath[path],
+               let data = try? Data(contentsOf: file.url)
+            {
+                supplementalDocuments[path] = data
+            }
         }
 
         // 9. Checkpoint → volatile evaluation inputs.
-        trackingIntervals = checkpoint.trackingIntervals.map {
+        trackingIntervals = checkpoint?.trackingIntervals.map {
             TrackingInterval(
                 state: $0.state,
                 reason: $0.reason,
@@ -7691,38 +7999,42 @@ public actor CaptureWorkingSetStore {
                 lastSeconds: $0.lastSeconds,
                 sampleCount: $0.sampleCount
             )
-        }
-        resourceEvents = checkpoint.resourceEvents
-        benchmarkRefs = checkpoint.benchmarkRefs
-        taskProfile = checkpoint.taskProfile
+        } ?? []
+        resourceEvents = checkpoint?.resourceEvents ?? []
+        benchmarkRefs = checkpoint?.benchmarkRefs ?? []
+        taskProfile = checkpoint?.taskProfile
         skippedTaskRequirementIDs = Set(
-            checkpoint.skippedTaskRequirementIDs
+            checkpoint?.skippedTaskRequirementIDs ?? []
         )
-        endBoundaryFrameIDs = Set(checkpoint.endBoundaryFrameIDs)
-        advisoryEndContext = checkpoint.endCoverage
-        if checkpoint.endCoverage == nil {
+        endBoundaryFrameIDs = Set(
+            checkpoint?.endBoundaryFrameIDs ?? []
+        )
+        advisoryEndContext = checkpoint?.endCoverage
+        if checkpoint?.endCoverage == nil {
             missingCheckpoint.append("end_coverage")
         }
         roomPlanGuidanceAvailable =
-            checkpoint.roomPlanGuidanceAvailable
-        recoveredRoomPlanGuidance = checkpoint.roomPlanGuidance
-        if checkpoint.roomPlanGuidanceAvailable,
-           checkpoint.roomPlanGuidance == nil
+            checkpoint?.roomPlanGuidanceAvailable ?? false
+        recoveredRoomPlanGuidance = checkpoint?.roomPlanGuidance
+        if checkpoint?.roomPlanGuidanceAvailable == true,
+           checkpoint?.roomPlanGuidance == nil
         {
             missingCheckpoint.append("roomplan_guidance")
         }
-        recoveredMeshLifecycle = checkpoint.meshLifecycle
-        if checkpoint.meshLifecycle == nil {
+        recoveredMeshLifecycle = checkpoint?.meshLifecycle
+        if checkpoint?.meshLifecycle == nil {
             missingCheckpoint.append("mesh_lifecycle")
         }
-        if checkpoint.taskProfile == nil,
-           !checkpoint.skippedTaskRequirementIDs.isEmpty
+        if checkpoint?.taskProfile == nil,
+           !(checkpoint?.skippedTaskRequirementIDs.isEmpty ?? true)
         {
             missingCheckpoint.append("task_profile")
         }
 
         liveSpatialAuthority = false
-        revisionPhase = state.phase
+        if state.phase != .liveScanIncomplete {
+            revisionPhase = state.phase
+        }
 
         // Everything now mirrors what the live commit path produced;
         // run the same byte-vs-declaration proof a seal runs.
@@ -7733,6 +8045,29 @@ public actor CaptureWorkingSetStore {
             supersededPaths: supersededPaths,
             missingCheckpointFields: missingCheckpoint.sorted()
         )
+    }
+
+    /// True when every payload of the atomic End RoomPlan batch is
+    /// present under `working/<uuid>` — the durable proof that the End
+    /// transaction committed even when the separate phase-marker write
+    /// was lost to a kill in between (issue #297).
+    public static func endTransactionEvidencePresent(
+        workingRevisionURL url: URL
+    ) -> Bool {
+        [
+            CaptureTimingPackage.path,
+            RoomPlanEvidenceArtifactBuilder.rawPath,
+            RoomPlanEvidenceArtifactBuilder.processedPath,
+            RoomPlanEvidenceArtifactBuilder.metadataPath,
+            CoordinateSpacePolicyPackage.path,
+        ].allSatisfy {
+            FileManager.default.fileExists(
+                atPath: url.appendingPathComponent(
+                    $0,
+                    isDirectory: false
+                ).path
+            )
+        }
     }
 
     /// Reads the durable phase marker of a `working/<uuid>` directory

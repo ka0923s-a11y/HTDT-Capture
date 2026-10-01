@@ -50,10 +50,6 @@ public enum CaptureRecoveryAction:
     /// Preserve the failed working set as a recoverable draft without
     /// reopening it — it stays listed on Home.
     case keepFailedAsDraft
-    /// Reopen a recoverable draft into sealed Review.
-    case resumeDraft
-    /// Permanently discard a recoverable draft's working data.
-    case discardDraft
     /// Re-run the rejected finalize attempt from Review.
     case retryFinalize
     /// Open the annotation/Details workspace — the concrete
@@ -502,33 +498,4 @@ public enum CaptureRecoveryPresentation {
         )
     }
 
-    /// The persistent stranded-draft indicator for Home and setup:
-    /// a capture ended or was interrupted before it could be saved,
-    /// and its draft is discoverable with the same next-step
-    /// affordances.
-    public static func strandedDraftPlan(
-        draftCount: Int
-    ) -> CaptureRecoveryPlan {
-        CaptureRecoveryPlan(
-            titleKey: "Interrupted capture",
-            reasonKey:
-                "A capture ended or was interrupted before it was saved. Its data is kept as a draft.",
-            detailKey:
-                "Reopening restores Review — you can finish annotations and save, but you cannot resume scanning.",
-            steps: [
-                CaptureRecoveryStep(
-                    titleKey: "Resume the draft",
-                    action: .resumeDraft,
-                    role: .primary
-                ),
-                CaptureRecoveryStep(
-                    titleKey: "Discard the draft",
-                    detailKey:
-                        "Permanently removes the draft's saved data.",
-                    action: .discardDraft,
-                    role: .destructive
-                ),
-            ]
-        )
-    }
 }

@@ -103,5 +103,13 @@ the host:
 7. transitions to `finalized` only when the returned and revalidated logical
    bundle digests agree.
 
-A failure leaves the revision outside the finalized authority and moves the host
-to the typed failed state.
+A rejected commit does NOT move the host to `failed`. While the revision is
+outside the finalized authority, the host returns to `reviewing` with a typed
+`finalizeRejection` plan (`deferredThermal`, `deferredStorage`,
+`qualityRegression`, `commitRejected`) and the spatial authority stays sealed —
+non-spatial corrections remain possible in Details/annotation. A commit that
+reached `validating` but whose revalidation could not confirm the digest is
+adopted as "committed but unverified" with an explicit Re-validate affordance
+(#185 FinalizationCommitPolicy). Only non-commit lifecycle failures move the
+host to the typed failed state; those still preserve a reopenable draft where
+the resource condition allows (#437).

@@ -163,11 +163,38 @@ public struct MissionWorkflowsView: View {
                                 ) {
                                     Text(entryTitle(entry.surface))
                                     if let detail = entry.detail {
-                                        Text(detail)
+                                        if entry.surface
+                                            == .repairTasks,
+                                            let count = Int(detail)
+                                        {
+                                            Text(
+                                                captureCountPhrase(
+                                                    count,
+                                                    singular: String(
+                                                        localized:
+                                                            "%lld unresolved repair task"
+                                                    ),
+                                                    plural: String(
+                                                        localized:
+                                                            "%lld unresolved repair tasks"
+                                                    )
+                                                )
+                                            )
                                             .font(.caption)
                                             .foregroundStyle(
                                                 .secondary
                                             )
+                                        } else {
+                                            Text(
+                                                LocalizedStringKey(
+                                                    detail
+                                                )
+                                            )
+                                            .font(.caption)
+                                            .foregroundStyle(
+                                                .secondary
+                                            )
+                                        }
                                     }
                                 }
                             }

@@ -3439,6 +3439,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     {
         guard state == .annotating,
               !spatialAuthoritySealedForFinalization,
+              workingSetSpatialAuthorityLive,
               let store = workingSetStore
         else {
             throw PlatformCaptureError.orientationUnavailable
@@ -3512,6 +3513,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     {
         guard !spatialAuthoritySealedForFinalization,
               state == .annotating,
+              workingSetSpatialAuthorityLive,
               let store = workingSetStore
         else {
             throw PlatformCaptureError.orientationUnavailable
@@ -3573,6 +3575,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     {
         guard state == .annotating,
               !spatialAuthoritySealedForFinalization,
+              workingSetSpatialAuthorityLive,
               let store = workingSetStore
         else {
             throw PlatformCaptureError.raycastMiss
@@ -5299,22 +5302,26 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// captures are never touched (this state can only run while the
     /// capture is still a working set).
     func discardActiveCapture() {
-        guard [.scanning, .reviewing, .annotating]
+        guard [.preparing, .scanning, .reviewing, .annotating]
             .contains(state),
               !isEndingScan,
               !annotationCommitInFlight,
               !reviewOperationInFlight,
               !exportOperationInFlight,
               !isCapturingEvidenceFrame,
-              !roomPlanCompletionInFlight,
-              let store = workingSetStore
+              !roomPlanCompletionInFlight
         else {
             return
         }
 
+        // .preparing can be cancelled before the working-set store is
+        // published; the in-flight preparation then removes the
+        // revision it creates (its post-await guard), so nil here is
+        // not an error.
+        let discardedStore = workingSetStore
+
         // Fence every in-flight callback before tearing down so a late
         // evidence write cannot land in the revision being discarded.
-        let discardedStore = store
         captureGeneration = UUID()
         scanCoverageTask?.cancel()
         scanCoverageTask = nil
@@ -5390,17 +5397,22 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         evidenceFrameSaveTask = nil
         workingSetStatus = String(localized: "Discarding the working revision")
 
-        Task { @MainActor [weak self] in
-            do {
-                try await discardedStore.discardIncompleteRevision()
-                guard let self, self.state == .idle else { return }
-                self.workingSetStatus = String(localized: "Capture discarded; working revision removed")
-                self.loadPersistedCaptures()
-            } catch {
-                guard let self, self.state == .idle else { return }
-                self.workingSetStatus = String(localized: "The capture was stopped but its working data could not be fully removed; it is listed under abandoned working data") + " [" + Self.persistenceDiagnostic(error) + "]"
-                self.loadPersistedCaptures()
+        if let discardedStore {
+            Task { @MainActor [weak self] in
+                do {
+                    try await discardedStore.discardIncompleteRevision()
+                    guard let self, self.state == .idle else { return }
+                    self.workingSetStatus = String(localized: "Capture discarded; working revision removed")
+                    self.loadPersistedCaptures()
+                } catch {
+                    guard let self, self.state == .idle else { return }
+                    self.workingSetStatus = String(localized: "The capture was stopped but its working data could not be fully removed; it is listed under abandoned working data") + " [" + Self.persistenceDiagnostic(error) + "]"
+                    self.loadPersistedCaptures()
+                }
             }
+        } else {
+            workingSetStatus = String(localized: "Capture cancelled")
+            loadPersistedCaptures()
         }
     }
 
@@ -5875,7 +5887,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// pending room reference frame (issue #232).
     func captureRoomFrameOriginPoint() {
         guard state == .reviewing || state == .annotating,
-              !spatialAuthoritySealedForFinalization
+              !spatialAuthoritySealedForFinalization,
+              workingSetSpatialAuthorityLive
         else {
             return
         }
@@ -5902,6 +5915,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func confirmRoomReferenceFrame() {
         guard state == .reviewing || state == .annotating,
               !spatialAuthoritySealedForFinalization,
+              workingSetSpatialAuthorityLive,
               let origin = roomFrameOriginPending,
               let store = workingSetStore
         else {
@@ -5977,7 +5991,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// user-declared opening candidate (issue #231).
     func captureOpeningCenterPoint() {
         guard state == .reviewing || state == .annotating,
-              !spatialAuthoritySealedForFinalization
+              !spatialAuthoritySealedForFinalization,
+              workingSetSpatialAuthorityLive
         else {
             return
         }
@@ -10930,6 +10945,22 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         }
 
+        // Discard races: the abort can run while preparation is
+        // suspended — before `workingSetStore` was published (the
+        // store exists locally but the abort saw nil) or after it was
+        // already torn down. Either way the state/generation fence
+        // decides; a locally-created store the abort could not see is
+        // removed here so it never survives as an orphan.
+        guard state == .preparing,
+              captureGeneration == generation
+        else {
+            if workingSetStore === store {
+                workingSetStore = nil
+                try? await store.discardIncompleteRevision()
+            }
+            return
+        }
+
         do {
             try transition(.prepared)
         } catch {
@@ -11142,15 +11173,32 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 else {
                     return
                 }
-                let profile = await Task.detached(
+                let profileSample = await Task.detached(
                     priority: .utility
                 ) {
-                    try? await store.storageProfile()
-                }.value
+                    try await store.storageProfile()
+                }.result
+                let profile: CaptureWorkingSetStorageProfile
+                let profileScanFailed: Bool
+                switch profileSample {
+                case .success(let sampled):
+                    profile = sampled
+                    profileScanFailed = false
+                case .failure:
+                    // Scan failure means the working set crossed the
+                    // scanner's size caps and can no longer seal —
+                    // report critical pressure and keep the last
+                    // measured profile instead of publishing zeros.
+                    profile = self.evidenceStorageAdvisory?.profile
+                        ?? CaptureWorkingSetStorageProfile()
+                    profileScanFailed = true
+                }
                 let availableBytes =
                     Self.measuredAvailableStorageBytes()
                 let band: CaptureStoragePressureBand
-                if let availableBytes {
+                if profileScanFailed {
+                    band = .critical
+                } else if let availableBytes {
                     if availableBytes <= policy.storageCriticalBytes {
                         band = .critical
                     } else if availableBytes
@@ -11165,9 +11213,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
                 self.evidenceStorageAdvisory =
                     CaptureEvidenceStorageAdvisory(
-                        profile:
-                            profile
-                                ?? CaptureWorkingSetStorageProfile(),
+                        profile: profile,
                         evidenceFrameCount:
                             self.scanEvidenceFrameCount,
                         depthEvidenceCount:
@@ -12673,6 +12719,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             } catch PlatformCaptureError.configurationUnavailable {
                 try await Task.sleep(for: .milliseconds(50))
+            } catch ARConfigurationSnapshotError
+                .configurationUnavailable
+            {
+                // The configuration can drop between the resolution
+                // and the snapshot — same transient, keep polling.
+                try await Task.sleep(for: .milliseconds(50))
             }
         }
 
@@ -13862,12 +13914,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     && !spatialAuthoritySealedForFinalization
                     && workingSetSpatialAuthorityLive,
                 captureInProgress: captureInProgress,
+                // Matches beginAnnotation()'s guard: the workspace
+                // also opens under the finalization seal, rendering
+                // in non-spatial mode (#276).
                 annotationWorkspaceEnterable:
                     state == .reviewing
                     && !isEndingScan
-                    && !reviewOperationInFlight
-                    && (!spatialAuthoritySealedForFinalization
-                        || annotationAuthorityCommitted),
+                    && !reviewOperationInFlight,
                 unresolvedRepairTasks: repairTaskRows.filter {
                     !$0.resolved
                 }.count
