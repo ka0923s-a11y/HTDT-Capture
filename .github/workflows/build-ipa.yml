@@ -1,0 +1,80 @@
+name: Build IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ipa:
+    name: Build unsigned IPA
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    env:
+      PROJECT: HTDTCapture.xcodeproj
+      SCHEME: HTDTCapture
+      ARCHIVE_PATH: ${{ runner.temp }}/HTDTCapture.xcarchive
+      OUTPUT_DIR: ${{ github.workspace }}/build/ipa
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Resolve Swift package dependencies
+        run: |
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project "$PROJECT" \
+            -scheme "$SCHEME"
+
+      - name: Archive app without code signing
+        run: |
+          set -euo pipefail
+
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            archive
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+
+          APP_PATH="$ARCHIVE_PATH/Products/Applications/HTDTCapture.app"
+          WORK_DIR="$RUNNER_TEMP/ipa-package"
+          PAYLOAD_DIR="$WORK_DIR/Payload"
+          IPA_PATH="$OUTPUT_DIR/HTDTCapture-unsigned-${GITHUB_RUN_NUMBER}.ipa"
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Expected app bundle not found: $APP_PATH" >&2
+            exit 1
+          fi
+
+          rm -rf "$WORK_DIR"
+          mkdir -p "$PAYLOAD_DIR" "$OUTPUT_DIR"
+          ditto "$APP_PATH" "$PAYLOAD_DIR/HTDTCapture.app"
+
+          cd "$WORK_DIR"
+          ditto -c -k --keepParent Payload "$IPA_PATH"
+
+          echo "Created IPA: $IPA_PATH"
+          ls -lh "$IPA_PATH"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HTDTCapture-unsigned-ipa
+          path: build/ipa/*.ipa
+          if-no-files-found: error
+          retention-days: 14
