@@ -1472,7 +1472,8 @@ public actor CaptureWorkingSetStore {
     /// Pre-End primitive retained for tests. Production callers use
     /// `persistEndRoomPlanTransaction`: evidence committed through
     /// this path alone leaves the revision at `live_scan_incomplete`,
-    /// which recovery treats as abandoned working data.
+    /// which recovery treats as abandoned working data unless the
+    /// rest of the durable End payload set is also present.
     public func persistRawRoomPlan(
         _ payload: RoomPlanRawArtifactPayload
     ) async throws {
@@ -1598,7 +1599,8 @@ public actor CaptureWorkingSetStore {
     /// Pre-End primitive retained for tests. Production callers use
     /// `persistEndRoomPlanTransaction`: evidence committed through
     /// this path alone leaves the revision at `live_scan_incomplete`,
-    /// which recovery treats as abandoned working data.
+    /// which recovery treats as abandoned working data unless the
+    /// rest of the durable End payload set is also present.
     public func persistProcessedRoomPlan(
         _ payload: RoomPlanProcessedArtifactPayload
     ) async throws {
@@ -5035,7 +5037,7 @@ public actor CaptureWorkingSetStore {
         return (data, declaration)
     }
     /// Records one advisory provenance note and rewrites the bounded
-    /// `advisory/operator-advisories.json` derived payload. Exact
+    /// `advisory/operator-advisories.json` canonical payload. Exact
     /// duplicates (same kind/detail/timestamp) are idempotent so a
     /// retried record does not grow history.
     public func recordAdvisoryNote(
@@ -5069,7 +5071,7 @@ public actor CaptureWorkingSetStore {
                 mediaType: "application/json",
                 producer: "capture_advisory",
                 provenanceClass: .captureAppDerived,
-                role: .derived
+                role: .canonical
             )
         )
 
@@ -7773,7 +7775,7 @@ public actor CaptureWorkingSetStore {
                     mediaType: "application/json",
                     producer: "capture_advisory",
                     provenanceClass: .captureAppDerived,
-                    role: .derived
+                    role: .canonical
                 )
             )
         } else {

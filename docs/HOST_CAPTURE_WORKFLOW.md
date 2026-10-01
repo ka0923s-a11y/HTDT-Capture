@@ -135,8 +135,12 @@ The same rule covers the End transaction window: an interruption between End
 press and the End RoomPlan commit (bounded by `RoomPlanEndTimeoutPolicy`)
 leaves the phase at `live_scan_incomplete` — end-boundary frames, the timing
 package, and any mesh package already persisted stay on disk and surface in
-the inventory as working orphans, but the revision is not reopenable because
-its coordinate authority died with the process.
+the inventory as working orphans, and unless the complete durable End
+payload set landed, the revision is not reopenable because its coordinate
+authority died with the process. The one exception is the marker-flip gap:
+a `live_scan_incomplete` marker beside the complete durable End payload set
+is a recoverable draft — restore reopens it as a sealed Review and heals
+the marker to `end_accepted` (#297).
 
 This is deliberately fail-closed. Same-session resume or relocalization must
 only be added after a concrete mechanism (for example an independently verified

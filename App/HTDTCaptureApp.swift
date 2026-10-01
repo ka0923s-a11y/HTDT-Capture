@@ -11213,9 +11213,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
                 self.evidenceStorageAdvisory =
                     CaptureEvidenceStorageAdvisory(
-                        profile:
-                            profile
-                                ?? CaptureWorkingSetStorageProfile(),
+                        profile: profile,
                         evidenceFrameCount:
                             self.scanEvidenceFrameCount,
                         depthEvidenceCount:
