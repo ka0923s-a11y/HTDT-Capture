@@ -15,8 +15,6 @@ jobs:
     env:
       PROJECT: HTDTCapture.xcodeproj
       SCHEME: HTDTCapture
-      ARCHIVE_PATH: ${{ runner.temp }}/HTDTCapture.xcarchive
-      OUTPUT_DIR: ${{ github.workspace }}/build/ipa
 
     steps:
       - name: Checkout
@@ -27,6 +25,7 @@ jobs:
 
       - name: Resolve Swift package dependencies
         run: |
+          set -euo pipefail
           xcodebuild \
             -resolvePackageDependencies \
             -project "$PROJECT" \
@@ -35,6 +34,8 @@ jobs:
       - name: Archive app without code signing
         run: |
           set -euo pipefail
+
+          ARCHIVE_PATH="$RUNNER_TEMP/HTDTCapture.xcarchive"
 
           xcodebuild \
             -project "$PROJECT" \
@@ -51,13 +52,16 @@ jobs:
         run: |
           set -euo pipefail
 
+          ARCHIVE_PATH="$RUNNER_TEMP/HTDTCapture.xcarchive"
           APP_PATH="$ARCHIVE_PATH/Products/Applications/HTDTCapture.app"
           WORK_DIR="$RUNNER_TEMP/ipa-package"
           PAYLOAD_DIR="$WORK_DIR/Payload"
+          OUTPUT_DIR="$GITHUB_WORKSPACE/build/ipa"
           IPA_PATH="$OUTPUT_DIR/HTDTCapture-unsigned-${GITHUB_RUN_NUMBER}.ipa"
 
           if [ ! -d "$APP_PATH" ]; then
             echo "Expected app bundle not found: $APP_PATH" >&2
+            find "$ARCHIVE_PATH" -maxdepth 4 -print || true
             exit 1
           fi
 
