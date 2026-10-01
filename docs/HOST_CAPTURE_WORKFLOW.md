@@ -28,7 +28,8 @@ idle
   -> scanning
        present the exact shared RoomCaptureView
        sample advisory direction/pitch coverage at ~4 Hz
-       keep evidence-frame and finish controls over the camera
+       keep evidence-frame, finish, and two-tap discard (Stop)
+       controls over the camera
   -> reviewing
        final active mesh snapshot persisted
        raw RoomPlan persisted on completion callback
