@@ -1085,6 +1085,110 @@ public final class SharedARSessionController {
         )
     }
 
+    /// Bounded observation for the targeted-object pass (#250). The
+    /// operator aims at one small item and orbits it; instead of the
+    /// room-scan crop + foreground-component heuristics this sampler
+    /// keeps only the depth points inside a tight 3D window around the
+    /// aim anchor, then removes the dominant horizontal support surface
+    /// so an item on a desk/shelf resolves to its own footprint rather
+    /// than the surface it rests on. A fine voxel preserves small-object
+    /// detail the room pipeline would decimate.
+    ///
+    /// Mesh faces are the bounded fallback when scene depth yields too
+    /// little evidence; inside the window the semantic classification
+    /// gate is lifted because small items are almost always
+    /// `.none`-classified rather than furniture.
+    public func liveTargetedShapeObservation(
+        target: ScanTargetAnchor,
+        windowRadiusMeters: Double? = nil,
+        voxelSizeMeters: Double = 0.012,
+        maxPoints: Int = 256,
+        minimumPointCount: Int = 5
+    ) -> DerivedShapeObservation? {
+        guard voxelSizeMeters.isFinite,
+              voxelSizeMeters > 0,
+              maxPoints > 0,
+              minimumPointCount > 0,
+              let frame = arSession.currentFrame
+        else {
+            return nil
+        }
+
+        let targetPosition = SIMD3<Float>(
+            Float(target.x),
+            Float(target.y),
+            Float(target.z)
+        )
+        // The anchor radius bounds the orbit region, not the item; cap
+        // the observation window so context surfaces stay out.
+        let radius = Float(
+            min(windowRadiusMeters ?? target.radiusMeters, 0.55)
+        )
+        guard radius.isFinite, radius > 0 else {
+            return nil
+        }
+
+        let inWindow: (SIMD3<Float>) -> Bool = { point in
+            simd_distance(point, targetPosition) <= radius
+        }
+
+        let depthWorldPoints = liveSceneDepthWorldPoints(
+            frame: frame,
+            maxPoints: 512,
+            // Tighter than the room crop: concentrates the grid on the
+            // aimed region so a small target keeps enough samples.
+            cropFraction: 0.55,
+            minimumDepthMeters: 0.15,
+            maximumDepthMeters: 4.5,
+            focusOnForegroundConnectedSurface: false
+        ).filter(inWindow)
+
+        if !depthWorldPoints.isEmpty {
+            let planeY = DerivedHorizontalPlaneSegmentation
+                .dominantPlaneY(
+                    verticalPositions: depthWorldPoints.map {
+                        Double($0.y)
+                    }
+                )
+            let objectPoints = DerivedHorizontalPlaneSegmentation
+                .pointsAbove(
+                    planeY: planeY,
+                    marginMeters: 0.015,
+                    minimumPointCount: minimumPointCount,
+                    in: depthWorldPoints
+                ) {
+                    Double($0.y)
+                }
+
+            if let observation = liveDepthDerivedShapeObservation(
+                points: objectPoints.map {
+                    SIMD3<Float>($0.x, $0.y, $0.z)
+                },
+                sessionTimestampSeconds: frame.timestamp,
+                floorReferenceY: nil,
+                voxelSizeMeters: voxelSizeMeters,
+                maxPoints: maxPoints,
+                minimumPointCount: minimumPointCount
+            ) {
+                return observation
+            }
+        }
+
+        // Bounded mesh fallback: every classification counts inside the
+        // window — small items rarely land in the furniture classes.
+        return liveDerivedShapeObservation(
+            anchors: frame.anchors
+                .compactMap { $0 as? ARMeshAnchor },
+            classifications: nil,
+            sessionTimestampSeconds: frame.timestamp,
+            voxelSizeMeters: 0.015,
+            maxPoints: maxPoints,
+            maxInspectedFaces: 1_500,
+            boundingCenter: targetPosition,
+            boundingRadiusMeters: radius
+        )
+    }
+
     public func snapshotActiveMeshAnchors() throws -> [MeshAnchorSnapshot] {
         guard let frame = arSession.currentFrame else {
             throw PlatformCaptureError.currentFrameUnavailable
@@ -1715,9 +1819,11 @@ public final class SharedARSessionController {
         sessionTimestampSeconds: Double,
         floorReferenceY: Double?,
         voxelSizeMeters: Double,
-        maxPoints: Int
+        maxPoints: Int,
+        minimumPointCount: Int = 8
     ) -> DerivedShapeObservation? {
         guard maxPoints > 0,
+              minimumPointCount > 0,
               voxelSizeMeters.isFinite,
               voxelSizeMeters > 0
         else {
@@ -1763,7 +1869,7 @@ public final class SharedARSessionController {
             voxelSizeMeters: voxelSizeMeters,
             maxPoints: maxPoints
         )
-        guard reduced.count >= 8 else {
+        guard reduced.count >= minimumPointCount else {
             return nil
         }
 
@@ -1777,11 +1883,13 @@ public final class SharedARSessionController {
 
     private func liveDerivedShapeObservation(
         anchors: [ARMeshAnchor],
-        classifications requestedClassifications: [ARMeshClassification],
+        classifications requestedClassifications: [ARMeshClassification]?,
         sessionTimestampSeconds: Double,
         voxelSizeMeters: Double,
         maxPoints: Int,
-        maxInspectedFaces: Int
+        maxInspectedFaces: Int,
+        boundingCenter: SIMD3<Float>? = nil,
+        boundingRadiusMeters: Float = 0
     ) -> DerivedShapeObservation? {
         guard maxPoints > 0,
               maxInspectedFaces > 0,
@@ -1797,16 +1905,22 @@ public final class SharedARSessionController {
 
         outer: for anchor in anchors {
             let geometry = anchor.geometry
-            guard let geometryClassifications = geometry.classification,
-                  geometry.faces.indexCountPerPrimitive == 3,
+            let geometryClassifications = geometry.classification
+            guard geometry.faces.indexCountPerPrimitive == 3,
                   geometry.faces.bytesPerIndex == 2
                     || geometry.faces.bytesPerIndex == 4,
                   liveMeshElementIsReadable(geometry.faces),
                   liveFloat3SourceIsReadable(geometry.vertices),
-                  liveClassificationSourceIsReadable(
-                    geometryClassifications,
-                    minimumCount: geometry.faces.count
-                  )
+                  // A nil classification request (bounded targeted
+                  // sampling) skips the semantic gate entirely — small
+                  // items are typically unclassified — but a filtered
+                  // call still requires readable classifications.
+                  (requestedClassifications == nil
+                      || (geometryClassifications != nil
+                          && liveClassificationSourceIsReadable(
+                              geometryClassifications!,
+                              minimumCount: geometry.faces.count
+                          )))
             else {
                 continue
             }
@@ -1817,21 +1931,25 @@ public final class SharedARSessionController {
                 }
                 inspectedFaces += 1
 
-                let classificationPointer =
-                    geometryClassifications.buffer.contents().advanced(
-                        by:
-                            geometryClassifications.offset
-                            + faceIndex * geometryClassifications.stride
-                    )
-                let rawClassification =
-                    classificationPointer
-                        .assumingMemoryBound(to: UInt8.self)
-                        .pointee
-                guard requestedClassifications.contains(where: {
-                    rawClassification
-                        == UInt8(truncatingIfNeeded: $0.rawValue)
-                }) else {
-                    continue
+                if let requestedClassifications,
+                   let geometryClassifications
+                {
+                    let classificationPointer =
+                        geometryClassifications.buffer.contents().advanced(
+                            by:
+                                geometryClassifications.offset
+                                + faceIndex * geometryClassifications.stride
+                        )
+                    let rawClassification =
+                        classificationPointer
+                            .assumingMemoryBound(to: UInt8.self)
+                            .pointee
+                    guard requestedClassifications.contains(where: {
+                        rawClassification
+                            == UInt8(truncatingIfNeeded: $0.rawValue)
+                    }) else {
+                        continue
+                    }
                 }
 
                 guard let indices = liveMeshFaceIndices(
@@ -1850,6 +1968,23 @@ public final class SharedARSessionController {
                 }
                 guard vertices.count == 3 else {
                     continue
+                }
+
+                // A caller-supplied bound (targeted pass) drops faces
+                // whose centroid falls outside the observation window.
+                if let boundingCenter,
+                   boundingRadiusMeters > 0
+                {
+                    let centroid = SIMD3<Float>(
+                        (vertices[0].x + vertices[1].x + vertices[2].x) / 3,
+                        (vertices[0].y + vertices[1].y + vertices[2].y) / 3,
+                        (vertices[0].z + vertices[1].z + vertices[2].z) / 3
+                    )
+                    if simd_distance(centroid, boundingCenter)
+                        > boundingRadiusMeters
+                    {
+                        continue
+                    }
                 }
 
                 let evidenceRef =

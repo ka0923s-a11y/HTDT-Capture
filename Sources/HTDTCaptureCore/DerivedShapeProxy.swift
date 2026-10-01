@@ -91,6 +91,160 @@ public struct DerivedObservationRegion: Codable, Sendable, Equatable {
     }
 }
 
+/// Tunable floors for the footprint fitter. `.standard` preserves the
+/// room-scan behavior; `.targetedObject` relaxes the scale/evidence
+/// floors so a bounded small-object observation (5–30 cm) can resolve,
+/// and raises the polygon vertex cap for tighter curve fidelity.
+/// Raising `maximumPolygonVertices` lets genuinely complex footprints —
+/// polygons, concave outlines, and smooth curves approximated as many
+/// small chords — keep their shape instead of collapsing to ≤12 points.
+public struct DerivedShapeFitConfiguration: Sendable, Equatable {
+    /// Observations with fewer points never resolve.
+    public let minimumPointCount: Int
+    /// Footprints below this X/Z bounding-box diagonal never resolve.
+    public let minimumSpatialScaleMeters: Double
+    /// Observed angular coverage around the centroid required to resolve.
+    public let minimumAngularSupport: Double
+    /// Vertex cap for emitted polygon candidates (also bounds the
+    /// concavity-recovery insertion loop and wall-chain footprints).
+    public let maximumPolygonVertices: Int
+    /// Absolute floor for concavity-support evidence radii (vertex and
+    /// edge-midpoint probes). Scale-relative terms still apply on top.
+    public let concavityEvidenceRadiusMeters: Double
+    /// Absolute floor for the concave-vertex insertion threshold.
+    public let concaveInsertionThresholdMeters: Double
+    /// Absolute floor for the polygon vertex support radius.
+    public let vertexSupportRadiusMeters: Double
+
+    public init(
+        minimumPointCount: Int = 8,
+        minimumSpatialScaleMeters: Double = 0.08,
+        minimumAngularSupport: Double = 0.70,
+        maximumPolygonVertices: Int = 12,
+        concavityEvidenceRadiusMeters: Double = 0.10,
+        concaveInsertionThresholdMeters: Double = 0.025,
+        vertexSupportRadiusMeters: Double = 0.08
+    ) {
+        precondition(minimumPointCount > 0)
+        precondition(minimumSpatialScaleMeters.isFinite && minimumSpatialScaleMeters > 0)
+        precondition(minimumAngularSupport.isFinite && minimumAngularSupport > 0)
+        precondition(maximumPolygonVertices >= 3)
+        precondition(concavityEvidenceRadiusMeters.isFinite && concavityEvidenceRadiusMeters > 0)
+        precondition(concaveInsertionThresholdMeters.isFinite && concaveInsertionThresholdMeters > 0)
+        precondition(vertexSupportRadiusMeters.isFinite && vertexSupportRadiusMeters > 0)
+        self.minimumPointCount = minimumPointCount
+        self.minimumSpatialScaleMeters = minimumSpatialScaleMeters
+        self.minimumAngularSupport = minimumAngularSupport
+        self.maximumPolygonVertices = maximumPolygonVertices
+        self.concavityEvidenceRadiusMeters = concavityEvidenceRadiusMeters
+        self.concaveInsertionThresholdMeters = concaveInsertionThresholdMeters
+        self.vertexSupportRadiusMeters = vertexSupportRadiusMeters
+    }
+
+    /// Room-scan defaults — the values this fitter has always used.
+    public static let standard = DerivedShapeFitConfiguration()
+
+    /// Room-scan fit with elevated contour fidelity: the 12-vertex cap
+    /// made every smooth curve a dodecagon and clipped genuinely complex
+    /// outlines. 32 vertices tracks curved walls, polygonal structures
+    /// and irregular furniture far more closely; the observation density
+    /// and selection-cost penalty still keep noise from inventing
+    /// vertices.
+    public static let roomCapture = DerivedShapeFitConfiguration(
+        maximumPolygonVertices: 32
+    )
+
+    /// Bounded targeted-object pass: an operator aims at one small item
+    /// and orbits it, so the observation is already spatially bounded —
+    /// the relaxed floors trade some noise rejection for the ability to
+    /// resolve 5–30 cm items, and the higher vertex cap keeps curved and
+    /// polygonal outlines instead of forcing a coarse silhouette. The
+    /// angular-support floor is lower because a partial orbit is a
+    /// successful pass (the tracker requires 5 of 8 sectors).
+    public static let targetedObject = DerivedShapeFitConfiguration(
+        minimumPointCount: 5,
+        minimumSpatialScaleMeters: 0.04,
+        minimumAngularSupport: 0.55,
+        maximumPolygonVertices: 24,
+        concavityEvidenceRadiusMeters: 0.03,
+        concaveInsertionThresholdMeters: 0.008,
+        vertexSupportRadiusMeters: 0.03
+    )
+}
+
+/// Separates a bounded observation window into the dominant horizontal
+/// support plane and the points standing above it. A small object on a
+/// desk or shelf sits on a dense horizontal surface; keeping only the
+/// points above that plane isolates the item from the surface it rests
+/// on. When no dominant plane exists (object floating in view) the
+/// windowed points are kept as-is.
+public enum DerivedHorizontalPlaneSegmentation {
+    /// Returns the top Y of the densest horizontal band, or nil when the
+    /// window has no clear support plane. A band counts as a plane only
+    /// when it holds a meaningful share of the window AND there is
+    /// observed geometry rising above it.
+    public static func dominantPlaneY(
+        verticalPositions: [Double],
+        bandHeightMeters: Double = 0.03,
+        minimumBandFraction: Double = 0.20,
+        minimumRiseMeters: Double = 0.015
+    ) -> Double? {
+        let sorted = verticalPositions.filter(\.isFinite).sorted()
+        guard sorted.count >= 16 else {
+            return nil
+        }
+
+        var bestCount = 0
+        var bestTop: Double = 0
+        var upper = 0
+        for lower in 0..<sorted.count {
+            if upper < lower {
+                upper = lower
+            }
+            while upper + 1 < sorted.count,
+                  sorted[upper + 1] - sorted[lower] <= bandHeightMeters
+            {
+                upper += 1
+            }
+            let count = upper - lower + 1
+            if count > bestCount {
+                bestCount = count
+                bestTop = sorted[upper]
+            }
+        }
+
+        guard bestCount >= max(10, Int(Double(sorted.count) * minimumBandFraction)),
+              let observedTop = sorted.last,
+              observedTop > bestTop + minimumRiseMeters
+        else {
+            return nil
+        }
+        return bestTop
+    }
+
+    /// Points strictly above `planeY + margin`. Falls back to the full
+    /// window when the filter would leave too little evidence — a flat
+    /// object lying on its support surface still yields its top face.
+    public static func pointsAbove<Point>(
+        planeY: Double?,
+        marginMeters: Double,
+        minimumPointCount: Int,
+        in points: [Point],
+        verticalOf: (Point) -> Double?
+    ) -> [Point] {
+        guard let planeY else {
+            return points
+        }
+        let above = points.filter {
+            guard let y = verticalOf($0) else {
+                return false
+            }
+            return y > planeY + marginMeters
+        }
+        return above.count >= minimumPointCount ? above : points
+    }
+}
+
 public struct DerivedShapeFitMetrics: Codable, Sendable, Equatable {
     public let normalizedResidual: Double
     public let supportScore: Double
@@ -685,7 +839,7 @@ public enum MeshDerivedShapeObservationBuilder {
 
 public enum DerivedShapeProxyFitter {
     public static let algorithm = "htdt-derived-footprint-fit"
-    public static let version = "1.2.0"
+    public static let version = "1.3.0"
 
     public static func representativeHorizontalSliceObservation(
         from observation: DerivedShapeObservation,
@@ -1236,7 +1390,8 @@ public enum DerivedShapeProxyFitter {
     }
 
     public static func fit(
-        observation: DerivedShapeObservation
+        observation: DerivedShapeObservation,
+        configuration: DerivedShapeFitConfiguration = .standard
     ) -> DerivedShapeProxy {
         let points = observation.points
             .filter {
@@ -1246,8 +1401,9 @@ public enum DerivedShapeProxyFitter {
             .sorted(by: observationPointLess)
 
         let sample = boundedSample(points, maximum: 96)
-        guard points.count >= 8,
-              spatialScale(points.map(\.position)) >= 0.08
+        guard points.count >= configuration.minimumPointCount,
+              spatialScale(points.map(\.position))
+                >= configuration.minimumSpatialScaleMeters
         else {
             return unresolvedProxy(
                 resolution: .insufficientEvidence,
@@ -1280,7 +1436,8 @@ public enum DerivedShapeProxyFitter {
         }
         if let polygon = polygonCandidate(
             points: points,
-            scale: scale
+            scale: scale,
+            configuration: configuration
         ) {
             candidates.append(polygon)
         }
@@ -1307,7 +1464,7 @@ public enum DerivedShapeProxyFitter {
             points: points.map(\.position),
             center: meanPoint(points.map(\.position))
         )
-        if footprintAngularSupport < 0.70 {
+        if footprintAngularSupport < configuration.minimumAngularSupport {
             return unresolvedProxy(
                 resolution: .insufficientEvidence,
                 observation: observation,
@@ -1383,7 +1540,8 @@ public enum DerivedShapeProxyFitter {
     }
 
     public static func wallChain(
-        observation: DerivedShapeObservation
+        observation: DerivedShapeObservation,
+        configuration: DerivedShapeFitConfiguration = .standard
     ) -> DerivedWallChainProxy? {
         let points = observation.points
             .filter {
@@ -1397,7 +1555,8 @@ public enum DerivedShapeProxyFitter {
         let scale = spatialScale(points.map(\.position))
         guard let polygon = polygonCandidate(
             points: points,
-            scale: scale
+            scale: scale,
+            configuration: configuration
         ) else {
             return nil
         }
@@ -1797,14 +1956,17 @@ public enum DerivedShapeProxyFitter {
 
     private static func polygonCandidate(
         points: [DerivedObservationPoint],
-        scale: Double
+        scale: Double,
+        configuration: DerivedShapeFitConfiguration = .standard
     ) -> DerivedShapeCandidate? {
         let positions = points.map(\.position)
         let simplicity = simplicityTolerances(scale: scale)
+        let maximumVertices = configuration.maximumPolygonVertices
         var polygonPoints = concavePolygon(
             positions,
             scale: scale,
-            maximumVertices: 12
+            maximumVertices: maximumVertices,
+            configuration: configuration
         )
         guard polygonPoints.count >= 3 else {
             return nil
@@ -1818,7 +1980,8 @@ public enum DerivedShapeProxyFitter {
                 polygon: polygonPoints,
                 points: points,
                 scale: scale,
-                maximumVertices: 12
+                maximumVertices: maximumVertices,
+                configuration: configuration
             ),
                 polygonIsConcave(supported)
             {
@@ -1828,7 +1991,7 @@ public enum DerivedShapeProxyFitter {
                 polygonPoints = convexHull(positions)
                 reduceVertexCount(
                     &polygonPoints,
-                    maximumVertices: 12,
+                    maximumVertices: maximumVertices,
                     areaTolerance: simplicity.area,
                     lengthTolerance: simplicity.length
                 )
@@ -1851,14 +2014,17 @@ public enum DerivedShapeProxyFitter {
             polygonPoints = convexHull(positions)
             reduceVertexCount(
                 &polygonPoints,
-                maximumVertices: 12,
+                maximumVertices: maximumVertices,
                 areaTolerance: simplicity.area,
                 lengthTolerance: simplicity.length
             )
             concavityResolution = .unresolved
         }
 
-        let supportRadius = max(0.08, scale * 0.08)
+        let supportRadius = max(
+            configuration.vertexSupportRadiusMeters,
+            scale * 0.08
+        )
         let supportedVertices = polygonPoints.map { vertex in
             SupportedPolygonVertex(
                 position: vertex,
@@ -2159,7 +2325,8 @@ public enum DerivedShapeProxyFitter {
     private static func concavePolygon(
         _ points: [DerivedPoint2D],
         scale: Double,
-        maximumVertices: Int
+        maximumVertices: Int,
+        configuration: DerivedShapeFitConfiguration = .standard
     ) -> [DerivedPoint2D] {
         let unique = uniquePoints(points)
         guard unique.count >= 3 else {
@@ -2176,7 +2343,10 @@ public enum DerivedShapeProxyFitter {
             lengthTolerance: simplicity.length
         )
 
-        let threshold = max(0.025, scale * 0.04)
+        let threshold = max(
+            configuration.concaveInsertionThresholdMeters,
+            scale * 0.04
+        )
         var rejectedIndices = Set<Int>()
         while polygon.count < maximumVertices {
             var bestPoint: DerivedPoint2D?
@@ -2443,7 +2613,8 @@ public enum DerivedShapeProxyFitter {
         polygon: [DerivedPoint2D],
         points: [DerivedObservationPoint],
         scale: Double,
-        maximumVertices: Int
+        maximumVertices: Int,
+        configuration: DerivedShapeFitConfiguration = .standard
     ) -> [DerivedPoint2D]? {
         guard polygon.count >= 4 else {
             return polygon
@@ -2451,8 +2622,14 @@ public enum DerivedShapeProxyFitter {
 
         let simplicity = simplicityTolerances(scale: scale)
         var result = polygon
-        let vertexRadius = max(0.10, scale * 0.10)
-        let edgeRadius = max(0.10, scale * 0.08)
+        let vertexRadius = max(
+            configuration.concavityEvidenceRadiusMeters,
+            scale * 0.10
+        )
+        let edgeRadius = max(
+            configuration.concavityEvidenceRadiusMeters,
+            scale * 0.08
+        )
         var changed = true
 
         while changed, result.count > 3 {
@@ -2578,7 +2755,10 @@ public enum DerivedShapeProxyFitter {
         }
     }
 
-    private static func polygonIsConcave(
+    /// Cross-sign test over consecutive edge triples — exposed to the
+    /// persistence layer so persisted wall chains report honest
+    /// concavity instead of the legacy hardcoded `false`.
+    static func polygonIsConcave(
         _ polygon: [DerivedPoint2D]
     ) -> Bool {
         guard polygon.count >= 4 else {

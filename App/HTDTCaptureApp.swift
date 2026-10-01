@@ -1087,6 +1087,20 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var operatorRegionDeclarations =
         OperatorRegionDeclarations()
     private var targetScanTracker: TargetedObjectScanTracker?
+    /// Fused bounded observations collected while an object pass runs
+    /// (#250): each accepted pass can mint a persisted shape candidate.
+    private var targetedObjectFusionTracker =
+        DerivedShapeTemporalFusionTracker(
+            configuration: DerivedShapeTemporalFusionConfiguration(
+                maximumFrameCount: 24,
+                maximumAgeSeconds: 150,
+                voxelSizeMeters: 0.012,
+                maximumPointCount: 512
+            )
+        )
+    /// Shape candidates minted by accepted object passes during this
+    /// capture; persisted into `derived/geometry-candidates.json` at End.
+    private var targetedObjectProxies: [DerivedShapeProxy] = []
     private var loopClosurePolicy = LoopClosureCheckPolicy()
     private var scanLightingPolicy = ScanLightingPolicy()
     /// Byte total persisted by automatic keyframes; combined with the
@@ -1575,6 +1589,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             )
         derivedShapePreview = .empty
+        targetedObjectProxies = []
+        targetedObjectFusionTracker.reset()
         derivedPreviewSuspendedForMemoryPressure = false
         setRoomPlanModelRenderingEnabled(true)
         scanEvidenceFrameCount = 0
@@ -2157,27 +2173,55 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
         do {
-            let placement = try sessionController
-                .snapshotCenterRaycastPlacement()
+            // Aim at live mesh/RoomPlan geometry first so the anchor
+            // lands on the aimed item (a small object on a desk), not
+            // the plane surface behind it; fall back to the plane-only
+            // raycast when no surface geometry is under the reticle.
+            let positionWorld: Float3
+            let anchorSource: String?
+            if let placement = try? sessionController
+                .snapshotTargetedPlacement(
+                    preferring: .automatic,
+                    roomPlanObjects: annotationRoomPlanObjects,
+                    depthSelection: .discrete,
+                    maxDistanceMeters: 6
+                )
+            {
+                positionWorld = placement.positionWorld
+                anchorSource = placement.target.rawValue
+            } else {
+                let fallback = try sessionController
+                    .snapshotCenterRaycastPlacement()
+                positionWorld = fallback.positionWorld
+                anchorSource =
+                    fallback.raycastProvenance?.target.rawValue
+            }
             targetScanTracker = TargetedObjectScanTracker(
                 target: ScanTargetAnchor(
-                    x: Double(placement.positionWorld.x),
-                    y: Double(placement.positionWorld.y),
-                    z: Double(placement.positionWorld.z),
+                    x: Double(positionWorld.x),
+                    y: Double(positionWorld.y),
+                    z: Double(positionWorld.z),
                     radiusMeters: 0.75
-                )
+                ),
+                // Small items need close inspection; 0.5 m pushed the
+                // operator away from sub-30 cm targets. LiDAR depth is
+                // usable down to ~0.2 m, so 0.3 m is a sane near limit.
+                minimumRangeMeters: 0.3
             )
+            // A fresh pass gets a fresh fused observation window — the
+            // accepted pass's fused points become the shape candidate's
+            // evidence, so they must belong to this anchor only.
+            targetedObjectFusionTracker.reset()
             // #250: which evidence class supplied the aim anchor —
             // retained in the accept note's provenance.
-            targetScanAnchorSource =
-                placement.raycastProvenance?.target.rawValue
+            targetScanAnchorSource = anchorSource
             let initialDistance = spatialCoverage
                 .currentCameraPosition.map { camera in
                     hypot(
                         Double(camera.x)
-                            - Double(placement.positionWorld.x),
+                            - Double(positionWorld.x),
                         Double(camera.z)
-                            - Double(placement.positionWorld.z)
+                            - Double(positionWorld.z)
                     )
                 }
             targetScanStatus = TargetScanStatus(
@@ -2202,18 +2246,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard let anchor = targetScanTracker?.target else {
             return
         }
-        targetScanTracker = TargetedObjectScanTracker(target: anchor)
+        targetScanTracker = TargetedObjectScanTracker(
+            target: anchor,
+            minimumRangeMeters: 0.3
+        )
+        targetedObjectFusionTracker.reset()
         targetScanStatus = nil
     }
 
-    /// Complete the pass: record advisory provenance and leave target
-    /// mode. Partial progress is kept honest in the note detail.
+    /// Complete the pass: fit the fused bounded observation into a
+    /// persisted shape candidate, record advisory provenance, and leave
+    /// target mode. Partial progress is kept honest in the note detail.
     func acceptTargetScan() {
         guard let tracker = targetScanTracker else {
             return
         }
         let status = targetScanStatus
         let anchorSource = targetScanAnchorSource
+        let fusedObservation =
+            targetedObjectFusionTracker.fusedObservation()
         endTargetScan()
         if let status {
             let detail =
@@ -2234,7 +2285,39 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             )
         }
-        workingSetStatus = String(localized: "Object pass recorded")
+        // The pass's bounded observation becomes a real persisted
+        // candidate, not just an advisory. The targeted fit profile
+        // relaxes the room-scan floors so 5–30 cm items resolve, while
+        // the 3D window around the aim anchor keeps the evidence bound
+        // to the aimed item instead of its surroundings.
+        var resolvedKind: DerivedShapeKind?
+        if let fusedObservation {
+            let proxy = DerivedShapeProxyFitter.fit(
+                observation: fusedObservation,
+                configuration: .targetedObject
+            )
+            if proxy.resolution == .resolved,
+               proxy.selected != nil,
+               targetedObjectProxies.count < 24
+            {
+                targetedObjectProxies.append(proxy)
+                resolvedKind = proxy.selected?.kind
+            }
+        }
+        if let resolvedKind {
+            workingSetStatus = String(
+                format: String(
+                    localized:
+                        "Object pass recorded; %@ footprint saved for this item"
+                ),
+                resolvedKind.rawValue
+            )
+        } else {
+            workingSetStatus = String(
+                localized:
+                    "Object pass recorded; the item's shape could not be resolved — rescan it or annotate it in review"
+            )
+        }
         if guidanceCuesEnabled,
            let timestamp = latestScanTimestampSeconds
         {
@@ -2253,6 +2336,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private func endTargetScan() {
         targetScanTracker = nil
         targetScanStatus = nil
+        // Accepted minted proxies survive in targetedObjectProxies; the
+        // fusion window itself is per-pass and always discards.
+        targetedObjectFusionTracker.reset()
         targetScanAnchorSource = nil
     }
 
@@ -5136,6 +5222,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             )
         derivedShapePreview = .empty
+        targetedObjectProxies = []
+        targetedObjectFusionTracker.reset()
         derivedPreviewSuspendedForMemoryPressure = false
         scanEvidenceFrameCount = 0
         scanDepthEvidenceCount = 0
@@ -5376,6 +5464,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         motionGuidance = nil
         scanGuidanceProgress = .empty
         derivedShapePreview = .empty
+        targetedObjectProxies = []
+        targetedObjectFusionTracker.reset()
         derivedPreviewSuspendedForMemoryPressure = false
         scanEvidenceFrameCount = 0
         scanDepthEvidenceCount = 0
@@ -5629,6 +5719,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         motionGuidance = nil
         scanGuidanceProgress = .empty
         derivedShapePreview = .empty
+        targetedObjectProxies = []
+        targetedObjectFusionTracker.reset()
         derivedPreviewSuspendedForMemoryPressure = false
         scanEvidenceFrameCount = 0
         scanDepthEvidenceCount = 0
@@ -12110,6 +12202,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
+            // The End transaction is committed: persist the derived
+            // geometry candidates while every evidence payload (mesh
+            // index, depth bins) is declared and the working set is
+            // still mutable. The candidates the operator watched live —
+            // plus any object-pass items — become bundle records.
+            await self.persistDerivedGeometryCandidates(
+                store: store,
+                captureSessionID: captureSessionID,
+                coordinateSpaceID: coordinateSpaceID
+            )
+
             self.acceptedRoomPlanRawSHA256 =
                 raw.descriptor.sha256
             self.acceptedEndMeshWasPersisted =
@@ -12316,6 +12419,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     )
                 )
             derivedShapePreview = .empty
+            targetedObjectProxies = []
+            targetedObjectFusionTracker.reset()
         }
 
         scanCoverageTask = Task { @MainActor [weak self] in
@@ -12399,7 +12504,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
                     // #250: a live targeted-object pass tracks camera
                     // position against its bounded anchor.
-                    if self.targetScanTracker != nil,
+                    if let tracker = self.targetScanTracker,
                        let position = sample.cameraPosition
                     {
                         self.targetScanStatus =
@@ -12410,6 +12515,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                                     sample.sessionTimestampSeconds,
                                 trackingState: sample.trackingState
                             )
+
+                        // While the pass runs, fuse a bounded depth
+                        // observation around the aim anchor at ~1 Hz —
+                        // the accepted pass mints a persisted shape
+                        // candidate from it. The 3D window keeps only
+                        // the aimed item; the fused voxel preserves
+                        // small-object detail the room pipeline loses.
+                        if sampleIndex.isMultiple(of: 4) {
+                            let observation = self.sessionController
+                                .liveTargetedShapeObservation(
+                                    target: tracker.target
+                                )
+                            _ = self.targetedObjectFusionTracker.record(
+                                observation,
+                                timestampSeconds:
+                                    sample.sessionTimestampSeconds
+                            )
+                        }
                     }
 
                     // #273: while the operator armed the return-to-start
@@ -12644,7 +12767,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         let wallChain = observations.wallObservation.flatMap {
             DerivedShapeProxyFitter.wallChain(
-                observation: $0
+                observation: $0,
+                configuration: .roomCapture
             )
         }
 
@@ -12681,7 +12805,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     )
                     .map {
                         DerivedShapeProxyFitter
-                            .boundaryObservation(from: $0)
+                            .boundaryObservation(
+                                from: $0,
+                                // Keep sub-25 cm radial discontinuities
+                                // (legs, notches) that the default
+                                // floor bridges.
+                                minimumRadialGapMeters: 0.12
+                            )
                     }
         } else {
             fittingObservations = [observation]
@@ -12689,7 +12819,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         return fittingObservations.map {
             DerivedShapeProxyFitter.fit(
-                observation: $0
+                observation: $0,
+                configuration: .roomCapture
             )
         }
     }
@@ -14123,6 +14254,100 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         } catch {
             workingSetStatus += " ["
                 + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
+    /// Persisted `derived/geometry-candidates.json` at the accepted
+    /// End — the one point where mesh index, depth evidence, and the
+    /// RoomPlan transaction are all committed while the working set is
+    /// still mutable. Every live preview proxy and each accepted
+    /// object-pass item becomes a bundle record; HTDT promotes them
+    /// (suggestion-driven) after ingestion. Failures are supplemental
+    /// and never block the End — the doc is regenerable derived data.
+    private func persistDerivedGeometryCandidates(
+        store: CaptureWorkingSetStore,
+        captureSessionID: CaptureSessionID,
+        coordinateSpaceID: CoordinateSpaceID
+    ) async {
+        let objectProxies =
+            derivedShapePreview.objectProxies + targetedObjectProxies
+        guard !objectProxies.isEmpty
+                || derivedShapePreview.wallChain != nil
+        else {
+            return
+        }
+
+        let snapshot = await store.snapshot()
+        var sourceRefs = snapshot.payloadDeclarations
+            .map(\.path)
+            .filter {
+                $0 == MeshEvidencePackage.indexPath
+                    || ($0.hasPrefix("evidence/depth/")
+                        && $0.hasSuffix(".depthbin"))
+            }
+            .sorted(by: BundleLogicalPath.utf8Less)
+            .map { "path:" + $0 }
+        // Manifest cap on source_refs entries (BundleManifest
+        // maxSourceRefsPerEntry is internal to the Core module).
+        if sourceRefs.count > 32 {
+            sourceRefs = Array(sourceRefs.prefix(32))
+        }
+        guard !sourceRefs.isEmpty else {
+            // `.derived` declarations need resolvable sources — without
+            // mesh/depth payloads no honest source set exists.
+            await store.recordResourceEvent(
+                CaptureResourceEvent(
+                    kind: .persistenceFailure,
+                    severity: .warning,
+                    detail:
+                        "Derived geometry candidates skipped: no committed mesh/depth payloads to bind as sources."
+                )
+            )
+            return
+        }
+
+        do {
+            let persistSnapshot = DerivedShapePreviewSnapshot(
+                objectProxies: objectProxies,
+                wallChain: derivedShapePreview.wallChain,
+                supportAnalysis: derivedShapePreview.supportAnalysis,
+                objectDecomposition:
+                    derivedShapePreview.objectDecomposition,
+                disagreements: derivedShapePreview.disagreements
+            )
+            let built = try DerivedGeometryCandidatePackageBuilder.build(
+                snapshot: persistSnapshot,
+                captureRevisionID:
+                    snapshot.identity.captureRevisionID,
+                captureSessionID: captureSessionID,
+                sourcePayloadRefs: sourceRefs
+            )
+            let document = try WorkingSetSupplementalDocument(
+                path: DerivedGeometryCandidatePackage.path,
+                data: built.package.data,
+                declaration: built.declaration,
+                coordinateSpaceIDs: [coordinateSpaceID],
+                captureSessionIDs: [captureSessionID]
+            )
+            // A re-End after "continue scanning" rebuilds the same doc —
+            // the declaration is stable, only the bytes evolve.
+            if snapshot.payloadDeclarations.contains(where: {
+                $0.path == DerivedGeometryCandidatePackage.path
+            }) {
+                try await store.replaceSupplementalDocument(document)
+            } else {
+                try await store.persistSupplementalDocument(document)
+            }
+        } catch {
+            await store.recordResourceEvent(
+                CaptureResourceEvent(
+                    kind: .persistenceFailure,
+                    severity: .warning,
+                    detail:
+                        "Derived geometry candidates could not be persisted: "
+                        + Self.persistenceDiagnostic(error)
+                )
+            )
         }
     }
 

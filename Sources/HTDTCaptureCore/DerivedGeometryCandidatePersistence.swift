@@ -429,7 +429,10 @@ public enum DerivedGeometryCandidatePackageBuilder {
                     geometry: .polygon(
                         DerivedPolygon(
                             vertices: wallChain.vertices,
-                            isConcave: false
+                            isConcave: DerivedShapeProxyFitter
+                                .polygonIsConcave(
+                                    wallChain.vertices.map(\.position)
+                                )
                         )
                     ),
                     coordinateSpaceID:
