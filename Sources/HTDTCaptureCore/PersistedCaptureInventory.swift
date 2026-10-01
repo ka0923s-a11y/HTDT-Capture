@@ -756,11 +756,25 @@ public struct PersistedCaptureInventory: Sendable {
                     // draft, not an abandoned revision. The marker is
                     // the only ownership proof — absent, undecodable,
                     // `live_scan_incomplete`, or practice-mode entries
-                    // all stay on the non-resumable orphan path.
+                    // all stay on the non-resumable orphan path. One
+                    // exception: a `live_scan_incomplete` marker next to
+                    // the complete durable End payload set can only be a
+                    // lost marker-flip write — the atomic End batch
+                    // already committed, so the directory stays
+                    // recoverable and restore heals the marker.
                     if let state = CaptureWorkingSetStore
                         .peekRevisionPhase(workingRevisionURL: child),
-                       state.phase.isRecoverableDraft,
-                       !state.practice
+                       !state.practice,
+                       (
+                           state.phase.isRecoverableDraft
+                           || (
+                               state.phase == .liveScanIncomplete
+                                   && CaptureWorkingSetStore
+                                       .endTransactionEvidencePresent(
+                                           workingRevisionURL: child
+                                       )
+                           )
+                       )
                     {
                         recoverableDrafts.append(
                             RecoverableWorkingRevision(
@@ -1181,13 +1195,25 @@ public struct PersistedCaptureInventory: Sendable {
                 .unsafeArtifactLocation
         }
         if parent == resolvedWorking,
-           childKind(resolved) == .directory,
-           CaptureRevisionID(
-               canonicalString: resolved.lastPathComponent
-           ) == nil
+           childKind(resolved) == .directory
         {
-            throw PersistedCaptureInventoryError
-                .unsafeArtifactLocation
+            let name = resolved.lastPathComponent
+            let isRevisionDirectory =
+                CaptureRevisionID(canonicalString: name) != nil
+            // `.rollback-<uuid>` siblings are the writer's own
+            // crash-interrupted quarantine dirs — app-owned leftovers
+            // the removal path must accept, not just revision UUIDs.
+            let isWriterRollbackQuarantine =
+                name.hasPrefix(".rollback-")
+                    && UUID(
+                        uuidString: String(name.dropFirst(10))
+                    ) != nil
+            guard isRevisionDirectory
+                    || isWriterRollbackQuarantine
+            else {
+                throw PersistedCaptureInventoryError
+                    .unsafeArtifactLocation
+            }
         }
         try FileManager.default.removeItem(at: artifact.url)
     }

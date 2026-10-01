@@ -15,7 +15,10 @@ import Foundation
 ///   inside `sealForFinalization`. A directory without a decodable
 ///   document, or with `liveScanIncomplete`, is a mid-scan leftover:
 ///   its AR coordinate authority died with the process and it is never
-///   resumable (the #224 abandoned-revision path).
+///   resumable (the #224 abandoned-revision path) — unless the
+///   complete durable End payload set is present, which proves the
+///   End batch committed and only the marker-flip write was lost;
+///   restore then heals the marker to `endAccepted`.
 /// - `endAccepted`/`semanticAuthoring`/`readyToFinalize` mean the End
 ///   transaction committed durably: the revision reopens into a
 ///   spatially sealed Review — semantic authoring and finalization are

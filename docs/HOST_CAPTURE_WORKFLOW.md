@@ -131,6 +131,13 @@ may be preserved as a recoverable draft and reopened later as a sealed
 Review (#297/#437). Live capture never resumes in either case; a fresh
 capture starts a new coordinate authority.
 
+The same rule covers the End transaction window: an interruption between End
+press and the End RoomPlan commit (bounded by `RoomPlanEndTimeoutPolicy`)
+leaves the phase at `live_scan_incomplete` — end-boundary frames, the timing
+package, and any mesh package already persisted stay on disk and surface in
+the inventory as working orphans, but the revision is not reopenable because
+its coordinate authority died with the process.
+
 This is deliberately fail-closed. Same-session resume or relocalization must
 only be added after a concrete mechanism (for example an independently verified
 ARWorldMap/relocalization workflow) demonstrates coordinate continuity.

@@ -655,6 +655,169 @@ extension LifecycleRecoveryTests {
         )
     }
 
+    func testLostEndMarkerFlipStaysRecoverableAndHeals()
+        async throws
+    {
+        let root = try makeCaptureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let captureRoot = root.appendingPathComponent(
+            "HTDTCapture",
+            isDirectory: true
+        )
+        let (_, directory, context, identity) =
+            try await makeEndAcceptedRevision(
+                captureRoot: captureRoot
+            )
+
+        // A kill between the atomic End batch and the marker-flip
+        // write leaves the durable End payloads beside a stale
+        // `live_scan_incomplete` marker with no checkpoint.
+        let committed = try XCTUnwrap(
+            CaptureWorkingSetStore.peekRevisionPhase(
+                workingRevisionURL: directory
+            )
+        )
+        let stale = WorkingRevisionStateDocument(
+            identity: identity,
+            captureSessionID: committed.captureSessionID,
+            coordinateSpaceID: committed.coordinateSpaceID,
+            phase: .liveScanIncomplete,
+            updatedAtUTC: committed.updatedAtUTC
+        )
+        try stale.encoded().write(
+            to: directory.appendingPathComponent(
+                WorkingRevisionStateDocument.path
+            ),
+            options: .atomic
+        )
+
+        let result = PersistedCaptureInventory(
+            captureRoot: captureRoot
+        ).scan()
+        XCTAssertTrue(result.orphanedWorkingArtifacts.isEmpty)
+        let draft = try XCTUnwrap(
+            result.recoverableDrafts.first
+        )
+        XCTAssertEqual(draft.phase, .liveScanIncomplete)
+        XCTAssertEqual(
+            draft.captureSessionID,
+            context.captureSessionID
+        )
+
+        let (restored, _) =
+            try await CaptureWorkingSetStore
+                .restoreWorkingRevision(draft)
+        let snapshot = await restored.snapshot()
+        XCTAssertEqual(snapshot.revisionPhase, .endAccepted)
+        XCTAssertFalse(snapshot.spatialAuthorityLive)
+        // The durable marker is healed too, not just in memory.
+        XCTAssertEqual(
+            CaptureWorkingSetStore.peekRevisionPhase(
+                workingRevisionURL: directory
+            )?.phase,
+            .endAccepted
+        )
+    }
+
+    /// Leftovers a crashed finalize or an untracked write leaves in
+    /// the working set — stray scratch plus declared payloads outside
+    /// the canonical restore set — must not trap restore: scratch is
+    /// removed, real payloads re-declared, and the draft still seals.
+    func testCrashedFinalizeLeftoversStillSeal() async throws {
+        let root = try makeCaptureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let captureRoot = root.appendingPathComponent(
+            "HTDTCapture",
+            isDirectory: true
+        )
+        let (_, directory, _, _) = try await makeEndAcceptedRevision(
+            captureRoot: captureRoot
+        )
+
+        let fileManager = FileManager.default
+        // Staging scratch the finalizer leaves when it is killed
+        // mid-write.
+        try Data("{}".utf8).write(
+            to: directory.appendingPathComponent("manifest.json")
+        )
+        let scratch = directory
+            .appendingPathComponent("session", isDirectory: true)
+            .appendingPathComponent(".tmp-stray")
+        try Data("x".utf8).write(to: scratch)
+        // A canonical reserved payload outside the dedicated
+        // restore steps.
+        try Data("{}".utf8).write(
+            to: directory.appendingPathComponent(
+                CaptureStrategyPackage.path
+            )
+        )
+        // A depth binary plus the derived index that references it.
+        let depthDirectory = directory
+            .appendingPathComponent("evidence/depth", isDirectory: true)
+        try fileManager.createDirectory(
+            at: depthDirectory,
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(
+            at: directory.appendingPathComponent(
+                "derived",
+                isDirectory: true
+            ),
+            withIntermediateDirectories: true
+        )
+        let depthPath =
+            "evidence/depth/\(UUID().uuidString.lowercased()).depthbin"
+        try Data([0x01]).write(
+            to: directory.appendingPathComponent(depthPath)
+        )
+        try Data("{}".utf8).write(
+            to: directory.appendingPathComponent(
+                DerivedGeometryCandidatePackage.path
+            )
+        )
+
+        let result = PersistedCaptureInventory(
+            captureRoot: captureRoot
+        ).scan()
+        let draft = try XCTUnwrap(result.recoverableDrafts.first)
+        let (restored, _) =
+            try await CaptureWorkingSetStore
+                .restoreWorkingRevision(draft)
+        let snapshot = await restored.snapshot()
+
+        XCTAssertFalse(
+            fileManager.fileExists(
+                atPath: directory
+                    .appendingPathComponent("manifest.json").path
+            )
+        )
+        XCTAssertFalse(
+            fileManager.fileExists(atPath: scratch.path)
+        )
+
+        let declared = Set(snapshot.payloadDeclarations.map(\.path))
+        XCTAssertTrue(declared.contains(CaptureStrategyPackage.path))
+        XCTAssertTrue(
+            declared.contains(DerivedGeometryCandidatePackage.path)
+        )
+        XCTAssertTrue(declared.contains(depthPath))
+        XCTAssertEqual(
+            snapshot.payloadDeclarations.first {
+                $0.path == DerivedGeometryCandidatePackage.path
+            }?.role,
+            .derived
+        )
+
+        _ = try await restored.sealForFinalization(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
+                requireCompletedRoomPlan: false,
+                minimumActiveMeshAnchors: 0,
+                minimumEvidenceFrames: 0
+            )
+        )
+    }
+
     func testNewerSchemaRevisionIsNotRecoverable() async throws {
         let root = try makeCaptureRoot()
         defer { try? FileManager.default.removeItem(at: root) }

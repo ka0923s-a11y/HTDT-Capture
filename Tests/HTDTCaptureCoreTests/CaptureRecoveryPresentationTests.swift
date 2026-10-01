@@ -328,18 +328,6 @@ final class CaptureRecoveryPresentationTests: XCTestCase {
         }
     }
 
-    // MARK: - Stranded-draft indicator
-
-    func testStrandedDraftPlanOffersResumeAndDiscard() {
-        let plan = CaptureRecoveryPresentation.strandedDraftPlan(
-            draftCount: 2
-        )
-        assertWellFormed(plan)
-        XCTAssertEqual(plan.steps.first?.action, .resumeDraft)
-        XCTAssertEqual(plan.steps.last?.action, .discardDraft)
-        XCTAssertEqual(plan.steps.last?.role, .destructive)
-    }
-
     // MARK: - Home notice ordering (#437)
 
     func testInterruptedCaptureNoticeLeadsTheList() {

@@ -16,6 +16,11 @@ public struct CaptureReviewView: View {
     /// requiring a live scan (Continue scanning, save evidence frame)
     /// are filtered out of every remediation plan.
     public let spatialAuthorityLive: Bool
+    /// Whether spatial capture is sealed for finalization (issue
+    /// #276): a live review interrupted post-End keeps
+    /// `spatialAuthorityLive` true but must not offer scan-time
+    /// remediation — those actions are guaranteed dead taps.
+    public let spatialAuthoritySealed: Bool
     /// Practice-mode capture (issue #320): remediation reads as
     /// rehearsal guidance; finalization is never offered.
     public let practiceCapture: Bool
@@ -30,6 +35,7 @@ public struct CaptureReviewView: View {
         validation: BundleValidationReport? = nil,
         spatialFindings: [SpatialPlausibilityFinding]? = nil,
         spatialAuthorityLive: Bool = true,
+        spatialAuthoritySealed: Bool = false,
         practiceCapture: Bool = false,
         onRemediationAction: (
             (CaptureRemediationAction) -> Void
@@ -40,6 +46,7 @@ public struct CaptureReviewView: View {
         self.validation = validation
         self.spatialFindings = spatialFindings
         self.spatialAuthorityLive = spatialAuthorityLive
+        self.spatialAuthoritySealed = spatialAuthoritySealed
         self.practiceCapture = practiceCapture
         self.onRemediationAction = onRemediationAction
     }
@@ -174,7 +181,8 @@ public struct CaptureReviewView: View {
                     // not just reported.
                     let taskActions = task.remediationActions
                         .filter {
-                            spatialAuthorityLive
+                            (spatialAuthorityLive
+                                && !spatialAuthoritySealed)
                                 || !$0.requiresLiveSpatialAuthority
                         }
                     if !taskActions.isEmpty,
@@ -1111,6 +1119,7 @@ public struct CaptureReviewView: View {
         _ remediation: QualityRemediation
     ) -> some View {
         let available = spatialAuthorityLive
+            && !spatialAuthoritySealed
             ? remediation.actions
             : remediation.draftActions
         if !available.isEmpty, let onRemediationAction {
@@ -1123,7 +1132,17 @@ public struct CaptureReviewView: View {
             }
             .font(.callout)
         }
-        if !spatialAuthorityLive,
+        if spatialAuthoritySealed, spatialAuthorityLive,
+           remediation.actions.count != available.count
+        {
+            Text(
+                String(
+                    localized: "Spatial capture is sealed for finalization — scanning actions are unavailable."
+                )
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        } else if !spatialAuthorityLive,
            remediation.actions.count != available.count
         {
             Text(

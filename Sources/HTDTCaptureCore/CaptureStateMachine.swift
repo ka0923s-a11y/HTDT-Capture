@@ -139,12 +139,15 @@ public struct CaptureStateMachine: Sendable, Equatable {
             state = .finalized
         case (.finalized, .export):
             state = .exported
-        // #254: aborting is legal at every pre-commit capture boundary.
+        // #254: aborting is legal at every pre-commit capture boundary,
+        // including `.preparing` — working-set creation is cancellable
+        // so a stalled preparation never strands the operator.
         // `.validating` is deliberately excluded — the finalization
         // commit transaction owns the fence there, and an abort mid-
         // commit would race promotion; the abort must wait for the
         // validating attempt to resolve back to Review or Failed.
-        case (.scanning, .abortCapture),
+        case (.preparing, .abortCapture),
+             (.scanning, .abortCapture),
              (.reviewing, .abortCapture), (.annotating, .abortCapture):
             state = .idle
             lastFailure = nil
