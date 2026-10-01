@@ -742,7 +742,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         func diffIdentified<ID: Hashable, T: Equatable>(
             staged: [T],
             baseline: [T],
-            identity: (T) -> ID
+            identity: @Sendable (T) -> ID
         ) {
             let baselineByID = Dictionary(
                 baseline.map { (identity($0), $0) },

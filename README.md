@@ -42,9 +42,10 @@ measurement truth and do not silently become finalization or ingestion gates.
 Terminal/background interruptions fail closed and require a fresh capture
 authority rather than pretending AR coordinate continuity.
 
-The repository includes an unsigned IPA build workflow, and the software paths
-above are compiled/tested in GitHub Actions. **Physical-device success is not
-implied by CI.** Real LiDAR RoomPlan/ARMesh/frame/depth behavior, spatial
+The software paths above are compiled/tested locally with `swift build` and
+`swift test`. An IPA is built manually — no CI — via the script documented
+in [docs/IPA_BUILD.md](docs/IPA_BUILD.md). **Physical-device success is not
+implied by a clean build.** Real LiDAR RoomPlan/ARMesh/frame/depth behavior, spatial
 alignment, interruption/relocalization behavior, resource behavior, and the
 physical accuracy benchmark remain open. Manual authoring, evidence-linked
 raycast placement, speaker-heading capture, exact equipment selection,
@@ -101,3 +102,4 @@ See the implementation plan for architecture, scope, acceptance criteria, testin
 - [HTDT ingestion contract](docs/HTDT_INGESTION_CONTRACT.md)
 - [JSON schemas](schemas/capture-bundle-v1/)
 - [Reference bundle validator](tools/bundle_validator/README.md)
+- [Manual IPA build](docs/IPA_BUILD.md)
