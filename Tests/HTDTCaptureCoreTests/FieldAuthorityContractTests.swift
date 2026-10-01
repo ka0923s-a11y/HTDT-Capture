@@ -74,6 +74,25 @@ func operatorProfileDocumentSchemaRoundTrip() throws {
 }
 
 @Test
+func operatorProfilePackageEmitsGrammarLegalSourceRef() throws {
+    let profile = try OperatorProfile(
+        displayName: "Field Tech",
+        organization: "Installers Inc",
+        role: "installer"
+    )
+    let package = try OperatorProfilePackage(
+        document: OperatorProfileDocument(
+            captureRevisionID: testRevisionID,
+            operators: [profile]
+        )
+    )
+    // The manifest source_refs grammar accepts only `path:` /
+    // `sha256:` / `capture_session:` forms — a bare bundle path
+    // trips malformedSourceRef at finalization.
+    #expect(package.sourceRefs == ["path:annotations/entities.json"])
+}
+
+@Test
 func fieldEvidenceDocumentSchemaValidation() throws {
     let entityID = AnnotationEntityID()
     let assetPath = "evidence/field/captured/"

@@ -262,7 +262,7 @@ public struct CaptureSetupView: View {
                         ) {
                             Text(
                                 workingRevisionPhaseName(
-                                    draft.phase
+                                    draft.displayPhase
                                 )
                             )
                             CaptureTechnicalText(

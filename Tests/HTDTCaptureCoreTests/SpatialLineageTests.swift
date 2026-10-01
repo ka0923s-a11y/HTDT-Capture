@@ -775,11 +775,10 @@ final class SpatialLineageTests: XCTestCase {
             package.payloadDeclaration.provenanceClass,
             .captureAppDerived
         )
-        XCTAssertTrue(
-            package.payloadDeclaration.sourceRefs?.contains(
-                "capture_revision:\(a.description)"
-            ) == true
-        )
+        // The v1 source_refs grammar cannot name an external
+        // revision, so the manifest entry declares no refs — the
+        // endpoint IDs live only in the document body.
+        XCTAssertNil(package.payloadDeclaration.sourceRefs)
         let decoded = try JSONDecoder().decode(
             CrossRevisionRegistrationBundleDocument.self,
             from: package.data

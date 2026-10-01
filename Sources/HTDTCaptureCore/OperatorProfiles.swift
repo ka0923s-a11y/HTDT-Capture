@@ -260,7 +260,7 @@ public struct OperatorProfilePackage: Sendable, Equatable {
 
     public init(
         document: OperatorProfileDocument,
-        sourceRefs: [String] = [AnnotationEvidencePackage.path]
+        sourceRefs: [String] = ["path:" + AnnotationEvidencePackage.path]
     ) throws {
         self.document = document
         self.sourceRefs = sourceRefs.sorted()
