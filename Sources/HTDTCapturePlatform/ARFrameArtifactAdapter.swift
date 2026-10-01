@@ -192,7 +192,7 @@ public enum ARFrameArtifactAdapter {
     /// CIContext creation owns GPU/metal resources; one shared context
     /// renders every preview instead of re-allocating per saved frame.
     /// CIContext is documented as thread-safe for render calls.
-    private static let previewContext = CIContext()
+    nonisolated(unsafe) private static let previewContext = CIContext()
 
     private static func captureHEICPreview(
         _ pixelBuffer: CVPixelBuffer
