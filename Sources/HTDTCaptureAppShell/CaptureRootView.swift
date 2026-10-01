@@ -3057,7 +3057,13 @@ public struct CaptureRootView: View {
                         quality: qualityReport,
                         advisory: advisoryReport,
                         spatialFindings:
-                            spatialPlausibilityFindings
+                            spatialPlausibilityFindings,
+                        spatialAuthorityLive:
+                            liveSpatialAuthority,
+                        practiceCapture:
+                            practiceCaptureActive,
+                        onRemediationAction:
+                            routeRemediation
                     )
                 }
                 .capturePrimaryAction()

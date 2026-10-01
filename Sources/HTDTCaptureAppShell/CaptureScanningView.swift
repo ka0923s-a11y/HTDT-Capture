@@ -858,6 +858,9 @@ public struct CaptureScanningView: View {
                 String(localized: "End scan")
             )
         }
+        .onChange(of: isEndingScan) { ending in
+            if ending { stopScanArmed = false }
+        }
     }
 
     /// Explicit busy state for the End transaction (#279): the
