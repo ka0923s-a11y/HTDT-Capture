@@ -19,9 +19,10 @@ The identifier is project-owned and may be renamed before public App Store distr
 
 ## 2. Logical layout
 
-The authoritative per-family path list is `support-matrix.json` inside every
-manifest; the tree below mirrors it (a payload family appears only when its
-feature produced data for that capture):
+The authoritative per-family path list is `schemas/capture-bundle-v1/support-matrix.json`
+in this repository (embedded into the Swift and Python validators); the tree
+below mirrors it (a payload family appears only when its feature produced
+data for that capture):
 
 ```text
 capture-<capture-revision-id>.htdtcapture/
@@ -100,7 +101,7 @@ capture-<capture-revision-id>.htdtcapture/
 
 Not every optional directory exists in every bundle. Every file other than `manifest.json` must be declared by the manifest in v1.
 
-`advisory/operator-advisories.json` is a derived `capture_app_derived` payload: bounded operator/policy provenance notes (declared inaccessible regions, automatic-keyframe retention, frame-usability warnings, the optional return-to-start check, targeted object passes). It informs Review and downstream repair planning but never asserts canonical geometry or evidence authority.
+`advisory/operator-advisories.json` is a canonical payload carrying `capture_app_derived` provenance (manifest role `canonical`; no `source_refs` — the notes are recorded during capture, not derived from other bundle files): bounded operator/policy provenance notes (declared inaccessible regions, automatic-keyframe retention, frame-usability warnings, the optional return-to-start check, targeted object passes). It informs Review and downstream repair planning but never asserts canonical geometry or evidence authority.
 
 ## 3. Canonical versus derived role
 
