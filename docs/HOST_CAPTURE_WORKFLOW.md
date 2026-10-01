@@ -28,7 +28,8 @@ idle
   -> scanning
        present the exact shared RoomCaptureView
        sample advisory direction/pitch coverage at ~4 Hz
-       keep evidence-frame and finish controls over the camera
+       keep evidence-frame, finish, and two-tap discard (Stop)
+       controls over the camera
   -> reviewing
        final active mesh snapshot persisted
        raw RoomPlan persisted on completion callback
@@ -98,9 +99,13 @@ The working-set store binds the first spatial evidence to one exact
 `capture_session_id` and `coordinate_space_id`. RoomPlan and mesh evidence
 with a different authority are rejected rather than combined.
 
-The current production host has one RoomPlan scan per working revision. Future
-multi-scan support must model scan-segment identity before additional
-`run(configuration:)` calls are allowed.
+Each `run(configuration:)` builds a fresh room model, so a re-run on the same
+revision (Continue scanning from Review, or an End-attempt retry) is a new
+scanning segment: the next accepted `CapturedRoomData` covers only the final
+segment while mesh anchors and evidence frames keep accumulating across all
+segments. The host records every re-run as a `roomplan_rescan` advisory note
+with the segment ordinal so downstream review can see the room-model
+replacement; it never merges room models across segments.
 
 ## Camera permission
 
@@ -118,9 +123,13 @@ coordinate authority. The host does not silently resume a failed scan.
 
 When the application enters the background during active capture, the working
 status is replaced with an explicit interruption reason. The failure UI explains
-that HTDT no longer assumes the same AR coordinate space remains valid and
-requires the operator to discard the failed working revision before beginning a
-fresh capture.
+that HTDT no longer assumes the same AR coordinate space remains valid. Two
+paths exist depending on how far the capture got: a mid-scan
+(`live_scan_incomplete`) failure can only be inspected/exported for
+diagnostics or discarded, while a working set that was already accepted by End
+may be preserved as a recoverable draft and reopened later as a sealed
+Review (#297/#437). Live capture never resumes in either case; a fresh
+capture starts a new coordinate authority.
 
 This is deliberately fail-closed. Same-session resume or relocalization must
 only be added after a concrete mechanism (for example an independently verified
@@ -128,24 +137,27 @@ ARWorldMap/relocalization workflow) demonstrates coordinate continuity.
 
 ## Still not completed
 
-The following remain implementation and/or physical-device gates:
+All of the following are physical-device acceptance gates — the corresponding
+software paths (bounded automatic keyframe evidence, live raycast-provenance
+annotation placement, live-working-set quality report generation, and the
+review -> validation -> atomic finalization -> share/export wiring) are
+implemented and unit-tested; what remains is proving them on real hardware:
 
 - physical-device acceptance of RoomPlan camera/overlay/coaching presentation
   and the advisory coverage HUD;
 - real LiDAR proof that the completion callback persists reopenable
   `CapturedRoomData`;
 - real RoomPlan/ARMesh same-world alignment evidence;
-- additional evidence-frame selection policy beyond the scan-end frame;
 - real sceneDepth behavior during RoomPlan and after same-session stop;
-- live annotation placement and raycast provenance;
-- quality report generation from the complete live working set;
-- review -> validation -> atomic finalization -> share/export wiring;
+- physical-device acceptance of the bounded automatic keyframe policy,
+  live annotation placement, raycast provenance, live quality reporting,
+  and the review -> validation -> finalization -> export flow;
 - physical-device interruption/background acceptance and future proven
   relocalization/resume behavior;
 - thermal/storage/persistence-pressure acceptance on physical devices;
 - physical accuracy benchmark under Issue #9.
 
-No capability or accuracy claim is promoted from a successful CI build.
+No capability or accuracy claim is promoted from a successful build.
 
 
 ## End-scan evidence failure domains
@@ -158,18 +170,31 @@ could still be retained.
 
 The corrected scan-end sequence separates those authorities:
 
-1. capture the selected ARFrame/depth evidence;
-2. capture end timing correlation;
-3. attempt the active mesh snapshot independently;
-4. stop RoomPlan while preserving the shared ARSession;
-5. persist timing;
-6. persist the selected frame/depth package;
-7. persist the mesh package only when the mesh snapshot/build is available.
+1. preflight — snapshot the selected ARFrame/depth, the tracking event, and
+   the active mesh anchors in one review-evidence snapshot, plus the end
+   timing correlation, and prove the frame/depth/timing packages build;
+2. persist the selected frame/depth package (one bounded retry) while
+   RoomPlan and the shared ARSession are still live;
+3. mark the committed End-boundary frame;
+4. re-read the end timing correlation fresh, then build the persisted
+   timing package;
+5. persist the mesh package only when the preflight snapshot/build produced
+   valid mesh evidence;
+6. record the tracking event;
+7. stop RoomPlan while preserving the shared ARSession and wait — under a
+   bounded timeout — for the completion callback that supplies the final
+   `CapturedRoomData`.
 
-A genuinely empty active-mesh set is represented by the valid empty
-`mesh/anchors.json` package. A mesh snapshot conversion failure does not erase
-already valid frame/depth evidence; review can continue and the quality gate
-remains responsible for declaring missing normative evidence.
+The second timing snapshot is deliberate: the preflight build is a validation
+probe only and is discarded, while the committed package reflects a
+session-end correlation taken as close to the RoomPlan stop as the
+recoverable steps allow.
+
+A mesh snapshot that succeeds but contains zero anchors is treated as
+mesh-unavailable: no `mesh/anchors.json` package is written and the depth
+evidence fallback applies instead. A mesh snapshot conversion failure does
+not erase already valid frame/depth evidence; review can continue and the
+quality gate remains responsible for declaring missing normative evidence.
 
 Actual writer/package persistence errors still fail closed. The working status
 now names the stage that failed so a physical-device defect can distinguish

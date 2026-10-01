@@ -5275,7 +5275,7 @@ public actor CaptureWorkingSetStore {
         )
     }
     public func evaluateQuality(
-        requirements: CaptureQualityRequirements = .init()
+        requirements: CaptureQualityRequirements
     ) -> CaptureQualityReport {
         let integrityStatus: BundleIntegrityStatus
         do {
@@ -5399,7 +5399,7 @@ public actor CaptureWorkingSetStore {
     /// successful seal stays in force until `unseal` (pre-promotion
     /// recoverable failure) or `consumeSealedWorkingSet` (promotion).
     public func sealForFinalization(
-        requirements: CaptureQualityRequirements = .init()
+        requirements: CaptureQualityRequirements
     ) async throws -> SealedWorkingSet {
         switch sealState {
         case .sealed:

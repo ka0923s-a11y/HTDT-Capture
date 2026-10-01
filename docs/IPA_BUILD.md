@@ -1,7 +1,10 @@
 # Manual IPA build
 
-HTDT-Capture does not use CI or GitHub Actions. The IPA is built locally on a
-Mac with the script below.
+HTDT-Capture has no continuous integration — nothing runs on push or pull
+requests. The only GitHub Actions workflow is a manually dispatched unsigned
+IPA build (`.github/workflows/build-ipa.yml`): Actions → "Build IPA" → Run
+workflow produces the `HTDTCapture-unsigned-ipa` artifact (14-day retention).
+The IPA can also be built locally on a Mac with the script below.
 
 ## Requirements
 
@@ -10,14 +13,15 @@ Mac with the script below.
 - For a device-installable (signed) IPA: an Apple ID joined to an Apple
   Developer team, added in Xcode → Settings → Accounts
 
-## Unsigned IPA (verification / parity with the former CI)
+## Unsigned IPA (verification / parity with the manual-dispatch workflow)
 
 ```sh
 scripts/build-ipa.sh
 ```
 
-Produces `build/HTDT-Capture-unsigned.ipa` plus a `.sha256` checksum and
-`build-xcode.log`. An unsigned bundle cannot be installed on a device directly;
+Produces `build/HTDT-Capture-unsigned.ipa` plus a `.sha256` checksum. The
+xcodebuild transcript lands in `build-xcode.log` at the repository root. An
+unsigned bundle cannot be installed on a device directly;
 it proves the app archives, embeds its asset catalog (`Assets.car`), and
 packages cleanly.
 
@@ -46,5 +50,6 @@ window in Xcode, or `xcrun devicectl`.
 5. Signed mode: `xcodebuild -exportArchive` with a generated development
    ExportOptions plist
 
-All artifacts land in `build/`. The script is `sh`, fail-fast (`set -euo
-pipefail`), and safe to re-run.
+IPA and checksum artifacts land in `build/`; `build-xcode.log` is written to
+the repository root. The script is `sh`, fail-fast (`set -euo pipefail`), and
+safe to re-run.

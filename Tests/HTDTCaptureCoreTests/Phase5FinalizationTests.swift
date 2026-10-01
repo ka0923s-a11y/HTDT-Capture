@@ -32,6 +32,7 @@ private func readyQualityReport() -> CaptureQualityReport {
             integrityStatus: .pass
         ),
         requirements: CaptureQualityRequirements(
+            rulesetVersion: "0.0.0-test",
             requiredAnnotationKeys: [
                 "speaker:L",
                 "speaker:C",
@@ -288,6 +289,7 @@ func incompleteCaptureProducesConcreteDiagnostics() {
             integrityStatus: .notChecked
         ),
         requirements: CaptureQualityRequirements(
+            rulesetVersion: "0.0.0-test",
             requireDepthEvidence: true,
             requiredAnnotationKeys: ["speaker:L"],
             requiredMeasurementQuantityTypes: ["room_width"]
@@ -460,7 +462,8 @@ func finalizerRejectsUnreadyQualityBeforeWritingManifest() async throws {
 
     let quality = CaptureQualityEvaluator.evaluate(
         CaptureQualityObservation(),
-        requirements: CaptureQualityRequirements()
+        requirements: CaptureQualityRequirements(
+            rulesetVersion: "1.0.0")
     )
     let request = BundleFinalizationRequest(
         captureSeriesID: CaptureSeriesID(),

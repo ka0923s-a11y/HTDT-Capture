@@ -736,48 +736,22 @@ public struct ScanMotionGuidanceTracker: Sendable {
             break
         }
 
+        // Spatial coaching begins at the activation fraction; the
+        // completion fraction only gates when guidance may go silent
+        // (below). Taking the max here made activation dead config —
+        // every published strategy sets activation < completion.
         let spatialGuidanceActive =
             coverage.coverageFraction
-                >= max(
-                    configuration
-                        .spatialGuidanceActivationCoverageFraction,
-                    configuration
-                        .completionDirectionCoverageFraction
-                )
+                >= configuration
+                    .spatialGuidanceActivationCoverageFraction
         let spatialGuidanceBudgetExhausted =
             completedSpatialGuidanceAttemptCount
                 >= configuration.maximumSpatialGuidanceAttempts
 
-        if spatialGuidanceActive,
-           movementCapability == .unrestricted,
-           !spatialGuidanceBudgetExhausted,
-           let spatialGuidance = spatialMovementCandidate(
-                spatialCoverage: spatialCoverage,
-                observation: observation
-           )
-        {
-            return spatialGuidance
-        }
-
-        if spatialGuidanceActive,
-           coverage.coverageFraction
-                >= configuration.completionDirectionCoverageFraction,
-           (
-                !movementCapability.canGuideTranslation
-                || spatialGuidanceBudgetExhausted
-                || (
-                    spatialCoverage.knownRegionCount > 0
-                    && preferredWeakRegion(spatialCoverage) == nil
-                )
-           )
-        {
-            // Spatial movement is complete or unavailable, and broad
-            // directional capture is also complete. Only now may the tracker
-            // stop issuing guidance. Before this threshold, remaining yaw /
-            // pitch direction gaps still need normal in-place guidance.
-            return nil
-        }
-
+        // Remaining direction gaps stay ahead of spatial translation:
+        // rotation/tilt guidance is answered before any movement
+        // candidate, so a partially-covered scan never trades its
+        // last direction sectors for a relocation prompt.
         if let direction = coverage.recommendedGuidance {
             let yawError = direction.signedYawErrorRadians
             let pitchError = direction.pitchErrorRadians
@@ -819,6 +793,36 @@ public struct ScanMotionGuidanceTracker: Sendable {
                     targetGap: direction.target
                 )
             }
+        }
+
+        if spatialGuidanceActive,
+           movementCapability == .unrestricted,
+           !spatialGuidanceBudgetExhausted,
+           let spatialGuidance = spatialMovementCandidate(
+                spatialCoverage: spatialCoverage,
+                observation: observation
+           )
+        {
+            return spatialGuidance
+        }
+
+        if spatialGuidanceActive,
+           coverage.coverageFraction
+                >= configuration.completionDirectionCoverageFraction,
+           (
+                !movementCapability.canGuideTranslation
+                || spatialGuidanceBudgetExhausted
+                || (
+                    spatialCoverage.knownRegionCount > 0
+                    && preferredWeakRegion(spatialCoverage) == nil
+                )
+           )
+        {
+            // Spatial movement is complete or unavailable, and broad
+            // directional capture is also complete. Only now may the tracker
+            // stop issuing guidance. Before this threshold, remaining yaw /
+            // pitch direction gaps still need normal in-place guidance.
+            return nil
         }
 
         if !spatialGuidanceActive,

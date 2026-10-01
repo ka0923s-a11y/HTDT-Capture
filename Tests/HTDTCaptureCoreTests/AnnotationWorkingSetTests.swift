@@ -66,6 +66,7 @@ final class AnnotationWorkingSetTests: XCTestCase {
 
         let quality = await store.evaluateQuality(
             requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
                 requireCompletedRoomPlan: false,
                 minimumActiveMeshAnchors: 0,
                 minimumEvidenceFrames: 0,
@@ -211,6 +212,7 @@ final class AnnotationWorkingSetTests: XCTestCase {
 
         let quality = await store.evaluateQuality(
             requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
                 requireCompletedRoomPlan: false,
                 minimumActiveMeshAnchors: 0,
                 minimumEvidenceFrames: 0
@@ -295,6 +297,7 @@ final class AnnotationWorkingSetTests: XCTestCase {
 
         let quality = await store.evaluateQuality(
             requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
                 requireCompletedRoomPlan: false,
                 minimumActiveMeshAnchors: 0,
                 minimumEvidenceFrames: 0

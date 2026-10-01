@@ -132,6 +132,10 @@ public struct CaptureRootActions {
     public let selectEquipmentCatalog: (String) -> Void
     public let finalizeCapture: () -> Void
     public let prepareExport: () -> Void
+    /// Re-runs independent validation on a committed-but-unverified
+    /// finalized revision — the manual recovery path when automatic
+    /// post-promotion validation could not prove the bundle.
+    public let revalidateAdoptedRevision: () -> Void
     public let resetCapture: () -> Void
     public let openPersistedCapture:
         (CaptureRevisionID) -> Void
@@ -549,6 +553,7 @@ public struct CaptureRootActions {
         selectEquipmentCatalog: @escaping (String) -> Void = { _ in },
         finalizeCapture: @escaping () -> Void = {},
         prepareExport: @escaping () -> Void = {},
+        revalidateAdoptedRevision: @escaping () -> Void = {},
         resetCapture: @escaping () -> Void = {},
         openPersistedCapture: @escaping
             (CaptureRevisionID) -> Void = { _ in },
@@ -821,6 +826,7 @@ public struct CaptureRootActions {
         self.selectEquipmentCatalog = selectEquipmentCatalog
         self.finalizeCapture = finalizeCapture
         self.prepareExport = prepareExport
+        self.revalidateAdoptedRevision = revalidateAdoptedRevision
         self.resetCapture = resetCapture
         self.openPersistedCapture = openPersistedCapture
         self.deletePersistedCapture = deletePersistedCapture
@@ -1227,6 +1233,12 @@ public struct CaptureRootView: View {
     @State private var comparisonLoading = false
     @State private var importingPlanReference = false
     @State private var confirmingExport = false
+    /// A destructive remediation step awaiting confirmation: quality
+    /// chips and the diagnostics surface route discard-type actions
+    /// through this dialog instead of deleting the working set on a
+    /// single tap.
+    @State private var pendingRemediation:
+        CaptureRemediationAction?
     @State private var diagnosticShareURL: URL?
     /// Derived export sheets (#306/#318): which validated finalized
     /// capture to export from — the active adoption or a library row.
@@ -1512,6 +1524,21 @@ public struct CaptureRootView: View {
                 .exportRejectedPlan(exportRejection)
         default:
             return nil
+        }
+    }
+
+    /// Routes a quality-remediation affordance. Destructive steps
+    /// (replace-revision / discard) go through the pendingRemediation
+    /// confirmation dialog first — a one-tap chip or diagnostics row
+    /// must never delete the working set outright.
+    private func routeRemediation(
+        _ action: CaptureRemediationAction
+    ) {
+        switch action {
+        case .startReplacementRevision, .discardDraft:
+            pendingRemediation = action
+        default:
+            actions.performRemediation(action)
         }
     }
 
@@ -1964,7 +1991,7 @@ public struct CaptureRootView: View {
                                 practiceCapture:
                                     practiceCaptureActive,
                                 onRemediationAction:
-                                    actions.performRemediation
+                                    routeRemediation
                             )
                         }
                     }
@@ -2543,6 +2570,59 @@ public struct CaptureRootView: View {
                 )
             }
         }
+        // Anchored to the outermost container: the remediation
+        // trigger can live inside a pushed diagnostics detail, and a
+        // dialog attached to the list behind it would stay hidden
+        // until the operator navigates back.
+        .confirmationDialog(
+            pendingRemediation
+                == .startReplacementRevision
+                ? "Start a replacement capture?"
+                : "Discard the working capture?",
+            isPresented: Binding(
+                get: { pendingRemediation != nil },
+                set: { presented in
+                    if !presented {
+                        pendingRemediation = nil
+                    }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            if pendingRemediation
+                == .startReplacementRevision
+            {
+                Button(
+                    "Discard and start replacement",
+                    role: .destructive
+                ) {
+                    if let action = pendingRemediation {
+                        actions.performRemediation(action)
+                    }
+                    pendingRemediation = nil
+                }
+            } else {
+                Button(
+                    "Discard capture",
+                    role: .destructive
+                ) {
+                    if let action = pendingRemediation {
+                        actions.performRemediation(action)
+                    }
+                    pendingRemediation = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingRemediation = nil
+            }
+        } message: {
+            Text(
+                pendingRemediation
+                    == .startReplacementRevision
+                    ? "Permanently removes this working revision and opens capture setup. Finalized captures are never touched."
+                    : "Permanently removes the working revision. Finalized captures are never touched."
+            )
+        }
     }
 
     /// True while any long-running host operation is in flight
@@ -2683,12 +2763,6 @@ public struct CaptureRootView: View {
                 action: actions.captureEvidenceFrame
             )
             Button("End scan and review", action: actions.beginReview)
-            discardButton
-
-        case .paused:
-            Text(
-                "The host app does not enter a pseudo-paused RoomPlan state. Ending RoomPlan creates a scan boundary."
-            )
             discardButton
 
         case .reviewing:
@@ -2859,6 +2933,31 @@ public struct CaptureRootView: View {
                     progressRow("Preparing archive…")
                 }
                 revisionControls
+            } else if validationReport == nil {
+                // Committed-but-unverified: the promoted bytes are
+                // durable, but independent post-promotion validation
+                // did not prove them, so export/revision actions stay
+                // withheld. Offer explicit recovery — re-validate on
+                // demand or start over — instead of dead controls.
+                CaptureNotice(
+                    status: .needsReview,
+                    title: "Committed but unverified",
+                    message: "The finalized revision could not be proven by post-promotion validation; its bytes are preserved. Re-validate to unlock export, or start a new capture."
+                )
+                .listRowSeparator(.hidden)
+                Button("Re-validate bundle") {
+                    actions.revalidateAdoptedRevision()
+                }
+                .capturePrimaryAction()
+                .disabled(hostBusy)
+                if activeOperations.contains(.prepareExport) {
+                    progressRow("Re-validating bundle…")
+                }
+                Button(
+                    "Start new capture",
+                    action: actions.resetCapture
+                )
+                .disabled(hostBusy)
             } else {
                 // The export always packages every retained pixel
                 // payload; the operator confirms visual evidence is
@@ -2962,7 +3061,13 @@ public struct CaptureRootView: View {
                         quality: qualityReport,
                         advisory: advisoryReport,
                         spatialFindings:
-                            spatialPlausibilityFindings
+                            spatialPlausibilityFindings,
+                        spatialAuthorityLive:
+                            liveSpatialAuthority,
+                        practiceCapture:
+                            practiceCaptureActive,
+                        onRemediationAction:
+                            routeRemediation
                     )
                 }
                 .capturePrimaryAction()
@@ -3015,16 +3120,31 @@ public struct CaptureRootView: View {
                             Array(blockers.enumerated()),
                             id: \.offset
                         ) { _, diagnostic in
-                            Button {
-                                actions.performRemediation(
-                                    QualityRemediationCatalog
-                                        .remediation(
-                                            for: diagnostic
-                                        ).actions.first
-                                        ?? .discardDraft
+                            let remediation =
+                                QualityRemediationCatalog
+                                    .remediation(
+                                        for: diagnostic
+                                    )
+                            let available = spatialCaptureSealed
+                                ? remediation.draftActions
+                                : remediation.actions
+                            if let first = available.first {
+                                Button {
+                                    routeRemediation(first)
+                                } label: {
+                                    Text(
+                                        localizedQualityDiagnosticMessage(
+                                            diagnostic
+                                        )
+                                    )
+                                        .font(.caption)
+                                }
+                            } else {
+                                Text(
+                                    localizedQualityDiagnosticMessage(
+                                        diagnostic
+                                    )
                                 )
-                            } label: {
-                                Text(diagnostic.code)
                                     .font(.caption)
                             }
                         }
@@ -3701,8 +3821,6 @@ public struct CaptureRootView: View {
             return String(localized: "Preparing")
         case .scanning:
             return String(localized: "Scanning")
-        case .paused:
-            return String(localized: "Paused")
         case .reviewing:
             return String(localized: "Reviewing")
         case .annotating:
@@ -3729,8 +3847,6 @@ public struct CaptureRootView: View {
              .preparing:
             return .pending
         case .scanning, .annotating:
-            return .pending
-        case .paused:
             return .pending
         case .reviewing:
             return .needsReview

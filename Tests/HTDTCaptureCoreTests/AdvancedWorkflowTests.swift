@@ -10,6 +10,7 @@ import XCTest
 final class AdvancedWorkflowTests: XCTestCase {
     private var relaxedRequirements: CaptureQualityRequirements {
         CaptureQualityRequirements(
+            rulesetVersion: "0.0.0-test",
             requireCompletedRoomPlan: false,
             minimumActiveMeshAnchors: 0,
             minimumEvidenceFrames: 0

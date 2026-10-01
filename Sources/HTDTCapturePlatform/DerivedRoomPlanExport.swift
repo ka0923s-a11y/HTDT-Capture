@@ -89,10 +89,12 @@ public enum DerivedRoomPlanExportSupport {
             bundleDirectory: bundleDirectory,
             manifest: manifest
         )
-        guard let room = try? JSONDecoder().decode(
-            CapturedRoom.self,
-            from: data
-        ) else {
+        guard let room = try? RoomPlanArtifactEncoder.makeJSONDecoder()
+            .decode(
+                CapturedRoom.self,
+                from: data
+            )
+        else {
             throw DerivedExportError.malformedSource(
                 reason:
                     "roomplan/captured-room.json could not be decoded into a CapturedRoom"

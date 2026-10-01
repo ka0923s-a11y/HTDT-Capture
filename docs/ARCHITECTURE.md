@@ -95,17 +95,19 @@ A capture session has an explicit domain state machine:
 
 ```text
 idle
+ -> setup
  -> capability_check
  -> permissions
  -> preparing
  -> scanning
- -> paused
  -> reviewing
  -> annotating
  -> validating
  -> finalized
  -> exported
 ```
+
+(`failed` is reachable from every active state.)
 
 Tracking quality, thermal state, storage pressure, interruption state, persistence backlog, and recoverability are orthogonal status dimensions.
 
@@ -145,6 +147,6 @@ Binary payload formats carry their own magic/version headers and do not rely sol
 
 ## 10. Testing boundary
 
-CI validates deterministic contracts, schema syntax, serialization, validator safety, and fixtures.
+Deterministic contracts, schema syntax, serialization, validator safety, and fixtures are validated locally with `swift build`/`swift test` and `python3 tools/bundle_validator/validator.py`. There is no CI; run them before publishing a change.
 
 Physical device evidence is mandatory for RoomPlan, reconstruction, depth, session-lifetime behavior, combined capture modes, tracking interruptions, performance, and spatial accuracy.

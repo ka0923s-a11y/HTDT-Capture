@@ -43,7 +43,8 @@ Terminal/background interruptions fail closed and require a fresh capture
 authority rather than pretending AR coordinate continuity.
 
 The software paths above are compiled/tested locally with `swift build` and
-`swift test`. An IPA is built manually — no CI — via the script documented
+`swift test`. An IPA is built manually — there is no CI — either via a
+manually dispatched workflow or the local script, both documented
 in [docs/IPA_BUILD.md](docs/IPA_BUILD.md). **Physical-device success is not
 implied by a clean build.** Real LiDAR RoomPlan/ARMesh/frame/depth behavior, spatial
 alignment, interruption/relocalization behavior, resource behavior, and the

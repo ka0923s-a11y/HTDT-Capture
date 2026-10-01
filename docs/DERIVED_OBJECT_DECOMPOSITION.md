@@ -142,8 +142,9 @@ Synthetic core fixtures cover:
 - insufficient/missing vertical evidence;
 - deterministic output and compatibility with per-component shape fitting.
 
-Repository pull-request CI remains responsible for `swift test`, generic iOS
-platform/AppShell compilation, and the existing unsigned IPA workflow.
+Software verification for this slice is `swift test`, generic iOS
+platform/AppShell compilation, and the unsigned IPA build — all run locally
+(there is no pull-request CI).
 
 ## Physical-device acceptance gate
 

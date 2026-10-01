@@ -267,7 +267,10 @@ final class UsableGeometryMetricsTests: XCTestCase {
         XCTAssertEqual(snapshot.usableDepthSampleCount, 0)
         XCTAssertEqual(snapshot.usableDepthEvidenceCount, 0)
 
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
 }

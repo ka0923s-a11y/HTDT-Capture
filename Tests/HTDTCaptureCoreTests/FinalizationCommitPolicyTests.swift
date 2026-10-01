@@ -27,7 +27,6 @@ func failedHostCanAdoptCommittedFinalizedRevision() throws {
 func adoptFinalizedIsRejectedOutsideCommitBoundaries() {
     for state in [
         CaptureState.scanning,
-        .paused,
         .reviewing,
         .annotating,
         .finalized,

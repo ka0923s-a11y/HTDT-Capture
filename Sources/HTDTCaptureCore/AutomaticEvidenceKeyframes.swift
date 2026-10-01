@@ -5,8 +5,9 @@ import Foundation
 /// During an active scan the host periodically offers the tracker a
 /// compact `AutomaticKeyframeSample`. A candidate is retained only when
 /// tracking is normal, it is usable evidence, it satisfies the
-/// minimum interval, and it is spatially novel (translation, heading
-/// change, or a coverage cell no retained frame has observed yet).
+/// minimum interval, and it is spatially novel (a translation or
+/// heading change beyond the configured thresholds relative to every
+/// retained anchor).
 /// Retention is hard-bounded per capture by both frame count and an
 /// estimated byte budget; manual `Save evidence` bypasses this tracker
 /// entirely and is never deduplicated or discarded by it.

@@ -145,9 +145,15 @@ private struct HTDTCaptureHostView: View {
                 coordinator.failedDraftRecoverable,
             finalizeRejection: coordinator.finalizeRejection,
             exportRejection: coordinator.exportRejection,
+            // Sealed for the workspace whenever live spatial capture
+            // is unavailable — a finalization seal (#276) or a
+            // recovered draft whose spatial evidence is sealed —
+            // regardless of committed annotations, so spatial
+            // affordances hide instead of dead-ending on a torn-down
+            // session.
             spatialCaptureSealed:
-                coordinator.annotationCoordinateSpaceID == nil
-                    && coordinator.annotationAuthorityCommitted,
+                coordinator.spatialAuthoritySealedForFinalization
+                    || !coordinator.workingSetSpatialAuthorityLive,
             appSettings: coordinator.appSettings,
             missionEntries: coordinator.missionEntries,
             missionTaskPlan: coordinator.captureTaskPlan,
@@ -262,6 +268,8 @@ private struct HTDTCaptureHostView: View {
                     coordinator.selectEquipmentCatalog,
                 finalizeCapture: coordinator.finalizeCapture,
                 prepareExport: coordinator.prepareExport,
+                revalidateAdoptedRevision:
+                    coordinator.revalidateAdoptedRevision,
                 resetCapture: coordinator.resetCapture,
                 openPersistedCapture:
                     coordinator.openPersistedCapture,
@@ -927,6 +935,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         CaptureTimingCorrelation?
     private var acceptedRoomPlanRawSHA256: EvidenceSHA256?
     private var acceptedEndMeshWasPersisted = false
+    /// Number of RoomPlan `run()` segments started on the current
+    /// revision. Each re-run rebuilds the room model from that
+    /// segment's observations alone, so segment 2+ carries an
+    /// advisory-provenance note into the bundle.
+    private var roomPlanScanSegmentOrdinal = 0
     private var pendingEndAttempt: PendingEndScanAttempt?
     private var roomPlanCompletionInFlight = false {
         didSet { syncActiveOperations() }
@@ -940,7 +953,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var exportOperationInFlight = false {
         didSet { syncActiveOperations() }
     }
-    private var spatialAuthoritySealedForFinalization = false
+    private(set) var spatialAuthoritySealedForFinalization = false
     /// #297: false when the working set was rebuilt from disk by
     /// `restoreWorkingRevision` — its AR coordinate authority ended
     /// with the prior process, so live spatial mutation is
@@ -1122,8 +1135,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     // sufficiency policies (#242, #284). Published 1.1.0 semantics stay
     // pinned in the registry for reopened/older captures.
     private let qualityRequirements = CaptureQualityRequirements(
-        rulesetVersion: "1.2.0",
-        allowDepthEvidenceAsMeshFallback: true
+        rulesetVersion: "1.2.0"
     )
     /// Bounded wait for a RoomPlan completion callback that never
     /// arrives (#96): warn the operator after `warningDelay`, then
@@ -1299,17 +1311,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Bound space for the annotation workspace. While live capture
     /// runs this is the active session space; once spatial authority
-    /// is sealed after a committed annotation pass (#276), the same
-    /// working-set space stays the correct binding for non-spatial
-    /// corrections — sealing pauses AR, it does not rebind the
-    /// committed authority.
+    /// is sealed for finalization (#276), the same working-set space
+    /// stays the correct binding for non-spatial corrections —
+    /// sealing pauses AR, it does not rebind the committed authority.
+    /// It is returned whether or not annotations were already
+    /// committed so a sealed-but-uncommitted Review still renders the
+    /// workspace (spatial affordances hide on the seal itself).
     var annotationWorkspaceCoordinateSpaceID: CoordinateSpaceID? {
         if !spatialAuthoritySealedForFinalization {
             return annotationCoordinateSpaceID
         }
-        guard annotationAuthorityCommitted,
-              state == .reviewing || state == .annotating
-        else {
+        guard state == .reviewing || state == .annotating else {
             return nil
         }
         return sessionController.context.coordinateSpaceID
@@ -1477,6 +1489,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         captureStartTimingCorrelation = nil
         acceptedRoomPlanRawSHA256 = nil
         acceptedEndMeshWasPersisted = false
+        roomPlanScanSegmentOrdinal = 0
         pendingEndAttempt = nil
         roomPlanCompletionInFlight = false
         annotationCommitInFlight = false
@@ -2811,6 +2824,28 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
     }
 
+    /// Counts this RoomPlan `run()` as a new scan segment and, once
+    /// the revision scans past its first segment, records provenance
+    /// that the next accepted room model is a rebuild covering only
+    /// the final segment — mesh anchors and evidence frames still
+    /// accumulate across every segment.
+    private func noteRoomPlanScanSegment() {
+        roomPlanScanSegmentOrdinal += 1
+        guard roomPlanScanSegmentOrdinal > 1 else {
+            return
+        }
+        recordAdvisoryNote(
+            CaptureAdvisoryNote(
+                kind: .roomPlanRescan,
+                sessionTimestampSeconds:
+                    latestScanTimestampSeconds ?? 0,
+                detail:
+                    "segment=\(roomPlanScanSegmentOrdinal)"
+                    + " accepted_model_covers_final_segment_only"
+            )
+        )
+    }
+
     /// Persist an advisory note when a store is live; silent during
     /// setup/review when none exists (the note channel only exists for
     /// a working capture).
@@ -2951,6 +2986,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
             do {
                 try self.sessionController.startRoomPlan()
+                self.noteRoomPlanScanSegment()
             } catch {
                 self.reviewOperationInFlight = false
                 self.workingSetStatus =
@@ -3010,28 +3046,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func beginAnnotation() {
         // Annotation editing is spatial continuation authority: once a
         // post-End resource/lifecycle condition sealed it (#112), the
-        // accepted Review remains finalizable but the annotation
-        // workspace must not reopen — its coordinate space is already
-        // torn down, so an entry here could strand .annotating with no
-        // rendered workspace or Cancel affordance.
+        // accepted Review remains finalizable but live spatial capture
+        // is unavailable. The workspace still opens — under the seal
+        // it renders in non-spatial mode (raycast/orientation/scanning
+        // hidden by the nil live space + torn-down preview) so label,
+        // role, equipment, scalar, and required-task corrections stay
+        // reachable instead of leaving a dead end.
         guard state == .reviewing,
               !isEndingScan,
               !reviewOperationInFlight,
               let store = workingSetStore
-        else {
-            return
-        }
-
-        // #276: once the spatial authority was sealed for finalization
-        // (a post-End resource/lifecycle seal, #112), live spatial
-        // capture is unavailable — but the saved annotation authority
-        // can still be reopened for non-spatial edits (label, role,
-        // equipment, scalar corrections). The workspace disables
-        // raycast/orientation/continue-scanning when
-        // `annotationCoordinateSpaceID` is nil.
-        guard !spatialAuthoritySealedForFinalization
-                || annotationAuthorityCommitted
-                || !workingSetSpatialAuthorityLive
         else {
             return
         }
@@ -3091,7 +3115,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // drafts are refused by the store's binding check.
         var draftSeed: AnnotationWorkspaceSeed?
         if let revisionID = annotationDraftRevisionID,
-           let spaceID = annotationCoordinateSpaceID
+           let spaceID = annotationWorkspaceCoordinateSpaceID
         {
             let draft = annotationDraftStore?.load(
                 revisionID: revisionID,
@@ -3225,6 +3249,121 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
+    /// Rebuilds mission/session state a recovered draft still carries:
+    /// the verbatim plan imports and every capture-derived supplemental
+    /// payload (task-plan status, connected-space map, as-built
+    /// verification, repair link) are durable files inside the working
+    /// revision — restoring them keeps the mission surface, item
+    /// marks, and repair lineage live and lets the derived-document
+    /// step at finalization write current truth instead of skipping.
+    /// Decode failures leave the corresponding state absent rather
+    /// than blocking the reopen — the persisted bytes stay the
+    /// canonical copy.
+    private func restoreRecoveredMissionState(
+        rootDirectory: URL,
+        identity: CaptureWorkingSetIdentity
+    ) {
+        func dataAt(_ path: String) -> Data? {
+            let url = rootDirectory.appendingPathComponent(
+                path,
+                isDirectory: false
+            )
+            guard FileManager.default.fileExists(atPath: url.path)
+            else {
+                return nil
+            }
+            return try? Data(contentsOf: url)
+        }
+        func loadJSON<T: Decodable>(
+            _ type: T.Type,
+            at path: String
+        ) -> T? {
+            dataAt(path).flatMap {
+                try? JSONDecoder().decode(T.self, from: $0)
+            }
+        }
+
+        if let data = dataAt(CaptureTaskPlanImport.path),
+           let planImport = try? CaptureTaskPlanImport(data: data)
+        {
+            captureTaskPlanImport = planImport
+            captureTaskPlan = planImport.plan
+            var status = CaptureTaskPlanStatus(
+                planImport: planImport
+            )
+            if let document: CaptureTaskPlanStatusDocument =
+                loadJSON(
+                    CaptureTaskPlanStatusDocument.self,
+                    at: CaptureTaskPlanStatusDocument.path
+                )
+            {
+                status.restoreFulfillments(from: document)
+            }
+            captureTaskPlanStatus = status
+        }
+
+        if let data = dataAt(HTDTAsBuiltPlanImport.path),
+           let planImport = try? HTDTAsBuiltPlanImport(data: data)
+        {
+            asBuiltPlanImport = planImport
+            asBuiltPlan = planImport.plan
+            if let document: AsBuiltVerificationDocument =
+                loadJSON(
+                    AsBuiltVerificationDocument.self,
+                    at: AsBuiltVerificationDocument.path
+                ),
+               let restored = try? AsBuiltVerificationSession(
+                    restoring: document,
+                    coordinateSpaceID:
+                        sessionController.context.coordinateSpaceID
+               )
+            {
+                asBuiltSession = restored
+            } else {
+                configureAsBuiltSession()
+            }
+            asBuiltItems = (try? asBuiltSession?.items()) ?? []
+            asBuiltAlignmentInstalled =
+                asBuiltSession?.alignment != nil
+        }
+
+        if let document: ConnectedSpaceDocument =
+            loadJSON(
+                ConnectedSpaceDocument.self,
+                at: ConnectedSpaceDocument.path
+            )
+        {
+            connectedSpaceTracker = ConnectedSpaceTracker(
+                restoring: document
+            )
+            connectedSpaceIntent = true
+        }
+
+        // Revision lineage lives in the working-set identity — the
+        // repair-link lineage guard and the post-adoption compare
+        // affordance both read it.
+        activeRevisionLineage = identity.parentRevisionID.map {
+            RevisionLineage(
+                captureSeriesID: identity.captureSeriesID,
+                parentRevisionID: $0
+            )
+        }
+
+        if let link: HTDTRepairTaskLink =
+            loadJSON(
+                HTDTRepairTaskLink.self,
+                at: HTDTRepairTaskLink.path
+            )
+        {
+            persistedRepairLinkRevisionID = link.captureRevisionID
+            refreshRepairTaskRows()
+            activeRepairRow = repairTaskRows.first {
+                $0.planID == link.repairPlanID
+                    && $0.task.taskID == link.repairTaskID
+            }
+        }
+    }
+
     /// Lists captured RoomPlan elements and mesh anchors so authority
     /// sheets offer user-assisted selection instead of typed IDs
     /// (#218). Pure reads of app-owned canonical files; decode failures
@@ -3251,10 +3390,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             isDirectory: false
         )
         if let data = try? Data(contentsOf: roomURL),
-           let room = try? JSONDecoder().decode(
-               CapturedRoom.self,
-               from: data
-           )
+           let room = try? RoomPlanArtifactEncoder.makeJSONDecoder()
+               .decode(
+                   CapturedRoom.self,
+                   from: data
+               )
         {
             let surfaces: [(UUID, String)] =
                 room.walls.map { ($0.identifier, "wall") }
@@ -4580,7 +4720,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             else {
                 self.reviewOperationInFlight = false
                 self.finalizeRejection = .qualityRegression
-                self.workingSetStatus = String(localized: "Review quality changed before finalization; resolve the diagnostics and retry")
+                // Live spatial capture is sealed at this point — only
+                // non-spatial corrections remain reachable, so name
+                // the real options instead of 'resolve diagnostics'.
+                self.workingSetStatus = String(localized: "Review quality changed before finalization. Open Details to check the findings and correct non-spatial items, retry saving, save the draft for later, or discard.")
                 return
             }
 
@@ -4604,6 +4747,72 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 quality: quality,
                 generation: generation
             )
+        }
+    }
+
+    /// Manual recovery for the committed-but-unverified state: the
+    /// promoted revision is durable but post-promotion validation
+    /// could not prove it, so Prepare/Rescan stayed withheld. Running
+    /// the independent validation again on demand either unlocks the
+    /// full finalized surface (export, revision lineage) or reports
+    /// the concrete diagnostic — never a dead-end of no-op buttons.
+    func revalidateAdoptedRevision() {
+        guard state == .finalized,
+              !exportOperationInFlight,
+              !persistedDeletionInFlight,
+              let finalizedRevision,
+              validationReport == nil
+        else {
+            return
+        }
+
+        exportOperationInFlight = true
+        workingSetStatus =
+            String(localized: "Re-validating the committed revision")
+        let generation = captureGeneration
+
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            defer {
+                if self.captureGeneration == generation {
+                    self.exportOperationInFlight = false
+                }
+            }
+
+            let (report, diagnostic) =
+                await Self.validatePromotedRevision(
+                    directory: finalizedRevision.directory
+                )
+            guard self.captureGeneration == generation,
+                  self.state == .finalized,
+                  self.finalizedRevision?.captureRevisionID
+                    == finalizedRevision.captureRevisionID
+            else {
+                return
+            }
+
+            if let report,
+               report.bundleDigest == finalizedRevision.bundleDigest
+            {
+                self.validationReport = report
+                self.workingSetStatus =
+                    String(
+                        format: String(localized: "Finalized revision; bundle digest %@"),
+                        report.bundleDigest.description
+                    )
+            } else {
+                self.validationReport = nil
+                self.workingSetStatus =
+                    String(localized: "The revision was committed to finalized storage, but post-promotion validation could not prove it; the committed bytes are preserved and stay discoverable through the persisted-capture inventory")
+                    + " ["
+                    + (report == nil
+                        ? (diagnostic
+                            ?? "post_promotion_validation_unverified")
+                        : "bundle_digest_mismatch")
+                    + "]"
+            }
         }
     }
 
@@ -5083,14 +5292,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Operator-initiated discard of the active capture (issue #254):
-    /// scanning, paused, review, or annotation state. The caller must
+    /// scanning, review, or annotation state. The caller must
     /// have already shown a confirmation; this fence is terminal —
     /// AR is stopped, all in-flight writes are fenced by the store's
     /// discard barrier, the working revision is deleted, and finalized
     /// captures are never touched (this state can only run while the
     /// capture is still a working set).
     func discardActiveCapture() {
-        guard [.scanning, .paused, .reviewing, .annotating]
+        guard [.scanning, .reviewing, .annotating]
             .contains(state),
               !isEndingScan,
               !annotationCommitInFlight,
@@ -5244,12 +5453,54 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 // `workingSetSpatialAuthorityLive`.
                 self.spatialAuthoritySealedForFinalization = false
                 self.activeRevisionLineage = nil
+                // Rebind the shared session context to the persisted
+                // capture session + coordinate space: every post-restore
+                // binder (annotations, mission documents, repair links)
+                // stamps `sessionController.context`, and the store
+                // rejects commits whose authority does not match the
+                // restored session foundation.
+                if let sessionID = snapshot.captureSessionIDs.first,
+                   let spaceID = snapshot.coordinateSpaceIDs.first
+                {
+                    self.sessionController =
+                        SharedARSessionController(
+                            context: CaptureSessionContext(
+                                captureSessionID: sessionID,
+                                coordinateSpaceID: spaceID
+                            )
+                        )
+                }
+                // "Committed" means the canonical annotation/
+                // measurement payloads exist — not merely that a seed
+                // decode produced an (empty) workspace. A draft that
+                // crashed before its first commit must keep routing to
+                // the fresh-annotation path.
+                let committedPaths = [
+                    AnnotationEvidencePackage.path,
+                    MeasurementEvidencePackage.path,
+                ]
                 self.annotationAuthorityCommitted =
-                    (try? Self.committedAnnotationSeed(
-                        rootDirectory: snapshot.rootDirectory
-                    )) != nil
+                    committedPaths.contains { path in
+                        FileManager.default.fileExists(
+                            atPath: snapshot.rootDirectory
+                                .appendingPathComponent(path)
+                                .path
+                        )
+                    }
                 self.annotationEditIsRevision =
                     self.annotationAuthorityCommitted
+                // Mission/session state is durable supplemental
+                // payload inside the restored working set — rebuild
+                // it so the mission surface, task marks, connected
+                // space map, as-built session, and repair lineage keep
+                // working on the reopened draft instead of silently
+                // reverting to "no mission" (which also made every
+                // mission-bearing draft unfinalizable through the
+                // derived-document step).
+                self.restoreRecoveredMissionState(
+                    rootDirectory: snapshot.rootDirectory,
+                    identity: snapshot.identity
+                )
                 if let document =
                     CaptureWorkingSetStore.peekRevisionPhase(
                         workingRevisionURL: draft.url
@@ -10612,6 +10863,39 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             }
         }
+        // A RoomCaptureSession end outside the bounded End transaction
+        // stops the room model accumulating while the operator still
+        // sees a scanning surface — record it as provenance and say so.
+        // Inside End (`isEndingScan`) the transaction already owns the
+        // transition, so the callback is expected there.
+        sessionController.roomPlanDidEndHandler = {
+            [weak self] errorDescription in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.captureGeneration == generation,
+                      self.state == .scanning,
+                      !self.isEndingScan
+                else {
+                    return
+                }
+                let detail =
+                    errorDescription.map {
+                        "ended_with_error error=\($0)"
+                    } ?? "ended_without_error"
+                self.recordAdvisoryNote(
+                    CaptureAdvisoryNote(
+                        kind: .roomPlanSessionEnded,
+                        sessionTimestampSeconds:
+                            self.latestScanTimestampSeconds ?? 0,
+                        detail: detail
+                    )
+                )
+                if errorDescription != nil {
+                    self.workingSetStatus =
+                        String(localized: "RoomPlan scanning ended unexpectedly; press End to finish with the evidence captured so far, or discard")
+                }
+            }
+        }
 
         // Benchmark binding (#285): resolve refs whose compatibility
         // predicates deterministically match this capture's app/device/
@@ -10693,6 +10977,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
         do {
             try sessionController.startRoomPlan()
+            noteRoomPlanScanSegment()
         } catch {
             await store.recordRoomPlanGuidanceUnavailable()
             workingSetStatus = String(localized: "RoomPlan could not start after the live camera view was presented")
@@ -10728,6 +11013,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             activeConfiguration =
                 try await waitForActiveConfiguration()
+        } catch PlatformCaptureError
+            .requestedCaptureModeUnsatisfied(let resolved)
+        {
+            workingSetStatus = String(localized: "RoomPlan started, but the running AR configuration cannot produce mesh (resolved mode: \(resolved.rawValue)); the capture was stopped rather than persisting a mesh claim")
+            fail(.roomPlanFailure)
+            return
         } catch {
             workingSetStatus = String(localized: "RoomPlan started, but the active AR configuration was not available in time")
             fail(.roomPlanFailure)
@@ -10742,10 +11033,22 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         let foundation: CaptureSessionFoundationPackage
         do {
+            // Combined-mode probe: RoomPlan is running now, so the
+            // running-phase observation can verify whether scene
+            // reconstruction + scene depth are jointly active on this
+            // session before the foundation is sealed write-once.
+            let probedCapabilities = PlatformCapabilityProbe
+                .applyingCombinedFeatureVerification(
+                    sessionController
+                        .currentCombinedFeatureObservation(
+                            roomPlanPhase: .running
+                        ),
+                    to: capabilities
+                )
             foundation =
                 try CaptureSessionFoundationPackageBuilder.build(
                     context: context,
-                    capabilities: capabilities,
+                    capabilities: probedCapabilities,
                     configurationProfile: activeConfiguration,
                     startedAtUTC: startedAtUTC,
                     device:
@@ -10988,9 +11291,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private func updateLiveEndScanGuidance() {
-        guard !isEndingScan,
-              !endScanPreflightBlocked
-        else {
+        guard !isEndingScan else {
             return
         }
 
@@ -11024,6 +11325,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
            !hasMesh
         {
             endScanGuidance = String(localized: "Before ending: no usable depth or mesh evidence is available. Keep the target in view and move slowly until Scene Depth observation appears.")
+            return
+        }
+
+        if endScanPreflightBlocked {
+            // A failed End attempt leaves its failure text on screen,
+            // but the live conditions just checked are healthy again —
+            // replace it with a truthful retry hint. Pressing End
+            // re-runs the full preflight either way.
+            endScanGuidance = String(localized: "The issue that blocked End may have cleared. Press End to try again.")
             return
         }
 
@@ -11164,6 +11474,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 previewPayload:
                     endFrameArtifacts.previewPayload
             )
+            // Preflight only: prove the start/end correlation builds a
+            // valid package before any persistence work starts. The
+            // committed package is rebuilt in endScanForReview with a
+            // fresher session-end correlation, so this one is
+            // intentionally discarded.
             _ = try CaptureTimingPackageBuilder.build(
                 start: startTiming,
                 end: endTiming
@@ -11865,6 +12180,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         do {
             try sessionController.startRoomPlan()
+            noteRoomPlanScanSegment()
         } catch {
             isEndingScan = false
             workingSetStatus =
@@ -12061,6 +12377,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     // writes never join the 250 ms path.
                     if sampleIndex.isMultiple(of: 16) {
                         self.considerAutomaticKeyframe(sample)
+                    }
+
+                    // RoomCaptureView may reclaim `arSession.delegate`
+                    // asynchronously after `run()`; the bridge only
+                    // asserts ownership once at start. Re-assert on the
+                    // slow tick — the install keeps the current owner
+                    // as passthrough — so mesh-anchor lifecycle and
+                    // tracking provenance cannot silently starve.
+                    if sampleIndex.isMultiple(of: 16) {
+                        self.sessionController
+                            .installSessionLifecycleBridge()
                     }
 
                     // Persist transition-compacted tracking history into
@@ -12326,16 +12653,30 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     {
         for _ in 0..<60 {
             do {
+                // Resolve the mode from the configuration actually
+                // running — never assert `.roomPlanMesh`; a session
+                // whose scene reconstruction is off must fail closed
+                // rather than persist a mesh claim it cannot satisfy.
+                let resolution = try sessionController
+                    .snapshotActiveConfigurationResolution(
+                        requestedMode: .roomPlanMesh
+                    )
+                if resolution.unsatisfiedRequestedMode != nil {
+                    throw PlatformCaptureError
+                        .requestedCaptureModeUnsatisfied(
+                            resolved: resolution.resolvedCaptureMode
+                        )
+                }
                 return try ARConfigurationSnapshotAdapter.snapshot(
                     session: sessionController.arSession,
-                    captureMode: .roomPlanMesh
+                    captureMode: resolution.resolvedCaptureMode
                 )
-            } catch ARConfigurationSnapshotError.configurationUnavailable {
+            } catch PlatformCaptureError.configurationUnavailable {
                 try await Task.sleep(for: .milliseconds(50))
             }
         }
 
-        throw ARConfigurationSnapshotError.configurationUnavailable
+        throw PlatformCaptureError.configurationUnavailable
     }
 
     /// Start-boundary correlation (#200): returns the first bracketed
@@ -12445,10 +12786,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         var promotedRevision: FinalizedCaptureRevision?
         var protectionWarning: String?
+        /// The report whose bytes the seal committed to
+        /// `quality/capture-quality.json` — distinct from `quality`
+        /// whenever the frozen-state evaluation differed from the
+        /// pre-seal report, and the payload any abort must roll back.
+        var stagedQualityReport: CaptureQualityReport?
 
         do {
-            try await store.persistQualityReport(quality)
-
             // #353/#240/#222/#293: mission-derived payloads are part
             // of the bundle — persist before the seal freezes the
             // working set.
@@ -12470,12 +12814,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // ruleset the Review gate used — the default requirements
             // would reject the very report this transaction already
             // persisted (e.g. dropping the depth fallback devices
-            // without ARMesh anchors rely on).
-            try await store.sealForFinalization(
+            // without ARMesh anchors rely on). The sealed report is
+            // also the exact quality payload the bundle ships: building
+            // the finalization request from the SealedWorkingSet makes
+            // the finalizer's staged-bytes equality check true by
+            // construction instead of relying on a pre-seal report
+            // staying byte-identical to the sealed one.
+            let sealed = try await store.sealForFinalization(
                 requirements: self.qualityRequirements
             )
-
-            let snapshot = await store.snapshot()
+            stagedQualityReport = sealed.qualityReport
 
             guard captureGeneration == generation else {
                 // A non-lifecycle failure already invalidated this
@@ -12489,15 +12837,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             let runtime = PlatformRuntimeProvenance.current()
             let request =
                 try CaptureWorkingSetFinalizationRequestBuilder.build(
-                    snapshot: snapshot,
-                    qualityReport: quality,
+                    sealed: sealed,
                     app: BundleAppIdentity(
                         version: runtime.appVersion,
                         build: runtime.appBuild
                     )
                 )
             let destination = finalizedDirectory(
-                for: snapshot
+                for: sealed.snapshot
             )
 
             // Pre-commit cancellation point (#185): a lifecycle failure
@@ -12512,7 +12859,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     diagnostic: nil,
                     fencedFailure: fencedFailure,
                     store: store,
-                    quality: quality,
+                    quality: stagedQualityReport ?? quality,
                     generation: generation
                 )
                 return
@@ -12526,7 +12873,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // classify post-promotion errors as a failed working set.
             let finalized =
                 try await BundleRevisionFinalizer().finalize(
-                    stagingDirectory: snapshot.rootDirectory,
+                    stagingDirectory: sealed.snapshot.rootDirectory,
                     destinationDirectory: destination,
                     request: request
                 )
@@ -12582,7 +12929,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 diagnostic: Self.persistenceDiagnostic(error),
                 fencedFailure: finalizationCommit.preCommitFailure(),
                 store: store,
-                quality: quality,
+                quality: stagedQualityReport ?? quality,
                 generation: generation
             )
             return
@@ -13459,6 +13806,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             workingSetStatus = String(localized: "Capture stopped because the device reached a critical thermal state")
         } else if code == .storagePressure {
             workingSetStatus = String(localized: "Capture stopped because available storage fell below the safe threshold")
+        } else {
+            // Non-lifecycle failure codes keep a truthful status too —
+            // otherwise the failed screen would carry forward whatever
+            // in-progress text happened to be showing.
+            workingSetStatus =
+                String(localized: "Capture failed")
+                + " [" + code.rawValue + "]"
         }
 
         // A terminal failure must not leave a hidden RoomPlan / AR session
@@ -13496,7 +13850,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// production entry list the root view renders (#353).
     var missionEntries: [MissionWorkflowEntry] {
         let captureInProgress =
-            state == .scanning || state == .paused
+            state == .scanning
             || state == .reviewing || state == .annotating
         return MissionWorkflowRouter.entries(
             for: MissionWorkflowContext(
@@ -13505,7 +13859,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 connectedSpaceActive: connectedSpaceTracker != nil,
                 asBuiltPlanLoaded: asBuiltPlan != nil,
                 spatialAuthorityLive: captureInProgress
-                    && !spatialAuthoritySealedForFinalization,
+                    && !spatialAuthoritySealedForFinalization
+                    && workingSetSpatialAuthorityLive,
                 captureInProgress: captureInProgress,
                 annotationWorkspaceEnterable:
                     state == .reviewing
@@ -13555,7 +13910,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// so a plan can be staged before the scan or added mid-capture.
     func importMissionDocument(_ url: URL) {
         guard state == .idle || state == .setup
-            || state == .scanning || state == .paused
+            || state == .scanning
             || state == .reviewing || state == .annotating
         else {
             workingSetStatus = String(localized: "Mission documents can only be imported while idle, in setup, or during a capture")
@@ -13888,7 +14243,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         _ statusOnFailure: String,
         _ op: (inout ConnectedSpaceTracker) throws -> Void
     ) {
-        guard state == .scanning || state == .paused
+        guard state == .scanning
             || state == .reviewing || state == .annotating
         else {
             workingSetStatus = String(localized: "Connected-space tracking needs a capture in progress")

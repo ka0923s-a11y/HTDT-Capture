@@ -118,6 +118,7 @@ final class CaptureSessionFoundationTests: XCTestCase {
 
         let quality = await store.evaluateQuality(
             requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
                 requireCompletedRoomPlan: false,
                 minimumActiveMeshAnchors: 0,
                 minimumEvidenceFrames: 0
@@ -171,6 +172,7 @@ final class CaptureSessionFoundationTests: XCTestCase {
 
         let quality = await store.evaluateQuality(
             requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
                 requireCompletedRoomPlan: false,
                 minimumActiveMeshAnchors: 0,
                 minimumEvidenceFrames: 0
@@ -332,6 +334,7 @@ extension CaptureSessionFoundationTests {
 
         let quality = await store.evaluateQuality(
             requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
                 minimumActiveMeshAnchors: 0,
                 minimumEvidenceFrames: 0
             )
@@ -569,6 +572,7 @@ extension CaptureSessionFoundationTests {
 
         let quality = await store.evaluateQuality(
             requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
                 minimumActiveMeshAnchors: 1,
                 minimumEvidenceFrames: 1
             )
@@ -616,6 +620,7 @@ extension CaptureSessionFoundationTests {
 
         let quality = await store.evaluateQuality(
             requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
                 requireCompletedRoomPlan: false,
                 minimumActiveMeshAnchors: 0,
                 minimumEvidenceFrames: 0
@@ -984,6 +989,7 @@ extension CaptureSessionFoundationTests {
 
         let report = await store.evaluateQuality(
             requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
                 minimumActiveMeshAnchors: 0,
                 minimumEvidenceFrames: 0
             )

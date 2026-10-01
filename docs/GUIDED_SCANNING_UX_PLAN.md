@@ -476,7 +476,7 @@ Physical-device gate:
 - Japanese compact labels do not truncate or wrap into extreme multi-line
   layouts across supported portrait screen heights.
 
-CI success is not evidence that these physical-device requirements passed.
+Automated/local build success is not evidence that these physical-device requirements passed.
 
 
 ## 11. G110 spatial / surface-aware advisory coverage
@@ -739,7 +739,7 @@ Automated acceptance:
 - iOS Platform/AppShell compile succeeds;
 - unsigned IPA generation succeeds.
 
-Physical-device acceptance remains open and is not replaced by CI:
+Physical-device acceptance remains open and is not replaced by automated checks:
 
 - turning versus walking is distinguishable at a glance;
 - rotation-only gaps do not request walking;

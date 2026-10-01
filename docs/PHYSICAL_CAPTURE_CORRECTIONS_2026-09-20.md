@@ -53,7 +53,7 @@ Focused regression coverage was added for:
 - strict quality behavior versus explicit scene-depth mesh fallback;
 - materially different stacked horizontal profiles.
 
-Repository-native `swift test`, iOS platform/AppShell compilation, and the unsigned IPA build are the CI authority for this slice.
+Repository-native `swift test`, iOS platform/AppShell compilation, and the unsigned IPA build are the software-verification authority for this slice (all run locally; no CI exists).
 
 ## Physical-device acceptance still required
 

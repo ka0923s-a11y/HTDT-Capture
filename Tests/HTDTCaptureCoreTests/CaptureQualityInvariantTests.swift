@@ -206,7 +206,7 @@ func usableGeometryGovernsMeshReadinessNotContainers() {
     #expect(
         fallback.diagnostics.contains {
             $0.code == "mesh_depth_fallback"
-                && $0.severity == .warning
+                && $0.severity == .info
         }
     )
 

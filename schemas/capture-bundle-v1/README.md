@@ -21,8 +21,10 @@ Schema family:
 - `coordinate-space-policy.schema.json`
 - `connected-spaces.schema.json`
 - `capture-task-plan.schema.json` — imported `session/capture-task-plan.json` contract
-- `task-plan-status-1.0.0.schema.json` / `task-plan-status-1.1.0.schema.json` — `session/task-plan-status.json`; 1.1.0 adds typed `fulfillment` links (#354)
+- `task-plan-status-1.0.0.schema.json` / `task-plan-status-1.1.0.schema.json` / `task-plan-status-2.0.0.schema.json` — `session/task-plan-status.json`; 1.1.0 adds typed `fulfillment` links (#354); 2.0.0 is the version this build emits
 - `entities-1.1.0.schema.json` — `annotations/entities.json` v1.1.0; adds `relations[]` (#333), `lineage` (#303), and enforces the open-token namespace policy (#344)
+- `entities-1.2.0.schema.json` — `annotations/entities.json` v1.2.0
+- `entities-1.3.0.schema.json` — `annotations/entities.json` v1.3.0 (the version this build emits)
 - `measurements-1.1.0.schema.json` — `annotations/measurements.json` v1.1.0; adds `uncertainty`/`lineage` (#304, #334)
 - `as-built-verification-1.0.0.schema.json` / `as-built-verification-1.1.0.schema.json` — `verification/as-built.json`; 1.1.0 adds `indeterminate`, `residual_m`, and observation `uncertainty` (#356)
 - `derived-geometry-candidates.schema.json` — `derived/geometry-candidates.json`

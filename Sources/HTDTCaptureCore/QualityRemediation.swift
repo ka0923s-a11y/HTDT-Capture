@@ -99,7 +99,6 @@ public enum QualityRemediationCatalog {
     /// Blocking diagnostics that no in-place action can repair — the
     /// spatial authority they describe is already gone.
     private static let authorityDamagedCodes: Set<String> = [
-        "tracking_unavailable_unrecovered",
         "tracking_unavailable_extended",
         "tracking_coordinate_discontinuity",
     ]
@@ -156,7 +155,14 @@ public enum QualityRemediationCatalog {
                 repairableInPlace: true,
                 actions: [.addMeasurement]
             )
-        case "tracking_unavailable_recovering":
+        case "tracking_unavailable_unrecovered",
+             "tracking_unavailable_recovering":
+            // An unrecovered span is classified by event history —
+            // no normal sample after the outage — not by permanent
+            // damage. Continue scanning appends tracking events, so a
+            // normal sample converts the span to recovered (within
+            // the policy bounds) or extended/replacing (outside them),
+            // making the finding legitimately repairable in place.
             return QualityRemediation(
                 diagnosticCode: diagnostic.code,
                 blocking: blocking,
@@ -193,8 +199,18 @@ public enum QualityRemediationCatalog {
                     .discardDraft,
                 ]
             )
-        case "mesh_depth_fallback",
-             "tracking_limited_observed",
+        case "mesh_depth_fallback":
+            // RoomPlan captures produce no ARMeshAnchors by design —
+            // the fallback is expected provenance, and continuing the
+            // scan can never add anchors to clear the warning, so no
+            // affordance is offered.
+            return QualityRemediation(
+                diagnosticCode: diagnostic.code,
+                blocking: blocking,
+                repairableInPlace: false,
+                actions: []
+            )
+        case "tracking_limited_observed",
              "tracking_unavailable_observed",
              "tracking_unavailable_recovered":
             return QualityRemediation(

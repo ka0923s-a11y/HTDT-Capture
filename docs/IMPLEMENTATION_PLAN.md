@@ -319,7 +319,9 @@ Phase 1 must probe the intended combined RoomPlan + scene reconstruction + scene
 
 ## 6. Session state machine
 
-Suggested states:
+Suggested states (the implemented machine also has `setup`, and `paused`
+was later removed — see `CaptureStateMachine.swift`; this section records
+the original plan):
 
 ~~~text
 idle
@@ -440,7 +442,12 @@ Do not treat an AR frame timestamp as an RFC3339 wall-clock time.
 
 ## 9. Canonical Capture Bundle v1
 
-Proposed logical structure:
+Proposed logical structure (the shipped layout differs — frame descriptors are
+`evidence/frames/<frame-id>.json` not `*.frame.json`, `roomplan/exports/` and
+`quality/benchmark-observations.json` are never emitted, and many supplemental
+families were added; the current authority is the §2 tree in
+`docs/CAPTURE_BUNDLE_V1.md` and `support-matrix.json` inside the manifest.
+This block is kept as the original plan):
 
 ~~~text
 capture-<capture-revision-id>.htdtcapture/
@@ -1165,7 +1172,11 @@ Physical-device validation is required for:
 
 Simulator CI must not be reported as validation of hardware capture behavior.
 
-## 24. CI strategy
+## 24. Verification strategy
+
+_Note (2026-10): CI was later removed; the checks below are the same ones but
+run locally (`swift build`, `swift test`, bundle validator, localization
+audit). This section is kept as the original plan._
 
 CI should run only meaningful checks for the current slice:
 

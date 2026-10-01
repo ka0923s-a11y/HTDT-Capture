@@ -350,6 +350,25 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
     /// identities and may carry arbitrary parameters.
     private static let publishedRequirements:
         [String: CaptureQualityRequirements] = [
+            // 1.0.0 is the baseline every pre-1.1.0 bundle was
+            // evaluated under: completed RoomPlan + one mesh anchor +
+            // one evidence frame + integrity pass, no depth fallback
+            // and no recovery policy. Publishing it keeps
+            // `forRuleset(version:)` total over every ruleset identity
+            // a shipped bundle can name.
+            "1.0.0": CaptureQualityRequirements(
+                pinnedRulesetVersion: "1.0.0",
+                requireCompletedRoomPlan: true,
+                minimumActiveMeshAnchors: 1,
+                allowDepthEvidenceAsMeshFallback: false,
+                minimumEvidenceFrames: 1,
+                requireDepthEvidence: false,
+                requiredAnnotationKeys: [],
+                requiredMeasurementQuantityTypes: [],
+                requireIntegrityPass: true,
+                trackingRecoveryPolicy: nil,
+                depthFallbackSufficiencyPolicy: nil
+            ),
             "1.1.0": CaptureQualityRequirements(
                 pinnedRulesetVersion: "1.1.0",
                 requireCompletedRoomPlan: true,
@@ -430,8 +449,11 @@ public struct CaptureQualityRequirements: Sendable, Equatable {
             depthFallbackSufficiencyPolicy
     }
 
+    /// The ruleset version is always stated explicitly — no default,
+    /// so a caller can never silently evaluate an unpublished baseline
+    /// (previously `init()` resolved to unpublished "1.0.0" params).
     public init(
-        rulesetVersion: String = "1.0.0",
+        rulesetVersion: String,
         requireCompletedRoomPlan: Bool = true,
         minimumActiveMeshAnchors: Int = 1,
         allowDepthEvidenceAsMeshFallback: Bool = false,
@@ -589,10 +611,14 @@ public enum CaptureQualityEvaluator {
                         for: observation.depthSufficiency
                     )
                     if failures.isEmpty {
+                        // RoomPlan captures produce no ARMeshAnchors
+                        // by design, so this fires on every production
+                        // capture: expected provenance, not something
+                        // the operator can act on — .info.
                         diagnostics.append(
                             QualityDiagnostic(
                                 code: "mesh_depth_fallback",
-                                severity: .warning,
+                                severity: .info,
                                 message:
                                     "Active mesh evidence is unavailable; retained scene-depth evidence satisfies the bounded sufficiency gate and is being used as the geometric fallback."
                             )
@@ -613,7 +639,7 @@ public enum CaptureQualityEvaluator {
                     diagnostics.append(
                         QualityDiagnostic(
                             code: "mesh_depth_fallback",
-                            severity: .warning,
+                            severity: .info,
                             message:
                                 "Active mesh evidence is unavailable; retained scene-depth evidence is being used as the bounded geometric fallback."
                         )
@@ -678,12 +704,24 @@ public enum CaptureQualityEvaluator {
             )
         }
 
+        // A declared coordinate-space reset is unrecoverable under
+        // every ruleset (#242) — it must be reported even when the
+        // ruleset carries no TrackingRecoveryPolicy.
+        if observation.coordinateDiscontinuityCount > 0 {
+            diagnostics.append(
+                QualityDiagnostic(
+                    code: "tracking_coordinate_discontinuity",
+                    severity: .error,
+                    message:
+                        "A coordinate-space discontinuity was declared during the capture; spatial authority continuity cannot be proven."
+                )
+            )
+        }
+
         if let recoveryPolicy = requirements.trackingRecoveryPolicy {
             diagnostics.append(
                 contentsOf: trackingRecoveryDiagnostics(
                     events: observation.trackingEvents,
-                    coordinateDiscontinuityCount:
-                        observation.coordinateDiscontinuityCount,
                     policy: recoveryPolicy
                 )
             )
@@ -750,7 +788,20 @@ public enum CaptureQualityEvaluator {
         // verbatim; they are already bounded by the recording
         // authority, and the deterministic ordering below canonicalizes
         // their position alongside evaluator-produced diagnostics.
-        diagnostics.append(contentsOf: observation.advisoryFindings)
+        // Advisory findings never carry gate authority — clamp their
+        // severity so an .error entry can never silently block.
+        diagnostics.append(
+            contentsOf: observation.advisoryFindings.map { finding in
+                finding.severity == .error
+                    ? QualityDiagnostic(
+                        code: finding.code,
+                        severity: .warning,
+                        message: finding.message,
+                        evidenceRefs: finding.evidenceRefs
+                    )
+                    : finding
+            }
+        )
 
         // Total deterministic ordering for serialized diagnostics:
         // severity rank (error first), then code, then message, then a
@@ -809,21 +860,9 @@ public enum CaptureQualityEvaluator {
     /// continued scanning can satisfy the gate.
     private static func trackingRecoveryDiagnostics(
         events: [TrackingQualityEvent],
-        coordinateDiscontinuityCount: Int,
         policy: TrackingRecoveryPolicy
     ) -> [QualityDiagnostic] {
         var diagnostics: [QualityDiagnostic] = []
-
-        if coordinateDiscontinuityCount > 0 {
-            diagnostics.append(
-                QualityDiagnostic(
-                    code: "tracking_coordinate_discontinuity",
-                    severity: .error,
-                    message:
-                        "A coordinate-space discontinuity was declared during the capture; spatial authority continuity cannot be proven."
-                )
-            )
-        }
 
         let ordered = events.sorted {
             $0.sessionTimestampSeconds < $1.sessionTimestampSeconds

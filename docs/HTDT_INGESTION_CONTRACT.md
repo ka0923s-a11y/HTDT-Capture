@@ -183,5 +183,5 @@ Expected reference-ingestor v1.0.0 lineage digest:
 
 `92e81abef2304f4f8bdecbacff394af0ac0e34ed6a33d2321e711fc6b433b69f`
 
-CI verifies that directory and `.htdtcapture` archive wrappers produce the
+Verified locally (`swift test`, `python3 tools/bundle_validator/validator.py`): directory and `.htdtcapture` archive wrappers produce the
 same canonical ingestion plan for this fixture.

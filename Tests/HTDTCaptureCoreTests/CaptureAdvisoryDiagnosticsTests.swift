@@ -938,6 +938,7 @@ func sealedWorkingSetPersistsAdvisoryPayload() async throws {
 
     let sealed = try await store.sealForFinalization(
         requirements: CaptureQualityRequirements(
+            rulesetVersion: "0.0.0-test",
             requireCompletedRoomPlan: false,
             minimumActiveMeshAnchors: 0,
             minimumEvidenceFrames: 0

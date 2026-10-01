@@ -19,6 +19,10 @@ The identifier is project-owned and may be renamed before public App Store distr
 
 ## 2. Logical layout
 
+The authoritative per-family path list is `support-matrix.json` inside every
+manifest; the tree below mirrors it (a payload family appears only when its
+feature produced data for that capture):
+
 ```text
 capture-<capture-revision-id>.htdtcapture/
 |
@@ -28,7 +32,14 @@ capture-<capture-revision-id>.htdtcapture/
 |   +-- device.json
 |   +-- capabilities.json
 |   +-- timing.json
+|   +-- capture-configuration.json
+|   +-- capture-strategy.json
 |   +-- coordinate-space-policy.json
+|   +-- room-reference-frame.json
+|   +-- room-field-datum.json
+|   +-- field-notes.json
+|   +-- revisit-flags.json
+|   +-- revision-state.json
 |   +-- capture-task-plan.json
 |   +-- task-plan-status.json
 |   +-- connected-spaces.json
@@ -37,24 +48,44 @@ capture-<capture-revision-id>.htdtcapture/
 |   +-- captured-room-data.json
 |   +-- captured-room.json
 |   +-- captured-room-metadata.json
-|   +-- exports/
 |
 +-- mesh/
 |   +-- anchors.json
 |   +-- geometry/
+|       +-- <anchor-id>.meshbin
 |
 +-- evidence/
 |   +-- frames/
+|   |   +-- <frame-id>.json
+|   |   +-- <frame-id>.pixelbin
+|   |   +-- <frame-id>.preview.heic      (optional derived preview)
 |   +-- depth/
+|   |   +-- <frame-id>.depthbin
+|   |   +-- <frame-id>.confidencebin   (optional)
 |   +-- reference-targets.json
 |
 +-- annotations/
 |   +-- entities.json
 |   +-- measurements.json
 |   +-- authorities.json
+|   +-- opening-review.json
+|
++-- revision/
+|   +-- intent.json
+|   +-- registrations.json
+|
++-- reference/
+|   +-- plan-underlay.json
 |
 +-- derived/
 |   +-- geometry-candidates.json
+|   +-- authority-dependencies.json
+|   +-- equipment-identity.json
+|   +-- field-evidence.json
+|   +-- instrument-profiles.json
+|   +-- operator-profiles.json
+|   +-- settings-observations.json
+|   +-- wiring-routes.json
 |
 +-- verification/
 |   +-- as-built.json
@@ -65,7 +96,6 @@ capture-<capture-revision-id>.htdtcapture/
 +-- quality/
     +-- capture-quality.json
     +-- capture-advisory.json
-    +-- benchmark-observations.json
 ```
 
 Not every optional directory exists in every bundle. Every file other than `manifest.json` must be declared by the manifest in v1.

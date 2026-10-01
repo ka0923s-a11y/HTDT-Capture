@@ -818,7 +818,14 @@ public struct CaptureReviewWorkspaceView: View {
                         ) {
                             captureOpeningCenter()
                         }
-                        .disabled(openingCenterPending != nil)
+                        // Spatial affordance — sealed or recovered
+                        // working sets have no live camera pose to
+                        // capture; the coordinator would silently
+                        // no-op.
+                        .disabled(
+                            openingCenterPending != nil
+                                || model.spatialCaptureSealed
+                        )
                         if let center = openingCenterPending {
                             Button("Add candidate") {
                                 addUserOpeningCandidate(

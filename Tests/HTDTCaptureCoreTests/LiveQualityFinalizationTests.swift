@@ -19,7 +19,10 @@ final class LiveQualityFinalizationTests: XCTestCase {
         )
         try await populateCompleteWorkingSet(store)
 
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertTrue(quality.readyForHTDTIngestion)
         XCTAssertEqual(quality.integrityStatus, .pass)
         XCTAssertEqual(quality.roomPlanStatus, .completed)
@@ -84,7 +87,10 @@ final class LiveQualityFinalizationTests: XCTestCase {
         )
         try await populateCompleteWorkingSet(store)
 
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertTrue(quality.readyForHTDTIngestion)
         XCTAssertEqual(quality.integrityStatus, .pass)
 
@@ -128,7 +134,10 @@ final class LiveQualityFinalizationTests: XCTestCase {
             )
         )
 
-        let afterRollback = await store.evaluateQuality()
+        let afterRollback = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertTrue(afterRollback.readyForHTDTIngestion)
         XCTAssertEqual(afterRollback.integrityStatus, .pass)
 
@@ -153,7 +162,8 @@ final class LiveQualityFinalizationTests: XCTestCase {
 
         let strict = CaptureQualityEvaluator.evaluate(
             observation,
-            requirements: CaptureQualityRequirements()
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
         )
         XCTAssertFalse(strict.readyForHTDTIngestion)
         XCTAssertTrue(
@@ -166,6 +176,7 @@ final class LiveQualityFinalizationTests: XCTestCase {
         let depthFallback = CaptureQualityEvaluator.evaluate(
             observation,
             requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
                 allowDepthEvidenceAsMeshFallback: true
             )
         )
@@ -173,7 +184,7 @@ final class LiveQualityFinalizationTests: XCTestCase {
         XCTAssertTrue(
             depthFallback.diagnostics.contains {
                 $0.code == "mesh_depth_fallback"
-                    && $0.severity == .warning
+                    && $0.severity == .info
             }
         )
         XCTAssertFalse(
@@ -211,7 +222,10 @@ final class LiveQualityFinalizationTests: XCTestCase {
             options: .atomic
         )
 
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertFalse(quality.readyForHTDTIngestion)
         XCTAssertEqual(quality.integrityStatus, .fail)
         XCTAssertTrue(
@@ -396,14 +410,17 @@ final class LiveQualityFinalizationTests: XCTestCase {
         XCTAssertTrue(
             quality.diagnostics.contains {
                 $0.code == "mesh_depth_fallback"
-                    && $0.severity == .warning
+                    && $0.severity == .info
             }
         )
 
         // The pre-fix call shape — default requirements resolve to the
         // unpublished "1.0.0" params and reject depth-only captures.
         do {
-            _ = try await store.sealForFinalization()
+            _ = try await store.sealForFinalization(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
             XCTFail(
                 "default-requirements seal must reject a depth-only "
                     + "capture under unpublished ruleset params"

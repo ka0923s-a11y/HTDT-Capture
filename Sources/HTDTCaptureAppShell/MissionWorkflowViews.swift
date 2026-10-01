@@ -154,10 +154,22 @@ public struct MissionWorkflowsView: View {
                 } else {
                     Section {
                         ForEach(entries, id: \.surface) { entry in
-                            NavigationLink(
-                                entryTitle(entry.surface)
-                            ) {
+                            NavigationLink {
                                 destination(for: entry)
+                            } label: {
+                                VStack(
+                                    alignment: .leading,
+                                    spacing: 2
+                                ) {
+                                    Text(entryTitle(entry.surface))
+                                    if let detail = entry.detail {
+                                        Text(detail)
+                                            .font(.caption)
+                                            .foregroundStyle(
+                                                .secondary
+                                            )
+                                    }
+                                }
                             }
                             .disabled(
                                 entry.availability

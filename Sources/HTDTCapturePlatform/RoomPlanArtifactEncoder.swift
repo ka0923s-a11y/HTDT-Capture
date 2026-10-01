@@ -23,6 +23,21 @@ public enum RoomPlanArtifactEncoder {
         return encoder
     }
 
+    /// The decoder matching `makeJSONEncoder` — every reader of an
+    /// app-written RoomPlan payload must decode through here or the
+    /// "NaN"/"Infinity" strings the encoder legitimately emits turn a
+    /// healthy committed payload into a decode failure.
+    public static func makeJSONDecoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.nonConformingFloatDecodingStrategy =
+            .convertFromString(
+                positiveInfinity: "Infinity",
+                negativeInfinity: "-Infinity",
+                nan: "NaN"
+            )
+        return decoder
+    }
+
     public static func encodeRaw(_ raw: CapturedRoomData) throws -> Data {
         try makeJSONEncoder().encode(raw)
     }

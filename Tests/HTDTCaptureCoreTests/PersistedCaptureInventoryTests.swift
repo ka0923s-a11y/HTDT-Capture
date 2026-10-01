@@ -10,7 +10,8 @@ private func inventoryTestQuality() -> CaptureQualityReport {
             evidenceFrameCount: 1,
             integrityStatus: .pass
         ),
-        requirements: CaptureQualityRequirements()
+        requirements: CaptureQualityRequirements(
+            rulesetVersion: "1.0.0")
     )
 }
 

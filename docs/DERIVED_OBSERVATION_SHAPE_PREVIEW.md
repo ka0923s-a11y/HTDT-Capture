@@ -194,8 +194,8 @@ rectangle, pentagon, supported L-like concavity, sparse/unresolved concavity,
 insufficient points, ambiguous circle-vs-square evidence, non-orthogonal wall
 chain, deterministic output, and ARMesh boundary extraction/point bounding.
 
-Repository CI additionally compiles the iOS platform/app targets and builds the
-unsigned IPA.
+Local builds additionally compile the iOS platform/app targets and produce the
+unsigned IPA (no CI exists).
 
 ## Physical-device acceptance gate
 
@@ -209,7 +209,7 @@ device:
 - RoomPlan semantic structure and HTDT observed geometry are visually
   distinguishable.
 
-The physical-device gate is intentionally not claimed by automated CI.
+The physical-device gate is intentionally not claimed by automated checks.
 
 
 ## Vertical occupancy and support-element derivation

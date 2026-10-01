@@ -660,6 +660,37 @@ public struct AsBuiltVerificationSession: Sendable, Equatable {
         self.unavailableIDs = []
     }
 
+    /// Rebuilds a live session from its persisted verification
+    /// document — specs, observations, unavailable marks, and the
+    /// installed alignment authority restore verbatim so a reopened
+    /// draft keeps its verdicts instead of silently restarting
+    /// unobserved. `coordinateSpaceID` is the space the session
+    /// belongs to NOW (a reopened draft rebinds to a fresh sealed
+    /// context); restored observations keep the space they were
+    /// recorded under verbatim.
+    public init(
+        restoring document: AsBuiltVerificationDocument,
+        coordinateSpaceID: CoordinateSpaceID
+    ) throws {
+        try self.init(
+            planID: document.planID,
+            planVersion: document.planVersion,
+            planSHA256: document.planSHA256,
+            tolerancePolicyRef: document.tolerancePolicyRef,
+            coordinateSpaceID: coordinateSpaceID,
+            specs: document.items.map(\.spec)
+        )
+        for item in document.items {
+            if item.state == .unavailable {
+                unavailableIDs.insert(item.spec.plannedEntityID)
+            }
+            if let observation = item.observation {
+                observations[observation.plannedEntityID] = observation
+            }
+        }
+        alignment = document.alignment
+    }
+
     /// Whether the ghost overlay may be shown — only while an
     /// explicit alignment authority is installed.
     public var ghostOverlayEnabled: Bool {

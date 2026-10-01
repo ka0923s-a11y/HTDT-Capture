@@ -6,7 +6,7 @@ is the key**. All user-visible prose — SwiftUI labels, coordinator
 status messages, scan-guidance copy, and VoiceOver summaries — resolves
 through `String(localized:)` / `LocalizedStringKey` into that catalog.
 
-Rules enforced by `tools/localization_audit.py` (CI, phase-0):
+Rules enforced by `tools/localization_audit.py` (run locally, phase-0):
 
 - No hand-rolled bilingual helpers (`HostLocalization`-style pickers)
   and no `Locale.preferredLanguages` inference in production code.
@@ -70,6 +70,6 @@ Rules enforced by `tools/localization_audit.py` (CI, phase-0):
 3. For dynamic content use `String(format:)` with a full-sentence
    template so Japanese word order is free; do not concatenate
    fragments that differ per language.
-4. Run `python3 tools/localization_audit.py` — CI fails on missing
+4. Run `python3 tools/localization_audit.py` before committing — it fails on missing
    keys, specifier mismatches, duplicate keys, and reintroduced
    `HostLocalization`/`preferredLanguages` code.

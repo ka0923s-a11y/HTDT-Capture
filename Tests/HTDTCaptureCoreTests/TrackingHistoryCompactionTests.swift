@@ -45,6 +45,7 @@ func repeatedSameStateSamplesCompactIntoOneInterval() async throws {
 
     let report = await store.evaluateQuality(
         requirements: CaptureQualityRequirements(
+            rulesetVersion: "0.0.0-test",
             requireCompletedRoomPlan: false,
             minimumActiveMeshAnchors: 0,
             minimumEvidenceFrames: 0
@@ -105,6 +106,7 @@ func duplicateAndOutOfOrderSamplesStayCompacted() async throws {
 
     let report = await store.evaluateQuality(
         requirements: CaptureQualityRequirements(
+            rulesetVersion: "0.0.0-test",
             requireCompletedRoomPlan: false,
             minimumActiveMeshAnchors: 0,
             minimumEvidenceFrames: 0
@@ -145,6 +147,7 @@ func trackingHistoryIsDeterministicallyBounded() async throws {
 
     let report = await store.evaluateQuality(
         requirements: CaptureQualityRequirements(
+            rulesetVersion: "0.0.0-test",
             requireCompletedRoomPlan: false,
             minimumActiveMeshAnchors: 0,
             minimumEvidenceFrames: 0
@@ -188,6 +191,7 @@ func unavailableIntervalSurvivesEviction() async throws {
 
     let report = await store.evaluateQuality(
         requirements: CaptureQualityRequirements(
+            rulesetVersion: "0.0.0-test",
             requireCompletedRoomPlan: false,
             minimumActiveMeshAnchors: 0,
             minimumEvidenceFrames: 0

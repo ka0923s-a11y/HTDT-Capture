@@ -95,9 +95,9 @@ Frozen lineage digest for ingestor v1.0.0:
 
 `92e81abef2304f4f8bdecbacff394af0ac0e34ed6a33d2321e711fc6b433b69f`
 
-### CI verification
+### Verification
 
-Phase 6 CI verifies:
+Phase 6 was verified locally (no CI exists — the checks below are run by hand):
 
 - integration schemas parse;
 - frozen bundle digest;

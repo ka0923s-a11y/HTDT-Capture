@@ -164,7 +164,10 @@ final class RoomPlanMetadataLineageTests: XCTestCase {
             ]
         )
 
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
 
@@ -262,7 +265,10 @@ final class RoomPlanMetadataLineageTests: XCTestCase {
             )
         )
 
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
 
@@ -369,7 +375,10 @@ final class RoomPlanMetadataLineageTests: XCTestCase {
             reended.capturedRoomMetadata?.rawSHA256,
             second.1.raw.descriptor.sha256
         )
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
 
@@ -394,7 +403,10 @@ final class RoomPlanMetadataLineageTests: XCTestCase {
             options: .atomic
         )
 
-        let quality = await store.evaluateQuality()
+        let quality = await store.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "1.0.0")
+        )
         XCTAssertEqual(quality.integrityStatus, .fail)
     }
 
