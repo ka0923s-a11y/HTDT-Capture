@@ -185,6 +185,13 @@ final class AdvancedWorkflowTests: XCTestCase {
             )
         }
 
+        // `path:` refs must resolve at commit — the mesh package is
+        // persisted first so `mesh/anchors.json` is declared.
+        try await store.persistMeshPackage(
+            MeshEvidencePackageBuilder.build(
+                snapshots: [try makeMeshAnchor()]
+            )
+        )
         try await store.replaceSupplementalDocument(
             derivedDoc(#"{"v":1}"#, refs: ["path:mesh/anchors.json"])
         )

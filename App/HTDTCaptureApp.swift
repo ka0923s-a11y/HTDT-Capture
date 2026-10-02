@@ -14321,6 +14321,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard !objectProxies.isEmpty
                 || derivedShapePreview.wallChain != nil
         else {
+            // A re-End with no fitted candidates must not strand the
+            // previous run's document — it would report items this
+            // revision no longer carries.
+            if await store.snapshot().payloadDeclarations
+                .contains(where: {
+                    $0.path == DerivedGeometryCandidatePackage.path
+                })
+            {
+                try? await store.removeSupplementalDocument(
+                    path: DerivedGeometryCandidatePackage.path
+                )
+            }
             return
         }
 

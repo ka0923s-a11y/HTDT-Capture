@@ -1156,6 +1156,104 @@ final class ReviewLibraryTests: XCTestCase {
         )
     }
 
+    /// The rejected-End mesh rollback removes `mesh/anchors.json` and
+    /// its bins — derived declarations citing them must be pruned the
+    /// same way evidence-frame removal prunes, or the next finalize
+    /// trips on a dangling `path:` ref.
+    func testRollbackMeshPackagePrunesDerivedDeclarationRefs()
+        async throws
+    {
+        let root = try makeRoot()
+        defer { BundleValidationFixture.remove(root) }
+        let context = CaptureSessionContext()
+        let store = try await readyStore(
+            root: root,
+            context: context
+        )
+        let mesh = try makeMeshPackage(
+            sessionID: context.captureSessionID,
+            spaceID: context.coordinateSpaceID
+        )
+        try await store.persistMeshPackage(mesh)
+        let sessionRef = "capture_session:\(context.captureSessionID)"
+        let meshRef = "path:" + MeshEvidencePackage.indexPath
+
+        func candidatesDoc(refs: [String]) throws
+            -> WorkingSetSupplementalDocument
+        {
+            try WorkingSetSupplementalDocument(
+                path: DerivedGeometryCandidatePackage.path,
+                data: Data(#"{"records":[]}"#.utf8),
+                declaration: BundlePayloadDeclaration(
+                    path: DerivedGeometryCandidatePackage.path,
+                    mediaType: "application/json",
+                    producer: "derived_geometry",
+                    provenanceClass: .captureAppDerived,
+                    role: .derived,
+                    sourceRefs: refs
+                ),
+                coordinateSpaceIDs: [],
+                captureSessionIDs: []
+            )
+        }
+
+        try await store.replaceSupplementalDocument(
+            candidatesDoc(refs: [meshRef, sessionRef])
+        )
+        try await store.rollbackCurrentMeshPackage()
+
+        var snapshot = await store.snapshot()
+        let pruned = snapshot.payloadDeclarations.first {
+            $0.path == DerivedGeometryCandidatePackage.path
+        }
+        XCTAssertEqual(pruned?.sourceRefs, [sessionRef])
+
+        try await store.persistMeshPackage(mesh)
+        try await store.replaceSupplementalDocument(
+            candidatesDoc(refs: [meshRef])
+        )
+        try await store.rollbackCurrentMeshPackage()
+
+        snapshot = await store.snapshot()
+        XCTAssertFalse(
+            snapshot.payloadDeclarations.contains {
+                $0.path == DerivedGeometryCandidatePackage.path
+            }
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(
+                    DerivedGeometryCandidatePackage.path
+                ).path
+            )
+        )
+    }
+
+    private func makeMeshPackage(
+        sessionID: CaptureSessionID,
+        spaceID: CoordinateSpaceID
+    ) throws -> MeshEvidencePackage {
+        try MeshEvidencePackageBuilder.build(
+            snapshots: [
+                MeshAnchorSnapshot(
+                    anchorID: UUID(),
+                    captureSessionID: sessionID,
+                    coordinateSpaceID: spaceID,
+                    worldFromAnchor: .identity,
+                    sessionTimestampSeconds: 3,
+                    geometry: try MeshGeometryPayload(
+                        vertices: [
+                            Float3(0, 0, 0),
+                            Float3(1, 0, 0),
+                            Float3(0, 1, 0),
+                        ],
+                        triangleIndices: [0, 1, 2]
+                    )
+                ),
+            ]
+        )
+    }
+
     // MARK: - #213 workspace loader
 
     func testWorkspaceLoaderMarksRetentionAndRemovability()
