@@ -9464,6 +9464,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         ]
                     )
                 )
+                // The open workspace renders the persisted document —
+                // refresh so a Resolve/Skip/Reopen shows its outcome
+                // in place instead of after re-entering.
+                self.refreshReviewWorkspace()
             } catch {
                 self.workingSetStatus = String(localized: "Review flag could not be saved") + " ["
                     + Self.persistenceDiagnostic(error) + "]"
