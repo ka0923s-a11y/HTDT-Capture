@@ -1395,28 +1395,33 @@ public struct CaptureHomeView: View {
             if let group = libraryGroups.first(where: {
                 $0.captureSeriesID == seriesID
             }) {
-                CaptureSeriesDetailView(
-                    group: group,
-                    libraryMetadata: libraryMetadata,
-                    persistedWorkspace: persistedWorkspace,
-                    persistedWorkspaceRoomPlanObjects:
-                        persistedWorkspaceRoomPlanObjects,
-                    allRecords: persistedInventory.captures,
-                    deliveryJobs: deliveryJobs,
-                    missionRecords: missionRecords,
-                    handoffReceipts: handoffReceipts,
-                    persistedViewerShown: $persistedViewerShown,
-                    metadataEditorTarget: $metadataEditorTarget,
-                    pendingDeletion: $pendingDeletion,
-                    retentionSeriesID: $retentionSeriesID,
-                    pendingSeriesDeletion: $pendingSeriesDeletion,
-                    derived3DTarget: $derived3DTarget,
-                    surveyReportTarget: $surveyReportTarget,
-                    captureOrigins: captureOrigins,
-                    crossRevisionRegistrations:
-                        crossRevisionRegistrations,
-                    actions: actions
-                )
+                // The detail column needs its own stack for the
+                // persisted-workspace destination to resolve — without
+                // it SwiftUI drops the destination and Open is dead.
+                NavigationStack {
+                    CaptureSeriesDetailView(
+                        group: group,
+                        libraryMetadata: libraryMetadata,
+                        persistedWorkspace: persistedWorkspace,
+                        persistedWorkspaceRoomPlanObjects:
+                            persistedWorkspaceRoomPlanObjects,
+                        allRecords: persistedInventory.captures,
+                        deliveryJobs: deliveryJobs,
+                        missionRecords: missionRecords,
+                        handoffReceipts: handoffReceipts,
+                        persistedViewerShown: $persistedViewerShown,
+                        metadataEditorTarget: $metadataEditorTarget,
+                        pendingDeletion: $pendingDeletion,
+                        retentionSeriesID: $retentionSeriesID,
+                        pendingSeriesDeletion: $pendingSeriesDeletion,
+                        derived3DTarget: $derived3DTarget,
+                        surveyReportTarget: $surveyReportTarget,
+                        captureOrigins: captureOrigins,
+                        crossRevisionRegistrations:
+                            crossRevisionRegistrations,
+                        actions: actions
+                    )
+                }
             } else {
                 libraryPlaceholder
             }

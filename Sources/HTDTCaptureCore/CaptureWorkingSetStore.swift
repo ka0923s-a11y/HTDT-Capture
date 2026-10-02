@@ -539,6 +539,7 @@ public actor CaptureWorkingSetStore {
     /// host committed a strategy selection for this revision (#307).
     private var captureStrategyDocument: CaptureStrategyDocument?
     private var planUnderlayDocument: PlanUnderlayDocument?
+    private var referenceTargetDocument: ReferenceTargetCaptureDocument?
     private var benchmarkRefs: [String] = []
     /// Advisory provenance notes recorded by the operator or capture
     /// policies; persisted at `advisory/operator-advisories.json` and
@@ -548,6 +549,13 @@ public actor CaptureWorkingSetStore {
     /// persisted at `session/field-notes.json` as a canonical
     /// user-annotation payload and carried into the finalized bundle.
     private var fieldNotes: [CaptureFieldNote] = []
+    /// Why each committed evidence frame was retained (#255), keyed by
+    /// its `path:evidence/frames/<id>.json` evidence ref. App-owned
+    /// provenance restored through the revision checkpoint so a
+    /// relaunched draft labels picker entries honestly instead of
+    /// falling back to "Retained frame".
+    private var evidenceRetentionKinds:
+        [String: EvidenceFrameRetentionKind] = [:]
     private var sealState: SealState = .mutable
     /// Bounded pending-write admission ledger shared by every mutation
     /// entry point: evidence bytes are reserved before they become
@@ -3296,6 +3304,11 @@ public actor CaptureWorkingSetStore {
         ])
 
         declarations[declaration.path] = declaration
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Removes the dependency manifest when a revision carries no
@@ -3324,6 +3337,11 @@ public actor CaptureWorkingSetStore {
         try await pruneDerivedSourceRefs(
             removedPaths: [ExternalAuthorityDependencyPackage.path]
         )
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Commits the field-authority bundle (issues #300/#301/#310/
@@ -3546,6 +3564,63 @@ public actor CaptureWorkingSetStore {
             coordinateSpaceIDs: boundCoordinate.map { [$0] } ?? []
         )
 
+        let docPackages: [(path: String, data: Data, refs: [String])] =
+            [
+                bundle.operators.map { (
+                    OperatorProfilePackage.path, $0.data, $0.sourceRefs
+                ) },
+                bundle.fieldEvidence.map { (
+                    FieldEvidencePackage.path, $0.data, $0.sourceRefs
+                ) },
+                bundle.instruments.map { (
+                    InstrumentProfilePackage.path, $0.data, $0.sourceRefs
+                ) },
+                bundle.settings.map { (
+                    InstalledSettingsPackage.path, $0.data, $0.sourceRefs
+                ) },
+                bundle.wiring.map { (
+                    AsBuiltWiringPackage.path, $0.data, $0.sourceRefs
+                ) },
+                bundle.referenceTargets.map { (
+                    ReferenceTargetCapturePackage.path,
+                    $0.data,
+                    $0.sourceRefs
+                ) },
+            ].compactMap(\.self)
+        // Reserved-path-bound documents must declare under their
+        // binding — `evidence/reference-targets.json` is canonical
+        // `reference_target_capture`, not a derived doc; stamping the
+        // uniform template made BundleManifest reject the manifest at
+        // every finalize. Declarations are built and `.derived` refs
+        // validated before any write so a rejected commit leaves no
+        // orphan bytes on disk.
+        let docDeclarations:
+            [(declaration: BundlePayloadDeclaration, data: Data)] =
+                docPackages.map { package in
+                    let binding = BundleReservedPaths.binding(
+                        for: package.path
+                    )
+                    return (
+                        BundlePayloadDeclaration(
+                            path: package.path,
+                            mediaType: binding?.mediaType
+                                ?? "application/json",
+                            producer: binding?.producer ?? "capture_app",
+                            provenanceClass: binding?.provenanceClass
+                                ?? .captureAppDerived,
+                            role: binding?.role ?? .derived,
+                            sourceRefs: package.refs
+                        ),
+                        package.data
+                    )
+                }
+        for doc in docDeclarations {
+            try validateDerivedSourceRefsResolvable(
+                path: doc.declaration.path,
+                declaration: doc.declaration
+            )
+        }
+
         // Write-once binary assets first, then the document batch;
         // an identity mismatch anywhere fails before any doc lands.
         try await writer.writeBatchIfIdentical(
@@ -3557,101 +3632,98 @@ public actor CaptureWorkingSetStore {
             }
         )
 
-        var docRequests: [CaptureFileWriteRequest] = []
-        for package in [
-            bundle.operators.map { (
-                OperatorProfilePackage.path, $0.data, $0.sourceRefs
-            ) },
-            bundle.fieldEvidence.map { (
-                FieldEvidencePackage.path, $0.data, $0.sourceRefs
-            ) },
-            bundle.instruments.map { (
-                InstrumentProfilePackage.path, $0.data, $0.sourceRefs
-            ) },
-            bundle.settings.map { (
-                InstalledSettingsPackage.path, $0.data, $0.sourceRefs
-            ) },
-            bundle.wiring.map { (
-                AsBuiltWiringPackage.path, $0.data, $0.sourceRefs
-            ) },
-            bundle.referenceTargets.map { (
-                ReferenceTargetCapturePackage.path,
-                $0.data,
-                $0.sourceRefs
-            ) },
-        ].compactMap(\.self) {
-            docRequests.append(
-                try CaptureFileWriteRequest(
-                    data: package.1,
-                    path: CaptureStorePath(package.0)
-                )
-            )
-        }
-        try await writer.writeBatchReplacing(docRequests)
-
+        // A throw below this line would strand written-but-undeclared
+        // files, and undeclared patterned payloads wedge
+        // `verifyIntegrity` until relaunch — roll back the bytes this
+        // call wrote and restore any previously-committed assets the
+        // removal pass deleted before re-throwing.
+        let previouslyDeclaredPaths = Set(declarations.keys)
         var removedPaths = Set<String>()
-        for removal in bundle.assetRemovals {
-            if try await writer.removeIfIdentical(
-                removal.data,
-                at: CaptureStorePath(removal.path)
-            ) {
-                removedPaths.insert(removal.path)
-            }
-        }
-
-        // Post-suspension re-check: an interleaved commit must fail
-        // closed rather than leave the documents bound to authority
-        // state that no longer matches.
-        guard self.captureSessionID == captureSessionID,
-              self.coordinateSpaceID == boundCoordinate,
-              annotationCollection?.entities ?? [] == entitiesBefore,
-              measurementCollection?.measurements ?? []
-                == measurementsBefore,
-              authorityCollection?.inventoryItems ?? []
-                == inventoryBefore
-        else {
-            throw CaptureWorkingSetError.authorityMismatch
-        }
-
-        for payload in bundle.assetWrites {
-            declarations[payload.path] = payload.declaration
-        }
-        for path in removedPaths {
-            declarations[path] = nil
-        }
-        for package in [
-            bundle.operators.map { (
-                OperatorProfilePackage.path, $0.data, $0.sourceRefs
-            ) },
-            bundle.fieldEvidence.map { (
-                FieldEvidencePackage.path, $0.data, $0.sourceRefs
-            ) },
-            bundle.instruments.map { (
-                InstrumentProfilePackage.path, $0.data, $0.sourceRefs
-            ) },
-            bundle.settings.map { (
-                InstalledSettingsPackage.path, $0.data, $0.sourceRefs
-            ) },
-            bundle.wiring.map { (
-                AsBuiltWiringPackage.path, $0.data, $0.sourceRefs
-            ) },
-            bundle.referenceTargets.map { (
-                ReferenceTargetCapturePackage.path,
-                $0.data,
-                $0.sourceRefs
-            ) },
-        ].compactMap(\.self) {
-            let declaration = BundlePayloadDeclaration(
-                path: package.0,
-                mediaType: "application/json",
-                producer: "capture_app",
-                provenanceClass: .captureAppDerived,
-                role: .derived,
-                sourceRefs: package.2
+        do {
+            try await writer.writeBatchReplacing(
+                try docDeclarations.map {
+                    try CaptureFileWriteRequest(
+                        data: $0.data,
+                        path: CaptureStorePath($0.declaration.path)
+                    )
+                }
             )
-            declarations[declaration.path] = declaration
-            supplementalDocuments[package.0] = package.1
+
+            for removal in bundle.assetRemovals {
+                if try await writer.removeIfIdentical(
+                    removal.data,
+                    at: CaptureStorePath(removal.path)
+                ) {
+                    removedPaths.insert(removal.path)
+                }
+            }
+
+            // Post-suspension re-check: an interleaved commit must fail
+            // closed rather than leave the documents bound to authority
+            // state that no longer matches.
+            guard self.captureSessionID == captureSessionID,
+                  self.coordinateSpaceID == boundCoordinate,
+                  annotationCollection?.entities ?? [] == entitiesBefore,
+                  measurementCollection?.measurements ?? []
+                    == measurementsBefore,
+                  authorityCollection?.inventoryItems ?? []
+                    == inventoryBefore
+            else {
+                throw CaptureWorkingSetError.authorityMismatch
+            }
+            // Refs pruned during the write suspension by an
+            // interleaved removal must fail the commit here too.
+            for doc in docDeclarations {
+                try validateDerivedSourceRefsResolvable(
+                    path: doc.declaration.path,
+                    declaration: doc.declaration
+                )
+            }
+
+            for payload in bundle.assetWrites {
+                declarations[payload.path] = payload.declaration
+            }
+            for path in removedPaths {
+                declarations[path] = nil
+            }
+            for doc in docDeclarations {
+                declarations[doc.declaration.path] = doc.declaration
+                supplementalDocuments[doc.declaration.path] = doc.data
+            }
+            if let stagedReferenceTargets {
+                referenceTargetDocument = stagedReferenceTargets
+            }
+        } catch {
+            for payload in bundle.assetWrites
+            where !previouslyDeclaredPaths.contains(payload.path) {
+                try? await writer.removeIfPresent(
+                    CaptureStorePath(payload.path)
+                )
+            }
+            for doc in docDeclarations
+            where !previouslyDeclaredPaths.contains(
+                doc.declaration.path
+            ) {
+                try? await writer.removeIfPresent(
+                    CaptureStorePath(doc.declaration.path)
+                )
+            }
+            for removal in bundle.assetRemovals
+            where removedPaths.contains(removal.path) {
+                try? await writer.writeBatchReplacing([
+                    try CaptureFileWriteRequest(
+                        data: removal.data,
+                        path: CaptureStorePath(removal.path)
+                    ),
+                ])
+            }
+            throw error
         }
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Commits or replaces the operator-confirmed room reference frame
@@ -3815,6 +3887,11 @@ public actor CaptureWorkingSetStore {
         )
         declarations[declaration.path] = declaration
         roomFieldDatum = document
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Removes the field datum payload entirely (issue #232). The
@@ -3838,6 +3915,11 @@ public actor CaptureWorkingSetStore {
         try await pruneDerivedSourceRefs(
             removedPaths: [RoomFieldDatumPackage.path]
         )
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Removes the room reference frame payload entirely (issue #232).
@@ -3996,6 +4078,43 @@ public actor CaptureWorkingSetStore {
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
+    /// Clears the End-boundary markers entirely. Used when an accepted
+    /// End is walked back outside the snapshot-rollback path — e.g. a
+    /// RoomPlan re-End that the host aborted after the marker flip —
+    /// so the frames return to the ordinary removable set instead of
+    /// staying permanently pinned.
+    public func clearEndBoundaryMarkers() async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        endBoundaryFrameIDs.removeAll()
+        advisoryEndContext = nil
+
+        try await refreshRevisionStateAfterSemanticCommit()
+    }
+
+    /// Records why an evidence frame was retained (#255) so the
+    /// revision checkpoint can carry the picker labels across a
+    /// process restart.
+    public func recordEvidenceRetention(
+        _ evidenceRef: String,
+        kind: EvidenceFrameRetentionKind
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        evidenceRetentionKinds[evidenceRef] = kind
+        try await refreshRevisionStateAfterSemanticCommit()
+    }
+
+    /// The committed retention-kind map — read when the host rebuilds
+    /// a restored draft's picker presentation.
+    public func evidenceRetentionKindMap()
+        -> [String: EvidenceFrameRetentionKind]
+    {
+        evidenceRetentionKinds
+    }
+
     /// Removes one unreferenced optional evidence frame and all of its
     /// payloads (issue #241). Refuses when the frame is the
     /// End-boundary observation, when any committed authority
@@ -4078,11 +4197,27 @@ public actor CaptureWorkingSetStore {
                     "referenced:room_field_datum"
                 )
         }
+        if let targets = referenceTargetDocument {
+            let targetRefs = targets.observations
+                .flatMap(\.evidenceRefs)
+                + targets.targets.map(\.authorityRef)
+            if refsFrame(targetRefs) {
+                throw CaptureWorkingSetError
+                    .unresolvableSpatialEvidenceLink(
+                        "referenced:reference_targets"
+                    )
+            }
+        }
 
         // Committed derived payloads carry the same frame refs and the
         // manifest re-declares them as `path:` source refs — removing a
         // frame one of them names would leave a dangling ref the next
         // finalization cannot resolve.
+        let frameSubstrings = [
+            "evidence/frames/\(frameID.description)",
+            "evidence/depth/\(frameID.description)",
+            "frame:\(frameID.description)",
+        ]
         let derivedDirectory = rootDirectory
             .appendingPathComponent("derived", isDirectory: true)
         if let derivedFiles = try? FileManager.default
@@ -4091,11 +4226,6 @@ public actor CaptureWorkingSetStore {
                 includingPropertiesForKeys: nil
             )
         {
-            let frameSubstrings = [
-                "evidence/frames/\(frameID.description)",
-                "evidence/depth/\(frameID.description)",
-                "frame:\(frameID.description)",
-            ]
             for file in derivedFiles
             where file.pathExtension == "json"
             {
@@ -4111,6 +4241,23 @@ public actor CaptureWorkingSetStore {
                         "referenced:\(file.lastPathComponent)"
                     )
             }
+        }
+        // Committed supplemental documents outside `derived/` (typed
+        // bound docs, task-plan status, advisory payloads) carry frame
+        // refs the manifest never re-declares — a doc that still names
+        // the removed frame would dangle silently. Scan committed
+        // bytes in memory instead of trusting the path layout.
+        for (path, data) in supplementalDocuments {
+            guard
+                let text = String(data: data, encoding: .utf8),
+                frameSubstrings.contains(where: text.contains)
+            else {
+                continue
+            }
+            throw CaptureWorkingSetError
+                .unresolvableSpatialEvidenceLink(
+                    "referenced:\(path)"
+                )
         }
 
         // Collect the frame's canonical + derived paths and verify the
@@ -4187,6 +4334,9 @@ public actor CaptureWorkingSetStore {
             framePreviews.removeAll { $0 == preview }
         }
         endBoundaryFrameIDs.remove(frameID)
+        evidenceRetentionKinds.removeValue(
+            forKey: "path:\(descriptorPath)"
+        )
         evidenceFrameCount -= 1
         if descriptor.depth != nil {
             depthEvidenceCount -= 1
@@ -4717,17 +4867,27 @@ public actor CaptureWorkingSetStore {
     private func validateDerivedSourceRefsResolvable(
         _ document: WorkingSetSupplementalDocument
     ) throws {
-        guard document.declaration.role == .derived else {
+        try validateDerivedSourceRefsResolvable(
+            path: document.path,
+            declaration: document.declaration
+        )
+    }
+
+    private func validateDerivedSourceRefsResolvable(
+        path: String,
+        declaration: BundlePayloadDeclaration
+    ) throws {
+        guard declaration.role == .derived else {
             return
         }
-        guard let refs = document.declaration.sourceRefs,
+        guard let refs = declaration.sourceRefs,
               !refs.isEmpty
         else {
             throw CaptureWorkingSetError.invalidSupplementalDocument
         }
         for ref in refs where ref.hasPrefix("path:") {
             let cited = String(ref.dropFirst("path:".count))
-            guard cited != document.path,
+            guard cited != path,
                   declarations[cited] != nil
             else {
                 throw CaptureWorkingSetError
@@ -4761,6 +4921,19 @@ public actor CaptureWorkingSetStore {
         path: String
     ) async throws {
         try requireMutable()
+        // Only derived/supplemental payloads are droppable through
+        // this API — a reserved-path-bound canonical document (e.g.
+        // `evidence/reference-targets.json`) or any other committed
+        // core payload must go through its typed removal so the
+        // in-memory authority state stays consistent with disk.
+        let removable =
+            BundleReservedPaths.binding(for: path)?.role == .derived
+            || (BundleReservedPaths.binding(for: path) == nil
+                && (path.hasPrefix("derived/")
+                    || path.hasPrefix("supplemental/")))
+        guard removable else {
+            throw CaptureWorkingSetError.invalidSupplementalDocument
+        }
         guard declarations[path] != nil
                 || supplementalDocuments[path] != nil
         else {
@@ -5298,6 +5471,7 @@ public actor CaptureWorkingSetStore {
                 role: .canonical
             )
         )
+        supplementalDocuments[CaptureAdvisoryNoteDocument.path] = data
 
         // Post-End semantic commit (issue #297): advance
         // the durable marker to semantic_authoring so a relaunch
@@ -5493,6 +5667,7 @@ public actor CaptureWorkingSetStore {
             ),
         ])
         try register(Self.fieldNotesDeclaration)
+        supplementalDocuments[CaptureFieldNoteDocument.path] = data
 
         // Post-End semantic commit (issue #297): the durable marker
         // advances so a relaunch reports truthful progress.
@@ -5913,6 +6088,11 @@ public actor CaptureWorkingSetStore {
             declarations.removeValue(forKey: path)
         }
         try await pruneDerivedSourceRefs(removedPaths: [path])
+
+        // Post-End semantic commit (issue #297): advance
+        // the durable marker to semantic_authoring so a relaunch
+        // reports truthful progress.
+        try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Terminal discard of the whole working revision (issue #254).
@@ -5925,9 +6105,6 @@ public actor CaptureWorkingSetStore {
         try requireMutable()
         inFlightMutations += 1
         defer { mutationDidFinish() }
-
-        sealState = .consumed
-        sealGeneration += 1
 
         let resolvedRoot = rootDirectory
             .standardizedFileURL
@@ -5945,6 +6122,11 @@ public actor CaptureWorkingSetStore {
         else {
             throw CaptureWorkingSetError.unsafeDiscardPath
         }
+
+        // Consume only after the path-shape proof: a rejected root
+        // must leave the store mutable, not permanently consumed.
+        sealState = .consumed
+        sealGeneration += 1
 
         // Drain queued file writes before deleting the root.
         await writer.barrier()
@@ -6910,7 +7092,8 @@ public actor CaptureWorkingSetStore {
                     advisoryEndContext?.endSessionTimestampSeconds
             ),
             advisoryNotes: advisoryNotes,
-            fieldNotes: fieldNotes
+            fieldNotes: fieldNotes,
+            retentionKinds: evidenceRetentionKinds
         )
     }
 
@@ -7783,6 +7966,13 @@ public actor CaptureWorkingSetStore {
             }
         }
 
+        // Manifest order is alphabetical, not chronological — restore
+        // capture order so `frameDescriptors.last` and timeline-style
+        // consumers read the true latest frame again.
+        frameDescriptors.sort {
+            $0.sessionTimestampSeconds < $1.sessionTimestampSeconds
+        }
+
         // 5. Semantic authoring payloads (optional). They reuse the
         //    exact commit-time validators, so a restored draft cannot
         //    carry authority that would fail the live path.
@@ -8012,6 +8202,9 @@ public actor CaptureWorkingSetStore {
                     role: .canonical
                 )
             )
+            supplementalDocuments[
+                CaptureAdvisoryNoteDocument.path
+            ] = advisoryData
         } else {
             advisoryNotes = checkpoint?.advisoryNotes ?? []
             if !advisoryNotes.isEmpty {
@@ -8035,6 +8228,9 @@ public actor CaptureWorkingSetStore {
             }
             fieldNotes = document.notes
             try register(Self.fieldNotesDeclaration)
+            supplementalDocuments[
+                CaptureFieldNoteDocument.path
+            ] = fieldNotesData
         } else {
             fieldNotes = checkpoint?.fieldNotes ?? []
             if !fieldNotes.isEmpty {
@@ -8042,10 +8238,17 @@ public actor CaptureWorkingSetStore {
             }
         }
 
+        var unsupportedPaths: [String] = []
+        var unmanifestablePaths: [String] = []
+
         // 6. Operator supplemental payloads at reserved paths — these
         //    carry the workflow state (task plan/status, connected
         //    spaces, reference targets, derived candidates, as-built)
-        //    the recovered Review must show again.
+        //    the recovered Review must show again. Typed documents
+        //    restore their in-memory authority and their live lineage
+        //    refs; an un-decodable bound document is removed and
+        //    reported rather than re-registered as canonical bytes
+        //    that would wedge the schema check at finalize.
         for (path, binding) in BundleReservedPaths.exact {
             switch path {
             case
@@ -8065,13 +8268,33 @@ public actor CaptureWorkingSetStore {
             ) else {
                 continue
             }
+            var sourceRefs: [String] = []
+            if path == ReferenceTargetCapturePackage.path {
+                guard let document = try? decoder.decode(
+                    ReferenceTargetCaptureDocument.self,
+                    from: data
+                ) else {
+                    consumeIfPresent(path)
+                    try await writer.removeIfPresent(
+                        CaptureStorePath(path)
+                    )
+                    unmanifestablePaths.append(path)
+                    continue
+                }
+                referenceTargetDocument = document
+                sourceRefs = [
+                    "capture_session:"
+                        + document.captureSessionID.description
+                ]
+            }
             try register(
                 BundlePayloadDeclaration(
                     path: path,
                     mediaType: binding.mediaType,
                     producer: binding.producer,
                     provenanceClass: binding.provenanceClass,
-                    role: binding.role
+                    role: binding.role,
+                    sourceRefs: sourceRefs.isEmpty ? nil : sourceRefs
                 )
             )
             supplementalDocuments[path] = data
@@ -8136,8 +8359,6 @@ public actor CaptureWorkingSetStore {
                 return false
             }
         }
-        var unsupportedPaths: [String] = []
-        var unmanifestablePaths: [String] = []
         var deferredDerived: [String] = []
         for path in scannedByPath.keys.sorted(
             by: BundleLogicalPath.utf8Less
@@ -8158,6 +8379,73 @@ public actor CaptureWorkingSetStore {
                 deferredDerived.append(path)
                 continue
             }
+            // Typed bound documents restore their in-memory authority
+            // and rebuild the lineage refs the live emitters carried —
+            // an un-decodable bound document is removed and reported
+            // rather than re-registered as canonical bytes that would
+            // wedge the schema check at finalize.
+            var boundSourceRefs: [String] = []
+            var boundDocUndecodable = false
+            if let file = scannedByPath[path],
+               let boundData = try? Data(contentsOf: file.url)
+            {
+                switch path {
+                case RoomFieldDatumPackage.path:
+                    if let document = try? decoder.decode(
+                        RoomFieldDatumDocument.self,
+                        from: boundData
+                    ), document.captureRevisionID
+                        == identity.captureRevisionID
+                    {
+                        roomFieldDatum = document
+                        boundSourceRefs = [
+                            "capture_session:"
+                                + document.captureSessionID
+                                    .description
+                        ]
+                    } else {
+                        boundDocUndecodable = true
+                    }
+                case CaptureStrategyPackage.path:
+                    if let document = try? decoder.decode(
+                        CaptureStrategyDocument.self,
+                        from: boundData
+                    ), document.captureRevisionID
+                        == identity.captureRevisionID
+                    {
+                        captureStrategyDocument = document
+                        boundSourceRefs = [
+                            "capture_session:"
+                                + document.captureSessionID
+                                    .description
+                        ]
+                    } else {
+                        boundDocUndecodable = true
+                    }
+                case PlanUnderlayPackage.path:
+                    if let document = try? decoder.decode(
+                        PlanUnderlayDocument.self,
+                        from: boundData
+                    ), document.captureRevisionID
+                        == identity.captureRevisionID
+                    {
+                        planUnderlayDocument = document
+                    } else {
+                        boundDocUndecodable = true
+                    }
+                default:
+                    break
+                }
+            }
+            if boundDocUndecodable {
+                consumeIfPresent(path)
+                try await writer.removeIfPresent(
+                    CaptureStorePath(path)
+                )
+                unmanifestablePaths.append(path)
+                continue
+            }
+
             let leftoverDeclaration: BundlePayloadDeclaration
             switch restoredLeftoverClassification(path) {
             case .binding(let binding):
@@ -8166,7 +8454,10 @@ public actor CaptureWorkingSetStore {
                     mediaType: binding.mediaType,
                     producer: binding.producer,
                     provenanceClass: binding.provenanceClass,
-                    role: binding.role
+                    role: binding.role,
+                    sourceRefs: boundSourceRefs.isEmpty
+                        ? nil
+                        : boundSourceRefs
                 )
             case .derivedWithSources:
                 // Unreachable: `isDerivedPayloadPath` deferred every
@@ -8336,6 +8627,7 @@ public actor CaptureWorkingSetStore {
         {
             missingCheckpoint.append("task_profile")
         }
+        evidenceRetentionKinds = checkpoint?.retentionKinds ?? [:]
 
         liveSpatialAuthority = false
         if state.phase != .liveScanIncomplete {
@@ -8367,6 +8659,7 @@ public actor CaptureWorkingSetStore {
     ) -> Bool {
         [
             CaptureTimingPackage.path,
+            CaptureSessionFoundationPackage.sessionPath,
             RoomPlanEvidenceArtifactBuilder.rawPath,
             RoomPlanEvidenceArtifactBuilder.processedPath,
             RoomPlanEvidenceArtifactBuilder.metadataPath,

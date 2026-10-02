@@ -518,7 +518,7 @@ struct GeometrySceneRepresentable: UIViewRepresentable {
         case .roomPlanSurface, .roomPlanObject:
             return boxNode(element, opacity: 0.75)
         case .derivedCandidate:
-            return boxNode(element, opacity: 0.3)
+            return derivedCandidateNode(element)
         case .entity:
             let sphere = SCNNode(
                 geometry: SCNSphere(radius: 0.06)
@@ -597,6 +597,174 @@ struct GeometrySceneRepresentable: UIViewRepresentable {
             m41: m[12], m42: m[13],
             m43: m[14], m44: m[15]
         )
+        return node
+    }
+
+    /// Resolved candidates render their fitted footprint as a flat
+    /// outline floating at the contour's median height; unresolved
+    /// ones show the raw contour point set — a translucent box would
+    /// claim a volume the fit never produced.
+    private func derivedCandidateNode(
+        _ element: GeometrySceneElement
+    ) -> SCNNode {
+        guard let candidateID = element.sourceDerivedCandidateID,
+              let record = scene.derivedCandidates[candidateID]
+        else {
+            return boxNode(element, opacity: 0.3)
+        }
+
+        let heights = record.contourPoints
+            .compactMap(\.verticalPositionMeters)
+            .sorted()
+        let medianY = Float(
+            heights.isEmpty
+                ? Double(element.centerWorld.y)
+                : heights[heights.count / 2]
+        )
+
+        if let geometry = record.geometry {
+            let loop = planLoop(for: geometry)
+            if loop.count >= 2 {
+                let node = SCNNode(
+                    geometry: loopGeometry(
+                        loop.map {
+                            SCNVector3(
+                                Float($0.x), medianY, Float($0.y)
+                            )
+                        },
+                        closed: record.resolution == .resolved
+                    )
+                )
+                node.geometry?.firstMaterial?.diffuse.contents =
+                    color(for: element.layer)
+                return node
+            }
+        }
+
+        // Unresolved (or degenerate geometry): show the observed
+        // contour itself — an open chain through the points plus a
+        // dot marker per observation. `.point` primitives do not
+        // rasterize on iOS SceneKit, so the dots are real geometry.
+        let vertices = record.contourPoints.map {
+            SCNVector3(
+                Float($0.position.x),
+                Float($0.verticalPositionMeters ?? Double(medianY)),
+                Float($0.position.y)
+            )
+        }
+        guard !vertices.isEmpty else {
+            return boxNode(element, opacity: 0.3)
+        }
+        return contourCloudNode(
+            vertices,
+            color: color(for: element.layer)
+        )
+    }
+
+    /// Fitted footprint → plan-space outline (x = world X, y = world
+    /// Z), in the order the segments should be drawn.
+    private func planLoop(
+        for geometry: DerivedFootprintGeometry
+    ) -> [DerivedPoint2D] {
+        switch geometry {
+        case .polygon(let polygon):
+            return polygon.vertices.map(\.position)
+        case .orientedRectangle(let rectangle):
+            let c = cos(rectangle.headingRadians)
+            let s = sin(rectangle.headingRadians)
+            let hw = rectangle.width / 2
+            let hd = rectangle.depth / 2
+            return [
+                (hw, hd), (-hw, hd), (-hw, -hd), (hw, -hd),
+            ].map { u, v in
+                DerivedPoint2D(
+                    x: rectangle.center.x + c * u - s * v,
+                    y: rectangle.center.y + s * u + c * v
+                )
+            }
+        case .circle(let circle):
+            return (0..<24).map { index in
+                let angle =
+                    Double(index) * 2 * .pi / 24
+                return DerivedPoint2D(
+                    x: circle.center.x
+                        + circle.radius * cos(angle),
+                    y: circle.center.y
+                        + circle.radius * sin(angle)
+                )
+            }
+        case .ellipse(let ellipse):
+            let c = cos(ellipse.headingRadians)
+            let s = sin(ellipse.headingRadians)
+            return (0..<24).map { index in
+                let angle =
+                    Double(index) * 2 * .pi / 24
+                let u = ellipse.semiMajorAxis * cos(angle)
+                let v = ellipse.semiMinorAxis * sin(angle)
+                return DerivedPoint2D(
+                    x: ellipse.center.x + c * u - s * v,
+                    y: ellipse.center.y + s * u + c * v
+                )
+            }
+        }
+    }
+
+    private func loopGeometry(
+        _ vertices: [SCNVector3],
+        closed: Bool
+    ) -> SCNGeometry {
+        var indices: [UInt32] = []
+        let segments = closed
+            ? vertices.count
+            : vertices.count - 1
+        for index in 0..<max(segments, 0) {
+            indices.append(UInt32(index))
+            indices.append(
+                UInt32((index + 1) % vertices.count)
+            )
+        }
+        let vertexSource = SCNGeometrySource(vertices: vertices)
+        let indexData = Data(
+            bytes: indices,
+            count: indices.count * MemoryLayout<UInt32>.size
+        )
+        let element = SCNGeometryElement(
+            data: indexData,
+            primitiveType: .line,
+            primitiveCount: indices.count / 2,
+            bytesPerIndex: MemoryLayout<UInt32>.size
+        )
+        let geometry = SCNGeometry(
+            sources: [vertexSource],
+            elements: [element]
+        )
+        geometry.firstMaterial?.lightingModel = .constant
+        return geometry
+    }
+
+    /// Observed contour cloud: open chain plus one small sphere per
+    /// observation point (`.point` primitives render nothing on iOS).
+    private func contourCloudNode(
+        _ vertices: [SCNVector3],
+        color: UIColor
+    ) -> SCNNode {
+        let node = SCNNode()
+        if vertices.count >= 2 {
+            let chain = SCNNode(
+                geometry: loopGeometry(vertices, closed: false)
+            )
+            chain.geometry?.firstMaterial?.diffuse.contents = color
+            node.addChildNode(chain)
+        }
+        let dot = SCNSphere(radius: 0.012)
+        dot.segmentCount = 8
+        dot.firstMaterial?.lightingModel = .constant
+        dot.firstMaterial?.diffuse.contents = color
+        for vertex in vertices.prefix(512) {
+            let marker = SCNNode(geometry: dot)
+            marker.position = vertex
+            node.addChildNode(marker)
+        }
         return node
     }
 

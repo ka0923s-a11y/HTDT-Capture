@@ -354,6 +354,60 @@ public enum DerivedGeometryCandidatePackageBuilder {
         return .fused
     }
 
+    /// Live observation refs are stream-local; translate the
+    /// derivable ones to committed manifest tokens so HTDT can
+    /// attribute the record. `live-mesh:<anchor>:face:<n>` collapses
+    /// to `mesh_anchor:<anchor>`; `live-scene-depth:*` stays in the
+    /// `live:` namespace (its frames are transient samples, not
+    /// committed payloads); the `wall_chain` support marker likewise
+    /// stays.
+    public static func committedEvidenceRef(_ ref: String) -> String {
+        if ref.hasPrefix("live-mesh:") {
+            let anchorToken = ref
+                .dropFirst("live-mesh:".count)
+                .split(separator: ":")
+                .first
+                .map(String.init)
+            if let anchorToken, !anchorToken.isEmpty {
+                return "mesh_anchor:" + anchorToken
+            }
+        }
+        return ref
+    }
+
+    static func committedEvidenceRefs(
+        _ refs: [String]
+    ) -> [String] {
+        var seen = Set<String>()
+        return refs.map(committedEvidenceRef).filter {
+            seen.insert($0).inserted
+        }
+    }
+
+    static func committedGeometry(
+        _ geometry: DerivedFootprintGeometry
+    ) -> DerivedFootprintGeometry {
+        if case .polygon(let polygon) = geometry {
+            return .polygon(
+                DerivedPolygon(
+                    vertices: polygon.vertices.map {
+                        SupportedPolygonVertex(
+                            position: $0.position,
+                            supportEvidenceRefs:
+                                committedEvidenceRefs(
+                                    $0.supportEvidenceRefs
+                                )
+                        )
+                    },
+                    isConcave: polygon.isConcave,
+                    concavityResolution:
+                        polygon.concavityResolution
+                )
+            )
+        }
+        return geometry
+    }
+
     /// Maps a derived-shape proxy into a persisted candidate record.
     public static func record(
         from proxy: DerivedShapeProxy,
@@ -378,11 +432,15 @@ public enum DerivedGeometryCandidatePackageBuilder {
             recordKind: recordKind,
             resolution: proxy.resolution,
             shapeKind: selected?.kind,
-            geometry: selected?.geometry,
+            geometry: selected.map {
+                committedGeometry($0.geometry)
+            },
             ambiguityShapeKinds: ambiguityKinds,
             coordinateSpaceID: proxy.provenance.sourceCoordinateSpaceID,
             sourceMode: sourceMode(forEvidenceKinds: kinds),
-            sourceEvidenceRefs: proxy.provenance.sourceEvidenceRefs,
+            sourceEvidenceRefs: committedEvidenceRefs(
+                proxy.provenance.sourceEvidenceRefs
+            ),
             derivationAlgorithm: proxy.provenance.derivationAlgorithm,
             derivationVersion: proxy.provenance.derivationVersion,
             fitScore: proxy.provenance.fitScore,
@@ -396,7 +454,17 @@ public enum DerivedGeometryCandidatePackageBuilder {
                 proxy.observationSample.prefix(
                     DerivedGeometryCandidateRecord.maxContourPoints
                 )
-            )
+            ).map {
+                DerivedObservationPoint(
+                    position: $0.position,
+                    evidenceRef: committedEvidenceRef(
+                        $0.evidenceRef
+                    ),
+                    evidenceKind: $0.evidenceKind,
+                    verticalPositionMeters:
+                        $0.verticalPositionMeters
+                )
+            }
         )
     }
 
@@ -421,46 +489,99 @@ public enum DerivedGeometryCandidatePackageBuilder {
         }
         if let wallChain = snapshot.wallChain {
             let provenance = wallChain.provenance
-            let wallChainIsConcave =
-                DerivedShapeProxyFitter.polygonIsConcave(
-                    wallChain.vertices.map(\.position),
-                    closed: wallChain.isClosed
-                )
-            records.append(
-                try DerivedGeometryCandidateRecord(
-                    recordKind: .wallChain,
-                    resolution: .resolved,
-                    shapeKind: .polygon,
-                    geometry: .polygon(
-                        DerivedPolygon(
-                            vertices: wallChain.vertices,
-                            isConcave: wallChainIsConcave,
-                            concavityResolution: wallChainIsConcave
-                                ? .resolvedConcave : .resolvedConvex
-                        )
+            let contourPoints = wallChain.vertices.map {
+                DerivedObservationPoint(
+                    position: $0.position,
+                    evidenceRef: committedEvidenceRef(
+                        $0.supportEvidenceRefs.first
+                            ?? "wall_chain"
                     ),
-                    coordinateSpaceID:
-                        provenance.sourceCoordinateSpaceID,
-                    sourceMode: .fused,
-                    sourceEvidenceRefs: provenance.sourceEvidenceRefs,
-                    derivationAlgorithm: provenance.derivationAlgorithm,
-                    derivationVersion: provenance.derivationVersion,
-                    fitScore: provenance.fitScore,
-                    normalizedResidual: provenance.normalizedResidual,
-                    observationStartSeconds:
-                        provenance.observationStartSeconds,
-                    observationEndSeconds:
-                        provenance.observationEndSeconds,
-                    contourPoints: wallChain.vertices.map {
-                        DerivedObservationPoint(
-                            position: $0.position,
-                            evidenceRef: $0.supportEvidenceRefs.first
-                                ?? "wall_chain",
-                            evidenceKind: .mesh
-                        )
-                    }
+                    evidenceKind: .mesh
                 )
-            )
+            }
+            if wallChain.isClosed, wallChain.vertices.count >= 3 {
+                // A supported closed ring is genuinely a polygon.
+                let wallChainIsConcave =
+                    DerivedShapeProxyFitter.polygonIsConcave(
+                        wallChain.vertices.map(\.position),
+                        closed: wallChain.isClosed
+                    )
+                records.append(
+                    try DerivedGeometryCandidateRecord(
+                        recordKind: .wallChain,
+                        resolution: .resolved,
+                        shapeKind: .polygon,
+                        geometry: .polygon(
+                            DerivedPolygon(
+                                vertices: wallChain.vertices.map {
+                                    SupportedPolygonVertex(
+                                        position: $0.position,
+                                        supportEvidenceRefs:
+                                            committedEvidenceRefs(
+                                                $0.supportEvidenceRefs
+                                            )
+                                    )
+                                },
+                                isConcave: wallChainIsConcave,
+                                concavityResolution: wallChainIsConcave
+                                    ? .resolvedConcave
+                                    : .resolvedConvex
+                            )
+                        ),
+                        coordinateSpaceID:
+                            provenance.sourceCoordinateSpaceID,
+                        sourceMode: sourceMode(
+                            forEvidenceKinds: [.mesh]
+                        ),
+                        sourceEvidenceRefs:
+                            committedEvidenceRefs(
+                                provenance.sourceEvidenceRefs
+                            ),
+                        derivationAlgorithm:
+                            provenance.derivationAlgorithm,
+                        derivationVersion:
+                            provenance.derivationVersion,
+                        fitScore: provenance.fitScore,
+                        normalizedResidual:
+                            provenance.normalizedResidual,
+                        observationStartSeconds:
+                            provenance.observationStartSeconds,
+                        observationEndSeconds:
+                            provenance.observationEndSeconds,
+                        contourPoints: contourPoints
+                    )
+                )
+            } else {
+                // An open run is a polyline, not a polygon — persisting
+                // it as resolved would invent a wall across the
+                // unobserved gap. Emit it unresolved so HTDT sees the
+                // honest partial observation; the contour still
+                // carries every supported vertex.
+                records.append(
+                    try DerivedGeometryCandidateRecord(
+                        recordKind: .wallChain,
+                        resolution: .insufficientEvidence,
+                        coordinateSpaceID:
+                            provenance.sourceCoordinateSpaceID,
+                        sourceMode: sourceMode(
+                            forEvidenceKinds: [.mesh]
+                        ),
+                        sourceEvidenceRefs:
+                            committedEvidenceRefs(
+                                provenance.sourceEvidenceRefs
+                            ),
+                        derivationAlgorithm:
+                            provenance.derivationAlgorithm,
+                        derivationVersion:
+                            provenance.derivationVersion,
+                        observationStartSeconds:
+                            provenance.observationStartSeconds,
+                        observationEndSeconds:
+                            provenance.observationEndSeconds,
+                        contourPoints: contourPoints
+                    )
+                )
+            }
         }
 
         let document = DerivedGeometryCandidateDocument(
