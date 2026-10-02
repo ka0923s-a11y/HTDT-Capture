@@ -2348,6 +2348,10 @@ public final class SharedARSessionController {
         return result
     }
 
+    /// Callers validate `geometry.vertices` once per anchor via
+    /// `liveFloat3SourceIsReadable` before entering their face
+    /// loops; this hot path only bounds-checks the index since
+    /// reticle polling walks every face of every anchor per frame.
     private func liveMeshWorldVertex(
         geometry: ARMeshGeometry,
         vertexIndex: Int,
@@ -2355,8 +2359,7 @@ public final class SharedARSessionController {
     ) -> SIMD3<Float>? {
         let source = geometry.vertices
         guard vertexIndex >= 0,
-              vertexIndex < source.count,
-              liveFloat3SourceIsReadable(source)
+              vertexIndex < source.count
         else {
             return nil
         }

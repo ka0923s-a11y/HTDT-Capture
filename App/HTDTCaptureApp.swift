@@ -9133,23 +9133,31 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let context = sessionController.context
         let orientation =
             try? sessionController.snapshotCameraOrientation()
-        let raycast =
-            try? sessionController.snapshotCenterRaycastPlacement()
+        // Aim like the reticle probe does: a mesh or RoomPlan hit
+        // under the reticle is a valid flag target, not only a plane —
+        // flagging furniture or a speaker otherwise dropped the aimed
+        // point even though live geometry proves the hit.
+        let aim = try? sessionController.snapshotTargetedPlacement(
+            preferring: .automatic,
+            roomPlanObjects: annotationRoomPlanObjects,
+            depthSelection: .discrete,
+            maxDistanceMeters: 15
+        )
         let pose =
             orientation?.frameArtifacts.worldFromCamera
-            ?? raycast?.frameArtifacts.worldFromCamera
+            ?? aim?.frameArtifacts.worldFromCamera
         let timestamp =
             orientation?.frameArtifacts
             .sessionTimestampSeconds
-            ?? raycast?.frameArtifacts.sessionTimestampSeconds
+            ?? aim?.frameArtifacts.sessionTimestampSeconds
             ?? latestScanTimestampSeconds
             ?? 0
 
         var target: ScanRevisitFlagVector?
         var targetFromRaycast = false
         var coverageCell: String?
-        if let raycast {
-            let p = raycast.positionWorld
+        if let aim {
+            let p = aim.positionWorld
             target = ScanRevisitFlagVector(
                 x: Double(p.x),
                 y: Double(p.y),
@@ -9690,11 +9698,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Resolves a scan-time anchor request into a validated spatial
     /// position (issue #421): `subjectPoint` performs the live center
-    /// raycast against captured geometry; `viewpoint` takes the
-    /// device pose from the current frame. Both record the exact
-    /// coordinate space the session runs under. A ray miss or an
-    /// unavailable session throws — the caller degrades to an
-    /// unanchored note.
+    /// hit test against captured geometry (mesh, RoomPlan object, or
+    /// plane — the same resolution the reticle probe reports);
+    /// `viewpoint` takes the device pose from the current frame. Both
+    /// record the exact coordinate space the session runs under. A
+    /// miss or an unavailable session throws — the caller degrades to
+    /// an unanchored note.
     private func fieldNoteAnchor(
         request: CaptureFieldNoteAnchorRequest
     ) throws -> CaptureFieldNoteSpatialPosition? {
@@ -9705,7 +9714,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return nil
         case .subjectPoint:
             let placement = try sessionController
-                .snapshotCenterRaycastPlacement()
+                .snapshotTargetedPlacement(
+                    preferring: .automatic,
+                    roomPlanObjects: annotationRoomPlanObjects
+                )
             let p = placement.positionWorld
             return try CaptureFieldNoteSpatialPosition(
                 coordinateSpaceID: spaceID,
