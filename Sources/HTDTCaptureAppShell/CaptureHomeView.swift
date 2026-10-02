@@ -54,6 +54,162 @@ struct PendingCaptureDeletion: Equatable {
     let revisionID: CaptureRevisionID
     let includesExport: Bool
     var descendantCount: Int = 0
+    /// The same retention gate the series delete runs (#394):
+    /// blockers refuse the delete outright, warnings are advisory
+    /// context shown in the confirmation.
+    var blockers: [CaptureRetentionBlocker] = []
+    var warnings: [CaptureRetentionWarning] = []
+    /// Only the export archive exists locally — there is no
+    /// finalized bundle on this device, so the delete removes the
+    /// last local artifact rather than a capture plus its copy.
+    var archiveOnly: Bool = false
+}
+
+extension PendingCaptureDeletion {
+    /// Builds the delete target through the retention preview so a
+    /// per-revision delete honours the same marks/delivery-job/
+    /// only-local-copy rules the series sheet enforces.
+    init(
+        revisionID: CaptureRevisionID,
+        includesExport: Bool,
+        descendantCount: Int = 0,
+        record: PersistedCaptureRecord?,
+        allRecords: [PersistedCaptureRecord],
+        metadata: CaptureLibraryMetadataDocument,
+        deliveryJobs: [HTDTDeliveryJob],
+        missionRecords: [HTDTMissionRecord],
+        receipts: [HTDTHandoffReceipt]
+    ) {
+        self.revisionID = revisionID
+        self.includesExport = includesExport
+        self.descendantCount = descendantCount
+        self.archiveOnly = record.map {
+            $0.finalizedDirectory == nil && $0.exportArchive != nil
+        } ?? false
+        if let record {
+            let outcome = CaptureLibraryRetentionPlanner
+                .deletionPreview(
+                    records: [record],
+                    allRecords: allRecords,
+                    metadata: metadata,
+                    deliveryJobs: deliveryJobs,
+                    missionRecords: missionRecords,
+                    receipts: receipts
+                )
+                .outcomes.first
+            blockers = outcome?.blockers ?? []
+            warnings = outcome?.warnings ?? []
+        }
+    }
+
+    /// Whole dialog body as one string — `confirmationDialog`'s
+    /// `message:` renders only the first ViewBuilder child on iOS 26,
+    /// so warning/blocker lines after the base clause must be folded
+    /// into a single `Text` to reach the operator.
+    var deletionDialogMessage: String {
+        if !blockers.isEmpty {
+            return (
+                blockers.map(\.deletionSummary)
+                    + [
+                        String(
+                            localized:
+                                "Delete is unavailable until the block is cleared — cancel the delivery job or remove the mark first."
+                        )
+                    ]
+            ).joined(separator: "\n")
+        }
+        var lines: [String] = []
+        if archiveOnly {
+            lines.append(
+                String(
+                    localized:
+                        "This permanently deletes the export archive for this capture from this device — it is the only local copy; no finalized bundle is stored here."
+                )
+            )
+        } else if descendantCount > 0 {
+            lines.append(
+                captureCountPhrase(
+                    descendantCount,
+                    singular: String(
+                        localized: "This permanently deletes the finalized capture and any export archive stored for it from this device. %lld revision declares it as their parent — its lineage link will no longer resolve."
+                    ),
+                    plural: String(
+                        localized: "This permanently deletes the finalized capture and any export archive stored for it from this device. %lld revisions declare it as their parent — their lineage links will no longer resolve."
+                    )
+                )
+            )
+        } else {
+            lines.append(
+                String(
+                    localized:
+                        "This permanently deletes the finalized capture and any export archive stored for it from this device."
+                )
+            )
+        }
+        lines.append(
+            contentsOf: warnings.map(\.deletionSummary)
+        )
+        return lines.joined(separator: "\n")
+    }
+}
+
+extension CaptureRetentionBlocker {
+    /// One operator-facing line naming why the delete is refused.
+    var deletionSummary: String {
+        switch self {
+        case .pendingDeliveryJob(let jobID):
+            return String(
+                format: String(
+                    localized: "Blocked by pending delivery job %@"
+                ),
+                jobID
+            )
+        case .protectedMark:
+            return String(
+                localized: "Protected — kept unless overridden"
+            )
+        }
+    }
+}
+
+extension CaptureRetentionWarning {
+    /// One operator-facing line of advisory context for the delete.
+    var deletionSummary: String {
+        switch self {
+        case .parentOfRevisions(let count):
+            return captureCountPhrase(
+                count,
+                singular: String(
+                    localized: "Parent of %lld local revision; it will show an absent predecessor"
+                ),
+                plural: String(
+                    localized: "Parent of %lld local revisions; they will show an absent predecessor"
+                )
+            )
+        case .handoffReceipts(let count):
+            return captureCountPhrase(
+                count,
+                singular: String(
+                    localized: "%lld receipt stays as history; the bytes will no longer be inspectable"
+                ),
+                plural: String(
+                    localized: "%lld receipts stay as history; the bytes will no longer be inspectable"
+                )
+            )
+        case .linkedToMission(let recordID):
+            return String(
+                format: String(
+                    localized: "Linked to mission %@"
+                ),
+                recordID
+            )
+        case .onlyLocalCopy:
+            return String(
+                localized:
+                    "Only local copy — nothing proves it exists elsewhere"
+            )
+        }
+    }
 }
 
 /// Identifiable target for the library-metadata editor sheet (#219):
@@ -163,6 +319,10 @@ public struct CaptureHomeView: View {
     /// #378: staged library-package import preview awaiting confirm.
     public let libraryImportPreview:
         CaptureLibraryImportPreview?
+    /// The preview's commit is running — the sheet must not be
+    /// swipe-dismissed while the importer still reads its staging
+    /// directory.
+    public let libraryImportCommitInFlight: Bool
     /// #378: the `.htdtcapturelibrary` the host last wrote.
     public let libraryExportURL: URL?
     /// Read-only workspace for the persisted viewer (#294).
@@ -177,6 +337,10 @@ public struct CaptureHomeView: View {
     /// Handoff receipts (#225) — the historical send record the
     /// retention previews cite (#394).
     public let handoffReceipts: [HTDTHandoffReceipt]
+    /// The full receipt ledger across every revision (#394) —
+    /// retention previews consult it so receipts for revisions other
+    /// than the adopted one are not invisible to delete previews.
+    public let allHandoffReceipts: [HTDTHandoffReceipt]
     /// App-local acquisition provenance per revision (#317):
     /// imported or received captures read differently from
     /// device-created ones everywhere the library surfaces them.
@@ -244,12 +408,14 @@ public struct CaptureHomeView: View {
         localStateUpgradeNotice: String? = nil,
         libraryImportPreview:
             CaptureLibraryImportPreview? = nil,
+        libraryImportCommitInFlight: Bool = false,
         libraryExportURL: URL? = nil,
         persistedWorkspace: CaptureReviewWorkspaceModel? = nil,
         persistedWorkspaceRoomPlanObjects:
             [RoomPlanBindableObject] = [],
         persistedWorkspaceLoadFailed: Bool = false,
         handoffReceipts: [HTDTHandoffReceipt] = [],
+        allHandoffReceipts: [HTDTHandoffReceipt] = [],
         captureOrigins:
             [CaptureRevisionID: CaptureAcquisitionOriginRecord] = [:],
         missionRecords: [HTDTMissionRecord] = [],
@@ -271,6 +437,8 @@ public struct CaptureHomeView: View {
         self.libraryMetadata = libraryMetadata
         self.localStateUpgradeNotice = localStateUpgradeNotice
         self.libraryImportPreview = libraryImportPreview
+        self.libraryImportCommitInFlight =
+            libraryImportCommitInFlight
         self.libraryExportURL = libraryExportURL
         self.persistedWorkspace = persistedWorkspace
         self.persistedWorkspaceRoomPlanObjects =
@@ -278,6 +446,7 @@ public struct CaptureHomeView: View {
         self.persistedWorkspaceLoadFailed =
             persistedWorkspaceLoadFailed
         self.handoffReceipts = handoffReceipts
+        self.allHandoffReceipts = allHandoffReceipts
         self.captureOrigins = captureOrigins
         self.missionRecords = missionRecords
         self.activeMissionRecordID = activeMissionRecordID
@@ -342,6 +511,7 @@ public struct CaptureHomeView: View {
                 )
             }
         }
+        .interactiveDismissDisabled(libraryImportCommitInFlight)
         .sheet(item: $retentionSeriesID) { seriesID in
             if let group = libraryGroups.first(where: {
                 $0.captureSeriesID == seriesID
@@ -352,7 +522,7 @@ public struct CaptureHomeView: View {
                     libraryMetadata: libraryMetadata,
                     deliveryJobs: deliveryJobs,
                     missionRecords: missionRecords,
-                    handoffReceipts: handoffReceipts,
+                    handoffReceipts: allHandoffReceipts,
                     actions: actions,
                     onDeleteSeries: {
                         retentionSeriesID = nil
@@ -372,7 +542,7 @@ public struct CaptureHomeView: View {
                     metadata: libraryMetadata,
                     deliveryJobs: deliveryJobs,
                     missionRecords: missionRecords,
-                    receipts: handoffReceipts
+                    receipts: allHandoffReceipts
                 )
             CaptureSeriesDeleteSheet(
                 seriesID: seriesID,
@@ -408,35 +578,28 @@ public struct CaptureHomeView: View {
             titleVisibility: .visible,
             presenting: pendingDeletion
         ) { pending in
-            Button(
-                pending.includesExport
-                    ? "Delete capture and export"
-                    : "Delete capture",
-                role: .destructive
-            ) {
-                actions.deletePersistedCapture(
-                    pending.revisionID
-                )
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { pending in
-            if pending.descendantCount > 0 {
-                Text(
-                    captureCountPhrase(
-                        pending.descendantCount,
-                        singular: String(
-                            localized: "This permanently deletes the finalized capture and any export archive stored for it from this device. %lld revision declares it as their parent — its lineage link will no longer resolve."
-                        ),
-                        plural: String(
-                            localized: "This permanently deletes the finalized capture and any export archive stored for it from this device. %lld revisions declare it as their parent — their lineage links will no longer resolve."
-                        )
+            // Each branch carries its own Cancel — iOS 26 renders
+            // only the first action-producing child, so a button
+            // written after the `if` never appears.
+            if pending.blockers.isEmpty {
+                Button(
+                    pending.archiveOnly
+                        ? "Delete export archive"
+                        : pending.includesExport
+                            ? "Delete capture and export"
+                            : "Delete capture",
+                    role: .destructive
+                ) {
+                    actions.deletePersistedCapture(
+                        pending.revisionID
                     )
-                )
+                }
+                Button("Cancel", role: .cancel) {}
             } else {
-                Text(
-                    "This permanently deletes the finalized capture and any export archive stored for it from this device."
-                )
+                Button("Cancel", role: .cancel) {}
             }
+        } message: { pending in
+            Text(pending.deletionDialogMessage)
         }
         // #437: draft discard confirms — the removal is permanent.
         .confirmationDialog(
@@ -1416,7 +1579,7 @@ public struct CaptureHomeView: View {
                         allRecords: persistedInventory.captures,
                         deliveryJobs: deliveryJobs,
                         missionRecords: missionRecords,
-                        handoffReceipts: handoffReceipts,
+                        handoffReceipts: allHandoffReceipts,
                         persistedViewerShown: $persistedViewerShown,
                         metadataEditorTarget: $metadataEditorTarget,
                         pendingDeletion: $pendingDeletion,
@@ -1879,7 +2042,13 @@ private struct CaptureSeriesDetailView: View {
                     ForEach(group.headRevisions) { record in
                         headRow(record)
                     }
-                    if group.storedPreferredHead == nil {
+                    // The button only exists while a stored
+                    // preference actually resolves to a live head —
+                    // a stale stored entry (pointing at a revision
+                    // no longer present or no longer a head) is
+                    // already ignored, and "Clear" on it would be a
+                    // ghost affordance.
+                    if group.effectivePreferredHeadID == nil {
                         Text(
                             "Several heads exist — pick a preferred head so the series shows one Latest. Newest by date is never assumed."
                         )
@@ -2475,8 +2644,8 @@ private struct CaptureSeriesDetailView: View {
                 Spacer(minLength: 4)
                 if record.canOpen {
                     Button("Open") {
-                        actions.loadPersistedWorkspace(record)
-                        persistedViewerShown = true
+                        persistedViewerShown =
+                            actions.loadPersistedWorkspace(record)
                     }
                     .captureSecondaryAction()
                     .accessibilityIdentifier(
@@ -2504,15 +2673,21 @@ private struct CaptureSeriesDetailView: View {
                     descendantCount: group.revisionGraph
                         .descendants(
                             of: record.captureRevisionID
-                        ).count
+                        ).count,
+                    record: record,
+                    allRecords: allRecords,
+                    metadata: libraryMetadata,
+                    deliveryJobs: deliveryJobs,
+                    missionRecords: missionRecords,
+                    receipts: handoffReceipts
                 )
             }
         }
         .swipeActions(edge: .leading) {
             if record.canOpen {
                 Button("Open") {
-                    actions.loadPersistedWorkspace(record)
-                    persistedViewerShown = true
+                    persistedViewerShown =
+                        actions.loadPersistedWorkspace(record)
                 }
                 .tint(.accentColor)
             }
@@ -2646,8 +2821,8 @@ private struct CaptureSeriesDetailView: View {
     ) -> some View {
         if record.canOpen {
             Button("Open") {
-                actions.loadPersistedWorkspace(record)
-                persistedViewerShown = true
+                persistedViewerShown =
+                    actions.loadPersistedWorkspace(record)
             }
             Button("Use this revision") {
                 actions.openPersistedCapture(
@@ -2735,7 +2910,13 @@ private struct CaptureSeriesDetailView: View {
                 descendantCount: group.revisionGraph
                     .descendants(
                         of: record.captureRevisionID
-                    ).count
+                    ).count,
+                record: record,
+                allRecords: allRecords,
+                metadata: libraryMetadata,
+                deliveryJobs: deliveryJobs,
+                missionRecords: missionRecords,
+                receipts: handoffReceipts
             )
         }
     }
@@ -2754,6 +2935,12 @@ private struct CaptureLibraryMaintenanceView: View {
         (RecoverableWorkingRevision) -> Void
     let discardRecoveredDraft:
         (RecoverableWorkingRevision) -> Void
+
+    // Quarantined artifacts keep recoverable-looking bytes — the
+    // removal confirms before deleting, like every other destructive
+    // entry in this list.
+    @State private var pendingArtifactRemoval:
+        PersistedCaptureQuarantinedArtifact?
 
     var body: some View {
         List {
@@ -2836,9 +3023,7 @@ private struct CaptureLibraryMaintenanceView: View {
                                 "Remove artifact",
                                 role: .destructive
                             ) {
-                                removeQuarantinedArtifact(
-                                    artifact
-                                )
+                                pendingArtifactRemoval = artifact
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
@@ -2910,6 +3095,27 @@ private struct CaptureLibraryMaintenanceView: View {
         }
         .navigationTitle("Library maintenance")
         .inlineNavigationBarTitle()
+        .confirmationDialog(
+            "Remove unreadable artifact?",
+            isPresented: Binding(
+                get: { pendingArtifactRemoval != nil },
+                set: { presented in
+                    if !presented { pendingArtifactRemoval = nil }
+                }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingArtifactRemoval
+        ) { artifact in
+            Button("Remove artifact", role: .destructive) {
+                removeQuarantinedArtifact(artifact)
+                pendingArtifactRemoval = nil
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { artifact in
+            // Single `Text` — `confirmationDialog`'s `message:`
+            // renders only the first child on iOS 26.
+            Text(artifact.url.lastPathComponent + "\n" + artifact.reason)
+        }
     }
 }
 
@@ -3509,7 +3715,7 @@ private struct CaptureSeriesDeleteSheet: View {
                                 id: \.self
                             ) { blocker in
                                 Text(
-                                    blockerSummary(blocker)
+                                    blocker.deletionSummary
                                 )
                                 .font(.caption2)
                                 .foregroundStyle(
@@ -3522,7 +3728,7 @@ private struct CaptureSeriesDeleteSheet: View {
                                 id: \.self
                             ) { warning in
                                 Text(
-                                    warningSummary(warning)
+                                    warning.deletionSummary
                                 )
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
@@ -3570,63 +3776,5 @@ private struct CaptureSeriesDeleteSheet: View {
                     $0 == .protectedMark
                 }
         }.count
-    }
-
-    private func blockerSummary(
-        _ blocker: CaptureRetentionBlocker
-    ) -> String {
-        switch blocker {
-        case .pendingDeliveryJob(let jobID):
-            return String(
-                format: String(
-                    localized:
-                        "Blocked by pending delivery job %@"
-                ),
-                jobID
-            )
-        case .protectedMark:
-            return String(
-                localized: "Protected — kept unless overridden"
-            )
-        }
-    }
-
-    private func warningSummary(
-        _ warning: CaptureRetentionWarning
-    ) -> String {
-        switch warning {
-        case .parentOfRevisions(let count):
-            return captureCountPhrase(
-                count,
-                singular: String(
-                    localized: "Parent of %lld local revision; it will show an absent predecessor"
-                ),
-                plural: String(
-                    localized: "Parent of %lld local revisions; they will show an absent predecessor"
-                )
-            )
-        case .handoffReceipts(let count):
-            return captureCountPhrase(
-                count,
-                singular: String(
-                    localized: "%lld receipt stays as history; the bytes will no longer be inspectable"
-                ),
-                plural: String(
-                    localized: "%lld receipts stay as history; the bytes will no longer be inspectable"
-                )
-            )
-        case .linkedToMission(let recordID):
-            return String(
-                format: String(
-                    localized: "Linked to mission %@"
-                ),
-                recordID
-            )
-        case .onlyLocalCopy:
-            return String(
-                localized:
-                    "Only local copy — nothing proves it exists elsewhere"
-            )
-        }
     }
 }

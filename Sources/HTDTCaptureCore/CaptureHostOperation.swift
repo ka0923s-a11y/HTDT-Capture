@@ -27,4 +27,9 @@ public enum CaptureHostOperation: String, Sendable, Equatable, Hashable {
     case annotationCommit = "annotation_commit"
     /// Diagnostic package export from the failed state.
     case exportDiagnostics = "export_diagnostics"
+    /// Semantic-child revision build (#319): stages the child under
+    /// `working/`, so the library must stay busy while it is in
+    /// flight or the inventory classifies the staged bytes as an
+    /// orphan.
+    case semanticCorrection = "semantic_correction"
 }

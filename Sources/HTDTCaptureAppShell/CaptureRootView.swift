@@ -194,9 +194,10 @@ public struct CaptureRootActions {
     /// frame from the working capture (#241).
     public let removeEvidenceFrameForPrivacy:
         (EvidenceFrameID) async -> Void
-    /// Loads a persisted capture into the read-only viewer (#294).
+    /// Loads a persisted capture into the read-only viewer (#294) —
+    /// `true` only when the load actually started.
     public let loadPersistedWorkspace:
-        (PersistedCaptureRecord) -> Void
+        (PersistedCaptureRecord) -> Bool
     /// Field-level parent/child comparison for a revised capture
     /// (#221).
     public let compareAdoptedRevisionWithParent:
@@ -211,7 +212,7 @@ public struct CaptureRootActions {
     public let beginConnectedSegment:
         (String, CaptureRegionKind) -> Void
     public let completeConnectedSegment: () -> Void
-    public let recordConnectedPortal: (CaptureRegionID) -> Void
+    public let recordConnectedPortal: (CaptureRegionID, CapturePortalKind) -> Void
     public let revisitConnectedRegion: (CaptureRegionID) -> Void
     public let asBuiltMarkUnavailable: (String) -> Void
     public let asBuiltEstablishAlignment: () -> Void
@@ -594,7 +595,7 @@ public struct CaptureRootActions {
         removeEvidenceFrameForPrivacy: @escaping
             (EvidenceFrameID) async -> Void = { _ in },
         loadPersistedWorkspace: @escaping
-            (PersistedCaptureRecord) -> Void = { _ in },
+            (PersistedCaptureRecord) -> Bool = { _ in false },
         compareAdoptedRevisionWithParent: @escaping
             () async -> CaptureRevisionComparison? = { nil },
         inspectFailedCapture: @escaping () -> Void = {},
@@ -608,7 +609,8 @@ public struct CaptureRootActions {
             (String, CaptureRegionKind) -> Void = { _, _ in },
         completeConnectedSegment: @escaping () -> Void = {},
         recordConnectedPortal: @escaping
-            (CaptureRegionID) -> Void = { _ in },
+            (CaptureRegionID, CapturePortalKind) -> Void
+            = { _, _ in },
         revisitConnectedRegion: @escaping
             (CaptureRegionID) -> Void = { _ in },
         asBuiltMarkUnavailable: @escaping (String) -> Void
@@ -1029,6 +1031,10 @@ public struct CaptureRootView: View {
     /// pinned-catalog requirement (#302) and the role-binding profile
     /// (#315) in the annotation workspace.
     public let taskPlan: HTDTCaptureTaskPlan?
+    /// Live status for that plan — the annotation workspace's
+    /// mark/bind actions write through it; nil when no plan is
+    /// loaded.
+    public let taskPlanStatus: Binding<CaptureTaskPlanStatus>?
     /// Identity of the live working revision; carries the
     /// series/parent linkage for a revise-existing capture (#155).
     public let workingSetIdentity: CaptureWorkingSetIdentity?
@@ -1102,6 +1108,10 @@ public struct CaptureRootView: View {
     /// Operator-visible Send-to-HTDT destinations + receipts (#225).
     public let handoffDestinations: [HTDTHandoffDestination]
     public let handoffReceipts: [HTDTHandoffReceipt]
+    /// The full receipt ledger across every revision (#394) — the
+    /// retention previews consult it so receipts for revisions other
+    /// than the adopted one are not invisible to delete previews.
+    public let allHandoffReceipts: [HTDTHandoffReceipt]
     /// Mission inbox records (#386), the active record id, QR-paired
     /// receivers (#379) and the durable delivery-job ledger (#387) —
     /// surfaced on the home screen's sidebar.
@@ -1278,6 +1288,7 @@ public struct CaptureRootView: View {
         equipmentCatalogLibrary:
             [HTDTEquipmentCatalogLibrary.StoredCatalog] = [],
         taskPlan: HTDTCaptureTaskPlan? = nil,
+        taskPlanStatus: Binding<CaptureTaskPlanStatus>? = nil,
         /// Required-task progress for the journey header (#372):
         /// evaluated by the host from the plan plus the committed
         /// records — nil when no plan is active or none are required.
@@ -1327,6 +1338,7 @@ public struct CaptureRootView: View {
         danglingSpatialIssues: [SpatialEvidenceIssue] = [],
         handoffDestinations: [HTDTHandoffDestination] = [],
         handoffReceipts: [HTDTHandoffReceipt] = [],
+        allHandoffReceipts: [HTDTHandoffReceipt] = [],
         missionRecords: [HTDTMissionRecord] = [],
         activeMissionRecordID: String? = nil,
         pairedDestinations: [PairedHTDTDestination] = [],
@@ -1405,6 +1417,7 @@ public struct CaptureRootView: View {
         self.operatorRoster = operatorRoster
         self.equipmentCatalogLibrary = equipmentCatalogLibrary
         self.taskPlan = taskPlan
+        self.taskPlanStatus = taskPlanStatus
         self.taskPlanMission = taskPlanMission
         self.workingSetIdentity = workingSetIdentity
         self.annotationEvidenceFrames = annotationEvidenceFrames
@@ -1450,6 +1463,7 @@ public struct CaptureRootView: View {
         self.danglingSpatialIssues = danglingSpatialIssues
         self.handoffDestinations = handoffDestinations
         self.handoffReceipts = handoffReceipts
+        self.allHandoffReceipts = allHandoffReceipts
         self.missionRecords = missionRecords
         self.activeMissionRecordID = activeMissionRecordID
         self.pairedDestinations = pairedDestinations
@@ -1586,7 +1600,13 @@ public struct CaptureRootView: View {
             {
                 pendingDeletion = PendingCaptureDeletion(
                     revisionID: revisionID,
-                    includesExport: exportURL != nil
+                    includesExport: exportURL != nil,
+                    record: finalizedPersistedRecord,
+                    allRecords: persistedInventory.captures,
+                    metadata: libraryMetadata,
+                    deliveryJobs: deliveryJobs,
+                    missionRecords: missionRecords,
+                    receipts: allHandoffReceipts
                 )
             }
         case .startNewCapture:
@@ -1682,6 +1702,8 @@ public struct CaptureRootView: View {
                     localStateUpgradeNotice:
                         localStateUpgradeNotice,
                     libraryImportPreview: libraryImportPreview,
+                    libraryImportCommitInFlight:
+                        activeOperations.contains(.importArchive),
                     libraryExportURL: libraryExportURL,
                     persistedWorkspace: persistedWorkspace,
                     persistedWorkspaceRoomPlanObjects:
@@ -1689,6 +1711,7 @@ public struct CaptureRootView: View {
                     persistedWorkspaceLoadFailed:
                         persistedWorkspaceLoadFailed,
                     handoffReceipts: handoffReceipts,
+                    allHandoffReceipts: allHandoffReceipts,
                     captureOrigins: captureOrigins,
                     missionRecords: missionRecords,
                     activeMissionRecordID: activeMissionRecordID,
@@ -1798,6 +1821,7 @@ public struct CaptureRootView: View {
                         spatialCaptureSealed ? [] : speakerLayoutPlans,
                     draftStore: annotationDraftStore,
                     draftRevisionID: annotationDraftRevisionID,
+                    taskPlanStatus: taskPlanStatus,
                     onImportEquipmentCatalog:
                         actions.importEquipmentCatalog,
                     equipmentCatalogLibrary: equipmentCatalogLibrary,
@@ -2449,19 +2473,44 @@ public struct CaptureRootView: View {
                     titleVisibility: .visible,
                     presenting: pendingDeletion
                 ) { pending in
-                    Button(
-                        pending.includesExport
-                            ? "Delete capture and export"
-                            : "Delete capture",
-                        role: .destructive
-                    ) {
-                        actions.deletePersistedCapture(
-                            pending.revisionID
+                    // Each branch carries its own Cancel — iOS 26
+                    // renders only the first action-producing child,
+                    // so a button written after the `if` never
+                    // appears.
+                    if pending.blockers.isEmpty {
+                        Button(
+                            pending.archiveOnly
+                                ? "Delete export archive"
+                                : pending.includesExport
+                                    ? "Delete capture and export"
+                                    : "Delete capture",
+                            role: .destructive
+                        ) {
+                            actions.deletePersistedCapture(
+                                pending.revisionID
+                            )
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } else {
+                        Button("Cancel", role: .cancel) {}
+                    }
+                } message: { pending in
+                    // iOS 26 renders only the first `message:`
+                    // child — the blocker list and its guidance must
+                    // fold into one `Text` to reach the operator.
+                    if pending.blockers.isEmpty {
+                        Text(deletionExplanationText(for: pending))
+                    } else {
+                        Text(
+                            (pending.blockers.map(\.deletionSummary)
+                                + [
+                                    String(
+                                        localized:
+                                            "Delete is unavailable until the block is cleared — cancel the delivery job or remove the mark first."
+                                    )
+                                ]).joined(separator: "\n")
                         )
                     }
-                    Button("Cancel", role: .cancel) {}
-                } message: { pending in
-                    Text(deletionExplanationText(for: pending))
                 }
                 .fileImporter(
                     isPresented: $importingCaptureArchive,
@@ -2595,6 +2644,9 @@ public struct CaptureRootView: View {
             ),
             titleVisibility: .visible
         ) {
+            // Each branch carries its own Cancel — iOS 26 renders
+            // only the first action-producing child, so a button
+            // written after the `if` never appears.
             if pendingRemediation
                 == .startReplacementRevision
             {
@@ -2607,6 +2659,9 @@ public struct CaptureRootView: View {
                     }
                     pendingRemediation = nil
                 }
+                Button("Cancel", role: .cancel) {
+                    pendingRemediation = nil
+                }
             } else {
                 Button(
                     "Discard capture",
@@ -2617,9 +2672,9 @@ public struct CaptureRootView: View {
                     }
                     pendingRemediation = nil
                 }
-            }
-            Button("Cancel", role: .cancel) {
-                pendingRemediation = nil
+                Button("Cancel", role: .cancel) {
+                    pendingRemediation = nil
+                }
             }
         } message: {
             Text(
@@ -3027,7 +3082,13 @@ public struct CaptureRootView: View {
                     ) {
                         pendingDeletion = PendingCaptureDeletion(
                             revisionID: revisionID,
-                            includesExport: exportURL != nil
+                            includesExport: exportURL != nil,
+                            record: finalizedPersistedRecord,
+                            allRecords: persistedInventory.captures,
+                            metadata: libraryMetadata,
+                            deliveryJobs: deliveryJobs,
+                            missionRecords: missionRecords,
+                            receipts: allHandoffReceipts
                         )
                     }
                     .disabled(hostBusy)
@@ -3060,7 +3121,13 @@ public struct CaptureRootView: View {
                 ) {
                     pendingDeletion = PendingCaptureDeletion(
                         revisionID: revisionID,
-                        includesExport: exportURL != nil
+                        includesExport: exportURL != nil,
+                        record: finalizedPersistedRecord,
+                        allRecords: persistedInventory.captures,
+                        metadata: libraryMetadata,
+                        deliveryJobs: deliveryJobs,
+                        missionRecords: missionRecords,
+                        receipts: allHandoffReceipts
                     )
                 }
                 .disabled(hostBusy)
@@ -3282,8 +3349,8 @@ public struct CaptureRootView: View {
             if finalizedPersistedRecord != nil {
                 Button("View capture") {
                     if let record = finalizedPersistedRecord {
-                        actions.loadPersistedWorkspace(record)
-                        viewingFinalizedCapture = true
+                        viewingFinalizedCapture =
+                            actions.loadPersistedWorkspace(record)
                     }
                 }
             }
@@ -3400,6 +3467,8 @@ public struct CaptureRootView: View {
             return "Saving annotation authority…"
         case .exportDiagnostics:
             return "Preparing diagnostic package…"
+        case .semanticCorrection:
+            return "Building corrected revision…"
         }
     }
 
@@ -3605,33 +3674,45 @@ public struct CaptureRootView: View {
     private func deletionExplanationText(
         for pending: PendingCaptureDeletion
     ) -> String {
-        let base: String
-        switch appSettings.storagePrivacy.finalizedBackupPolicy {
-        case .backupEligible:
+        var base: String
+        if pending.archiveOnly {
             base = String(
                 localized:
-                    "This permanently deletes the finalized capture and any export archive stored for it from this device. A copy already inside a device backup is managed by the system."
+                    "This permanently deletes the export archive for this capture from this device — it is the only local copy; no finalized bundle is stored here."
             )
-        case .excludedFromBackup:
-            base = String(
-                localized:
-                    "This permanently deletes the finalized capture and any export archive stored for it from this device. Nothing is uploaded or backed up by this app."
-            )
+        } else {
+            switch appSettings.storagePrivacy.finalizedBackupPolicy {
+            case .backupEligible:
+                base = String(
+                    localized:
+                        "This permanently deletes the finalized capture and any export archive stored for it from this device. A copy already inside a device backup is managed by the system."
+                )
+            case .excludedFromBackup:
+                base = String(
+                    localized:
+                        "This permanently deletes the finalized capture and any export archive stored for it from this device. Nothing is uploaded or backed up by this app."
+                )
+            }
         }
         // Lineage-aware deletion (issue #396): a revision that still
         // has descendants naming it parent gets the extra warning.
-        guard pending.descendantCount > 0 else {
-            return base
-        }
-        return base + " " + captureCountPhrase(
-            pending.descendantCount,
-            singular: String(
-                localized: "%lld revision declares it as its parent — its lineage link will no longer resolve."
-            ),
-            plural: String(
-                localized: "%lld revisions declare it as their parent — their lineage links will no longer resolve."
+        if pending.descendantCount > 0 {
+            base += " " + captureCountPhrase(
+                pending.descendantCount,
+                singular: String(
+                    localized: "%lld revision declares it as its parent — its lineage link will no longer resolve."
+                ),
+                plural: String(
+                    localized: "%lld revisions declare it as their parent — their lineage links will no longer resolve."
+                )
             )
-        )
+        }
+        // Retention warnings (#394): receipts, mission links, and
+        // only-local-copy are advisory context, not blocks.
+        for warning in pending.warnings {
+            base += " " + warning.deletionSummary
+        }
+        return base
     }
 
     /// Failed-capture retained-evidence detail (#224), extracted from

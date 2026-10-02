@@ -454,13 +454,17 @@ public enum CaptureLibraryRetentionPlanner {
             }
         }
 
-        // Prune in one write: the emptied series entry/state and the
-        // deleted revisions' entries/marks leave no dangling rows in
-        // the metadata document.
+        // Prune in one write: the deleted revisions' entries/marks
+        // leave no dangling rows in the metadata document. The
+        // series entry/state and its preferred-head pick go only when
+        // every revision left — skipped or partially-removed
+        // revisions keep the series (and its name/archived state)
+        // alive.
         if !deleted.isEmpty {
             try? pruneSeries(
                 seriesID: seriesID,
                 deletedRevisionIDs: deleted,
+                seriesRemoved: skipped.isEmpty && remaining.isEmpty,
                 store: metadataStore
             )
         }
@@ -472,11 +476,16 @@ public enum CaptureLibraryRetentionPlanner {
         )
     }
 
-    /// Removes a series' metadata + lifecycle state and the deleted
-    /// revisions' entries/marks in a single document write.
-    private static func pruneSeries(
+    /// Removes the deleted revisions' metadata + marks in a single
+    /// document write. The series entry, its lifecycle state, and its
+    /// preferred-head pick are pruned only when the series itself is
+    /// gone; a still-alive series whose stored head was deleted drops
+    /// just that head entry. Shared by the series-delete path and the
+    /// single-revision delete so neither leaves dangling rows.
+    public static func pruneSeries(
         seriesID: CaptureSeriesID,
         deletedRevisionIDs: [CaptureRevisionID],
+        seriesRemoved: Bool,
         store: CaptureLibraryMetadataStore
     ) throws {
         var document = try store.load()
@@ -484,18 +493,30 @@ public enum CaptureLibraryRetentionPlanner {
         var revisions = document.revisions
         var states = document.seriesStates
         var marks = document.revisionMarks
-        series.removeValue(forKey: seriesID.description)
-        states.removeValue(forKey: seriesID.description)
+        var heads = document.preferredHeads
+        if seriesRemoved {
+            series.removeValue(forKey: seriesID.description)
+            states.removeValue(forKey: seriesID.description)
+            heads.removeValue(forKey: seriesID.description)
+        }
+        let deletedIDs = Set(deletedRevisionIDs.map(\.description))
         for id in deletedRevisionIDs {
             revisions.removeValue(forKey: id.description)
             marks.removeValue(forKey: id.description)
+        }
+        if !seriesRemoved,
+           let head = heads[seriesID.description],
+           deletedIDs.contains(head.preferredHeadRevisionID)
+        {
+            heads.removeValue(forKey: seriesID.description)
         }
         try store.save(
             CaptureLibraryMetadataDocument(
                 series: series,
                 revisions: revisions,
                 seriesStates: states,
-                revisionMarks: marks
+                revisionMarks: marks,
+                preferredHeads: heads
             )
         )
     }

@@ -50,7 +50,7 @@ public struct SpatialCaptureActions {
     public let setConnectedSpaceIntent: (Bool) -> Void
     public let beginConnectedSegment: (String, CaptureRegionKind) -> Void
     public let completeConnectedSegment: () -> Void
-    public let recordConnectedPortal: (CaptureRegionID) -> Void
+    public let recordConnectedPortal: (CaptureRegionID, CapturePortalKind) -> Void
     public let revisitConnectedRegion: (CaptureRegionID) -> Void
     public let selectCaptureStrategy: (CaptureStrategyIdentifier) -> Void
     public let recordFieldNote: (String, CaptureFieldNoteCategory, Bool, Bool, Bool, CaptureFieldNoteAnchorRequest) -> Void
@@ -119,7 +119,10 @@ public struct ReviewAuthoringActions {
     public let openingReviewCandidates: () async -> [RoomOpeningCandidate]?
     public let commitOpeningReview: ([RoomOpeningCandidate]) async -> Bool
     public let refreshReviewWorkspace: () -> Void
-    public let loadPersistedWorkspace: (PersistedCaptureRecord) -> Void
+    /// Loads a persisted capture into the read-only viewer —
+    /// `true` only when the load actually started (the guard can
+    /// refuse during other persisted operations).
+    public let loadPersistedWorkspace: (PersistedCaptureRecord) -> Bool
     public let suspendReview: () -> Void
     public let performRemediation: (CaptureRemediationAction) -> Void
     public let resolveRevisitFlag: ( String, ScanRevisitFlagResolution.Outcome, String? ) -> Void

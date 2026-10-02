@@ -319,7 +319,10 @@ public struct CaptureRevisitFlagStore: Sendable, Equatable {
     ) {
         precondition(maxFlagCount > 0)
         self.maxFlagCount = maxFlagCount
-        self.flags = document.flags
+        // A persisted document written against a larger cap (or
+        // corrupted) must not wedge `isFull` forever — keep the
+        // earliest flags and drop the overflow.
+        self.flags = Array(document.flags.prefix(maxFlagCount))
     }
 
     public var unresolvedFlags: [ScanRevisitFlag] {

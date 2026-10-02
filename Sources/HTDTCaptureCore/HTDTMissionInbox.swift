@@ -658,10 +658,18 @@ public struct HTDTMissionInboxStore: Sendable {
             payloadSHA256: parsed.payloadSHA256.value,
             planID: parsed.package.plan.planID,
             planVersion: parsed.package.plan.planVersion,
-            planSHA256: EvidenceIntegrity.sha256(
-                of: (try? JSONEncoder().encode(parsed.package.plan))
-                    ?? Data()
-            ).value,
+            // The digest must name the same bytes `planImport(for:)`
+            // hands the capture pipeline: a bare plan passes through
+            // verbatim, an envelope's embedded plan re-encodes — a
+            // single re-encode digest for both silently broke the
+            // progress-ledger gate on bare-plan missions.
+            planSHA256: parsed.derivedFromBarePlan
+                ? parsed.payloadSHA256.value
+                : EvidenceIntegrity.sha256(
+                    of: (try? JSONEncoder().encode(
+                        parsed.package.plan
+                    )) ?? Data()
+                ).value,
             projectRef: parsed.package.plan.projectRef,
             roomName: parsed.package.plan.roomName,
             issuedAtUTC: parsed.package.issuedAtUTC

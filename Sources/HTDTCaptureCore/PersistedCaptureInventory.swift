@@ -932,7 +932,8 @@ public struct PersistedCaptureInventory: Sendable {
                     of: $0,
                     failures: &sizingFailures
                 )
-            }
+            },
+            parentRevisionID: report.manifest.parentRevisionID
         )
     }
 
