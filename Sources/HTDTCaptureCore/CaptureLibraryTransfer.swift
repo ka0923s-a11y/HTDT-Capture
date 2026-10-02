@@ -201,6 +201,9 @@ public enum CaptureLibraryPackageExporter {
             },
             revisionMarks: metadata.revisionMarks.filter {
                 includedRevisions.contains($0.key)
+            },
+            preferredHeads: metadata.preferredHeads.filter {
+                includedSeries.contains($0.key)
             }
         )
         let filteredReceipts = HTDTHandoffReceiptStore.Document(
@@ -910,11 +913,21 @@ public enum CaptureLibraryImporter {
                     }
                     revisionMarks[key] = value
                 }
+                var preferredHeads = document.preferredHeads
+                for (key, value) in incoming.preferredHeads {
+                    guard importedSeries.contains(key),
+                          preferredHeads[key] == nil
+                    else {
+                        continue
+                    }
+                    preferredHeads[key] = value
+                }
                 document = CaptureLibraryMetadataDocument(
                     series: series,
                     revisions: revisions,
                     seriesStates: seriesStates,
-                    revisionMarks: revisionMarks
+                    revisionMarks: revisionMarks,
+                    preferredHeads: preferredHeads
                 )
                 try? store.save(document)
             }

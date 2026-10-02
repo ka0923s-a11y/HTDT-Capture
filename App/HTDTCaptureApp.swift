@@ -55,7 +55,8 @@ private struct HTDTCaptureHostView: View {
                 coordinator.operatorRoster,
             equipmentCatalogLibrary:
                 coordinator.equipmentCatalogLibrary,
-            taskPlan: coordinator.taskPlan,
+            taskPlan: coordinator.taskPlanForWorkspace,
+            taskPlanStatus: coordinator.taskPlanStatusBinding(),
             taskPlanMission: coordinator.taskPlanMission,
             workingSetIdentity:
                 coordinator.workingSetIdentity,
@@ -130,6 +131,7 @@ private struct HTDTCaptureHostView: View {
             handoffDestinations:
                 coordinator.handoffDestinations,
             handoffReceipts: coordinator.handoffReceipts,
+            allHandoffReceipts: coordinator.allHandoffReceipts,
             missionRecords: coordinator.missionRecords,
             activeMissionRecordID:
                 coordinator.activeMissionRecordID,
@@ -723,6 +725,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Receipts recorded for the adopted finalized revision (#225).
     @Published private(set)
     var handoffReceipts: [HTDTHandoffReceipt] = []
+    /// The full receipt ledger across every revision (#394): retention
+    /// previews must see receipts from *all* revisions — the
+    /// per-adopted `handoffReceipts` subset would under-report
+    /// `.handoffReceipts` warnings and falsely mark delivered
+    /// revisions `.onlyLocalCopy`.
+    var allHandoffReceipts: [HTDTHandoffReceipt] = []
     /// Mission inbox records (#386) and the record currently driving
     /// the capture, if any.
     @Published private(set)
@@ -994,6 +1002,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var persistedDeletionInFlight = false {
         didSet { syncActiveOperations() }
     }
+    /// Serializes batch export-archive deletes (#310): records queue
+    /// here while a drain task removes them one at a time under the
+    /// `persistedDeletionInFlight` flag.
+    private var pendingExportArchiveDeletions:
+        [PersistedCaptureRecord] = []
     private var importOperationInFlight = false {
         didSet { syncActiveOperations() }
     }
@@ -1039,6 +1052,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         if exportDiagnosticsInFlight {
             operations.insert(.exportDiagnostics)
+        }
+        if semanticCorrectionInFlight {
+            operations.insert(.semanticCorrection)
         }
         activeOperations = operations
         if operations.isEmpty {
@@ -1130,6 +1146,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// the next `beginCapture` resets it.
     private var taskPlanStrategyOverride:
         (identifier: CaptureStrategyIdentifier, pinned: Bool)?
+    /// The operator's picker selection before a task plan's strategy
+    /// recommendation overrode it — restored when the override clears.
+    private var taskPlanStrategyPriorSelection:
+        CaptureStrategyIdentifier?
     /// The strategy actually used for the active scan — resolved at
     /// `beginCapture` so mid-scan setup edits cannot change budgets.
     private var activeCaptureStrategy: CaptureStrategyProfile =
@@ -1147,7 +1167,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var storageSampleTask: Task<Void, Never>?
     /// Parent record the semantic-correction sheet is editing (#319).
     private var semanticCorrectionParent: PersistedCaptureRecord?
-    private var semanticCorrectionInFlight = false
+    /// A semantic-child build stages under `working/` while no store
+    /// is bound — the inventory scan would classify it as an orphan,
+    /// so the in-flight flag both publishes the busy state and
+    /// blocks the orphan-remove / draft-open paths (#319).
+    private var semanticCorrectionInFlight = false {
+        didSet { syncActiveOperations() }
+    }
     /// Whether the display idle-timer override is currently held for
     /// this capture (#272). Restored on every transition out of
     /// `.scanning`, so failure/End/reset paths cannot leak it.
@@ -1399,6 +1425,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard state == .idle,
               !persistedAdoptionInFlight,
               !persistedDeletionInFlight,
+              !persistedWorkspaceLoadInFlight,
               !importOperationInFlight,
               let store = persistedStore
         else {
@@ -1462,6 +1489,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
             self.beginCapture(revisionLineage: lineage)
+            if self.state == .idle {
+                // `beginCapture` refused on an in-flight guard — the
+                // "Revalidating" status must not stay frozen.
+                self.workingSetStatus = String(localized: "The correction capture could not be started while another library operation is in flight")
+            }
         }
     }
 
@@ -1470,8 +1502,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// identity is the lineage authority; the host returns to idle and
     /// begins a fresh scan in a new revision of the same series (#155).
     func reviseAdoptedCapture() {
+        // The in-flight guards run before `resetCapture` — refusing
+        // after the reset would dump the operator to idle with no
+        // capture and no explanation.
         guard state == .finalized || state == .exported,
-              let manifest = validationReport?.manifest
+              let manifest = validationReport?.manifest,
+              !persistedAdoptionInFlight,
+              !persistedDeletionInFlight,
+              !persistedWorkspaceLoadInFlight,
+              !importOperationInFlight
         else {
             return
         }
@@ -1484,6 +1523,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
         beginCapture(revisionLineage: lineage)
+        if state == .idle {
+            workingSetStatus = String(localized: "The correction capture could not be started while another library operation is in flight")
+        }
     }
 
     private func beginCapture(
@@ -1496,7 +1538,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard state == .idle,
               !importOperationInFlight,
               !persistedAdoptionInFlight,
-              !persistedDeletionInFlight
+              !persistedDeletionInFlight,
+              !persistedWorkspaceLoadInFlight
         else {
             return
         }
@@ -3414,6 +3457,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         rootDirectory: URL,
         identity: CaptureWorkingSetIdentity
     ) {
+        // The active-mission id is store-derived — refresh it before
+        // the restore decides whether channel A re-arms.
+        refreshMissionDeliveryStores()
         // Reopening a draft must not inherit mission state staged by a
         // previous session in this process — every piece repopulates
         // only from the recovered working set's own documents.
@@ -3479,6 +3525,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 boundTaskPlanStatus = status
             }
             captureTaskPlanStatus = status
+            applyTaskPlanStrategy(planImport.plan)
+            // A draft reopened while its mission is still active
+            // re-arms the journey-summary channel — `taskPlan` is
+            // session memory cleared on relaunch, but the mission's
+            // plan is durable inside the working set.
+            if activeMissionRecordID != nil {
+                taskPlan = planImport.plan
+                taskPlanSHA256 = planImport.planSHA256
+            }
         }
 
         if let data = dataAt(HTDTAsBuiltPlanImport.path),
@@ -4550,8 +4605,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                                     catalog: equipmentCatalog,
                                     identityRecords:
                                         identityRecords,
-                                    taskPlan: taskPlan,
-                                    taskPlanSHA256: taskPlanSHA256,
+                                    taskPlan: taskPlan
+                                        ?? captureTaskPlan,
+                                    taskPlanSHA256: taskPlanSHA256
+                                        ?? captureTaskPlanImport?
+                                            .planSHA256,
                                     generatedAtUTC:
                                         BundleTimestamp.utcString(
                                             from: Date()
@@ -5372,15 +5430,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         captureSetup = nil
         deviceReadiness = nil
         stopDeviceReadinessObserving()
-        reviewWorkspace = nil
-        taskPlanMission = nil
-        persistedWorkspace = nil
-        persistedWorkspaceRoomPlanObjects = []
-        persistedWorkspaceLoadFailed = false
-        roomFrameOriginPending = nil
-        openingCenterPending = nil
-        danglingSpatialIssues = []
-        failedInspection = nil
         resourceMonitor?.stop()
         resourceMonitor = nil
         workingSetStatus =
@@ -5502,6 +5551,133 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         beginCapture()
     }
 
+    /// Shared field-for-field teardown mirroring resetCaptureImpl —
+    /// called by the teardown paths that do not re-enter the reset
+    /// transition (discardActiveCapture, suspendReviewAndFinishLater).
+    /// Per-capture mission runtime, annotation carry-overs, and scan
+    /// residue clear here or they leak into the next capture. Mission
+    /// *inputs* stay set on purpose: `beginCapture` deliberately
+    /// carries `captureTaskPlan*`, `asBuiltPlan*`, the plan underlay,
+    /// and the armed repair row into the retried revision
+    /// (#353/#321), and a suspended draft repopulates them from the
+    /// persisted import docs on reopen. The mission pointer
+    /// (`taskPlan`) is mission-lifetime and survives too.
+    private func clearVolatileCaptureState() {
+        sessionController = SharedARSessionController()
+        workingSetStore = nil
+        finalizedRevision = nil
+        qualityReport = nil
+        advisoryReport = nil
+        taskProfile = nil
+        skippedTaskRequirementIDs = []
+        validationReport = nil
+        exportURL = nil
+        annotationAuthorityCommitted = false
+        annotationEvidenceRefs = []
+        annotationEvidenceFrames = []
+        annotationRoomPlanObjects = []
+        annotationRoomPlanObjectsLoaded = false
+        annotationRoomPlanSurfaces = []
+        annotationMeshAnchors = []
+        annotationRetentionKinds = [:]
+        spatialPlausibilityContext = SpatialPlausibilityContext()
+        spatialPlausibilityFindings = nil
+        committedIdentityDocData = nil
+        boundTaskPlanStatus = nil
+        pendingTaskPlanImport = nil
+        pendingTaskPlanImportError = nil
+        taskPlanMission = nil
+        missionTaskPlanOutcomes = []
+        asBuiltSession = nil
+        asBuiltItems = []
+        asBuiltAlignmentInstalled = false
+        asBuiltActualCandidates = []
+        connectedSpaceIntent = false
+        connectedSpaceTracker = nil
+        roomFrameAvailable = false
+        persistedRepairLinkRevisionID = nil
+        semanticCorrectionContext = nil
+        semanticCorrectionParent = nil
+        activeRevisionLineage = nil
+        workingSetIdentity = nil
+        annotationRevisionSeed = nil
+        pendingFieldAuthority = FieldAuthorityWorkspace()
+        annotationEditIsRevision = false
+        captureStartTimingCorrelation = nil
+        acceptedRoomPlanRawSHA256 = nil
+        acceptedEndMeshWasPersisted = false
+        annotationCommitInFlight = false
+        reviewOperationInFlight = false
+        exportOperationInFlight = false
+        spatialAuthoritySealedForFinalization = false
+        workingSetSpatialAuthorityLive = true
+        recoveredDraftReport = nil
+        practiceCaptureActive = false
+        activeCaptureIsPractice = false
+        finalizationCommit.reset()
+        scanCoverageTracker = AdvisoryScanCoverageTracker()
+        scanCoverage = .empty
+        observationStabilityTracker = ObservationStabilityTracker()
+        observationStability = .empty
+        spatialCoverageAggregator = SpatialScanCoverageAggregator()
+        spatialCoverage = .empty
+        motionGuidanceTracker = ScanMotionGuidanceTracker()
+        motionGuidance = nil
+        scanGuidanceProgress = .empty
+        derivedShapePreview = .empty
+        targetedObjectProxies = []
+        bestDerivedObjectProxies = []
+        targetedObjectFusionTracker.reset()
+        derivedObjectFusionTracker.reset()
+        derivedVolumeFusionTracker.reset()
+        derivedWallFusionTracker.reset()
+        derivedPreviewSuspendedForMemoryPressure = false
+        scanEvidenceFrameCount = 0
+        scanDepthEvidenceCount = 0
+        endScanGuidance = nil
+        endScanPreflightBlocked = false
+        reviewWorkspace = nil
+        persistedWorkspace = nil
+        persistedWorkspaceRoomPlanObjects = []
+        persistedWorkspaceLoadFailed = false
+        roomFrameOriginPending = nil
+        openingCenterPending = nil
+        danglingSpatialIssues = []
+        failedInspection = nil
+        handoffDestinations = []
+        handoffReceipts = []
+        loopClosureCheckActive = false
+        loopClosureAssessment = nil
+        loopClosureLastAssessment = nil
+        loopClosureOutcome = nil
+        latestScanTimestampSeconds = nil
+        lowLightGuidanceActive = false
+        declaredRegionList = []
+        operatorRegionDeclarations = OperatorRegionDeclarations()
+        revisitFlagStore = CaptureRevisitFlagStore()
+        revisitFlags = []
+        scanLightingStatus = .unknown
+        automaticEvidenceFrameCount = 0
+        automaticKeyframePersistedBytes = 0
+        automaticKeyframeTracker = AutomaticKeyframeTracker()
+        automaticFrameSaveTask?.cancel()
+        automaticFrameSaveTask = nil
+        cameraPermission = CameraPermissionController.currentStatus()
+        capabilities = PlatformCapabilityProbe.current()
+        captureSetup = nil
+        deviceReadiness = nil
+        resourceEventTask = nil
+        // The strategy pin tracks whichever plan input survives; when
+        // none does (no mission, no imported plan) it is stale.
+        if taskPlan == nil, captureTaskPlan == nil {
+            clearTaskPlanStrategyOverride()
+        }
+        scanTrackingTransitionGate.reset()
+        isEndingScan = false
+        isCapturingEvidenceFrame = false
+        evidenceFrameSaveTask = nil
+    }
+
     /// Operator-initiated discard of the active capture (issue #254):
     /// scanning, review, or annotation state. The caller must
     /// have already shown a confirmation; this fence is terminal —
@@ -5546,67 +5722,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // Reuse the full reset teardown (same field-for-field cleanup as
         // a failed-capture reset) without re-entering transition: the
         // state machine is already at .idle.
-        sessionController = SharedARSessionController()
-        workingSetStore = nil
-        finalizedRevision = nil
-        qualityReport = nil
-        validationReport = nil
-        exportURL = nil
-        annotationAuthorityCommitted = false
-        annotationEvidenceRefs = []
-        activeRevisionLineage = nil
-        workingSetIdentity = nil
-        annotationRevisionSeed = nil
-        pendingFieldAuthority = FieldAuthorityWorkspace()
-        annotationEditIsRevision = false
-        captureStartTimingCorrelation = nil
-        acceptedRoomPlanRawSHA256 = nil
-        acceptedEndMeshWasPersisted = false
-        annotationCommitInFlight = false
-        reviewOperationInFlight = false
-        exportOperationInFlight = false
-        spatialAuthoritySealedForFinalization = false
-        planUnderlayDocument = nil
-        semanticCorrectionContext = nil
-        semanticCorrectionParent = nil
-        workingSetSpatialAuthorityLive = true
-        recoveredDraftReport = nil
-        practiceCaptureActive = false
-        activeCaptureIsPractice = false
-        finalizationCommit.reset()
-        scanCoverageTracker = AdvisoryScanCoverageTracker()
-        scanCoverage = .empty
-        observationStabilityTracker = ObservationStabilityTracker()
-        observationStability = .empty
-        spatialCoverageAggregator = SpatialScanCoverageAggregator()
-        spatialCoverage = .empty
-        motionGuidanceTracker = ScanMotionGuidanceTracker()
-        motionGuidance = nil
-        scanGuidanceProgress = .empty
-        derivedShapePreview = .empty
-        targetedObjectProxies = []
-        bestDerivedObjectProxies = []
-        targetedObjectFusionTracker.reset()
-        derivedPreviewSuspendedForMemoryPressure = false
-        scanEvidenceFrameCount = 0
-        scanDepthEvidenceCount = 0
-        endScanGuidance = nil
-        endScanPreflightBlocked = false
-        reviewWorkspace = nil
-        taskPlanMission = nil
-        persistedWorkspace = nil
-        persistedWorkspaceRoomPlanObjects = []
-        persistedWorkspaceLoadFailed = false
-        roomFrameOriginPending = nil
-        openingCenterPending = nil
-        danglingSpatialIssues = []
-        failedInspection = nil
-        handoffDestinations = []
-        handoffReceipts = []
-        scanTrackingTransitionGate.reset()
-        isEndingScan = false
-        isCapturingEvidenceFrame = false
-        evidenceFrameSaveTask = nil
+        clearVolatileCaptureState()
         workingSetStatus = String(localized: "Discarding the working revision")
 
         if let discardedStore {
@@ -5643,7 +5759,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
               workingSetStore == nil,
               !persistedAdoptionInFlight,
               !persistedDeletionInFlight,
-              !importOperationInFlight
+              !persistedWorkspaceLoadInFlight,
+              !importOperationInFlight,
+              !semanticCorrectionInFlight
         else {
             return
         }
@@ -5725,6 +5843,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     rootDirectory: snapshot.rootDirectory,
                     identity: snapshot.identity
                 )
+                // Mission truth (item outcomes, as-built candidates,
+                // room-frame availability) is recomputed from the
+                // restored documents — without this the reopened
+                // draft's checklist renders every item pending while
+                // the persisted status says otherwise.
+                await self.refreshMissionOutcomes()
                 // Retention kinds persisted with the checkpoint — a
                 // recovered draft labels the picker's entries the same
                 // way the live session did (#255).
@@ -5796,78 +5920,33 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        sessionController = SharedARSessionController()
-        workingSetStore = nil
-        finalizedRevision = nil
-        qualityReport = nil
-        advisoryReport = nil
-        taskProfile = nil
-        skippedTaskRequirementIDs = []
-        validationReport = nil
-        exportURL = nil
-        annotationAuthorityCommitted = false
-        annotationEvidenceRefs = []
-        annotationEvidenceFrames = []
-        annotationRoomPlanObjects = []
-        annotationRoomPlanObjectsLoaded = false
-        spatialPlausibilityContext = SpatialPlausibilityContext()
-        spatialPlausibilityFindings = nil
-        annotationRetentionKinds = [:]
-        committedIdentityDocData = nil
         // Draft autosaves bound to this revision stay on disk (#266):
         // the draft is meant to be reopened, so unlike
         // discard/reset this does not purge the annotation-draft
-        // store.
-        annotationRoomPlanSurfaces = []
-        annotationMeshAnchors = []
-        activeRevisionLineage = nil
-        workingSetIdentity = nil
-        annotationRevisionSeed = nil
-        annotationEditIsRevision = false
-        captureStartTimingCorrelation = nil
-        acceptedRoomPlanRawSHA256 = nil
-        acceptedEndMeshWasPersisted = false
-        annotationCommitInFlight = false
-        reviewOperationInFlight = false
-        exportOperationInFlight = false
-        spatialAuthoritySealedForFinalization = false
-        workingSetSpatialAuthorityLive = true
-        recoveredDraftReport = nil
-        practiceCaptureActive = false
-        activeCaptureIsPractice = false
-        finalizationCommit.reset()
-        scanCoverageTracker = AdvisoryScanCoverageTracker()
-        scanCoverage = .empty
-        observationStabilityTracker = ObservationStabilityTracker()
-        observationStability = .empty
-        spatialCoverageAggregator = SpatialScanCoverageAggregator()
-        spatialCoverage = .empty
-        motionGuidanceTracker = ScanMotionGuidanceTracker()
-        motionGuidance = nil
-        scanGuidanceProgress = .empty
-        derivedShapePreview = .empty
-        targetedObjectProxies = []
-        bestDerivedObjectProxies = []
-        targetedObjectFusionTracker.reset()
-        derivedPreviewSuspendedForMemoryPressure = false
-        scanEvidenceFrameCount = 0
-        scanDepthEvidenceCount = 0
-        endScanGuidance = nil
-        endScanPreflightBlocked = false
-        reviewWorkspace = nil
-        persistedWorkspace = nil
-        persistedWorkspaceRoomPlanObjects = []
-        persistedWorkspaceLoadFailed = false
-        roomFrameOriginPending = nil
-        openingCenterPending = nil
-        danglingSpatialIssues = []
-        failedInspection = nil
-        handoffDestinations = []
-        handoffReceipts = []
-        scanTrackingTransitionGate.reset()
-        isEndingScan = false
-        isCapturingEvidenceFrame = false
-        evidenceFrameSaveTask = nil
+        // store. Mission-derived payloads (task-plan status,
+        // connected-space map, as-built verdicts) only land at
+        // finalize otherwise, so persist them now — a reopen then
+        // repopulates review-time mission progress from durable docs
+        // instead of relying on in-memory carry-over.
+        let missionStore = workingSetStore
+        let missionRevisionID = workingSetIdentity?.captureRevisionID
+        let missionContext = sessionController.context
+        let missionTaskPlanStatus = captureTaskPlanStatus
+        let missionConnectedTracker = connectedSpaceTracker
+        let missionAsBuiltSession = asBuiltSession
+        clearVolatileCaptureState()
+        if let missionStore, let missionRevisionID {
+            Task {
+                await self.persistMissionDerivedDocuments(
+                    store: missionStore,
+                    revisionID: missionRevisionID,
+                    context: missionContext,
+                    taskPlanStatus: missionTaskPlanStatus,
+                    connectedTracker: missionConnectedTracker,
+                    asBuiltSession: missionAsBuiltSession
+                )
+            }
+        }
         workingSetStatus = String(localized: "Draft saved; reopen it any time from Recoverable drafts")
         loadPersistedCaptures()
     }
@@ -5887,6 +5966,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
               !persistedDeletionInFlight,
               !persistedAdoptionInFlight,
               !importOperationInFlight,
+              !semanticCorrectionInFlight,
               let store = persistedStore
         else {
             return
@@ -6116,7 +6196,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         annotations: model.annotations,
                         measurements: model.measurements,
                         authorities: authorities,
-                        committedEvidenceRefs: annotationEvidenceRefs
+                        committedEvidenceRefs: annotationEvidenceRefs,
+                        status: (boundTaskPlanStatus
+                            ?? captureTaskPlanStatus).flatMap {
+                                $0.planImport.plan.planID
+                                    == taskPlan.planID
+                                    && $0.planImport.plan.planVersion
+                                        == taskPlan.planVersion
+                                    ? $0 : nil
+                            }
                     )
             } else {
                 self.taskPlanMission = nil
@@ -6519,9 +6607,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Loads the read-only persisted-capture workspace for a validated
     /// finalized record (issue #294). Runs off the main actor.
+    /// `true` only when the decode actually launched — callers push
+    /// the viewer only then, so a refused call never strands the
+    /// operator on a spinner.
+    @discardableResult
     func loadPersistedWorkspace(
         _ record: PersistedCaptureRecord
-    ) {
+    ) -> Bool {
         // #309: the read-only open had no in-flight guard at all —
         // every tap re-launched the decode. Guard + mark the row busy.
         guard state == .idle || state == .finalized
@@ -6530,7 +6622,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
               !persistedAdoptionInFlight,
               !persistedDeletionInFlight
         else {
-            return
+            return false
         }
         persistedWorkspaceLoadInFlight = true
         operationTargetRevisionID = record.captureRevisionID
@@ -6597,6 +6689,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     )
                 )
             }.value
+            // The decode is detached: a state change while it ran
+            // (capture started, capture deleted) means the model is
+            // stale — never stamp it over the new session.
+            guard self.state == .idle || self.state == .finalized
+                    || self.state == .exported
+            else {
+                return
+            }
             self.persistedWorkspace = loaded.0
             self.persistedWorkspaceRoomPlanObjects = loaded.1
             let model = loaded.0
@@ -6605,6 +6705,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.workingSetStatus = String(localized: "The persisted capture could not be opened read-only")
             }
         }
+        return true
     }
 
     /// Metadata-only comparison of the adopted finalized revision with
@@ -7299,6 +7400,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             activeMissionRecordID = nil
             pairedDestinations = []
             deliveryJobs = []
+            allHandoffReceipts = []
             return
         }
         let inbox = HTDTMissionInboxStore(captureRoot: captureRoot)
@@ -7314,6 +7416,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         missionRecords = (try? inbox.records()) ?? []
         let activeRecord = try? inbox.activeMissionRecord()
         activeMissionRecordID = activeRecord?.recordID
+        allHandoffReceipts = (try? HTDTHandoffReceiptStore(
+            captureRoot: captureRoot
+        ).load().receipts) ?? []
         pairedDestinations = (try? PairedHTDTDestinationStore(
             captureRoot: captureRoot
         ).load().destinations) ?? []
@@ -7388,7 +7493,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         _ seriesID: CaptureSeriesID,
         _ revisionID: CaptureRevisionID?
     ) {
-        guard let captureRoot = Self.captureRootDirectory()
+        guard state == .idle,
+              let captureRoot = Self.captureRootDirectory()
         else {
             return
         }
@@ -7722,6 +7828,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             taskPlan = resume.planImport.plan
             taskPlanSHA256 = resume.planImport.planSHA256
+            // #386/#353: the mission's plan must also enter the
+            // capture pipeline's imported-plan channel — the
+            // checklist entry, the review mission section, item
+            // marks, and the persisted status document all read this
+            // channel; binding only the journey-summary fields left
+            // every one of them hollow.
+            captureTaskPlanImport = resume.planImport
+            captureTaskPlan = resume.planImport.plan
+            captureTaskPlanStatus = CaptureTaskPlanStatus(
+                planImport: resume.planImport
+            )
+            applyTaskPlanStrategy(resume.planImport.plan)
             refreshMissionDeliveryStores()
             beginCapture()
         } catch {
@@ -7784,6 +7902,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         try? missionInboxStore?.pauseActiveMission()
         taskPlan = nil
         taskPlanSHA256 = nil
+        clearTaskPlanStrategyOverride()
         refreshMissionDeliveryStores()
     }
 
@@ -7968,36 +8087,63 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Delivery queue operator controls (#387).
+    /// Delivery queue operator controls (#387). A rejected mutation
+    /// surfaces as a status line instead of vanishing behind `try?` —
+    /// the operator must know the job state did not change.
     func deliveryRetryNow(_ jobID: String) async {
-        try? deliveryQueueStore?.retryNow(jobID: jobID)
-        _ = await deliveryQueueStore?.processDueJobs(
-            receiptStore: handoffReceiptStore()
-        )
-        refreshMissionDeliveryStores()
+        do {
+            try deliveryQueueStore?.retryNow(jobID: jobID)
+            _ = await deliveryQueueStore?.processDueJobs(
+                receiptStore: handoffReceiptStore()
+            )
+            refreshMissionDeliveryStores()
+        } catch {
+            workingSetStatus = String(localized: "The delivery job could not be updated")
+                + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
     }
 
     func deliveryPause(_ jobID: String) async {
-        try? deliveryQueueStore?.pause(jobID: jobID)
-        refreshMissionDeliveryStores()
+        do {
+            try deliveryQueueStore?.pause(jobID: jobID)
+            refreshMissionDeliveryStores()
+        } catch {
+            workingSetStatus = String(localized: "The delivery job could not be updated")
+                + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
     }
 
     func deliveryResume(_ jobID: String) async {
-        try? deliveryQueueStore?.resume(jobID: jobID)
-        _ = await deliveryQueueStore?.processDueJobs(
-            receiptStore: handoffReceiptStore()
-        )
-        refreshMissionDeliveryStores()
+        do {
+            try deliveryQueueStore?.resume(jobID: jobID)
+            _ = await deliveryQueueStore?.processDueJobs(
+                receiptStore: handoffReceiptStore()
+            )
+            refreshMissionDeliveryStores()
+        } catch {
+            workingSetStatus = String(localized: "The delivery job could not be updated")
+                + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
     }
 
     func deliveryCancel(_ jobID: String) async {
-        try? deliveryQueueStore?.cancel(jobID: jobID)
-        refreshMissionDeliveryStores()
+        do {
+            try deliveryQueueStore?.cancel(jobID: jobID)
+            refreshMissionDeliveryStores()
+        } catch {
+            workingSetStatus = String(localized: "The delivery job could not be updated")
+                + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
     }
 
     func deliveryPurgePayload(_ jobID: String) async {
-        try? deliveryQueueStore?.purgePayload(jobID: jobID)
-        refreshMissionDeliveryStores()
+        do {
+            try deliveryQueueStore?.purgePayload(jobID: jobID)
+            refreshMissionDeliveryStores()
+        } catch {
+            workingSetStatus = String(localized: "The delivery job could not be updated")
+                + " [" + Self.persistenceDiagnostic(error) + "]"
+        }
     }
 
     private func handoffReceiptStore()
@@ -8116,12 +8262,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// finalized capture (issue #251). Refuses when the finalized copy
     /// no longer exists on disk — the archive is the last copy, which
     /// is exactly the case where deleting it would lose the capture.
+    /// Batch callers enqueue per record; one drain task runs the
+    /// deletes serially so a second tap is never silently dropped.
     func deleteExportArchive(
         _ record: PersistedCaptureRecord
     ) {
-        guard let store = persistedStore,
-              !persistedDeletionInFlight
-        else {
+        guard let store = persistedStore else {
+            return
+        }
+        pendingExportArchiveDeletions.append(record)
+        guard !persistedDeletionInFlight else {
             return
         }
         persistedDeletionInFlight = true
@@ -8129,20 +8279,38 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.persistedDeletionInFlight = false }
-            do {
-                let removed = try await Task.detached(
-                    priority: .userInitiated
-                ) {
-                    try store.deleteExportArchive(
-                        captureRevisionID:
-                            record.captureRevisionID
-                    )
-                }.value
-                self.workingSetStatus = removed
+            var processed = 0
+            var removed = 0
+            var lastError: Error?
+            while !self.pendingExportArchiveDeletions.isEmpty {
+                let current =
+                    self.pendingExportArchiveDeletions.removeFirst()
+                processed += 1
+                do {
+                    let didRemove = try await Task.detached(
+                        priority: .userInitiated
+                    ) {
+                        try store.deleteExportArchive(
+                            captureRevisionID:
+                                current.captureRevisionID
+                        )
+                    }.value
+                    if didRemove {
+                        removed += 1
+                    }
+                } catch {
+                    lastError = error
+                }
+            }
+            if processed <= 1, let lastError {
+                self.workingSetStatus = String(localized: "The export archive could not be deleted") + " [" + Self.persistenceDiagnostic(lastError) + "]"
+            } else if processed <= 1 {
+                self.workingSetStatus = removed == 1
                     ? String(localized: "Export archive deleted; the finalized capture is unchanged")
                     : String(localized: "No export archive existed to delete")
-            } catch {
-                self.workingSetStatus = String(localized: "The export archive could not be deleted") + " [" + Self.persistenceDiagnostic(error) + "]"
+            } else {
+                self.workingSetStatus = String(localized: "Export archives deleted: ") + "\(removed)/\(processed)"
+                    + (lastError != nil ? String(localized: " (some could not be deleted)") : "")
             }
             self.loadPersistedCaptures()
         }
@@ -8156,7 +8324,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         seriesID: CaptureSeriesID?,
         metadata: CaptureLibraryEntryMetadata
     ) {
-        guard let captureRoot = Self.captureRootDirectory()
+        guard state == .idle,
+              let captureRoot = Self.captureRootDirectory()
         else {
             return
         }
@@ -8274,9 +8443,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func openPersistedCapture(
         _ captureRevisionID: CaptureRevisionID
     ) {
+        // Deliberately no `!importOperationInFlight` here: the import
+        // path calls this to auto-open the promoted revision while its
+        // own defer has not yet cleared the flag.
         guard state == .idle,
               !persistedAdoptionInFlight,
               !persistedDeletionInFlight,
+              !persistedWorkspaceLoadInFlight,
               let store = persistedStore
         else {
             return
@@ -8399,6 +8572,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
         }
 
+        // The revision's metadata rows, mark, and any preferred-head
+        // pick naming it must leave no dangling rows: the series rows
+        // go only when this was the series' last member.
+        let deletedRecord = persistedInventory.captures.first {
+            $0.captureRevisionID == captureRevisionID
+        }
+        let seriesRemoved = deletedRecord.map { record in
+            persistedInventory.captures.filter {
+                $0.captureSeriesID == record.captureSeriesID
+            }.count <= 1
+        } ?? false
+
         persistedDeletionInFlight = true
         operationTargetRevisionID = captureRevisionID
         workingSetStatus = String(localized: "Deleting local capture data")
@@ -8416,6 +8601,23 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }.value
 
             self.persistedDeletionInFlight = false
+
+            if result.succeeded,
+               let deletedRecord,
+               let captureRoot = Self.captureRootDirectory()
+            {
+                try? CaptureLibraryRetentionPlanner.pruneSeries(
+                    seriesID: deletedRecord.captureSeriesID,
+                    deletedRevisionIDs: [captureRevisionID],
+                    seriesRemoved: seriesRemoved,
+                    store: CaptureLibraryMetadataStore(
+                        captureRoot: captureRoot
+                    )
+                )
+                libraryMetadata = (try? CaptureLibraryMetadataStore(
+                    captureRoot: captureRoot
+                ).load()) ?? libraryMetadata
+            }
 
             if isAdopted,
                self.state == .finalized
@@ -8464,10 +8666,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        persistedDeletionInFlight = true
         Task { @MainActor [weak self] in
             guard let self else {
                 return
             }
+            defer { self.persistedDeletionInFlight = false }
             do {
                 try await Task.detached(
                     priority: .userInitiated
@@ -8502,6 +8706,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
               !persistedDeletionInFlight,
               !persistedAdoptionInFlight,
               !importOperationInFlight,
+              !semanticCorrectionInFlight,
               let store = persistedStore
         else {
             return
@@ -8557,6 +8762,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard !importOperationInFlight,
               !persistedAdoptionInFlight,
               !persistedDeletionInFlight,
+              !persistedWorkspaceLoadInFlight,
               let store = persistedStore
         else {
             return
@@ -8598,7 +8804,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     revisionID: CaptureRevisionID,
                     bundleDigest: EvidenceSHA256,
                     promoted: Bool,
-                    archiveStored: Bool
+                    archiveStored: Bool,
+                    conflictingDigest: Bool
                 ) in
                     // Validation runs before the manifest identity is
                     // used; the importer validates again internally
@@ -8615,9 +8822,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     guard !FileManager.default.fileExists(
                         atPath: destination.path
                     ) else {
+                        // Same revision ID is not proof of same
+                        // bytes: compare the stored bundle digest so
+                        // a conflicting archive is not mislabeled as
+                        // a harmless re-import.
+                        let existingDigest = store
+                            .validatedRecord(
+                                captureRevisionID: revisionID
+                            )?
+                            .finalizedValidation?.bundleDigest
                         return (
                             revisionID, report.bundleDigest, false,
-                            false
+                            false,
+                            existingDigest != report.bundleDigest
                         )
                     }
 
@@ -8648,7 +8865,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     }
                     return (
                         revisionID, report.bundleDigest, true,
-                        archiveStored
+                        archiveStored, false
                     )
                 }.value
 
@@ -8683,7 +8900,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.loadPersistedCaptures()
                 self.workingSetStatus = imported.promoted
                     ? String(localized: "Validated capture archive imported")
-                    : String(localized: "This capture revision is already stored locally")
+                    : imported.conflictingDigest
+                        ? String(localized: "A different or unreadable capture already uses this revision ID — the archive was not imported")
+                        : String(localized: "This capture revision is already stored locally")
                 if imported.promoted && !imported.archiveStored {
                     self.workingSetStatus +=
                         String(localized: " (archive copy was not retained in exports)")
@@ -8793,6 +9012,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard !importOperationInFlight,
               !persistedAdoptionInFlight,
               !persistedDeletionInFlight,
+              !persistedWorkspaceLoadInFlight,
               persistedStore != nil,
               let captureRoot = Self.captureRootDirectory()
         else {
@@ -8871,7 +9091,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// deduped.
     func confirmLibraryImport() {
         guard let preview = libraryImportPreview,
+              state == .idle,
               !importOperationInFlight,
+              !persistedAdoptionInFlight,
+              !persistedDeletionInFlight,
+              !persistedWorkspaceLoadInFlight,
               let captureRoot = Self.captureRootDirectory()
         else {
             return
@@ -8932,8 +9156,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Dismisses the staged library preview and removes its staging
-    /// directory (#378).
+    /// directory (#378). Refused while the commit is in flight —
+    /// discarding the staging directory under a running importer
+    /// fails the import as if the package were corrupt.
     func dismissLibraryImport() {
+        guard !importOperationInFlight else {
+            return
+        }
         if let preview = libraryImportPreview {
             try? CaptureLibraryImporter.discard(preview: preview)
         }
@@ -8943,11 +9172,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// #378: exports every persisted capture — active and archived —
     /// plus filtered metadata and receipts as one
-    /// `.htdtcapturelibrary` package under `exports/` for sharing.
+    /// `.htdtcapturelibrary` package under `derived-exports/` for
+    /// sharing — `exports/` is scanned by the inventory, which
+    /// quarantines anything that is not a `.htdtcapture` archive.
     func exportLibraryPackage() {
         guard let captureRoot = Self.captureRootDirectory(),
+              state == .idle,
               persistedStore != nil,
-              !exportOperationInFlight
+              !exportOperationInFlight,
+              !importOperationInFlight,
+              !persistedAdoptionInFlight,
+              !persistedDeletionInFlight,
+              !persistedWorkspaceLoadInFlight
         else {
             return
         }
@@ -8955,10 +9191,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         workingSetStatus = String(localized: "Exporting the capture library")
         let records = persistedInventory.captures
         let metadata = libraryMetadata
-        let receipts = handoffReceipts
+        let receipts = allHandoffReceipts
         let destination = captureRoot
             .appendingPathComponent(
-                "exports",
+                "derived-exports",
                 isDirectory: true
             )
             .appendingPathComponent(
@@ -9029,7 +9265,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         _ seriesID: CaptureSeriesID,
         archived: Bool
     ) {
-        guard let captureRoot = Self.captureRootDirectory()
+        guard state == .idle,
+              let captureRoot = Self.captureRootDirectory()
         else {
             return
         }
@@ -9059,7 +9296,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         _ revisionID: CaptureRevisionID,
         mark: CaptureRevisionMark
     ) {
-        guard let captureRoot = Self.captureRootDirectory()
+        guard state == .idle,
+              let captureRoot = Self.captureRootDirectory()
         else {
             return
         }
@@ -9087,7 +9325,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     ) {
         guard let store = persistedStore,
               let captureRoot = Self.captureRootDirectory(),
-              !persistedDeletionInFlight
+              state == .idle,
+              !persistedDeletionInFlight,
+              !persistedAdoptionInFlight,
+              !persistedWorkspaceLoadInFlight,
+              !exportOperationInFlight,
+              !importOperationInFlight
         else {
             return
         }
@@ -9095,7 +9338,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let records = persistedInventory.captures
         let jobs = deliveryJobs
         let missions = missionRecords
-        let receipts = handoffReceipts
+        let receipts = allHandoffReceipts
         workingSetStatus = String(localized: "Deleting the series")
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -9425,14 +9668,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         else {
             return
         }
-        let context = sessionController.context
         let generation = captureGeneration
-        // Flags pinned to a coordinate space a mid-scan discontinuity
-        // left behind stay listed but marked unavailable — never
-        // silently resolved (#325).
-        revisitFlagStore.markFlagsUnavailable(
-            notIn: context.coordinateSpaceID
-        )
+        // The unavailability sweep is only meaningful against a live
+        // coordinate space: a reopened draft's fresh session context
+        // carries no spatial authority, so its restored flags keep
+        // their persisted status verbatim and the commit binds to the
+        // store's restored space/session rather than the fresh
+        // context's.
+        let liveContext = workingSetSpatialAuthorityLive
+            ? sessionController.context
+            : nil
+        if let liveContext {
+            revisitFlagStore.markFlagsUnavailable(
+                notIn: liveContext.coordinateSpaceID
+            )
+        }
         revisitFlags = revisitFlagStore.flags
         let document = revisitFlagStore.document(
             captureRevisionID: identity.captureRevisionID
@@ -9445,6 +9695,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
             do {
                 let data = try document.encoded()
+                let coordinateSpaceIDs: [CoordinateSpaceID]
+                let captureSessionIDs: [CaptureSessionID]
+                if let liveContext {
+                    coordinateSpaceIDs = [liveContext.coordinateSpaceID]
+                    captureSessionIDs = [liveContext.captureSessionID]
+                } else {
+                    let snapshot = await store.snapshot()
+                    coordinateSpaceIDs = snapshot.coordinateSpaceIDs
+                    captureSessionIDs = snapshot.captureSessionIDs
+                }
                 try await store.replaceSupplementalDocument(
                     WorkingSetSupplementalDocument(
                         path: CaptureRevisitFlagDocument.path,
@@ -9456,12 +9716,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             provenanceClass: .captureAppDerived,
                             role: .canonical
                         ),
-                        coordinateSpaceIDs: [
-                            context.coordinateSpaceID,
-                        ],
-                        captureSessionIDs: [
-                            context.captureSessionID,
-                        ]
+                        coordinateSpaceIDs: coordinateSpaceIDs,
+                        captureSessionIDs: captureSessionIDs
                     )
                 )
                 // The open workspace renders the persisted document —
@@ -9473,6 +9729,55 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     + Self.persistenceDiagnostic(error) + "]"
             }
         }
+    }
+
+    /// The annotation workspace's live status binding: the
+    /// mission-bound status when one exists (its marks persist
+    /// mid-capture), else the standalone imported plan's. nil when
+    /// no plan is loaded — the workspace hides its task-plan
+    /// surface entirely.
+    func taskPlanStatusBinding()
+        -> Binding<CaptureTaskPlanStatus>?
+    {
+        guard let current = boundTaskPlanStatus
+            ?? captureTaskPlanStatus
+        else {
+            return nil
+        }
+        return Binding(
+            get: { [weak self] in
+                self?.boundTaskPlanStatus
+                    ?? self?.captureTaskPlanStatus
+                    ?? current
+            },
+            set: { [weak self] newValue in
+                self?.applyTaskPlanStatusChange(newValue)
+            }
+        )
+    }
+
+    /// The plan the annotation workspace edits against — the
+    /// mission journey plan, else the bound/imported one so every
+    /// channel's items are markable from the same surface.
+    var taskPlanForWorkspace: HTDTCaptureTaskPlan? {
+        taskPlan
+            ?? boundTaskPlanStatus?.planImport.plan
+            ?? captureTaskPlan
+    }
+
+    /// Workspace writes go through the same persist semantics as
+    /// checklist marks: the bound channel serializes its status
+    /// document immediately, the standalone channel at finalize.
+    func applyTaskPlanStatusChange(
+        _ status: CaptureTaskPlanStatus
+    ) {
+        if boundTaskPlanStatus != nil {
+            boundTaskPlanStatus = status
+            persistBoundTaskPlanStatus(status)
+        } else {
+            captureTaskPlanStatus = status
+        }
+        Task { await refreshMissionOutcomes() }
     }
 
     /// #352 Review-time checklist marks for the bound task plan.
@@ -9503,41 +9808,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
             boundTaskPlanStatus = status
-            let context = sessionController.context
-            let annotations = reviewWorkspace?.annotations ?? []
-            let measurements = reviewWorkspace?.measurements ?? []
-            let generation = captureGeneration
-            Task { @MainActor [weak self] in
-                guard let self,
-                      self.captureGeneration == generation
-                else {
-                    return
-                }
-                guard let data = try? status.statusPackage(
-                    captureRevisionID: identity.captureRevisionID,
-                    captureSessionID: context.captureSessionID,
-                    annotations: annotations,
-                    measurements: measurements
-                ) else {
-                    return
-                }
-                try? await store.replaceSupplementalDocument(
-                    WorkingSetSupplementalDocument(
-                        path: CaptureTaskPlanStatusDocument.path,
-                        data: data,
-                        declaration: BundlePayloadDeclaration(
-                            path: CaptureTaskPlanStatusDocument.path,
-                            mediaType: "application/json",
-                            producer: "capture_session",
-                            provenanceClass: .captureAppDerived,
-                            role: .canonical
-                        ),
-                        coordinateSpaceIDs: [context.coordinateSpaceID],
-                        captureSessionIDs: [context.captureSessionID]
-                    )
-                )
-                self.refreshReviewWorkspace()
-            }
+            persistBoundTaskPlanStatus(status)
         }
         recordTaskPlanMarkWaiver(
             itemID: itemID,
@@ -9545,6 +9816,55 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             plan: boundTaskPlanStatus?.planImport.plan
         )
         markTaskPlanItem(itemID, as: outcome, reason: reason)
+    }
+
+    /// Serializes the bound status into `session/task-plan-status.json`
+    /// against the live working set — shared by checklist marks and
+    /// annotation-workspace writes so both persist mid-capture instead
+    /// of waiting for finalize.
+    private func persistBoundTaskPlanStatus(
+        _ status: CaptureTaskPlanStatus
+    ) {
+        guard let store = workingSetStore,
+              let identity = workingSetIdentity
+        else {
+            return
+        }
+        let context = sessionController.context
+        let annotations = reviewWorkspace?.annotations ?? []
+        let measurements = reviewWorkspace?.measurements ?? []
+        let generation = captureGeneration
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.captureGeneration == generation
+            else {
+                return
+            }
+            guard let data = try? status.statusPackage(
+                captureRevisionID: identity.captureRevisionID,
+                captureSessionID: context.captureSessionID,
+                annotations: annotations,
+                measurements: measurements
+            ) else {
+                return
+            }
+            try? await store.replaceSupplementalDocument(
+                WorkingSetSupplementalDocument(
+                    path: CaptureTaskPlanStatusDocument.path,
+                    data: data,
+                    declaration: BundlePayloadDeclaration(
+                        path: CaptureTaskPlanStatusDocument.path,
+                        mediaType: "application/json",
+                        producer: "capture_session",
+                        provenanceClass: .captureAppDerived,
+                        role: .canonical
+                    ),
+                    coordinateSpaceIDs: [context.coordinateSpaceID],
+                    captureSessionIDs: [context.captureSessionID]
+                )
+            )
+            self.refreshReviewWorkspace()
+        }
     }
 
     /// #364 §10: whether a mission-inbox record exists for the
@@ -9635,6 +9955,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             strategyPinnedByTaskPlan = false
             return
         }
+        if taskPlanStrategyOverride == nil {
+            taskPlanStrategyPriorSelection = selectedStrategyID
+        }
         let pinned = plan.captureStrategyPinned
         taskPlanStrategyOverride = (identifier, pinned)
         selectedStrategyID = identifier
@@ -9646,6 +9969,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func clearTaskPlanStrategyOverride() {
         taskPlanStrategyOverride = nil
         strategyPinnedByTaskPlan = false
+        if let prior = taskPlanStrategyPriorSelection {
+            selectedStrategyID = prior
+            taskPlanStrategyPriorSelection = nil
+        }
     }
 
     /// Resolves which published profile steers the next scan and under
@@ -10862,6 +11189,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     planImport: planImport
                 )
                 boundTaskPlanStatus = status
+                applyTaskPlanStrategy(planImport.plan)
                 let statusData = try status.statusPackage(
                     captureRevisionID: revisionID,
                     captureSessionID: context.captureSessionID,
@@ -13274,7 +13602,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // #353/#240/#222/#293: mission-derived payloads are part
             // of the bundle — persist before the seal freezes the
             // working set.
-            try await persistMissionDerivedDocuments(store: store)
+            if let revisionID =
+                workingSetIdentity?.captureRevisionID
+            {
+                await persistMissionDerivedDocuments(
+                    store: store,
+                    revisionID: revisionID,
+                    context: sessionController.context,
+                    taskPlanStatus: captureTaskPlanStatus,
+                    connectedTracker: connectedSpaceTracker,
+                    asBuiltSession: asBuiltSession
+                )
+            }
 
             // #395: when accepted cross-revision registrations name
             // this revision, commit the registrations document now —
@@ -14433,10 +14772,22 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             try importMissionEnvelopeData(data)
         case HTDTCaptureTaskPlan.schema:
             let planImport = try CaptureTaskPlanImport(data: data)
+            // Mid-capture plan replacement is refused when it would
+            // drop recorded progress or fork the mission-bound plan —
+            // a byte-identical re-import stays a no-op replace.
+            if let existing = captureTaskPlanImport,
+               existing.planSHA256 != planImport.planSHA256,
+               boundTaskPlanStatus != nil
+                || captureTaskPlanStatus?.hasOperatorRecords == true
+            {
+                workingSetStatus = String(localized: "A different task plan is already bound to this capture — its recorded marks and bindings would be lost")
+                return
+            }
             captureTaskPlanImport = planImport
             captureTaskPlan = planImport.plan
             captureTaskPlanStatus =
                 CaptureTaskPlanStatus(planImport: planImport)
+            applyTaskPlanStrategy(planImport.plan)
             Task {
                 await persistMissionImportDocuments()
                 await refreshMissionOutcomes()
@@ -14689,58 +15040,82 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// task-plan status, connected-space map, as-built verdicts — all
     /// captureAppDerived and bound to this revision's authority.
     private func persistMissionDerivedDocuments(
-        store: CaptureWorkingSetStore
-    ) async throws {
-        guard let revisionID =
-            workingSetIdentity?.captureRevisionID
-        else {
-            return
-        }
-        let context = sessionController.context
+        store: CaptureWorkingSetStore,
+        revisionID: CaptureRevisionID,
+        context: CaptureSessionContext,
+        taskPlanStatus: CaptureTaskPlanStatus?,
+        connectedTracker: ConnectedSpaceTracker?,
+        asBuiltSession: AsBuiltVerificationSession?
+    ) async {
         let seed = (try? Self.committedAnnotationSeed(
             rootDirectory: await store.rootDirectory
         ).0) ?? AnnotationWorkspaceSeed()
-        if let status = captureTaskPlanStatus {
-            try await store.replaceSupplementalDocument(
-                try supplementalDocument(
-                    path: CaptureTaskPlanStatusDocument.path,
-                    data: status.statusPackage(
+        // Each payload persists independently: a failure is logged as
+        // a persistenceFailure event and the remaining documents still
+        // land — one bad write must not abort finalization or leave a
+        // silent half-written mission set.
+        func persistDerived(
+            _ path: String,
+            _ payload: () throws -> Data,
+            producer: String
+        ) async {
+            do {
+                try await store.replaceSupplementalDocument(
+                    try supplementalDocument(
+                        path: path,
+                        data: payload(),
+                        producer: producer,
+                        provenanceClass: .captureAppDerived,
+                        bindContext: true
+                    )
+                )
+            } catch {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "Mission document \(path) could not be persisted: "
+                            + Self.persistenceDiagnostic(error)
+                    )
+                )
+            }
+        }
+        if let taskPlanStatus {
+            await persistDerived(
+                CaptureTaskPlanStatusDocument.path,
+                {
+                    try taskPlanStatus.statusPackage(
                         captureRevisionID: revisionID,
                         captureSessionID: context.captureSessionID,
                         annotations: seed.annotations,
                         measurements: seed.measurements
-                    ),
-                    producer: "capture_session",
-                    provenanceClass: .captureAppDerived,
-                    bindContext: true
-                )
+                    )
+                },
+                producer: "capture_session"
             )
         }
-        if let tracker = connectedSpaceTracker {
-            try await store.replaceSupplementalDocument(
-                try supplementalDocument(
-                    path: ConnectedSpaceDocument.path,
-                    data: tracker.package(
+        if let connectedTracker {
+            await persistDerived(
+                ConnectedSpaceDocument.path,
+                {
+                    try connectedTracker.package(
                         captureRevisionID: revisionID
-                    ),
-                    producer: "capture_session",
-                    provenanceClass: .captureAppDerived,
-                    bindContext: true
-                )
+                    )
+                },
+                producer: "capture_session"
             )
         }
-        if let session = asBuiltSession {
-            try await store.replaceSupplementalDocument(
-                try supplementalDocument(
-                    path: AsBuiltVerificationDocument.path,
-                    data: session.package(
+        if let asBuiltSession {
+            await persistDerived(
+                AsBuiltVerificationDocument.path,
+                {
+                    try asBuiltSession.package(
                         captureRevisionID: revisionID,
                         captureSessionID: context.captureSessionID
-                    ),
-                    producer: "asbuilt_verification",
-                    provenanceClass: .captureAppDerived,
-                    bindContext: true
-                )
+                    )
+                },
+                producer: "asbuilt_verification"
             )
         }
     }
@@ -14808,6 +15183,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Clears mission inputs whose payloads are now inside the
     /// finalized bundle (called after adoption and on terminal reset).
     private func clearCaptureMissionInputs() {
+        if taskPlan == nil {
+            clearTaskPlanStrategyOverride()
+        }
         captureTaskPlan = nil
         captureTaskPlanImport = nil
         captureTaskPlanStatus = nil
@@ -14897,13 +15275,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    func recordConnectedPortal(_ regionID: CaptureRegionID) {
+    func recordConnectedPortal(
+        _ regionID: CaptureRegionID,
+        kind: CapturePortalKind
+    ) {
         withConnectedTracker(
             String(localized: "Could not record the portal")
         ) { tracker in
             try tracker.recordPortal(
                 toRegionID: regionID,
-                kind: .doorway
+                kind: kind
             )
         }
     }
@@ -15072,7 +15453,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             if state == .idle {
                 revisePersistedCapture(record)
             } else {
-                workingSetStatus = String(localized: "Repair task armed — it binds to the next finalized revision of the source")
+                // Armed mid-capture: the link write window at capture
+                // start already passed, so persist it now when this
+                // working set is itself a revision of the pinned
+                // source — otherwise the armed row could never
+                // resolve on this finalize.
+                if workingSetStore != nil, makeRepairLink() != nil {
+                    Task { await self.persistMissionImportDocuments() }
+                    workingSetStatus = String(localized: "Repair task armed — it binds to this revision at finalize")
+                } else {
+                    workingSetStatus = String(localized: "Repair task armed — it binds to the next finalized revision of the source")
+                }
             }
         } else {
             if state == .reviewing {

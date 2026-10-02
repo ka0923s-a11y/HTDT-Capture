@@ -1,8 +1,18 @@
 /* Japanese UI localization for HTDT Capture. English source strings are the fallback/development language. */
 
+" (some could not be deleted)" = "（一部削除できませんでした）";
+"A different or unreadable capture already uses this revision ID — the archive was not imported" = "このリビジョンIDは別の（または読み取り不能な）キャプチャが使用中です — アーカイブは取り込まれませんでした";
+"A different task plan is already bound to this capture — its recorded marks and bindings would be lost" = "別のタスクプランがこのキャプチャに紐付け済みです — 記録済みのマークとバインドが失われます";
 "Capture" = "キャプチャ";
+"Delete is unavailable until the block is cleared — cancel the delivery job or remove the mark first." = "ブロックを解除するまで削除できません — 先に配信ジョブをキャンセルするかマークを解除してください";
+"Export archives deleted: " = "エクスポートアーカイブを削除しました：";
+"Remove unreadable artifact?" = "読み取り不能なアーティファクトを削除しますか？";
 "State" = "状態";
 "Camera permission" = "カメラ権限";
+"The correction capture could not be started while another library operation is in flight" = "別のライブラリ操作の実行中のため補正キャプチャを開始できませんでした";
+"The delivery job could not be updated" = "配信ジョブを更新できませんでした";
+"The job stops and its queued payload copy is deleted; the capture itself stays on this device." = "ジョブは停止し、キュー済みペイロードコピーは削除されます。キャプチャ本体はこのデバイスに残ります。";
+"This permanently deletes the export archive for this capture from this device — it is the only local copy; no finalized bundle is stored here." = "このキャプチャのエクスポートアーカイブをこのデバイスから完全に削除します — ローカル上の唯一のコピーで、確定済みバンドルはここにありません";
 "Working set" = "作業データ";
 "Failure" = "エラー";
 "Capabilities" = "対応機能";
@@ -2190,6 +2200,7 @@
 "Reopening this capture for additional scanning" = "このキャプチャを追加スキャンのために再開しています";
 "Repair plan recorded" = "修復プランを記録しました";
 "Repair task armed — it binds to the next finalized revision of the source" = "修復タスクを設定しました — 元リビジョンの次回確定リビジョンに紐付けられます";
+"Repair task armed — it binds to this revision at finalize" = "修復タスクを設定しました — 確定時にこのリビジョンに紐付けられます";
 "Repair task armed — open the annotation workspace on the review surface to correct it in place" = "修復タスクを設定しました — レビュー画面の注釈ワークスペースで修正してください";
 "Retrying selected frame/depth evidence save before ending" = "終了前の選択フレーム／深度証拠保存を再試行中";
 "Revalidating the parent revision" = "親リビジョンを再検証しています";
@@ -2364,6 +2375,7 @@
 "Observed at: %@" = "観測日時：%@";
 "Plan %@ v%@ — %@" = "プラン %@ v%@ — %@";
 "Point-direction capture is unavailable without a live camera session." = "ライブカメラセッションなしではポイント方向キャプチャは利用できません。";
+"Portal kind" = "ポータルの種類";
 "Portal to completed region" = "完了済み領域へのポータル";
 "Portals" = "ポータル";
 "Received: %@" = "受信値：%@";

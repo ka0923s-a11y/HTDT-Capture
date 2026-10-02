@@ -47,7 +47,7 @@ public struct MissionWorkflowsView: View {
     public let onBeginConnectedSegment:
         (String, CaptureRegionKind) -> Void
     public let onCompleteConnectedSegment: () -> Void
-    public let onRecordPortal: (CaptureRegionID) -> Void
+    public let onRecordPortal: (CaptureRegionID, CapturePortalKind) -> Void
     public let onRevisitRegion: (CaptureRegionID) -> Void
     public let onAsBuiltMarkUnavailable: (String) -> Void
     public let onAsBuiltEstablishAlignment: () -> Void
@@ -97,8 +97,9 @@ public struct MissionWorkflowsView: View {
         onBeginConnectedSegment: @escaping
             (String, CaptureRegionKind) -> Void = { _, _ in },
         onCompleteConnectedSegment: @escaping () -> Void = {},
-        onRecordPortal: @escaping (CaptureRegionID) -> Void
-            = { _ in },
+        onRecordPortal: @escaping
+            (CaptureRegionID, CapturePortalKind) -> Void
+            = { _, _ in },
         onRevisitRegion: @escaping (CaptureRegionID) -> Void
             = { _ in },
         onAsBuiltMarkUnavailable: @escaping (String) -> Void

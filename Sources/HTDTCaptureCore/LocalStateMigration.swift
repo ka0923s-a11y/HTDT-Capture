@@ -532,16 +532,31 @@ public enum LocalStateMigrator {
 
             // Newer-than-current sources (written by a newer app) are
             // never overwritten: the bytes stay exactly where they are
-            // and the host explains the newer-app origin.
+            // and the host explains the newer-app origin. A version
+            // that is not newer but outside the supported read set is
+            // an unsupported *older* document — preserved the same
+            // way but journaled honestly rather than mislabeled as
+            // written by a newer app.
             if LocalStateVersion.isNewer(
                 version,
                 than: schema.currentVersion
-            ) || !schema.supportedReadVersions.contains(version) {
+            ) {
                 let outcome = event(
                     from: version,
                     outcome: .preservedNewerVersion,
                     diagnostic:
                         "document was written by a newer app version"
+                )
+                preserved.append(outcome)
+                events.append(outcome)
+                continue
+            }
+            if !schema.supportedReadVersions.contains(version) {
+                let outcome = event(
+                    from: version,
+                    outcome: .preservedUnreadable,
+                    diagnostic:
+                        "document version is outside this build's supported read versions"
                 )
                 preserved.append(outcome)
                 events.append(outcome)

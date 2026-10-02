@@ -3260,11 +3260,17 @@ public actor CaptureWorkingSetStore {
         else {
             return
         }
-        _ = try await writer.removeIfIdentical(
+        guard try await writer.removeIfIdentical(
             data,
             at: CaptureStorePath(EquipmentIdentityEvidencePackage.path)
-        )
+        ) else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
         declarations[declaration.path] = nil
+        supplementalDocuments.removeValue(
+            forKey: declaration.path
+        )
         try await pruneDerivedSourceRefs(
             removedPaths: [EquipmentIdentityEvidencePackage.path]
         )
@@ -3332,6 +3338,11 @@ public actor CaptureWorkingSetStore {
         )
 
         declarations[declaration.path] = declaration
+        // Keep the sealed-byte ledger in step with the write —
+        // restore populates it for every committed `.json`, and a
+        // recommit that leaves it stale fails `verifyIntegrity`
+        // at seal.
+        supplementalDocuments[declaration.path] = package.data
 
         // Post-End semantic commit (issue #297): advance
         // the durable marker to semantic_authoring so a relaunch
@@ -3355,13 +3366,19 @@ public actor CaptureWorkingSetStore {
         else {
             return
         }
-        _ = try await writer.removeIfIdentical(
+        guard try await writer.removeIfIdentical(
             data,
             at: CaptureStorePath(
                 ExternalAuthorityDependencyPackage.path
             )
-        )
+        ) else {
+            throw CaptureWorkingSetError
+                .integrityVerificationFailed
+        }
         declarations[declaration.path] = nil
+        supplementalDocuments.removeValue(
+            forKey: declaration.path
+        )
         try await pruneDerivedSourceRefs(
             removedPaths: [ExternalAuthorityDependencyPackage.path]
         )
@@ -3930,6 +3947,7 @@ public actor CaptureWorkingSetStore {
             document.coordinateSpaceID
         )
         declarations[declaration.path] = declaration
+        supplementalDocuments[declaration.path] = package.data
         roomFieldDatum = document
 
         // Post-End semantic commit (issue #297): advance
@@ -5006,8 +5024,10 @@ public actor CaptureWorkingSetStore {
     /// discipline the rollback paths already use.
     private func removeCommittedPayload(path: String) async throws {
         let expectedDeclaration = declarations[path]
-        let expectedBytes = supplementalDocuments[path]
-            ?? committedPayloadBytes(path)
+        // Disk is the authoritative payload — the restore-time byte
+        // ledger can lag a recommit that rewrote the path, and a
+        // stale ledger entry must not wedge removal forever.
+        let expectedBytes = committedPayloadBytes(path)
         if let expectedBytes {
             guard try await writer.removeIfIdentical(
                 expectedBytes,
@@ -8455,6 +8475,14 @@ public actor CaptureWorkingSetStore {
             }
         }
         var deferredDerived: [String] = []
+        // A `manifest.json` left by a crash between manifest write and
+        // staging rename carries the last committed declarations —
+        // including source refs the rebuilt `.derived` declarations
+        // below cannot recompute (e.g. extra refs an emitter declared
+        // but cannot regenerate). Its refs are unioned into the
+        // rebuilt declarations in the second pass and then pruned to
+        // resolvable refs like any other.
+        var committedSourceRefs: [String: [String]] = [:]
         for path in scannedByPath.keys.sorted(
             by: BundleLogicalPath.utf8Less
         ) {
@@ -8463,6 +8491,21 @@ public actor CaptureWorkingSetStore {
                 omittingEmptySubsequences: false
             ).last.map(String.init) ?? path
             if leaf.hasPrefix(".tmp-") || path == "manifest.json" {
+                if path == "manifest.json",
+                   let file = scannedByPath[path],
+                   let data = try? Data(contentsOf: file.url),
+                   let leftoverManifest = try? decoder.decode(
+                       BundleManifest.self,
+                       from: data
+                   ),
+                   leftoverManifest.captureRevisionID
+                       == identity.captureRevisionID
+                {
+                    for entry in leftoverManifest.files {
+                        committedSourceRefs[entry.path] =
+                            entry.sourceRefs ?? []
+                    }
+                }
                 consumeIfPresent(path)
                 try await writer.removeIfPresent(
                     CaptureStorePath(path)
@@ -8614,7 +8657,26 @@ public actor CaptureWorkingSetStore {
             if case .derivedWithSources(let declaration) =
                 restoredLeftoverClassification(path)
             {
-                deferredDeclarations[path] = declaration
+                var refs = declaration.sourceRefs ?? []
+                if let committedRefs = committedSourceRefs[path] {
+                    refs = Array(
+                        Set(refs).union(committedRefs)
+                    ).sorted(by: BundleLogicalPath.utf8Less)
+                }
+                if refs != declaration.sourceRefs {
+                    deferredDeclarations[path] =
+                        BundlePayloadDeclaration(
+                            path: declaration.path,
+                            mediaType: declaration.mediaType,
+                            producer: declaration.producer,
+                            provenanceClass:
+                                declaration.provenanceClass,
+                            role: declaration.role,
+                            sourceRefs: refs
+                        )
+                } else {
+                    deferredDeclarations[path] = declaration
+                }
             } else {
                 consumeIfPresent(path)
                 try await writer.removeIfPresent(

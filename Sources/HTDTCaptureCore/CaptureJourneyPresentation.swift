@@ -733,21 +733,34 @@ public struct CaptureJourneyPresentation: Sendable, Equatable {
 
     /// Required-task mission progress for the journey header (issue
     /// #372 JOURNEY-50). The same typed fulfillment rules
-    /// `CaptureTaskPlanStatus.itemOutcomes` applies — evaluated here
-    /// without the explicit marks/bindings that only exist inside an
-    /// annotation pass, so counts can differ while an operator-edited
-    /// status is in flight. Returns nil when no required items exist.
+    /// `CaptureTaskPlanStatus.itemOutcomes` applies. `status` lets
+    /// the caller evaluate against the live operator-edited status
+    /// (marks, bindings, fulfillments); nil falls back to a fresh
+    /// status computed from committed records alone, which can only
+    /// understate completion. Returns nil when no required items
+    /// exist.
     public static func missionSummary(
         plan: HTDTCaptureTaskPlan,
         annotations: [CaptureAnnotationEntity],
         measurements: [CaptureMeasurement],
         authorities: TheaterAuthorityCollection = .empty,
-        committedEvidenceRefs: [String] = []
+        committedEvidenceRefs: [String] = [],
+        status: CaptureTaskPlanStatus? = nil
     ) -> CaptureJourneyMissionSummary? {
-        guard let data = try? JSONEncoder().encode(plan),
-              let planImport = try? CaptureTaskPlanImport(data: data)
-        else { return nil }
-        let outcomes = CaptureTaskPlanStatus(planImport: planImport)
+        let resolvedStatus: CaptureTaskPlanStatus
+        if let status {
+            resolvedStatus = status
+        } else {
+            guard let data = try? JSONEncoder().encode(plan),
+                  let planImport = try? CaptureTaskPlanImport(
+                      data: data
+                  )
+            else { return nil }
+            resolvedStatus = CaptureTaskPlanStatus(
+                planImport: planImport
+            )
+        }
+        let outcomes = resolvedStatus
             .itemOutcomes(
                 annotations: annotations,
                 measurements: measurements,

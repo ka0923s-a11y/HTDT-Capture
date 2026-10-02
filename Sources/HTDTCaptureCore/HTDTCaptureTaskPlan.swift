@@ -1066,6 +1066,15 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
     /// Exact fulfillment bindings for semantic/evidence tasks (#359).
     public private(set) var fulfillments: [String: TaskPlanFulfillment]
 
+    /// True once the operator or a restore has recorded anything
+    /// against this plan — marks, entity/measurement bindings, or
+    /// semantic/evidence fulfillments. Replacing the plan import
+    /// while this holds would silently drop recorded truth.
+    public var hasOperatorRecords: Bool {
+        !explicitMarks.isEmpty || !bindings.isEmpty
+            || !fulfillments.isEmpty
+    }
+
     public init(planImport: CaptureTaskPlanImport) {
         self.planImport = planImport
         self.explicitMarks = [:]
@@ -1113,24 +1122,40 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
         )
     }
 
-    /// Clear an explicit fulfillment binding (#354).
+    /// Clear an explicit fulfillment binding (#354). Only this
+    /// item's own fulfillment ref goes with it — clearing the whole
+    /// dictionary would silently drop every other task's binding.
     public mutating func unbind(itemID: String) throws {
         guard planImport.plan.allItemIDs.contains(itemID) else {
             throw CaptureTaskPlanError.unknownItemID
         }
         bindings.removeValue(forKey: itemID)
-        self.fulfillments = [:]
+        fulfillments.removeValue(forKey: itemID)
     }
 
-    /// Rebuilds fulfillment bindings from a persisted status document
-    /// — `fulfillment_ref` on each item is the durable copy of the
-    /// in-memory binding (#359).
+    /// Rebuilds fulfillment bindings and operator marks from a
+    /// persisted status document — `fulfillment_ref`/`fulfillment`/
+    /// `outcome` on each item are the durable copies of the in-memory
+    /// bindings and marks (#359/#354). A non-pending outcome with no
+    /// fulfillment resolution is exactly the recorded operator mark;
+    /// entity/measurement links restore as bindings so a reopened
+    /// draft keeps the same resolution instead of recomputing to
+    /// pending and overwriting the document with degraded truth.
     public mutating func restoreFulfillments(
         from document: CaptureTaskPlanStatusDocument
     ) {
         let semanticIDs = Set(planImport.plan.semanticTasks.map(\.itemID))
         let evidenceIDs = Set(planImport.plan.evidenceTasks.map(\.itemID))
         for item in document.items {
+            if item.outcome != .pending,
+               item.fulfillment == nil,
+               item.fulfillmentRef == nil
+            {
+                explicitMarks[item.itemID] = item.outcome
+            }
+            if let link = item.fulfillment {
+                bindings[item.itemID] = link
+            }
             guard let ref = item.fulfillmentRef else { continue }
             if semanticIDs.contains(item.itemID),
                let id = AuthorityRecordID(canonicalString: ref)

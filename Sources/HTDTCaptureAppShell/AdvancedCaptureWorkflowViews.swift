@@ -9,14 +9,16 @@ public struct ConnectedSpaceStatusView: View {
     public let tracker: ConnectedSpaceTracker
     public let onBeginSegment: () -> Void
     public let onCompleteActiveSegment: () -> Void
-    public let onRecordPortal: (CaptureRegionID) -> Void
+    public let onRecordPortal: (CaptureRegionID, CapturePortalKind) -> Void
     public let onRevisitRegion: (CaptureRegionID) -> Void
+
+    @State private var portalTarget: CaptureRegionID?
 
     public init(
         tracker: ConnectedSpaceTracker,
         onBeginSegment: @escaping () -> Void = {},
         onCompleteActiveSegment: @escaping () -> Void = {},
-        onRecordPortal: @escaping (CaptureRegionID) -> Void = { _ in },
+        onRecordPortal: @escaping (CaptureRegionID, CapturePortalKind) -> Void = { _, _ in },
         onRevisitRegion: @escaping (CaptureRegionID) -> Void = { _ in }
     ) {
         self.tracker = tracker
@@ -51,7 +53,7 @@ public struct ConnectedSpaceStatusView: View {
                     Section("Portal to completed region") {
                         ForEach(others, id: \.regionID) { region in
                             Button(region.label) {
-                                onRecordPortal(region.regionID)
+                                portalTarget = region.regionID
                             }
                         }
                     }
@@ -111,6 +113,36 @@ public struct ConnectedSpaceStatusView: View {
                         .font(.caption)
                     }
                 }
+            }
+        }
+        .confirmationDialog(
+            "Portal kind",
+            isPresented: Binding(
+                get: { portalTarget != nil },
+                set: { presented in
+                    if !presented { portalTarget = nil }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            ForEach(
+                [
+                    CapturePortalKind.doorway,
+                    .openPassage,
+                    .stairOpening,
+                    .other,
+                ],
+                id: \.self
+            ) { kind in
+                Button(MissionPresentation.portalKindName(kind)) {
+                    if let target = portalTarget {
+                        onRecordPortal(target, kind)
+                    }
+                    portalTarget = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                portalTarget = nil
             }
         }
     }
@@ -208,7 +240,8 @@ public struct CaptureTaskPlanChecklistView: View {
                         itemID: item.itemID,
                         title: MissionPresentation
                             .surfaceTaskTitle(item),
-                        requirement: item.requirement
+                        requirement: item.requirement,
+                        surfaceItem: true
                     )
                 }
             }
@@ -269,7 +302,8 @@ public struct CaptureTaskPlanChecklistView: View {
     private func row(
         itemID: String,
         title: String,
-        requirement: TaskPlanRequirement
+        requirement: TaskPlanRequirement,
+        surfaceItem: Bool = false
     ) -> some View {
         let outcome = outcomes.first { $0.itemID == itemID }?.outcome
             ?? .pending
@@ -299,6 +333,19 @@ public struct CaptureTaskPlanChecklistView: View {
                 .foregroundStyle(CaptureColorRole.attention.color)
             }
             Menu(String(localized: "Mark")) {
+                // `.completed` is only markable for surface-review
+                // items — evidence-backed kinds complete through
+                // their fulfillment binding instead.
+                if surfaceItem {
+                    Button(
+                        MissionPresentation
+                            .taskPlanItemOutcomeName(
+                                .completed
+                            )
+                    ) {
+                        onMark(itemID, .completed, nil)
+                    }
+                }
                 if canRecordReason {
                     Button(
                         String(

@@ -1374,7 +1374,7 @@ struct HTDTDeliveryQueueView: View {
             } message: {
                 if pendingJobAction?.1 == .cancel {
                     Text(
-                        "The job stops and its payload stays on this device."
+                        "The job stops and its queued payload copy is deleted; the capture itself stays on this device."
                     )
                 } else {
                     Text(
