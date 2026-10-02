@@ -31,6 +31,10 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     case coordinateTransitionLimitExceeded
     case unsafeDiscardPath
     case invalidSupplementalDocument
+    /// A `.derived` declaration cited a `path:` ref that resolves to
+    /// no committed payload at commit time — the manifest would reject
+    /// it at finalize, so the write itself fails closed instead.
+    case unresolvedDerivedSourceRef(String)
     case workingSetSealed
     case workingSetNotSealed
     case workingSetConsumed
@@ -2111,6 +2115,12 @@ public actor CaptureWorkingSetStore {
                 forKey: declaration.path
             )
         }
+        // `.derived` declarations cite the mesh index and bins by
+        // `path:` ref — rewrite them against the surviving set so a
+        // rolled-back snapshot cannot dangle at finalize.
+        try await pruneDerivedSourceRefs(
+            removedPaths: Set(expectedDeclarations.map(\.path))
+        )
         meshIndex = nil
         meshAnchorCount = nil
         usableMeshAnchorCount = nil
@@ -3230,6 +3240,9 @@ public actor CaptureWorkingSetStore {
             at: CaptureStorePath(EquipmentIdentityEvidencePackage.path)
         )
         declarations[declaration.path] = nil
+        try await pruneDerivedSourceRefs(
+            removedPaths: [EquipmentIdentityEvidencePackage.path]
+        )
 
         // Post-End semantic commit (issue #297): advance
         // the durable marker to semantic_authoring so a relaunch
@@ -3308,6 +3321,9 @@ public actor CaptureWorkingSetStore {
             )
         )
         declarations[declaration.path] = nil
+        try await pruneDerivedSourceRefs(
+            removedPaths: [ExternalAuthorityDependencyPackage.path]
+        )
     }
 
     /// Commits the field-authority bundle (issues #300/#301/#310/
@@ -3819,6 +3835,9 @@ public actor CaptureWorkingSetStore {
             forKey: RoomFieldDatumPackage.path
         )
         roomFieldDatum = nil
+        try await pruneDerivedSourceRefs(
+            removedPaths: [RoomFieldDatumPackage.path]
+        )
     }
 
     /// Removes the room reference frame payload entirely (issue #232).
@@ -3838,6 +3857,9 @@ public actor CaptureWorkingSetStore {
             forKey: RoomReferenceFramePackage.path
         )
         roomReferenceFrame = nil
+        try await pruneDerivedSourceRefs(
+            removedPaths: [RoomReferenceFramePackage.path]
+        )
 
         // Post-End semantic commit (issue #297): advance
         // the durable marker to semantic_authoring so a relaunch
@@ -3944,6 +3966,9 @@ public actor CaptureWorkingSetStore {
             forKey: OpeningReviewPackage.path
         )
         openingReviewDocument = nil
+        try await pruneDerivedSourceRefs(
+            removedPaths: [OpeningReviewPackage.path]
+        )
 
         // Post-End semantic commit (issue #297): advance
         // the durable marker to semantic_authoring so a relaunch
@@ -4539,6 +4564,12 @@ public actor CaptureWorkingSetStore {
                 .duplicatePayloadDeclaration(document.path)
         }
 
+        // Validate before touching disk so a rejected `.derived`
+        // write leaves no orphan bytes; the post-write re-check
+        // below still catches refs pruned by an interleaved
+        // mutation during the write suspension.
+        try validateDerivedSourceRefsResolvable(document)
+
         try await writer.writeIfIdentical(
             document.data,
             to: CaptureStorePath(document.path)
@@ -4559,6 +4590,7 @@ public actor CaptureWorkingSetStore {
             throw CaptureWorkingSetError
                 .duplicatePayloadDeclaration(document.path)
         }
+        try validateDerivedSourceRefsResolvable(document)
 
         // No suspension points below: binding, declaration, and ledger
         // publish as one commit (issue #202).
@@ -4625,10 +4657,17 @@ public actor CaptureWorkingSetStore {
             }
             // Identical bytes under an evolved `.derived` declaration —
             // only the manifest entry moves.
+            try validateDerivedSourceRefsResolvable(document)
             declarations[document.path] = document.declaration
             try await refreshRevisionStateAfterSemanticCommit()
             return
         }
+
+        // Same ordering as persistSupplementalDocument: reject
+        // un-manifestable `.derived` declarations before writing
+        // bytes; the post-suspension re-check covers interleaved
+        // prunes.
+        try validateDerivedSourceRefsResolvable(document)
 
         let prior = supplementalDocuments[document.path]
         try await writer.writeBatchReplacing([
@@ -4655,6 +4694,7 @@ public actor CaptureWorkingSetStore {
             throw CaptureWorkingSetError
                 .duplicatePayloadDeclaration(document.path)
         }
+        try validateDerivedSourceRefsResolvable(document)
 
         for space in document.coordinateSpaceIDs {
             try publishCoordinateAuthority(space)
@@ -4666,6 +4706,34 @@ public actor CaptureWorkingSetStore {
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
+    }
+
+    /// `.derived` declarations cite payloads by `path:` ref — refs
+    /// must be non-empty and resolve against the committed declaration
+    /// set. Enforced at commit (after the write-suspension re-check)
+    /// so a mutation that interleaved across the await — evidence
+    /// removed since the caller's snapshot — fails closed here rather
+    /// than stranding an un-manifestable declaration for finalize.
+    private func validateDerivedSourceRefsResolvable(
+        _ document: WorkingSetSupplementalDocument
+    ) throws {
+        guard document.declaration.role == .derived else {
+            return
+        }
+        guard let refs = document.declaration.sourceRefs,
+              !refs.isEmpty
+        else {
+            throw CaptureWorkingSetError.invalidSupplementalDocument
+        }
+        for ref in refs where ref.hasPrefix("path:") {
+            let cited = String(ref.dropFirst("path:".count))
+            guard cited != document.path,
+                  declarations[cited] != nil
+            else {
+                throw CaptureWorkingSetError
+                    .unresolvedDerivedSourceRef(cited)
+            }
+        }
     }
 
     /// `.derived` documents re-declare their `sourceRefs` against the
@@ -4704,6 +4772,10 @@ public actor CaptureWorkingSetStore {
         declarations.removeValue(forKey: path)
         supplementalDocuments.removeValue(forKey: path)
         try await writer.removeIfPresent(CaptureStorePath(path))
+        // A removed document can no longer be cited — derived
+        // declarations naming it in `path:` refs are healed here
+        // rather than left to dangle at finalize.
+        try await pruneDerivedSourceRefs(removedPaths: [path])
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
@@ -4727,9 +4799,9 @@ public actor CaptureWorkingSetStore {
                 guard ref.hasPrefix("path:") else {
                     return true
                 }
-                return !removedPaths.contains(
-                    String(ref.dropFirst("path:".count))
-                )
+                let cited = String(ref.dropFirst("path:".count))
+                return !removedPaths.contains(cited)
+                    && declarations[cited] != nil
             }
             guard surviving.count != refs.count else {
                 continue
@@ -5840,6 +5912,7 @@ public actor CaptureWorkingSetStore {
         if declarations[path] == declaration {
             declarations.removeValue(forKey: path)
         }
+        try await pruneDerivedSourceRefs(removedPaths: [path])
     }
 
     /// Terminal discard of the whole working revision (issue #254).
