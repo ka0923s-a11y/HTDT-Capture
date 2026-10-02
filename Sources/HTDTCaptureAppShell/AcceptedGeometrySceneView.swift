@@ -642,7 +642,9 @@ struct GeometrySceneRepresentable: UIViewRepresentable {
         }
 
         // Unresolved (or degenerate geometry): show the observed
-        // contour itself as a point cloud.
+        // contour itself — an open chain through the points plus a
+        // dot marker per observation. `.point` primitives do not
+        // rasterize on iOS SceneKit, so the dots are real geometry.
         let vertices = record.contourPoints.map {
             SCNVector3(
                 Float($0.position.x),
@@ -653,12 +655,10 @@ struct GeometrySceneRepresentable: UIViewRepresentable {
         guard !vertices.isEmpty else {
             return boxNode(element, opacity: 0.3)
         }
-        let node = SCNNode(
-            geometry: pointGeometry(vertices)
+        return contourCloudNode(
+            vertices,
+            color: color(for: element.layer)
         )
-        node.geometry?.firstMaterial?.diffuse.contents =
-            color(for: element.layer)
-        return node
     }
 
     /// Fitted footprint → plan-space outline (x = world X, y = world
@@ -742,23 +742,30 @@ struct GeometrySceneRepresentable: UIViewRepresentable {
         return geometry
     }
 
-    private func pointGeometry(
-        _ vertices: [SCNVector3]
-    ) -> SCNGeometry {
-        let vertexSource = SCNGeometrySource(vertices: vertices)
-        let element = SCNGeometryElement(
-            data: nil,
-            primitiveType: .point,
-            primitiveCount: vertices.count,
-            bytesPerIndex: 0
-        )
-        element.pointSize = 6
-        let geometry = SCNGeometry(
-            sources: [vertexSource],
-            elements: [element]
-        )
-        geometry.firstMaterial?.lightingModel = .constant
-        return geometry
+    /// Observed contour cloud: open chain plus one small sphere per
+    /// observation point (`.point` primitives render nothing on iOS).
+    private func contourCloudNode(
+        _ vertices: [SCNVector3],
+        color: UIColor
+    ) -> SCNNode {
+        let node = SCNNode()
+        if vertices.count >= 2 {
+            let chain = SCNNode(
+                geometry: loopGeometry(vertices, closed: false)
+            )
+            chain.geometry?.firstMaterial?.diffuse.contents = color
+            node.addChildNode(chain)
+        }
+        let dot = SCNSphere(radius: 0.012)
+        dot.segmentCount = 8
+        dot.firstMaterial?.lightingModel = .constant
+        dot.firstMaterial?.diffuse.contents = color
+        for vertex in vertices.prefix(512) {
+            let marker = SCNNode(geometry: dot)
+            marker.position = vertex
+            node.addChildNode(marker)
+        }
+        return node
     }
 
     private func boxNode(
