@@ -1349,6 +1349,9 @@ struct HTDTDeliveryQueueView: View {
                 ),
                 titleVisibility: .visible
             ) {
+                // Each branch carries its own Cancel — iOS 26
+                // renders only the first action-producing child, so
+                // a button written after the `if` never appears.
                 if let (job, action) = pendingJobAction {
                     if action == .cancel {
                         Button("Cancel delivery", role: .destructive) {
@@ -1359,6 +1362,7 @@ struct HTDTDeliveryQueueView: View {
                             }
                             pendingJobAction = nil
                         }
+                        Button("Cancel", role: .cancel) {}
                     } else {
                         Button("Free payload", role: .destructive) {
                             Task {
@@ -1368,9 +1372,11 @@ struct HTDTDeliveryQueueView: View {
                             }
                             pendingJobAction = nil
                         }
+                        Button("Cancel", role: .cancel) {}
                     }
+                } else {
+                    Button("Cancel", role: .cancel) {}
                 }
-                Button("Cancel", role: .cancel) {}
             } message: {
                 if pendingJobAction?.1 == .cancel {
                     Text(

@@ -125,24 +125,29 @@ public struct ConnectedSpaceStatusView: View {
             ),
             titleVisibility: .visible
         ) {
-            ForEach(
-                [
-                    CapturePortalKind.doorway,
-                    .openPassage,
-                    .stairOpening,
-                    .other,
-                ],
-                id: \.self
-            ) { kind in
-                Button(MissionPresentation.portalKindName(kind)) {
-                    if let target = portalTarget {
-                        onRecordPortal(target, kind)
+            // One Group as the dialog's only top-level child — a
+            // sibling written after the ForEach is dropped from the
+            // rendered actions on iOS 26.
+            Group {
+                ForEach(
+                    [
+                        CapturePortalKind.doorway,
+                        .openPassage,
+                        .stairOpening,
+                        .other,
+                    ],
+                    id: \.self
+                ) { kind in
+                    Button(MissionPresentation.portalKindName(kind)) {
+                        if let target = portalTarget {
+                            onRecordPortal(target, kind)
+                        }
+                        portalTarget = nil
                     }
+                }
+                Button("Cancel", role: .cancel) {
                     portalTarget = nil
                 }
-            }
-            Button("Cancel", role: .cancel) {
-                portalTarget = nil
             }
         }
     }

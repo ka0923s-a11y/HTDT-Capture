@@ -2473,6 +2473,10 @@ public struct CaptureRootView: View {
                     titleVisibility: .visible,
                     presenting: pendingDeletion
                 ) { pending in
+                    // Each branch carries its own Cancel — iOS 26
+                    // renders only the first action-producing child,
+                    // so a button written after the `if` never
+                    // appears.
                     if pending.blockers.isEmpty {
                         Button(
                             pending.archiveOnly
@@ -2486,17 +2490,25 @@ public struct CaptureRootView: View {
                                 pending.revisionID
                             )
                         }
+                        Button("Cancel", role: .cancel) {}
+                    } else {
+                        Button("Cancel", role: .cancel) {}
                     }
-                    Button("Cancel", role: .cancel) {}
                 } message: { pending in
+                    // iOS 26 renders only the first `message:`
+                    // child — the blocker list and its guidance must
+                    // fold into one `Text` to reach the operator.
                     if pending.blockers.isEmpty {
                         Text(deletionExplanationText(for: pending))
                     } else {
-                        ForEach(pending.blockers, id: \.self) { blocker in
-                            Text(blocker.deletionSummary)
-                        }
                         Text(
-                            "Delete is unavailable until the block is cleared — cancel the delivery job or remove the mark first."
+                            (pending.blockers.map(\.deletionSummary)
+                                + [
+                                    String(
+                                        localized:
+                                            "Delete is unavailable until the block is cleared — cancel the delivery job or remove the mark first."
+                                    )
+                                ]).joined(separator: "\n")
                         )
                     }
                 }
@@ -2632,6 +2644,9 @@ public struct CaptureRootView: View {
             ),
             titleVisibility: .visible
         ) {
+            // Each branch carries its own Cancel — iOS 26 renders
+            // only the first action-producing child, so a button
+            // written after the `if` never appears.
             if pendingRemediation
                 == .startReplacementRevision
             {
@@ -2644,6 +2659,9 @@ public struct CaptureRootView: View {
                     }
                     pendingRemediation = nil
                 }
+                Button("Cancel", role: .cancel) {
+                    pendingRemediation = nil
+                }
             } else {
                 Button(
                     "Discard capture",
@@ -2654,9 +2672,9 @@ public struct CaptureRootView: View {
                     }
                     pendingRemediation = nil
                 }
-            }
-            Button("Cancel", role: .cancel) {
-                pendingRemediation = nil
+                Button("Cancel", role: .cancel) {
+                    pendingRemediation = nil
+                }
             }
         } message: {
             Text(

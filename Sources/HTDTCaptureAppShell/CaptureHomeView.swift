@@ -101,6 +101,56 @@ extension PendingCaptureDeletion {
             warnings = outcome?.warnings ?? []
         }
     }
+
+    /// Whole dialog body as one string — `confirmationDialog`'s
+    /// `message:` renders only the first ViewBuilder child on iOS 26,
+    /// so warning/blocker lines after the base clause must be folded
+    /// into a single `Text` to reach the operator.
+    var deletionDialogMessage: String {
+        if !blockers.isEmpty {
+            return (
+                blockers.map(\.deletionSummary)
+                    + [
+                        String(
+                            localized:
+                                "Delete is unavailable until the block is cleared — cancel the delivery job or remove the mark first."
+                        )
+                    ]
+            ).joined(separator: "\n")
+        }
+        var lines: [String] = []
+        if archiveOnly {
+            lines.append(
+                String(
+                    localized:
+                        "This permanently deletes the export archive for this capture from this device — it is the only local copy; no finalized bundle is stored here."
+                )
+            )
+        } else if descendantCount > 0 {
+            lines.append(
+                captureCountPhrase(
+                    descendantCount,
+                    singular: String(
+                        localized: "This permanently deletes the finalized capture and any export archive stored for it from this device. %lld revision declares it as their parent — its lineage link will no longer resolve."
+                    ),
+                    plural: String(
+                        localized: "This permanently deletes the finalized capture and any export archive stored for it from this device. %lld revisions declare it as their parent — their lineage links will no longer resolve."
+                    )
+                )
+            )
+        } else {
+            lines.append(
+                String(
+                    localized:
+                        "This permanently deletes the finalized capture and any export archive stored for it from this device."
+                )
+            )
+        }
+        lines.append(
+            contentsOf: warnings.map(\.deletionSummary)
+        )
+        return lines.joined(separator: "\n")
+    }
 }
 
 extension CaptureRetentionBlocker {
@@ -528,6 +578,9 @@ public struct CaptureHomeView: View {
             titleVisibility: .visible,
             presenting: pendingDeletion
         ) { pending in
+            // Each branch carries its own Cancel — iOS 26 renders
+            // only the first action-producing child, so a button
+            // written after the `if` never appears.
             if pending.blockers.isEmpty {
                 Button(
                     pending.archiveOnly
@@ -541,42 +594,12 @@ public struct CaptureHomeView: View {
                         pending.revisionID
                     )
                 }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { pending in
-            if pending.blockers.isEmpty {
-                if pending.archiveOnly {
-                    Text(
-                        "This permanently deletes the export archive for this capture from this device — it is the only local copy; no finalized bundle is stored here."
-                    )
-                } else if pending.descendantCount > 0 {
-                    Text(
-                        captureCountPhrase(
-                            pending.descendantCount,
-                            singular: String(
-                                localized: "This permanently deletes the finalized capture and any export archive stored for it from this device. %lld revision declares it as their parent — its lineage link will no longer resolve."
-                            ),
-                            plural: String(
-                                localized: "This permanently deletes the finalized capture and any export archive stored for it from this device. %lld revisions declare it as their parent — their lineage links will no longer resolve."
-                            )
-                        )
-                    )
-                } else {
-                    Text(
-                        "This permanently deletes the finalized capture and any export archive stored for it from this device."
-                    )
-                }
-                ForEach(pending.warnings, id: \.self) { warning in
-                    Text(warning.deletionSummary)
-                }
+                Button("Cancel", role: .cancel) {}
             } else {
-                ForEach(pending.blockers, id: \.self) { blocker in
-                    Text(blocker.deletionSummary)
-                }
-                Text(
-                    "Delete is unavailable until the block is cleared — cancel the delivery job or remove the mark first."
-                )
+                Button("Cancel", role: .cancel) {}
             }
+        } message: { pending in
+            Text(pending.deletionDialogMessage)
         }
         // #437: draft discard confirms — the removal is permanent.
         .confirmationDialog(
@@ -3089,8 +3112,9 @@ private struct CaptureLibraryMaintenanceView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { artifact in
-            Text(artifact.url.lastPathComponent)
-            Text(artifact.reason)
+            // Single `Text` — `confirmationDialog`'s `message:`
+            // renders only the first child on iOS 26.
+            Text(artifact.url.lastPathComponent + "\n" + artifact.reason)
         }
     }
 }
