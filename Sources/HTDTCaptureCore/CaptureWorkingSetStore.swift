@@ -4564,6 +4564,12 @@ public actor CaptureWorkingSetStore {
                 .duplicatePayloadDeclaration(document.path)
         }
 
+        // Validate before touching disk so a rejected `.derived`
+        // write leaves no orphan bytes; the post-write re-check
+        // below still catches refs pruned by an interleaved
+        // mutation during the write suspension.
+        try validateDerivedSourceRefsResolvable(document)
+
         try await writer.writeIfIdentical(
             document.data,
             to: CaptureStorePath(document.path)
@@ -4656,6 +4662,12 @@ public actor CaptureWorkingSetStore {
             try await refreshRevisionStateAfterSemanticCommit()
             return
         }
+
+        // Same ordering as persistSupplementalDocument: reject
+        // un-manifestable `.derived` declarations before writing
+        // bytes; the post-suspension re-check covers interleaved
+        // prunes.
+        try validateDerivedSourceRefsResolvable(document)
 
         let prior = supplementalDocuments[document.path]
         try await writer.writeBatchReplacing([
