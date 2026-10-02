@@ -832,6 +832,10 @@ public struct CaptureReviewWorkspaceView: View {
                                     center: center
                                 )
                             }
+                            // A pending center belongs to the live
+                            // capture it was marked in — a sealed
+                            // working set must not commit it.
+                            .disabled(model.spatialCaptureSealed)
                         }
                     }
                     if let openingSaveState {

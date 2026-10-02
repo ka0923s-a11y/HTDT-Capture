@@ -1088,6 +1088,9 @@ public struct CaptureRootView: View {
     /// targets on the persisted workspace.
     public let persistedWorkspaceRoomPlanObjects:
         [RoomPlanBindableObject]
+    /// The last persisted-workspace open failed — the pushed viewer
+    /// shows a failure pane rather than a spinner that never ends.
+    public let persistedWorkspaceLoadFailed: Bool
     /// First captured room-frame point pending the front point
     /// (#232).
     public let roomFrameOriginPending: WorldPoint3D?
@@ -1318,6 +1321,7 @@ public struct CaptureRootView: View {
         persistedWorkspace: CaptureReviewWorkspaceModel? = nil,
         persistedWorkspaceRoomPlanObjects:
             [RoomPlanBindableObject] = [],
+        persistedWorkspaceLoadFailed: Bool = false,
         roomFrameOriginPending: WorldPoint3D? = nil,
         openingCenterPending: WorldPoint3D? = nil,
         danglingSpatialIssues: [SpatialEvidenceIssue] = [],
@@ -1439,6 +1443,8 @@ public struct CaptureRootView: View {
         self.persistedWorkspace = persistedWorkspace
         self.persistedWorkspaceRoomPlanObjects =
             persistedWorkspaceRoomPlanObjects
+        self.persistedWorkspaceLoadFailed =
+            persistedWorkspaceLoadFailed
         self.roomFrameOriginPending = roomFrameOriginPending
         self.openingCenterPending = openingCenterPending
         self.danglingSpatialIssues = danglingSpatialIssues
@@ -1680,6 +1686,8 @@ public struct CaptureRootView: View {
                     persistedWorkspace: persistedWorkspace,
                     persistedWorkspaceRoomPlanObjects:
                         persistedWorkspaceRoomPlanObjects,
+                    persistedWorkspaceLoadFailed:
+                        persistedWorkspaceLoadFailed,
                     handoffReceipts: handoffReceipts,
                     captureOrigins: captureOrigins,
                     missionRecords: missionRecords,
@@ -2167,6 +2175,14 @@ public struct CaptureRootView: View {
                             model: persistedWorkspace,
                             roomPlanObjects:
                                 persistedWorkspaceRoomPlanObjects
+                        )
+                    } else if persistedWorkspaceLoadFailed {
+                        ContentUnavailableView(
+                            "Couldn't open capture",
+                            systemImage: "exclamationmark.triangle",
+                            description: Text(
+                                "The saved bundle could not be read; it stays in the library."
+                            )
                         )
                     } else {
                         ProgressView("Loading capture…")

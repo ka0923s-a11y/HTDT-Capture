@@ -3176,6 +3176,15 @@ public actor CaptureWorkingSetStore {
         else {
             throw CaptureWorkingSetError.invalidAnnotationPackage
         }
+        // The document must name this revision — sibling commit paths
+        // (room reference frame, field datum, opening review) bind
+        // the same identity field and a foreign stamp would ship a
+        // silent provenance lie in this revision's manifest.
+        guard package.document.captureRevisionID
+                == identity.captureRevisionID
+        else {
+            throw CaptureWorkingSetError.authorityMismatch
+        }
         // Rebuild-validate against the committed entities: binding and
         // duplicate rules are enforced by the document initializer.
         _ = try EquipmentIdentityDocument(
@@ -3193,6 +3202,10 @@ public actor CaptureWorkingSetStore {
             provenanceClass: .captureAppDerived,
             role: .derived,
             sourceRefs: package.sourceRefs
+        )
+        try validateDerivedSourceRefsResolvable(
+            path: declaration.path,
+            declaration: declaration
         )
 
         try await writer.writeBatchReplacing([
@@ -3218,6 +3231,10 @@ public actor CaptureWorkingSetStore {
         else {
             throw CaptureWorkingSetError.invalidAnnotationPackage
         }
+        try validateDerivedSourceRefsResolvable(
+            path: declaration.path,
+            declaration: declaration
+        )
 
         declarations[declaration.path] = declaration
 
@@ -3293,6 +3310,10 @@ public actor CaptureWorkingSetStore {
             role: .derived,
             sourceRefs: package.sourceRefs
         )
+        try validateDerivedSourceRefsResolvable(
+            path: declaration.path,
+            declaration: declaration
+        )
 
         try await writer.writeBatchReplacing([
             try CaptureFileWriteRequest(
@@ -3302,6 +3323,13 @@ public actor CaptureWorkingSetStore {
                 )
             ),
         ])
+
+        // Post-suspension re-check: refs pruned mid-write by an
+        // interleaved removal must fail the commit here too.
+        try validateDerivedSourceRefsResolvable(
+            path: declaration.path,
+            declaration: declaration
+        )
 
         declarations[declaration.path] = declaration
 
@@ -3700,13 +3728,29 @@ public actor CaptureWorkingSetStore {
                     CaptureStorePath(payload.path)
                 )
             }
-            for doc in docDeclarations
-            where !previouslyDeclaredPaths.contains(
-                doc.declaration.path
-            ) {
-                try? await writer.removeIfPresent(
-                    CaptureStorePath(doc.declaration.path)
-                )
+            for doc in docDeclarations {
+                if !previouslyDeclaredPaths.contains(
+                    doc.declaration.path
+                ) {
+                    try? await writer.removeIfPresent(
+                        CaptureStorePath(doc.declaration.path)
+                    )
+                } else if let committedData =
+                    supplementalDocuments[doc.declaration.path]
+                {
+                    // `writeBatchReplacing` already overwrote a
+                    // previously-declared doc; the declaration table
+                    // still holds the old entry, so put its bytes back
+                    // or the manifest's refs describe a different body.
+                    try? await writer.writeBatchReplacing([
+                        try CaptureFileWriteRequest(
+                            data: committedData,
+                            path: CaptureStorePath(
+                                doc.declaration.path
+                            )
+                        ),
+                    ])
+                }
             }
             for removal in bundle.assetRemovals
             where removedPaths.contains(removal.path) {
@@ -3905,11 +3949,8 @@ public actor CaptureWorkingSetStore {
         guard roomFieldDatum != nil else {
             return
         }
-        try await writer.removeIfPresent(
-            CaptureStorePath(RoomFieldDatumPackage.path)
-        )
-        declarations.removeValue(
-            forKey: RoomFieldDatumPackage.path
+        try await removeCommittedPayload(
+            path: RoomFieldDatumPackage.path
         )
         roomFieldDatum = nil
         try await pruneDerivedSourceRefs(
@@ -3932,11 +3973,8 @@ public actor CaptureWorkingSetStore {
         guard roomReferenceFrame != nil else {
             return
         }
-        try await writer.removeIfPresent(
-            CaptureStorePath(RoomReferenceFramePackage.path)
-        )
-        declarations.removeValue(
-            forKey: RoomReferenceFramePackage.path
+        try await removeCommittedPayload(
+            path: RoomReferenceFramePackage.path
         )
         roomReferenceFrame = nil
         try await pruneDerivedSourceRefs(
@@ -4041,11 +4079,8 @@ public actor CaptureWorkingSetStore {
         guard openingReviewDocument != nil else {
             return
         }
-        try await writer.removeIfPresent(
-            CaptureStorePath(OpeningReviewPackage.path)
-        )
-        declarations.removeValue(
-            forKey: OpeningReviewPackage.path
+        try await removeCommittedPayload(
+            path: OpeningReviewPackage.path
         )
         openingReviewDocument = nil
         try await pruneDerivedSourceRefs(
@@ -4317,9 +4352,20 @@ public actor CaptureWorkingSetStore {
             default:
                 break
             }
-            try await writer.removeIfPresent(
-                CaptureStorePath(path)
-            )
+            let expectedDeclaration = declarations[path]
+            guard try await writer.removeIfIdentical(
+                bytes,
+                at: CaptureStorePath(path)
+            ) else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+            // A same-path recommit landing across the writer
+            // suspension must fail closed, not be stripped here.
+            guard declarations[path] == expectedDeclaration else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
             declarations.removeValue(forKey: path)
         }
 
@@ -4942,14 +4988,52 @@ public actor CaptureWorkingSetStore {
         inFlightMutations += 1
         defer { mutationDidFinish() }
 
-        declarations.removeValue(forKey: path)
-        supplementalDocuments.removeValue(forKey: path)
-        try await writer.removeIfPresent(CaptureStorePath(path))
+        try await removeCommittedPayload(path: path)
         // A removed document can no longer be cited — derived
         // declarations naming it in `path:` refs are healed here
         // rather than left to dangle at finalize.
         try await pruneDerivedSourceRefs(removedPaths: [path])
         try await refreshRevisionStateAfterSemanticCommit()
+    }
+
+    /// Deletes a committed payload's file and declaration with
+    /// content-checked removal: the file is only deleted while it still
+    /// holds the bytes this revision committed, and the declaration is
+    /// only stripped while it is still the entry this removal saw. A
+    /// same-path commit landing across the writer suspension fails
+    /// closed instead of having its bytes deleted or its declaration
+    /// silently dropped — matching the `removeBatchIfIdentical`
+    /// discipline the rollback paths already use.
+    private func removeCommittedPayload(path: String) async throws {
+        let expectedDeclaration = declarations[path]
+        let expectedBytes = supplementalDocuments[path]
+            ?? committedPayloadBytes(path)
+        if let expectedBytes {
+            guard try await writer.removeIfIdentical(
+                expectedBytes,
+                at: CaptureStorePath(path)
+            ) else {
+                throw CaptureWorkingSetError
+                    .integrityVerificationFailed
+            }
+        } else {
+            // Nothing committed to check against: only an absent file
+            // is a safe delete — the post-suspension declaration check
+            // still fails closed if a commit interleaved.
+            try await writer.removeIfPresent(CaptureStorePath(path))
+        }
+        guard declarations[path] == expectedDeclaration else {
+            throw CaptureWorkingSetError.integrityVerificationFailed
+        }
+        declarations.removeValue(forKey: path)
+        supplementalDocuments.removeValue(forKey: path)
+    }
+
+    private func committedPayloadBytes(_ path: String) -> Data? {
+        let url = path.split(separator: "/").reduce(rootDirectory) {
+            $0.appendingPathComponent(String($1), isDirectory: false)
+        }
+        return try? Data(contentsOf: url)
     }
 
     /// Rewrites `.derived` declarations whose `path:` source refs name
@@ -4980,11 +5064,7 @@ public actor CaptureWorkingSetStore {
                 continue
             }
             if surviving.isEmpty {
-                declarations.removeValue(forKey: path)
-                supplementalDocuments.removeValue(forKey: path)
-                try await writer.removeIfPresent(
-                    CaptureStorePath(path)
-                )
+                try await removeCommittedPayload(path: path)
             } else {
                 declarations[path] = BundlePayloadDeclaration(
                     path: declaration.path,
@@ -7792,6 +7872,19 @@ public actor CaptureWorkingSetStore {
         processedRoomPlanDescriptor = processedDescriptor
         capturedRoomMetadata = metadataDoc
         coordinateSpacePolicy = policyDoc
+        // The transitions are durable only inside the policy document;
+        // without repopulation a restored draft would re-evaluate
+        // quality with coordinateDiscontinuityCount == 0 and lose the
+        // severity-.error diagnostic the live store produced.
+        coordinateTransitions = policyDoc.coordinateTransitions.map {
+            record in
+            CoordinateSpaceTransition(
+                previous: record.previousCoordinateSpaceID,
+                next: record.nextCoordinateSpaceID,
+                reason: record.reason,
+                sessionTimestampSeconds: record.sessionTimestampSeconds
+            )
+        }
 
         // The durable End payload set is proven at this point, so a
         // stale `live_scan_incomplete` marker can only be a lost
@@ -8091,6 +8184,8 @@ public actor CaptureWorkingSetStore {
                     EquipmentIdentityDocument.self,
                     from: identityData
                 ),
+                document.captureRevisionID
+                    == identity.captureRevisionID,
                 let committedEntities =
                     annotationCollection?.entities
             else {

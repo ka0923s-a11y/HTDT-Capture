@@ -1823,6 +1823,7 @@
 "Mount" = "取り付け";
 "Mode" = "モード";
 "Band" = "帯域";
+"Couldn't open capture" = "キャプチャを開けませんでした";
 "Couldn't save" = "保存できませんでした";
 "The record could not be saved. Check the highlighted fields, or expand the technical detail." = "レコードを保存できませんでした。ハイライトされた項目を確認するか、技術的詳細を展開してください。";
 "The record needs a captured element, mesh anchor, or manual binding to stay anchored." = "レコードが固定されるには、キャプチャされた要素、メッシュアンカー、または手動バインディングが必要です。";
@@ -2256,6 +2257,7 @@
 "The revision was committed to finalized storage, but post-promotion validation could not prove it; the committed bytes are preserved and stay discoverable through the persisted-capture inventory" = "リビジョンは確定済み領域にコミットされましたが、昇格後の検証で証明できませんでした。コミット済みデータは保持され、保存済みキャプチャ一覧から確認できます";
 "The room reference frame could not be saved" = "部屋の基準フレームを保存できませんでした";
 "The saved annotation authority could not be reloaded for editing; the committed files are unchanged" = "保存済みの注釈データを編集用に読み込めませんでした。確定済みのファイルは変更されていません";
+"The saved bundle could not be read; it stays in the library." = "保存済みバンドルを読み込めませんでした。ライブラリには残っています。";
 "The selected capture could not be opened for correction" = "選択されたキャプチャを補正のために開けませんでした";
 "The selected file is not a valid HTDT task plan" = "選択したファイルは有効な HTDT タスク計画ではありません";
 "The selected file is not an .htdtcapture archive" = "選択されたファイルは .htdtcapture アーカイブではありません";

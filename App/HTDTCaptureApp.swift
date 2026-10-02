@@ -119,6 +119,8 @@ private struct HTDTCaptureHostView: View {
             persistedWorkspaceRoomPlanObjects:
                 coordinator
                     .persistedWorkspaceRoomPlanObjects,
+            persistedWorkspaceLoadFailed:
+                coordinator.persistedWorkspaceLoadFailed,
             roomFrameOriginPending:
                 coordinator.roomFrameOriginPending,
             openingCenterPending:
@@ -695,6 +697,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set)
     var persistedWorkspaceRoomPlanObjects:
         [RoomPlanBindableObject] = []
+    /// The last persisted-workspace open failed to decode — the
+    /// pushed viewer shows an error pane instead of a spinner that
+    /// can never resolve.
+    @Published private(set)
+    var persistedWorkspaceLoadFailed = false
     /// First captured point of the pending two-point room reference
     /// frame capture (issue #232).
     @Published private(set)
@@ -1532,6 +1539,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         taskPlanMission = nil
         persistedWorkspace = nil
         persistedWorkspaceRoomPlanObjects = []
+        persistedWorkspaceLoadFailed = false
         roomFrameOriginPending = nil
         openingCenterPending = nil
         danglingSpatialIssues = []
@@ -3425,6 +3433,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         persistedRepairLinkRevisionID = nil
         missionTaskPlanOutcomes = []
         roomFrameAvailable = false
+        revisitFlagStore = CaptureRevisitFlagStore()
+        revisitFlags = []
 
         func dataAt(_ path: String) -> Data? {
             let url = rootDirectory.appendingPathComponent(
@@ -3530,6 +3540,23 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 $0.planID == link.repairPlanID
                     && $0.task.taskID == link.repairTaskID
             }
+        }
+
+        // #325: flags are operator review intent — a reopened draft
+        // rehydrates them from its persisted document so Resolve /
+        // Skip / Reopen act on the durable record instead of
+        // no-op'ing on an empty store.
+        if let document: CaptureRevisitFlagDocument =
+            loadJSON(
+                CaptureRevisitFlagDocument.self,
+                at: CaptureRevisitFlagDocument.path
+            ),
+            document.captureRevisionID == identity.captureRevisionID
+        {
+            revisitFlagStore = CaptureRevisitFlagStore(
+                restoring: document
+            )
+            revisitFlags = revisitFlagStore.flags
         }
     }
 
@@ -5259,6 +5286,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         taskPlanMission = nil
         persistedWorkspace = nil
         persistedWorkspaceRoomPlanObjects = []
+        persistedWorkspaceLoadFailed = false
         roomFrameOriginPending = nil
         openingCenterPending = nil
         danglingSpatialIssues = []
@@ -5348,6 +5376,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         taskPlanMission = nil
         persistedWorkspace = nil
         persistedWorkspaceRoomPlanObjects = []
+        persistedWorkspaceLoadFailed = false
         roomFrameOriginPending = nil
         openingCenterPending = nil
         danglingSpatialIssues = []
@@ -5567,6 +5596,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         taskPlanMission = nil
         persistedWorkspace = nil
         persistedWorkspaceRoomPlanObjects = []
+        persistedWorkspaceLoadFailed = false
         roomFrameOriginPending = nil
         openingCenterPending = nil
         danglingSpatialIssues = []
@@ -5827,7 +5857,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         reviewWorkspace = nil
         persistedWorkspace = nil
         persistedWorkspaceRoomPlanObjects = []
+        persistedWorkspaceLoadFailed = false
         roomFrameOriginPending = nil
+        openingCenterPending = nil
         danglingSpatialIssues = []
         failedInspection = nil
         handoffDestinations = []
@@ -6494,12 +6526,20 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // every tap re-launched the decode. Guard + mark the row busy.
         guard state == .idle || state == .finalized
                 || state == .exported,
-              !persistedWorkspaceLoadInFlight
+              !persistedWorkspaceLoadInFlight,
+              !persistedAdoptionInFlight,
+              !persistedDeletionInFlight
         else {
             return
         }
         persistedWorkspaceLoadInFlight = true
         operationTargetRevisionID = record.captureRevisionID
+        // Clear before the async decode — the pushed viewer must
+        // never render the previously opened capture while the new
+        // one is loading.
+        persistedWorkspace = nil
+        persistedWorkspaceRoomPlanObjects = []
+        persistedWorkspaceLoadFailed = false
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.persistedWorkspaceLoadInFlight = false }
@@ -6561,6 +6601,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             self.persistedWorkspaceRoomPlanObjects = loaded.1
             let model = loaded.0
             if model == nil {
+                self.persistedWorkspaceLoadFailed = true
                 self.workingSetStatus = String(localized: "The persisted capture could not be opened read-only")
             }
         }
@@ -8338,6 +8379,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
               !persistedAdoptionInFlight,
               !exportOperationInFlight,
               !importOperationInFlight,
+              !persistedWorkspaceLoadInFlight,
               let store = persistedStore
         else {
             return

@@ -285,6 +285,42 @@ final class ScanningImprovementsTests: XCTestCase {
         )
     }
 
+    func testFlagStoreRestoresFromPersistedDocument() {
+        // A recovered draft reopens with its persisted flags — the
+        // store built from the document exposes them so Review's
+        // Resolve/Skip/Reopen act on the durable record rather than
+        // no-op'ing on an empty store.
+        var live = CaptureRevisitFlagStore()
+        let flagA = makeFlag(timestamp: 1)
+        let flagB = makeFlag(timestamp: 2)
+        live.add(flagA)
+        live.add(flagB)
+        live.resolve(flagID: flagB.flagID, outcome: .acknowledged)
+
+        var restored = CaptureRevisitFlagStore(
+            restoring: live.document(
+                captureRevisionID: CaptureRevisionID()
+            )
+        )
+        XCTAssertEqual(restored.flags.count, 2)
+        XCTAssertEqual(restored.flags[0].status, .unresolved)
+        XCTAssertEqual(restored.flags[1].status, .skipped)
+        XCTAssertEqual(restored.unresolvedFlags.count, 1)
+
+        // The restored store stays actionable: reopen and
+        // re-resolve mutate the persisted records.
+        XCTAssertTrue(restored.reopen(flagID: flagB.flagID))
+        XCTAssertEqual(restored.flags[1].status, .unresolved)
+        XCTAssertTrue(
+            restored.resolve(
+                flagID: flagA.flagID,
+                outcome: .linkedAuthority,
+                authorityRef: "annotation/xyz"
+            )
+        )
+        XCTAssertEqual(restored.flags[0].status, .resolved)
+    }
+
     // MARK: - #329 3D-aware coverage
 
     private func sample3D(

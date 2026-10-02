@@ -524,6 +524,7 @@ public struct CaptureJourneyPresentation: Sendable, Equatable {
                 // next step — finalize stays blocked until evidence is
                 // evaluated.
                 primary = inputs.hasSpatialAuthority
+                    && !inputs.spatialCaptureSealed
                     ? .continueScanning : .openReviewWorkspace
                 blocked = "Waiting for persisted evidence…"
             } else {
@@ -532,7 +533,10 @@ public struct CaptureJourneyPresentation: Sendable, Equatable {
                     blocked = "Resolve readiness before finalizing"
                 }
             }
-            if inputs.hasSpatialAuthority, primary != .continueScanning {
+            // A rejected finalize keeps the spatial seal — Continue
+            // scanning can never run, so the row must not offer it.
+            if inputs.hasSpatialAuthority, !inputs.spatialCaptureSealed,
+               primary != .continueScanning {
                 secondary.append(.continueScanning)
             }
             secondary.append(

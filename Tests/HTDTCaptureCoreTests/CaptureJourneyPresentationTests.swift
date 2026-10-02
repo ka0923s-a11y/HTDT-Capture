@@ -111,6 +111,38 @@ struct CaptureJourneyPresentationTests {
         #expect(p.secondaryActions.contains(.openReviewWorkspace))
     }
 
+    @Test func sealedCaptureNeverOffersContinueScanning() {
+        // A rejected finalize keeps the spatial seal — the journey
+        // must not offer a Continue-scanning action that can only
+        // no-op.
+        let unknown = resolve(
+            .init(
+                state: .reviewing,
+                hasSpatialAuthority: true,
+                spatialCaptureSealed: true
+            )
+        )
+        #expect(unknown.primaryAction == .openReviewWorkspace)
+        #expect(
+            !unknown.secondaryActions.contains(.continueScanning)
+        )
+
+        let ready = resolve(
+            .init(
+                state: .reviewing,
+                hasQualityReport: true,
+                qualityReadyForIngestion: true,
+                integrityPass: true,
+                hasSpatialAuthority: true,
+                spatialCaptureSealed: true
+            )
+        )
+        #expect(ready.primaryAction == .validateAndFinalize)
+        #expect(
+            !ready.secondaryActions.contains(.continueScanning)
+        )
+    }
+
     @Test func reviewStageStatuses() {
         let p = resolve(
             .init(

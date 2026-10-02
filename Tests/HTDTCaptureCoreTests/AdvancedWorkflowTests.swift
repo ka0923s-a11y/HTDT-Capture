@@ -258,6 +258,49 @@ final class AdvancedWorkflowTests: XCTestCase {
         )
     }
 
+    /// `derived/authority-dependencies.json` is a `.derived` commit
+    /// point too: a package whose source refs cannot resolve must be
+    /// rejected before any bytes or declaration land.
+    func testAuthorityDependenciesRejectUnresolvableSourceRef()
+        async throws
+    {
+        let (store, root) = try makeStore()
+        defer { BundleValidationFixture.remove(root) }
+
+        let manifest = try ExternalAuthorityDependencyManifest(
+            generatedAtUTC: "2026-10-02T00:00:00Z",
+            dependencies: []
+        )
+        let package = try ExternalAuthorityDependencyPackage(
+            manifest: manifest,
+            extraSourceRefs: ["path:aaa/never-committed.json"]
+        )
+        do {
+            try await store.persistOrReplaceAuthorityDependencies(
+                package
+            )
+            XCTFail("expected unresolvedDerivedSourceRef")
+        } catch CaptureWorkingSetError.unresolvedDerivedSourceRef(
+            let cited
+        ) {
+            XCTAssertEqual(cited, "aaa/never-committed.json")
+        }
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(
+                    ExternalAuthorityDependencyPackage.path
+                ).path
+            )
+        )
+        let snapshot = await store.snapshot()
+        XCTAssertFalse(
+            snapshot.payloadDeclarations.contains {
+                $0.path == ExternalAuthorityDependencyPackage.path
+            }
+        )
+    }
+
     func testSupplementalDocumentCoordinateSpaceEnforced() async throws {
         let (store, root) = try makeStore()
         defer { BundleValidationFixture.remove(root) }

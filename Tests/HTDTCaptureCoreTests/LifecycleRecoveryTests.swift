@@ -633,6 +633,70 @@ extension LifecycleRecoveryTests {
         )
     }
 
+    func testRestoredDraftRetainsCoordinateDiscontinuityDiagnostic()
+        async throws
+    {
+        let root = try makeCaptureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let captureRoot = root.appendingPathComponent(
+            "HTDTCapture",
+            isDirectory: true
+        )
+
+        let context = CaptureSessionContext()
+        let identity = CaptureWorkingSetIdentity()
+        let directory = captureRoot
+            .appendingPathComponent("working", isDirectory: true)
+            .appendingPathComponent(
+                identity.captureRevisionID.description,
+                isDirectory: true
+            )
+        let live = try CaptureWorkingSetStore(
+            identity: identity,
+            rootDirectory: directory
+        )
+        try await live.persistSessionFoundation(
+            makeFoundation(context: context)
+        )
+        await live.recordAdvisoryEndContext(makeEndCoverage())
+        // A mid-scan world-origin reset only survives inside the
+        // End-time policy document — the restored store must
+        // repopulate it or the unrecoverable diagnostic is lost.
+        try await live.recordCoordinateDiscontinuity(
+            to: CoordinateSpaceID(),
+            reason: .worldOriginReset,
+            sessionTimestampSeconds: 4
+        )
+        try await live.persistEndRoomPlanTransaction(
+            timingPackage: makeTiming(),
+            roomPlanLineage: makeLineage(context: context)
+        )
+
+        let draft = try XCTUnwrap(
+            PersistedCaptureInventory(captureRoot: captureRoot)
+                .scan()
+                .recoverableDrafts
+                .first
+        )
+        let (restored, _) = try await CaptureWorkingSetStore
+            .restoreWorkingRevision(draft)
+
+        let quality = await restored.evaluateQuality(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
+                requireCompletedRoomPlan: true,
+                minimumActiveMeshAnchors: 0,
+                minimumEvidenceFrames: 0
+            )
+        )
+        XCTAssertTrue(
+            quality.diagnostics.contains {
+                $0.code == "tracking_coordinate_discontinuity"
+            }
+        )
+        XCTAssertFalse(quality.readyForHTDTIngestion)
+    }
+
     func testLiveScanIncompleteRevisionIsNotRecoverable()
         async throws
     {
@@ -746,9 +810,10 @@ extension LifecycleRecoveryTests {
             "HTDTCapture",
             isDirectory: true
         )
-        let (_, directory, _, _) = try await makeEndAcceptedRevision(
-            captureRoot: captureRoot
-        )
+        let (_, directory, context, identity) =
+            try await makeEndAcceptedRevision(
+                captureRoot: captureRoot
+            )
 
         let fileManager = FileManager.default
         // Staging scratch the finalizer leaves when it is killed
@@ -761,8 +826,19 @@ extension LifecycleRecoveryTests {
             .appendingPathComponent(".tmp-stray")
         try Data("x".utf8).write(to: scratch)
         // A canonical reserved payload outside the dedicated
-        // restore steps.
-        try Data("{}".utf8).write(
+        // restore steps — bound to this revision's identity, as the
+        // strict bound-doc decode on restore requires.
+        let strategyPackage = try CaptureStrategyPackageBuilder.build(
+            document: CaptureStrategyDocument(
+                captureRevisionID: identity.captureRevisionID,
+                captureSessionID: context.captureSessionID,
+                coordinateSpaceID: context.coordinateSpaceID,
+                profile: CaptureStrategyCatalog.profile(for: .standard),
+                source: .operatorSelected,
+                selectedAtUTC: "2026-10-02T00:00:00Z"
+            )
+        )
+        try strategyPackage.data.write(
             to: directory.appendingPathComponent(
                 CaptureStrategyPackage.path
             )
