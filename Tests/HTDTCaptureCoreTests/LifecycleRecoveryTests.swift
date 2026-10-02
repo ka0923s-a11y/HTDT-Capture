@@ -1544,6 +1544,106 @@ extension LifecycleRecoveryTests {
         let snapshot = await store.snapshot()
         XCTAssertFalse(snapshot.practiceCapture)
     }
+
+    /// Restore populates the sealed-byte ledger (`supplementalDocuments`)
+    /// for every surviving `.json` payload. A typed recommit that rewrote
+    /// those bytes without refreshing the ledger left `verifyIntegrity`
+    /// comparing stale bytes at seal — the "reopen draft → edit →
+    /// finalize" flow failed `integrityVerificationFailed` every time.
+    /// Each commit must keep the ledger in step with its write.
+    func testRestoredDraftRecommitKeepsByteLedgerCurrent() async throws {
+        let root = try makeCaptureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let captureRoot = root.appendingPathComponent(
+            "HTDTCapture",
+            isDirectory: true
+        )
+        let (store, _, context, identity) =
+            try await makeEndAcceptedRevision(
+                captureRoot: captureRoot
+            )
+
+        func fieldDatumPackage(
+            originX: Double,
+            confirmedAtUTC: String
+        ) throws -> RoomFieldDatumPackage {
+            let origin = try RoomFieldDatumOrigin(
+                kind: .roomFrameOrigin,
+                ref: "room_reference_frame",
+                pointMeters: WorldPoint3D(
+                    x: originX, y: 1.4, z: -0.3
+                )
+            )
+            let axis = try RoomFieldDatumAxis(
+                kind: .roomFrameFront,
+                refs: ["room_reference_frame"],
+                directionMeters: WorldPoint3D(
+                    x: 0, y: 0.4, z: -1
+                )
+            )
+            let vertical = try RoomFieldDatumVertical(
+                kind: .finishedFloor,
+                ref: "room_reference_frame",
+                zeroElevationMeters: -0.02
+            )
+            let transform = try RoomFieldDatumPackageBuilder
+                .fieldTransform(
+                    origin: origin,
+                    axis: axis,
+                    verticalDatum: vertical
+                )
+            return try RoomFieldDatumPackageBuilder.build(
+                document: RoomFieldDatumDocument(
+                    captureRevisionID: identity.captureRevisionID,
+                    captureSessionID: context.captureSessionID,
+                    coordinateSpaceID: context.coordinateSpaceID,
+                    origin: origin,
+                    axis: axis,
+                    verticalDatum: vertical,
+                    fieldFromCaptureWorld: transform,
+                    uncertaintyMeters: nil,
+                    residualMeters: nil,
+                    sourceEvidenceRefs: [],
+                    confirmedAtUTC: confirmedAtUTC
+                )
+            )
+        }
+
+        // Committed pre-suspend → restore puts its bytes into the
+        // sealed-byte ledger.
+        try await store.commitRoomFieldDatum(
+            fieldDatumPackage(
+                originX: 1.5,
+                confirmedAtUTC: "2026-10-02T01:00:00Z"
+            )
+        )
+
+        let result = PersistedCaptureInventory(
+            captureRoot: captureRoot
+        ).scan()
+        let draft = try XCTUnwrap(result.recoverableDrafts.first)
+        let (restored, _) =
+            try await CaptureWorkingSetStore
+                .restoreWorkingRevision(draft)
+
+        // The recommit writes different bytes under the same path —
+        // seal must verify the new bytes, not the pre-suspend ones.
+        try await restored.commitRoomFieldDatum(
+            fieldDatumPackage(
+                originX: 2.5,
+                confirmedAtUTC: "2026-10-02T02:00:00Z"
+            )
+        )
+
+        _ = try await restored.sealForFinalization(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
+                requireCompletedRoomPlan: false,
+                minimumActiveMeshAnchors: 0,
+                minimumEvidenceFrames: 0
+            )
+        )
+    }
 }
 
 /// `XCTAssertThrowsError` for an `async throws` expression.

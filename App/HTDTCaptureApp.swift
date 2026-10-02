@@ -704,6 +704,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// can never resolve.
     @Published private(set)
     var persistedWorkspaceLoadFailed = false
+    /// Monotonic open-request counter: a second "Open" while a decode
+    /// is running must win, not be dropped — only the newest
+    /// generation's result may land on `persistedWorkspace`.
+    private var persistedWorkspaceLoadGeneration = 0
     /// First captured point of the pending two-point room reference
     /// frame capture (issue #232).
     @Published private(set)
@@ -6616,14 +6620,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     ) -> Bool {
         // #309: the read-only open had no in-flight guard at all —
         // every tap re-launched the decode. Guard + mark the row busy.
+        // A tap landing while a decode is still running is *not*
+        // refused: it supersedes the older request — the generation
+        // check below keeps only the newest result landing.
         guard state == .idle || state == .finalized
                 || state == .exported,
-              !persistedWorkspaceLoadInFlight,
               !persistedAdoptionInFlight,
               !persistedDeletionInFlight
         else {
             return false
         }
+        persistedWorkspaceLoadGeneration += 1
+        let generation = persistedWorkspaceLoadGeneration
         persistedWorkspaceLoadInFlight = true
         operationTargetRevisionID = record.captureRevisionID
         // Clear before the async decode — the pushed viewer must
@@ -6634,7 +6642,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         persistedWorkspaceLoadFailed = false
         Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.persistedWorkspaceLoadInFlight = false }
+            defer {
+                // Only the newest request clears the busy flag — a
+                // superseded decode finishing first must leave the
+                // flag up while the winning decode still runs.
+                if self.persistedWorkspaceLoadGeneration == generation {
+                    self.persistedWorkspaceLoadInFlight = false
+                }
+            }
             let loaded = await Task.detached(
                 priority: .userInitiated
             ) {
@@ -6691,9 +6706,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }.value
             // The decode is detached: a state change while it ran
             // (capture started, capture deleted) means the model is
-            // stale — never stamp it over the new session.
+            // stale — never stamp it over the new session. A newer
+            // open request supersedes this result too — it cleared the
+            // model synchronously before its own decode.
             guard self.state == .idle || self.state == .finalized
-                    || self.state == .exported
+                    || self.state == .exported,
+                  self.persistedWorkspaceLoadGeneration == generation
             else {
                 return
             }
