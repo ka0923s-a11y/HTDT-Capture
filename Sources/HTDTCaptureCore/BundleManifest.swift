@@ -465,7 +465,10 @@ public struct BundleManifest: Codable, Sendable, Equatable {
     /// v1 source_ref budgets (#195): lineage resolution work must stay
     /// bounded independently of the manifest byte cap. Identical limits
     /// are enforced by the Python validator and reference ingestor.
-    static let maxSourceRefsPerEntry = 32
+    /// Public so producers that build `sourceRefs` (e.g. the derived
+    /// geometry-candidates persist path) cap with the same constant
+    /// instead of a drifted literal.
+    public static let maxSourceRefsPerEntry = 32
     static let maxSourceRefBytes = 512
     static let maxSourceRefsTotal = 65_536
 

@@ -207,13 +207,21 @@ public enum DerivedHorizontalPlaneSegmentation {
                 upper += 1
             }
             let count = upper - lower + 1
+            // First-maximum wins: with equal-density bands the lowest
+            // plane (e.g. the lower shelf) is the support surface.
             if count > bestCount {
                 bestCount = count
                 bestTop = sorted[upper]
             }
         }
 
-        guard bestCount >= max(10, Int(Double(sorted.count) * minimumBandFraction)),
+        guard bestCount >= max(
+            10,
+            Int(
+                (Double(sorted.count) * minimumBandFraction)
+                    .rounded(.up)
+            )
+        ),
               let observedTop = sorted.last,
               observedTop > bestTop + minimumRiseMeters
         else {
@@ -339,18 +347,44 @@ public enum DerivedPolygonConcavityResolution:
 public struct DerivedPolygon: Codable, Sendable, Equatable {
     public let vertices: [SupportedPolygonVertex]
     public let isConcave: Bool
+    // Schema-required on the persisted footprint contract: a polygon
+    // that never ran the concavity-resolution pass is `unresolved`,
+    // never absent.
     public let concavityResolution:
-        DerivedPolygonConcavityResolution?
+        DerivedPolygonConcavityResolution
 
     public init(
         vertices: [SupportedPolygonVertex],
         isConcave: Bool,
         concavityResolution:
-            DerivedPolygonConcavityResolution? = nil
+            DerivedPolygonConcavityResolution = .unresolved
     ) {
         self.vertices = vertices
         self.isConcave = isConcave
         self.concavityResolution = concavityResolution
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case vertices
+        case isConcave
+        case concavityResolution
+    }
+
+    // Payloads emitted before the field became required decode as
+    // `unresolved` rather than failing the whole candidate document.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(
+            vertices: container.decode(
+                [SupportedPolygonVertex].self,
+                forKey: .vertices
+            ),
+            isConcave: container.decode(Bool.self, forKey: .isConcave),
+            concavityResolution: container.decodeIfPresent(
+                DerivedPolygonConcavityResolution.self,
+                forKey: .concavityResolution
+            ) ?? .unresolved
+        )
     }
 }
 
@@ -359,6 +393,101 @@ public enum DerivedFootprintGeometry: Codable, Sendable, Equatable {
     case circle(DerivedCircle)
     case ellipse(DerivedEllipse)
     case polygon(DerivedPolygon)
+
+    // The bundle schema owns the wire shape `{"<kind>": {…fields}}`.
+    // Synthesized enum Codable wraps the payload in `"_0"`, which the
+    // schema's additionalProperties:false rejects at finalize — encode
+    // the payload directly under its kind key.
+    private enum CodingKeys: String, CodingKey {
+        case orientedRectangle
+        case circle
+        case ellipse
+        case polygon
+    }
+
+    private struct LegacyWrapper<Payload: Decodable>: Decodable {
+        let payload: Payload
+
+        private enum CodingKeys: String, CodingKey {
+            case _0
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(
+                keyedBy: CodingKeys.self
+            )
+            payload = try container.decode(Payload.self, forKey: ._0)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // A present-but-legacy-wrapped payload (`{"_0":{…}}`) fails the
+        // flat decode with a thrown error, not a nil — so each shape is
+        // attempted with `try?` and falls through to the wrapper form.
+        func flat<T: Decodable>(
+            _ type: T.Type,
+            _ key: CodingKeys
+        ) -> T? {
+            try? container.decode(T.self, forKey: key)
+        }
+        func wrapped<T: Decodable>(
+            _ type: T.Type,
+            _ key: CodingKeys
+        ) -> T? {
+            (
+                try? container.decode(
+                    LegacyWrapper<T>.self,
+                    forKey: key
+                )
+            )?.payload
+        }
+        if let value = flat(DerivedPolygon.self, .polygon)
+            ?? wrapped(DerivedPolygon.self, .polygon)
+        {
+            self = .polygon(value)
+            return
+        }
+        if let value = flat(DerivedCircle.self, .circle)
+            ?? wrapped(DerivedCircle.self, .circle)
+        {
+            self = .circle(value)
+            return
+        }
+        if let value = flat(DerivedEllipse.self, .ellipse)
+            ?? wrapped(DerivedEllipse.self, .ellipse)
+        {
+            self = .ellipse(value)
+            return
+        }
+        if let value = flat(DerivedOrientedRectangle.self, .orientedRectangle)
+            ?? wrapped(DerivedOrientedRectangle.self, .orientedRectangle)
+        {
+            self = .orientedRectangle(value)
+            return
+        }
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription:
+                    "No recognized footprint geometry key."
+            )
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .orientedRectangle(let rectangle):
+            try container.encode(rectangle, forKey: .orientedRectangle)
+        case .circle(let circle):
+            try container.encode(circle, forKey: .circle)
+        case .ellipse(let ellipse):
+            try container.encode(ellipse, forKey: .ellipse)
+        case .polygon(let polygon):
+            try container.encode(polygon, forKey: .polygon)
+        }
+    }
 }
 
 public enum DerivedShapeKind: String, Codable, Sendable, Equatable {
@@ -1549,10 +1678,13 @@ public enum DerivedShapeProxyFitter {
                     && $0.position.y.isFinite
             }
             .sorted(by: observationPointLess)
-        guard points.count >= 3 else {
+        guard points.count >= configuration.minimumPointCount else {
             return nil
         }
         let scale = spatialScale(points.map(\.position))
+        guard scale >= configuration.minimumSpatialScaleMeters else {
+            return nil
+        }
         guard let polygon = polygonCandidate(
             points: points,
             scale: scale,
@@ -1572,11 +1704,15 @@ public enum DerivedShapeProxyFitter {
         // unobserved edge between the last and first vertices (a wall
         // across an open side, or a bridge between disconnected runs).
         // Measure each ring edge against the observed wall points and
-        // keep only directly supported segments.
+        // keep only directly supported segments. The radius floors must
+        // stay a fraction of the observation scale — a fixed 0.15 m
+        // support radius covers a centimetre-scale stub end-to-end, so
+        // every probe is trivially "supported" and a 3-point speck
+        // claims isClosed=true.
         let ring = geometry.vertices
         let count = ring.count
-        let supportRadius = max(0.15, scale * 0.06)
-        let probeSpacing = max(0.20, scale * 0.05)
+        let supportRadius = max(scale * 0.06, min(0.15, scale * 0.25))
+        let probeSpacing = max(scale * 0.05, min(0.20, scale * 0.20))
 
         var edgeSupported = [Bool](repeating: false, count: count)
         for index in 0..<count {
@@ -2111,12 +2247,21 @@ public enum DerivedShapeProxyFitter {
                 return false
             }
 
-            if let polygon {
-                if case let .polygon(geometry) = polygon.geometry,
-                   geometry.vertices.count <= 6,
-                   polygon.metrics.normalizedResidual
+            if let polygon,
+               case let .polygon(geometry) = polygon.geometry
+            {
+                if geometry.vertices.count <= 6 {
+                    if polygon.metrics.normalizedResidual
                         <= candidate.metrics.normalizedResidual + 0.010
+                    {
+                        return false
+                    }
+                } else if polygon.metrics.normalizedResidual
+                    <= candidate.metrics.normalizedResidual - 0.010
                 {
+                    // A genuinely complex footprint keeps its polygon
+                    // when it fits materially better — gears, cogs and
+                    // notched outlines must not flatten into circles.
                     return false
                 }
 
@@ -2757,15 +2902,21 @@ public enum DerivedShapeProxyFitter {
 
     /// Cross-sign test over consecutive edge triples — exposed to the
     /// persistence layer so persisted wall chains report honest
-    /// concavity instead of the legacy hardcoded `false`.
+    /// concavity instead of the legacy hardcoded `false`. Open chains
+    /// (`closed: false`) are evaluated on their interior triples only:
+    /// the wrap-around edges of a ring that does not exist would invent
+    /// turns the observation never contained.
     static func polygonIsConcave(
-        _ polygon: [DerivedPoint2D]
+        _ polygon: [DerivedPoint2D],
+        closed: Bool = true
     ) -> Bool {
         guard polygon.count >= 4 else {
             return false
         }
         var sign = 0.0
-        for index in polygon.indices {
+        let tripleCount =
+            closed ? polygon.count : polygon.count - 2
+        for index in 0..<tripleCount {
             let a = polygon[index]
             let b = polygon[(index + 1) % polygon.count]
             let c = polygon[(index + 2) % polygon.count]

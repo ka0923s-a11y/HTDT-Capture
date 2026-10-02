@@ -433,6 +433,61 @@ final class DerivedShapeProxyTests: XCTestCase {
         )
     }
 
+    /// A >6-vertex polygon that fits materially better than the best
+    /// curved primitive must keep its shape — the old veto flattened
+    /// any such outline (gears, notched furniture) into the circle.
+    /// The veto now only wins true near-ties.
+    func testHeptagonKeepsPolygonOverNearFitCircle() {
+        let vertices = (0..<7).map { index -> DerivedPoint2D in
+            let angle =
+                -Double.pi / 2
+                + 2 * Double.pi * Double(index) / 7
+            return DerivedPoint2D(
+                x: cos(angle),
+                y: sin(angle)
+            )
+        }
+
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: observation(
+                samplePolygon(vertices, samplesPerEdge: 12)
+            )
+        )
+
+        XCTAssertEqual(proxy.resolution, .resolved)
+        XCTAssertEqual(proxy.selected?.kind, .polygon)
+        guard case let .polygon(polygon)? =
+            proxy.selected?.geometry
+        else {
+            return XCTFail("Expected polygon geometry")
+        }
+        XCTAssertGreaterThan(polygon.vertices.count, 6)
+    }
+
+    /// The near-tie preference is preserved for genuinely round
+    /// outlines: a slightly lumpy circle still resolves as a circle,
+    /// not a many-vertex polygon.
+    func testLumpyCircleStillPrefersCircle() {
+        let points = (0..<96).map { index -> DerivedPoint2D in
+            let angle =
+                2 * Double.pi * Double(index) / 96.0
+            let radius =
+                1.0
+                + 0.02 * sin(5 * angle)
+            return DerivedPoint2D(
+                x: radius * cos(angle),
+                y: radius * sin(angle)
+            )
+        }
+
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: observation(points)
+        )
+
+        XCTAssertEqual(proxy.resolution, .resolved)
+        XCTAssertEqual(proxy.selected?.kind, .circle)
+    }
+
     func testLShapeRemainsConcavePolygon() {
         let vertices = [
             DerivedPoint2D(x: 0, y: 0),

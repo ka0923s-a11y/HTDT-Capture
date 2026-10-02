@@ -1085,6 +1085,13 @@ public final class SharedARSessionController {
         )
     }
 
+    /// The hard cap on the targeted-pass observation window. The anchor
+    /// radius bounds the orbit region, not the item — the window itself
+    /// is always capped so context surfaces stay out. Exposed so the
+    /// pass's provenance note reports the effective window, not the
+    /// anchor bound.
+    public static let maximumTargetedObservationWindowMeters = 0.55
+
     /// Bounded observation for the targeted-object pass (#250). The
     /// operator aims at one small item and orbits it; instead of the
     /// room-scan crop + foreground-component heuristics this sampler
@@ -1119,10 +1126,11 @@ public final class SharedARSessionController {
             Float(target.y),
             Float(target.z)
         )
-        // The anchor radius bounds the orbit region, not the item; cap
-        // the observation window so context surfaces stay out.
         let radius = Float(
-            min(windowRadiusMeters ?? target.radiusMeters, 0.55)
+            min(
+                windowRadiusMeters ?? target.radiusMeters,
+                Self.maximumTargetedObservationWindowMeters
+            )
         )
         guard radius.isFinite, radius > 0 else {
             return nil
@@ -1176,6 +1184,9 @@ public final class SharedARSessionController {
 
         // Bounded mesh fallback: every classification counts inside the
         // window — small items rarely land in the furniture classes.
+        // The support plane must still be rejected: a clipped flat
+        // surface's boundary rim is a perfect window-radius circle
+        // that would otherwise resolve as a phantom item.
         return liveDerivedShapeObservation(
             anchors: frame.anchors
                 .compactMap { $0 as? ARMeshAnchor },
@@ -1185,7 +1196,11 @@ public final class SharedARSessionController {
             maxPoints: maxPoints,
             maxInspectedFaces: 1_500,
             boundingCenter: targetPosition,
-            boundingRadiusMeters: radius
+            boundingRadiusMeters: radius,
+            supportPlaneRejection: (
+                marginMeters: 0.015,
+                minimumPointCount: minimumPointCount
+            )
         )
     }
 
@@ -1889,7 +1904,8 @@ public final class SharedARSessionController {
         maxPoints: Int,
         maxInspectedFaces: Int,
         boundingCenter: SIMD3<Float>? = nil,
-        boundingRadiusMeters: Float = 0
+        boundingRadiusMeters: Float = 0,
+        supportPlaneRejection: (marginMeters: Double, minimumPointCount: Int)? = nil
     ) -> DerivedShapeObservation? {
         guard maxPoints > 0,
               maxInspectedFaces > 0,
@@ -2062,10 +2078,48 @@ public final class SharedARSessionController {
                 ]
             }
 
+        var candidateBoundaryPoints = boundaryPoints
+        var candidateFallbackPoints = fallbackPoints
+        if let supportPlaneRejection {
+            // Same dominant-surface removal as the depth path —
+            // without it the window-clipped rim of a desk/shelf/floor
+            // reads as a perfect circle anchored at the aim point.
+            let planeY = DerivedHorizontalPlaneSegmentation
+                .dominantPlaneY(
+                    verticalPositions: fallbackPoints.compactMap {
+                        $0.verticalPositionMeters
+                    }
+                )
+            candidateBoundaryPoints =
+                DerivedHorizontalPlaneSegmentation.pointsAbove(
+                    planeY: planeY,
+                    marginMeters: supportPlaneRejection.marginMeters,
+                    minimumPointCount: 8,
+                    in: candidateBoundaryPoints
+                ) {
+                    $0.verticalPositionMeters
+                }
+            candidateFallbackPoints =
+                DerivedHorizontalPlaneSegmentation.pointsAbove(
+                    planeY: planeY,
+                    marginMeters: supportPlaneRejection.marginMeters,
+                    minimumPointCount:
+                        supportPlaneRejection.minimumPointCount,
+                    in: candidateFallbackPoints
+                ) {
+                    $0.verticalPositionMeters
+                }
+        }
+
         let sourcePoints =
-            boundaryPoints.count >= 8
-            ? boundaryPoints
-            : fallbackPoints
+            candidateBoundaryPoints.count >= 8
+            ? candidateBoundaryPoints
+            : candidateFallbackPoints
+        guard sourcePoints.count
+                >= (supportPlaneRejection?.minimumPointCount ?? 1)
+        else {
+            return nil
+        }
 
         let reduced = reduceLiveDerivedPoints(
             sourcePoints,

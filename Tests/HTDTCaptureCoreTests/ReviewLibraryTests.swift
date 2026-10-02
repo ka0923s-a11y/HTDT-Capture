@@ -1061,6 +1061,101 @@ final class ReviewLibraryTests: XCTestCase {
         )
     }
 
+    /// A derived declaration's `path:` source refs must be rewritten
+    /// when the payloads they name are removed — a dangling ref fails
+    /// the next finalization's manifest build, and a declaration left
+    /// with zero resolvable refs is un-manifestable entirely.
+    func testRemoveEvidenceFramePrunesDerivedDeclarationRefs()
+        async throws
+    {
+        let root = try makeRoot()
+        defer { BundleValidationFixture.remove(root) }
+        let context = CaptureSessionContext()
+        let store = try await readyStore(
+            root: root,
+            context: context
+        )
+        let framePackage = try makeFramePackage(
+            sessionID: context.captureSessionID,
+            spaceID: context.coordinateSpaceID
+        )
+        try await store.persistFramePackage(framePackage)
+        let frameID = framePackage.descriptor.frameID
+        let frameRef = "path:" + framePackage.descriptorPath
+        let sessionRef = "capture_session:\(context.captureSessionID)"
+
+        func candidatesDoc(refs: [String]) throws
+            -> WorkingSetSupplementalDocument
+        {
+            // The document body names no frame: the frame-path scan
+            // protecting referenced payloads cannot see refs that live
+            // only in the manifest declaration.
+            try WorkingSetSupplementalDocument(
+                path: DerivedGeometryCandidatePackage.path,
+                data: Data(#"{"records":[]}"#.utf8),
+                declaration: BundlePayloadDeclaration(
+                    path: DerivedGeometryCandidatePackage.path,
+                    mediaType: "application/json",
+                    producer: "derived_geometry",
+                    provenanceClass: .captureAppDerived,
+                    role: .derived,
+                    sourceRefs: refs
+                ),
+                coordinateSpaceIDs: [],
+                captureSessionIDs: []
+            )
+        }
+
+        try await store.replaceSupplementalDocument(
+            candidatesDoc(refs: [frameRef, sessionRef])
+        )
+        try await store.removeEvidenceFrame(frameID)
+
+        var snapshot = await store.snapshot()
+        let pruned = snapshot.payloadDeclarations.first {
+            $0.path == DerivedGeometryCandidatePackage.path
+        }
+        XCTAssertEqual(pruned?.sourceRefs, [sessionRef])
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(
+                    DerivedGeometryCandidatePackage.path
+                ).path
+            )
+        )
+
+        // With no surviving ref the derived payload is un-manifestable:
+        // declaration, document record, and file all drop together
+        // rather than stranding a finalize-trapping declaration.
+        let secondPackage = try makeFramePackage(
+            sessionID: context.captureSessionID,
+            spaceID: context.coordinateSpaceID
+        )
+        try await store.persistFramePackage(secondPackage)
+        try await store.replaceSupplementalDocument(
+            candidatesDoc(
+                refs: ["path:" + secondPackage.descriptorPath]
+            )
+        )
+        try await store.removeEvidenceFrame(
+            secondPackage.descriptor.frameID
+        )
+
+        snapshot = await store.snapshot()
+        XCTAssertFalse(
+            snapshot.payloadDeclarations.contains {
+                $0.path == DerivedGeometryCandidatePackage.path
+            }
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(
+                    DerivedGeometryCandidatePackage.path
+                ).path
+            )
+        )
+    }
+
     // MARK: - #213 workspace loader
 
     func testWorkspaceLoaderMarksRetentionAndRemovability()

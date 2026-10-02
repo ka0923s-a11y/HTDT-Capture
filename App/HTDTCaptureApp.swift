@@ -1092,10 +1092,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var targetedObjectFusionTracker =
         DerivedShapeTemporalFusionTracker(
             configuration: DerivedShapeTemporalFusionConfiguration(
-                maximumFrameCount: 24,
+                // The pass budget is 120 s at ~1 Hz — the frame cap
+                // must cover it or early-orbit evidence evicts.
+                maximumFrameCount: 150,
                 maximumAgeSeconds: 150,
                 voxelSizeMeters: 0.012,
-                maximumPointCount: 512
+                maximumPointCount: 512,
+                // The window is 0.55 m — a frame whose observation
+                // center jumped ~half that caught the support surface,
+                // not the item.
+                maximumObservationCenterShiftMeters: 0.25
             )
         )
     /// Shape candidates minted by accepted object passes during this
@@ -2266,42 +2272,53 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let fusedObservation =
             targetedObjectFusionTracker.fusedObservation()
         endTargetScan()
-        if let status {
-            let detail =
-                "buckets=\(status.observedBucketCount)/"
-                + "\(status.totalBucketCount)"
-                + " expired=\(status.expired)"
-                + " anchor_x=\(tracker.target.x)"
-                + " anchor_y=\(tracker.target.y)"
-                + " anchor_z=\(tracker.target.z)"
-                + " radius_m=\(tracker.target.radiusMeters)"
-                + " anchor_source=\(anchorSource ?? "none")"
-            recordAdvisoryNote(
-                CaptureAdvisoryNote(
-                    kind: .targetScanPass,
-                    sessionTimestampSeconds:
-                        latestScanTimestampSeconds ?? 0,
-                    detail: detail
-                )
+        // Provenance note fires even when the pass was accepted before
+        // the first status tick. `radius_m` reports the effective
+        // observation window — the anchor bound is an orbit region,
+        // the window that fed the fused evidence is always capped.
+        let effectiveWindowMeters = min(
+            tracker.target.radiusMeters,
+            SharedARSessionController
+                .maximumTargetedObservationWindowMeters
+        )
+        let detail =
+            "buckets=\(status?.observedBucketCount ?? 0)/"
+            + "\(status?.totalBucketCount ?? tracker.bucketCount)"
+            + " expired=\(status?.expired ?? false)"
+            + " anchor_x=\(tracker.target.x)"
+            + " anchor_y=\(tracker.target.y)"
+            + " anchor_z=\(tracker.target.z)"
+            + " radius_m=\(effectiveWindowMeters)"
+            + " anchor_source=\(anchorSource ?? "none")"
+        recordAdvisoryNote(
+            CaptureAdvisoryNote(
+                kind: .targetScanPass,
+                sessionTimestampSeconds:
+                    latestScanTimestampSeconds ?? 0,
+                detail: detail
             )
-        }
+        )
         // The pass's bounded observation becomes a real persisted
         // candidate, not just an advisory. The targeted fit profile
         // relaxes the room-scan floors so 5–30 cm items resolve, while
         // the 3D window around the aim anchor keeps the evidence bound
         // to the aimed item instead of its surroundings.
         var resolvedKind: DerivedShapeKind?
+        var itemCapReached = false
         if let fusedObservation {
             let proxy = DerivedShapeProxyFitter.fit(
                 observation: fusedObservation,
                 configuration: .targetedObject
             )
             if proxy.resolution == .resolved,
-               proxy.selected != nil,
-               targetedObjectProxies.count < 24
+               proxy.selected != nil
             {
-                targetedObjectProxies.append(proxy)
-                resolvedKind = proxy.selected?.kind
+                if targetedObjectProxies.count < 24 {
+                    targetedObjectProxies.append(proxy)
+                    resolvedKind = proxy.selected?.kind
+                } else {
+                    itemCapReached = true
+                }
             }
         }
         if let resolvedKind {
@@ -2311,6 +2328,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         "Object pass recorded; %@ footprint saved for this item"
                 ),
                 resolvedKind.rawValue
+            )
+        } else if itemCapReached {
+            workingSetStatus = String(
+                localized:
+                    "Object pass recorded; the capture's item limit is reached — annotate additional items in review"
             )
         } else {
             workingSetStatus = String(
@@ -12229,7 +12251,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             await self.persistDerivedGeometryCandidates(
                 store: store,
                 captureSessionID: captureSessionID,
-                coordinateSpaceID: coordinateSpaceID
+                coordinateSpaceID: coordinateSpaceID,
+                generation: generation
             )
 
             self.acceptedRoomPlanRawSHA256 =
@@ -12523,17 +12546,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
                     // #250: a live targeted-object pass tracks camera
                     // position against its bounded anchor.
-                    if let tracker = self.targetScanTracker,
-                       let position = sample.cameraPosition
-                    {
-                        self.targetScanStatus =
-                            self.targetScanTracker?.record(
-                                cameraX: position.x,
-                                cameraZ: position.z,
-                                timestampSeconds:
-                                    sample.sessionTimestampSeconds,
-                                trackingState: sample.trackingState
-                            )
+                    if let tracker = self.targetScanTracker {
+                        if let position = sample.cameraPosition {
+                            self.targetScanStatus =
+                                self.targetScanTracker?.record(
+                                    cameraX: position.x,
+                                    cameraZ: position.z,
+                                    timestampSeconds:
+                                        sample.sessionTimestampSeconds,
+                                    trackingState: sample.trackingState
+                                )
+                        }
 
                         // While the pass runs, fuse a bounded depth
                         // observation around the aim anchor at ~1 Hz —
@@ -12541,7 +12564,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         // candidate from it. The 3D window keeps only
                         // the aimed item; the fused voxel preserves
                         // small-object detail the room pipeline loses.
-                        if sampleIndex.isMultiple(of: 4) {
+                        // Out-of-range windows center on the support
+                        // surface, not the item — skip them.
+                        if sampleIndex.isMultiple(of: 4),
+                           self.targetScanStatus?.outOfRange != true
+                        {
                             let observation = self.sessionController
                                 .liveTargetedShapeObservation(
                                     target: tracker.target
@@ -12826,7 +12853,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         DerivedShapeProxyFitter
                             .boundaryObservation(
                                 from: $0,
-                                // Keep sub-25 cm radial discontinuities
+                                // Keep sub-12 cm radial discontinuities
                                 // (legs, notches) that the default
                                 // floor bridges.
                                 minimumRadialGapMeters: 0.12
@@ -14286,7 +14313,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private func persistDerivedGeometryCandidates(
         store: CaptureWorkingSetStore,
         captureSessionID: CaptureSessionID,
-        coordinateSpaceID: CoordinateSpaceID
+        coordinateSpaceID: CoordinateSpaceID,
+        generation: UUID
     ) async {
         let objectProxies =
             derivedShapePreview.objectProxies + targetedObjectProxies
@@ -14306,14 +14334,25 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
             .sorted(by: BundleLogicalPath.utf8Less)
             .map { "path:" + $0 }
-        // Manifest cap on source_refs entries (BundleManifest
-        // maxSourceRefsPerEntry is internal to the Core module).
-        if sourceRefs.count > 32 {
-            sourceRefs = Array(sourceRefs.prefix(32))
+        if sourceRefs.count > BundleManifest.maxSourceRefsPerEntry {
+            sourceRefs = Array(
+                sourceRefs.prefix(
+                    BundleManifest.maxSourceRefsPerEntry
+                )
+            )
         }
         guard !sourceRefs.isEmpty else {
             // `.derived` declarations need resolvable sources — without
-            // mesh/depth payloads no honest source set exists.
+            // mesh/depth payloads no honest source set exists. A doc
+            // persisted by an earlier End is now un-manifestable too:
+            // drop it rather than strand a dangling ref.
+            if snapshot.payloadDeclarations.contains(where: {
+                $0.path == DerivedGeometryCandidatePackage.path
+            }) {
+                try? await store.removeSupplementalDocument(
+                    path: DerivedGeometryCandidatePackage.path
+                )
+            }
             await store.recordResourceEvent(
                 CaptureResourceEvent(
                     kind: .persistenceFailure,
@@ -14322,6 +14361,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         "Derived geometry candidates skipped: no committed mesh/depth payloads to bind as sources."
                 )
             )
+            return
+        }
+
+        // The End commit above could have raced a discard/restore on
+        // another MainActor turn — never write into a stale
+        // working-set directory.
+        guard self.captureGeneration == generation else {
             return
         }
 
