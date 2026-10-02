@@ -1961,10 +1961,19 @@ public enum DerivedShapeProxyFitter {
         scale: Double
     ) -> DerivedShapeCandidate? {
         let positions = points.map(\.position)
+        // Filled clouds (dense discs of depth samples) sit mostly
+        // inside the outline, so a mean-radius or least-squares fit
+        // over every sample underestimates the true radius by ~30%.
+        // Fit on the convex boundary instead — for a ring-shaped cloud
+        // the hull keeps nearly every point, so sparse-ring behaviour
+        // is unchanged.
+        let fitPositions = positions.count >= 12
+            ? convexHull(positions)
+            : positions
         let center =
-            leastSquaresCircleCenter(positions)
-            ?? meanPoint(positions)
-        let radii = positions.map {
+            leastSquaresCircleCenter(fitPositions)
+            ?? meanPoint(fitPositions)
+        let radii = fitPositions.map {
             hypot($0.x - center.x, $0.y - center.y)
         }
         guard !radii.isEmpty else {
@@ -2012,7 +2021,12 @@ public enum DerivedShapeProxyFitter {
         scale: Double
     ) -> DerivedShapeCandidate? {
         let positions = points.map(\.position)
-        let center = meanPoint(positions)
+        // Same filled-cloud fix as the circle fit: second moments over
+        // a dense disc read ~0.7·R; fit them on the boundary instead.
+        let fitPositions = positions.count >= 12
+            ? convexHull(positions)
+            : positions
+        let center = meanPoint(fitPositions)
         guard positions.count >= 5 else {
             return nil
         }
@@ -2020,14 +2034,14 @@ public enum DerivedShapeProxyFitter {
         var xx = 0.0
         var yy = 0.0
         var xy = 0.0
-        for point in positions {
+        for point in fitPositions {
             let dx = point.x - center.x
             let dy = point.y - center.y
             xx += dx * dx
             yy += dy * dy
             xy += dx * dy
         }
-        let count = Double(positions.count)
+        let count = Double(fitPositions.count)
         xx /= count
         yy /= count
         xy /= count
@@ -2038,7 +2052,7 @@ public enum DerivedShapeProxyFitter {
         var sumU2 = 0.0
         var sumV2 = 0.0
 
-        for point in positions {
+        for point in fitPositions {
             let dx = point.x - center.x
             let dy = point.y - center.y
             let u = c * dx + s * dy
@@ -2155,6 +2169,12 @@ public enum DerivedShapeProxyFitter {
                 lengthTolerance: simplicity.length
             )
             concavityResolution = .unresolved
+        }
+
+        // The hull fallback can collapse below a valid ring on
+        // near-collinear input — nothing under 3 vertices is a polygon.
+        guard polygonPoints.count >= 3 else {
+            return nil
         }
 
         let supportRadius = max(
@@ -2432,10 +2452,16 @@ public enum DerivedShapeProxyFitter {
         let v = -s * dx + c * dy
         let halfWidth = rectangle.width / 2
         let halfDepth = rectangle.depth / 2
-        return min(
-            abs(abs(u) - halfWidth),
-            abs(abs(v) - halfDepth)
-        )
+        let du = abs(u) - halfWidth
+        let dv = abs(v) - halfDepth
+        if du > 0 || dv > 0 {
+            // Exterior: Euclidean distance to the box — the previous
+            // min-of-excesses form reported an interior distance for
+            // corner-diagonal points.
+            return hypot(max(du, 0), max(dv, 0))
+        }
+        // Interior: distance to the nearest face.
+        return -max(du, dv)
     }
 
     private static func ellipseDistance(

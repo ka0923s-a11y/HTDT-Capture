@@ -1168,6 +1168,21 @@ public final class SharedARSessionController {
                     Double($0.y)
                 }
 
+            // When the plane filter falls back to the whole window and
+            // the surviving points outline the clip sphere itself, the
+            // "item" is the support surface — report unresolved rather
+            // than persisting a phantom window-sized circle.
+            if planeY != nil,
+               objectPoints.count == depthWorldPoints.count,
+               rimFraction(
+                   of: objectPoints,
+                   center: targetPosition,
+                   radius: radius
+               ) > 0.5
+            {
+                return nil
+            }
+
             if let observation = liveDepthDerivedShapeObservation(
                 points: objectPoints.map {
                     SIMD3<Float>($0.x, $0.y, $0.z)
@@ -1187,21 +1202,64 @@ public final class SharedARSessionController {
         // The support plane must still be rejected: a clipped flat
         // surface's boundary rim is a perfect window-radius circle
         // that would otherwise resolve as a phantom item.
-        return liveDerivedShapeObservation(
-            anchors: frame.anchors
-                .compactMap { $0 as? ARMeshAnchor },
-            classifications: nil,
-            sessionTimestampSeconds: frame.timestamp,
-            voxelSizeMeters: 0.015,
-            maxPoints: maxPoints,
-            maxInspectedFaces: 1_500,
-            boundingCenter: targetPosition,
-            boundingRadiusMeters: radius,
-            supportPlaneRejection: (
-                marginMeters: 0.015,
-                minimumPointCount: minimumPointCount
+        guard
+            let meshObservation = liveDerivedShapeObservation(
+                anchors: frame.anchors
+                    .compactMap { $0 as? ARMeshAnchor },
+                classifications: nil,
+                sessionTimestampSeconds: frame.timestamp,
+                voxelSizeMeters: 0.015,
+                maxPoints: maxPoints,
+                maxInspectedFaces: 1_500,
+                boundingCenter: targetPosition,
+                boundingRadiusMeters: radius,
+                supportPlaneRejection: (
+                    marginMeters: 0.015,
+                    minimumPointCount: minimumPointCount
+                )
             )
-        )
+        else {
+            return nil
+        }
+
+        // Same rim guard as the depth path: the plane filter's
+        // whole-window fallback can still leave the clip sphere's
+        // outline as the dominant feature — a mesh "item" whose
+        // boundary hugs the window edge is the window, not an item.
+        if rimFraction(
+            of: meshObservation.points.map {
+                SIMD3<Float>(
+                    Float($0.position.x),
+                    Float(
+                        $0.verticalPositionMeters
+                            ?? Double(targetPosition.y)
+                    ),
+                    Float($0.position.y)
+                )
+            },
+            center: targetPosition,
+            radius: radius
+        ) > 0.5 {
+            return nil
+        }
+        return meshObservation
+    }
+
+    /// Fraction of points lying on the clip sphere's skin (within the
+    /// outer 8% of the radius) — a value above ~0.5 means the set is
+    /// the window's synthetic rim, not a bounded object.
+    private func rimFraction(
+        of points: [SIMD3<Float>],
+        center: SIMD3<Float>,
+        radius: Float
+    ) -> Double {
+        guard !points.isEmpty else {
+            return 0
+        }
+        let rim = points.filter {
+            simd_distance($0, center) > radius * 0.92
+        }
+        return Double(rim.count) / Double(points.count)
     }
 
     public func snapshotActiveMeshAnchors() throws -> [MeshAnchorSnapshot] {

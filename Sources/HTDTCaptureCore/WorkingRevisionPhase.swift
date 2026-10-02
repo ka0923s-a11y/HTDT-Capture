@@ -69,6 +69,10 @@ public struct WorkingRevisionCheckpoint: Codable, Sendable, Equatable {
     /// `session/field-notes.json`; carried here so recovery still has
     /// them when the file itself is missing.
     public let fieldNotes: [CaptureFieldNote]
+    /// Retention reason per committed evidence frame (#255), keyed by
+    /// `path:evidence/frames/<id>.json` — app-owned provenance that
+    /// re-labels the picker's entries on a recovered draft.
+    public let retentionKinds: [String: EvidenceFrameRetentionKind]
 
     public init(
         trackingIntervals: [WorkingRevisionTrackingInterval],
@@ -82,7 +86,8 @@ public struct WorkingRevisionCheckpoint: Codable, Sendable, Equatable {
         roomPlanGuidance: RoomPlanGuidanceSummary?,
         meshLifecycle: MeshAnchorLifecycleSummary?,
         advisoryNotes: [CaptureAdvisoryNote],
-        fieldNotes: [CaptureFieldNote] = []
+        fieldNotes: [CaptureFieldNote] = [],
+        retentionKinds: [String: EvidenceFrameRetentionKind] = [:]
     ) {
         self.trackingIntervals = trackingIntervals
         self.resourceEvents = resourceEvents
@@ -96,6 +101,7 @@ public struct WorkingRevisionCheckpoint: Codable, Sendable, Equatable {
         self.meshLifecycle = meshLifecycle
         self.advisoryNotes = advisoryNotes
         self.fieldNotes = fieldNotes
+        self.retentionKinds = retentionKinds
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -113,6 +119,7 @@ public struct WorkingRevisionCheckpoint: Codable, Sendable, Equatable {
         case meshLifecycle = "mesh_lifecycle"
         case advisoryNotes = "advisory_notes"
         case fieldNotes = "field_notes"
+        case retentionKinds = "retention_kinds"
     }
 
     /// Back-compatible decode: `field_notes` did not exist on
@@ -171,6 +178,10 @@ public struct WorkingRevisionCheckpoint: Codable, Sendable, Equatable {
             [CaptureFieldNote].self,
             forKey: .fieldNotes
         ) ?? []
+        retentionKinds = try container.decodeIfPresent(
+            [String: EvidenceFrameRetentionKind].self,
+            forKey: .retentionKinds
+        ) ?? [:]
     }
 }
 

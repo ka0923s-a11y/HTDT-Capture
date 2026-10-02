@@ -403,7 +403,14 @@ public struct AcceptedGeometrySceneModel: Sendable, Equatable {
             // Measurements expose endpoint refs, not world points —
             // the scene lists them for inspectability at the room
             // centroid when the renderer has nothing to place.
-            guard let boundsCenter = minCorner else { continue }
+            guard let lo = minCorner, let hi = maxCorner else {
+                continue
+            }
+            let boundsCenter = Float3(
+                (lo.x + hi.x) * 0.5,
+                (lo.y + hi.y) * 0.5,
+                (lo.z + hi.z) * 0.5
+            )
             elements.append(
                 GeometrySceneElement(
                     elementID: "measurement:"

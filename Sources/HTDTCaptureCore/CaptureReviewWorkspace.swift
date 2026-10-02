@@ -421,16 +421,20 @@ public enum CaptureReviewWorkspaceLoader {
     /// Builds the read-only workspace model for a validated finalized
     /// bundle (issue #294). The manifest's declared file set decides
     /// which payloads are decoded — a byte-verified member only, never
-    /// an undeclared extra file.
+    /// an undeclared extra file. `planPreview` is injected by the
+    /// caller: its derivation needs the platform RoomPlan decoder,
+    /// which this Core target cannot import.
     public static func loadPersisted(
         directory: URL,
-        manifest: BundleManifest
+        manifest: BundleManifest,
+        planPreview: RoomPlanPreviewModel? = nil
     ) -> CaptureReviewWorkspaceModel {
         loadBundleTree(
             root: directory,
             declaredPaths: Set(manifest.files.map(\.path)),
             captureRevisionID: manifest.captureRevisionID,
             roomMetadata: nil,
+            planPreview: planPreview,
             endBoundaryFrameIDs: [],
             qualityReport: nil,
             readOnly: true,
@@ -443,6 +447,7 @@ public enum CaptureReviewWorkspaceLoader {
         declaredPaths: Set<String>,
         captureRevisionID: CaptureRevisionID,
         roomMetadata: CapturedRoomMetadataDocument?,
+        planPreview: RoomPlanPreviewModel? = nil,
         endBoundaryFrameIDs: Set<EvidenceFrameID>,
         qualityReport: CaptureQualityReport?,
         readOnly: Bool,
@@ -802,7 +807,7 @@ public enum CaptureReviewWorkspaceLoader {
             captureRevisionID: captureRevisionID,
             coordinateSpaceID: coordinateSpaceID,
             roomMetadata: metadata,
-            planPreview: nil,
+            planPreview: planPreview,
             evidenceItems: evidenceItems,
             annotations: annotationCollection?.entities ?? [],
             measurements:

@@ -1107,6 +1107,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Shape candidates minted by accepted object passes during this
     /// capture; persisted into `derived/geometry-candidates.json` at End.
     private var targetedObjectProxies: [DerivedShapeProxy] = []
+    /// Best resolved object proxy per item seen across the whole scan,
+    /// independent of the sliding fusion window — the live preview only
+    /// shows the current tick, but End must persist every item that was
+    /// resolvable at any point (cap 12, evidence-ranked).
+    private var bestDerivedObjectProxies: [DerivedShapeProxy] = []
     private var loopClosurePolicy = LoopClosureCheckPolicy()
     private var scanLightingPolicy = ScanLightingPolicy()
     /// Byte total persisted by automatic keyframes; combined with the
@@ -1596,6 +1601,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         derivedShapePreview = .empty
         targetedObjectProxies = []
+        bestDerivedObjectProxies = []
         targetedObjectFusionTracker.reset()
         derivedPreviewSuspendedForMemoryPressure = false
         setRoomPlanModelRenderingEnabled(true)
@@ -1635,7 +1641,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         pendingTaskPlanImport = nil
         pendingTaskPlanImportError = nil
         boundTaskPlanStatus = nil
-        loopClosureCheckActive = false
         loopClosureAssessment = nil
         loopClosureLastAssessment = nil
         loopClosureOutcome = nil
@@ -2202,12 +2207,42 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 anchorSource =
                     fallback.raycastProvenance?.target.rawValue
             }
+            // Seed the evidence window from the item's measured extent:
+            // a fixed 0.75 m window drags desk/shelf context into a
+            // small item's fused evidence. Probe once at a tight
+            // 0.25 m seed, then size the window to the observed
+            // spread (bounded 0.15–0.55 m); a thin first probe falls
+            // back to a mid default rather than the old always-max
+            // window.
+            var seededRadius = 0.45
+            if let probe = sessionController
+                .liveTargetedShapeObservation(
+                    target: ScanTargetAnchor(
+                        x: Double(positionWorld.x),
+                        y: Double(positionWorld.y),
+                        z: Double(positionWorld.z),
+                        radiusMeters: 0.25
+                    ),
+                    windowRadiusMeters: 0.25
+                ),
+                let minX = probe.points.map(\.position.x).min(),
+                let maxX = probe.points.map(\.position.x).max(),
+                let minY = probe.points.map(\.position.y).min(),
+                let maxY = probe.points.map(\.position.y).max()
+            {
+                let extent = max(maxX - minX, maxY - minY)
+                seededRadius = min(
+                    SharedARSessionController
+                        .maximumTargetedObservationWindowMeters,
+                    max(0.15, extent / 2 + 0.08)
+                )
+            }
             targetScanTracker = TargetedObjectScanTracker(
                 target: ScanTargetAnchor(
                     x: Double(positionWorld.x),
                     y: Double(positionWorld.y),
                     z: Double(positionWorld.z),
-                    radiusMeters: 0.75
+                    radiusMeters: seededRadius
                 ),
                 // Small items need close inspection; 0.5 m pushed the
                 // operator away from sub-30 cm targets. LiDAR depth is
@@ -3371,6 +3406,26 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         rootDirectory: URL,
         identity: CaptureWorkingSetIdentity
     ) {
+        // Reopening a draft must not inherit mission state staged by a
+        // previous session in this process — every piece repopulates
+        // only from the recovered working set's own documents.
+        captureTaskPlanImport = nil
+        captureTaskPlan = nil
+        captureTaskPlanStatus = nil
+        boundTaskPlanStatus = nil
+        asBuiltPlanImport = nil
+        asBuiltPlan = nil
+        asBuiltSession = nil
+        asBuiltItems = []
+        asBuiltAlignmentInstalled = false
+        asBuiltActualCandidates = []
+        connectedSpaceIntent = false
+        connectedSpaceTracker = nil
+        activeRepairRow = nil
+        persistedRepairLinkRevisionID = nil
+        missionTaskPlanOutcomes = []
+        roomFrameAvailable = false
+
         func dataAt(_ path: String) -> Data? {
             let url = rootDirectory.appendingPathComponent(
                 path,
@@ -3406,6 +3461,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             {
                 status.restoreFulfillments(from: document)
+                // A persisted status document proves this plan was
+                // mission-bound — its marks flow through the bound
+                // channel so the recovered draft keeps writing the
+                // same document at finalize instead of forking a
+                // standalone status write.
+                boundTaskPlanStatus = status
             }
             captureTaskPlanStatus = status
         }
@@ -3583,7 +3644,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         let evidenceRef = "path:" + package.descriptorPath
-        annotationRetentionKinds[evidenceRef] = .speakerHeading
+        markEvidenceRetention(evidenceRef, .speakerHeading)
         let orientation = try OrientationAxes(
             frontAxisLocal: snapshot.frontAxisWorld,
             upAxisLocal: snapshot.upAxisWorld
@@ -3654,6 +3715,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         let evidenceRef = "path:" + package.descriptorPath
+        markEvidenceRetention(evidenceRef, .annotationPlacement)
         let orientation = try OrientationAxes(
             frontAxisLocal: snapshot.frontAxisWorld,
             upAxisLocal: snapshot.upAxisWorld
@@ -3719,7 +3781,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         let evidenceRef = "path:" + package.descriptorPath
-        annotationRetentionKinds[evidenceRef] = .annotationPlacement
+        markEvidenceRetention(evidenceRef, .annotationPlacement)
         let position = snapshot.positionWorld
         let transform = try Matrix4x4F(values: [
             1, 0, 0, 0,
@@ -3852,7 +3914,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         let evidenceRef = "path:" + package.descriptorPath
-        annotationRetentionKinds[evidenceRef] = .annotationPlacement
+        markEvidenceRetention(evidenceRef, .annotationPlacement)
         let position = capture.positionWorld
         let transform = try Matrix4x4F(values: [
             1, 0, 0, 0,
@@ -3979,7 +4041,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         let evidenceRef = "path:" + package.descriptorPath
-        annotationRetentionKinds[evidenceRef] = .equipmentIdentity
+        markEvidenceRetention(evidenceRef, .equipmentIdentity)
         let workingSnapshot = await store.snapshot()
         annotationEvidenceRefs = workingSnapshot.evidenceFrameRefs
         refreshAnnotationEvidenceFrames(
@@ -4268,12 +4330,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             .roomPlanBindableObjects(fromProcessedData: data)
     }
 
-    /// Marks a frame's retention reason for the visual picker (#255).
+    /// Marks a frame's retention reason for the visual picker (#255)
+    /// and persists it through the store's revision checkpoint so a
+    /// reopened draft labels the frame the same way.
     private func markEvidenceRetention(
         _ ref: String,
         _ kind: EvidenceFrameRetentionKind
     ) {
         annotationRetentionKinds[ref] = kind
+        guard let store = workingSetStore else {
+            return
+        }
+        Task { try? await store.recordEvidenceRetention(ref, kind: kind) }
     }
 
     /// Discards the draft bound to the live working revision (#266).
@@ -4681,7 +4749,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         let evidenceRef = "path:" + package.descriptorPath
-        annotationRetentionKinds[evidenceRef] = .equipmentIdentity
+        markEvidenceRetention(evidenceRef, .equipmentIdentity)
         let workingSnapshot = await store.snapshot()
         annotationEvidenceRefs = workingSnapshot.evidenceFrameRefs
         refreshAnnotationEvidenceFrames(
@@ -5245,6 +5313,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         derivedShapePreview = .empty
         targetedObjectProxies = []
+        bestDerivedObjectProxies = []
         targetedObjectFusionTracker.reset()
         derivedPreviewSuspendedForMemoryPressure = false
         scanEvidenceFrameCount = 0
@@ -5487,6 +5556,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         scanGuidanceProgress = .empty
         derivedShapePreview = .empty
         targetedObjectProxies = []
+        bestDerivedObjectProxies = []
         targetedObjectFusionTracker.reset()
         derivedPreviewSuspendedForMemoryPressure = false
         scanEvidenceFrameCount = 0
@@ -5625,6 +5695,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     rootDirectory: snapshot.rootDirectory,
                     identity: snapshot.identity
                 )
+                // Retention kinds persisted with the checkpoint — a
+                // recovered draft labels the picker's entries the same
+                // way the live session did (#255).
+                self.annotationRetentionKinds =
+                    await store.evidenceRetentionKindMap()
                 if let document =
                     CaptureWorkingSetStore.peekRevisionPhase(
                         workingRevisionURL: draft.url
@@ -5742,6 +5817,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         scanGuidanceProgress = .empty
         derivedShapePreview = .empty
         targetedObjectProxies = []
+        bestDerivedObjectProxies = []
         targetedObjectFusionTracker.reset()
         derivedPreviewSuspendedForMemoryPressure = false
         scanEvidenceFrameCount = 0
@@ -6443,10 +6519,34 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 else {
                     return (nil, [])
                 }
+                // Derive the plan surface for the read-only model:
+                // `loadPersisted` (Core) cannot import the platform
+                // RoomPlan decoder, so the preview is injected — the
+                // same `roomplan/captured-room.json` bytes the live
+                // review path derives from.
+                let planPreview: RoomPlanPreviewModel? = {
+                    guard manifest.files.contains(where: {
+                        $0.path == "roomplan/captured-room.json"
+                    }),
+                        let data = try? Data(
+                            contentsOf:
+                                directory.appendingPathComponent(
+                                    "roomplan/captured-room.json",
+                                    isDirectory: false
+                                )
+                        )
+                    else {
+                        return nil
+                    }
+                    return try? RoomPlanReviewDeriver.planPreview(
+                        processedPayload: data
+                    )
+                }()
                 return (
                     CaptureReviewWorkspaceLoader.loadPersisted(
                         directory: directory,
-                        manifest: manifest
+                        manifest: manifest,
+                        planPreview: planPreview
                     ),
                     // #408/#409: bindables from the persisted
                     // bundle's captured-room.json — the read-only
@@ -12342,6 +12442,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         acceptedRoomPlanRawSHA256 = nil
         acceptedEndMeshWasPersisted = false
 
+        // The rejected End's boundary marks pin the closing frames —
+        // clear them unconditionally so a mesh-rollback failure below
+        // cannot leave the frames permanently unremovable.
+        try? await store.clearEndBoundaryMarkers()
+
         if ownedMeshWasPersisted {
             do {
                 try await store.rollbackCurrentMeshPackage()
@@ -12474,6 +12579,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             derivedShapePreview = .empty
             targetedObjectProxies = []
+            bestDerivedObjectProxies = []
             targetedObjectFusionTracker.reset()
         }
 
@@ -12738,6 +12844,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                                 return
                             }
                             self.derivedShapePreview = preview
+                            Self.accumulateDerivedObjectProxies(
+                                into: &self.bestDerivedObjectProxies,
+                                from: preview.objectProxies
+                            )
                         }
                     }
                 }
@@ -12768,8 +12878,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             objectDecomposition = decomposition
 
             if decomposition.state != .unresolvedDecomposition {
+                // Rank by evidence, not height: the lowest-first
+                // display order would drop shelf-top and wall-mounted
+                // items before they ever reach a fit.
                 let rankedProxies =
-                    decomposition.components.prefix(6).flatMap {
+                    decomposition.components.sorted {
+                        if $0.pointCount != $1.pointCount {
+                            return $0.pointCount > $1.pointCount
+                        }
+                        return $0.id < $1.id
+                    }.prefix(6).flatMap {
                         component in
                         Self.fitDerivedObjectProfiles(
                             component.observation
@@ -12841,6 +12959,79 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     wallChain: wallChain
                 )
         )
+    }
+
+    /// Plan centroid of a proxy's observed evidence — used to match
+    /// the same item across ticks when accumulating best-evidence
+    /// proxies.
+    nonisolated private static func derivedProxyCentroid(
+        _ proxy: DerivedShapeProxy
+    ) -> (x: Double, y: Double)? {
+        let points = proxy.observationSample
+        guard !points.isEmpty else {
+            return nil
+        }
+        return (
+            points.map(\.position.x).reduce(0, +)
+                / Double(points.count),
+            points.map(\.position.y).reduce(0, +)
+                / Double(points.count)
+        )
+    }
+
+    nonisolated private static func derivedProxyScore(
+        _ proxy: DerivedShapeProxy
+    ) -> Double {
+        proxy.selected?.metrics.fitScore
+            ?? proxy.provenance.fitScore
+            ?? 0
+    }
+
+    /// Keep the best resolved proxy per item across preview ticks (cap
+    /// 12). Two proxies describe the same item when they resolve to the
+    /// same shape kind with plan centroids within 0.35 m; the
+    /// better-scoring one wins.
+    nonisolated private static func accumulateDerivedObjectProxies(
+        into accumulated: inout [DerivedShapeProxy],
+        from proxies: [DerivedShapeProxy],
+        limit: Int = 12
+    ) {
+        for proxy in proxies where proxy.resolution == .resolved {
+            guard let selected = proxy.selected,
+                  let centroid = derivedProxyCentroid(proxy)
+            else {
+                continue
+            }
+            if let index = accumulated.firstIndex(where: {
+                guard $0.selected?.kind == selected.kind,
+                      let other = derivedProxyCentroid($0)
+                else {
+                    return false
+                }
+                return hypot(
+                    other.x - centroid.x,
+                    other.y - centroid.y
+                ) < 0.35
+            }) {
+                if derivedProxyScore(proxy)
+                    > derivedProxyScore(accumulated[index])
+                {
+                    accumulated[index] = proxy
+                }
+                continue
+            }
+            if accumulated.count < limit {
+                accumulated.append(proxy)
+            } else if let weakest = accumulated.indices.min(by: {
+                derivedProxyScore(accumulated[$0])
+                    < derivedProxyScore(accumulated[$1])
+            }),
+                derivedProxyScore(proxy)
+                    > derivedProxyScore(accumulated[weakest])
+            {
+                accumulated[weakest] = proxy
+            }
+        }
     }
 
     nonisolated private static func fitDerivedObjectProfiles(
@@ -14328,8 +14519,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         coordinateSpaceID: CoordinateSpaceID,
         generation: UUID
     ) async {
+        // Persist every item that resolved at any tick — the sliding
+        // fusion window can evict objects seen early in the scan.
+        // Unresolved candidates from the final tick persist too, as
+        // honest insufficient-evidence records.
         let objectProxies =
-            derivedShapePreview.objectProxies + targetedObjectProxies
+            bestDerivedObjectProxies
+            + derivedShapePreview.objectProxies.filter {
+                $0.resolution != .resolved
+            }
+            + targetedObjectProxies
         guard !objectProxies.isEmpty
                 || derivedShapePreview.wallChain != nil
         else {

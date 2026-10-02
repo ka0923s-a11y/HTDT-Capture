@@ -396,24 +396,40 @@ scale, 70 % angular support, 12-vertex contour cap) discard them before
 fitting. The "Scan this object" pass (#250) now closes that gap:
 
 - While the pass runs, the live depth sampler is re-observed at ~1 Hz
-  inside a bounded 3D window around the aimed anchor (the anchor's
-  radius, capped at 55 cm) and fused across the pass duration.
+  inside a bounded 3D window around the aimed anchor and fused across
+  the pass duration. The window is seeded from the item's measured
+  extent at pass start (first-probe spread + margin, bounded
+  0.15–0.55 m; 0.45 m when the first probe is too thin) rather than a
+  fixed radius, so desk context stays out of a small item's evidence.
 - A dominant-plane segmentation removes the support surface (desk,
-  shelf) so the fitted contour is the item's, not the surface's; when
-  no clear plane exists, or too little remains above it, the window is
-  kept whole.
+  shelf) so the fitted contour is the item's, not the surface's. When
+  the filter must keep the whole window and the surviving points
+  outline the clip sphere itself, the observation reports unresolved
+  rather than manufacturing a phantom window-sized circle for the
+  support surface.
 - `DerivedShapeFitConfiguration.targetedObject` relaxes the floors for
   bounded, orbited evidence (5 points, 4 cm scale, 55 % angular
   support, 24-vertex contour cap, tighter concavity radii). Ambient
   room fitting uses `.roomCapture`, which keeps the ambient floors but
   raises the contour cap to 32 vertices so curved walls, polygonal
   structures and irregular furniture are no longer clipped into
-  dodecagons.
+  dodecagons. Circle and ellipse radii are fitted on the observation's
+  convex boundary so dense filled clouds (depth discs) are not
+  undersized by interior samples.
 - Accepting the pass fits the fused observation; a resolved proxy is
   retained with the other derived candidates, an unresolved pass is
   reported as such (the operator can rescan or annotate in review).
-- At the accepted End all retained proxies and the wall chain are
+- At the accepted End the best resolved proxy per item observed across
+  the whole scan (up to 12, evidence-ranked — not just the final
+  fusion window), the final tick's unresolved candidates, the
+  retained targeted-pass proxies (cap 24) and the wall chain are
   persisted into `derived/geometry-candidates.json` (manifest role
   `derived`, `source_refs` → committed mesh index + depth payloads).
+  Decomposable object observations contribute their six
+  best-evidenced components. An open wall chain persists as
+  `insufficient_evidence` with its supported contour — never as a
+  closed polygon across an unobserved gap. Live observation refs are
+  translated where derivable (`live-mesh:<anchor>:face:<n>` →
+  `mesh_anchor:<anchor>`); `live-scene-depth:` refs stay live-scoped.
   HTDT promotes suggestion-driven candidates from that document after
   ingestion; nothing is promoted on-device.
