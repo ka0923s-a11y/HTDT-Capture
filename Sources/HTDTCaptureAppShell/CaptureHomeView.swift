@@ -171,6 +171,9 @@ public struct CaptureHomeView: View {
     /// 3D scene and survey (#408/#409).
     public let persistedWorkspaceRoomPlanObjects:
         [RoomPlanBindableObject]
+    /// The last persisted-workspace open failed — the pushed viewer
+    /// shows a failure pane rather than a spinner that never ends.
+    public let persistedWorkspaceLoadFailed: Bool
     /// Handoff receipts (#225) — the historical send record the
     /// retention previews cite (#394).
     public let handoffReceipts: [HTDTHandoffReceipt]
@@ -245,6 +248,7 @@ public struct CaptureHomeView: View {
         persistedWorkspace: CaptureReviewWorkspaceModel? = nil,
         persistedWorkspaceRoomPlanObjects:
             [RoomPlanBindableObject] = [],
+        persistedWorkspaceLoadFailed: Bool = false,
         handoffReceipts: [HTDTHandoffReceipt] = [],
         captureOrigins:
             [CaptureRevisionID: CaptureAcquisitionOriginRecord] = [:],
@@ -271,6 +275,8 @@ public struct CaptureHomeView: View {
         self.persistedWorkspace = persistedWorkspace
         self.persistedWorkspaceRoomPlanObjects =
             persistedWorkspaceRoomPlanObjects
+        self.persistedWorkspaceLoadFailed =
+            persistedWorkspaceLoadFailed
         self.handoffReceipts = handoffReceipts
         self.captureOrigins = captureOrigins
         self.missionRecords = missionRecords
@@ -1405,6 +1411,8 @@ public struct CaptureHomeView: View {
                         persistedWorkspace: persistedWorkspace,
                         persistedWorkspaceRoomPlanObjects:
                             persistedWorkspaceRoomPlanObjects,
+                        persistedWorkspaceLoadFailed:
+                            persistedWorkspaceLoadFailed,
                         allRecords: persistedInventory.captures,
                         deliveryJobs: deliveryJobs,
                         missionRecords: missionRecords,
@@ -1793,6 +1801,9 @@ private struct CaptureSeriesDetailView: View {
     /// 3D scene and survey (#408/#409).
     let persistedWorkspaceRoomPlanObjects:
         [RoomPlanBindableObject]
+    /// The last persisted-workspace open failed — the pushed viewer
+    /// shows a failure pane rather than a spinner that never ends.
+    let persistedWorkspaceLoadFailed: Bool
     /// Every persisted record — the retention previews read
     /// cross-series lineage (parents) from it (#394).
     let allRecords: [PersistedCaptureRecord]
@@ -1978,6 +1989,14 @@ private struct CaptureSeriesDetailView: View {
                     model: persistedWorkspace,
                     roomPlanObjects:
                         persistedWorkspaceRoomPlanObjects
+                )
+            } else if persistedWorkspaceLoadFailed {
+                ContentUnavailableView(
+                    "Couldn't open capture",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text(
+                        "The saved bundle could not be read; it stays in the library."
+                    )
                 )
             } else {
                 ProgressView("Loading capture…")

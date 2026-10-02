@@ -310,6 +310,18 @@ public struct CaptureRevisitFlagStore: Sendable, Equatable {
         self.maxFlagCount = maxFlagCount
     }
 
+    /// Rehydrates from the persisted document when a draft reopens —
+    /// the document is the durable record, so its flags (with their
+    /// statuses and resolutions) become the in-memory list wholesale.
+    public init(
+        restoring document: CaptureRevisitFlagDocument,
+        maxFlagCount: Int = CaptureRevisitFlagDocument.maxFlagCount
+    ) {
+        precondition(maxFlagCount > 0)
+        self.maxFlagCount = maxFlagCount
+        self.flags = document.flags
+    }
+
     public var unresolvedFlags: [ScanRevisitFlag] {
         flags.filter { $0.status == .unresolved }
     }

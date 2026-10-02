@@ -468,6 +468,11 @@ def validate_manifest_shape(manifest: dict) -> None:
                 raise ValidationError(f"oversized source_ref for {path}")
             if len(set(refs)) != len(refs):
                 raise ValidationError(f"duplicate source_refs for {path}")
+        # Swift parity: BundleManifest.validateSourceRefs rejects a
+        # `derived`-role entry that carries no source_refs
+        # (derivedEntryMissingSourceRefs).
+        if entry["role"] == "derived" and not entry.get("source_refs"):
+            raise ValidationError(f"derived entry missing source_refs for {path}")
 
         folded = unicodedata.normalize("NFC", path).casefold()
         if folded in casefold_paths:
