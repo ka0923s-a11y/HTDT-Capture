@@ -227,12 +227,17 @@ public struct ReviewPlanSurface: View {
             titleVisibility: .visible,
             presenting: disambiguation
         ) { candidates in
-            ForEach(candidates, id: \.identifier) { marker in
-                Button(markerTitle(marker)) {
-                    selection = marker
+            // One action-producing child — iOS 26 renders only
+            // the first child, so a bare trailing Cancel never
+            // appears.
+            Group {
+                ForEach(candidates, id: \.identifier) { marker in
+                    Button(markerTitle(marker)) {
+                        selection = marker
+                    }
                 }
+                Button("Cancel", role: .cancel) {}
             }
-            Button("Cancel", role: .cancel) {}
         }
     }
 

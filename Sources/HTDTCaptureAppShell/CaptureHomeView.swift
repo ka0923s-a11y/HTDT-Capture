@@ -619,10 +619,15 @@ public struct CaptureHomeView: View {
             titleVisibility: .visible,
             presenting: pendingDraftDiscard
         ) { draft in
-            Button("Discard the draft", role: .destructive) {
-                actions.discardRecoveredDraft(draft)
+            // One action-producing child — iOS 26 renders only
+            // the first child, so a bare second Button's Cancel
+            // never appears.
+            Group {
+                Button("Discard the draft", role: .destructive) {
+                    actions.discardRecoveredDraft(draft)
+                }
+                Button("Cancel", role: .cancel) {}
             }
-            Button("Cancel", role: .cancel) {}
         } message: { _ in
             Text(
                 "Permanently removes the draft's saved data."
@@ -737,13 +742,25 @@ public struct CaptureHomeView: View {
                             action: actions.beginPracticeCapture
                         )
                         .disabled(!capabilities.roomPlanMeshEligible)
-                        Button("Not now") {
-                            actions.dismissPracticePrompt(false)
+                        // Dismissal choices sit side-by-side with
+                        // padded hit regions — stacked caption
+                        // buttons were close enough that a "Not
+                        // now" tap resolved to the permanent
+                        // "Don't show again" below it.
+                        HStack(spacing: 16) {
+                            Button("Not now") {
+                                actions.dismissPracticePrompt(false)
+                            }
+                            .buttonStyle(.bordered)
+                            Button("Don't show again") {
+                                actions.dismissPracticePrompt(true)
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .contentShape(Rectangle())
                         }
-                        Button("Don't show again") {
-                            actions.dismissPracticePrompt(true)
-                        }
-                        .font(.caption)
                     }
                     .accessibilityIdentifier("home.practicePrompt")
                 } else {
@@ -3152,11 +3169,16 @@ private struct CaptureLibraryMaintenanceView: View {
             titleVisibility: .visible,
             presenting: pendingArtifactRemoval
         ) { artifact in
-            Button("Remove artifact", role: .destructive) {
-                removeQuarantinedArtifact(artifact)
-                pendingArtifactRemoval = nil
+            // One action-producing child — iOS 26 renders only
+            // the first child, so a bare second Button's Cancel
+            // never appears.
+            Group {
+                Button("Remove artifact", role: .destructive) {
+                    removeQuarantinedArtifact(artifact)
+                    pendingArtifactRemoval = nil
+                }
+                Button("Cancel", role: .cancel) {}
             }
-            Button("Cancel", role: .cancel) {}
         } message: { artifact in
             // Single `Text` — `confirmationDialog`'s `message:`
             // renders only the first child on iOS 26.
@@ -3173,11 +3195,16 @@ private struct CaptureLibraryMaintenanceView: View {
             titleVisibility: .visible,
             presenting: pendingOrphanRemoval
         ) { orphan in
-            Button("Delete", role: .destructive) {
-                removeWorkingOrphan(orphan)
-                pendingOrphanRemoval = nil
+            // One action-producing child — iOS 26 renders only
+            // the first child, so a bare second Button's Cancel
+            // never appears.
+            Group {
+                Button("Delete", role: .destructive) {
+                    removeWorkingOrphan(orphan)
+                    pendingOrphanRemoval = nil
+                }
+                Button("Cancel", role: .cancel) {}
             }
-            Button("Cancel", role: .cancel) {}
         } message: { orphan in
             // Single `Text` — `confirmationDialog`'s `message:`
             // renders only the first child on iOS 26.

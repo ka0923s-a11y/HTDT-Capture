@@ -572,10 +572,15 @@ public struct CaptureSetupView: View {
             titleVisibility: .visible,
             presenting: pendingDraftDiscard
         ) { draft in
-            Button("Discard the draft", role: .destructive) {
-                onDiscardDraft(draft)
+            // One action-producing child — iOS 26 renders only
+            // the first child, so a bare second Button's Cancel
+            // never appears.
+            Group {
+                Button("Discard the draft", role: .destructive) {
+                    onDiscardDraft(draft)
+                }
+                Button("Cancel", role: .cancel) {}
             }
-            Button("Cancel", role: .cancel) {}
         } message: { _ in
             Text("Permanently removes the draft's saved data.")
         }

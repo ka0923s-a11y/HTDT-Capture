@@ -2240,13 +2240,18 @@ public struct CaptureRootView: View {
                     isPresented: $confirmingDiscard,
                     titleVisibility: .visible
                 ) {
-                    Button(
-                        "Discard capture",
-                        role: .destructive
-                    ) {
-                        actions.discardActiveCapture()
+                    // One action-producing child — iOS 26 renders
+                    // only the first child, so a bare second
+                    // Button's Cancel never appears.
+                    Group {
+                        Button(
+                            "Discard capture",
+                            role: .destructive
+                        ) {
+                            actions.discardActiveCapture()
+                        }
+                        Button("Cancel", role: .cancel) {}
                     }
-                    Button("Cancel", role: .cancel) {}
                 } message: {
                     Text(
                         "Stops the capture and permanently removes the working revision. Finalized captures are never touched."
@@ -2268,23 +2273,28 @@ public struct CaptureRootView: View {
                     titleVisibility: .visible,
                     presenting: pendingFailedDiscard
                 ) { intent in
-                    switch intent {
-                    case .discardAndStartNew:
-                        Button(
-                            "Discard and start a new capture",
-                            role: .destructive
-                        ) {
-                            actions.discardFailedAndStartNew()
+                    // One action-producing child — iOS 26 renders
+                    // only the first child, so a Cancel written
+                    // after the `switch` never appears.
+                    Group {
+                        switch intent {
+                        case .discardAndStartNew:
+                            Button(
+                                "Discard and start a new capture",
+                                role: .destructive
+                            ) {
+                                actions.discardFailedAndStartNew()
+                            }
+                        case .discardOnly:
+                            Button(
+                                "Discard the failed capture",
+                                role: .destructive
+                            ) {
+                                actions.resetCapture()
+                            }
                         }
-                    case .discardOnly:
-                        Button(
-                            "Discard the failed capture",
-                            role: .destructive
-                        ) {
-                            actions.resetCapture()
-                        }
+                        Button("Cancel", role: .cancel) {}
                     }
-                    Button("Cancel", role: .cancel) {}
                 } message: { _ in
                     Text(
                         "Permanently removes the data this capture kept. Finalized captures are never touched."
@@ -2958,10 +2968,15 @@ public struct CaptureRootView: View {
                         isPresented: $confirmingExport,
                         titleVisibility: .visible
                     ) {
-                        Button("Prepare .htdtcapture") {
-                            actions.prepareExport()
+                        // One action-producing child — iOS 26
+                        // renders only the first child, so a bare
+                        // second Button's Cancel never appears.
+                        Group {
+                            Button("Prepare .htdtcapture") {
+                                actions.prepareExport()
+                            }
+                            Button("Cancel", role: .cancel) {}
                         }
-                        Button("Cancel", role: .cancel) {}
                     } message: {
                         Text(
                             captureCountPhrase(
@@ -3019,10 +3034,15 @@ public struct CaptureRootView: View {
                     isPresented: $confirmingExport,
                     titleVisibility: .visible
                 ) {
-                    Button("Prepare .htdtcapture") {
-                        actions.prepareExport()
+                    // One action-producing child — iOS 26 renders
+                    // only the first child, so a bare second
+                    // Button's Cancel never appears.
+                    Group {
+                        Button("Prepare .htdtcapture") {
+                            actions.prepareExport()
+                        }
+                        Button("Cancel", role: .cancel) {}
                     }
-                    Button("Cancel", role: .cancel) {}
                 } message: {
                     Text(
                         captureCountPhrase(

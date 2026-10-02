@@ -1080,12 +1080,17 @@ public struct CaptureReviewWorkspaceView: View {
             titleVisibility: .visible,
             presenting: confirmingFrameRemoval
         ) { frameID in
-            Button("Remove frame", role: .destructive) {
-                Task {
-                    await removeEvidenceFrame(frameID)
+            // One action-producing child — iOS 26 renders only
+            // the first child, so a bare second Button's Cancel
+            // never appears.
+            Group {
+                Button("Remove frame", role: .destructive) {
+                    Task {
+                        await removeEvidenceFrame(frameID)
+                    }
                 }
+                Button("Cancel", role: .cancel) {}
             }
-            Button("Cancel", role: .cancel) {}
         } message: { _ in
             Text(
                 "Permanently deletes this frame's pixels, depth, confidence, and preview from the working capture."

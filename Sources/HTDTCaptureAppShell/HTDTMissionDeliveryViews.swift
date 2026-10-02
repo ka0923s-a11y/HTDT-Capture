@@ -745,15 +745,20 @@ struct HTDTMissionInboxView: View {
                         isPresented: $confirmingArchive,
                         titleVisibility: .visible
                     ) {
-                        Button("Archive", role: .destructive) {
-                            Task {
-                                await actions.archiveMission(
-                                    record.recordID
-                                )
+                        // One action-producing child — iOS 26
+                        // renders only the first child, so a bare
+                        // second Button's Cancel never appears.
+                        Group {
+                            Button("Archive", role: .destructive) {
+                                Task {
+                                    await actions.archiveMission(
+                                        record.recordID
+                                    )
+                                }
+                                selectedRecord = nil
                             }
-                            selectedRecord = nil
+                            Button("Cancel", role: .cancel) {}
                         }
-                        Button("Cancel", role: .cancel) {}
                     } message: {
                         Text(
                             "The mission leaves the inbox and stays in history. This cannot be undone."
@@ -1128,17 +1133,22 @@ struct PairedHTDTDestinationsView: View {
                 ),
                 titleVisibility: .visible
             ) {
-                Button("Forget", role: .destructive) {
-                    if let candidate = forgetCandidate {
-                        Task {
-                            await actions.forgetDestination(
-                                candidate.destinationID
-                            )
+                // One action-producing child — iOS 26 renders
+                // only the first child, so a bare second
+                // Button's Cancel never appears.
+                Group {
+                    Button("Forget", role: .destructive) {
+                        if let candidate = forgetCandidate {
+                            Task {
+                                await actions.forgetDestination(
+                                    candidate.destinationID
+                                )
+                            }
                         }
+                        forgetCandidate = nil
                     }
-                    forgetCandidate = nil
+                    Button("Cancel", role: .cancel) {}
                 }
-                Button("Cancel", role: .cancel) {}
             } message: {
                 Text(
                     "The paired endpoint and its pinned identity are deleted. Re-pair before sending to this receiver again."

@@ -616,13 +616,18 @@ public struct CaptureAnnotationWorkspaceView: View {
             isPresented: $confirmingCancel,
             titleVisibility: .visible
         ) {
-            Button(
-                "Discard changes",
-                role: .destructive
-            ) {
-                cancel()
+            // One action-producing child — iOS 26 renders only
+            // the first child, so a bare second Button's cancel
+            // action never appears.
+            Group {
+                Button(
+                    "Discard changes",
+                    role: .destructive
+                ) {
+                    cancel()
+                }
+                Button("Keep editing", role: .cancel) {}
             }
-            Button("Keep editing", role: .cancel) {}
         } message: {
             Text(
                 "Staged annotations, measurements, and identity records that have not been saved are dropped. This does not change the previously saved authority."
