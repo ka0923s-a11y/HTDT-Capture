@@ -786,7 +786,12 @@ extension LifecycleRecoveryTests {
         try Data([0x01]).write(
             to: directory.appendingPathComponent(depthPath)
         )
-        try Data("{}".utf8).write(
+        let candidatesDocument = DerivedGeometryCandidateDocument(
+            captureRevisionID: CaptureRevisionID(),
+            captureSessionID: CaptureSessionID(),
+            candidates: []
+        )
+        try JSONEncoder().encode(candidatesDocument).write(
             to: directory.appendingPathComponent(
                 DerivedGeometryCandidatePackage.path
             )
@@ -886,6 +891,14 @@ extension LifecycleRecoveryTests {
                 .appendingPathComponent("session", isDirectory: true)
                 .appendingPathComponent("unknown-debug-v2.json")
         )
+        // A whole-but-corrupt candidates leftover: re-declaring it
+        // would decode-fail at review and schema-fail at finalize with
+        // no recovery path, so it is un-manifestable on restore.
+        try Data("{}".utf8).write(
+            to: derivedDirectory.appendingPathComponent(
+                "geometry-candidates.json"
+            )
+        )
         // An unowned non-JSON payload keeps its bytes under a generic
         // canonical declaration.
         let vendorDirectory = directory
@@ -915,6 +928,11 @@ extension LifecycleRecoveryTests {
         XCTAssertTrue(
             report.unmanifestablePaths.contains(
                 "session/unknown-debug-v2.json"
+            )
+        )
+        XCTAssertTrue(
+            report.unmanifestablePaths.contains(
+                DerivedGeometryCandidatePackage.path
             )
         )
         XCTAssertTrue(

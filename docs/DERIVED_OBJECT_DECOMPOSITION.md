@@ -93,6 +93,9 @@ For distinct components, the preview may emit a `supports` candidate when:
 
 This relation is preview-only geometry evidence. It is not a semantic statement
 about furniture identity and is not persisted as canonical object hierarchy.
+The resolved shape candidates it feeds are persisted at the accepted End into
+`derived/geometry-candidates.json` (manifest role `derived`), where they remain
+operator-reviewable advisory records rather than an object hierarchy.
 
 ## Object-count uncertainty and re-observation
 

@@ -421,6 +421,11 @@ public enum DerivedGeometryCandidatePackageBuilder {
         }
         if let wallChain = snapshot.wallChain {
             let provenance = wallChain.provenance
+            let wallChainIsConcave =
+                DerivedShapeProxyFitter.polygonIsConcave(
+                    wallChain.vertices.map(\.position),
+                    closed: wallChain.isClosed
+                )
             records.append(
                 try DerivedGeometryCandidateRecord(
                     recordKind: .wallChain,
@@ -429,7 +434,9 @@ public enum DerivedGeometryCandidatePackageBuilder {
                     geometry: .polygon(
                         DerivedPolygon(
                             vertices: wallChain.vertices,
-                            isConcave: false
+                            isConcave: wallChainIsConcave,
+                            concavityResolution: wallChainIsConcave
+                                ? .resolvedConcave : .resolvedConvex
                         )
                     ),
                     coordinateSpaceID:

@@ -433,6 +433,61 @@ final class DerivedShapeProxyTests: XCTestCase {
         )
     }
 
+    /// A >6-vertex polygon that fits materially better than the best
+    /// curved primitive must keep its shape — the old veto flattened
+    /// any such outline (gears, notched furniture) into the circle.
+    /// The veto now only wins true near-ties.
+    func testHeptagonKeepsPolygonOverNearFitCircle() {
+        let vertices = (0..<7).map { index -> DerivedPoint2D in
+            let angle =
+                -Double.pi / 2
+                + 2 * Double.pi * Double(index) / 7
+            return DerivedPoint2D(
+                x: cos(angle),
+                y: sin(angle)
+            )
+        }
+
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: observation(
+                samplePolygon(vertices, samplesPerEdge: 12)
+            )
+        )
+
+        XCTAssertEqual(proxy.resolution, .resolved)
+        XCTAssertEqual(proxy.selected?.kind, .polygon)
+        guard case let .polygon(polygon)? =
+            proxy.selected?.geometry
+        else {
+            return XCTFail("Expected polygon geometry")
+        }
+        XCTAssertGreaterThan(polygon.vertices.count, 6)
+    }
+
+    /// The near-tie preference is preserved for genuinely round
+    /// outlines: a slightly lumpy circle still resolves as a circle,
+    /// not a many-vertex polygon.
+    func testLumpyCircleStillPrefersCircle() {
+        let points = (0..<96).map { index -> DerivedPoint2D in
+            let angle =
+                2 * Double.pi * Double(index) / 96.0
+            let radius =
+                1.0
+                + 0.02 * sin(5 * angle)
+            return DerivedPoint2D(
+                x: radius * cos(angle),
+                y: radius * sin(angle)
+            )
+        }
+
+        let proxy = DerivedShapeProxyFitter.fit(
+            observation: observation(points)
+        )
+
+        XCTAssertEqual(proxy.resolution, .resolved)
+        XCTAssertEqual(proxy.selected?.kind, .circle)
+    }
+
     func testLShapeRemainsConcavePolygon() {
         let vertices = [
             DerivedPoint2D(x: 0, y: 0),
@@ -1029,6 +1084,145 @@ final class DerivedShapeProxyTests: XCTestCase {
             )
 
         XCTAssertNil(extracted)
+    }
+
+    func testTargetedConfigurationResolvesSmallObjectStandardRejects() {
+        // A 4 cm object: ~12 samples on a small circle — the ambient
+        // spatial-scale floor (8 cm bounding-box diagonal) must reject
+        // it while the targeted pass resolves it.
+        let points = circlePoints(
+            center: DerivedPoint2D(x: 0.4, y: -0.2),
+            radius: 0.02,
+            count: 12
+        )
+
+        let targeted = DerivedShapeProxyFitter.fit(
+            observation: observation(points),
+            configuration: .targetedObject
+        )
+        XCTAssertEqual(targeted.resolution, .resolved)
+        XCTAssertEqual(targeted.selected?.kind, .circle)
+
+        let ambient = DerivedShapeProxyFitter.fit(
+            observation: observation(points),
+            configuration: .standard
+        )
+        XCTAssertNotEqual(ambient.resolution, .resolved)
+    }
+
+    func testRoomCaptureKeepsMoreContourVerticesThanStandardCap() {
+        // A crenellated 4 m structure with 8 teeth — the 12-vertex
+        // ambient cap must clip the contour while .roomCapture keeps
+        // substantially more of it. The 10:1 aspect ratio eliminates
+        // circle/ellipse wins so the polygon must be selected.
+        var vertices = [
+            DerivedPoint2D(x: 0, y: 0),
+            DerivedPoint2D(x: 4, y: 0),
+        ]
+        for i in 0...16 {
+            vertices.append(
+                DerivedPoint2D(
+                    x: 4.0 - Double(i) * 0.25,
+                    y: i.isMultiple(of: 2) ? 0.4 : 0.8
+                )
+            )
+        }
+        let points = samplePolygon(vertices, samplesPerEdge: 4)
+
+        let room = DerivedShapeProxyFitter.fit(
+            observation: observation(points),
+            configuration: .roomCapture
+        )
+        let standard = DerivedShapeProxyFitter.fit(
+            observation: observation(points),
+            configuration: .standard
+        )
+
+        // The cap acts on the polygon CANDIDATE's fidelity — selection
+        // between the surviving shapes stays the existing cost model's
+        // job. Compare candidates, not the selected winner.
+        guard
+            let roomPolygonCandidate = room.candidates.first(where: {
+                $0.kind == .polygon
+            }),
+            let standardPolygonCandidate =
+                standard.candidates.first(where: {
+                    $0.kind == .polygon
+                }),
+            case .polygon(let roomPolygon) =
+                roomPolygonCandidate.geometry,
+            case .polygon(let standardPolygon) =
+                standardPolygonCandidate.geometry
+        else {
+            XCTFail("both configurations should emit polygon candidates")
+            return
+        }
+        XCTAssertLessThanOrEqual(
+            standardPolygon.vertices.count, 12
+        )
+        XCTAssertGreaterThan(
+            roomPolygon.vertices.count,
+            standardPolygon.vertices.count
+        )
+        XCTAssertLessThan(
+            roomPolygonCandidate.metrics.normalizedResidual,
+            standardPolygonCandidate.metrics.normalizedResidual
+        )
+    }
+
+    func testDominantPlaneYFindsDensestBandAndPointsAbove() {
+        // Desk at y≈0.72 carrying a small item at y≈0.80.
+        let bandYs =
+            (0..<40).map { _ in Double.random(in: 0.70...0.74) }
+            + (0..<6).map { _ in Double.random(in: 0.78...0.82) }
+        let planeY = DerivedHorizontalPlaneSegmentation
+            .dominantPlaneY(
+                verticalPositions: bandYs
+            )
+        XCTAssertNotNil(planeY)
+        XCTAssertGreaterThan(planeY ?? 0, 0.68)
+        XCTAssertLessThan(planeY ?? 1, 0.75)
+
+        let points = bandYs.map { y in
+            DerivedObservationPoint(
+                position: DerivedPoint2D(x: 0, y: 0),
+                evidenceRef: "p",
+                evidenceKind: .sceneDepth,
+                verticalPositionMeters: y
+            )
+        }
+        let above = DerivedHorizontalPlaneSegmentation
+            .pointsAbove(
+                planeY: planeY!,
+                marginMeters: 0.015,
+                minimumPointCount: 5,
+                in: points,
+                verticalOf: { $0.verticalPositionMeters }
+            )
+        XCTAssertEqual(above.count, 6)
+    }
+
+    func testPointsAboveFallsBackToAllWhenTooSparse() {
+        let ys = [0.70, 0.70, 0.71, 0.71, 0.76]
+        let points = ys.map { y in
+            DerivedObservationPoint(
+                position: DerivedPoint2D(x: 0, y: 0),
+                evidenceRef: "p",
+                evidenceKind: .sceneDepth,
+                verticalPositionMeters: y
+            )
+        }
+        let above = DerivedHorizontalPlaneSegmentation
+            .pointsAbove(
+                planeY: 0.70,
+                marginMeters: 0.015,
+                minimumPointCount: 5,
+                in: points,
+                verticalOf: { $0.verticalPositionMeters }
+            )
+        // Only 1 point sits above the plane; fewer than the 5-point
+        // floor means the filter is not trustworthy — keep everything.
+        XCTAssertEqual(above.count, points.count)
     }
 
     private var testCoordinateSpaceID: CoordinateSpaceID {

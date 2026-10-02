@@ -157,6 +157,100 @@ final class AdvancedWorkflowTests: XCTestCase {
         }
     }
 
+    /// A `.derived` path is regenerated state, not committed authority:
+    /// a re-End legitimately re-declares the same path with an evolved
+    /// source-ref set (new depthbins, rolled-back mesh). Refusing that
+    /// re-declare left every re-End stuck with the first run's stale
+    /// candidates document.
+    func testDerivedDocumentRedeclareAndRemove() async throws {
+        let (store, root) = try makeStore()
+        defer { BundleValidationFixture.remove(root) }
+
+        func derivedDoc(_ bytes: String, refs: [String]) throws
+            -> WorkingSetSupplementalDocument
+        {
+            try WorkingSetSupplementalDocument(
+                path: DerivedGeometryCandidatePackage.path,
+                data: Data(bytes.utf8),
+                declaration: BundlePayloadDeclaration(
+                    path: DerivedGeometryCandidatePackage.path,
+                    mediaType: "application/json",
+                    producer: "derived_geometry",
+                    provenanceClass: .captureAppDerived,
+                    role: .derived,
+                    sourceRefs: refs
+                ),
+                coordinateSpaceIDs: [],
+                captureSessionIDs: []
+            )
+        }
+
+        try await store.replaceSupplementalDocument(
+            derivedDoc(#"{"v":1}"#, refs: ["path:mesh/anchors.json"])
+        )
+        try await store.replaceSupplementalDocument(
+            derivedDoc(
+                #"{"v":2}"#,
+                refs: [
+                    "path:mesh/anchors.json",
+                    "capture_session:\(sessionID)",
+                ]
+            )
+        )
+        var snapshot = await store.snapshot()
+        XCTAssertTrue(
+            snapshot.payloadDeclarations.contains {
+                $0.path == DerivedGeometryCandidatePackage.path
+                    && $0.sourceRefs?.count == 2
+            }
+        )
+
+        // The same declaration shift on a canonical path still fails
+        // closed — committed authority is immutable.
+        let canonical = try supplemental(
+            path: "session/task-plan-status.json",
+            data: Data(#"{"v":1}"#.utf8)
+        )
+        try await store.replaceSupplementalDocument(canonical)
+        do {
+            try await store.replaceSupplementalDocument(
+                WorkingSetSupplementalDocument(
+                    path: "session/task-plan-status.json",
+                    data: Data(#"{"v":1}"#.utf8),
+                    declaration: BundlePayloadDeclaration(
+                        path: "session/task-plan-status.json",
+                        mediaType: "application/json",
+                        producer: "capture_session",
+                        provenanceClass: .captureAppDerived,
+                        role: .canonical,
+                        sourceRefs: ["capture_session:\(sessionID)"]
+                    ),
+                    coordinateSpaceIDs: [],
+                    captureSessionIDs: []
+                )
+            )
+            XCTFail("canonical re-declare must fail")
+        } catch CaptureWorkingSetError.duplicatePayloadDeclaration {
+        }
+
+        try await store.removeSupplementalDocument(
+            path: DerivedGeometryCandidatePackage.path
+        )
+        snapshot = await store.snapshot()
+        XCTAssertFalse(
+            snapshot.payloadDeclarations.contains {
+                $0.path == DerivedGeometryCandidatePackage.path
+            }
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(
+                    DerivedGeometryCandidatePackage.path
+                ).path
+            )
+        )
+    }
+
     func testSupplementalDocumentCoordinateSpaceEnforced() async throws {
         let (store, root) = try makeStore()
         defer { BundleValidationFixture.remove(root) }

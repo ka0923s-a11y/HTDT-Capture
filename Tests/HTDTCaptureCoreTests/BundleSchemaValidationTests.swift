@@ -547,6 +547,124 @@ func entities13SpeakerWithoutAimValidates() throws {
     _ = try BundleDirectoryValidator.validate(root: root)
 }
 
+/// The synthesized enum Codable emitted `{"polygon":{"_0":{...}}}` —
+/// a shape the schema's `oneOf` rejects, so every persisted candidate
+/// document failed `schemaValidationFailed` at finalize. The emitted
+/// footprint must be a flat `{"polygon":{...}}` carrying the required
+/// `concavityResolution`, for both object and wall-chain records.
+@Test
+func derivedGeometryCandidatesValidateAgainstPublishedSchema() throws {
+    let revisionID = CaptureRevisionID()
+    let sessionID = CaptureSessionID(
+        canonicalString: BundleValidationFixture.sessionUUID
+    )!
+    let spaceID = CoordinateSpaceID(
+        canonicalString: BundleValidationFixture.spaceUUID
+    )!
+    let polygon = DerivedPolygon(
+        vertices: [
+            SupportedPolygonVertex(
+                position: DerivedPoint2D(x: 0, y: 0),
+                supportEvidenceRefs: ["path:mesh/anchors.json"]
+            ),
+            SupportedPolygonVertex(
+                position: DerivedPoint2D(x: 2, y: 0),
+                supportEvidenceRefs: ["path:mesh/anchors.json"]
+            ),
+            SupportedPolygonVertex(
+                position: DerivedPoint2D(x: 1, y: 2),
+                supportEvidenceRefs: ["path:mesh/anchors.json"]
+            ),
+        ],
+        isConcave: false,
+        concavityResolution: .resolvedConvex
+    )
+    let proxy = DerivedShapeProxy(
+        resolution: .resolved,
+        selected: DerivedShapeCandidate(
+            geometry: .polygon(polygon),
+            metrics: DerivedShapeFitMetrics(
+                normalizedResidual: 0.05,
+                supportScore: 0.9,
+                fitScore: 0.9
+            )
+        ),
+        candidates: [],
+        provenance: DerivedShapeProvenance(
+            sourceEvidenceRefs: ["path:mesh/anchors.json"],
+            sourceCoordinateSpaceID: spaceID,
+            derivationAlgorithm: "derived-shape-proxy",
+            derivationVersion: "1.0.0",
+            fitScore: 0.9,
+            normalizedResidual: 0.05,
+            observationStartSeconds: 1,
+            observationEndSeconds: 4
+        ),
+        observationSample: [
+            DerivedObservationPoint(
+                position: DerivedPoint2D(x: 1, y: 1),
+                evidenceRef: "path:mesh/anchors.json",
+                evidenceKind: .mesh
+            ),
+        ]
+    )
+    let wallChain = DerivedWallChainProxy(
+        vertices: polygon.vertices,
+        isClosed: true,
+        provenance: proxy.provenance
+    )
+    let (package, declaration) =
+        try DerivedGeometryCandidatePackageBuilder.build(
+            snapshot: DerivedShapePreviewSnapshot(
+                objectProxies: [proxy],
+                wallChain: wallChain
+            ),
+            captureRevisionID: revisionID,
+            captureSessionID: sessionID,
+            sourcePayloadRefs: ["capture_session:\(sessionID)"]
+        )
+
+    let text = String(decoding: package.data, as: UTF8.self)
+    #expect(!text.contains("\"_0\""))
+    #expect(text.contains("\"concavityResolution\""))
+    #expect(declaration.role == .derived)
+
+    let root = try makeTemporaryDirectory()
+    defer { BundleValidationFixture.remove(root) }
+    try BundleValidationFixture.stage(
+        root,
+        payloads: [
+            (
+                path: DerivedGeometryCandidatePackage.path,
+                data: package.data,
+                mediaType: "application/json"
+            ),
+        ]
+    )
+    _ = try BundleDirectoryValidator.validate(root: root)
+}
+
+/// Payloads encoded by a build that predates the flat-key contract
+/// (the `_0` wrapper) still decode — the legacy shape must not strand
+/// a recoverable capture.
+@Test
+func legacyWrappedFootprintGeometryDecodes() throws {
+    let wrapped = Data(
+        #"{"polygon":{"_0":{"vertices":[{"position":{"x":0,"y":0},"supportEvidenceRefs":["e"]}],"isConcave":true,"concavityResolution":"resolved_concave"}}}"#
+            .utf8
+    )
+    let decoded = try JSONDecoder().decode(
+        DerivedFootprintGeometry.self,
+        from: wrapped
+    )
+    guard case let .polygon(polygon) = decoded else {
+        Issue.record("expected polygon, got \(decoded)")
+        return
+    }
+    #expect(polygon.isConcave)
+    #expect(polygon.concavityResolution == .resolvedConcave)
+}
+
 @Test
 func schemaCompilerFailsClosedOnUnsupportedConstructs() throws {
     let remoteRef = try StrictJSON.parse(

@@ -35,6 +35,11 @@ The capture pipeline intentionally keeps four concepts separate:
    - RoomPlan raw/processed artifacts, mesh evidence, frame/depth evidence, and
      existing canonical capture records remain the persisted authorities.
    - Derived preview geometry is advisory and is not silently promoted.
+   - At the accepted End, every live preview proxy (plus any targeted
+     object-pass items) is persisted into `derived/geometry-candidates.json`
+     as manifest role `derived` with `source_refs` bound to the committed
+     mesh index and depth payloads — regenerable convenience output, never
+     canonical authority.
 
 In compact form:
 
@@ -382,3 +387,33 @@ derived/advisory and is never promoted to canonical room geometry.
 
 Physical acceptance is still required for the actual round table, curved chair,
 and complex non-rectangular furniture seen on device.
+
+## Targeted small-object pass and End persistence
+
+The room-scan observation path cannot see items below ~30 cm: depth
+sampling density plus the ambient fit floors (8 points, 8 cm spatial
+scale, 70 % angular support, 12-vertex contour cap) discard them before
+fitting. The "Scan this object" pass (#250) now closes that gap:
+
+- While the pass runs, the live depth sampler is re-observed at ~1 Hz
+  inside a bounded 3D window around the aimed anchor (the anchor's
+  radius, capped at 55 cm) and fused across the pass duration.
+- A dominant-plane segmentation removes the support surface (desk,
+  shelf) so the fitted contour is the item's, not the surface's; when
+  no clear plane exists, or too little remains above it, the window is
+  kept whole.
+- `DerivedShapeFitConfiguration.targetedObject` relaxes the floors for
+  bounded, orbited evidence (5 points, 4 cm scale, 55 % angular
+  support, 24-vertex contour cap, tighter concavity radii). Ambient
+  room fitting uses `.roomCapture`, which keeps the ambient floors but
+  raises the contour cap to 32 vertices so curved walls, polygonal
+  structures and irregular furniture are no longer clipped into
+  dodecagons.
+- Accepting the pass fits the fused observation; a resolved proxy is
+  retained with the other derived candidates, an unresolved pass is
+  reported as such (the operator can rescan or annotate in review).
+- At the accepted End all retained proxies and the wall chain are
+  persisted into `derived/geometry-candidates.json` (manifest role
+  `derived`, `source_refs` → committed mesh index + depth payloads).
+  HTDT promotes suggestion-driven candidates from that document after
+  ingestion; nothing is promoted on-device.

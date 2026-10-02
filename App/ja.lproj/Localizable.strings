@@ -2165,6 +2165,9 @@
 "No unresolved coverage region found near the camera" = "カメラの近くに未解決のカバレッジ領域はありません";
 "Not prepared" = "未準備";
 "Object pass recorded" = "対象パスを記録しました";
+"Object pass recorded; %@ footprint saved for this item" = "対象パスを記録しました。この項目の %@ フットプリントを保存しました";
+"Object pass recorded; the item's shape could not be resolved — rescan it or annotate it in review" = "対象パスを記録しました。項目の形状を解決できませんでした。再スキャンするか、レビューで注釈を付けてください";
+"Object pass recorded; the capture's item limit is reached — annotate additional items in review" = "対象パスを記録しました。キャプチャの項目上限に達しました。追加項目はレビューで注釈を付けてください";
 "Object pass started; keep the aimed object centered and move around it" = "対象パスを開始しました。対象を画面中央に保ちながら周囲を移動してください";
 "Opened the persisted capture; its validated archive is ready to share" = "保存済みキャプチャを開きました。検証済みアーカイブを共有できます";
 "Opened the persisted finalized capture; export can be prepared" = "保存済みの確定キャプチャを開きました。書き出しを作成できます";

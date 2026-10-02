@@ -1433,6 +1433,12 @@ public actor CaptureWorkingSetStore {
                 forKey: declaration.path
             )
         }
+        // `.derived` declarations cite the rolled-back payloads by
+        // `path:` ref — rewrite them against the surviving set so a
+        // stale ref cannot dangle at finalize.
+        try await pruneDerivedSourceRefs(
+            removedPaths: Set(declarationsToRemove.map(\.path))
+        )
         timingDocument = nil
         rawRoomPlanDescriptor = nil
         processedRoomPlanDescriptor = nil
@@ -4145,6 +4151,12 @@ public actor CaptureWorkingSetStore {
             declarations.removeValue(forKey: path)
         }
 
+        // `.derived` declarations cite evidence by `path:` refs in
+        // the manifest — the payload-body scan above cannot see them.
+        try await pruneDerivedSourceRefs(
+            removedPaths: Set(removals)
+        )
+
         frameDescriptors.removeAll { $0.frameID == frameID }
         if let preview {
             framePreviews.removeAll { $0 == preview }
@@ -4566,7 +4578,10 @@ public actor CaptureWorkingSetStore {
     /// task-plan status, reference-target observations, or a rebuilt
     /// derived-candidate payload after Continue scanning). The
     /// manifest declaration for the path must be identical — only the
-    /// payload bytes evolve.
+    /// payload bytes evolve — unless the declaration is `.derived`:
+    /// derived documents bind the live evidence set, so their
+    /// `sourceRefs` legitimately change across a re-End and are
+    /// re-declared in place (see `redeclarationPermitted`).
     public func replaceSupplementalDocument(
         _ document: WorkingSetSupplementalDocument
     ) async throws {
@@ -4589,16 +4604,30 @@ public actor CaptureWorkingSetStore {
             }
         }
 
+        let storedDeclaration = declarations[document.path]
+        let declarationMatches =
+            storedDeclaration == document.declaration
+        if let storedDeclaration, !declarationMatches {
+            guard Self.redeclarationPermitted(
+                from: storedDeclaration,
+                to: document.declaration
+            ) else {
+                throw CaptureWorkingSetError
+                    .duplicatePayloadDeclaration(document.path)
+            }
+        }
+
         if let existing = supplementalDocuments[document.path],
            existing == document.data
         {
+            if declarationMatches {
+                return
+            }
+            // Identical bytes under an evolved `.derived` declaration —
+            // only the manifest entry moves.
+            declarations[document.path] = document.declaration
+            try await refreshRevisionStateAfterSemanticCommit()
             return
-        }
-        if let existing = declarations[document.path],
-           existing != document.declaration
-        {
-            throw CaptureWorkingSetError
-                .duplicatePayloadDeclaration(document.path)
         }
 
         let prior = supplementalDocuments[document.path]
@@ -4618,6 +4647,10 @@ public actor CaptureWorkingSetStore {
         }
         guard declarations[document.path] == nil
                 || declarations[document.path] == document.declaration
+                || Self.redeclarationPermitted(
+                    from: declarations[document.path]!,
+                    to: document.declaration
+                )
         else {
             throw CaptureWorkingSetError
                 .duplicatePayloadDeclaration(document.path)
@@ -4633,6 +4666,91 @@ public actor CaptureWorkingSetStore {
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
+    }
+
+    /// `.derived` documents re-declare their `sourceRefs` against the
+    /// live payload set — a re-End after Continue scanning adds or
+    /// removes the evidence they cite. Every other declaration field
+    /// is part of the manifest contract and must stay identical.
+    private static func redeclarationPermitted(
+        from existing: BundlePayloadDeclaration,
+        to replacement: BundlePayloadDeclaration
+    ) -> Bool {
+        existing.role == .derived
+            && replacement.role == .derived
+            && existing.path == replacement.path
+            && existing.mediaType == replacement.mediaType
+            && existing.producer == replacement.producer
+            && existing.provenanceClass == replacement.provenanceClass
+    }
+
+    /// Drops a supplemental document and its declaration entirely —
+    /// used when a `.derived` document can no longer carry honest
+    /// source refs (its bound evidence was removed) and leaving the
+    /// stale declaration would trap finalization on a dangling
+    /// `path:` ref.
+    public func removeSupplementalDocument(
+        path: String
+    ) async throws {
+        try requireMutable()
+        guard declarations[path] != nil
+                || supplementalDocuments[path] != nil
+        else {
+            return
+        }
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+
+        declarations.removeValue(forKey: path)
+        supplementalDocuments.removeValue(forKey: path)
+        try await writer.removeIfPresent(CaptureStorePath(path))
+        try await refreshRevisionStateAfterSemanticCommit()
+    }
+
+    /// Rewrites `.derived` declarations whose `path:` source refs name
+    /// payloads that were just deleted. Refs surviving the filter are
+    /// kept; a derived declaration left with no resolvable refs is
+    /// un-manifestable, so its document is dropped with the
+    /// declaration instead of stranding a dangling `path:` ref that
+    /// fails finalization.
+    private func pruneDerivedSourceRefs(
+        removedPaths: Set<String>
+    ) async throws {
+        let derivedDeclarations = declarations.filter {
+            $0.value.role == .derived
+        }
+        for (path, declaration) in derivedDeclarations {
+            guard let refs = declaration.sourceRefs else {
+                continue
+            }
+            let surviving = refs.filter { ref in
+                guard ref.hasPrefix("path:") else {
+                    return true
+                }
+                return !removedPaths.contains(
+                    String(ref.dropFirst("path:".count))
+                )
+            }
+            guard surviving.count != refs.count else {
+                continue
+            }
+            if surviving.isEmpty {
+                declarations.removeValue(forKey: path)
+                supplementalDocuments.removeValue(forKey: path)
+                try await writer.removeIfPresent(
+                    CaptureStorePath(path)
+                )
+            } else {
+                declarations[path] = BundlePayloadDeclaration(
+                    path: declaration.path,
+                    mediaType: declaration.mediaType,
+                    producer: declaration.producer,
+                    provenanceClass: declaration.provenanceClass,
+                    role: declaration.role,
+                    sourceRefs: surviving
+                )
+            }
+        }
     }
 
     /// Records one tracking-quality sample into bounded canonical history.
@@ -7101,6 +7219,15 @@ public actor CaptureWorkingSetStore {
                 }
                 return .derivedWithSources(package.declaration)
             case DerivedGeometryCandidatePackage.path:
+                // A whole-but-corrupt leftover must not be re-declared —
+                // it would decode-fail at review and schema-fail at
+                // finalize with no recovery path.
+                guard decodedDocument(
+                    DerivedGeometryCandidateDocument.self
+                ) != nil
+                else {
+                    return .undeclarable
+                }
                 var refs = declarations.keys
                     .filter {
                         $0 == MeshEvidencePackage.indexPath
