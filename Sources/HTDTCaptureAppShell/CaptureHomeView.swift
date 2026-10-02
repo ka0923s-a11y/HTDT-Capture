@@ -363,6 +363,10 @@ public struct CaptureHomeView: View {
     /// document-import outcomes are idle-only, so the home surface
     /// must render them or every import result is silently dropped.
     public let workingSetStatus: String?
+    /// First-launch practice prompt (#320): the host shows it once
+    /// per install until dismissed; practice stays reachable from
+    /// the landing surface either way.
+    public let practicePromptShown: Bool
     /// App settings document backing the idle Settings surface.
     public let appSettings: CaptureAppSettings
     /// Host-managed equipment-catalog reference context, for the
@@ -427,6 +431,7 @@ public struct CaptureHomeView: View {
         missionProgressEvaluations:
             [String: MissionProgressEvaluation] = [:],
         workingSetStatus: String? = nil,
+        practicePromptShown: Bool = false,
         appSettings: CaptureAppSettings = CaptureAppSettings(),
         equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil,
         actions: CaptureRootActions = CaptureRootActions()
@@ -457,6 +462,7 @@ public struct CaptureHomeView: View {
         self.missionProgressEvaluations =
             missionProgressEvaluations
         self.workingSetStatus = workingSetStatus
+        self.practicePromptShown = practicePromptShown
         self.appSettings = appSettings
         self.equipmentCatalog = equipmentCatalog
         self.actions = actions
@@ -711,6 +717,42 @@ public struct CaptureHomeView: View {
                         !capabilities.roomPlanMeshEligible
                     )
                     .accessibilityIdentifier("home.newCapture")
+                }
+                // #320 practice mode: a guided rehearsal of the real
+                // scan → End → Review flow that can never produce a
+                // finalized bundle. Always reachable from the
+                // landing surface; the first-launch prompt is
+                // dismissible forever.
+                if practicePromptShown {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("New here? Try a practice capture first.")
+                            .font(.headline)
+                        Text(
+                            "Practice mode walks through scanning, End, and Review exactly like a real capture, but nothing is finalized or sent to HTDT. The data stays on this device marked as practice."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        Button(
+                            "Start practice capture",
+                            action: actions.beginPracticeCapture
+                        )
+                        .disabled(!capabilities.roomPlanMeshEligible)
+                        Button("Not now") {
+                            actions.dismissPracticePrompt(false)
+                        }
+                        Button("Don't show again") {
+                            actions.dismissPracticePrompt(true)
+                        }
+                        .font(.caption)
+                    }
+                    .accessibilityIdentifier("home.practicePrompt")
+                } else {
+                    Button(
+                        "Practice a capture (no real bundle)",
+                        action: actions.beginPracticeCapture
+                    )
+                    .disabled(!capabilities.roomPlanMeshEligible)
+                    .accessibilityIdentifier("home.practiceCapture")
                 }
                 // The rest of the Work queue — every row is
                 // actionable, informational items never list.
@@ -2941,6 +2983,10 @@ private struct CaptureLibraryMaintenanceView: View {
     // entry in this list.
     @State private var pendingArtifactRemoval:
         PersistedCaptureQuarantinedArtifact?
+    // Interrupted-capture leftovers get the same confirmation — a
+    // single tap must never destroy bytes outright.
+    @State private var pendingOrphanRemoval:
+        PersistedCaptureWorkingOrphan?
 
     var body: some View {
         List {
@@ -3067,7 +3113,7 @@ private struct CaptureLibraryMaintenanceView: View {
                                 "Delete",
                                 role: .destructive
                             ) {
-                                removeWorkingOrphan(orphan)
+                                pendingOrphanRemoval = orphan
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
@@ -3115,6 +3161,34 @@ private struct CaptureLibraryMaintenanceView: View {
             // Single `Text` — `confirmationDialog`'s `message:`
             // renders only the first child on iOS 26.
             Text(artifact.url.lastPathComponent + "\n" + artifact.reason)
+        }
+        .confirmationDialog(
+            "Delete interrupted capture files?",
+            isPresented: Binding(
+                get: { pendingOrphanRemoval != nil },
+                set: { presented in
+                    if !presented { pendingOrphanRemoval = nil }
+                }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingOrphanRemoval
+        ) { orphan in
+            Button("Delete", role: .destructive) {
+                removeWorkingOrphan(orphan)
+                pendingOrphanRemoval = nil
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { orphan in
+            // Single `Text` — `confirmationDialog`'s `message:`
+            // renders only the first child on iOS 26.
+            Text(
+                orphan.url.lastPathComponent
+                    + "\n"
+                    + String(
+                        localized:
+                            "This permanently deletes these interrupted capture files from this device."
+                    )
+            )
         }
     }
 }

@@ -14491,6 +14491,49 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
         }
 
+        if let packageError =
+            error as? CaptureLibraryPackageError
+        {
+            switch packageError {
+            case .invalidDestinationExtension:
+                return "library_package:invalid_destination_extension"
+            case .destinationAlreadyExists:
+                return "library_package:destination_exists"
+            case .archiveMalformed:
+                return "library_package:archive_malformed"
+            case .archiveEntryMismatch:
+                return "library_package:archive_entry_mismatch"
+            case .archiveEntryTypeForbidden:
+                return "library_package:entry_type_forbidden"
+            case .manifestMissing:
+                return "library_package:manifest_missing"
+            case .manifestDecodeFailed:
+                return "library_package:manifest_decode_failed"
+            case .manifestNotCanonical:
+                return "library_package:manifest_not_canonical"
+            case .unsupportedSchemaVersion:
+                return "library_package:unsupported_schema_version"
+            case .unsupportedBundleSchema:
+                return "library_package:unsupported_bundle_schema"
+            case .archiveSHA256Mismatch:
+                return "library_package:archive_sha256_mismatch"
+            case .archiveDigestMismatch:
+                return "library_package:archive_digest_mismatch"
+            case .archiveValidationFailed:
+                return "library_package:archive_validation_failed"
+            case .archiveTooLargeForClassicZIP:
+                return "library_package:archive_too_large"
+            case .filenameTooLong:
+                return "library_package:filename_too_long"
+            case .fileOpenFailed:
+                return "library_package:file_open_failed"
+            case .atomicPublishFailed:
+                return "library_package:atomic_publish_failed"
+            case .emptyPackage:
+                return "library_package:empty_package"
+            }
+        }
+
         let nsError = error as NSError
         if nsError.domain == NSCocoaErrorDomain {
             if nsError.code

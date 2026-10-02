@@ -1722,6 +1722,7 @@ public struct CaptureRootView: View {
                     missionProgressEvaluations:
                         missionProgressEvaluations,
                     workingSetStatus: workingSetStatus,
+                    practicePromptShown: practicePromptShown,
                     appSettings: appSettings,
                     equipmentCatalog: equipmentCatalog,
                     actions: actions
@@ -2747,40 +2748,6 @@ public struct CaptureRootView: View {
                 importingCaptureArchive = true
             }
             .disabled(hostBusy)
-
-            // #320 practice mode: a guided rehearsal of the real
-            // scan → End → Review flow that can never produce a
-            // finalized bundle. Always reachable from here; the
-            // first-launch prompt is dismissible forever.
-            if practicePromptShown {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("New here? Try a practice capture first.")
-                        .font(.headline)
-                    Text(
-                        "Practice mode walks through scanning, End, and Review exactly like a real capture, but nothing is finalized or sent to HTDT. The data stays on this device marked as practice."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    Button(
-                        "Start practice capture",
-                        action: actions.beginPracticeCapture
-                    )
-                    .disabled(!capabilities.roomPlanMeshEligible)
-                    Button("Not now") {
-                        actions.dismissPracticePrompt(false)
-                    }
-                    Button("Don't show again") {
-                        actions.dismissPracticePrompt(true)
-                    }
-                    .font(.caption)
-                }
-            } else {
-                Button(
-                    "Practice a capture (no real bundle)",
-                    action: actions.beginPracticeCapture
-                )
-                .disabled(!capabilities.roomPlanMeshEligible)
-            }
 
         case .setup:
             EmptyView()

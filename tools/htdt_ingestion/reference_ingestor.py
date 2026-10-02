@@ -245,6 +245,14 @@ def _authority_record_handoff_id(
     )
 
 
+# Readable document versions per schema, mirroring the support matrix's
+# `read` sets. Schemas not listed here accept only "1.0.0".
+SUPPORTED_DOCUMENT_VERSIONS = {
+    "htdt.capture.entities": {"1.0.0", "1.1.0", "1.2.0", "1.3.0"},
+    "htdt.capture.measurements": {"1.0.0", "1.1.0"},
+}
+
+
 def _require_schema(document: dict, schema: str) -> None:
     if not isinstance(document, dict):
         raise IngestionError(f"{schema} document root must be an object")
@@ -253,7 +261,8 @@ def _require_schema(document: dict, schema: str) -> None:
             f"unexpected document schema: expected {schema!r}, "
             f"got {document.get('schema')!r}"
         )
-    if document.get("schema_version") != "1.0.0":
+    versions = SUPPORTED_DOCUMENT_VERSIONS.get(schema, {"1.0.0"})
+    if document.get("schema_version") not in versions:
         raise IngestionError(
             f"unsupported {schema} schema version: "
             f"{document.get('schema_version')!r}"
@@ -406,7 +415,7 @@ def _validate_quality_document(document: dict, field: str) -> None:
             "benchmark_refs",
             "diagnostics",
         },
-        optional=set(),
+        optional={"usable_mesh_anchor_count", "usable_depth_sample_count"},
         field=field,
     )
 
@@ -436,8 +445,11 @@ def _validate_quality_document(document: dict, field: str) -> None:
         "active_mesh_anchor_count",
         "evidence_frame_count",
         "depth_evidence_count",
+        "usable_mesh_anchor_count",
+        "usable_depth_sample_count",
     ):
-        _require_non_negative_int(document[key], f"{field}.{key}")
+        if key in document:
+            _require_non_negative_int(document[key], f"{field}.{key}")
 
     for key in ("annotation_completeness", "measurement_completeness"):
         _validate_completeness_status(document[key], f"{field}.{key}")
@@ -939,6 +951,7 @@ def _build_source_registry(
     # Source-lookup indexes are built once (#195): ref resolution is
     # O(files + refs), never per-ref manifest scans.
     paths = {entry["path"] for entry in manifest["files"]}
+    session_ids = set(manifest.get("capture_session_ids", []))
     entries_by_sha256: dict[str, list[dict]] = {}
     for entry in manifest["files"]:
         entries_by_sha256.setdefault(
@@ -998,6 +1011,15 @@ def _build_source_registry(
                         f"unresolved path source_ref for {path}: "
                         f"{source_ref}"
                     )
+            elif source_ref.startswith("capture_session:"):
+                session_id = source_ref.removeprefix("capture_session:")
+                if session_id not in session_ids:
+                    raise IngestionError(
+                        f"unknown session source_ref for {path}: "
+                        f"{source_ref}"
+                    )
+            elif source_ref == "roomplan_raw_serialization:unavailable":
+                pass
             else:
                 raise IngestionError(
                     f"unsupported source_ref for {path}: {source_ref}"
@@ -1187,6 +1209,11 @@ def _load_roomplan_capture_metadata(
         optional={
             "processed_payload_path",
             "processed_sha256",
+            "processed_byte_count",
+            "processed_serialization_format",
+            "raw_byte_count",
+            "raw_serialization_format",
+            "runtime",
             "surface_count",
             "object_count",
             "dimensions",

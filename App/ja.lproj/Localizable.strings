@@ -67,6 +67,8 @@
 "Delete local capture?" = "ローカルキャプチャを削除しますか？";
 "Delete capture" = "キャプチャを削除";
 "Delete capture and export" = "キャプチャと書き出しを削除";
+"Delete interrupted capture files?" = "中断したキャプチャのファイルを削除しますか？";
+"This permanently deletes these interrupted capture files from this device." = "中断したキャプチャのファイルをこの端末から完全に削除します。";
 "This permanently deletes the finalized capture and any export archive stored for it from this device." = "確定済みキャプチャと、それに保存されている書き出しアーカイブをこの端末から完全に削除します。";
 
 "Idle" = "待機中";
