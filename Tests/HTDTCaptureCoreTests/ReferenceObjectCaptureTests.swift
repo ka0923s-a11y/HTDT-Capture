@@ -568,4 +568,19 @@ struct ReferenceObjectCaptureTests {
             }?.severity == .warning
         )
     }
+
+    /// The shipped `App/ReferenceObjects/manifest.json` must keep
+    /// decoding — the same decode the app loader performs at setup
+    /// time is the in-repo gate for the catalog file.
+    @Test func shippedAssetManifestDecodes() throws {
+        let url = URL(
+            fileURLWithPath: "App/ReferenceObjects/manifest.json"
+        )
+        let data = try Data(contentsOf: url)
+        let manifest = try JSONDecoder().decode(
+            ReferenceObjectAssetManifest.self,
+            from: data
+        )
+        #expect(manifest.schema == "htdt.capture.reference-object-assets")
+    }
 }
