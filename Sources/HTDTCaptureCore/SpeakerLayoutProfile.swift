@@ -14,7 +14,7 @@ public enum SpeakerLayoutProfileError: Error, Sendable, Equatable {
 /// layout/profile the role was selected from and which role ID inside
 /// that profile it names. Display names are presentation only — the
 /// `(profile_id, profile_version, role_id)` triple is the identity
-/// HTDT #505 consumes without heuristic normalization.
+/// legacy bolph71656-ai/HTDT#505 consumes without heuristic normalization.
 public struct SpeakerRoleBinding:
     Codable,
     Sendable,

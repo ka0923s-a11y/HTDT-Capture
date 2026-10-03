@@ -114,7 +114,7 @@ public struct HTDTPendingMissionDescriptor:
     /// Mission id inside the package, when the issuer declares it.
     public let missionID: String?
     public let purpose: String?
-    /// Routing refs (#607 compatibility): the project the mission
+    /// Routing refs (legacy bolph71656-ai/HTDT#607 compatibility): the project the mission
     /// belongs to and the room it names — never a substitute for
     /// receiver identity.
     public let projectRef: String?

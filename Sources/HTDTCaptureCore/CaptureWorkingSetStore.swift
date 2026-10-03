@@ -7855,6 +7855,37 @@ public actor CaptureWorkingSetStore {
                     return .undeclarable
                 }
                 return .derivedWithSources(package.declaration)
+            case ObjectSegmentationObservationPackage.path:
+                // Same rebuild as geometry candidates: each record's
+                // `source_frame_ref` is the persisted `path:` ref the
+                // committed declaration carried — decode the document
+                // and re-derive the refs so the fixpoint prune decides
+                // survivability. Undecodable or ref-less leftovers are
+                // un-manifestable rather than re-declared invalid.
+                return derivedFromDocument(
+                    ObjectSegmentationObservationDocument.self
+                ) { document in
+                    var refs = Array(
+                        Set(
+                            document.observations
+                                .map(\.sourceFrameRef)
+                                .filter {
+                                    $0.hasPrefix("path:")
+                                }
+                        )
+                    ).sorted(by: BundleLogicalPath.utf8Less)
+                    if refs.count
+                        > BundleManifest.maxSourceRefsPerEntry
+                    {
+                        refs = Array(
+                            refs.prefix(
+                                BundleManifest
+                                    .maxSourceRefsPerEntry
+                            )
+                        )
+                    }
+                    return refs
+                }
             case DerivedGeometryCandidatePackage.path:
                 // A whole-but-corrupt leftover must not be re-declared —
                 // it would decode-fail at review and schema-fail at

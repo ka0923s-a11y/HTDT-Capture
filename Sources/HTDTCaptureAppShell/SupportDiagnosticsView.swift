@@ -149,7 +149,7 @@ struct SupportDiagnosticsView: View {
                         .accessibilityElement(children: .combine)
                     }
                     Text(
-                        "Excluded by default: capture images, depth, mesh, annotations, serials, project names, secrets, file paths. A separate capture-diagnostic attachment can be produced from a failed capture's inspection screen (issue #224) — it is never bundled here."
+                        "Excluded by default: capture images, depth, mesh, annotations, serials, project names, secrets, file paths. A separate capture-diagnostic attachment can be produced from a failed capture's inspection screen (issue bolph71656-ai/HTDT-Capture#224) — it is never bundled here."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)

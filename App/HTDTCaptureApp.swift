@@ -12467,7 +12467,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// a bounded foreground action only ("Check HTDT", missions
     /// open, post-pairing); revoked pairings are skipped but their
     /// local records persist. A receiver must be reachable on the
-    /// same network with its Mission service running (HTDT #593) —
+    /// same network with its Mission service running (legacy bolph71656-ai/HTDT#593) —
     /// otherwise pending missions stay pending and the Files/share
     /// import remains the path.
     func checkHTDTForMissions() async
