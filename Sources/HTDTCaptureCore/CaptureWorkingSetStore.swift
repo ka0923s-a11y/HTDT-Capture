@@ -4417,8 +4417,12 @@ public actor CaptureWorkingSetStore {
             // Recompute usable-depth counters: samples are tracked per
             // package payload, which is no longer retained in memory,
             // so recount from the remaining descriptors' payloads.
+            // The sufficiency accumulator (#284) feeds the quality
+            // fallback gate — rebuild it in the same pass so the gate
+            // never evaluates removed frames' statistics.
             var usableSamples = 0
             var usableFrames = 0
+            depthSufficiencyAccumulator = DepthSufficiencyAccumulator()
             for remaining in frameDescriptors {
                 guard let depthPath =
                         remaining.depth?.depthRelativePath
@@ -4440,6 +4444,32 @@ public actor CaptureWorkingSetStore {
                 usableSamples += samples
                 if samples > 0 {
                     usableFrames += 1
+                }
+                if let payload,
+                   let depth = try? DepthBinaryCodec.decode(payload)
+                {
+                    let confidence = remaining.depth?
+                        .confidenceRelativePath
+                        .flatMap { confidencePath in
+                            let confidenceURL = confidencePath
+                                .split(separator: "/")
+                                .reduce(rootDirectory) {
+                                    $0.appendingPathComponent(
+                                        String($1),
+                                        isDirectory: false
+                                    )
+                                }
+                            return try? Data(
+                                contentsOf: confidenceURL
+                            )
+                        }
+                        .flatMap {
+                            try? ConfidenceBinaryCodec.decode($0)
+                        }
+                    depthSufficiencyAccumulator.record(
+                        depth: depth,
+                        confidence: confidence
+                    )
                 }
             }
             usableDepthSampleCount = usableSamples
@@ -5071,39 +5101,51 @@ public actor CaptureWorkingSetStore {
     /// kept; a derived declaration left with no resolvable refs is
     /// un-manifestable, so its document is dropped with the
     /// declaration instead of stranding a dangling `path:` ref that
-    /// fails finalization.
+    /// fails finalization. Derived docs may cite other derived docs
+    /// (field-evidence → settings/wiring/profiles, profiles →
+    /// calibration evidence), so a drop can expose another dangling
+    /// ref — iterate to a fixpoint like the restore path does.
     private func pruneDerivedSourceRefs(
         removedPaths: Set<String>
     ) async throws {
-        let derivedDeclarations = declarations.filter {
-            $0.value.role == .derived
-        }
-        for (path, declaration) in derivedDeclarations {
-            guard let refs = declaration.sourceRefs else {
-                continue
+        var pendingRemoval = removedPaths
+        var changed = true
+        while changed {
+            changed = false
+            let derivedDeclarations = declarations.filter {
+                $0.value.role == .derived
+            }.sorted {
+                BundleLogicalPath.utf8Less($0.key, $1.key)
             }
-            let surviving = refs.filter { ref in
-                guard ref.hasPrefix("path:") else {
-                    return true
+            for (path, declaration) in derivedDeclarations {
+                guard let refs = declaration.sourceRefs else {
+                    continue
                 }
-                let cited = String(ref.dropFirst("path:".count))
-                return !removedPaths.contains(cited)
-                    && declarations[cited] != nil
-            }
-            guard surviving.count != refs.count else {
-                continue
-            }
-            if surviving.isEmpty {
-                try await removeCommittedPayload(path: path)
-            } else {
-                declarations[path] = BundlePayloadDeclaration(
-                    path: declaration.path,
-                    mediaType: declaration.mediaType,
-                    producer: declaration.producer,
-                    provenanceClass: declaration.provenanceClass,
-                    role: declaration.role,
-                    sourceRefs: surviving
-                )
+                let surviving = refs.filter { ref in
+                    guard ref.hasPrefix("path:") else {
+                        return true
+                    }
+                    let cited = String(ref.dropFirst("path:".count))
+                    return !pendingRemoval.contains(cited)
+                        && declarations[cited] != nil
+                }
+                guard surviving.count != refs.count else {
+                    continue
+                }
+                changed = true
+                if surviving.isEmpty {
+                    try await removeCommittedPayload(path: path)
+                    pendingRemoval.insert(path)
+                } else {
+                    declarations[path] = BundlePayloadDeclaration(
+                        path: declaration.path,
+                        mediaType: declaration.mediaType,
+                        producer: declaration.producer,
+                        provenanceClass: declaration.provenanceClass,
+                        role: declaration.role,
+                        sourceRefs: surviving
+                    )
+                }
             }
         }
     }
@@ -5734,10 +5776,17 @@ public actor CaptureWorkingSetStore {
         let data = try document.encoded()
         let reservation = try reserveAdmission(bytes: data.count)
         defer { releaseAdmission(reservation) }
-        try await writer.writeIfIdentical(
-            data,
-            to: CaptureStorePath(CaptureAdvisoryNoteDocument.path)
-        )
+        // The advisories document is lifecycle-mutable like the field
+        // notes one — each recorded note rewrites the whole payload.
+        // `writeIfIdentical` would reject every note after the first.
+        try await writer.writeBatchReplacing([
+            try CaptureFileWriteRequest(
+                data: data,
+                path: CaptureStorePath(
+                    CaptureAdvisoryNoteDocument.path
+                )
+            ),
+        ])
         try register(
             BundlePayloadDeclaration(
                 path: CaptureAdvisoryNoteDocument.path,

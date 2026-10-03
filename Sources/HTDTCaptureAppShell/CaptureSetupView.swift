@@ -584,7 +584,7 @@ public struct CaptureSetupView: View {
                 importTaskPlan(url)
             }
         }
-        .confirmationDialog(
+        .alert(
             "Discard the draft?",
             isPresented: Binding(
                 get: { pendingDraftDiscard != nil },
@@ -592,7 +592,6 @@ public struct CaptureSetupView: View {
                     if !presented { pendingDraftDiscard = nil }
                 }
             ),
-            titleVisibility: .visible,
             presenting: pendingDraftDiscard
         ) { draft in
             Button("Discard the draft", role: .destructive) {

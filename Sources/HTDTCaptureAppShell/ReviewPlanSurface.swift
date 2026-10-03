@@ -216,7 +216,7 @@ public struct ReviewPlanSurface: View {
         .sheet(isPresented: $legendShown) {
             legendSheet
         }
-        .confirmationDialog(
+        .alert(
             "Which item?",
             isPresented: Binding(
                 get: { disambiguation != nil },
@@ -224,7 +224,6 @@ public struct ReviewPlanSurface: View {
                     if !shown { disambiguation = nil }
                 }
             ),
-            titleVisibility: .visible,
             presenting: disambiguation
         ) { candidates in
             ForEach(candidates, id: \.identifier) { marker in

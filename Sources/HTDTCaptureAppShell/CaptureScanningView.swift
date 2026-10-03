@@ -2588,6 +2588,18 @@ public struct CaptureScanningView: View {
                         "Guidance attempt budget used. %lld weak areas may remain — review spatial coverage before ending."
                 )
             )
+        case .operatorDeclaredUnresolved:
+            return captureCountPhrase(
+                guidanceProgress.unresolvedWeakRegionCount,
+                singular: String(
+                    localized:
+                        "Guidance finished: %lld weak area was marked intentionally unresolved. It remains reviewable in spatial coverage."
+                ),
+                plural: String(
+                    localized:
+                        "Guidance finished: %lld weak areas were marked intentionally unresolved. They remain reviewable in spatial coverage."
+                )
+            )
         case .movementConstrained:
             return String(
                 localized:

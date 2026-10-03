@@ -248,8 +248,6 @@ private struct HTDTCaptureHostView: View {
                 continueScanning:
                     coordinator.continueScanningFromReview,
                 beginAnnotation: coordinator.beginAnnotation,
-                captureRaycastPlacement:
-                    coordinator.captureRaycastPlacement,
                 captureSpeakerOrientation:
                     coordinator.captureSpeakerOrientation,
                 capturePointOrientation:
@@ -298,6 +296,8 @@ private struct HTDTCaptureHostView: View {
                     coordinator.openPersistedCapture,
                 deletePersistedCapture:
                     coordinator.deletePersistedCapture,
+                canRemoveQuarantinedArtifact:
+                    coordinator.canRemoveQuarantinedArtifact,
                 removeQuarantinedArtifact:
                     coordinator.removeQuarantinedArtifact,
                 removeWorkingOrphan:
@@ -3809,11 +3809,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         case .endAvailable, .targetObserved:
             UIImpactFeedbackGenerator(style: .medium)
                 .impactOccurred()
-        case .evidenceSaved, .holdSteady, .revisitFlagSaved:
+        case .evidenceSaved, .holdSteady, .revisitFlagSaved,
+             .regainTracking:
             UIImpactFeedbackGenerator(style: .light)
                 .impactOccurred()
         case .moveLeft, .moveRight, .moveForward, .moveBack,
-             .orbitLeft, .orbitRight:
+             .orbitLeft, .orbitRight, .turnLeft, .turnRight,
+             .tiltUp, .tiltDown:
             UISelectionFeedbackGenerator().selectionChanged()
         }
         UIAccessibility.post(
@@ -3860,6 +3862,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return String(localized: "Move forward")
         case .moveBack:
             return String(localized: "Move back")
+        case .turnLeft:
+            return String(localized: "Turn left")
+        case .turnRight:
+            return String(localized: "Turn right")
+        case .tiltUp:
+            return String(localized: "Tilt up")
+        case .tiltDown:
+            return String(localized: "Tilt down")
+        case .regainTracking:
+            return String(localized: "Hold steady to recover tracking")
         case .holdSteady:
             return String(localized: "Hold steady")
         case .orbitLeft:
@@ -4455,10 +4467,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         }
 
-        let annotations = try loadCollection(
+        let annotationCollection = try loadCollection(
             CaptureAnnotationCollection.self,
             at: AnnotationEvidencePackage.path
-        )?.entities ?? []
+        )
+        let annotations = annotationCollection?.entities ?? []
         let measurements = try loadCollection(
             CaptureMeasurementCollection.self,
             at: MeasurementEvidencePackage.path
@@ -4518,6 +4531,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return (
             AnnotationWorkspaceSeed(
                 annotations: annotations,
+                relations: annotationCollection?.relations ?? [],
                 measurements: measurements,
                 equipmentIdentityRecords: identityRecords ?? [],
                 authorities: authorities,
@@ -4908,103 +4922,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return authority
     }
 
-    func captureRaycastPlacement()
-        async throws -> AnnotationPlacementAuthority
-    {
-        guard state == .annotating,
-              !spatialAuthoritySealedForFinalization,
-              workingSetSpatialAuthorityLive,
-              let store = workingSetStore
-        else {
-            throw PlatformCaptureError.raycastMiss
-        }
-
-        let generation = captureGeneration
-        let snapshot =
-            try sessionController.snapshotCenterRaycastPlacement(
-                depthSelection: .discrete
-            )
-        // #177: materialize performs packing/hashing/HEIC off
-        // MainActor; the retained snapshot preserves the same-frame
-        // pose/pixel/depth association.
-        let frameArtifacts =
-            try await ARFrameArtifactAdapter.materialize(
-                snapshot.frameArtifacts
-            )
-        let package = try FrameEvidencePackageBuilder.build(
-            descriptor: frameArtifacts.descriptor,
-            pixelPayload: frameArtifacts.pixelPayload,
-            depthPayload: frameArtifacts.depthPayload,
-            confidencePayload:
-                frameArtifacts.confidencePayload,
-            previewPayload:
-                frameArtifacts.previewPayload
-        )
-        try await store.persistFramePackage(package)
-
-        guard captureGeneration == generation,
-              state == .annotating
-        else {
-            throw PlatformCaptureError.raycastMiss
-        }
-
-        let evidenceRef = "path:" + package.descriptorPath
-        markEvidenceRetention(evidenceRef, .annotationPlacement)
-        let position = snapshot.positionWorld
-        let transform = try Matrix4x4F(values: [
-            1, 0, 0, 0,
-            0, 1, 0, 0,
-            0, 0, 1, 0,
-            position.x,
-            position.y,
-            position.z,
-            1,
-        ])
-        // #173: the platform snapshot returns bounded hit provenance
-        // (target type, alignment, hit transform, anchor identity,
-        // distance); it is mapped into the annotation model's
-        // `RaycastPlacementProvenance` so an estimated-plane fallback
-        // stays distinguishable from observed-plane geometry after
-        // serialization. The same type name exists in both modules, so
-        // the model target is module-qualified.
-        let raycast = try snapshot.raycastProvenance.map {
-            try HTDTCaptureCore.RaycastPlacementProvenance(
-                targetType: $0.target.rawValue,
-                hitDistanceMeters: $0.hitDistanceMeters,
-                hitAnchorIdentifier: $0.hitAnchorIdentifier,
-                hitTransform: $0.hitWorldTransform
-            )
-        }
-        let placement = try PlacementProvenance(
-            method: .raycast,
-            sourceEvidenceRefs: [evidenceRef],
-            raycast: raycast
-        )
-        let authority = try AnnotationPlacementAuthority(
-            worldFromAnnotation: transform,
-            placement: placement,
-            coordinateSpaceID:
-                package.descriptor.coordinateSpaceID,
-            evidenceRefs: [evidenceRef]
-        )
-
-        let workingSnapshot = await store.snapshot()
-        guard captureGeneration == generation,
-              state == .annotating
-        else {
-            throw PlatformCaptureError.raycastMiss
-        }
-        annotationEvidenceRefs =
-            workingSnapshot.evidenceFrameRefs
-                + referenceObjectObservationTokens
-        refreshAnnotationEvidenceFrames(
-            rootDirectory: await store.rootDirectory
-        )
-        workingSetStatus = String(localized: "Evidence-linked raycast placement captured")
-
-        return authority
-    }
-
     /// Live reticle probe for the camera capture sheet and the
     /// scanning-surface reticle (#214/#250): classifies what the
     /// shared session's center ray hits right now — mesh, RoomPlan
@@ -5038,7 +4955,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func captureTargetedPlacement(
         preference: PlacementTargetPreference
     ) async throws -> AnnotationPlacementAuthority? {
+        // Post-seal the annotating state stays open for semantic
+        // edits, but live spatial evidence can no longer be captured —
+        // the frame package would write into a sealed working set.
         guard state == .annotating,
+              workingSetSpatialAuthorityLive,
               let store = workingSetStore
         else {
             throw PlatformCaptureError.raycastMiss
@@ -5144,7 +5065,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func captureFieldEvidencePhoto() async throws
         -> CapturedFieldPhoto
     {
-        guard state == .annotating else {
+        // Same seal boundary as `captureTargetedPlacement`: a field
+        // photo is a spatial evidence frame in the working set.
+        guard state == .annotating,
+              workingSetSpatialAuthorityLive
+        else {
             throw PlatformCaptureError.currentFrameUnavailable
         }
         let generation = captureGeneration
@@ -5182,7 +5107,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     func captureIdentityPhoto() async throws -> String {
+        // Same seal boundary: the identity photo persists a frame
+        // package into the working set.
         guard state == .annotating,
+              workingSetSpatialAuthorityLive,
               let store = workingSetStore
         else {
             throw PlatformCaptureError.currentFrameUnavailable
@@ -5580,6 +5508,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             annotationPackage =
                 try AnnotationEvidencePackageBuilder.build(
                     entities: annotations,
+                    relations:
+                        annotationRevisionSeed?.relations ?? [],
                     priorEntities: isRevisionCommit
                         ? annotationRevisionSeed?.annotations
                         : nil
@@ -5927,7 +5857,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func scanEquipmentLabel() async throws
         -> EquipmentLabelScanResult
     {
+        // Same seal boundary as `captureIdentityPhoto`: the close-up
+        // label frame persists into the working set.
         guard state == .annotating,
+              workingSetSpatialAuthorityLive,
               let store = workingSetStore
         else {
             throw EquipmentLabelScanError.scanUnavailable
@@ -8977,7 +8910,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             return
         case .spatialCapture:
-            break
+            // `beginCapture` refuses outside idle; binding the plan
+            // and activating the record before that check would leave
+            // the mission started with no capture for its tasks.
+            guard state == .idle,
+                  !importOperationInFlight,
+                  !persistedAdoptionInFlight,
+                  !persistedDeletionInFlight,
+                  !persistedWorkspaceLoadInFlight
+            else {
+                workingSetStatus = String(
+                    localized:
+                        "Finish the current capture work before starting this mission"
+                )
+                return
+            }
         }
         do {
             let resume = try store.startMission(
@@ -9612,6 +9559,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
               !persistedWorkspaceLoadInFlight,
               let store = persistedStore
         else {
+            workingSetStatus = String(
+                localized:
+                    "Finish the current capture work before opening a saved capture"
+            )
             return
         }
 
@@ -9810,6 +9761,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     + "]"
             }
         }
+    }
+
+    /// Mirrors `PersistedCaptureInventory.canRemoveArtifact` — the
+    /// maintenance view gates the Remove affordance on this so a
+    /// quarantined item the store would only refuse never shows a
+    /// doomed button.
+    func canRemoveQuarantinedArtifact(
+        _ artifact: PersistedCaptureQuarantinedArtifact
+    ) -> Bool {
+        persistedStore?.canRemoveArtifact(artifact) ?? false
     }
 
     /// Removes a quarantined artifact. Removal authority is limited to
@@ -11764,6 +11725,29 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return draft
         }
 
+        // A finalized workspace lives in the store index, not the
+        // drafts — reopen it so the Deliver/Share section stays
+        // reachable instead of shadowing it with a fresh draft.
+        // Newest first: a finalized follow-up supersedes earlier
+        // returns for the same mission.
+        let linkedContributionIDs = Set(record.fieldReturnIDs)
+        if let finalized = try? HTDTFieldReturnStore(captureRoot: root)
+            .load().workspaces
+            .filter({
+                $0.isFinalized
+                    && ($0.missionRecordID == missionRecordID
+                        || linkedContributionIDs.contains(
+                            $0.contributionID.description
+                        ))
+            })
+            .sorted(by: {
+                ($0.finalizedAtUTC ?? "") > ($1.finalizedAtUTC ?? "")
+            })
+            .first
+        {
+            return finalized
+        }
+
         var workspace = HTDTFieldReturnWorkspace(
             missionRecordID: record.recordID,
             missionID: record.missionID,
@@ -12073,7 +12057,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func sendFieldReturnToHTDT(
         contributionID: HTDTFieldReturnID,
         destination: HTDTHandoffDestination
-    ) async {
+    ) async -> FieldReturnSendOutcome {
         guard destination.kind == .endpoint,
               let urlString = destination.url,
               URL(string: urlString) != nil
@@ -12082,10 +12066,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 localized:
                     "The destination has no valid HTTPS endpoint"
             )
-            return
+            return .failed
         }
         guard let root = Self.captureRootDirectory() else {
-            return
+            return .failed
         }
         guard let document = try? HTDTFieldReturnStore(
             captureRoot: root
@@ -12098,7 +12082,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 localized:
                     "Finalize the field return before sending it"
             )
-            return
+            return .failed
         }
         let archiveURL = Self.fieldReturnsDirectory(
             captureRoot: root
@@ -12112,7 +12096,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 localized:
                     "The finalized field-return file is missing"
             )
-            return
+            return .failed
         }
         let pairedID = (try? PairedHTDTDestinationStore(
             captureRoot: root
@@ -12148,36 +12132,43 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             )
             deliveryJobs = jobs
+            let outcome: FieldReturnSendOutcome
             switch jobs.first(where: {
                 $0.deliveryJobID == job.deliveryJobID
             })?.state {
             case .deliveredStaged:
+                outcome = .deliveredStaged
                 workingSetStatus = String(
                     localized:
                         "Field return delivered and staged at the receiver; receipt saved"
                 )
             case .rejected:
+                outcome = .rejected
                 workingSetStatus = String(
                     localized:
                         "The receiver rejected the field return; it will not be retried"
                 )
             case .blocked:
+                outcome = .blocked
                 workingSetStatus = String(
                     localized:
                         "Delivery is blocked and needs an operator decision (see Deliveries)"
                 )
             default:
+                outcome = .queuedForRetry
                 workingSetStatus = String(
                     localized:
                         "Field return queued; it will retry under the queue's policy (see Deliveries)"
                 )
             }
             refreshMissionDeliveryStores()
+            return outcome
         } catch {
             workingSetStatus = String(
                 localized:
                     "The field-return delivery could not be queued"
             )
+            return .failed
         }
     }
 
@@ -12688,7 +12679,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // Inside End (`isEndingScan`) the transaction already owns the
         // transition, so the callback is expected there.
         sessionController.roomPlanDidEndHandler = {
-            [weak self] errorDescription in
+            [weak self] errorToken in
             Task { @MainActor [weak self] in
                 guard let self,
                       self.captureGeneration == generation,
@@ -12698,7 +12689,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
                 let detail =
-                    errorDescription.map {
+                    errorToken.map {
                         "ended_with_error error=\($0)"
                     } ?? "ended_without_error"
                 self.recordAdvisoryNote(
@@ -12709,7 +12700,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         detail: detail
                     )
                 )
-                if errorDescription != nil {
+                if errorToken != nil {
                     self.workingSetStatus =
                         String(localized: "RoomPlan scanning ended unexpectedly; press End to finish with the evidence captured so far, or discard")
                 }
@@ -14494,15 +14485,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     self.scanLightingStatus =
                         self.scanLightingPolicy.assess(
                             ambientIntensityLumens:
-                                sample.ambientLightIntensityLumens,
-                            trackingState: sample.trackingState,
-                            trackingReason: sample.trackingReason
+                                sample.ambientLightIntensityLumens
                         )
                     self.lowLightGuidanceActive =
                         self.scanLightingPolicy
                             .shouldSurfaceLowLightGuidance(
-                                status: self.scanLightingStatus,
-                                trackingState: sample.trackingState
+                                status: self.scanLightingStatus
                             )
 
                     // #252: edge-triggered, rate-limited non-visual
@@ -15819,6 +15807,58 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         case .didOutputCollaborationData:
             // Collaboration data is unused by this capture flow.
             return
+        case .spatialDiscontinuityDetected(let seconds):
+            // Anchor-identity proof of a world-origin reset: bump the
+            // live coordinate space so new evidence binds correctly and
+            // persist the transition so the bundle attests broken
+            // continuity instead of silently claiming preserved.
+            guard state == .scanning || state == .annotating,
+                  !isEndingScan
+            else {
+                return
+            }
+            let nextSpaceID =
+                sessionController.registerSpatialDiscontinuity(
+                    reason: .worldOriginReset,
+                    sessionTimestampSeconds: seconds
+                )
+            applyResourceLifecycleEvent(
+                CaptureResourceEvent(
+                    kind: .interruption,
+                    severity: .error,
+                    detail:
+                        "world origin reset across relocalization; evidence captured after this point binds to a new coordinate space"
+                ),
+                failure: nil,
+                store: store,
+                generation: generation
+            )
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.captureGeneration == generation
+                else {
+                    return
+                }
+                do {
+                    try await store.recordCoordinateDiscontinuity(
+                        to: nextSpaceID,
+                        reason: .worldOriginReset,
+                        sessionTimestampSeconds: seconds
+                    )
+                } catch {
+                    self.applyResourceLifecycleEvent(
+                        CaptureResourceEvent(
+                            kind: .persistenceFailure,
+                            severity: .error,
+                            detail:
+                                "coordinate discontinuity record failed: \((error as NSError).domain)#\((error as NSError).code)"
+                        ),
+                        failure: nil,
+                        store: store,
+                        generation: generation
+                    )
+                }
+            }
         }
     }
 
@@ -15966,6 +16006,49 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             default:
                 return "working_set:"
                     + String(describing: workingSetError)
+            }
+        }
+
+        if let packageError =
+            error as? CaptureLibraryPackageError
+        {
+            switch packageError {
+            case .invalidDestinationExtension:
+                return "library_package:invalid_destination_extension"
+            case .destinationAlreadyExists:
+                return "library_package:destination_exists"
+            case .archiveMalformed:
+                return "library_package:archive_malformed"
+            case .archiveEntryMismatch:
+                return "library_package:archive_entry_mismatch"
+            case .archiveEntryTypeForbidden:
+                return "library_package:entry_type_forbidden"
+            case .manifestMissing:
+                return "library_package:manifest_missing"
+            case .manifestDecodeFailed:
+                return "library_package:manifest_decode_failed"
+            case .manifestNotCanonical:
+                return "library_package:manifest_not_canonical"
+            case .unsupportedSchemaVersion:
+                return "library_package:unsupported_schema_version"
+            case .unsupportedBundleSchema:
+                return "library_package:unsupported_bundle_schema"
+            case .archiveSHA256Mismatch:
+                return "library_package:archive_sha256_mismatch"
+            case .archiveDigestMismatch:
+                return "library_package:archive_digest_mismatch"
+            case .archiveValidationFailed:
+                return "library_package:archive_validation_failed"
+            case .archiveTooLargeForClassicZIP:
+                return "library_package:archive_too_large"
+            case .filenameTooLong:
+                return "library_package:filename_too_long"
+            case .fileOpenFailed:
+                return "library_package:file_open_failed"
+            case .atomicPublishFailed:
+                return "library_package:atomic_publish_failed"
+            case .emptyPackage:
+                return "library_package:empty_package"
             }
         }
 

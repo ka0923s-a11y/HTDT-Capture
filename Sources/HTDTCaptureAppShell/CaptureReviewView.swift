@@ -1107,6 +1107,11 @@ public struct CaptureReviewView: View {
                 localized:
                     "Movement-constrained scan; movement checks skipped"
             )
+        case .operatorDeclaredUnresolved:
+            return String(
+                localized:
+                    "Finished with areas marked intentionally unresolved"
+            )
         }
     }
 

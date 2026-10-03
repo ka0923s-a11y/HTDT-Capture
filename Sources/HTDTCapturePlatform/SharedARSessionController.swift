@@ -230,6 +230,12 @@ public enum ARSessionLifecycleEvent: Sendable, Equatable {
     /// app does not run collaborative sessions; the event is forwarded so
     /// the host can register unexpected output.
     case didOutputCollaborationData(priorityIsCritical: Bool)
+    /// Anchor-identity evidence that the world origin reset across a
+    /// relocalization: every anchor identifier observed while tracking
+    /// last ran normally is gone after tracking recovered. Emitted only
+    /// when the pre-loss anchor set was non-empty — absent anchors
+    /// cannot prove a reset, so nothing is claimed without evidence.
+    case spatialDiscontinuityDetected(sessionTimestampSeconds: Double)
 }
 
 /// What `configureReferenceObjects` actually achieved on the live
@@ -316,6 +322,9 @@ private final class ARSessionLifecycleBridge:
     /// callback during a frame gap would stamp `0` — which reads as
     /// "session start" in the recorded history.
     nonisolated(unsafe) private var lastObservedTimestamp: Double?
+    /// Anchor-identity continuity check across relocalization.
+    nonisolated(unsafe) private var relocalizationBaseline =
+        RelocalizationAnchorBaseline()
 
     func session(
         _ session: ARSession,
@@ -323,6 +332,24 @@ private final class ARSessionLifecycleBridge:
     ) {
         if let timestamp = session.currentFrame?.timestamp {
             lastObservedTimestamp = timestamp
+        }
+        if case .limited(.relocalizing) = camera.trackingState {
+            relocalizationBaseline.trackingBecameRelocalizing()
+        }
+        if camera.trackingState == .normal {
+            let currentIdentifiers = Set(
+                session.currentFrame?.anchors.map(\.identifier) ?? []
+            )
+            if relocalizationBaseline.trackingBecameNormal(
+                currentAnchorIdentifiers: currentIdentifiers
+            ) {
+                eventHandler?(
+                    .spatialDiscontinuityDetected(
+                        sessionTimestampSeconds:
+                            lastObservedTimestamp ?? 0
+                    )
+                )
+            }
         }
         eventHandler?(
             .cameraTrackingStateChanged(
@@ -361,6 +388,10 @@ private final class ARSessionLifecycleBridge:
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         lastObservedTimestamp = frame.timestamp
+        relocalizationBaseline.didUpdateFrame(
+            trackingNormal: frame.camera.trackingState == .normal,
+            anchorIdentifiers: Set(frame.anchors.map(\.identifier))
+        )
         passthrough?.session?(session, didUpdate: frame)
     }
 
@@ -506,7 +537,9 @@ private final class RoomPlanSessionInstructionBridge:
     )?
     /// Fires on every RoomCaptureSession end — inside the bounded End
     /// transaction or on its own. The host distinguishes the two by
-    /// capture state; an end outside End is otherwise invisible.
+    /// capture state; an end outside End is otherwise invisible. The
+    /// payload is a stable `domain#code` diagnostic token (nil on a
+    /// clean end), never localized UI text.
     nonisolated(unsafe) var endHandler: (
         @Sendable (String?) -> Void
     )?
@@ -561,7 +594,12 @@ private final class RoomPlanSessionInstructionBridge:
         didEndWith data: CapturedRoomData,
         error: (any Error)?
     ) {
-        endHandler?(error?.localizedDescription)
+        endHandler?(
+            error.map {
+                let nsError = $0 as NSError
+                return "\(nsError.domain)#\(nsError.code)"
+            }
+        )
     }
 }
 
@@ -744,11 +782,11 @@ public final class SharedARSessionController {
         }
     }
 
-    /// Fires with the error description (nil on a clean end) every time
-    /// the RoomCaptureSession ends — inside the bounded End transaction
-    /// or on its own. An end outside End stops the room model
-    /// accumulating while the host still shows a scanning surface, so
-    /// the host records it as provenance.
+    /// Fires with a stable `domain#code` error token (nil on a clean
+    /// end) every time the RoomCaptureSession ends — inside the bounded
+    /// End transaction or on its own. An end outside End stops the room
+    /// model accumulating while the host still shows a scanning
+    /// surface, so the host records it as provenance.
     public var roomPlanDidEndHandler: (
         @Sendable (String?) -> Void
     )? {
@@ -2816,8 +2854,11 @@ public final class SharedARSessionController {
             candidateBoundaryPoints.count >= 8
             ? candidateBoundaryPoints
             : candidateFallbackPoints
+        // No-rejection floor matches the depth path's default: a
+        // sub-8-point observation can't carry a shape fit and only
+        // adds noise to the accumulator.
         guard sourcePoints.count
-                >= (supportPlaneRejection?.minimumPointCount ?? 1)
+                >= (supportPlaneRejection?.minimumPointCount ?? 8)
         else {
             return nil
         }

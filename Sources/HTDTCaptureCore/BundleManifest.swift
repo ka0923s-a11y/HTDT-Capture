@@ -443,9 +443,12 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         _ file: BundleFileEntry
     ) throws {
         if let binding = BundleReservedPaths.binding(for: file.path) {
+            let acceptedProvenance =
+                binding.allowedProvenanceClasses
+                ?? [binding.provenanceClass]
             guard file.mediaType == binding.mediaType,
                   file.producer == binding.producer,
-                  file.provenanceClass == binding.provenanceClass,
+                  acceptedProvenance.contains(file.provenanceClass),
                   file.role == binding.role
             else {
                 throw BundleManifestError
@@ -641,6 +644,13 @@ enum BundleReservedPaths {
         let producer: String
         let provenanceClass: BundleProvenanceClass
         let role: BundleFileRole
+        /// Provenance classes this path may legitimately declare beyond
+        /// the canonical `provenanceClass`. Collection documents whose
+        /// declared class summarizes heterogeneous member provenance
+        /// (e.g. a mixed measurement set declaring
+        /// `.captureAppDerived`) are honest declarations — the per-record
+        /// `provenance_class` remains authoritative.
+        var allowedProvenanceClasses: Set<BundleProvenanceClass>? = nil
     }
 
     static let exact: [String: Binding] = [
@@ -648,7 +658,15 @@ enum BundleReservedPaths {
             mediaType: "application/json",
             producer: "annotation",
             provenanceClass: .userAnnotation,
-            role: .canonical
+            role: .canonical,
+            // `annotationCollectionProvenance` also emits
+            // .importedReference (homogeneous imported set) and
+            // .captureAppDerived (mixed/derived/empty set).
+            allowedProvenanceClasses: [
+                .userAnnotation,
+                .importedReference,
+                .captureAppDerived,
+            ]
         ),
         "annotations/authorities.json": Binding(
             mediaType: "application/json",
@@ -660,7 +678,17 @@ enum BundleReservedPaths {
             mediaType: "application/json",
             producer: "measurement",
             provenanceClass: .userAttestedMeasurement,
-            role: .canonical
+            role: .canonical,
+            // `measurementCollectionProvenance` emits the full range:
+            // attested, RoomPlan, mesh, imported, and capture_app_derived
+            // (mixed/derived/empty sets — issue #286).
+            allowedProvenanceClasses: [
+                .userAttestedMeasurement,
+                .appleRoomPlanInference,
+                .arkitMeshReconstruction,
+                .importedReference,
+                .captureAppDerived,
+            ]
         ),
         "annotations/opening-review.json": Binding(
             mediaType: "application/json",
@@ -800,6 +828,23 @@ enum BundleReservedPaths {
             provenanceClass: .importedReference,
             role: .canonical
         ),
+        // Verbatim HTDT as-built plan (issue #293/#353): imported
+        // workflow input persisted as imported reference, like the
+        // capture-task-plan import above.
+        "session/as-built-plan.json": Binding(
+            mediaType: "application/json",
+            producer: "htdt_plan",
+            provenanceClass: .importedReference,
+            role: .canonical
+        ),
+        // Repair-revision link (issue #321): provenance back to the
+        // source revision and repair plan, authored by this capture.
+        "session/repair-task-link.json": Binding(
+            mediaType: "application/json",
+            producer: "capture_session",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
         // Capture-strategy selection (issue #307): persisted
         // provenance of which published advisory policy steered the
         // revision; canonical session metadata, never a quality gate.
@@ -825,7 +870,7 @@ enum BundleReservedPaths {
         // document body.
         "revision/registrations.json": Binding(
             mediaType: "application/json",
-            producer: "capture_app_derived",
+            producer: "capture_app",
             provenanceClass: .captureAppDerived,
             role: .canonical
         ),
