@@ -123,6 +123,7 @@ public enum CaptureWorkflowActionMap {
         "beginConnectedSegment", "completeConnectedSegment",
         "recordConnectedPortal", "revisitConnectedRegion",
         "selectCaptureStrategy", "recordFieldNote",
+        "requestScanCopilotSuggestion",
     ]
     public static let reviewAuthoring: Set<String> = [
         "beginAnnotation", "captureRaycastPlacement",

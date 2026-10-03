@@ -121,6 +121,9 @@ public struct CaptureRootActions {
         ) -> Void
     /// #325: reopens a resolved/skipped/unavailable flag.
     public let reopenRevisitFlag: (String) -> Void
+    /// #272: on-demand scan copilot advisory request. Advisory
+    /// only — can never start, stop, or finish the capture.
+    public let requestScanCopilotSuggestion: () -> Void
     /// #352: marks a bound task-plan checklist item in Review.
     /// #364 §10: the optional third argument is the collected
     /// reason, persisted as a mission-level waiver note (#397) when
@@ -560,6 +563,7 @@ public struct CaptureRootActions {
                 String?
             ) -> Void = { _, _, _ in },
         reopenRevisitFlag: @escaping (String) -> Void = { _ in },
+        requestScanCopilotSuggestion: @escaping () -> Void = {},
         markTaskPlanItem: @escaping
             (String, TaskPlanItemOutcome, String?) -> Void =
                 { _, _, _ in },
@@ -849,6 +853,8 @@ public struct CaptureRootActions {
         self.updateRevisitFlagDetails = updateRevisitFlagDetails
         self.resolveRevisitFlag = resolveRevisitFlag
         self.reopenRevisitFlag = reopenRevisitFlag
+        self.requestScanCopilotSuggestion =
+            requestScanCopilotSuggestion
         self.markTaskPlanItem = markTaskPlanItem
         self.canRecordTaskPlanMarkReason =
             canRecordTaskPlanMarkReason
@@ -1110,6 +1116,12 @@ public struct CaptureRootView: View {
     public let loopClosureCheckActive: Bool
     public let loopClosureAssessment: LoopClosureAssessment?
     public let guidanceCuesEnabled: Bool
+    /// Latest copilot resolution for the live scan (#272); nil
+    /// until the operator asks. Advisory only.
+    public let scanCopilotResolution: ScanCopilotResolution?
+    /// True while a copilot request is resolving (model or
+    /// deterministic) so the UI can show a pending affordance.
+    public let isScanCopilotResolving: Bool
     /// Revisit flags dropped during the live scan (#325).
     public let revisitFlags: [ScanRevisitFlag]
     /// True when the bounded flag store is full.
@@ -1357,6 +1369,8 @@ public struct CaptureRootView: View {
         loopClosureCheckActive: Bool = false,
         loopClosureAssessment: LoopClosureAssessment? = nil,
         guidanceCuesEnabled: Bool = true,
+        scanCopilotResolution: ScanCopilotResolution? = nil,
+        isScanCopilotResolving: Bool = false,
         revisitFlags: [ScanRevisitFlag] = [],
         revisitFlagsFull: Bool = false,
         persistedInventory:
@@ -1484,6 +1498,8 @@ public struct CaptureRootView: View {
         self.loopClosureCheckActive = loopClosureCheckActive
         self.loopClosureAssessment = loopClosureAssessment
         self.guidanceCuesEnabled = guidanceCuesEnabled
+        self.scanCopilotResolution = scanCopilotResolution
+        self.isScanCopilotResolving = isScanCopilotResolving
         self.revisitFlags = revisitFlags
         self.revisitFlagsFull = revisitFlagsFull
         self.persistedInventory = persistedInventory
@@ -1728,6 +1744,10 @@ public struct CaptureRootView: View {
                     probePlacementTarget:
                         actions.probePlacementTarget,
                     recordFieldNote: actions.recordFieldNote,
+                    scanCopilotResolution: scanCopilotResolution,
+                    isScanCopilotResolving: isScanCopilotResolving,
+                    requestScanCopilotSuggestion:
+                        actions.requestScanCopilotSuggestion,
                     captureEvidenceFrame:
                         actions.captureEvidenceFrame,
                     setMovementCapability:

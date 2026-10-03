@@ -116,6 +116,10 @@ private struct HTDTCaptureHostView: View {
                 coordinator.loopClosureAssessment,
             guidanceCuesEnabled:
                 coordinator.guidanceCuesEnabled,
+            scanCopilotResolution:
+                coordinator.scanCopilotResolution,
+            isScanCopilotResolving:
+                coordinator.isScanCopilotResolving,
             revisitFlags: coordinator.revisitFlags,
             revisitFlagsFull: coordinator.revisitFlagsFull,
             persistedInventory:
@@ -275,6 +279,8 @@ private struct HTDTCaptureHostView: View {
                     coordinator.updateRevisitFlagDetails,
                 resolveRevisitFlag: coordinator.resolveRevisitFlag,
                 reopenRevisitFlag: coordinator.reopenRevisitFlag,
+                requestScanCopilotSuggestion:
+                    coordinator.requestScanCopilotSuggestion,
                 markTaskPlanItem:
                     coordinator.markTaskPlanItem(_:outcome:reason:),
                 canRecordTaskPlanMarkReason:
@@ -672,6 +678,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Whether haptic/announcement guidance cues play (#252). Mirrors
     /// the persisted presentation preference (#338); default on.
     @Published var guidanceCuesEnabled = true
+    /// Latest advisory copilot resolution for the live scan (#272).
+    /// Advisory only — the suggestion can never act on the capture.
+    @Published private(set)
+    var scanCopilotResolution: ScanCopilotResolution?
+    /// True while a copilot request is resolving.
+    @Published private(set)
+    var isScanCopilotResolving = false
+    /// Digest of the context the current resolution was validated
+    /// against — equivalent states debounce to one request (#272).
+    private var scanCopilotResolvedDigest: String?
+    /// In-flight copilot request.
+    private var scanCopilotTask: Task<Void, Never>?
     /// Versioned app-local settings (#338): presentation preferences,
     /// device-local workflow defaults, and the storage/privacy policy
     /// — never capture authority.
@@ -1780,6 +1798,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             appSettings.captureDefaults.returnToStartCheckEnabled
         revisitFlagStore = CaptureRevisitFlagStore()
         revisitFlags = []
+        clearScanCopilot()
         pendingTaskPlanImport = nil
         pendingTaskPlanImportError = nil
         boundTaskPlanStatus = nil
@@ -2119,6 +2138,119 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             coverage: scanCoverage,
             spatialCoverage: spatialCoverage
         )
+    }
+
+    /// #272: on-demand advisory copilot request. The pipeline is
+    /// deterministic diagnostics -> bounded context -> optional model
+    /// -> deterministic validator -> advisory chip; whatever resolves,
+    /// the suggestion only re-words or re-ranks guidance the scan
+    /// already owns. It can never act on the capture itself.
+    func requestScanCopilotSuggestion() {
+        guard state == .scanning, !isEndingScan else {
+            return
+        }
+        let context = scanCopilotContext()
+        // Equivalent states share a digest — repeated taps debounce
+        // to a single model/baseline resolution.
+        guard scanCopilotResolvedDigest != context.contextDigest
+        else {
+            return
+        }
+        scanCopilotTask?.cancel()
+        isScanCopilotResolving = true
+        let engine = ScanCopilotEngine(
+            model: ScanCopilotModelProvider.makeProducer()
+        )
+        scanCopilotTask = Task { [weak self] in
+            let resolution = await engine.resolve(
+                context: context
+            )
+            guard let self, !Task.isCancelled else {
+                return
+            }
+            self.scanCopilotResolution = resolution
+            self.scanCopilotResolvedDigest =
+                context.contextDigest
+            self.isScanCopilotResolving = false
+        }
+    }
+
+    /// Bounded snapshot of the live deterministic scan state handed
+    /// to the copilot (#272): codes, severities, counts and bounded
+    /// identifiers only — never raw bundles, poses, or payloads.
+    private func scanCopilotContext() -> ScanCopilotContext {
+        let weakRegionKeys = spatialCoverage.regions
+            .filter { $0.classification == .weak }
+            .map { "r\($0.key.x),\($0.key.z)" }
+        let unresolvedFlagIDs = revisitFlags
+            .filter { $0.status == .unresolved }
+            .map(\.flagID)
+        let targetScanState: String? = targetScanStatus.map {
+            status in
+            if status.expired { return "expired" }
+            if status.isComplete { return "complete" }
+            if status.outOfRange { return "stalled" }
+            return "active"
+        }
+        var candidateTargetIDs = weakRegionKeys
+        candidateTargetIDs.append(
+            contentsOf: unresolvedFlagIDs.map { "flag_\($0)" }
+        )
+        if targetScanStatus != nil {
+            candidateTargetIDs.append("target")
+        }
+        let resourceKinds = (qualityReport?.resourceEvents ?? [])
+            .filter { $0.severity != .info }
+            .map { $0.kind.rawValue }
+        var diagnostics: [ScanCopilotDiagnosticItem] = []
+        if let report = qualityReport {
+            diagnostics = report.diagnostics.enumerated().map {
+                index, diagnostic in
+                ScanCopilotDiagnosticItem(
+                    id: "d\(index)",
+                    code: diagnostic.code,
+                    severity: diagnostic.severity,
+                    summary: diagnostic.message
+                )
+            }
+        }
+        return ScanCopilotContext(
+            stage: .scanning,
+            trackingState: scanCoverage.latestTrackingState
+                ?? spatialCoverage.latestTrackingState,
+            trackingReason: scanCoverage.latestTrackingReason,
+            directionCoverageFraction:
+                scanCoverage.coverageFraction,
+            guidanceComplete: scanGuidanceProgress.isComplete,
+            guidanceCompletionSource:
+                scanGuidanceProgress.completionSource.rawValue,
+            movementCapability:
+                scanGuidanceProgress.movementCapability,
+            weakRegionKeys: weakRegionKeys,
+            actionableWeakRegionCount:
+                scanGuidanceProgress.actionableWeakRegionCount,
+            saturatedWeakRegionCount:
+                scanGuidanceProgress.saturatedWeakRegionCount,
+            remoteWeakRegionCount:
+                scanGuidanceProgress.remoteWeakRegionCount,
+            lowLightActive: lowLightGuidanceActive,
+            unresolvedRevisitFlagIDs: unresolvedFlagIDs,
+            targetScanState: targetScanState,
+            candidateTargetIDs: candidateTargetIDs,
+            missingTaskItemCount: missionTaskPlanOutcomes
+                .filter { $0.outcome == .pending }.count,
+            resourcePressureKinds: resourceKinds,
+            endScanAvailable: true,
+            diagnostics: diagnostics
+        )
+    }
+
+    private func clearScanCopilot() {
+        scanCopilotTask?.cancel()
+        scanCopilotTask = nil
+        scanCopilotResolution = nil
+        scanCopilotResolvedDigest = nil
+        isScanCopilotResolving = false
     }
 
     func captureEvidenceFrame() {
@@ -6451,6 +6583,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         declaredRegionList = []
         revisitFlagStore = CaptureRevisitFlagStore()
         revisitFlags = []
+        clearScanCopilot()
         pendingTaskPlanImport = nil
         pendingTaskPlanImportError = nil
         boundTaskPlanStatus = nil
@@ -6690,6 +6823,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         operatorRegionDeclarations = OperatorRegionDeclarations()
         revisitFlagStore = CaptureRevisitFlagStore()
         revisitFlags = []
+        clearScanCopilot()
         scanLightingStatus = .unknown
         automaticEvidenceFrameCount = 0
         automaticKeyframePersistedBytes = 0

@@ -65,6 +65,8 @@ public struct SpatialCaptureActions {
     public let revisitConnectedRegion: (CaptureRegionID) -> Void
     public let selectCaptureStrategy: (CaptureStrategyIdentifier) -> Void
     public let recordFieldNote: (String, CaptureFieldNoteCategory, Bool, Bool, Bool, CaptureFieldNoteAnchorRequest) -> Void
+    /// #272: on-demand advisory copilot request (advisory only).
+    public let requestScanCopilotSuggestion: () -> Void
 
     public init(from actions: CaptureRootActions) {
         self.beginCapture = actions.beginCapture
@@ -108,6 +110,8 @@ public struct SpatialCaptureActions {
         self.revisitConnectedRegion = actions.revisitConnectedRegion
         self.selectCaptureStrategy = actions.selectCaptureStrategy
         self.recordFieldNote = actions.recordFieldNote
+        self.requestScanCopilotSuggestion =
+            actions.requestScanCopilotSuggestion
     }
 }
 
