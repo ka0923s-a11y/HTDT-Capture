@@ -4843,6 +4843,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard state == .reviewing,
               !isEndingScan,
               !reviewOperationInFlight,
+              !annotationCommitInFlight,
               let store = workingSetStore
         else {
             return
@@ -11472,6 +11473,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard let store = workingSetStore,
               let workspace = reviewWorkspace,
               !workspace.readOnly,
+              !annotationCommitInFlight,
+              !reviewOperationInFlight,
               let record = workspace.derivedGeometryCandidates.first(
                   where: { $0.candidateID == candidateID }
               ),
@@ -11556,51 +11559,26 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
 
             // Append into the committed collections through the
-            // dedicated validated path — congruence, provenance, and
-            // relation/authority checks run exactly as in the editor
-            // commit.
-            let priorAnnotations = try? JSONDecoder().decode(
-                CaptureAnnotationCollection.self,
-                from: Data(
-                    contentsOf: store.rootDirectory
-                        .appendingPathComponent(
-                            AnnotationEvidencePackage.path
-                        )
-                )
-            )
-            let priorMeasurements = try? JSONDecoder().decode(
-                CaptureMeasurementCollection.self,
-                from: Data(
-                    contentsOf: store.rootDirectory
-                        .appendingPathComponent(
-                            MeasurementEvidencePackage.path
-                        )
-                )
-            )
-            let annotationPackage =
-                try AnnotationEvidencePackageBuilder.build(
-                    entities: (priorAnnotations?.entities ?? [])
-                        + [entity],
-                    relations: priorAnnotations?.relations ?? [],
-                    priorEntities: priorAnnotations?.entities
-                )
-            let measurementPackage =
-                try MeasurementEvidencePackageBuilder.build(
-                    measurements:
-                        priorMeasurements?.measurements ?? []
-                )
-
+            // actor-authoritative path — the package is built from the
+            // store's own committed state inside the actor, so an
+            // in-flight editor commit or a second promotion can never
+            // silently drop entities. It also returns idempotently
+            // when the candidate's entity is already committed.
             let generation = captureGeneration
+            annotationCommitInFlight = true
+            workingSetStatus = String(
+                localized:
+                    "Persisting annotation and measurement authority"
+            )
             Task { @MainActor [weak self] in
+                defer { self?.annotationCommitInFlight = false }
                 guard let self,
                       self.captureGeneration == generation
                 else { return }
                 do {
                     try await store
-                        .replaceAnnotationAndMeasurementPackages(
-                            annotationPackage: annotationPackage,
-                            measurementPackage: measurementPackage
-                        )
+                        .appendCommittedAnnotationEntity(entity)
+                    self.annotationAuthorityCommitted = true
                     try await store.recordAdvisoryNote(
                         CaptureAdvisoryNote(
                             kind: .derivedCandidateAccepted,
@@ -17719,6 +17697,41 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        // Candidates already promoted into committed entities must
+        // stay resolvable across a re-End — derivation assigns fresh
+        // ids each pass, so the entity's `derived_candidate:` link
+        // would dangle (and wedge every later annotation commit)
+        // unless the cited record is carried over verbatim.
+        var preservedCandidates: [DerivedGeometryCandidateRecord] = []
+        let citedCandidateIDs = Set(
+            (await store.committedAnnotationEntities)
+                .flatMap(\.evidenceRefs)
+                .compactMap { ref -> DerivedGeometryCandidateID? in
+                    guard ref.hasPrefix("derived_candidate:")
+                    else { return nil }
+                    return DerivedGeometryCandidateID(
+                        canonicalString: String(
+                            ref.dropFirst(
+                                "derived_candidate:".count
+                            )
+                        )
+                    )
+                }
+        )
+        if !citedCandidateIDs.isEmpty,
+           let priorData = await store.supplementalDocumentData(
+               path: DerivedGeometryCandidatePackage.path
+           ),
+           let priorDocument = try? JSONDecoder().decode(
+               DerivedGeometryCandidateDocument.self,
+               from: priorData
+           )
+        {
+            preservedCandidates = priorDocument.candidates.filter {
+                citedCandidateIDs.contains($0.candidateID)
+            }
+        }
+
         do {
             let persistSnapshot = DerivedShapePreviewSnapshot(
                 objectProxies: objectProxies,
@@ -17733,7 +17746,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 captureRevisionID:
                     snapshot.identity.captureRevisionID,
                 captureSessionID: captureSessionID,
-                sourcePayloadRefs: sourceRefs
+                sourcePayloadRefs: sourceRefs,
+                preservedCandidates: preservedCandidates
             )
             let document = try WorkingSetSupplementalDocument(
                 path: DerivedGeometryCandidatePackage.path,

@@ -472,11 +472,18 @@ public enum DerivedGeometryCandidatePackageBuilder {
     /// record is bounded and carries its own derivation provenance so
     /// HTDT can enumerate candidates after ingestion without consulting
     /// the live pipeline.
+    ///
+    /// `preservedCandidates` carries prior-run records a committed
+    /// entity still cites (`derived_candidate:` evidence links):
+    /// derivation assigns fresh ids each pass, so a re-End would
+    /// otherwise strand those links. Records colliding with a fresh
+    /// id are dropped — the fresh record wins.
     public static func build(
         snapshot: DerivedShapePreviewSnapshot,
         captureRevisionID: CaptureRevisionID,
         captureSessionID: CaptureSessionID,
-        sourcePayloadRefs: [String]
+        sourcePayloadRefs: [String],
+        preservedCandidates: [DerivedGeometryCandidateRecord] = []
     ) throws -> (
         package: DerivedGeometryCandidatePackage,
         declaration: BundlePayloadDeclaration
@@ -583,6 +590,16 @@ public enum DerivedGeometryCandidatePackageBuilder {
                 )
             }
         }
+
+        // A fresh record always wins over a preserved one carrying the
+        // same id — preservation exists only for ids this pass no
+        // longer derives.
+        let freshIDs = Set(records.map(\.candidateID))
+        records.append(
+            contentsOf: preservedCandidates.filter {
+                !freshIDs.contains($0.candidateID)
+            }
+        )
 
         let document = DerivedGeometryCandidateDocument(
             captureRevisionID: captureRevisionID,

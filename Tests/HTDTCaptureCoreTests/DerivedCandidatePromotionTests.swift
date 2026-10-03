@@ -512,4 +512,148 @@ final class DerivedCandidatePromotionTests: XCTestCase {
         } catch CaptureWorkingSetError.spatialEvidenceSpaceMismatch {
         }
     }
+
+    // MARK: - actor-authoritative entity append
+
+    private func promotedEntity(
+        space: CoordinateSpaceID,
+        candidateID: DerivedGeometryCandidateID,
+        extraRefs: [String] = []
+    ) throws -> CaptureAnnotationEntity {
+        try CaptureAnnotationEntity(
+            type: .custom,
+            coordinateSpaceID: space,
+            worldFromAnnotation: .identity,
+            referencePointSemantics: .userReferencePoint,
+            label: "promoted",
+            provenanceClass: .userAnnotation,
+            placement: PlacementProvenance(
+                method: .other,
+                sourceEvidenceRefs: [
+                    "derived_candidate:\(candidateID.description)",
+                ]
+            ),
+            evidenceRefs:
+                ["derived_candidate:\(candidateID.description)"]
+                    + extraRefs
+        )
+    }
+
+    func testAppendCommittedAnnotationEntityCommitsAndDedupes()
+        async throws
+    {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+        let store = try CaptureWorkingSetStore(rootDirectory: root)
+        let candidateID = DerivedGeometryCandidateID()
+        try await store.replaceSupplementalDocument(
+            candidateDoc(candidateID: candidateID, space: spaceID)
+        )
+
+        // First append takes the persist path — no committed
+        // collection exists yet.
+        let first = try await store.appendCommittedAnnotationEntity(
+            promotedEntity(
+                space: spaceID,
+                candidateID: candidateID
+            )
+        )
+        XCTAssertTrue(first)
+        var committed = await store.committedAnnotationEntities
+        XCTAssertEqual(committed.count, 1)
+
+        // Re-delivering an entity citing the same refs is idempotent:
+        // no second entity is written.
+        let redelivered =
+            try await store.appendCommittedAnnotationEntity(
+                promotedEntity(
+                    space: spaceID,
+                    candidateID: candidateID
+                )
+            )
+        XCTAssertFalse(redelivered)
+        committed = await store.committedAnnotationEntities
+        XCTAssertEqual(committed.count, 1)
+
+        // An entity citing different refs commits through the replace
+        // path and keeps the first entity.
+        let second = try await store.appendCommittedAnnotationEntity(
+            promotedEntity(
+                space: spaceID,
+                candidateID: candidateID,
+                extraRefs: ["path:mesh/anchors.json"]
+            )
+        )
+        XCTAssertTrue(second)
+        committed = await store.committedAnnotationEntities
+        XCTAssertEqual(committed.count, 2)
+    }
+
+    // MARK: - re-End candidate preservation
+
+    func testBuildPreservesEntityCitedCandidateRecords() throws {
+        // A re-End regenerates every fresh record with a new id; any
+        // candidate a committed entity still cites must carry over
+        // verbatim so the `derived_candidate:` link stays resolvable.
+        let record = try resolvedRecord()
+        let built = try DerivedGeometryCandidatePackageBuilder.build(
+            snapshot: .empty,
+            captureRevisionID: CaptureRevisionID(),
+            captureSessionID: sessionID,
+            sourcePayloadRefs: ["path:mesh/anchors.json"],
+            preservedCandidates: [record]
+        )
+        XCTAssertEqual(
+            built.package.document.candidates.map(\.candidateID),
+            [record.candidateID]
+        )
+        XCTAssertEqual(
+            built.package.document.candidates.first, record
+        )
+    }
+
+    func testBuildMergesFreshAndPreservedWithoutDuplication() throws {
+        // Fresh records keep their own ids; preserved records whose
+        // ids collided are dropped rather than duplicated.
+        let preserved = try resolvedRecord()
+        let fresh = try DerivedGeometryCandidateRecord(
+            resolution: .resolved,
+            shapeKind: .circle,
+            geometry: .circle(
+                DerivedCircle(
+                    center: DerivedPoint2D(x: 9, y: 9),
+                    radius: 0.2
+                )
+            ),
+            coordinateSpaceID: spaceID,
+            sourceMode: .classifiedMesh,
+            sourceEvidenceRefs: ["path:mesh/anchors.json"],
+            derivationAlgorithm: "alg",
+            derivationVersion: "1",
+            contourPoints: contour([(9, 9), (10, 9), (9, 10)])
+        )
+        let snapshot = DerivedShapePreviewSnapshot(
+            objectProxies: [],
+            wallChain: nil,
+            supportAnalysis: nil,
+            objectDecomposition: nil,
+            disagreements: []
+        )
+        let built = try DerivedGeometryCandidatePackageBuilder.build(
+            snapshot: snapshot,
+            captureRevisionID: CaptureRevisionID(),
+            captureSessionID: sessionID,
+            sourcePayloadRefs: ["path:mesh/anchors.json"],
+            preservedCandidates: [preserved, fresh]
+        )
+        let ids = built.package.document.candidates
+            .map(\.candidateID)
+        XCTAssertEqual(
+            Set(ids), [preserved.candidateID, fresh.candidateID]
+        )
+        XCTAssertEqual(ids.count, 2)
+    }
 }

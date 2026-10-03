@@ -150,7 +150,7 @@ public actor ObjectSegmentationAssetController {
 
     @available(iOS 27, *)
     private static func mapStatus(
-        _ status: DownloadableAssetsRequestStatus
+        _ status: Vision.DownloadableAssetsRequestStatus
     ) -> SegmentationAssetReadiness {
         switch status {
         case .notReady: return .notReady
