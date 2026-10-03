@@ -13,7 +13,6 @@ public enum ARMeshSnapshotAdapterError: Error {
     case invalidGeometry
 }
 
-@available(iOS 17.0, *)
 public enum ARMeshSnapshotAdapter {
     public static func snapshot(
         anchor: ARMeshAnchor,

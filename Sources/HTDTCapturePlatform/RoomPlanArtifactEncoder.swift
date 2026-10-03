@@ -4,7 +4,6 @@ import HTDTCaptureCore
 #if os(iOS) && canImport(RoomPlan)
 import RoomPlan
 
-@available(iOS 17.0, *)
 public enum RoomPlanArtifactEncoder {
     private static func makeJSONEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()

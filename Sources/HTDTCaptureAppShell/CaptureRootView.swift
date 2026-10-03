@@ -21,6 +21,18 @@ public struct CaptureRootActions {
     public let retakeTargetScan: () -> Void
     public let acceptTargetScan: () -> Void
     public let cancelTargetScan: () -> Void
+    /// #269: operator seed/refine gesture over the preview — points are
+    /// view-normalized; the coordinator maps them through the recorded
+    /// display-transform authority.
+    public let segmentationGesture:
+        (SegmentationGesture) -> Void
+    /// #269: fuse + persist the accepted mask ("Use").
+    public let useSegmentation: () -> Void
+    /// #269: drop the live run ("Cancel" / "New selection").
+    public let cancelSegmentation: () -> Void
+    /// #269: explicit operator asset-prep request — the only mid-scan
+    /// path allowed to reach `downloadAssets()`.
+    public let segmentationAssetPrepare: () -> Void
     /// #257 declared-region actions.
     public let declareNearestUnresolvedRegion:
         (DeclaredRegionReason) -> Void
@@ -107,6 +119,9 @@ public struct CaptureRootActions {
         ) -> Void
     /// #325: reopens a resolved/skipped/unavailable flag.
     public let reopenRevisitFlag: (String) -> Void
+    /// #272: on-demand scan copilot advisory request. Advisory
+    /// only — can never start, stop, or finish the capture.
+    public let requestScanCopilotSuggestion: () -> Void
     /// #352: marks a bound task-plan checklist item in Review.
     /// #364 §10: the optional third argument is the collected
     /// reason, persisted as a mission-level waiver note (#397) when
@@ -367,6 +382,10 @@ public struct CaptureRootActions {
     /// capture.
     public let retryCameraPermission: () -> Void
     public let openCameraSettings: () -> Void
+    /// #268: picks (nil clears) the reference-object role for one
+    /// manifest asset on the setup screen.
+    public let setReferenceObjectRole:
+        (ReferenceObjectAssetID, ReferenceObjectAssetRole?) -> Void
     /// Leaves `.capabilityCheck`/`.permissions` back to `.idle`.
     public let cancelCaptureStart: () -> Void
     /// Revision lineage (#396): operator-picked preferred head for a
@@ -469,6 +488,11 @@ public struct CaptureRootActions {
         retakeTargetScan: @escaping () -> Void = {},
         acceptTargetScan: @escaping () -> Void = {},
         cancelTargetScan: @escaping () -> Void = {},
+        segmentationGesture: @escaping
+            (SegmentationGesture) -> Void = { _ in },
+        useSegmentation: @escaping () -> Void = {},
+        cancelSegmentation: @escaping () -> Void = {},
+        segmentationAssetPrepare: @escaping () -> Void = {},
         declareNearestUnresolvedRegion: @escaping
             (DeclaredRegionReason) -> Void = { _ in },
         revokeOperatorRegion: @escaping
@@ -538,6 +562,7 @@ public struct CaptureRootActions {
                 String?
             ) -> Void = { _, _, _ in },
         reopenRevisitFlag: @escaping (String) -> Void = { _ in },
+        requestScanCopilotSuggestion: @escaping () -> Void = {},
         markTaskPlanItem: @escaping
             (String, TaskPlanItemOutcome, String?) -> Void =
                 { _, _, _ in },
@@ -719,6 +744,9 @@ public struct CaptureRootActions {
         dismissPracticePrompt: @escaping (Bool) -> Void = { _ in },
         retryCameraPermission: @escaping () -> Void = {},
         openCameraSettings: @escaping () -> Void = {},
+        setReferenceObjectRole: @escaping
+            (ReferenceObjectAssetID, ReferenceObjectAssetRole?)
+                -> Void = { _, _ in },
         cancelCaptureStart: @escaping () -> Void = {},
         preferRevisionHead: @escaping
             (CaptureSeriesID, CaptureRevisionID?) -> Void
@@ -790,6 +818,10 @@ public struct CaptureRootActions {
         self.retakeTargetScan = retakeTargetScan
         self.acceptTargetScan = acceptTargetScan
         self.cancelTargetScan = cancelTargetScan
+        self.segmentationGesture = segmentationGesture
+        self.useSegmentation = useSegmentation
+        self.cancelSegmentation = cancelSegmentation
+        self.segmentationAssetPrepare = segmentationAssetPrepare
         self.declareNearestUnresolvedRegion =
             declareNearestUnresolvedRegion
         self.revokeOperatorRegion = revokeOperatorRegion
@@ -822,6 +854,8 @@ public struct CaptureRootActions {
         self.updateRevisitFlagDetails = updateRevisitFlagDetails
         self.resolveRevisitFlag = resolveRevisitFlag
         self.reopenRevisitFlag = reopenRevisitFlag
+        self.requestScanCopilotSuggestion =
+            requestScanCopilotSuggestion
         self.markTaskPlanItem = markTaskPlanItem
         self.canRecordTaskPlanMarkReason =
             canRecordTaskPlanMarkReason
@@ -926,6 +960,7 @@ public struct CaptureRootActions {
         self.dismissPracticePrompt = dismissPracticePrompt
         self.retryCameraPermission = retryCameraPermission
         self.openCameraSettings = openCameraSettings
+        self.setReferenceObjectRole = setReferenceObjectRole
         self.cancelCaptureStart = cancelCaptureStart
         self.preferRevisionHead = preferRevisionHead
         self.proposeRevisionAlignment = proposeRevisionAlignment
@@ -1077,10 +1112,19 @@ public struct CaptureRootView: View {
     public let automaticEvidenceCount: Int
     public let lowLightGuidanceActive: Bool
     public let targetScanStatus: TargetScanStatus?
+    /// #269 live iterative-segmentation interaction state for the
+    /// object-pass UI (nil-equivalent `.unavailable` when idle).
+    public let segmentationInteraction: SegmentationInteractionState
     public let declaredRegions: [DeclaredCoverageRegion]
     public let loopClosureCheckActive: Bool
     public let loopClosureAssessment: LoopClosureAssessment?
     public let guidanceCuesEnabled: Bool
+    /// Latest copilot resolution for the live scan (#272); nil
+    /// until the operator asks. Advisory only.
+    public let scanCopilotResolution: ScanCopilotResolution?
+    /// True while a copilot request is resolving (model or
+    /// deterministic) so the UI can show a pending affordance.
+    public let isScanCopilotResolving: Bool
     /// Revisit flags dropped during the live scan (#325).
     public let revisitFlags: [ScanRevisitFlag]
     /// True when the bounded flag store is full.
@@ -1322,10 +1366,14 @@ public struct CaptureRootView: View {
         automaticEvidenceCount: Int = 0,
         lowLightGuidanceActive: Bool = false,
         targetScanStatus: TargetScanStatus? = nil,
+        segmentationInteraction: SegmentationInteractionState =
+            .unavailable,
         declaredRegions: [DeclaredCoverageRegion] = [],
         loopClosureCheckActive: Bool = false,
         loopClosureAssessment: LoopClosureAssessment? = nil,
         guidanceCuesEnabled: Bool = true,
+        scanCopilotResolution: ScanCopilotResolution? = nil,
+        isScanCopilotResolving: Bool = false,
         revisitFlags: [ScanRevisitFlag] = [],
         revisitFlagsFull: Bool = false,
         persistedInventory:
@@ -1448,10 +1496,13 @@ public struct CaptureRootView: View {
         self.automaticEvidenceCount = automaticEvidenceCount
         self.lowLightGuidanceActive = lowLightGuidanceActive
         self.targetScanStatus = targetScanStatus
+        self.segmentationInteraction = segmentationInteraction
         self.declaredRegions = declaredRegions
         self.loopClosureCheckActive = loopClosureCheckActive
         self.loopClosureAssessment = loopClosureAssessment
         self.guidanceCuesEnabled = guidanceCuesEnabled
+        self.scanCopilotResolution = scanCopilotResolution
+        self.isScanCopilotResolving = isScanCopilotResolving
         self.revisitFlags = revisitFlags
         self.revisitFlagsFull = revisitFlagsFull
         self.persistedInventory = persistedInventory
@@ -1673,6 +1724,15 @@ public struct CaptureRootView: View {
                     retakeTargetScan: actions.retakeTargetScan,
                     acceptTargetScan: actions.acceptTargetScan,
                     cancelTargetScan: actions.cancelTargetScan,
+                    segmentationInteraction:
+                        segmentationInteraction,
+                    segmentationGesture:
+                        actions.segmentationGesture,
+                    useSegmentation: actions.useSegmentation,
+                    cancelSegmentation:
+                        actions.cancelSegmentation,
+                    segmentationAssetPrepare:
+                        actions.segmentationAssetPrepare,
                     declareNearestUnresolvedRegion:
                         actions.declareNearestUnresolvedRegion,
                     revokeOperatorRegion:
@@ -1687,6 +1747,10 @@ public struct CaptureRootView: View {
                     probePlacementTarget:
                         actions.probePlacementTarget,
                     recordFieldNote: actions.recordFieldNote,
+                    scanCopilotResolution: scanCopilotResolution,
+                    isScanCopilotResolving: isScanCopilotResolving,
+                    requestScanCopilotSuggestion:
+                        actions.requestScanCopilotSuggestion,
                     captureEvidenceFrame:
                         actions.captureEvidenceFrame,
                     setMovementCapability:
@@ -1767,7 +1831,9 @@ public struct CaptureRootView: View {
                         draft in
                         actions.discardRecoveredDraft(draft)
                     },
-                    openCameraSettings: actions.openCameraSettings
+                    openCameraSettings: actions.openCameraSettings,
+                    setReferenceObjectRole:
+                        actions.setReferenceObjectRole
                 )
             } else if state == .annotating,
                let coordinateSpaceID =

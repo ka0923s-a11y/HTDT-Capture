@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		031C2EEEDD86F10DD959C41D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 364679936CEF60373C4FE119 /* Assets.xcassets */; };
 		1F6EAB221C3D7F1B2D8FA06A /* HTDTCaptureApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E75C013589449105C975B579 /* HTDTCaptureApp.swift */; };
+		1FD5F71FB0BBA952CFC071C4 /* ReferenceObjects in Resources */ = {isa = PBXBuildFile; fileRef = 3D622EA33A615A57D935E480 /* ReferenceObjects */; };
 		61181C8A6E982A39C6BF1216 /* HTDTCapturePlatform in Frameworks */ = {isa = PBXBuildFile; productRef = 717DB610F8FAD78BD4039D0F /* HTDTCapturePlatform */; };
 		7E19453D58F50AEE5EA54D34 /* HTDTCaptureCore in Frameworks */ = {isa = PBXBuildFile; productRef = 590C891C6782F2976FFB6AA9 /* HTDTCaptureCore */; };
 		8481C7D89274A601A20E7AB7 /* HTDTCaptureAppShell in Frameworks */ = {isa = PBXBuildFile; productRef = 9C5FEF23A27D1E136BF380A3 /* HTDTCaptureAppShell */; };
@@ -23,6 +24,7 @@
 		1B9B9CC2078C03698E3A2BFF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		282B42F79C681C9B22C14CA8 /* HTDT-Capture */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "HTDT-Capture"; path = .; sourceTree = SOURCE_ROOT; };
 		364679936CEF60373C4FE119 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		3D622EA33A615A57D935E480 /* ReferenceObjects */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ReferenceObjects; path = App/ReferenceObjects; sourceTree = SOURCE_ROOT; };
 		7BAD1AF78A238DC024D6423E /* InfoPlist.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = InfoPlist.strings; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		BBC338DAC78C95597F325556 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		DD7D340D9792493DF5E69A91 /* EquipmentLabelVisionScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentLabelVisionScan.swift; sourceTree = "<group>"; };
@@ -70,6 +72,7 @@
 		4CEB55A604F66C9B0FAA4C2A = {
 			isa = PBXGroup;
 			children = (
+				3D622EA33A615A57D935E480 /* ReferenceObjects */,
 				23328254CD9E4A3E05352D6C /* App */,
 				A143FF39D7FFB71B37A0FE79 /* Packages */,
 				374F825FDB88566A20A301D4 /* Products */,
@@ -156,6 +159,7 @@
 				B6C444F90F103CF8CDB2F578 /* InfoPlist.strings in Resources */,
 				9C935FA2F7D520280DDC1548 /* Localizable.strings in Resources */,
 				DF7DA537D3BEBFC028E24C0A /* PrivacyInfo.xcprivacy in Resources */,
+				1FD5F71FB0BBA952CFC071C4 /* ReferenceObjects in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -259,7 +263,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -316,7 +320,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -336,7 +340,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -346,7 +350,8 @@
 				PRODUCT_NAME = HTDTCapture;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -359,7 +364,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -369,7 +374,8 @@
 				PRODUCT_NAME = HTDTCapture;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};

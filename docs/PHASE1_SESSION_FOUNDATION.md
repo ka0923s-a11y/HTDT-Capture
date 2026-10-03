@@ -5,7 +5,7 @@ Issue: #2
 
 ## Implemented
 
-- Swift Package foundation with iOS 17 / macOS 14 baselines.
+- Swift Package foundation with iOS 27 / macOS 14 baselines (iOS floor raised by ADR-0005).
 - Typed capture/session/coordinate identifiers with canonical lowercase UUID serialization.
 - Explicit capture state machine and failure/reset semantics.
 - Coordinate-space discontinuity lineage.
