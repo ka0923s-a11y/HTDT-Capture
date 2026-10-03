@@ -9,7 +9,10 @@ permissions:
 jobs:
   build-ipa:
     name: Build unsigned IPA
-    runs-on: macos-15
+    # iOS-27-SDK image (macOS 26 + Xcode 27 as the default Xcode) —
+    # the app uses iOS 27 Vision APIs that don't exist in the 26.x
+    # SDKs shipped on the plain macos-* images.
+    runs-on: xcode-27
     timeout-minutes: 30
 
     env:
