@@ -415,6 +415,17 @@ public struct ScanMotionGuidanceTracker: Sendable {
     /// (legacy bolph71656-ai/HTDT-Capture#257). Declared regions stay classified unresolved but stop
     /// producing movement guidance and no longer count as actionable.
     private var declaredRegionKeys: Set<SpatialCoverageCellKey> = []
+    /// Coverage cells the live derived-object decomposition flagged
+    /// for re-observation (derived-candidate follow-up): the advisory
+    /// concerns object-level evidence, so a cell can be flagged even
+    /// when its coverage classification is already `observed`.
+    private var derivedReobservationCellKeys:
+        Set<SpatialCoverageCellKey> = []
+    /// The flagged key the current guidance was selected for — tracked
+    /// separately so a cleared advisory drops only guidance it
+    /// selected, never a coincidentally equal coverage target.
+    private var derivedReobservationSelectedKey:
+        SpatialCoverageCellKey?
 
     public init(
         configuration: ScanMotionGuidanceConfiguration = .standard
@@ -439,6 +450,29 @@ public struct ScanMotionGuidanceTracker: Sendable {
             currentStartCameraPosition = nil
             currentStartDiversityCount = nil
             currentStartDistanceBucket = nil
+        }
+    }
+
+    /// Replaces the coverage-cell set the derived-object decomposition
+    /// currently wants re-observed. When the selected guidance was
+    /// picked for a flagged cell that is no longer flagged, it is
+    /// dropped so the next `record` reselects instead of coaching a
+    /// region the decomposition no longer questions.
+    public mutating func setDerivedReobservationCellKeys(
+        _ keys: Set<SpatialCoverageCellKey>
+    ) {
+        derivedReobservationCellKeys = keys
+        if let key = derivedReobservationSelectedKey,
+           !keys.contains(key)
+        {
+            derivedReobservationSelectedKey = nil
+            if currentGuidance?.targetRegionKey == key {
+                currentGuidance = nil
+                currentSelectedAtSeconds = nil
+                currentStartCameraPosition = nil
+                currentStartDiversityCount = nil
+                currentStartDistanceBucket = nil
+            }
         }
     }
 
@@ -675,6 +709,21 @@ public struct ScanMotionGuidanceTracker: Sendable {
         } else {
             currentStartDiversityCount = nil
             currentStartDistanceBucket = nil
+        }
+        // Bookkeeping for the derived advisory path: only a
+        // re-observe prompt aimed at a flagged, non-weak cell counts
+        // as derived-selected — a flagged-but-weak target belongs to
+        // the coverage flow, and clearing the advisory must not drop
+        // guidance the coverage evidence itself selected.
+        if let guidance,
+           guidance.action == .reobserveAnotherAngle,
+           let key = guidance.targetRegionKey,
+           derivedReobservationCellKeys.contains(key),
+           spatialCoverage.region(at: key)?.classification != .weak
+        {
+            derivedReobservationSelectedKey = key
+        } else {
+            derivedReobservationSelectedKey = nil
         }
     }
 
@@ -928,6 +977,18 @@ public struct ScanMotionGuidanceTracker: Sendable {
             )
         }
 
+        if !spatialGuidanceActive,
+           movementCapability == .unrestricted,
+           let derivedRegion = preferredDerivedReobservationRegion(
+               spatialCoverage
+           )
+        {
+            return ScanMotionGuidance(
+                action: .reobserveAnotherAngle,
+                targetRegionKey: derivedRegion.key
+            )
+        }
+
         if observation.recheckSuggested {
             return ScanMotionGuidance(
                 action:
@@ -1066,6 +1127,44 @@ public struct ScanMotionGuidanceTracker: Sendable {
                     cellSize: spatialCoverage.cellSizeMeters
                 )
 
+                if lhsDistance != rhsDistance {
+                    return lhsDistance < rhsDistance
+                }
+                return lhs.key < rhs.key
+            }
+    }
+
+    /// Nearest retained region the derived-object decomposition
+    /// flagged for re-observation. Weak cells are deliberately
+    /// excluded — they already flow through the coverage weak-region
+    /// path; this advisory targets cells whose coverage is nominally
+    /// fine but whose object-level evidence is insufficient. Declared
+    /// regions are excluded too: an operator-declared "can't reach"
+    /// cell is never coached back by a derived advisory.
+    private func preferredDerivedReobservationRegion(
+        _ spatialCoverage: SpatialScanCoverageSummary
+    ) -> SpatialCoverageRegion? {
+        guard !derivedReobservationCellKeys.isEmpty else {
+            return nil
+        }
+        let camera = spatialCoverage.currentCameraPosition
+        return spatialCoverage.regions
+            .filter {
+                derivedReobservationCellKeys.contains($0.key)
+                    && $0.classification != .weak
+                    && !declaredRegionKeys.contains($0.key)
+            }
+            .min { lhs, rhs in
+                let lhsDistance = squaredDistance(
+                    from: camera,
+                    to: lhs.key,
+                    cellSize: spatialCoverage.cellSizeMeters
+                )
+                let rhsDistance = squaredDistance(
+                    from: camera,
+                    to: rhs.key,
+                    cellSize: spatialCoverage.cellSizeMeters
+                )
                 if lhsDistance != rhsDistance {
                     return lhsDistance < rhsDistance
                 }

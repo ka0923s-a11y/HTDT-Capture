@@ -627,3 +627,42 @@ public enum DerivedGeometryCandidatePackageBuilder {
         )
     }
 }
+
+public extension DerivedGeometryCandidateRecord {
+    /// Re-runs the footprint fitter on the record's persisted contour
+    /// and returns the candidate for `kind`, when the fitter still
+    /// produces that kind. Used by the review-time "Accept as
+    /// &lt;kind&gt;" path to resolve an ambiguous record to the
+    /// operator-chosen shape — the contour is the same evidence the
+    /// original fit saw, so this is a re-derivation, not new
+    /// evidence. Live captures fitted under `.roomCapture`; the
+    /// targeted small-object pass fitted under `.targetedObject` —
+    /// both profiles are tried since the record does not persist
+    /// which produced it.
+    func refitCandidate(
+        kind: DerivedShapeKind
+    ) -> DerivedShapeCandidate? {
+        let observation = DerivedShapeObservation(
+            coordinateSpaceID: coordinateSpaceID,
+            points: contourPoints,
+            sourceEvidenceRefs: sourceEvidenceRefs,
+            observationStartSeconds: observationStartSeconds,
+            observationEndSeconds: observationEndSeconds
+        )
+        for configuration in [
+            DerivedShapeFitConfiguration.roomCapture,
+            .targetedObject,
+        ] {
+            let proxy = DerivedShapeProxyFitter.fit(
+                observation: observation,
+                configuration: configuration
+            )
+            if let candidate = proxy.candidates.first(where: {
+                $0.kind == kind
+            }) {
+                return candidate
+            }
+        }
+        return nil
+    }
+}

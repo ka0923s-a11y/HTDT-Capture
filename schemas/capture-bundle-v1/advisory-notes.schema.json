@@ -55,7 +55,10 @@
               "reference_object_configuration_outcome",
               "reference_object_acceptance",
               "source_quality_preflight",
-              "high_resolution_still"
+              "high_resolution_still",
+              "derived_candidate_accepted",
+              "derived_candidate_dismissed",
+              "derived_candidate_restored"
             ]
           },
           "session_timestamp_seconds": {

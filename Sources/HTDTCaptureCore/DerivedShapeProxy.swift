@@ -394,6 +394,33 @@ public enum DerivedFootprintGeometry: Codable, Sendable, Equatable {
     case ellipse(DerivedEllipse)
     case polygon(DerivedPolygon)
 
+    /// The 2D footprint anchor in the same footprint-plane
+    /// coordinates the contour points carry: the analytic center for
+    /// rect/circle/ellipse, the vertex mean for polygons. Used as the
+    /// horizontal anchor when a whole shape is promoted into an
+    /// entity or surfaced as one object.
+    public var footprintCenter: DerivedPoint2D {
+        switch self {
+        case .orientedRectangle(let rectangle):
+            return rectangle.center
+        case .circle(let circle):
+            return circle.center
+        case .ellipse(let ellipse):
+            return ellipse.center
+        case .polygon(let polygon):
+            let count = Double(polygon.vertices.count)
+            guard count > 0 else {
+                return DerivedPoint2D(x: 0, y: 0)
+            }
+            return DerivedPoint2D(
+                x: polygon.vertices.map(\.position.x).reduce(0, +)
+                    / count,
+                y: polygon.vertices.map(\.position.y).reduce(0, +)
+                    / count
+            )
+        }
+    }
+
     // The bundle schema owns the wire shape `{"<kind>": {…fields}}`.
     // Synthesized enum Codable wraps the payload in `"_0"`, which the
     // schema's additionalProperties:false rejects at finalize — encode
