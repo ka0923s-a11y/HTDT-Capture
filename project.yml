@@ -21,6 +21,14 @@ targets:
     deploymentTarget: "27.0"
     sources:
       - path: App
+        excludes:
+          - "ReferenceObjects/**"
+      # Folder reference: the .referenceobject catalog + manifest keep
+      # their ReferenceObjects/ subdirectory inside the app bundle so
+      # the loader can resolve Bundle.urls(subdirectory:) (#268).
+      - path: App/ReferenceObjects
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: HTDTCapturePackage
         product: HTDTCaptureCore

@@ -24,6 +24,17 @@ public struct SpatialCaptureActions {
     public let retakeTargetScan: () -> Void
     public let acceptTargetScan: () -> Void
     public let cancelTargetScan: () -> Void
+    /// #269: operator seed/refine gesture over the preview
+    /// (view-normalized points; the coordinator maps them through the
+    /// recorded display-transform authority).
+    public let segmentationGesture: (SegmentationGesture) -> Void
+    /// #269: fuse + persist the accepted mask ("Use").
+    public let useSegmentation: () -> Void
+    /// #269: drop the live segmentation run ("Cancel"/"New selection").
+    public let cancelSegmentation: () -> Void
+    /// #269: explicit operator asset-prep request — the only mid-scan
+    /// path allowed to reach `downloadAssets()`.
+    public let segmentationAssetPrepare: () -> Void
     public let declareNearestUnresolvedRegion: (DeclaredRegionReason) -> Void
     public let revokeOperatorRegion: (SpatialCoverageCellKey) -> Void
     public let setGuidanceCuesEnabled: (Bool) -> Void
@@ -54,6 +65,8 @@ public struct SpatialCaptureActions {
     public let revisitConnectedRegion: (CaptureRegionID) -> Void
     public let selectCaptureStrategy: (CaptureStrategyIdentifier) -> Void
     public let recordFieldNote: (String, CaptureFieldNoteCategory, Bool, Bool, Bool, CaptureFieldNoteAnchorRequest) -> Void
+    /// #272: on-demand advisory copilot request (advisory only).
+    public let requestScanCopilotSuggestion: () -> Void
 
     public init(from actions: CaptureRootActions) {
         self.beginCapture = actions.beginCapture
@@ -65,6 +78,11 @@ public struct SpatialCaptureActions {
         self.retakeTargetScan = actions.retakeTargetScan
         self.acceptTargetScan = actions.acceptTargetScan
         self.cancelTargetScan = actions.cancelTargetScan
+        self.segmentationGesture = actions.segmentationGesture
+        self.useSegmentation = actions.useSegmentation
+        self.cancelSegmentation = actions.cancelSegmentation
+        self.segmentationAssetPrepare =
+            actions.segmentationAssetPrepare
         self.declareNearestUnresolvedRegion = actions.declareNearestUnresolvedRegion
         self.revokeOperatorRegion = actions.revokeOperatorRegion
         self.setGuidanceCuesEnabled = actions.setGuidanceCuesEnabled
@@ -92,6 +110,8 @@ public struct SpatialCaptureActions {
         self.revisitConnectedRegion = actions.revisitConnectedRegion
         self.selectCaptureStrategy = actions.selectCaptureStrategy
         self.recordFieldNote = actions.recordFieldNote
+        self.requestScanCopilotSuggestion =
+            actions.requestScanCopilotSuggestion
     }
 }
 

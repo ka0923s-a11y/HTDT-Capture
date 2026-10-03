@@ -275,6 +275,20 @@
         "1.0.0"
       ]
     },
+    "segmentation-observations": {
+      "schema_id": "htdt.capture.segmentation-observations",
+      "paths": [
+        "derived/segmentation-observations.json"
+      ],
+      "documents": {
+        "1.0.0": "segmentation-observations"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ],
+      "description": "#269 operator-seeded Vision iterative-segmentation results persisted as derived image-processing evidence only."
+    },
     "equipment-identity": {
       "schema_id": "htdt.equipment-identity",
       "paths": [
@@ -295,6 +309,19 @@
       ],
       "documents": {
         "1.0.0": "reference-targets"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "reference-object-observations": {
+      "schema_id": "htdt.capture.reference-object-observations",
+      "paths": [
+        "evidence/reference-object-observations.json"
+      ],
+      "documents": {
+        "1.0.0": "reference-object-observations"
       },
       "emitted": "1.0.0",
       "read": [

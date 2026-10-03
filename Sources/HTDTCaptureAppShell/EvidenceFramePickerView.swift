@@ -17,6 +17,8 @@ extension EvidenceFrameRetentionKind {
             return String(localized: "Heading capture")
         case .equipmentIdentity:
             return String(localized: "Equipment identity photo")
+        case .segmentationSource:
+            return String(localized: "Isolation source frame")
         case .unknown:
             return String(localized: "Retained frame")
         }

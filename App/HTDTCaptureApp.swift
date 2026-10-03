@@ -2,6 +2,9 @@ import Combine
 import Foundation
 import RoomPlan
 import SwiftUI
+#if canImport(ARKit)
+import ARKit
+#endif
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -104,6 +107,8 @@ private struct HTDTCaptureHostView: View {
             lowLightGuidanceActive:
                 coordinator.lowLightGuidanceActive,
             targetScanStatus: coordinator.targetScanStatus,
+            segmentationInteraction:
+                coordinator.segmentationInteraction,
             declaredRegions: coordinator.declaredRegionList,
             loopClosureCheckActive:
                 coordinator.loopClosureCheckActive,
@@ -111,6 +116,10 @@ private struct HTDTCaptureHostView: View {
                 coordinator.loopClosureAssessment,
             guidanceCuesEnabled:
                 coordinator.guidanceCuesEnabled,
+            scanCopilotResolution:
+                coordinator.scanCopilotResolution,
+            isScanCopilotResolving:
+                coordinator.isScanCopilotResolving,
             revisitFlags: coordinator.revisitFlags,
             revisitFlagsFull: coordinator.revisitFlagsFull,
             persistedInventory:
@@ -216,6 +225,14 @@ private struct HTDTCaptureHostView: View {
                 retakeTargetScan: coordinator.retakeTargetScan,
                 acceptTargetScan: coordinator.acceptTargetScan,
                 cancelTargetScan: coordinator.cancelTargetScan,
+                segmentationGesture:
+                    coordinator.segmentationGesture,
+                useSegmentation:
+                    coordinator.useSegmentation,
+                cancelSegmentation:
+                    coordinator.cancelSegmentation,
+                segmentationAssetPrepare:
+                    coordinator.segmentationAssetPrepare,
                 declareNearestUnresolvedRegion:
                     coordinator.declareNearestUnresolvedRegion,
                 revokeOperatorRegion:
@@ -262,6 +279,8 @@ private struct HTDTCaptureHostView: View {
                     coordinator.updateRevisitFlagDetails,
                 resolveRevisitFlag: coordinator.resolveRevisitFlag,
                 reopenRevisitFlag: coordinator.reopenRevisitFlag,
+                requestScanCopilotSuggestion:
+                    coordinator.requestScanCopilotSuggestion,
                 markTaskPlanItem:
                     coordinator.markTaskPlanItem(_:outcome:reason:),
                 canRecordTaskPlanMarkReason:
@@ -432,6 +451,8 @@ private struct HTDTCaptureHostView: View {
                     coordinator.retryCameraPermission,
                 openCameraSettings:
                     coordinator.openCameraSettings,
+                setReferenceObjectRole:
+                    coordinator.setReferenceObjectRole,
                 cancelCaptureStart:
                     coordinator.cancelCaptureStart,
                 preferRevisionHead:
@@ -561,6 +582,33 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var annotationAuthorityCommitted = false
     @Published private(set)
     var annotationEvidenceRefs: [String] = []
+    /// #268: `reference_object_observation:<id>` tokens appended to
+    /// `annotationEvidenceRefs` so a matched observation is offerable
+    /// as entity evidence — the operator accepts it explicitly; it is
+    /// never bound silently.
+    private var referenceObjectObservationTokens: [String] = []
+    /// #268: shipped `.referenceobject` catalog decoded once from
+    /// `ReferenceObjects/manifest.json`; nil when this build ships
+    /// none (or the manifest fails validation — surfaced as a
+    /// support-advisory detail, never silently).
+    private(set) var referenceObjectManifest:
+        ReferenceObjectAssetManifest?
+    private var referenceObjectManifestResolved = false
+    /// #268: the operator's per-mission picks from setup — persisted
+    /// verbatim into the observation document's selection echo.
+    private(set) var pendingReferenceObjectRequests:
+        [ReferenceObjectSelectionRequest] = []
+    /// #268: the configureReferenceObjects outcome between its
+    /// application (pre-coordinate-binding) and the post-foundation
+    /// persistence hop.
+    private var pendingReferenceObjectConfiguration:
+        (selection: ReferenceObjectSelectionEcho,
+         configuredAssets: [ReferenceObjectConfiguredAsset],
+         outcome: ReferenceObjectReconfigurationResult)?
+    /// #268: `entity_id=observation_id` pairings already advisored —
+    /// an entity re-commit does not re-report an unchanged
+    /// acceptance.
+    private var acceptedReferenceObjectPairings: Set<String> = []
     var annotationRoomPlanSurfaces: [CapturedSurfaceOption] = []
     var annotationMeshAnchors: [CapturedSurfaceOption] = []
     @Published private(set)
@@ -630,6 +678,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Whether haptic/announcement guidance cues play (#252). Mirrors
     /// the persisted presentation preference (#338); default on.
     @Published var guidanceCuesEnabled = true
+    /// Latest advisory copilot resolution for the live scan (#272).
+    /// Advisory only — the suggestion can never act on the capture.
+    @Published private(set)
+    var scanCopilotResolution: ScanCopilotResolution?
+    /// True while a copilot request is resolving.
+    @Published private(set)
+    var isScanCopilotResolving = false
+    /// Digest of the context the current resolution was validated
+    /// against — equivalent states debounce to one request (#272).
+    private var scanCopilotResolvedDigest: String?
+    /// In-flight copilot request.
+    private var scanCopilotTask: Task<Void, Never>?
     /// Versioned app-local settings (#338): presentation preferences,
     /// device-local workflow defaults, and the storage/privacy policy
     /// — never capture authority.
@@ -991,6 +1051,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var activeCaptureIsPractice = false
     private static let practicePromptDismissedDefaultsKey =
         "practice_prompt_dismissed"
+    /// Experimental equipment-identity AI assist (#270): UserDefaults
+    /// flag, absent/false = off. Evaluation-gated — no measured benefit
+    /// over the deterministic lane means it never ships on by default.
+    /// Even when on it can never change the deterministic result; it
+    /// only attaches an advisory outcome to the scan result.
+    private static let equipmentIdentityAIAssistDefaultsKey =
+        "equipment_identity_ai_assist_enabled"
+    private var equipmentIdentityAIAssistEnabled: Bool {
+        UserDefaults.standard.bool(
+            forKey: Self.equipmentIdentityAIAssistDefaultsKey
+        )
+    }
     /// Explicit commit-point policy for the finalization transaction
     /// (#185). While claimed, terminal lifecycle/resource failures are
     /// fenced instead of invalidating the capture generation; a fenced
@@ -1134,6 +1206,37 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Shape candidates minted by accepted object passes during this
     /// capture; persisted into `derived/geometry-candidates.json` at End.
     private var targetedObjectProxies: [DerivedShapeProxy] = []
+    // #269: operator-seeded Vision iterative segmentation inside an
+    // object pass. Bounded temporal policy: one run per accepted mask;
+    // a re-run happens only on an explicit operator request (new
+    // selection / refinement), never at frame rate.
+    private let segmentationPolicy = SegmentationRunPolicy()
+    private let segmentationAssetController =
+        ObjectSegmentationAssetController()
+    private let segmentationSegmenter = IterativeObjectSegmenter()
+    private var segmentationAssetTask: Task<Void, Never>?
+    private var segmentationRunTask: Task<Void, Never>?
+    /// In-flight evidence save for a segmentation source frame; drained
+    /// with the other frame saves at the End boundary (#179).
+    private var segmentationFrameSaveTask: Task<Void, Never>?
+    /// The live mask context for the current object pass.
+    private var segmentationRun: SegmentationRunContext?
+    /// Accepted records awaiting the End-boundary doc write. Entries
+    /// survive pass End/cancel — the record is already evidence.
+    private var pendingSegmentationObservations:
+        [ObjectSegmentationObservation] = []
+    /// Asset status probed for the current pass — the UI advertises it
+    /// and a non-ready state only ever shows an explicit "prepare"
+    /// affordance, never an automatic mid-scan download.
+    private var segmentationAssetReadiness: SegmentationAssetReadiness =
+        .unknown
+    /// Deliberate `qualityLevel` for every Vision request this capture —
+    /// `.balanced` trades the ~2× accurate-model latency for a mask
+    /// quality that already exceeds the depth-gate precision.
+    private var segmentationQualityLevel: SegmentationQualityLevel =
+        .balanced
+    @Published private(set) var segmentationInteraction =
+        SegmentationInteractionState.unavailable
     /// Best resolved object proxy per item seen across the whole scan,
     /// independent of the sliding fusion window — the live preview only
     /// shows the current tick, but End must persist every item that was
@@ -1563,6 +1666,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         finalizedRevision = nil
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
+        referenceObjectObservationTokens = []
         annotationRoomPlanSurfaces = []
         annotationMeshAnchors = []
         captureStartTimingCorrelation = nil
@@ -1659,6 +1763,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         bestDerivedObjectProxies = []
         targetedObjectFusionTracker.reset()
         derivedPreviewSuspendedForMemoryPressure = false
+        resetSegmentationCaptureState()
         setRoomPlanModelRenderingEnabled(true)
         scanEvidenceFrameCount = 0
         scanDepthEvidenceCount = 0
@@ -1693,6 +1798,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             appSettings.captureDefaults.returnToStartCheckEnabled
         revisitFlagStore = CaptureRevisitFlagStore()
         revisitFlags = []
+        clearScanCopilot()
         pendingTaskPlanImport = nil
         pendingTaskPlanImportError = nil
         boundTaskPlanStatus = nil
@@ -1775,8 +1881,65 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             cameraPermission:
                 CameraPermissionController.currentStatus(),
             interruptedDrafts:
-                persistedInventory.recoverableDrafts
+                persistedInventory.recoverableDrafts,
+            referenceObjectManifest:
+                resolvedReferenceObjectManifest(),
+            referenceObjectRequests: pendingReferenceObjectRequests
         )
+    }
+
+    /// #268: decodes `ReferenceObjects/manifest.json` once — the
+    /// shipped, provenance-manifested `.referenceobject` catalog.
+    /// A missing bundle directory means this build ships no assets
+    /// (a normal condition); an undecodable manifest is surfaced in
+    /// the setup status line rather than swallowed.
+    private func resolvedReferenceObjectManifest()
+        -> ReferenceObjectAssetManifest?
+    {
+        if referenceObjectManifestResolved {
+            return referenceObjectManifest
+        }
+        referenceObjectManifestResolved = true
+        guard let url = Bundle.main.url(
+            forResource:
+                ReferenceObjectAssetManifest.manifestFilename,
+            withExtension: nil,
+            subdirectory:
+                ReferenceObjectAssetManifest.bundleDirectory
+        ), let data = try? Data(contentsOf: url),
+           let manifest = try? JSONDecoder().decode(
+               ReferenceObjectAssetManifest.self,
+               from: data
+           )
+        else {
+            referenceObjectManifest = nil
+            return nil
+        }
+        referenceObjectManifest = manifest
+        return manifest
+    }
+
+    /// #268: the setup picker writes one (asset, role) pair per row;
+    /// nil clears the pick. Requests resolve through the selection
+    /// policy at Begin — invalid combinations are dropped with
+    /// reasons recorded into the selection echo, never silently
+    /// reshaped.
+    func setReferenceObjectRole(
+        _ assetID: ReferenceObjectAssetID,
+        _ role: ReferenceObjectAssetRole?
+    ) {
+        pendingReferenceObjectRequests.removeAll {
+            $0.assetID == assetID
+        }
+        if let role {
+            pendingReferenceObjectRequests.append(
+                ReferenceObjectSelectionRequest(
+                    assetID: assetID,
+                    role: role
+                )
+            )
+        }
+        refreshCaptureSetupPresentation()
     }
 
     /// #352: import an HTDT task plan on the setup screen, before any
@@ -1975,6 +2138,119 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             coverage: scanCoverage,
             spatialCoverage: spatialCoverage
         )
+    }
+
+    /// #272: on-demand advisory copilot request. The pipeline is
+    /// deterministic diagnostics -> bounded context -> optional model
+    /// -> deterministic validator -> advisory chip; whatever resolves,
+    /// the suggestion only re-words or re-ranks guidance the scan
+    /// already owns. It can never act on the capture itself.
+    func requestScanCopilotSuggestion() {
+        guard state == .scanning, !isEndingScan else {
+            return
+        }
+        let context = scanCopilotContext()
+        // Equivalent states share a digest — repeated taps debounce
+        // to a single model/baseline resolution.
+        guard scanCopilotResolvedDigest != context.contextDigest
+        else {
+            return
+        }
+        scanCopilotTask?.cancel()
+        isScanCopilotResolving = true
+        let engine = ScanCopilotEngine(
+            model: ScanCopilotModelProvider.makeProducer()
+        )
+        scanCopilotTask = Task { [weak self] in
+            let resolution = await engine.resolve(
+                context: context
+            )
+            guard let self, !Task.isCancelled else {
+                return
+            }
+            self.scanCopilotResolution = resolution
+            self.scanCopilotResolvedDigest =
+                context.contextDigest
+            self.isScanCopilotResolving = false
+        }
+    }
+
+    /// Bounded snapshot of the live deterministic scan state handed
+    /// to the copilot (#272): codes, severities, counts and bounded
+    /// identifiers only — never raw bundles, poses, or payloads.
+    private func scanCopilotContext() -> ScanCopilotContext {
+        let weakRegionKeys = spatialCoverage.regions
+            .filter { $0.classification == .weak }
+            .map { "r\($0.key.x),\($0.key.z)" }
+        let unresolvedFlagIDs = revisitFlags
+            .filter { $0.status == .unresolved }
+            .map(\.flagID)
+        let targetScanState: String? = targetScanStatus.map {
+            status in
+            if status.expired { return "expired" }
+            if status.isComplete { return "complete" }
+            if status.outOfRange { return "stalled" }
+            return "active"
+        }
+        var candidateTargetIDs = weakRegionKeys
+        candidateTargetIDs.append(
+            contentsOf: unresolvedFlagIDs.map { "flag_\($0)" }
+        )
+        if targetScanStatus != nil {
+            candidateTargetIDs.append("target")
+        }
+        let resourceKinds = (qualityReport?.resourceEvents ?? [])
+            .filter { $0.severity != .info }
+            .map { $0.kind.rawValue }
+        var diagnostics: [ScanCopilotDiagnosticItem] = []
+        if let report = qualityReport {
+            diagnostics = report.diagnostics.enumerated().map {
+                index, diagnostic in
+                ScanCopilotDiagnosticItem(
+                    id: "d\(index)",
+                    code: diagnostic.code,
+                    severity: diagnostic.severity,
+                    summary: diagnostic.message
+                )
+            }
+        }
+        return ScanCopilotContext(
+            stage: .scanning,
+            trackingState: scanCoverage.latestTrackingState
+                ?? spatialCoverage.latestTrackingState,
+            trackingReason: scanCoverage.latestTrackingReason,
+            directionCoverageFraction:
+                scanCoverage.coverageFraction,
+            guidanceComplete: scanGuidanceProgress.isComplete,
+            guidanceCompletionSource:
+                scanGuidanceProgress.completionSource.rawValue,
+            movementCapability:
+                scanGuidanceProgress.movementCapability,
+            weakRegionKeys: weakRegionKeys,
+            actionableWeakRegionCount:
+                scanGuidanceProgress.actionableWeakRegionCount,
+            saturatedWeakRegionCount:
+                scanGuidanceProgress.saturatedWeakRegionCount,
+            remoteWeakRegionCount:
+                scanGuidanceProgress.remoteWeakRegionCount,
+            lowLightActive: lowLightGuidanceActive,
+            unresolvedRevisitFlagIDs: unresolvedFlagIDs,
+            targetScanState: targetScanState,
+            candidateTargetIDs: candidateTargetIDs,
+            missingTaskItemCount: missionTaskPlanOutcomes
+                .filter { $0.outcome == .pending }.count,
+            resourcePressureKinds: resourceKinds,
+            endScanAvailable: true,
+            diagnostics: diagnostics
+        )
+    }
+
+    private func clearScanCopilot() {
+        scanCopilotTask?.cancel()
+        scanCopilotTask = nil
+        scanCopilotResolution = nil
+        scanCopilotResolvedDigest = nil
+        isScanCopilotResolving = false
     }
 
     func captureEvidenceFrame() {
@@ -2330,6 +2606,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 guidance: .hold,
                 distanceToTargetMeters: initialDistance
             )
+            // #269: a fresh pass is a fresh seeding surface. Probe the
+            // downloadable Vision asset (non-mutating) so the UI can
+            // advertise readiness without ever starting a download.
+            resetSegmentationRun(
+                phase: .seeding
+            )
+            refreshSegmentationAssetStatus()
             workingSetStatus = String(localized: "Object pass started; keep the aimed object centered and move around it")
         } catch {
             workingSetStatus = String(localized: "No surface was detected at the aim point; aim at the object and try again")
@@ -2348,6 +2631,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
         targetedObjectFusionTracker.reset()
         targetScanStatus = nil
+        resetSegmentationRun(phase: .seeding)
     }
 
     /// Complete the pass: fit the fused bounded observation into a
@@ -2452,6 +2736,792 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // fusion window itself is per-pass and always discards.
         targetedObjectFusionTracker.reset()
         targetScanAnchorSource = nil
+        resetSegmentationRun(phase: .unavailable)
+    }
+
+    // MARK: - Operator-seeded iterative segmentation (#269)
+    //
+    // One operator-requested mask per selection, fused into the bounded
+    // object-pass tracker exactly once on "Use". Mask bytes persist
+    // only as derived evidence
+    // (derived/segmentation-observations.json) bound to the persisted
+    // source frame; an unsupported mask stays 2D derived evidence —
+    // never extruded into canonical geometry.
+
+    /// Bounded state for one Vision attempt inside the active object
+    /// pass. `observationID` is minted at seed time so the mask-gated
+    /// depth decode names the same id the persisted record carries.
+    private struct SegmentationRunContext {
+        let observationID: SegmentationObservationID
+        let source: SegmentationSourceFrame
+        let seedKind: SegmentationSeedKind
+        /// Image-normalized (top-left) seed points actually used:
+        /// the tap point, box corners, or the decimated scribble path.
+        var seedPoints: [NormalizedPoint2D]
+        var seedBox: NormalizedRect2D?
+        var includedPoints: [NormalizedPoint2D] = []
+        var excludedPoints: [NormalizedPoint2D] = []
+        var mask: SegmentationMaskGrid
+        var maskPixelCount = 0
+    }
+
+    /// Kick the downloadable-asset probe/prep — called once per capture
+    /// right after RoomPlan starts (prepare BEFORE the mission begins)
+    /// and again only on an explicit operator request. Never triggered
+    /// by a segmentation attempt mid-scan.
+    private func prepareSegmentationAssets() {
+        guard segmentationAssetTask == nil else {
+            return
+        }
+        segmentationAssetTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            defer { self.segmentationAssetTask = nil }
+            let readiness = await self.segmentationAssetController
+                .prepare()
+            self.applySegmentationAssetReadiness(readiness)
+        }
+    }
+
+    /// Non-mutating status probe — never starts a download. Called when
+    /// an object pass begins so the UI reflects the real asset state.
+    private func refreshSegmentationAssetStatus() {
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            let readiness = await self.segmentationAssetController
+                .status()
+            self.applySegmentationAssetReadiness(readiness)
+        }
+    }
+
+    /// Explicit operator request from the object-pass UI ("Prepare the
+    /// segmentation model") — the only mid-scan path allowed to reach
+    /// `downloadAssets()`.
+    func segmentationAssetPrepare() {
+        prepareSegmentationAssets()
+    }
+
+    private func applySegmentationAssetReadiness(
+        _ readiness: SegmentationAssetReadiness
+    ) {
+        segmentationAssetReadiness = readiness
+        guard state == .scanning, targetScanTracker != nil else {
+            return
+        }
+        var updated = segmentationInteraction
+        updated.assetReadiness = readiness
+        if updated.phase == .unavailable || updated.phase == .failed {
+            // Asset resolution arrived after the pass opened — the
+            // pass is seeding-capable only when the model is ready.
+            updated = SegmentationInteractionState(
+                phase: .seeding,
+                assetReadiness: readiness
+            )
+        }
+        segmentationInteraction = updated
+    }
+
+    /// View-side gesture forwarded as normalized points. `seeding`
+    /// seeds a run; `maskReady` turns a tap into a bounded
+    /// include/exclude refinement.
+    func segmentationGesture(_ gesture: SegmentationGesture) {
+        guard state == .scanning,
+              !isEndingScan,
+              let tracker = targetScanTracker
+        else {
+            return
+        }
+        // #273: Vision work is derived-quality work — refused under
+        // thermal or memory pressure like the live preview path.
+        let thermal = ProcessInfo.processInfo.thermalState
+        guard !derivedPreviewSuspendedForMemoryPressure,
+              thermal != .serious, thermal != .critical
+        else {
+            updateSegmentationInteraction(
+                phase: .failed,
+                detail: "thermal_or_memory_pressure"
+            )
+            return
+        }
+        switch gesture.kind {
+        case .seedPoint, .seedBox, .seedScribble:
+            guard segmentationInteraction.phase == .seeding,
+                  segmentationInteraction.assetReadiness
+                      .admitsSegmentation
+            else {
+                return
+            }
+            beginSegmentationRun(gesture, tracker: tracker)
+        case .includePoint, .excludePoint:
+            guard segmentationInteraction.phase == .maskReady,
+                  let run = segmentationRun
+            else {
+                return
+            }
+            refineSegmentationRun(gesture, run: run)
+        }
+    }
+
+    private func updateSegmentationInteraction(
+        phase: SegmentationInteractionPhase,
+        maskPixelCount: Int? = nil,
+        refinementCount: Int? = nil,
+        fusedWorldPointCount: Int? = nil,
+        detail: String? = nil
+    ) {
+        var updated = segmentationInteraction
+        updated.phase = phase
+        updated.assetReadiness = segmentationAssetReadiness
+        updated.maskPixelCount = maskPixelCount
+        updated.refinementCount = refinementCount ?? 0
+        updated.fusedWorldPointCount = fusedWorldPointCount
+        updated.canRefine =
+            phase == .maskReady
+            && segmentationPolicy.acceptsRefinement(
+                count: refinementCount ?? 0
+            )
+        // Bounded temporal rule: a re-run is an explicit operator
+        // request only — allowed from a fresh/cleared surface or a
+        // completed attempt, never implicit on a timer or frame tick.
+        updated.canResegment =
+            phase == .seeding || phase == .maskReady
+            || phase == .accepted || phase == .failed
+        updated.detail = detail
+        segmentationInteraction = updated
+    }
+
+    private func beginSegmentationRun(
+        _ gesture: SegmentationGesture,
+        tracker: TargetedObjectScanTracker
+    ) {
+        guard segmentationRunTask == nil else {
+            return
+        }
+        let policy = segmentationPolicy
+        // Snapshot frame + display authority on the SAME pose-linked
+        // frame — the Vision input image and the depth/mesh evidence
+        // this mask may later fuse share one coordinate authority.
+        let source: SegmentationSourceFrame
+        do {
+            source = try sessionController
+                .snapshotSegmentationSourceFrame(
+                    viewportWidthPoints: gesture.viewportWidthPoints,
+                    viewportHeightPoints: gesture.viewportHeightPoints,
+                    interfaceOrientation:
+                        Self.currentInterfaceOrientation()
+                )
+        } catch {
+            updateSegmentationInteraction(
+                phase: .failed,
+                detail: "source_frame_unavailable"
+            )
+            return
+        }
+        let imagePoints = gesture.viewNormalizedPoints.compactMap {
+            SegmentationViewToImageMapping.imageNormalizedPoint(
+                fromViewPoint: $0,
+                displayTransform: source.imageFromViewDisplayTransform
+            )
+        }
+        guard !imagePoints.isEmpty else {
+            updateSegmentationInteraction(
+                phase: .seeding,
+                detail: "seed_outside_image"
+            )
+            return
+        }
+        let imageWidth = CVPixelBufferGetWidth(
+            source.snapshot.capturedImage
+        )
+        let imageHeight = CVPixelBufferGetHeight(
+            source.snapshot.capturedImage
+        )
+        let seed: ObjectSegmentationSeed
+        let seedKind: SegmentationSeedKind
+        var seedBox: NormalizedRect2D?
+        var recordSeedPoints = imagePoints
+        switch gesture.kind {
+        case .seedPoint:
+            guard let point = imagePoints.first,
+                  imagePoints.count == 1,
+                  let vision = SegmentationViewToImageMapping
+                      .visionPoint(fromImagePoint: point)
+            else {
+                return
+            }
+            seed = .point(x: vision.x, y: vision.y)
+            seedKind = .point
+        case .seedBox:
+            guard imagePoints.count >= 2 else {
+                return
+            }
+            let xs = imagePoints.map(\.x)
+            let ys = imagePoints.map(\.y)
+            let rect = NormalizedRect2D(
+                x: xs.min() ?? 0,
+                y: ys.min() ?? 0,
+                width: (xs.max() ?? 0) - (xs.min() ?? 0),
+                height: (ys.max() ?? 0) - (ys.min() ?? 0)
+            )
+            guard rect.isUnitSquare else {
+                return
+            }
+            // Vision NormalizedRect is lower-left origin.
+            seed = .box(
+                x: rect.x,
+                y: 1 - rect.y - rect.height,
+                width: rect.width,
+                height: rect.height
+            )
+            seedBox = rect
+            seedKind = .box
+            recordSeedPoints = [imagePoints[0], imagePoints[1]]
+        case .seedScribble:
+            guard imagePoints.count >= 2 else {
+                return
+            }
+            // Lasso → bounded scribble: decimate to the policy point
+            // cap, then rasterize inside the platform adapter.
+            let decimated = Self.decimateTo(
+                maximum: policy.maximumScribblePoints,
+                points: imagePoints
+            )
+            let pixels = decimated.map {
+                SIMD2<Float>(
+                    Float($0.x * Double(imageWidth)),
+                    Float($0.y * Double(imageHeight))
+                )
+            }
+            seed = .scribble(imagePixelPoints: pixels)
+            seedKind = .scribble
+            recordSeedPoints = decimated
+        case .includePoint, .excludePoint:
+            return
+        }
+        let run = SegmentationRunContext(
+            observationID: SegmentationObservationID(),
+            source: source,
+            seedKind: seedKind,
+            seedPoints: recordSeedPoints,
+            seedBox: seedBox,
+            mask: SegmentationMaskGrid(
+                width: imageWidth,
+                height: imageHeight
+            )
+        )
+        segmentationRun = run
+        updateSegmentationInteraction(phase: .running)
+        let level = segmentationQualityLevel
+        let threshold = policy.maskAcceptThreshold
+        let limit = policy.maximumRefinementCount
+        let generation = captureGeneration
+        let segmenter = segmentationSegmenter
+        segmentationRunTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            defer { self.segmentationRunTask = nil }
+            // Off the AR delegate path: the actor hops Vision work to
+            // a detached utility task; only state updates return here.
+            do {
+                let mask = try await segmenter.start(
+                    image: source.snapshot.capturedImage,
+                    seed: seed,
+                    qualityLevel: level,
+                    maskAcceptThreshold: threshold,
+                    refinementLimit: limit
+                )
+                guard self.captureGeneration == generation,
+                      self.state == .scanning,
+                      self.segmentationRun?.observationID
+                        == run.observationID
+                else {
+                    return
+                }
+                guard mask.setCount >= policy.minimumMaskPixelCount else {
+                    self.segmentationRun = nil
+                    self.updateSegmentationInteraction(
+                        phase: .seeding,
+                        detail: "mask_too_small"
+                    )
+                    return
+                }
+                var updated = run
+                updated.mask = mask
+                updated.maskPixelCount = mask.setCount
+                self.segmentationRun = updated
+                self.updateSegmentationInteraction(
+                    phase: .maskReady,
+                    maskPixelCount: mask.setCount,
+                    refinementCount: 0
+                )
+            } catch ObjectSegmentationError.assetNotReady {
+                self.segmentationRun = nil
+                self.updateSegmentationInteraction(
+                    phase: .seeding,
+                    detail: "asset_not_ready"
+                )
+            } catch {
+                self.segmentationRun = nil
+                self.updateSegmentationInteraction(
+                    phase: .failed,
+                    detail: "segmentation_failed"
+                )
+            }
+        }
+    }
+
+    private func refineSegmentationRun(
+        _ gesture: SegmentationGesture,
+        run: SegmentationRunContext
+    ) {
+        let refinementCount =
+            run.includedPoints.count + run.excludedPoints.count
+        guard segmentationRunTask == nil,
+              segmentationPolicy.acceptsRefinement(
+                  count: refinementCount
+              ),
+              let viewPoint = gesture.viewNormalizedPoints.first,
+              let imagePoint = SegmentationViewToImageMapping
+                  .imageNormalizedPoint(
+                      fromViewPoint: viewPoint,
+                      displayTransform:
+                          run.source.imageFromViewDisplayTransform
+                  ),
+              let vision = SegmentationViewToImageMapping
+                  .visionPoint(fromImagePoint: imagePoint)
+        else {
+            return
+        }
+        let included = gesture.kind == .includePoint
+        updateSegmentationInteraction(phase: .running)
+        let generation = captureGeneration
+        let segmenter = segmentationSegmenter
+        let threshold = segmentationPolicy.maskAcceptThreshold
+        let limit = segmentationPolicy.maximumRefinementCount
+        segmentationRunTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            defer { self.segmentationRunTask = nil }
+            do {
+                let mask = try await segmenter.refine(
+                    visionNormalizedX: vision.x,
+                    visionNormalizedY: vision.y,
+                    included: included
+                )
+                guard self.captureGeneration == generation,
+                      self.state == .scanning,
+                      self.segmentationRun?.observationID
+                        == run.observationID
+                else {
+                    return
+                }
+                let newCount = refinementCount + 1
+                var updated = run
+                updated.mask = mask
+                updated.maskPixelCount = mask.setCount
+                if included {
+                    updated.includedPoints.append(imagePoint)
+                } else {
+                    updated.excludedPoints.append(imagePoint)
+                }
+                self.segmentationRun = updated
+                self.updateSegmentationInteraction(
+                    phase: .maskReady,
+                    maskPixelCount: mask.setCount,
+                    refinementCount: newCount
+                )
+            } catch {
+                self.updateSegmentationInteraction(
+                    phase: .maskReady,
+                    maskPixelCount: run.maskPixelCount,
+                    refinementCount: refinementCount,
+                    detail: "refinement_failed"
+                )
+            }
+        }
+    }
+
+    /// "Use": fuse the accepted mask's spatially-supported depth (or
+    /// mesh projection) into the pass tracker exactly once, then
+    /// record the derived observation + persist the source frame.
+    func useSegmentation() {
+        guard state == .scanning,
+              !isEndingScan,
+              segmentationInteraction.phase == .maskReady,
+              let run = segmentationRun
+        else {
+            return
+        }
+        updateSegmentationInteraction(phase: .running)
+        let generation = captureGeneration
+        let policy = segmentationPolicy
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            guard self.captureGeneration == generation,
+                  self.state == .scanning,
+                  self.segmentationRun?.observationID
+                    == run.observationID,
+                  let tracker = self.targetScanTracker
+            else {
+                return
+            }
+            let result = await self.sessionController
+                .maskedTargetedShapeObservation(
+                    snapshot: run.source.snapshot,
+                    mask: run.mask,
+                    target: tracker.target,
+                    observationID: run.observationID,
+                    minimumPointCount: policy.minimumWorldPointCount
+                )
+            guard self.captureGeneration == generation,
+                  self.state == .scanning
+            else {
+                return
+            }
+            if let result {
+                // One accepted mask feeds the bounded fusion exactly
+                // once — the pass keeps orbiting on its own samples.
+                _ = self.targetedObjectFusionTracker.record(
+                    result.observation,
+                    timestampSeconds:
+                        run.source.snapshot.sessionTimestampSeconds
+                )
+            }
+            self.finalizeSegmentationObservation(
+                run: run,
+                fusedWorldPointCount:
+                    result?.observation.points.count ?? 0,
+                depthConfidencePolicy:
+                    result?.depthConfidencePolicy
+            )
+            let fusedCount = result?.observation.points.count ?? 0
+            self.updateSegmentationInteraction(
+                phase: .accepted,
+                fusedWorldPointCount: fusedCount,
+                detail: result == nil ? "unsupported_mask_2d_only" : nil
+            )
+            let refinementApplied = run.includedPoints.count
+                + run.excludedPoints.count
+            var noteDetail =
+                "seed_kind=\(run.seedKind.rawValue)"
+                + " mask_px=\(run.maskPixelCount)"
+                + " refinements=\(refinementApplied)"
+                + " fused_3d=\(fusedCount)"
+                + " authority=\(run.source.authority.revisionToken)"
+            if let policyToken = result?.depthConfidencePolicy {
+                noteDetail += " depth_policy=\(policyToken)"
+            }
+            self.recordAdvisoryNote(
+                CaptureAdvisoryNote(
+                    kind: .segmentationPass,
+                    sessionTimestampSeconds:
+                        run.source.snapshot.sessionTimestampSeconds,
+                    detail: noteDetail
+                )
+            )
+        }
+    }
+
+    /// "Cancel"/"New selection": drop the live run; an accepted record
+    /// stays in pendingSegmentationObservations (already evidence).
+    func cancelSegmentation() {
+        resetSegmentationRun(
+            phase: targetScanTracker == nil ? .unavailable : .seeding
+        )
+    }
+
+    private func resetSegmentationRun(
+        phase: SegmentationInteractionPhase
+    ) {
+        segmentationRunTask?.cancel()
+        segmentationRunTask = nil
+        segmentationRun = nil
+        updateSegmentationInteraction(phase: phase)
+    }
+
+    /// Scan/generation reset: drop the live run AND the queued
+    /// observations — records belong to the torn-down working set.
+    private func resetSegmentationCaptureState() {
+        segmentationRunTask?.cancel()
+        segmentationRunTask = nil
+        segmentationFrameSaveTask?.cancel()
+        segmentationFrameSaveTask = nil
+        segmentationRun = nil
+        pendingSegmentationObservations = []
+        segmentationAssetReadiness = .unknown
+        segmentationInteraction = .unavailable
+    }
+
+    /// Persist the run's source frame as a real evidence frame so the
+    /// record's `source_frame_ref` resolves to a declared payload; the
+    /// save is tracked for the End-boundary drain (#179).
+    private func persistSegmentationSourceFrame(
+        _ snapshot: CapturedFrameSnapshot
+    ) {
+        guard let store = workingSetStore,
+              segmentationFrameSaveTask == nil
+        else {
+            return
+        }
+        segmentationFrameSaveTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            defer { self.segmentationFrameSaveTask = nil }
+            do {
+                let artifacts = try await ARFrameArtifactAdapter
+                    .materialize(snapshot)
+                let package = try FrameEvidencePackageBuilder.build(
+                    descriptor: artifacts.descriptor,
+                    pixelPayload: artifacts.pixelPayload,
+                    depthPayload: artifacts.depthPayload,
+                    confidencePayload: artifacts.confidencePayload,
+                    previewPayload: artifacts.previewPayload
+                )
+                try await store.persistFramePackage(package)
+                self.markEvidenceRetention(
+                    "path:" + package.descriptorPath,
+                    .segmentationSource
+                )
+            } catch {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "Segmentation source frame could not be persisted; the mask record will be dropped at End: "
+                            + Self.persistenceDiagnostic(error)
+                    )
+                )
+            }
+        }
+    }
+
+    /// Build the derived record and queue it for the End-boundary doc.
+    private func finalizeSegmentationObservation(
+        run: SegmentationRunContext,
+        fusedWorldPointCount: Int,
+        depthConfidencePolicy: String?
+    ) {
+        let snapshot = run.source.snapshot
+        let frameRef =
+            "path:evidence/frames/"
+            + snapshot.frameID.rawValue.uuidString.lowercased()
+            + ".json"
+        persistSegmentationSourceFrame(snapshot)
+        let persistedMask = run.mask.downsampled(
+            toMaximumDimension:
+                segmentationPolicy.persistedMaskMaximumDimension
+        )
+        let provenance = PlatformRuntimeProvenance.current()
+        do {
+            let record = try ObjectSegmentationObservation(
+                observationID: run.observationID,
+                captureSessionID: snapshot.captureSessionID,
+                coordinateSpaceID: snapshot.coordinateSpaceID,
+                sourceFrameRef: frameRef,
+                sourceFrameKind: "streamed",
+                sessionTimestampSeconds:
+                    snapshot.sessionTimestampSeconds,
+                imageWidth: CVPixelBufferGetWidth(
+                    snapshot.capturedImage
+                ),
+                imageHeight: CVPixelBufferGetHeight(
+                    snapshot.capturedImage
+                ),
+                pixelFormatFourCC: CVPixelBufferGetPixelFormatType(
+                    snapshot.capturedImage
+                ),
+                viewRotationOrDisplayTransformRevision:
+                    run.source.revisionToken,
+                seedKind: run.seedKind,
+                seedPoints: run.seedPoints,
+                seedBox: run.seedBox,
+                refinementIncludedPoints: run.includedPoints,
+                refinementExcludedPoints: run.excludedPoints,
+                refinementCount:
+                    run.includedPoints.count
+                    + run.excludedPoints.count,
+                qualityLevel: segmentationQualityLevel.rawValue,
+                maskWidth: persistedMask.width,
+                maskHeight: persistedMask.height,
+                maskEncoding: "bitpack_msb_rows_base64",
+                maskPayloadRef: "inline",
+                maskPayloadBase64: persistedMask.base64Encoded,
+                maskAcceptThreshold:
+                    segmentationPolicy.maskAcceptThreshold,
+                visionRequest: "GenerateIterativeSegmentationRequest",
+                osVersion: provenance.osVersion,
+                osBuild: provenance.osBuild ?? "unknown",
+                appVersion: provenance.appVersion,
+                appBuild: provenance.appBuild,
+                downstreamSpatialFrameRef:
+                    fusedWorldPointCount > 0 ? frameRef : nil,
+                downstreamDepthConfidencePolicy:
+                    depthConfidencePolicy,
+                downstream3DPointCount: fusedWorldPointCount
+            )
+            pendingSegmentationObservations.append(record)
+        } catch {
+            Task { @MainActor [weak self] in
+                guard let self,
+                      let store = self.workingSetStore
+                else {
+                    return
+                }
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "Segmentation observation rejected by the record contract: "
+                            + Self.persistenceDiagnostic(error)
+                    )
+                )
+            }
+        }
+    }
+
+    /// Emit `derived/segmentation-observations.json` at the End commit.
+    /// A record persists only when its source frame actually declared —
+    /// a dropped frame write must not leave an unresolvable ref.
+    private func persistSegmentationObservations(
+        store: CaptureWorkingSetStore,
+        captureSessionID: CaptureSessionID,
+        coordinateSpaceID: CoordinateSpaceID,
+        generation: UUID
+    ) async {
+        let snapshot = await store.snapshot()
+        let declaredPaths = Set(
+            snapshot.payloadDeclarations.map(\.path)
+        )
+        let resolvable = pendingSegmentationObservations.filter {
+            $0.sourceFrameRef.hasPrefix("path:")
+                && declaredPaths.contains(
+                    String($0.sourceFrameRef.dropFirst(5))
+                )
+        }
+        let dropped =
+            pendingSegmentationObservations.count - resolvable.count
+        guard self.captureGeneration == generation else {
+            return
+        }
+        guard !resolvable.isEmpty else {
+            if dropped > 0 {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "\(dropped) segmentation observation(s) dropped: source frames undeclared."
+                    )
+                )
+            }
+            // A re-End with nothing honest to write must not strand a
+            // stale document.
+            if snapshot.payloadDeclarations.contains(where: {
+                $0.path == ObjectSegmentationObservationPackage.path
+            }) {
+                try? await store.removeSupplementalDocument(
+                    path: ObjectSegmentationObservationPackage.path
+                )
+            }
+            return
+        }
+
+        var sourceRefs = Array(
+            Set(resolvable.map(\.sourceFrameRef))
+        ).sorted(by: BundleLogicalPath.utf8Less)
+        if sourceRefs.count > BundleManifest.maxSourceRefsPerEntry {
+            sourceRefs = Array(
+                sourceRefs.prefix(
+                    BundleManifest.maxSourceRefsPerEntry
+                )
+            )
+        }
+        do {
+            let built =
+                try ObjectSegmentationObservationPackageBuilder.build(
+                    observations: resolvable,
+                    captureRevisionID:
+                        snapshot.identity.captureRevisionID,
+                    captureSessionID: captureSessionID,
+                    sourcePayloadRefs: sourceRefs
+                )
+            let document = try WorkingSetSupplementalDocument(
+                path: ObjectSegmentationObservationPackage.path,
+                data: built.package.data,
+                declaration: built.declaration,
+                coordinateSpaceIDs: [coordinateSpaceID],
+                captureSessionIDs: [captureSessionID]
+            )
+            if snapshot.payloadDeclarations.contains(where: {
+                $0.path == ObjectSegmentationObservationPackage.path
+            }) {
+                try await store.replaceSupplementalDocument(document)
+            } else {
+                try await store.persistSupplementalDocument(document)
+            }
+            if dropped > 0 {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "\(dropped) segmentation observation(s) dropped: source frames undeclared."
+                    )
+                )
+            }
+        } catch {
+            await store.recordResourceEvent(
+                CaptureResourceEvent(
+                    kind: .persistenceFailure,
+                    severity: .warning,
+                    detail:
+                        "Segmentation observations could not be persisted: "
+                        + Self.persistenceDiagnostic(error)
+                )
+            )
+        }
+    }
+
+    private static func decimateTo(
+        maximum: Int,
+        points: [NormalizedPoint2D]
+    ) -> [NormalizedPoint2D] {
+        guard points.count > maximum, maximum > 1 else {
+            return points
+        }
+        let step = Double(points.count - 1) / Double(maximum - 1)
+        return (0..<maximum).map { index in
+            points[min(
+                points.count - 1,
+                Int((Double(index) * step).rounded())
+            )]
+        }
+    }
+
+    /// The interface-orientation input for the documented legacy
+    /// `displayTransform(for:viewportSize:)` fallback — used only when
+    /// iOS 27 `viewRotationAngle` is unavailable (the primary
+    /// authority) or non-finite. Never a SwiftUI size-class value.
+    private static func currentInterfaceOrientation()
+        -> UIInterfaceOrientation
+    {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+            ?? UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first
+        return scene?.interfaceOrientation ?? .landscapeRight
     }
 
     // MARK: - Operator-declared regions (#257)
@@ -3086,6 +4156,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             if let pendingAuto = self.automaticFrameSaveTask {
                 await pendingAuto.value
             }
+            // #269: an accepted segmentation persists its source frame;
+            // that save must land inside this End boundary too so the
+            // derived doc's source_frame_ref resolves.
+            if let pendingSeg = self.segmentationFrameSaveTask {
+                await pendingSeg.value
+            }
 
             // #273: the return-to-start check, when the operator armed
             // it, leaves its verdict as advisory provenance. The check
@@ -3185,6 +4261,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             do {
                 try self.sessionController.startRoomPlan()
                 self.noteRoomPlanScanSegment()
+                // #269: mission boundary — prep the downloadable
+                // segmentation asset before scanning resumes so a later
+                // Isolate attempt never triggers mid-scan network work.
+                self.prepareSegmentationAssets()
             } catch {
                 self.reviewOperationInFlight = false
                 self.workingSetStatus =
@@ -3750,6 +4830,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         annotationEvidenceRefs =
             workingSnapshot.evidenceFrameRefs
+                + referenceObjectObservationTokens
         refreshAnnotationEvidenceFrames(
             rootDirectory: await store.rootDirectory
         )
@@ -3821,6 +4902,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         annotationEvidenceRefs =
             workingSnapshot.evidenceFrameRefs
+                + referenceObjectObservationTokens
         workingSetStatus = String(localized: "Evidence-linked point direction captured")
 
         return authority
@@ -3914,6 +4996,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         annotationEvidenceRefs =
             workingSnapshot.evidenceFrameRefs
+                + referenceObjectObservationTokens
         refreshAnnotationEvidenceFrames(
             rootDirectory: await store.rootDirectory
         )
@@ -4041,6 +5124,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             throw PlatformCaptureError.raycastMiss
         }
         annotationEvidenceRefs = workingSnapshot.evidenceFrameRefs
+            + referenceObjectObservationTokens
         refreshAnnotationEvidenceFrames(
             rootDirectory: await store.rootDirectory
         )
@@ -4130,6 +5214,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         markEvidenceRetention(evidenceRef, .equipmentIdentity)
         let workingSnapshot = await store.snapshot()
         annotationEvidenceRefs = workingSnapshot.evidenceFrameRefs
+            + referenceObjectObservationTokens
         refreshAnnotationEvidenceFrames(
             rootDirectory: await store.rootDirectory
         )
@@ -4660,6 +5745,45 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.annotationEditIsRevision = false
                 self.annotationRevisionSeed = nil
 
+                // #268: each reference-object observation ref that
+                // landed in an entity's evidence_refs is an operator
+                // acceptance — bounded advisory provenance, one note
+                // per newly bound pairing. The ref rides alongside
+                // placement/orientation authority; nothing was
+                // overwritten to put it there.
+                for entity in annotations {
+                    for ref in entity.evidenceRefs {
+                        guard ref.hasPrefix(
+                            "reference_object_observation:"
+                        ) else {
+                            continue
+                        }
+                        let pairing = entity.entityID.description
+                            + "="
+                            + String(
+                                ref.dropFirst(
+                                    "reference_object_observation:"
+                                        .count
+                                )
+                            )
+                        guard acceptedReferenceObjectPairings
+                            .insert(pairing).inserted
+                        else {
+                            continue
+                        }
+                        recordAdvisoryNote(
+                            CaptureAdvisoryNote(
+                                kind:
+                                    .referenceObjectAcceptance,
+                                sessionTimestampSeconds:
+                                    latestScanTimestampSeconds ?? 0,
+                                detail:
+                                    "entity_id=\(entity.entityID.description) observation_id=\(String(ref.dropFirst("reference_object_observation:".count)))"
+                            )
+                        )
+                    }
+                }
+
                 // #321: in-place repair kinds resolve on the
                 // annotation authority commit inside the same
                 // revision.
@@ -4841,6 +5965,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         markEvidenceRetention(evidenceRef, .equipmentIdentity)
         let workingSnapshot = await store.snapshot()
         annotationEvidenceRefs = workingSnapshot.evidenceFrameRefs
+            + referenceObjectObservationTokens
         refreshAnnotationEvidenceFrames(
             rootDirectory: await store.rootDirectory
         )
@@ -4849,6 +5974,38 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             from: observations,
             catalog: equipmentCatalog?.definitions ?? []
         )
+
+        // #270: optional advisory lane — a bounded, task-scoped
+        // Foundation Models suggestion layered ON TOP of the unchanged
+        // deterministic result. Off by default (UserDefaults flag) and
+        // zero-impact when unavailable: Simulator/ineligible devices,
+        // unsupported locales, context overflow, and validator
+        // rejection all produce a typed status, never a changed
+        // deterministic result. Raw OCR/barcode observations stay raw
+        // evidence; a model suggestion can rank/explain but can never
+        // overwrite them or bypass operator confirmation.
+        var aiAdvisory: EquipmentIdentityAIResult?
+        if equipmentIdentityAIAssistEnabled {
+            if #available(iOS 26.0, *) {
+                aiAdvisory = await EquipmentIdentityAIAdvisor.suggest(
+                    result: EquipmentLabelScanResult(
+                        algorithm: EquipmentLabelScanMatcher.algorithm,
+                        algorithmVersion:
+                            EquipmentLabelScanMatcher.algorithmVersion,
+                        evidenceRef: evidenceRef,
+                        candidates: candidates,
+                        rawObservations:
+                            EquipmentLabelScanMatcher.rawStrings(
+                                from: observations
+                            )
+                    ),
+                    catalog: equipmentCatalog?.definitions ?? [],
+                    catalogContentSHA256: equipmentCatalog?
+                        .contentSHA256.description
+                )
+            }
+        }
+
         workingSetStatus = String(localized: "Label scanned — review the suggestions")
         return EquipmentLabelScanResult(
             algorithm: EquipmentLabelScanMatcher.algorithm,
@@ -4859,7 +6016,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             rawObservations:
                 EquipmentLabelScanMatcher.rawStrings(
                     from: observations
-                )
+                ),
+            aiAdvisory: aiAdvisory
         )
     }
 
@@ -5294,6 +6452,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         exportURL = nil
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
+        referenceObjectObservationTokens = []
         annotationEvidenceFrames = []
         annotationRoomPlanObjects = []
         annotationRoomPlanObjectsLoaded = false
@@ -5406,6 +6565,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         bestDerivedObjectProxies = []
         targetedObjectFusionTracker.reset()
         derivedPreviewSuspendedForMemoryPressure = false
+        resetSegmentationCaptureState()
         scanEvidenceFrameCount = 0
         scanDepthEvidenceCount = 0
         endScanGuidance = nil
@@ -5423,6 +6583,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         declaredRegionList = []
         revisitFlagStore = CaptureRevisitFlagStore()
         revisitFlags = []
+        clearScanCopilot()
         pendingTaskPlanImport = nil
         pendingTaskPlanImportError = nil
         boundTaskPlanStatus = nil
@@ -5578,6 +6739,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         exportURL = nil
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
+        referenceObjectObservationTokens = []
         annotationEvidenceFrames = []
         annotationRoomPlanObjects = []
         annotationRoomPlanObjectsLoaded = false
@@ -5633,6 +6795,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         bestDerivedObjectProxies = []
         targetedObjectFusionTracker.reset()
         derivedObjectFusionTracker.reset()
+        resetSegmentationCaptureState()
         derivedVolumeFusionTracker.reset()
         derivedWallFusionTracker.reset()
         derivedPreviewSuspendedForMemoryPressure = false
@@ -5660,6 +6823,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         operatorRegionDeclarations = OperatorRegionDeclarations()
         revisitFlagStore = CaptureRevisitFlagStore()
         revisitFlags = []
+        clearScanCopilot()
         scanLightingStatus = .unknown
         automaticEvidenceFrameCount = 0
         automaticKeyframePersistedBytes = 0
@@ -11480,6 +12644,31 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
             }
         }
+        // #268: reference-object anchors ride the same single delegate
+        // bridge — add/update/remove plus the tracked-state read are
+        // buffered into the canonical observation document. isTracked
+        // loss is a lifecycle record, never anchor removal.
+        sessionController.objectAnchorLifecycleHandler = {
+            [weak self] kind, anchors, timestampSeconds in
+            guard let self,
+                  self.captureGeneration == generation
+            else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                // Read the context at callback time, not bind time —
+                // a mid-scan spatial discontinuity mints a new
+                // coordinate-space authority the observation must name.
+                await self.recordReferenceObjectAnchors(
+                    kind,
+                    anchors: anchors,
+                    sessionTimestampSeconds: timestampSeconds,
+                    store: store,
+                    context: self.sessionController.context
+                )
+            }
+        }
         sessionController.roomPlanInstructionHandler = {
             [weak self] observation in
             Task { @MainActor [weak self] in
@@ -11624,6 +12813,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             try sessionController.startRoomPlan()
             noteRoomPlanScanSegment()
+            // #269: prep the downloadable segmentation asset now —
+            // before the scan mission starts — so a later operator
+            // Isolate request never triggers mid-scan network work.
+            prepareSegmentationAssets()
         } catch {
             await store.recordRoomPlanGuidanceUnavailable()
             workingSetStatus = String(localized: "RoomPlan could not start after the live camera view was presented")
@@ -11648,6 +12841,20 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             fail(.trackingUnavailable)
             return
         }
+
+        guard state == .scanning,
+              captureGeneration == generation
+        else {
+            return
+        }
+
+        // #268: install the operator's reference-object sets on the
+        // live configuration BEFORE the coordinate space binds — the
+        // session re-run ARKit performs for a configuration change then
+        // absorbs into the not-yet-bound space, so the bound space is
+        // the space observations actually live in. The outcome is
+        // persisted (and advisored) right after the foundation commits.
+        await applyReferenceObjectConfigurationBeforeBinding()
 
         guard state == .scanning,
               captureGeneration == generation
@@ -11708,6 +12915,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        // #268: the coordinate space is bound now — the configuration
+        // echo lands in the canonical observation document, and any
+        // non-plain outcome becomes a bounded advisory.
+        await persistReferenceObjectConfigurationEcho(store: store)
+
         // Strategy provenance (#307): record which published
         // guidance/evidence policy steers this scan so a consumer can
         // read exactly what the advisory budgets were. Advisory
@@ -11764,6 +12976,273 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             generation: generation
         )
         workingSetStatus = String(localized: "Scanning; live RoomPlan camera and active AR configuration are ready")
+    }
+
+    // MARK: - Reference objects (#268)
+
+    /// Loads the operator-selected `.referenceobject` artifacts and
+    /// installs them on the live session configuration (#268). Runs
+    /// after the start-boundary timing correlation and before
+    /// `waitForActiveConfiguration` — the session re-run ARKit
+    /// performs for a configuration change then absorbs into the
+    /// not-yet-bound coordinate space, so `appliedBeforeCoordinateBinding`
+    /// is recorded as true and every observation lands in the bound
+    /// space (a post-binding reconfiguration is never offered: the
+    /// coordinate policy requires a new revision instead).
+    ///
+    /// Legacy `.arobject` artifacts are refused at the load gate —
+    /// iOS 27 cannot mix archive formats in one session — and
+    /// `trackingObjects` requests on an OS/SDK that lacks them come
+    /// back `.trackingUnsupported`, never silently demoted.
+    private func
+        applyReferenceObjectConfigurationBeforeBinding() async
+    {
+        guard let manifest = resolvedReferenceObjectManifest(),
+              !pendingReferenceObjectRequests.isEmpty
+        else {
+            return
+        }
+        let plan = ReferenceObjectSelectionPolicy.resolve(
+            requests: pendingReferenceObjectRequests,
+            manifest: manifest
+        )
+        var detectionObjects = Set<ARReferenceObject>()
+        var trackingObjects = Set<ARReferenceObject>()
+        var configured: [ReferenceObjectConfiguredAsset] = []
+        for request in plan.selected {
+            guard let asset = manifest.asset(for: request.assetID)
+            else {
+                continue
+            }
+            var outcome: ReferenceObjectLoadOutcome
+            var detail: String?
+            var object: ARReferenceObject?
+            guard asset.artifactFilename.hasSuffix(
+                ".referenceobject"
+            ) else {
+                outcome = .rejected
+                detail =
+                    "legacy .arobject artifacts cannot mix with .referenceobject payloads in one session"
+                configured.append(
+                    ReferenceObjectConfiguredAsset(
+                        asset: asset,
+                        role: request.role,
+                        loadOutcome: outcome,
+                        loadDetail: detail
+                    )
+                )
+                continue
+            }
+            if let url = Bundle.main.url(
+                forResource: asset.artifactFilename,
+                withExtension: nil,
+                subdirectory:
+                    ReferenceObjectAssetManifest.bundleDirectory
+            ) {
+                do {
+                    object = try ARReferenceObject(archiveURL: url)
+                    outcome = .loaded
+                } catch {
+                    outcome = .rejected
+                    detail = String(describing: error)
+                }
+            } else {
+                outcome = .unavailable
+                detail =
+                    "artifact missing from ReferenceObjects bundle directory"
+            }
+            configured.append(
+                ReferenceObjectConfiguredAsset(
+                    asset: asset,
+                    role: request.role,
+                    loadOutcome: outcome,
+                    loadDetail: detail
+                )
+            )
+            if let object {
+                // The manifest's arkit_object_name is the match key
+                // anchors carry back — the asset-id lookup at callback
+                // time is a manifest concern, never an ARKit one.
+                object.name = asset.arkitObjectName
+                switch request.role {
+                case .detection:
+                    detectionObjects.insert(object)
+                case .tracking:
+                    trackingObjects.insert(object)
+                }
+            }
+        }
+        let echo = ReferenceObjectSelectionEcho(
+            requested: pendingReferenceObjectRequests,
+            dropped: plan.rejected
+        )
+        guard !detectionObjects.isEmpty || !trackingObjects.isEmpty
+        else {
+            // Every selection failed the load gate — still record the
+            // echo (dropped picks + load outcomes are evidence), no
+            // session re-run needed.
+            pendingReferenceObjectConfiguration = (
+                echo,
+                configured,
+                ReferenceObjectReconfigurationResult(
+                    status: .configured,
+                    detail: "no_loadable_objects no_change",
+                    sessionRestarted: false
+                )
+            )
+            return
+        }
+        let result = sessionController.configureReferenceObjects(
+            detection: detectionObjects,
+            tracking: trackingObjects
+        )
+        pendingReferenceObjectConfiguration = (
+            echo, configured, result
+        )
+    }
+
+    /// Persists the configuration echo once the coordinate space is
+    /// bound (#268) and advisors a non-plain outcome — the canonical
+    /// `evidence/reference-object-observations.json` then carries
+    /// exactly what the session was asked to adopt and what it did.
+    private func persistReferenceObjectConfigurationEcho(
+        store: CaptureWorkingSetStore
+    ) async {
+        guard let pending = pendingReferenceObjectConfiguration else {
+            return
+        }
+        pendingReferenceObjectConfiguration = nil
+        do {
+            try await store.recordReferenceObjectConfiguration(
+                selection: pending.selection,
+                configuredAssets: pending.configuredAssets,
+                appliedBeforeCoordinateBinding: true
+            )
+        } catch {
+            await store.recordResourceEvent(
+                CaptureResourceEvent(
+                    kind: .persistenceFailure,
+                    severity: .warning,
+                    detail:
+                        "reference-object configuration echo could not be persisted: \(error)"
+                )
+            )
+        }
+        let droppedDetail = pending.selection.dropped.map {
+            "\($0.assetID.rawValue)=\($0.reason.rawValue)"
+        }.joined(separator: " ")
+        recordAdvisoryNote(
+            CaptureAdvisoryNote(
+                kind: .referenceObjectSelection,
+                sessionTimestampSeconds:
+                    latestScanTimestampSeconds ?? 0,
+                detail:
+                    "requested=\(pending.selection.requested.count) "
+                    + "dropped=\(pending.selection.dropped.count)"
+                    + (droppedDetail.isEmpty
+                        ? "" : " \(droppedDetail)")
+            )
+        )
+        if pending.outcome.status != .configured {
+            recordAdvisoryNote(
+                CaptureAdvisoryNote(
+                    kind: .referenceObjectConfigurationOutcome,
+                    sessionTimestampSeconds:
+                        latestScanTimestampSeconds ?? 0,
+                    detail:
+                        "status=\(pending.outcome.status.rawValue) "
+                        + pending.outcome.detail
+                )
+            )
+        }
+    }
+
+    /// Converts each `ARObjectAnchor` in a delegate callback into a
+    /// persisted pose observation (#268). Anchors whose matched name
+    /// is not in the shipped manifest, or whose transform fails the
+    /// rigid-pose invariant, are counted as resource events — never
+    /// silently dropped and never written.
+    private func recordReferenceObjectAnchors(
+        _ kind: MeshAnchorLifecycleKind,
+        anchors: [ARObjectAnchor],
+        sessionTimestampSeconds: Double,
+        store: CaptureWorkingSetStore,
+        context: CaptureSessionContext
+    ) async {
+        guard let manifest = referenceObjectManifest else {
+            return
+        }
+        for anchor in anchors {
+            guard let asset = ARReferenceObjectObservationAdapter
+                .matchedAsset(for: anchor, manifest: manifest)
+            else {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "reference-object anchor did not match the shipped manifest (kind=\(kind.rawValue))"
+                    )
+                )
+                continue
+            }
+            let role = pendingReferenceObjectRequests.first {
+                $0.assetID == asset.assetID
+            }?.role ?? .detection
+            guard let observation =
+                ARReferenceObjectObservationAdapter.observation(
+                    for: anchor,
+                    asset: asset,
+                    role: role,
+                    kind: kind,
+                    captureSessionID: context.captureSessionID,
+                    coordinateSpaceID: context.coordinateSpaceID,
+                    sessionTimestampSeconds:
+                        sessionTimestampSeconds
+                )
+            else {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "reference-object anchor pose failed rigid-transform validation (asset=\(asset.assetID.rawValue))"
+                    )
+                )
+                continue
+            }
+            do {
+                try await store.recordReferenceObjectObservation(
+                    observation,
+                    kind: kind
+                )
+                await refreshReferenceObjectObservationTokens(
+                    store: store
+                )
+            } catch {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "reference-object observation could not be persisted: \(error)"
+                    )
+                )
+            }
+        }
+    }
+
+    /// Rebuilds the offerable `reference_object_observation:<id>`
+    /// tokens from the committed record (#268) and merges them onto
+    /// `annotationEvidenceRefs` — the entity form then lists each
+    /// observation as evidence the operator may accept.
+    private func refreshReferenceObjectObservationTokens(
+        store: CaptureWorkingSetStore
+    ) async {
+        let observations = await store.referenceObjectObservations
+        referenceObjectObservationTokens = observations.map {
+            $0.evidenceRefToken
+        }
     }
 
     /// Periodic storage accounting for the #308 advisory surface. Runs
@@ -12737,6 +14216,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 generation: generation
             )
 
+            // #269: emit the accepted segmentation records as derived
+            // evidence while every referenced frame descriptor is
+            // declared and the working set is still mutable.
+            await self.persistSegmentationObservations(
+                store: store,
+                captureSessionID: captureSessionID,
+                coordinateSpaceID: coordinateSpaceID,
+                generation: generation
+            )
+
             self.acceptedRoomPlanRawSHA256 =
                 raw.descriptor.sha256
             self.acceptedEndMeshWasPersisted =
@@ -12859,6 +14348,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             try sessionController.startRoomPlan()
             noteRoomPlanScanSegment()
+            // #269: prep the downloadable segmentation asset now —
+            // before the scan mission starts — so a later operator
+            // Isolate request never triggers mid-scan network work.
+            prepareSegmentationAssets()
         } catch {
             isEndingScan = false
             workingSetStatus =
@@ -12951,6 +14444,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             targetedObjectProxies = []
             bestDerivedObjectProxies = []
             targetedObjectFusionTracker.reset()
+        
+            resetSegmentationCaptureState()
         }
 
         scanCoverageTask = Task { @MainActor [weak self] in
@@ -13524,7 +15019,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         qualityReport = report
         advisoryReport = advisory
+        // #268: repopulate the observation tokens first — a reopened
+        // draft's committed observations are offerable evidence refs
+        // just like live-scan records.
+        await refreshReferenceObjectObservationTokens(store: store)
         annotationEvidenceRefs = snapshot.evidenceFrameRefs
+            + referenceObjectObservationTokens
         refreshAnnotationEvidenceFrames(
             rootDirectory: await store.rootDirectory
         )
