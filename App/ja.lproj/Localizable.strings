@@ -3722,6 +3722,16 @@
 "The scene looks dark to the camera; brighter, even lighting improves photo evidence quality." = "カメラからはシーンが暗く見えています。明るく均一な照明にすると写真エビデンスの品質が向上します。";
 "Recheck" = "再チェック";
 "Continue anyway" = "このまま続行";
+"A high-resolution capture is already in progress; this scan is still active" = "高解像度キャプチャは実行中です。スキャンは継続しています";
+"High-resolution capture is not supported in the current configuration; this scan is still active" = "現在の構成では高解像度キャプチャに対応していません。スキャンは継続しています";
+"High-resolution evidence could not be captured; this scan is still active" = "高解像度の証拠を取得できませんでした。スキャンは継続しています";
+"Equipment label" = "機器ラベル";
+"Targeted object" = "対象物体";
+"Reference fixture" = "参照設備";
+"Review evidence" = "レビュー証拠";
+"Hi-res…" = "高解像度…";
+"Hi-res" = "高解像度";
+"Save high-resolution evidence" = "高解像度の証拠を保存";
 "Use lowercase letters, digits and underscores." = "小文字の英字・数字・アンダースコアのみ使用できます。";
 "Guidance finished: %lld weak area was marked intentionally unresolved. It remains reviewable in spatial coverage." = "ガイダンス完了: 弱い領域%lld箇所が意図的に未解決のままマークされています。空間カバレッジで確認できます。";
 "Guidance finished: %lld weak areas were marked intentionally unresolved. They remain reviewable in spatial coverage." = "ガイダンス完了: 弱い領域%lld箇所が意図的に未解決のままマークされています。空間カバレッジで確認できます。";

@@ -627,6 +627,9 @@ public final class SharedARSessionController {
         RoomPlanSessionInstructionBridge()
     private let sessionDelegateBridge = ARSessionLifecycleBridge()
     private var liveRoomCaptureViewMountObserved = false
+    /// #275: at most one ARKit high-resolution request in flight;
+    /// internal so the HighResolutionEvidence extension enforces it.
+    var highResolutionRequestInFlight = false
 
     /// Bounded AR frame-interval measurement (#273 instrumentation).
     /// Fed by the lifecycle bridge's `didUpdate` passthrough; the

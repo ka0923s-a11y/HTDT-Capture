@@ -16,6 +16,10 @@ public struct CaptureRootActions {
     public let cancelCaptureSetup: () -> Void
     public let beginReview: () -> Void
     public let captureEvidenceFrame: () -> Void
+    /// #275: bounded one-shot high-resolution evidence still,
+    /// deliberately requested with a stated purpose.
+    public let captureHighResolutionEvidence:
+        (HighQualityEvidencePurpose) -> Void
     /// #250 targeted-object pass actions.
     public let beginTargetScan: () -> Void
     public let retakeTargetScan: () -> Void
@@ -488,6 +492,8 @@ public struct CaptureRootActions {
         cancelCaptureSetup: @escaping () -> Void = {},
         beginReview: @escaping () -> Void = {},
         captureEvidenceFrame: @escaping () -> Void = {},
+        captureHighResolutionEvidence: @escaping
+            (HighQualityEvidencePurpose) -> Void = { _ in },
         beginTargetScan: @escaping () -> Void = {},
         retakeTargetScan: @escaping () -> Void = {},
         acceptTargetScan: @escaping () -> Void = {},
@@ -820,6 +826,8 @@ public struct CaptureRootActions {
         self.cancelCaptureSetup = cancelCaptureSetup
         self.beginReview = beginReview
         self.captureEvidenceFrame = captureEvidenceFrame
+        self.captureHighResolutionEvidence =
+            captureHighResolutionEvidence
         self.beginTargetScan = beginTargetScan
         self.retakeTargetScan = retakeTargetScan
         self.acceptTargetScan = acceptTargetScan
@@ -1118,6 +1126,8 @@ public struct CaptureRootView: View {
     /// Scanning surfaces for #250/#257/#252/#273/#279/#216/#283.
     public let isEndingScan: Bool
     public let isCapturingEvidence: Bool
+    /// #275: a bounded high-resolution evidence still is in flight.
+    public let isCapturingHighResolutionEvidence: Bool
     public let automaticEvidenceCount: Int
     public let lowLightGuidanceActive: Bool
     /// #277: bounded camera-source preflight advisory card.
@@ -1374,6 +1384,7 @@ public struct CaptureRootView: View {
         captureSetup: CaptureSetupPresentation? = nil,
         isEndingScan: Bool = false,
         isCapturingEvidence: Bool = false,
+        isCapturingHighResolutionEvidence: Bool = false,
         automaticEvidenceCount: Int = 0,
         lowLightGuidanceActive: Bool = false,
         sourceQualityAdvisory: CameraSourceAdvisory? = nil,
@@ -1505,6 +1516,8 @@ public struct CaptureRootView: View {
         self.captureSetup = captureSetup
         self.isEndingScan = isEndingScan
         self.isCapturingEvidence = isCapturingEvidence
+        self.isCapturingHighResolutionEvidence =
+            isCapturingHighResolutionEvidence
         self.automaticEvidenceCount = automaticEvidenceCount
         self.lowLightGuidanceActive = lowLightGuidanceActive
         self.sourceQualityAdvisory = sourceQualityAdvisory
@@ -1718,6 +1731,8 @@ public struct CaptureRootView: View {
                     endScanGuidance: endScanGuidance,
                     isEndingScan: isEndingScan,
                     isCapturingEvidence: isCapturingEvidence,
+                    isCapturingHighResolutionEvidence:
+                        isCapturingHighResolutionEvidence,
                     automaticEvidenceCount: automaticEvidenceCount,
                     evidenceStorageAdvisory: evidenceStorageAdvisory,
                     lowLightGuidanceActive: lowLightGuidanceActive,
@@ -1771,6 +1786,8 @@ public struct CaptureRootView: View {
                         actions.requestScanCopilotSuggestion,
                     captureEvidenceFrame:
                         actions.captureEvidenceFrame,
+                    captureHighResolutionEvidence:
+                        actions.captureHighResolutionEvidence,
                     setMovementCapability:
                         actions.setScanMovementCapability,
                     endScan: actions.beginReview

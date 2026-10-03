@@ -54,7 +54,8 @@
               "reference_object_selection",
               "reference_object_configuration_outcome",
               "reference_object_acceptance",
-              "source_quality_preflight"
+              "source_quality_preflight",
+              "high_resolution_still"
             ]
           },
           "session_timestamp_seconds": {

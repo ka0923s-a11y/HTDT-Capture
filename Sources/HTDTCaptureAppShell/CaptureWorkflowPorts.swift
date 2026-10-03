@@ -20,6 +20,9 @@ public struct SpatialCaptureActions {
     public let cancelCaptureSetup: () -> Void
     public let beginReview: () -> Void
     public let captureEvidenceFrame: () -> Void
+    /// #275 bounded high-resolution still, purpose-bound.
+    public let captureHighResolutionEvidence:
+        (HighQualityEvidencePurpose) -> Void
     public let beginTargetScan: () -> Void
     public let retakeTargetScan: () -> Void
     public let acceptTargetScan: () -> Void
@@ -74,6 +77,8 @@ public struct SpatialCaptureActions {
         self.cancelCaptureSetup = actions.cancelCaptureSetup
         self.beginReview = actions.beginReview
         self.captureEvidenceFrame = actions.captureEvidenceFrame
+        self.captureHighResolutionEvidence =
+            actions.captureHighResolutionEvidence
         self.beginTargetScan = actions.beginTargetScan
         self.retakeTargetScan = actions.retakeTargetScan
         self.acceptTargetScan = actions.acceptTargetScan

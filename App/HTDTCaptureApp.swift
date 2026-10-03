@@ -102,6 +102,8 @@ private struct HTDTCaptureHostView: View {
             isEndingScan: coordinator.isEndingScan,
             isCapturingEvidence:
                 coordinator.isCapturingEvidenceFrame,
+            isCapturingHighResolutionEvidence:
+                coordinator.isCapturingHighResolutionEvidence,
             automaticEvidenceCount:
                 coordinator.automaticEvidenceFrameCount,
             lowLightGuidanceActive:
@@ -223,6 +225,8 @@ private struct HTDTCaptureHostView: View {
                     coordinator.cancelCaptureSetup,
                 beginReview: coordinator.beginReview,
                 captureEvidenceFrame: coordinator.captureEvidenceFrame,
+                captureHighResolutionEvidence:
+                    coordinator.captureHighResolutionEvidence,
                 beginTargetScan: coordinator.beginTargetScan,
                 retakeTargetScan: coordinator.retakeTargetScan,
                 acceptTargetScan: coordinator.acceptTargetScan,
@@ -1018,10 +1022,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// the host guards make them no-op (#279).
     @Published private(set) var isEndingScan = false
     @Published private(set) var isCapturingEvidenceFrame = false
+    /// True while a bounded one-shot high-resolution still (#275) is
+    /// being requested/persisted; repeated taps reject instead of
+    /// queuing inside the platform guard.
+    @Published private(set) var
+        isCapturingHighResolutionEvidence = false
     /// Handle on the in-flight manual evidence-save persistence task.
     /// End drains it before sampling the working set so a committed
     /// save lands wholly before the End boundary (#179).
     private var evidenceFrameSaveTask: Task<Void, Never>?
+    /// Same End-boundary drain for the bounded high-resolution save
+    /// (#275): its commit/rollback resolves before End snapshots.
+    private var highResolutionSaveTask: Task<Void, Never>?
     private var endScanPreflightBlocked = false
     private var captureStartTimingCorrelation:
         CaptureTimingCorrelation?
@@ -2536,6 +2548,243 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 savedStatus += String(localized: " — the saved frame may be unusable (dark, blurred or overexposed); consider a retake")
             }
             self.workingSetStatus = savedStatus
+        }
+    }
+
+    /// Bounded one-shot high-resolution evidence still (#275): the
+    /// operator deliberately asks for a higher-quality visual frame
+    /// for a stated purpose. ARKit serves it out-of-band on the shared
+    /// session — never a second camera — and at most one request is in
+    /// flight (the platform guard rejects repeats). The frame lands as
+    /// an ordinary evidence-frame package carrying bounded
+    /// `HTDT.visual_profile.*` provenance on the descriptor; it is
+    /// never depth or geometry authority (`depthSelection: .none`).
+    /// Every attempt — captured, busy, unsupported, failed — is
+    /// recorded as a bounded `highResolutionStill` advisory note.
+    func captureHighResolutionEvidence(
+        purpose: HighQualityEvidencePurpose
+    ) {
+        guard state == .scanning,
+              !isEndingScan,
+              !isCapturingHighResolutionEvidence,
+              let store = workingSetStore
+        else {
+            return
+        }
+
+        isCapturingHighResolutionEvidence = true
+        let generation = captureGeneration
+        highResolutionSaveTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            defer {
+                self.isCapturingHighResolutionEvidence = false
+                self.highResolutionSaveTask = nil
+            }
+
+            let capture: HighResolutionEvidenceCapture
+            do {
+                capture = try await self.sessionController
+                    .captureHighResolutionEvidenceSnapshot(
+                        purpose: purpose
+                    )
+            } catch {
+                guard self.captureGeneration == generation,
+                      self.state == .scanning
+                else {
+                    return
+                }
+                self.recordAdvisoryNote(
+                    CaptureAdvisoryNote(
+                        kind: .highResolutionStill,
+                        sessionTimestampSeconds:
+                            self.latestScanTimestampSeconds ?? 0,
+                        detail:
+                            "outcome="
+                            + Self.highResolutionOutcomeCode(error)
+                            + " purpose=\(purpose.rawValue)"
+                    )
+                )
+                guard !self.isEndingScan else {
+                    return
+                }
+                switch error as? HighResolutionEvidenceError {
+                case .alreadyInFlight:
+                    self.workingSetStatus = String(
+                        localized: "A high-resolution capture is already in progress; this scan is still active"
+                    )
+                case .unsupported:
+                    self.workingSetStatus = String(
+                        localized: "High-resolution capture is not supported in the current configuration; this scan is still active"
+                    )
+                default:
+                    self.workingSetStatus = String(
+                        localized: "High-resolution evidence could not be captured; this scan is still active"
+                    )
+                        + " ["
+                        + Self.persistenceDiagnostic(error)
+                        + "]"
+                }
+                return
+            }
+
+            guard self.captureGeneration == generation,
+                  self.state == .scanning
+            else {
+                return
+            }
+
+            let artifacts: CapturedFrameArtifacts
+            do {
+                artifacts = try await ARFrameArtifactAdapter
+                    .materialize(capture.snapshot)
+            } catch {
+                guard !self.isEndingScan else {
+                    return
+                }
+                self.workingSetStatus =
+                    String(localized: "Evidence frame could not be prepared; this scan is still active")
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+                return
+            }
+
+            guard self.captureGeneration == generation,
+                  self.state == .scanning
+            else {
+                return
+            }
+
+            let package: FrameEvidencePackage
+            do {
+                package = try FrameEvidencePackageBuilder.build(
+                    descriptor: artifacts.descriptor,
+                    pixelPayload: artifacts.pixelPayload,
+                    depthPayload: artifacts.depthPayload,
+                    confidencePayload: artifacts.confidencePayload,
+                    previewPayload: artifacts.previewPayload
+                )
+            } catch {
+                guard !self.isEndingScan else {
+                    return
+                }
+                self.workingSetStatus =
+                    String(localized: "Evidence frame package could not be built; this scan is still active")
+                    + " ["
+                    + Self.persistenceDiagnostic(error)
+                    + "]"
+                return
+            }
+
+            do {
+                try await store.persistFramePackage(package)
+            } catch {
+                guard self.captureGeneration == generation,
+                      self.state == .scanning
+                else {
+                    return
+                }
+
+                let diagnostic =
+                    Self.persistenceDiagnostic(error)
+
+                if error is CaptureWorkingSetError {
+                    self.workingSetStatus =
+                        String(localized: "Evidence-frame persistence hit a capture-authority conflict and cannot continue safely")
+                        + " ["
+                        + diagnostic
+                        + "]"
+                    self.fail(.persistenceFailure)
+                    return
+                }
+
+                do {
+                    try await store.discardUncommittedFramePackage(
+                        package
+                    )
+                } catch {
+                    self.workingSetStatus =
+                        String(localized: "Evidence-frame persistence failed and partial canonical files could not be rolled back safely")
+                        + " ["
+                        + diagnostic
+                        + "]"
+                    self.fail(.persistenceFailure)
+                    return
+                }
+
+                guard self.captureGeneration == generation,
+                      self.state == .scanning,
+                      !self.isEndingScan
+                else {
+                    return
+                }
+                self.workingSetStatus =
+                    String(localized: "Evidence frame was not committed; this scan is still active")
+                    + " ["
+                    + diagnostic
+                    + "]"
+                return
+            }
+
+            self.recordAdvisoryNote(
+                CaptureAdvisoryNote(
+                    kind: .highResolutionStill,
+                    sessionTimestampSeconds:
+                        capture.snapshot.sessionTimestampSeconds,
+                    detail:
+                        "outcome=captured"
+                        + " purpose=\(purpose.rawValue) "
+                        + capture.profileDetail
+                )
+            )
+
+            self.markEvidenceRetention(
+                "path:" + package.descriptorPath,
+                .manualScan
+            )
+
+            let snapshot = await store.snapshot()
+            guard self.captureGeneration == generation,
+                  self.state == .scanning,
+                  !self.isEndingScan
+            else {
+                return
+            }
+            self.scanEvidenceFrameCount =
+                snapshot.evidenceFrameCount
+            self.scanDepthEvidenceCount =
+                snapshot.depthEvidenceCount
+            self.updateLiveEndScanGuidance()
+            self.workingSetStatus = captureCountPhrase(
+                snapshot.evidenceFrameCount,
+                singular: String(
+                    localized: "Scanning; %lld evidence frame persisted"
+                ),
+                plural: String(
+                    localized: "Scanning; %lld evidence frames persisted"
+                )
+            )
+        }
+    }
+
+    /// Maps the bounded high-resolution failure into the honest
+    /// advisory outcome code — never a fabricated success.
+    private static func highResolutionOutcomeCode(
+        _ error: Error
+    ) -> String {
+        switch error as? HighResolutionEvidenceError {
+        case .alreadyInFlight:
+            return "busy"
+        case .unsupported:
+            return "unsupported"
+        case .noActiveConfiguration:
+            return "no_active_configuration"
+        case .captureFailed:
+            return "capture_failed"
+        case nil:
+            return "unexpected"
         }
     }
 
@@ -4390,6 +4639,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // same boundary as a manual save (#216, #179).
             if let pendingAuto = self.automaticFrameSaveTask {
                 await pendingAuto.value
+            }
+            // The bounded high-resolution still (#275) drains in the
+            // same boundary; isEndingScan suppresses its UI
+            // continuation just like the manual save's.
+            if let pendingHiRes = self.highResolutionSaveTask {
+                await pendingHiRes.value
             }
             // #269: an accepted segmentation persists its source frame;
             // that save must land inside this End boundary too so the
@@ -6857,6 +7112,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         isEndingScan = false
         isCapturingEvidenceFrame = false
         evidenceFrameSaveTask = nil
+        isCapturingHighResolutionEvidence = false
+        highResolutionSaveTask = nil
         scanTrackingTransitionGate.reset()
         capabilities = PlatformCapabilityProbe.current()
         cameraPermission = CameraPermissionController.currentStatus()
@@ -7100,6 +7357,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         isEndingScan = false
         isCapturingEvidenceFrame = false
         evidenceFrameSaveTask = nil
+        isCapturingHighResolutionEvidence = false
+        highResolutionSaveTask = nil
     }
 
     /// Operator-initiated discard of the active capture (issue #254):
