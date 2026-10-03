@@ -127,7 +127,7 @@ func validatorRejectsHardLinkedManifest() throws {
     let root = try makeTemporaryDirectory()
     defer { try? fileManager.removeItem(at: root) }
 
-    // Stage a complete foundation set (#194) plus the test payload so
+    // Stage a complete foundation set (legacy bolph71656-ai/HTDT-Capture#194) plus the test payload so
     // the manifest is a valid finalized v1 bundle.
     try BundleValidationFixture.stage(
         root,

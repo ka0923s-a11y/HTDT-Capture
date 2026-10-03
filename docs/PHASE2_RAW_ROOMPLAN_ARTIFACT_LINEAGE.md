@@ -1,7 +1,7 @@
 # Phase 2 Raw RoomPlan Artifact Lineage
 
 Status: implemented in software; physical-device persistence/reopen remains open  
-Issue: #3
+Issue: legacy bolph71656-ai/HTDT-Capture#3
 
 ## Purpose
 
@@ -76,6 +76,6 @@ The local iOS compile validates the RoomPlan delegate and RoomBuilder API surfac
 - compare regenerated postprocessed identity/semantics under a pinned
   OS/framework context;
 - bind final mesh evidence from the same coordinate space;
-- execute Issue #9 physical RoomPlan/mesh accuracy validation.
+- execute Issue bolph71656-ai/HTDT-Capture#9 physical RoomPlan/mesh accuracy validation.
 
 No physical capture or accuracy claim is made by this slice.

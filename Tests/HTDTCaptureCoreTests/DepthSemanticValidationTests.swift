@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-// MARK: - Canonical depth/confidence semantics (#164)
+// MARK: - Canonical depth/confidence semantics (legacy bolph71656-ai/HTDT-Capture#164)
 //
 // The platform adapter (DepthDataSnapshotAdapter, iOS-only) enforces the
 // v1 sample policy at the capture boundary: only finite positive depth

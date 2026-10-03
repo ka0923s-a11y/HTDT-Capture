@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import HTDTCaptureCore
 
-/// The capture-loop header (issue #372): Prepare → Scan → Review →
+/// The capture-loop header (issue bolph71656-ai/HTDT-Capture#372): Prepare → Scan → Review →
 /// Details → Finalize → Send presented as one loop-aware journey —
 /// never a rigid linear stepper. Compact width shows the current
 /// stage plus its subtitle; regular width shows the whole trail with
@@ -146,7 +146,7 @@ public struct CaptureJourneyHeader: View {
     }
 
     /// Technical readiness — integrity + spatial persistence — kept
-    /// visibly separate from mission progress (#372 JOURNEY-50).
+    /// visibly separate from mission progress (legacy bolph71656-ai/HTDT-Capture#372 JOURNEY-50).
     @ViewBuilder
     private var readinessRow: some View {
         if let readiness = presentation.readiness {
@@ -183,7 +183,7 @@ public struct CaptureJourneyHeader: View {
     }
 
     /// VoiceOver: "Current step: Review. Scan complete. Two required
-    /// tasks remaining." (issue #372 JOURNEY-90).
+    /// tasks remaining." (issue bolph71656-ai/HTDT-Capture#372 JOURNEY-90).
     private var accessibilitySummary: String {
         var parts = [
             String(

@@ -10,7 +10,7 @@ public enum RepairTaskError: Error, Sendable, Equatable {
     case unreadableDocument
 }
 
-/// The corrective action an HTDT diagnostic maps onto (issue #321).
+/// The corrective action an HTDT diagnostic maps onto (issue bolph71656-ai/HTDT-Capture#321).
 /// The mapping is the authority boundary: an HTDT diagnostic is task
 /// intent, never observation truth, and a spatial repair always
 /// produces a fresh coordinate authority.
@@ -114,7 +114,7 @@ public struct HTDTRepairTask: Codable, Sendable, Equatable {
     }
 }
 
-/// A versioned HTDT repair/follow-up task plan (issue #321): the
+/// A versioned HTDT repair/follow-up task plan (issue bolph71656-ai/HTDT-Capture#321): the
 /// targeted recapture/correction list HTDT returns after ingestion or
 /// promotion diagnostics. The plan pins the exact source capture
 /// revision, its bundle digest, and the ingestion receipt it responds
@@ -319,7 +319,7 @@ public struct HTDTRepairTaskPlanImport: Sendable, Equatable {
 }
 
 /// One inbound HTDT ingestion/promotion diagnostic before mapping
-/// (issue #321): a machine-readable issue code plus the human reason
+/// (issue bolph71656-ai/HTDT-Capture#321): a machine-readable issue code plus the human reason
 /// and optional target reference HTDT attached.
 public struct HTDTIngestionDiagnostic: Sendable, Equatable {
     public let issueCode: String
@@ -341,7 +341,7 @@ public struct HTDTIngestionDiagnostic: Sendable, Equatable {
 }
 
 /// Maps inbound HTDT diagnostics onto targeted Capture repair tasks
-/// (issue #321). The mapping is deliberately conservative: an
+/// (issue bolph71656-ai/HTDT-Capture#321). The mapping is deliberately conservative: an
 /// unrecognized issue code always degrades to `fresh_rescan` — the
 /// only repair that produces a fresh coordinate authority — rather
 /// than guessing at a weaker corrective action.
@@ -448,7 +448,7 @@ public enum HTDTRepairTaskMapping {
 }
 
 /// The link document persisted into the *repair* revision's bundle at
-/// `session/repair-task-link.json` (issue #321): the new capture
+/// `session/repair-task-link.json` (issue bolph71656-ai/HTDT-Capture#321): the new capture
 /// revision's provenance back to the repair request and the exact
 /// source revision it corrects. The source capture is never opened
 /// for mutation; this document is the only carry-over.
@@ -601,7 +601,7 @@ public struct HTDTRepairTaskRow: Sendable, Equatable, Identifiable {
 }
 
 /// App-local ledger of received HTDT repair plans at
-/// `<captureRoot>/repair-task-plans.json` (issue #321). Plans are
+/// `<captureRoot>/repair-task-plans.json` (issue bolph71656-ai/HTDT-Capture#321). Plans are
 /// deduplicated by plan identity + the ingestion receipt they answer,
 /// and tasks by `task_id` inside a plan — a repeated handoff of the
 /// same plan is an idempotent merge, never a silent duplicate.

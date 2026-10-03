@@ -65,7 +65,7 @@ private func finalizeFixture(
             "capture-quality.json"
         )
     )
-    // #194: finalized bundles carry the foundation payload set.
+    // legacy bolph71656-ai/HTDT-Capture#194: finalized bundles carry the foundation payload set.
     let foundationDeclarations =
         try BundleValidationFixture.stageFoundationPayloads(
             in: staging

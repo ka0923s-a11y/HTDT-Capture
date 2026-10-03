@@ -1,7 +1,7 @@
 import Foundation
 
 /// The document kinds the inbound router can hand to an owning
-/// workflow (issue #393). The router identifies and gates; the
+/// workflow (issue bolph71656-ai/HTDT-Capture#393). The router identifies and gates; the
 /// domain importers remain authoritative for schema and content
 /// validation.
 public enum InboundDocumentKind: String, Sendable, CaseIterable {
@@ -13,7 +13,7 @@ public enum InboundDocumentKind: String, Sendable, CaseIterable {
     /// `htdt.equipment.catalog-snapshot` reference document.
     case equipmentCatalog = "equipment_catalog"
     /// `.htdtcapturelibrary` — the Capture Library portability
-    /// container (#378).
+    /// container (legacy bolph71656-ai/HTDT-Capture#378).
     case captureLibraryPackage = "capture_library_package"
     /// Anything else — identified by extension or inspected schema —
     /// that no owning workflow accepts.
@@ -22,7 +22,7 @@ public enum InboundDocumentKind: String, Sendable, CaseIterable {
 
 /// Bounded preflight outcome for one inbound document: which kind it
 /// is and, for JSON documents, the declared schema id found while
-/// sniffing (issue #393). Identification never trusts a filename when
+/// sniffing (issue bolph71656-ai/HTDT-Capture#393). Identification never trusts a filename when
 /// a typed manifest is inspectable — a `.json` carrying a mission
 /// routes by its schema, not by an extension the app controls.
 public struct InboundDocumentClassification:
@@ -49,7 +49,7 @@ public struct InboundDocumentClassification:
 }
 
 /// Whether the destination workflow may run now given the capture
-/// state (issue #393). The router decides; the host owns the
+/// state (issue bolph71656-ai/HTDT-Capture#393). The router decides; the host owns the
 /// operator-facing message.
 public enum InboundRoutingAvailability:
     String,
@@ -70,7 +70,7 @@ public enum InboundRoutingAvailability:
     case unsupported
 }
 
-/// Centralized security-scoped access lifetime (issue #393):
+/// Centralized security-scoped access lifetime (issue bolph71656-ai/HTDT-Capture#393):
 /// `begin` synchronously while the open/pick grant is live, hold
 /// through the async work, then `finish` exactly once.
 public struct SecurityScopedAccess: Sendable {
@@ -90,12 +90,12 @@ public struct SecurityScopedAccess: Sendable {
 }
 
 /// The single validated file-entry boundary for external documents
-/// (issue #393): identify the document kind by extension for the
+/// (issue bolph71656-ai/HTDT-Capture#393): identify the document kind by extension for the
 /// typed containers and by bounded schema inspection for JSON, then
 /// let the owning importer do authoritative content validation.
 public enum InboundDocumentRouter {
     /// Extensions the app itself emits/consumes — the stable
-    /// user-facing artifacts (#393: public UTTypes only for these).
+    /// user-facing artifacts (legacy bolph71656-ai/HTDT-Capture#393: public UTTypes only for these).
     private static let containerExtensions: [
         String: InboundDocumentKind
     ] = [
@@ -169,7 +169,7 @@ public enum InboundDocumentRouter {
 
     /// Workflow gating: bundle and library packages import only while
     /// idle; missions and catalogs may be stored during an active
-    /// capture and adopted explicitly later (#393).
+    /// capture and adopted explicitly later (legacy bolph71656-ai/HTDT-Capture#393).
     public static func availability(
         kind: InboundDocumentKind,
         captureState: CaptureState

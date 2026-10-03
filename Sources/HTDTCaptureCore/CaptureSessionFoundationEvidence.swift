@@ -401,7 +401,7 @@ public struct CaptureSessionFoundationPackage: Sendable, Equatable {
     /// The canonical write batch for the foundation: kept as a property
     /// so callers committing an atomic transaction may append sibling
     /// files (for example the working-revision phase marker, issue
-    /// #297) instead of writing a second, non-atomic batch.
+    /// legacy bolph71656-ai/HTDT-Capture#297) instead of writing a second, non-atomic batch.
     public var fileWriteRequests: [CaptureFileWriteRequest] {
         get throws {
             [

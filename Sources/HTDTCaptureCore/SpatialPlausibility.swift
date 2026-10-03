@@ -1,6 +1,6 @@
 import Foundation
 
-/// Advisory spatial-plausibility context for Review (#247). Built from
+/// Advisory spatial-plausibility context for Review (legacy bolph71656-ai/HTDT-Capture#247). Built from
 /// accepted persisted geometry only — mesh-anchor world bounds decoded
 /// from `mesh/geometry/*.meshbin` plus `mesh/anchors.json` transforms,
 /// and the captured-room dimension summary. Every field is optional so
@@ -116,7 +116,7 @@ public struct SpatialPlausibilityFinding:
 }
 
 /// Advisory evaluator for annotation plausibility against accepted
-/// room geometry (#247). Emits `SpatialPlausibilityFinding`s only;
+/// room geometry (legacy bolph71656-ai/HTDT-Capture#247). Emits `SpatialPlausibilityFinding`s only;
 /// annotations are never moved or rewritten.
 public enum SpatialPlausibilityEvaluator {
     /// Evaluates `annotations` against `context`. Returns nil when no

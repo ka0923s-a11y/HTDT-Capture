@@ -7,7 +7,7 @@ public enum SpeakerLayoutProfileError: Error, Sendable, Equatable {
     case invalidCardinality
 }
 
-/// The exact logical-role binding an annotation carries (#315).
+/// The exact logical-role binding an annotation carries (legacy bolph71656-ai/HTDT-Capture#315).
 ///
 /// `channel_role` remains the physical-channel token emitted since v1;
 /// `role_binding` adds the separate logical authority: which versioned
@@ -64,7 +64,7 @@ public struct SpeakerRoleBinding:
 
 /// Identity of a layout profile without its role list — what a
 /// `SpeakerLayoutPlan` records so a batch flow states exactly which
-/// profile its role order came from (#278).
+/// profile its role order came from (legacy bolph71656-ai/HTDT-Capture#278).
 public struct SpeakerLayoutProfileReference:
     Codable,
     Sendable,
@@ -90,7 +90,7 @@ public struct SpeakerLayoutProfileReference:
     }
 }
 
-/// One logical role inside a versioned layout profile (#315).
+/// One logical role inside a versioned layout profile (legacy bolph71656-ai/HTDT-Capture#315).
 ///
 /// `roleID` is the logical identity — stable across display renames.
 /// `channelRole` is the canonical `channel_role` token written for a
@@ -160,7 +160,7 @@ public struct SpeakerLayoutRoleDefinition:
     }
 }
 
-/// A versioned speaker-layout profile (#315): the vocabulary a
+/// A versioned speaker-layout profile (legacy bolph71656-ai/HTDT-Capture#315): the vocabulary a
 /// capture task or built-in preset binds roles to. Custom profiles are
 /// first-class — the contract stores `profile_id`/`profile_version`
 /// and the role list, never a hard-coded Dolby/CEDIA enum.
@@ -249,7 +249,7 @@ public struct SpeakerLayoutProfile:
 
     /// Semantic digest over `(profile_id, profile_version)` plus every
     /// role definition — the portable pin an authority-dependency
-    /// manifest declares (#337). Field order inside a role is fixed;
+    /// manifest declares (legacy bolph71656-ai/HTDT-Capture#337). Field order inside a role is fixed;
     /// role order inside the list is preserved in the digest.
     public var contentSHA256: EvidenceSHA256 {
         let canonical = try? CanonicalJSON.encode(
@@ -310,7 +310,7 @@ public struct SpeakerLayoutProfile:
         )
     }
 
-    /// Cardinality evaluation (#259): every role whose declared
+    /// Cardinality evaluation (legacy bolph71656-ai/HTDT-Capture#259): every role whose declared
     /// `minimum_count`/`maximum_count` the actual bindings violate.
     /// `bindings` carries `role_id`s of entities resolved against this
     /// exact profile — unbound/foreign entities never satisfy a count.
@@ -347,7 +347,7 @@ public struct SpeakerLayoutProfile:
     }
 
     /// A batch capture plan driven by this profile's exact role order
-    /// (#278). Role order is declaration order; the plan records the
+    /// (legacy bolph71656-ai/HTDT-Capture#278). Role order is declaration order; the plan records the
     /// profile reference so the staged flow states its vocabulary.
     public func makePlan(name: String? = nil) -> SpeakerLayoutPlan {
         SpeakerLayoutPlan(
@@ -374,7 +374,7 @@ public struct SpeakerLayoutProfile:
     }
 }
 
-/// Resolution of one entity's `role_binding` against a profile (#315).
+/// Resolution of one entity's `role_binding` against a profile (legacy bolph71656-ai/HTDT-Capture#315).
 /// `unbound` is a first-class state — a physical speaker with no
 /// logical assignment is representable, and a `channel_role` token
 /// written before profiles existed decodes to `unbound` rather than
@@ -402,7 +402,7 @@ public enum SpeakerRoleBindingResolution: Sendable, Equatable {
 }
 
 /// Cardinality finding from `SpeakerLayoutProfile.evaluateCardinality`
-/// (#259): profile requirements are evaluated against bound role IDs,
+/// (legacy bolph71656-ai/HTDT-Capture#259): profile requirements are evaluated against bound role IDs,
 /// never against arbitrary channel-token strings.
 public enum SpeakerLayoutProfileFinding:
     Sendable,
@@ -413,7 +413,7 @@ public enum SpeakerLayoutProfileFinding:
     case overMaximum(roleID: String, maximum: Int, observed: Int)
 }
 
-/// Built-in layout profiles (#315).
+/// Built-in layout profiles (legacy bolph71656-ai/HTDT-Capture#315).
 ///
 /// `generic` is the standalone-capture vocabulary: it declares the
 /// canonical HTDT role IDs without layout cardinality, so ad-hoc and
@@ -464,7 +464,7 @@ public enum SpeakerLayoutProfiles {
     }
 
     /// 5.1 layout — the logical bass role may be served by several
-    /// physical subwoofers (#244 composes, not renumbers).
+    /// physical subwoofers (legacy bolph71656-ai/HTDT-Capture#244 composes, not renumbers).
     public static var surround5_1: SpeakerLayoutProfile {
         try! SpeakerLayoutProfile(
             profileID: "htdt.layout-5.1",

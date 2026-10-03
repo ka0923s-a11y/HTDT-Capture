@@ -1,6 +1,6 @@
 import Foundation
 
-/// Errors raised by the destination pairing flow (issue #379).
+/// Errors raised by the destination pairing flow (issue bolph71656-ai/HTDT-Capture#379).
 public enum HTDTPairingError: Error, Sendable, Equatable {
     /// The scanned/provided payload is not a `htdt.receiver-pairing`
     /// document this app version can accept.
@@ -19,7 +19,7 @@ public enum HTDTPairingError: Error, Sendable, Equatable {
 }
 
 /// Canonical `sha256:<64 lowercase hex>` identity pin recorded during
-/// the #379 pairing ceremony. The digest covers the receiver's leaf
+/// the legacy bolph71656-ai/HTDT-Capture#379 pairing ceremony. The digest covers the receiver's leaf
 /// TLS certificate (DER bytes) so a paired destination keeps working
 /// with a receiver-managed self-signed certificate without disabling
 /// TLS verification globally.
@@ -51,7 +51,7 @@ public struct HTDTPinnedIdentity: Codable, Sendable, Equatable {
 }
 
 /// QR-carried payload a local HTDT receiver broadcasts for pairing
-/// (issue #379). The pairing token plus the pinned identity let the
+/// (issue bolph71656-ai/HTDT-Capture#379). The pairing token plus the pinned identity let the
 /// app show a short verification code the operator confirms on the
 /// receiver's own display before the destination is trusted.
 public struct HTDTReceiverPairingPayload: Codable, Sendable, Equatable {
@@ -66,10 +66,10 @@ public struct HTDTReceiverPairingPayload: Codable, Sendable, Equatable {
     /// HTTPS endpoint that accepts `POST` of `.htdtcapture` bytes.
     public let endpointURL: String
     /// Optional endpoint serving the `htdt.endpoint-capabilities`
-    /// document (#374).
+    /// document (legacy bolph71656-ai/HTDT-Capture#374).
     public let capabilityEndpointURL: String?
     /// Optional base URL of the receiver's Mission-serving service
-    /// (#422): enumeration, download and receipt endpoints hang off
+    /// (legacy bolph71656-ai/HTDT-Capture#422): enumeration, download and receipt endpoints hang off
     /// it. Absent means the receiver does not serve Missions and the
     /// manual import path remains.
     public let missionsEndpointURL: String?
@@ -200,7 +200,7 @@ public struct HTDTReceiverPairingPayload: Codable, Sendable, Equatable {
 }
 
 /// A QR-paired, identity-pinned HTDT receiver persisted on this
-/// device (issue #379). Appears to the send flow as a named
+/// device (issue bolph71656-ai/HTDT-Capture#379). Appears to the send flow as a named
 /// `.endpoint` destination whose pin and provenance are recorded.
 public struct PairedHTDTDestination:
     Codable, Sendable, Equatable, Identifiable
@@ -211,7 +211,7 @@ public struct PairedHTDTDestination:
     public let receiverInstanceID: String
     public let endpointURL: String
     public let capabilityEndpointURL: String?
-    /// Mission-serving base URL advertised at pairing (#422); nil
+    /// Mission-serving base URL advertised at pairing (legacy bolph71656-ai/HTDT-Capture#422); nil
     /// means this receiver offers no Mission pull and the manual
     /// Files/share-sheet import remains the path.
     public let missionsEndpointURL: String?
@@ -222,7 +222,7 @@ public struct PairedHTDTDestination:
     public let lastSeenAtUTC: String?
     /// Cached capability document and its fetch time — always labeled
     /// with when it was fetched, since a cache is never presented as
-    /// live state (issue #374).
+    /// live state (issue bolph71656-ai/HTDT-Capture#374).
     public let cachedCapability: HTDTEndpointCapabilitySnapshot?
 
     /// `true` while the pairing is trusted; revoking keeps the record
@@ -274,7 +274,7 @@ public struct PairedHTDTDestination:
         case revoked
     }
 
-    /// Pairings recorded before #422 lack `missions_endpoint_url` —
+    /// Pairings recorded before legacy bolph71656-ai/HTDT-Capture#422 lack `missions_endpoint_url` —
     /// decode as nil so the record stays usable for uploads while
     /// receive stays off until re-pairing.
     public init(from decoder: Decoder) throws {
@@ -326,7 +326,7 @@ public struct PairedHTDTDestination:
     }
 }
 
-/// Store for QR-paired destinations (issue #379):
+/// Store for QR-paired destinations (issue bolph71656-ai/HTDT-Capture#379):
 /// `<captureRoot>/paired-destinations.json`. Re-pairing a receiver
 /// instance replaces its record (new pin, endpoint and pairing time);
 /// forgetting deletes it outright; revoking keeps the history but
@@ -383,7 +383,7 @@ public struct PairedHTDTDestinationStore: Sendable {
 
     /// Records a confirmed pairing. If a pairing already exists for
     /// the same receiver instance, re-pairing replaces it wholesale —
-    /// the operator just confirmed a fresh QR ceremony (#379).
+    /// the operator just confirmed a fresh QR ceremony (legacy bolph71656-ai/HTDT-Capture#379).
     @discardableResult
     public func pair(
         payload: HTDTReceiverPairingPayload,
@@ -439,7 +439,7 @@ public struct PairedHTDTDestinationStore: Sendable {
     }
 
     /// Keeps the record but removes the destination from the active
-    /// set — send UI no longer offers it (#379).
+    /// set — send UI no longer offers it (legacy bolph71656-ai/HTDT-Capture#379).
     public func revoke(destinationID: String) throws {
         var document = try load()
         guard let index = document.destinations.firstIndex(where: {
@@ -495,7 +495,7 @@ public struct PairedHTDTDestinationStore: Sendable {
     }
 
     /// Caches the latest fetched capability document with its fetch
-    /// timestamp — the UI labels it as a cached snapshot (#374).
+    /// timestamp — the UI labels it as a cached snapshot (legacy bolph71656-ai/HTDT-Capture#374).
     public func updateCachedCapability(
         destinationID: String,
         snapshot: HTDTEndpointCapabilitySnapshot?

@@ -2,7 +2,7 @@ import Foundation
 
 /// Which plan checklist family an item belongs to — stored on every
 /// ledger entry so the per-kind aggregation replays without the plan
-/// (issue #397).
+/// (issue bolph71656-ai/HTDT-Capture#397).
 public enum MissionLedgerTaskKind: String, Codable, Sendable, Equatable {
     case entityChecklist = "entity_checklist"
     case measurementRequest = "measurement_request"
@@ -17,7 +17,7 @@ public enum MissionProgressLedgerError: Error, Sendable, Equatable {
     case invalidSHA256
     /// The status document's plan identity does not exactly match the
     /// mission record's imported plan — fulfillments are only
-    /// aggregated when they are *exact compatible* (#397).
+    /// aggregated when they are *exact compatible* (legacy bolph71656-ai/HTDT-Capture#397).
     case incompatibleSourceDocument
     /// A status-document item id does not exist in the mission plan.
     case unknownItemID
@@ -28,7 +28,7 @@ public enum MissionProgressLedgerError: Error, Sendable, Equatable {
 }
 
 /// One accepted item outcome from one immutable revision's persisted
-/// status document (issue #397). Entries are append-only history:
+/// status document (issue bolph71656-ai/HTDT-Capture#397). Entries are append-only history:
 /// replacement/retake lands as a new entry that names the entry it
 /// supersedes — superseded rows are kept verbatim.
 public struct MissionProgressLedgerEntry: Codable, Sendable, Equatable {
@@ -104,7 +104,7 @@ public struct MissionProgressLedgerEntry: Codable, Sendable, Equatable {
     }
 }
 
-/// Explicit mission-level waiver (issue #397): a revision-local
+/// Explicit mission-level waiver (issue bolph71656-ai/HTDT-Capture#397): a revision-local
 /// `skipped`/`unavailable` outcome never waives a required item at the
 /// mission level — only an auditable waiver recorded here does.
 public struct MissionProgressWaiver: Codable, Sendable, Equatable {
@@ -188,7 +188,7 @@ public struct MissionProgressLedgerRecord: Codable, Sendable, Equatable {
     }
 }
 
-/// Replayed mission completeness for one item (#397): derived, never
+/// Replayed mission completeness for one item (legacy bolph71656-ai/HTDT-Capture#397): derived, never
 /// stored — completeness is always recomputed from the append-only
 /// entries, not persisted as a percentage.
 public struct MissionProgressItemResolution: Sendable, Equatable {
@@ -227,7 +227,7 @@ public struct MissionProgressKindSummary: Sendable, Equatable {
 }
 
 /// The mission's completeness replayed from ledger entries (issue
-/// #397): per-item winners, per-kind aggregation, and the strict
+/// legacy bolph71656-ai/HTDT-Capture#397): per-item winners, per-kind aggregation, and the strict
 /// field-complete verdict. Field-complete means every *required* item
 /// completed through capture evidence; an explicit waiver only
 /// resolves — it does not falsify field completion records.
@@ -271,14 +271,14 @@ public struct MissionProgressEvaluation: Sendable, Equatable {
     }
 }
 
-/// App-local mission aggregate fulfillment authority (issue #397):
+/// App-local mission aggregate fulfillment authority (issue bolph71656-ai/HTDT-Capture#397):
 /// `<captureRoot>/mission-progress-ledger.json`. Each finalized
 /// revision's `session/task-plan-status.json` is ingested once —
 /// replays never rewrite entries, so completeness is always
 /// recomputed from history. Aggregation is checklist-item level only:
 /// it is *not* spatial fusion and never substitutes for the
-/// cross-revision registration authority (#395), and field-complete
-/// stays separate from delivered (#387).
+/// cross-revision registration authority (legacy bolph71656-ai/HTDT-Capture#395), and field-complete
+/// stays separate from delivered (legacy bolph71656-ai/HTDT-Capture#387).
 public struct MissionProgressLedgerStore: Sendable {
     public static let filename = "mission-progress-ledger.json"
 
@@ -397,7 +397,7 @@ public struct MissionProgressLedgerStore: Sendable {
     }
 
     /// Ingests one finalized revision's persisted status document as
-    /// accepted item outcomes (issue #397). Requires exact plan
+    /// accepted item outcomes (issue bolph71656-ai/HTDT-Capture#397). Requires exact plan
     /// compatibility — plan id and sha-256 must equal the mission
     /// record's imported plan — and marks each entry as superseding
     /// the item's current winner. Same-document re-ingest is
@@ -512,7 +512,7 @@ public struct MissionProgressLedgerStore: Sendable {
     }
 
     /// Records an explicit mission-level waiver for a plan item
-    /// (issue #397). Auditable — the waiver appends, it never deletes
+    /// (issue bolph71656-ai/HTDT-Capture#397). Auditable — the waiver appends, it never deletes
     /// or rewrites accepted entries.
     @discardableResult
     public func waive(

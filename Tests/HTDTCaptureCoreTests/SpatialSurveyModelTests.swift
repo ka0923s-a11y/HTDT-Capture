@@ -1,7 +1,7 @@
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #409: the spatial survey pass walks accepted spatial
+/// Issue bolph71656-ai/HTDT-Capture#409: the spatial survey pass walks accepted spatial
 /// entities — RoomPlan surfaces/objects, mesh regions, annotation
 /// entities — never synthesized views, and derives per-target states
 /// from committed records.

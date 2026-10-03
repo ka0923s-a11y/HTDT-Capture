@@ -2,9 +2,9 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #186: manifest payload provenance is derived from the records in
+/// Issue bolph71656-ai/HTDT-Capture#186: manifest payload provenance is derived from the records in
 /// each collection. Annotation collections fail closed on mixed provenance;
-/// issue #286 lets measurement collections mix user-attested and derived
+/// issue bolph71656-ai/HTDT-Capture#286 lets measurement collections mix user-attested and derived
 /// records for conflict review — a heterogeneous collection declares
 /// `capture_app_derived` container authority so the manifest never
 /// overclaims, and per-record provenance stays authoritative.
@@ -189,7 +189,7 @@ final class AnnotationMeasurementProvenanceTests: XCTestCase {
         )
     }
 
-    /// Issue #286: a user-attested value and a derived value for the
+    /// Issue bolph71656-ai/HTDT-Capture#286: a user-attested value and a derived value for the
     /// same quantity must coexist in one collection for conflict
     /// review. The manifest then declares `capture_app_derived`
     /// container authority instead of claiming either record class.

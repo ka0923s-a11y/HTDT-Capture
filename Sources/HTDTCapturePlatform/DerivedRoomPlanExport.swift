@@ -4,7 +4,7 @@ import HTDTCaptureCore
 #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
 import RoomPlan
 
-/// iOS-only RoomPlan support for derived 3D export (issue #306):
+/// iOS-only RoomPlan support for derived 3D export (issue bolph71656-ai/HTDT-Capture#306):
 /// decodes the bundle's processed `CapturedRoom` for the box-mesh
 /// writers, and produces the USDZ convenience artifact through
 /// RoomPlan's own `CapturedRoom.export(to:exportOptions:)`.

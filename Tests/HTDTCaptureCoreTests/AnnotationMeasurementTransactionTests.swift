@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #138: the combined annotation+measurement persistence must be
+/// Issue bolph71656-ai/HTDT-Capture#138: the combined annotation+measurement persistence must be
 /// one atomic transaction — both canonical files durable before any
 /// declaration commits, rollback removes only attempt-owned bytes, and
 /// conflicting canonical bytes fail closed with no partial authority.
@@ -240,7 +240,7 @@ final class AnnotationMeasurementTransactionTests: XCTestCase {
         XCTAssertEqual(quality.integrityStatus, .pass)
     }
 
-    /// Issue #163: a re-opened editor commits a corrected
+    /// Issue bolph71656-ai/HTDT-Capture#163: a re-opened editor commits a corrected
     /// annotation+measurement pair over the earlier commit. The replace
     /// is one atomic batch — both canonical files carry the new bytes,
     /// declarations re-derive, and in-memory authority matches the new

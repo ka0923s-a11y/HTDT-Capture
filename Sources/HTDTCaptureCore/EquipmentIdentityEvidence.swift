@@ -7,7 +7,7 @@ public enum EquipmentIdentityEvidenceError: Error, Sendable, Equatable {
 }
 
 /// One physical-device identity attestation bound to an annotation's
-/// selected equipment reference (#239). Identity evidence is kept
+/// selected equipment reference (legacy bolph71656-ai/HTDT-Capture#239). Identity evidence is kept
 /// separate from spatial placement evidence: it is reported through the
 /// derived `derived/equipment-identity.json` document, keyed by the
 /// exact entity it attests, and never merged into the entity's spatial
@@ -29,7 +29,7 @@ public struct EquipmentIdentityRecord: Codable, Sendable, Equatable {
     /// Optional operator-entered serial/asset identifier.
     public let serialOrAssetTag: String?
     /// Provenance of the label-scan suggestion the operator confirmed
-    /// (#345): algorithm/version + the persisted source frame. Nil on
+    /// (legacy bolph71656-ai/HTDT-Capture#345): algorithm/version + the persisted source frame. Nil on
     /// records whose fields were keyed in manually — the field's
     /// presence is what marks the suggestion-confirmed path versus
     /// the authority-attested one.
@@ -79,7 +79,7 @@ public struct EquipmentIdentityRecord: Codable, Sendable, Equatable {
     }
 }
 
-/// Derived `derived/equipment-identity.json` payload document (#239):
+/// Derived `derived/equipment-identity.json` payload document (legacy bolph71656-ai/HTDT-Capture#239):
 /// the Review-inspectable record of which physical-device evidence and
 /// attestations back each equipment reference selection.
 public struct EquipmentIdentityDocument: Codable, Sendable, Equatable {

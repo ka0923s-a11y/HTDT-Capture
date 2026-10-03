@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-// #173: raycast placements retain the hit target and result provenance
+// legacy bolph71656-ai/HTDT-Capture#173: raycast placements retain the hit target and result provenance
 // so existing-plane and estimated-plane hits stay distinguishable.
 
 @Test

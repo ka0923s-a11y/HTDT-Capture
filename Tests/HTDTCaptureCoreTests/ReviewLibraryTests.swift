@@ -3,10 +3,10 @@ import XCTest
 @testable import HTDTCaptureCore
 
 /// Coverage for the review-library issue cluster: room reference
-/// frame (#232), opening review (#231), library metadata + storage
-/// (#219/#251), failed-capture diagnostics (#224), HTDT handoff
-/// (#225), evidence-privacy removal (#241), discard fencing (#254),
-/// revision comparison (#221), and abort transitions (#254).
+/// frame (legacy bolph71656-ai/HTDT-Capture#232), opening review (legacy bolph71656-ai/HTDT-Capture#231), library metadata + storage
+/// (legacy bolph71656-ai/HTDT-Capture#219/legacy bolph71656-ai/HTDT-Capture#251), failed-capture diagnostics (legacy bolph71656-ai/HTDT-Capture#224), HTDT handoff
+/// (legacy bolph71656-ai/HTDT-Capture#225), evidence-privacy removal (legacy bolph71656-ai/HTDT-Capture#241), discard fencing (legacy bolph71656-ai/HTDT-Capture#254),
+/// revision comparison (legacy bolph71656-ai/HTDT-Capture#221), and abort transitions (legacy bolph71656-ai/HTDT-Capture#254).
 final class ReviewLibraryTests: XCTestCase {
     private func makeRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
@@ -99,7 +99,7 @@ final class ReviewLibraryTests: XCTestCase {
         return store
     }
 
-    // MARK: - #232 room reference frame
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#232 room reference frame
 
     func testRoomReferenceFrameNormalizesFrontDirection() throws {
         let doc = try RoomReferenceFrameDocument(
@@ -118,7 +118,7 @@ final class ReviewLibraryTests: XCTestCase {
 
     func testRoomReferenceFrameTwoPointProjectsHorizontal() throws {
         // The second point's height drift must not tilt the recorded
-        // front direction (#232).
+        // front direction (legacy bolph71656-ai/HTDT-Capture#232).
         let doc = try RoomReferenceFrameDocument(
             captureRevisionID: CaptureRevisionID(),
             captureSessionID: CaptureSessionID(),
@@ -242,7 +242,7 @@ final class ReviewLibraryTests: XCTestCase {
                 ).path
             )
         )
-        // Removal is safe whenever the set is mutable (#232).
+        // Removal is safe whenever the set is mutable (legacy bolph71656-ai/HTDT-Capture#232).
         try await store.removeRoomReferenceFrame()
         let afterRemoval = await store.snapshot()
         XCTAssertNil(afterRemoval.roomReferenceFrame)
@@ -281,7 +281,7 @@ final class ReviewLibraryTests: XCTestCase {
         }
     }
 
-    // MARK: - #231 opening review
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#231 opening review
 
     private func opening(
         kind: RoomOpeningKind = .door,
@@ -435,7 +435,7 @@ final class ReviewLibraryTests: XCTestCase {
         {}
     }
 
-    // MARK: - #219 library metadata + #251 storage
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#219 library metadata + legacy bolph71656-ai/HTDT-Capture#251 storage
 
     func testLibraryMetadataStoreRoundTrip() throws {
         let root = try makeRoot()
@@ -529,7 +529,7 @@ final class ReviewLibraryTests: XCTestCase {
     }
 
     func testStorageRecordBreakdownAndDerivedCopy() throws {
-        // #251: a record with both copies reports the split and marks
+        // legacy bolph71656-ai/HTDT-Capture#251: a record with both copies reports the split and marks
         // the archive as a derived copy the operator may delete
         // independently; archive-only records report archive bytes.
         let root = try makeRoot()
@@ -590,7 +590,7 @@ final class ReviewLibraryTests: XCTestCase {
         XCTAssertFalse(archiveOnly.canOpen)
     }
 
-    // MARK: - #224 failed-capture diagnostics
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#224 failed-capture diagnostics
 
     func testFailedCaptureInspectionAndDiagnosticPackage() throws {
         let root = try makeRoot()
@@ -645,7 +645,7 @@ final class ReviewLibraryTests: XCTestCase {
         XCTAssertEqual(report.totalByteCount, 4)
     }
 
-    // MARK: - #225 HTDT handoff
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#225 HTDT handoff
 
     func testHandoffRequestCarriesDigestHeaders() throws {
         let digest = try EvidenceSHA256(
@@ -797,7 +797,7 @@ final class ReviewLibraryTests: XCTestCase {
         )
     }
 
-    // MARK: - #254 abort transition + discard fencing
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#254 abort transition + discard fencing
 
     func testAbortCaptureTransitions() throws {
         func scanToReviewing() -> CaptureStateMachine {
@@ -909,7 +909,7 @@ final class ReviewLibraryTests: XCTestCase {
         } catch CaptureWorkingSetError.workingSetConsumed {}
     }
 
-    // MARK: - #241 evidence privacy removal
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#241 evidence privacy removal
 
     func testRemoveEvidenceFrameGuards() async throws {
         let root = try makeRoot()
@@ -1254,7 +1254,7 @@ final class ReviewLibraryTests: XCTestCase {
         )
     }
 
-    // MARK: - #213 workspace loader
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#213 workspace loader
 
     func testWorkspaceLoaderMarksRetentionAndRemovability()
         async throws
@@ -1366,7 +1366,7 @@ final class ReviewLibraryTests: XCTestCase {
         XCTAssertTrue(item.removable)
     }
 
-    // MARK: - #221 revision comparison
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#221 revision comparison
 
     private func persistedContents(
         revisionID: CaptureRevisionID,
@@ -1459,7 +1459,7 @@ final class ReviewLibraryTests: XCTestCase {
         )
     }
 
-    // MARK: - #232 field/install datum
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#232 field/install datum
 
     private func fieldDatumPackage(
         identity: CaptureWorkingSetIdentity,
@@ -1727,7 +1727,7 @@ final class ReviewLibraryTests: XCTestCase {
         XCTAssertFalse(universe.resolves("entity:abc123"))
     }
 
-    // MARK: - #231 opening kinds + open state
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#231 opening kinds + open state
 
     func testOpeningReviewNewKindsAndOpenStateRoundTrip() throws {
         let candidate = try RoomOpeningCandidate(
@@ -1840,7 +1840,7 @@ final class ReviewLibraryTests: XCTestCase {
         )
     }
 
-    // MARK: - #241 automatic keyframe retention
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#241 automatic keyframe retention
 
     func testAutomaticKeyframeRetentionClassification()
         async throws

@@ -59,7 +59,7 @@ public enum CaptureWorkingSetFinalizationRequestBuilder {
     }
 
     /// Builds a promotion request directly from a sealed working set
-    /// (issue #180). The sealed snapshot and quality report are the
+    /// (issue bolph71656-ai/HTDT-Capture#180). The sealed snapshot and quality report are the
     /// exact state `sealForFinalization` verified after draining
     /// in-flight writes, so the request can never describe a different
     /// working set than the one the seal froze.

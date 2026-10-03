@@ -3,9 +3,9 @@ import SwiftUI
 import HTDTCaptureCore
 
 /// Production surface for the merged-but-unreachable advanced
-/// workflows (issue #353): task-plan checklist, connected-space
+/// workflows (issue bolph71656-ai/HTDT-Capture#353): task-plan checklist, connected-space
 /// tracking, as-built verification, post-scan/instrument authoring and
-/// HTDT repair tasks (issue #321). Each surface is reachable through
+/// HTDT repair tasks (issue bolph71656-ai/HTDT-Capture#321). Each surface is reachable through
 /// one `MissionWorkflowEntry` row from the capture root and carries
 /// the same state the coordinator holds — nothing here is a test-only
 /// construction.
@@ -21,10 +21,10 @@ public struct MissionWorkflowsView: View {
     public let asBuiltGhostOverlayEnabled: Bool
     public let asBuiltAlignmentInstalled: Bool
     /// The installed plan→capture alignment authority, when one has
-    /// been established (issue #293) — mechanism/residual surface in
+    /// been established (issue bolph71656-ai/HTDT-Capture#293) — mechanism/residual surface in
     /// the alignment section.
     public let asBuiltAlignment: PlanAlignmentAuthority?
-    /// Ghost-overlay plan model (issue #293): planned targets
+    /// Ghost-overlay plan model (issue bolph71656-ai/HTDT-Capture#293): planned targets
     /// projected through the alignment authority plus observed
     /// actuals and deviation connectors; nil without alignment.
     public let asBuiltOverlayModel: RoomPlanPreviewModel?
@@ -38,7 +38,7 @@ public struct MissionWorkflowsView: View {
     /// as-built plan→capture alignment.
     public let roomFrameAvailable: Bool
     public let repairRows: [HTDTRepairTaskRow]
-    /// #364 §10: whether the checklist's plan maps to a mission
+    /// legacy bolph71656-ai/HTDT-Capture#364 §10: whether the checklist's plan maps to a mission
     /// record so marking can collect a reason (waiver note).
     public let canRecordReason: Bool
     public let onMarkTaskPlanItem:
@@ -63,7 +63,7 @@ public struct MissionWorkflowsView: View {
     @State private var segmentKind: CaptureRegionKind = .room
     @State private var actualSelections:
         [String: AnnotationEntityID] = [:]
-    // Ghost-overlay plan surface state (issue #293): selection only —
+    // Ghost-overlay plan surface state (issue bolph71656-ai/HTDT-Capture#293): selection only —
     // it never persists into any authority document.
     @State private var overlaySelection:
         RoomPlanPreviewModel.PlanMarker?
@@ -419,7 +419,7 @@ public struct MissionWorkflowsView: View {
                         )
                     }
                 }
-                // #293: the ghost overlay exists only under an explicit
+                // legacy bolph71656-ai/HTDT-Capture#293: the ghost overlay exists only under an explicit
                 // alignment authority — planned targets render as
                 // reference ghosts, never as observed geometry.
                 if let overlay = asBuiltOverlayModel {
@@ -511,7 +511,7 @@ public struct MissionWorkflowsView: View {
                 .foregroundStyle(.secondary)
             }
             if let deviation = item.deviation {
-                // #293: delta vector + heading + the declared
+                // legacy bolph71656-ai/HTDT-Capture#293: delta vector + heading + the declared
                 // tolerance and uncertainty band — the quantities
                 // stay separate authorities, never folded into a
                 // single favorable number.
@@ -634,7 +634,7 @@ public struct MissionWorkflowsView: View {
         }
     }
 
-    /// #293/#356: the additive uncertainty band behind the verdict —
+    /// legacy bolph71656-ai/HTDT-Capture#293/legacy bolph71656-ai/HTDT-Capture#356: the additive uncertainty band behind the verdict —
     /// observation uncertainty and alignment residual stay separate
     /// fields; an undeclared input is reported as undeclared, never
     /// silently zero.
@@ -719,7 +719,7 @@ public struct MissionWorkflowsView: View {
                         .font(.caption)
                     // Task/issue/plan identifiers stay inspectable
                     // for plan follow-up — never the row's title
-                    // (issue #412).
+                    // (issue bolph71656-ai/HTDT-Capture#412).
                     Text(
                         "\(row.task.taskID) · \(row.task.issueCode) · Plan \(row.planID) v\(row.planVersion)"
                     )

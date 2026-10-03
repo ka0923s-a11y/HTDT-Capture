@@ -5,7 +5,7 @@ public enum TaskPlanRequirement: String, Codable, Sendable, Equatable {
     case optional
 }
 
-/// Operator-visible lifecycle of one plan checklist item (issue #240).
+/// Operator-visible lifecycle of one plan checklist item (issue bolph71656-ai/HTDT-Capture#240).
 /// `completed` is reached by committing matching evidence or by an
 /// explicit operator mark; `skipped`/`unavailable` are explicit marks.
 public enum TaskPlanItemOutcome: String, Codable, Sendable, Equatable {
@@ -23,10 +23,10 @@ public enum CaptureTaskPlanError: Error, Sendable, Equatable {
     case unsupportedSchema
     case encodedDocumentMismatch
     /// A fulfillment binding names a record of the wrong kind for
-    /// this plan item (#354).
+    /// this plan item (legacy bolph71656-ai/HTDT-Capture#354).
     case fulfillmentKindMismatch
     /// A fulfillment binding does not name a canonical record id
-    /// (#354).
+    /// (legacy bolph71656-ai/HTDT-Capture#354).
     case invalidFulfillmentLink
     /// A fulfillment binding does not match the item's declared kind,
     /// subtype, or target — or points at a record/evidence ref that
@@ -39,7 +39,7 @@ public enum CaptureTaskPlanError: Error, Sendable, Equatable {
     case outcomeNotMarkable
 }
 
-/// The record kind a plan item's fulfillment link may name (#354).
+/// The record kind a plan item's fulfillment link may name (legacy bolph71656-ai/HTDT-Capture#354).
 public enum TaskFulfillmentRecordKind: String, Codable, Sendable,
     Equatable
 {
@@ -48,7 +48,7 @@ public enum TaskFulfillmentRecordKind: String, Codable, Sendable,
 }
 
 /// Exact identity of the committed record fulfilling a plan item
-/// (#354). Fulfillment is a typed link — never inferred from generic
+/// (legacy bolph71656-ai/HTDT-Capture#354). Fulfillment is a typed link — never inferred from generic
 /// type/unit equality on the persisted status document.
 public struct TaskFulfillmentLink: Codable, Sendable, Equatable {
     public let recordKind: TaskFulfillmentRecordKind
@@ -72,7 +72,7 @@ public struct TaskFulfillmentLink: Codable, Sendable, Equatable {
     }
 }
 
-/// One entity the plan asks the operator to place (issue #240). The
+/// One entity the plan asks the operator to place (issue bolph71656-ai/HTDT-Capture#240). The
 /// plan is a workflow request only — it never pre-populates capture
 /// truth.
 public struct HTDTTaskPlanEntityItem: Codable, Sendable, Equatable {
@@ -140,7 +140,7 @@ public struct HTDTTaskPlanEntityItem: Codable, Sendable, Equatable {
     }
 }
 
-/// How a requested measurement may be acquired (issue #418): the
+/// How a requested measurement may be acquired (issue bolph71656-ai/HTDT-Capture#418): the
 /// plan producer — never a `quantityType`/endpoint free-text
 /// heuristic — states whether the task needs a fresh spatial point
 /// observation in this capture's coordinate space, whether an exact
@@ -178,7 +178,7 @@ public struct HTDTTaskPlanMeasurementItem: Codable, Sendable, Equatable {
     public let requirement: TaskPlanRequirement
     public let endpointSemantics: String?
     public let expectedUnit: MeasurementUnit?
-    /// Typed acquisition capability (issue #418). nil on plans issued
+    /// Typed acquisition capability (issue bolph71656-ai/HTDT-Capture#418). nil on plans issued
     /// before the field existed — those stay conservatively spatial.
     public let acquisitionRequirement: MeasurementAcquisitionRequirement?
 
@@ -292,7 +292,7 @@ public struct HTDTTaskPlanSurfaceItem: Codable, Sendable, Equatable {
     }
 }
 
-/// A theater-semantic authority task the plan requests (#359). The
+/// A theater-semantic authority task the plan requests (legacy bolph71656-ai/HTDT-Capture#359). The
 /// item names an exact record kind — never a free-form string — so a
 /// single vague record cannot silently satisfy unrelated tasks. The
 /// operator fulfills it by binding an exact authority record via
@@ -402,7 +402,7 @@ public struct HTDTTaskPlanSemanticItem: Codable, Sendable, Equatable,
     }
 }
 
-/// A first-class evidence target the plan requests (#359): a stable
+/// A first-class evidence target the plan requests (legacy bolph71656-ai/HTDT-Capture#359): a stable
 /// item id plus the evidence purpose, so the fulfilled answer is an
 /// exact committed evidence ref — never a loose string match.
 public struct HTDTTaskPlanEvidenceItem: Codable, Sendable, Equatable {
@@ -477,7 +477,7 @@ public struct HTDTTaskPlanEvidenceItem: Codable, Sendable, Equatable {
 }
 
 /// The exact payload a semantic or evidence task is fulfilled with
-/// (#359): an authority record id for semantic tasks, a committed
+/// (legacy bolph71656-ai/HTDT-Capture#359): an authority record id for semantic tasks, a committed
 /// evidence ref for evidence tasks. Encoded tagged so a status
 /// document round-trips without ambiguity.
 public enum TaskPlanFulfillment: Codable, Sendable, Equatable {
@@ -533,11 +533,11 @@ public enum TaskPlanFulfillment: Codable, Sendable, Equatable {
     }
 }
 
-/// A versioned HTDT capture task plan (issue #240): project/document
+/// A versioned HTDT capture task plan (issue bolph71656-ai/HTDT-Capture#240): project/document
 /// reference, room name, required/optional entity checklist, expected
 /// channel roles, equipment catalog snapshot, requested measurements
 /// with endpoint semantics, evidence targets, surface/opening review
-/// tasks, and — from schema 2.0.0 (#359) — first-class theater-semantic
+/// tasks, and — from schema 2.0.0 (legacy bolph71656-ai/HTDT-Capture#359) — first-class theater-semantic
 /// authority tasks and stable-id evidence tasks. The plan is an
 /// operator workflow request and is persisted verbatim as imported
 /// reference — it is never capture truth and never pre-populates the
@@ -545,7 +545,7 @@ public enum TaskPlanFulfillment: Codable, Sendable, Equatable {
 public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
     public static let schema = "htdt.capture-task-plan"
     /// Every plan version this build can import. v1 files decode with
-    /// the new task arrays empty — their meaning is unchanged (#359).
+    /// the new task arrays empty — their meaning is unchanged (legacy bolph71656-ai/HTDT-Capture#359).
     public static let supportedSchemaVersions = ["1.0.0", "2.0.0"]
     /// The version emitted when a plan is authored in-process.
     public static let schemaVersion = "2.0.0"
@@ -567,21 +567,21 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
     /// Equipment catalog snapshot/reference supplied with the plan.
     public let equipmentCatalog: HTDTEquipmentCatalogSnapshot?
     /// Catalog `strategy_id` the plan recommends (or pins) for this
-    /// capture (#307). Absent for plans that leave strategy to the
+    /// capture (legacy bolph71656-ai/HTDT-Capture#307). Absent for plans that leave strategy to the
     /// operator. Unknown identifiers are rejected at decode.
     public let recommendedCaptureStrategy: String?
     /// When true, `recommendedCaptureStrategy` is a plan pin: the app
     /// applies it as binding. When false it is a recommendation the
     /// operator may override.
     public let captureStrategyPinned: Bool
-    /// Optional exact layout profile the plan supplies (#315): the
+    /// Optional exact layout profile the plan supplies (legacy bolph71656-ai/HTDT-Capture#315): the
     /// versioned role vocabulary bindings resolve against and the
     /// completeness requirements evaluate from. Nil plans keep the
     /// legacy `expected_channel_roles` behavior.
     public let layoutProfile: SpeakerLayoutProfile?
-    /// Theater-semantic authority tasks the plan requests (#359).
+    /// Theater-semantic authority tasks the plan requests (legacy bolph71656-ai/HTDT-Capture#359).
     public let semanticTasks: [HTDTTaskPlanSemanticItem]
-    /// Stable-id evidence tasks the plan requests (#359).
+    /// Stable-id evidence tasks the plan requests (legacy bolph71656-ai/HTDT-Capture#359).
     public let evidenceTasks: [HTDTTaskPlanEvidenceItem]
 
     public init(
@@ -805,7 +805,7 @@ public struct HTDTCaptureTaskPlan: Codable, Sendable, Equatable {
 }
 
 /// Result of comparing an imported plan's pinned equipment catalog
-/// against the catalog currently adopted on this device (#302).
+/// against the catalog currently adopted on this device (legacy bolph71656-ai/HTDT-Capture#302).
 ///
 /// A plan that carries an `equipment_catalog` snapshot demands that
 /// exact catalog — matched by semantic content digest, never by label.
@@ -859,7 +859,7 @@ public enum EquipmentCatalogRequirement: Sendable, Equatable {
 }
 
 /// The plan payload persisted verbatim under
-/// `session/capture-task-plan.json` as imported reference (issue #240).
+/// `session/capture-task-plan.json` as imported reference (issue bolph71656-ai/HTDT-Capture#240).
 public struct CaptureTaskPlanImport: Sendable, Equatable {
     public static let path = "session/capture-task-plan.json"
 
@@ -881,7 +881,7 @@ public struct CaptureTaskPlanImport: Sendable, Equatable {
 }
 
 /// Persisted per-item outcomes at `session/task-plan-status.json`
-/// (issue #240): the operator-visible state of the checklist before
+/// (issue bolph71656-ai/HTDT-Capture#240): the operator-visible state of the checklist before
 /// finalization.
 public struct CaptureTaskPlanStatusDocument: Codable, Sendable,
     Equatable
@@ -889,11 +889,11 @@ public struct CaptureTaskPlanStatusDocument: Codable, Sendable,
     public struct ItemOutcome: Codable, Sendable, Equatable {
         public let itemID: String
         public let outcome: TaskPlanItemOutcome
-        /// The exact fulfilling record for `completed` items (#354).
+        /// The exact fulfilling record for `completed` items (legacy bolph71656-ai/HTDT-Capture#354).
         /// Nil means completion was operator-asserted (surface review
         /// items) or the outcome is not completed.
         public let fulfillment: TaskFulfillmentLink?
-        /// Exact fulfilling record/evidence identity (#359): the
+        /// Exact fulfilling record/evidence identity (legacy bolph71656-ai/HTDT-Capture#359): the
         /// authority record id for semantic tasks, the committed
         /// evidence ref for evidence tasks. nil for the other item
         /// kinds, which resolve against committed capture truth.
@@ -945,7 +945,7 @@ public struct CaptureTaskPlanStatusDocument: Codable, Sendable,
 
     public static let schema = "htdt.capture-task-plan-status"
     /// The payload version this build emits: v1.1.0 adds the typed
-    /// `fulfillment` link (#354); v2.0.0 adds `fulfillment_ref` (#359).
+    /// `fulfillment` link (legacy bolph71656-ai/HTDT-Capture#354); v2.0.0 adds `fulfillment_ref` (legacy bolph71656-ai/HTDT-Capture#359).
     public static let schemaVersion = "2.0.0"
     /// Every payload version this build can decode: v1.0.0 documents
     /// carry outcomes without fulfillment fields, v1.1.0 adds the
@@ -982,8 +982,8 @@ public struct CaptureTaskPlanStatusDocument: Codable, Sendable,
             }
             // A fulfillment link only accompanies a completed
             // outcome — it never decorates a pending/skipped item
-            // (#354). The `fulfillment_ref` identity string is the
-            // same decoration under a second representation (#359).
+            // (legacy bolph71656-ai/HTDT-Capture#354). The `fulfillment_ref` identity string is the
+            // same decoration under a second representation (legacy bolph71656-ai/HTDT-Capture#359).
             guard item.outcome == .completed
                     || (item.fulfillment == nil
                         && item.fulfillmentRef == nil)
@@ -1050,20 +1050,20 @@ public struct CaptureTaskPlanStatusDocument: Codable, Sendable,
     }
 }
 
-/// Live tracker for an imported plan (issue #240). Item completion is
+/// Live tracker for an imported plan (issue bolph71656-ai/HTDT-Capture#240). Item completion is
 /// computed against committed annotations/measurements — the plan
 /// never writes capture truth — while skipped/unavailable are explicit
 /// operator marks.
 public struct CaptureTaskPlanStatus: Sendable, Equatable {
     public let planImport: CaptureTaskPlanImport
     private var explicitMarks: [String: TaskPlanItemOutcome]
-    /// Explicit fulfillment bindings (#354): operator-confirmed links
+    /// Explicit fulfillment bindings (legacy bolph71656-ai/HTDT-Capture#354): operator-confirmed links
     /// from a plan item to the exact committed record that satisfies
     /// it. A binding never makes an item complete on its own — the
     /// bound record must still exist and still satisfy the item's
     /// declared constraints at outcome-evaluation time.
     private var bindings: [String: TaskFulfillmentLink]
-    /// Exact fulfillment bindings for semantic/evidence tasks (#359).
+    /// Exact fulfillment bindings for semantic/evidence tasks (legacy bolph71656-ai/HTDT-Capture#359).
     public private(set) var fulfillments: [String: TaskPlanFulfillment]
 
     /// True once the operator or a restore has recorded anything
@@ -1083,7 +1083,7 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
     }
 
     /// Bind a plan item to the exact entity record fulfilling it
-    /// (#354). Used to disambiguate when several entities match the
+    /// (legacy bolph71656-ai/HTDT-Capture#354). Used to disambiguate when several entities match the
     /// item's declared constraints, or when the plan pins a specific
     /// target.
     public mutating func bind(
@@ -1104,7 +1104,7 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
     }
 
     /// Bind a plan item to the exact measurement record fulfilling it
-    /// (#354).
+    /// (legacy bolph71656-ai/HTDT-Capture#354).
     public mutating func bind(
         itemID: String,
         toMeasurement measurementID: MeasurementID
@@ -1122,7 +1122,7 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
         )
     }
 
-    /// Clear an explicit fulfillment binding (#354). Only this
+    /// Clear an explicit fulfillment binding (legacy bolph71656-ai/HTDT-Capture#354). Only this
     /// item's own fulfillment ref goes with it — clearing the whole
     /// dictionary would silently drop every other task's binding.
     public mutating func unbind(itemID: String) throws {
@@ -1136,7 +1136,7 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
     /// Rebuilds fulfillment bindings and operator marks from a
     /// persisted status document — `fulfillment_ref`/`fulfillment`/
     /// `outcome` on each item are the durable copies of the in-memory
-    /// bindings and marks (#359/#354). A non-pending outcome with no
+    /// bindings and marks (legacy bolph71656-ai/HTDT-Capture#359/legacy bolph71656-ai/HTDT-Capture#354). A non-pending outcome with no
     /// fulfillment resolution is exactly the recorded operator mark;
     /// entity/measurement links restore as bindings so a reopened
     /// draft keeps the same resolution instead of recomputing to
@@ -1192,7 +1192,7 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
         }
     }
 
-    /// Binds an exact authority record to a semantic task (#359).
+    /// Binds an exact authority record to a semantic task (legacy bolph71656-ai/HTDT-Capture#359).
     /// Fails closed: the record must exist in `authorities`, carry the
     /// item's `semantic_kind`, match `expected_subtype`/`target_ref`
     /// when declared, and — unless both items opt into
@@ -1245,7 +1245,7 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
     }
 
     /// Binds an exact committed evidence ref to an evidence task
-    /// (#359). The ref must already exist among the session's
+    /// (legacy bolph71656-ai/HTDT-Capture#359). The ref must already exist among the session's
     /// committed evidence — the plan cannot conjure it.
     public mutating func fulfillEvidence(
         itemID: String,
@@ -1323,7 +1323,7 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
     }
 
     /// Resolves every checklist item's outcome against committed
-    /// capture truth (#354). Completion is typed fulfillment, not
+    /// capture truth (legacy bolph71656-ai/HTDT-Capture#354). Completion is typed fulfillment, not
     /// generic type/unit equality:
     ///
     ///   * an explicit `bind` link wins — the bound record must still
@@ -1407,7 +1407,7 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
 
         for item in planImport.plan.measurementRequests {
             let candidates = candidatesByItem[item.itemID] ?? []
-            // Typed task binding (#354): a measurement declaring
+            // Typed task binding (legacy bolph71656-ai/HTDT-Capture#354): a measurement declaring
             // lineage.task_ref -> this item fulfills it. Required
             // when the item declares endpoint semantics — generic
             // equality never satisfies a typed-endpoint request.
@@ -1491,7 +1491,7 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
     /// Resolve an explicit entity binding: the bound record must
     /// still exist and still satisfy every declared constraint —
     /// otherwise the item falls back to its unresolved outcome
-    /// (#354).
+    /// (legacy bolph71656-ai/HTDT-Capture#354).
     private func resolveEntityBinding(
         itemID: String,
         candidates: [CaptureAnnotationEntity]
@@ -1525,7 +1525,7 @@ public struct CaptureTaskPlanStatus: Sendable, Equatable {
 
     /// Whether every required plan item resolved to `completed` —
     /// mission completeness, deliberately separate from technical
-    /// ingestion/bundle readiness (#359). Optional items may stay
+    /// ingestion/bundle readiness (legacy bolph71656-ai/HTDT-Capture#359). Optional items may stay
     /// pending or be skipped without blocking.
     public func requiredMissionComplete(
         annotations: [CaptureAnnotationEntity],

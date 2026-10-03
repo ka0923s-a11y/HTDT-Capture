@@ -1,7 +1,7 @@
 import Foundation
 
 /// A world-space hit against the active/persisted ARKit mesh
-/// reconstruction (#246). Carries the exact mesh anchor identity so the
+/// reconstruction (legacy bolph71656-ai/HTDT-Capture#246). Carries the exact mesh anchor identity so the
 /// placement provenance keeps `source_mesh_anchor_id` populated.
 public struct MeshRaycastHit: Sendable, Equatable {
     public let meshAnchorID: UUID
@@ -23,7 +23,7 @@ public struct MeshRaycastHit: Sendable, Equatable {
     }
 }
 
-/// Pure ray/triangle intersection over mesh-anchor snapshots (#246).
+/// Pure ray/triangle intersection over mesh-anchor snapshots (legacy bolph71656-ai/HTDT-Capture#246).
 /// Works identically on live `ARMeshAnchor` snapshots materialized by
 /// the platform and on persisted `mesh/geometry/*.meshbin` payloads
 /// decoded for Review diagnostics — the geometry contract is the same.

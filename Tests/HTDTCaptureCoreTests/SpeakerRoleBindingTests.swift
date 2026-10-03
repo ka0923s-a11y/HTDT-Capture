@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-// #315 reopened: a physical speaker must permit no logical role
+// legacy bolph71656-ai/HTDT-Capture#315 reopened: a physical speaker must permit no logical role
 // binding. `role_binding` is the preferred exact vocabulary,
 // `channel_role` is optional legacy, and "unbound" is a first-class
 // state — never silently assigned a placeholder token.
@@ -53,7 +53,7 @@ func unboundSpeakerIsValidAndEncodesNoPlaceholderRole() throws {
 
 @Test
 func speakerAimUnknownIsAValidRecord() throws {
-    // #228: an un-aimed speaker is position-only evidence — the
+    // legacy bolph71656-ai/HTDT-Capture#228: an un-aimed speaker is position-only evidence — the
     // record is valid and nothing is fabricated.
     let entity = try CaptureAnnotationEntity(
         type: .speaker,
@@ -96,7 +96,7 @@ func legacyChannelRoleOnlyStaysReadable() throws {
 
 @Test
 func unaimedSpeakerSurfacesInfoFindingNotError() throws {
-    // #228: missing aim is a completeness surface, never an
+    // legacy bolph71656-ai/HTDT-Capture#228: missing aim is a completeness surface, never an
     // invalidation.
     let entity = try CaptureAnnotationEntity(
         type: .speaker,
@@ -123,7 +123,7 @@ func aimedSpeakerHasNoAimMissingFinding() throws {
 
 @Test
 func elevationRoundTripsThroughEncoder() throws {
-    // #228: azimuth+elevation aim survives an encode/decode round
+    // legacy bolph71656-ai/HTDT-Capture#228: azimuth+elevation aim survives an encode/decode round
     // trip bit-for-bit.
     let axes = try ManualAuthorityBuilder.speakerOrientationAxes(
         azimuthDegrees: 30,
@@ -148,7 +148,7 @@ func elevationRoundTripsThroughEncoder() throws {
 
 @Test
 func manualBuilderLeavesUnaimedSpeakerOrientationNil() throws {
-    // #228: no azimuth means no synthesized orientation.
+    // legacy bolph71656-ai/HTDT-Capture#228: no azimuth means no synthesized orientation.
     let entity = try ManualAuthorityBuilder.annotation(
         type: .speaker,
         label: "Rear right",

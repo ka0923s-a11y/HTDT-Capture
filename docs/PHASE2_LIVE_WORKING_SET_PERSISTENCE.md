@@ -1,8 +1,8 @@
 # Phase 2 Live Working-Set Persistence
 
 Status: core persistence authority and iOS host hookup implemented; physical-device verification remains open  
-Issue: #3  
-Related: #6
+Issue: legacy bolph71656-ai/HTDT-Capture#3  
+Related: legacy bolph71656-ai/HTDT-Capture#6
 
 ## Purpose
 

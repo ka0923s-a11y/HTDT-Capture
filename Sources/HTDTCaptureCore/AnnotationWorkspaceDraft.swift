@@ -1,7 +1,7 @@
 import Foundation
 
 /// Non-canonical draft of the annotation workspace's staged edits
-/// (#266). A draft is app-private scratch state — never written into
+/// (legacy bolph71656-ai/HTDT-Capture#266). A draft is app-private scratch state — never written into
 /// the capture working set — and is bound to the exact working
 /// revision and coordinate space it was authored against. Autosave
 /// writes drafts; only the workspace's explicit Save commits canonical
@@ -23,18 +23,18 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
     /// bind to; committed alongside the canonical collections on Save.
     public var equipmentIdentityRecords: [EquipmentIdentityRecord]
     /// Ordered channel-role plan the speaker-layout flow is running
-    /// through, when the operator started one (#278).
+    /// through, when the operator started one (legacy bolph71656-ai/HTDT-Capture#278).
     public var speakerLayoutPlan: SpeakerLayoutPlan?
-    /// Staged theater-semantic authorities (#350); nil in drafts
+    /// Staged theater-semantic authorities (legacy bolph71656-ai/HTDT-Capture#350); nil in drafts
     /// written before this field existed.
     public var theaterAuthorities: TheaterAuthorityCollection?
-    /// Staged theater-semantic authority records (#357): edits,
+    /// Staged theater-semantic authority records (legacy bolph71656-ai/HTDT-Capture#357): edits,
     /// deletes, and newly authored records survive interruption just
     /// like annotations; only Save writes the canonical package.
     public var authorities: TheaterAuthorityCollection?
     /// Staged field-authority state — operator profiles, field
     /// evidence, instrument profiles, settings observations and
-    /// wiring routes (#300/#301/#310/#314/#324/#331). Optional so
+    /// wiring routes (legacy bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#301/legacy bolph71656-ai/HTDT-Capture#310/legacy bolph71656-ai/HTDT-Capture#314/legacy bolph71656-ai/HTDT-Capture#324/legacy bolph71656-ai/HTDT-Capture#331). Optional so
     /// drafts saved by older versions still decode.
     public var fieldAuthority: FieldAuthorityWorkspace?
 
@@ -128,7 +128,7 @@ public struct AnnotationWorkspaceDraft: Codable, Sendable, Equatable {
     }
 }
 
-/// App-private draft persistence for the annotation workspace (#266).
+/// App-private draft persistence for the annotation workspace (legacy bolph71656-ai/HTDT-Capture#266).
 /// Files live outside every capture-bundle root so autosave can never
 /// mutate or impersonate canonical authority. One draft is kept per
 /// working revision; a draft whose recorded revision or coordinate

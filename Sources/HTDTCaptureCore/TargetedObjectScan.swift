@@ -1,6 +1,6 @@
 import Foundation
 
-/// Operator-targeted "Scan this object" re-observation pass (#250).
+/// Operator-targeted "Scan this object" re-observation pass (legacy bolph71656-ai/HTDT-Capture#250).
 ///
 /// The operator picks the important object; the tracker holds a bounded
 /// target authority (centroid + extent radius measured from the fused
@@ -59,7 +59,7 @@ public struct TargetScanStatus: Sendable, Equatable {
     public let guidance: TargetScanGuidance
     /// Horizontal distance from the camera to the locked target
     /// anchor in meters — the UI's continuous "which object is the
-    /// target" confirmation (#250). nil only on the initial status
+    /// target" confirmation (legacy bolph71656-ai/HTDT-Capture#250). nil only on the initial status
     /// before the first camera sample lands.
     public let distanceToTargetMeters: Double?
 

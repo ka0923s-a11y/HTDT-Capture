@@ -620,7 +620,7 @@ final class ScanMotionGuidanceTests: XCTestCase {
     }
 
     func testSafetyConstrainedModeSuppressesTranslationAndCompletesHonestly() {
-        // #313: a safety-constrained completion is movement-
+        // legacy bolph71656-ai/HTDT-Capture#313: a safety-constrained completion is movement-
         // constrained, never "observed" — the app did not verify the
         // operator's path was safe.
         var tracker = ScanMotionGuidanceTracker(
@@ -669,7 +669,7 @@ final class ScanMotionGuidanceTests: XCTestCase {
     }
 
     func testSafetyConstrainedDeclarationDropsInflightTranslationPrompt() {
-        // #313: declaring movement unsafe suppresses a risky prompt
+        // legacy bolph71656-ai/HTDT-Capture#313: declaring movement unsafe suppresses a risky prompt
         // immediately — it does not wait for the prompt to dwell out.
         var tracker = ScanMotionGuidanceTracker(
             configuration: ScanMotionGuidanceConfiguration(
@@ -985,7 +985,7 @@ final class ScanMotionGuidanceTests: XCTestCase {
             let english = ScanMotionGuidanceCopy.prompt(
                 for: sample
             )
-            // #313: movement prompts are safety-qualified, never
+            // legacy bolph71656-ai/HTDT-Capture#313: movement prompts are safety-qualified, never
             // mandatory; no numeric step counts anywhere.
             if sample.action.requiresPhysicalTranslation {
                 XCTAssertTrue(english.hasPrefix("If"))

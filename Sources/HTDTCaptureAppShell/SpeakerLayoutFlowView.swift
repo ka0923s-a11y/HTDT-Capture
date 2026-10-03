@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import HTDTCaptureCore
 
-/// Guided batch speaker/subwoofer layout capture (#278). Steps through
+/// Guided batch speaker/subwoofer layout capture (legacy bolph71656-ai/HTDT-Capture#278). Steps through
 /// an explicit `SpeakerLayoutPlan` one role at a time — camera-first
 /// placement and heading for each physical loudspeaker — and reports
 /// every role's state as completed / missing / skipped / not
@@ -31,13 +31,13 @@ public struct SpeakerLayoutFlowView: View {
         () async throws -> AnnotationOrientationAuthority
     public let captureIdentityPhoto: () async throws -> String
     /// Each completed entity is appended to the workspace; the last
-    /// argument is the optional equipment identity record (#239).
+    /// argument is the optional equipment identity record (legacy bolph71656-ai/HTDT-Capture#239).
     public let onEntity: (
         CaptureAnnotationEntity,
         EquipmentIdentityRecord?
     ) -> Void
     /// Optional catalog update — when the layout ends the workspace
-    /// persists the plan inside the workspace draft (#266) so a
+    /// persists the plan inside the workspace draft (legacy bolph71656-ai/HTDT-Capture#266) so a
     /// reopened session resumes mid-flow.
     public let onPlan: (SpeakerLayoutPlan?) -> Void
 
@@ -341,7 +341,7 @@ public struct SpeakerLayoutFlowView: View {
         }
         .disabled(equipmentCatalogEntries.isEmpty)
 
-        // Optional physical-identity evidence for this role (#239).
+        // Optional physical-identity evidence for this role (legacy bolph71656-ai/HTDT-Capture#239).
         if !identityEvidenceRefs.isEmpty {
             Text(
                 String(localized: "Identity photos: ")
@@ -432,12 +432,12 @@ public struct SpeakerLayoutFlowView: View {
             seed.replacementPlacement = placementAuthority
             seed.replacementOrientation = orientationAuthority
             // Identity photos bind only to the EquipmentIdentityRecord
-            // (#239) — they stay out of the entity's spatial
+            // (legacy bolph71656-ai/HTDT-Capture#239) — they stay out of the entity's spatial
             // evidence_refs.
             let selection = AnnotationEvidenceSelection()
             // The contract is fail-closed: an evidence-captured
             // placement must declare how the semantic point was
-            // constructed (#291). Surface-derived hits confirm the
+            // constructed (legacy bolph71656-ai/HTDT-Capture#291). Surface-derived hits confirm the
             // cabinet surface; a RoomPlan binding is direct.
             let construction: ReferencePointConstruction? =
                 placementAuthority.map { authority in
@@ -448,7 +448,7 @@ public struct SpeakerLayoutFlowView: View {
                         return .directPlacement
                     }
                 }
-            // Profile-bound plan roles (#315): entities record the
+            // Profile-bound plan roles (legacy bolph71656-ai/HTDT-Capture#315): entities record the
             // exact {profile_id, profile_version, role_id} binding
             // alongside the physical channel token.
             let roleBinding = try plan.profileIdentity.map {

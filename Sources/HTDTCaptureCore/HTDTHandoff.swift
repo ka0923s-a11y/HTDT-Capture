@@ -3,7 +3,7 @@ import Foundation
 import FoundationNetworking
 #endif
 
-/// Where a `.htdtcapture` handoff was directed (issue #225). The
+/// Where a `.htdtcapture` handoff was directed (issue bolph71656-ai/HTDT-Capture#225). The
 /// destination is explicit — the operator picks it per send — and the
 /// receipt binds the exact bundle that was transferred.
 public enum HTDTHandoffDestinationKind:
@@ -45,7 +45,7 @@ public struct HTDTHandoffDestination:
     public var id: String { name + "|" + (url ?? "") }
 }
 
-/// A durable, per-revision record of one handoff attempt (issue #225).
+/// A durable, per-revision record of one handoff attempt (issue bolph71656-ai/HTDT-Capture#225).
 /// App-local — never part of the bundle — so a retry can re-send the
 /// identical archive bytes without weakening the digest binding.
 public struct HTDTHandoffReceipt:
@@ -62,14 +62,14 @@ public struct HTDTHandoffReceipt:
     /// Unique receipt id (UUIDv4) for this attempt.
     public let receiptID: String
     /// Capture-specific identity — present for `capture_bundle`
-    /// artifacts, nil for field returns (issue #423: never a fake
+    /// artifacts, nil for field returns (issue bolph71656-ai/HTDT-Capture#423: never a fake
     /// revision id; the artifact fields below carry the identity).
     public let captureRevisionID: CaptureRevisionID?
     public let captureSeriesID: CaptureSeriesID?
     /// The finalized bundle digest the archive was proven to carry;
     /// nil for non-capture artifacts.
     public let bundleDigest: String?
-    /// Typed artifact identity (#423): artifact family, artifact id
+    /// Typed artifact identity (legacy bolph71656-ai/HTDT-Capture#423): artifact family, artifact id
     /// and semantic/root digest echoed with the transfer.
     public let artifactKind: String?
     public let artifactID: String?
@@ -87,10 +87,10 @@ public struct HTDTHandoffReceipt:
     /// reason.
     public let outcome: String
     public let detail: String?
-    /// Paired receiver identity the send was bound to (#379); nil for
+    /// Paired receiver identity the send was bound to (legacy bolph71656-ai/HTDT-Capture#379); nil for
     /// share-sheet or legacy raw-endpoint handoffs.
     public let pairedDestinationID: String?
-    /// Delivery-queue job that produced this attempt (#387); nil for
+    /// Delivery-queue job that produced this attempt (legacy bolph71656-ai/HTDT-Capture#387); nil for
     /// direct sends.
     public let deliveryJobID: String?
 
@@ -133,7 +133,7 @@ public struct HTDTHandoffReceipt:
     public var id: String { receiptID }
 
     /// Identity text of the artifact this receipt covers — the
-    /// generic artifact id when present (#423), else the legacy
+    /// generic artifact id when present (legacy bolph71656-ai/HTDT-Capture#423), else the legacy
     /// capture revision id.
     public var artifactIDText: String? {
         artifactID ?? captureRevisionID?.description
@@ -161,7 +161,7 @@ public struct HTDTHandoffReceipt:
 }
 
 /// The operator-level result of the system share sheet used for a
-/// share-sheet handoff (#225). Only `completed` means the archive
+/// share-sheet handoff (legacy bolph71656-ai/HTDT-Capture#225). Only `completed` means the archive
 /// bytes left the device — a dismissal without a finished activity is
 /// `cancelled`, and an activity-level error is `failed` carrying the
 /// reported description.
@@ -176,19 +176,19 @@ public enum HTDTHandoffError: Error, Sendable, Equatable {
     case archiveIdentityMismatch
     case serverRejected(String)
     /// Non-2xx HTTP status from the endpoint. The status code drives
-    /// delivery-queue retry classification (#387): 5xx/408/429 are
+    /// delivery-queue retry classification (legacy bolph71656-ai/HTDT-Capture#387): 5xx/408/429 are
     /// transient, other 4xx are semantic rejections.
     case endpointRejected(statusCode: Int)
     case malformedServerReceipt
     case transportFailed(String)
     /// The receiver's presented TLS identity did not match the
-    /// identity pinned during the pairing ceremony (#379).
+    /// identity pinned during the pairing ceremony (legacy bolph71656-ai/HTDT-Capture#379).
     case pinnedIdentityMismatch
 }
 
 /// Server-side ingestion receipt returned by an HTDT endpoint. The
 /// endpoint must echo the exact digest it ingested so the receipt can
-/// never stand in for a different bundle (issue #225).
+/// never stand in for a different bundle (issue bolph71656-ai/HTDT-Capture#225).
 public struct HTDTIngestionResponse: Codable, Sendable, Equatable {
     /// Endpoint accepted the bytes for staging.
     public static let outcomeAccepted = "accepted"
@@ -196,28 +196,28 @@ public struct HTDTIngestionResponse: Codable, Sendable, Equatable {
     public static let outcomeRejected = "rejected"
     /// Endpoint already holds this exact digest — a retry resolved to
     /// the same staging identity, so duplicate deliveries are
-    /// idempotent (issue #387).
+    /// idempotent (issue bolph71656-ai/HTDT-Capture#387).
     public static let outcomeAlreadyStaged = "already_staged"
 
     public let ingestionOutcome: String
-    /// Legacy Capture echo (#225) — required for `capture_bundle`
-    /// receipts, may be absent on artifact-aware (#423) receivers
+    /// Legacy Capture echo (legacy bolph71656-ai/HTDT-Capture#225) — required for `capture_bundle`
+    /// receipts, may be absent on artifact-aware (legacy bolph71656-ai/HTDT-Capture#423) receivers
     /// that answer only the generic artifact fields.
     public let captureRevisionID: String?
     public let bundleDigest: String?
-    /// Generic artifact echo (#423): the receiver repeats the exact
+    /// Generic artifact echo (legacy bolph71656-ai/HTDT-Capture#423): the receiver repeats the exact
     /// artifact kind/id/digest it staged. A generic HTTP 200 without
-    /// the echoed identity is never success (#423 §6).
+    /// the echoed identity is never success (legacy bolph71656-ai/HTDT-Capture#423 §6).
     public let artifactKind: String?
     public let artifactID: String?
     public let artifactDigest: String?
     /// Server-side staging/receipt identity when the receiver reports
     /// one; nil for receivers that do not name their staging slot
-    /// (issue #387).
+    /// (issue bolph71656-ai/HTDT-Capture#387).
     public let stagingRef: String?
     public let detail: String?
     /// Targeted repair/follow-up tasks the endpoint returns alongside
-    /// the ingestion verdict (issue #321). Absent means no requested
+    /// the ingestion verdict (issue bolph71656-ai/HTDT-Capture#321). Absent means no requested
     /// repairs. The plan must pin the same revision + bundle digest
     /// the receipt binds or it is refused as out-of-context.
     public let repairTaskPlan: HTDTRepairTaskPlan?
@@ -258,14 +258,14 @@ public struct HTDTIngestionResponse: Codable, Sendable, Equatable {
 }
 
 /// Builds the digest-preserving HTTP request and validates the returned
-/// receipt (issue #225). Split from `HTDTHandoffClient` so the wire
+/// receipt (issue bolph71656-ai/HTDT-Capture#225). Split from `HTDTHandoffClient` so the wire
 /// contract is unit-testable without network access.
 public enum HTDTHandoffRequestBuilder {
     /// POST of the raw archive bytes with the identity headers an HTDT
     /// endpoint binds to the received bytes. The body is the exact
     /// archive file — never a re-serialized or transformed copy.
     ///
-    /// #423: the versioned generic handoff envelope —
+    /// legacy bolph71656-ai/HTDT-Capture#423: the versioned generic handoff envelope —
     /// `X-HTDT-Artifact-Kind` / `-ID` / `-Digest` always travel; the
     /// legacy Capture headers (`X-HTDT-Capture-Revision-ID`,
     /// `X-HTDT-Bundle-Digest`) are still sent for `capture_bundle` so
@@ -312,8 +312,8 @@ public enum HTDTHandoffRequestBuilder {
         )
         if deliverable.artifactKind == .captureBundle {
             // Legacy Capture headers preserved during migration —
-            // receivers that know only the #225 contract still
-            // resolve the same identity (#423 §4/§14).
+            // receivers that know only the legacy bolph71656-ai/HTDT-Capture#225 contract still
+            // resolve the same identity (legacy bolph71656-ai/HTDT-Capture#423 §4/§14).
             request.setValue(
                 deliverable.artifactID,
                 forHTTPHeaderField: "X-HTDT-Capture-Revision-ID"
@@ -332,7 +332,7 @@ public enum HTDTHandoffRequestBuilder {
             forHTTPHeaderField: "X-HTDT-Archive-Bytes"
         )
         if let deliveryID {
-            // Idempotency key (#387): every retry of one delivery job
+            // Idempotency key (legacy bolph71656-ai/HTDT-Capture#387): every retry of one delivery job
             // carries the same identity so the receiver treats
             // duplicates idempotently.
             request.setValue(
@@ -344,7 +344,7 @@ public enum HTDTHandoffRequestBuilder {
     }
 
     /// Validates a server receipt against the deliverable that was
-    /// sent (#423 §6). For `capture_bundle` the legacy revision +
+    /// sent (legacy bolph71656-ai/HTDT-Capture#423 §6). For `capture_bundle` the legacy revision +
     /// bundle-digest echo remains authoritative (artifact fields may
     /// add to it); for `field_return` the artifact kind/id/digest must
     /// echo exactly — a generic HTTP 200 is never success.
@@ -396,7 +396,7 @@ public enum HTDTHandoffRequestBuilder {
         if let plan = response.repairTaskPlan {
             // A returned repair plan is only trusted when it pins the
             // exact revision + digest this handoff just delivered —
-            // never a plan describing other bytes (#321).
+            // never a plan describing other bytes (legacy bolph71656-ai/HTDT-Capture#321).
             guard plan.sourceCaptureRevisionID
                     == deliverable.artifactID,
                   plan.sourceBundleDigest
@@ -410,7 +410,7 @@ public enum HTDTHandoffRequestBuilder {
 }
 
 /// Sends a `.htdtcapture` archive to a configured endpoint
-/// (issue #225). Only the validated archive file moves — the digest
+/// (issue bolph71656-ai/HTDT-Capture#225). Only the validated archive file moves — the digest
 /// binding is preserved end-to-end because the transmitted bytes are
 /// the archive file itself.
 public struct HTDTHandoffClient: Sendable {
@@ -420,13 +420,13 @@ public struct HTDTHandoffClient: Sendable {
     /// server-side ingestion response. The caller records the
     /// `HTDTHandoffReceipt`.
     ///
-    /// `deliveryID` is the delivery-queue idempotency key (#387); every
+    /// `deliveryID` is the delivery-queue idempotency key (legacy bolph71656-ai/HTDT-Capture#387); every
     /// retry of one queued job sends the same value so a receiver that
     /// already staged those bytes answers `already_staged` instead of
     /// ingesting a duplicate.
     ///
     /// `pinnedIdentity` ("sha256:<64hex>" of the receiver's leaf TLS
-    /// certificate, from #379 pairing) switches the upload onto a
+    /// certificate, from legacy bolph71656-ai/HTDT-Capture#379 pairing) switches the upload onto a
     /// session that accepts only that certificate. TLS verification is
     /// never disabled globally — the pin replaces CA trust only for
     /// this paired destination's exact certificate.
@@ -480,7 +480,7 @@ public struct HTDTHandoffClient: Sendable {
 }
 
 /// Builds a URLSession whose server-trust evaluation is pinned to the
-/// exact leaf certificate recorded during #379 QR pairing. The pin is
+/// exact leaf certificate recorded during legacy bolph71656-ai/HTDT-Capture#379 QR pairing. The pin is
 /// scoped to this session only — it never relaxes TLS validation for
 /// other destinations, and a certificate that does not match the pin is
 /// refused even if it would validate under normal CA rules.
@@ -566,7 +566,7 @@ public final class HTDTIdentityPinningDelegate: NSObject,
 }
 #endif
 
-/// App-local ledger of handoff receipts (issue #225):
+/// App-local ledger of handoff receipts (issue bolph71656-ai/HTDT-Capture#225):
 /// `<captureRoot>/handoff-receipts.json`. Read-modify-write is atomic
 /// through the same temp+replace write used by the library metadata
 /// store.
@@ -671,7 +671,7 @@ public struct HTDTHandoffReceiptStore: Sendable {
         }
     }
 
-    /// Receipts for one artifact id of any family (#423) — matches
+    /// Receipts for one artifact id of any family (legacy bolph71656-ai/HTDT-Capture#423) — matches
     /// both the generic `artifact_id` and the legacy revision field.
     public func receipts(
         forArtifactID artifactID: String

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Presentation-only length display unit (issue #338, section A).
+/// Presentation-only length display unit (issue bolph71656-ai/HTDT-Capture#338, section A).
 ///
 /// Measurements are persisted in canonical `MeasurementUnit` values —
 /// `.meter` for length — and this preference only changes how a
@@ -20,7 +20,7 @@ public enum LengthDisplayUnit:
 
     /// Renders a canonical meter length in this display unit. The
     /// value is purely presentational — callers must keep storing the
-    /// canonical meter value (#235).
+    /// canonical meter value (legacy bolph71656-ai/HTDT-Capture#235).
     public func format(lengthMeters: Double) -> String {
         formatValue(lengthMeters: lengthMeters)
             + " " + rawValue
@@ -50,7 +50,7 @@ public enum LengthDisplayUnit:
 }
 
 /// Operator-selectable backup policy for finalized capture data
-/// (issue #305, taxonomy section C).
+/// (issue bolph71656-ai/HTDT-Capture#305, taxonomy section C).
 ///
 /// Working scan data is always excluded from backup regardless of
 /// this policy. `backupEligible` keeps the ADR-0004 default:
@@ -76,16 +76,16 @@ public enum FinalizedBackupPolicy:
     case excludedFromBackup = "excluded_from_backup"
 }
 
-/// A. Presentation preferences (issue #338): UI-only values that
+/// A. Presentation preferences (issue bolph71656-ai/HTDT-Capture#338): UI-only values that
 /// never enter capture authority.
 public struct CapturePresentationPreferences:
     Codable,
     Sendable,
     Equatable
 {
-    /// Haptic + VoiceOver announcement cues during scanning (#252).
+    /// Haptic + VoiceOver announcement cues during scanning (legacy bolph71656-ai/HTDT-Capture#252).
     public var guidanceCuesEnabled: Bool
-    /// Display-only unit for canonical meter lengths (#235).
+    /// Display-only unit for canonical meter lengths (legacy bolph71656-ai/HTDT-Capture#235).
     public var lengthDisplayUnit: LengthDisplayUnit
 
     public init(
@@ -114,7 +114,7 @@ public struct CapturePresentationPreferences:
     }
 }
 
-/// B. Device-local workflow defaults (issue #338): values that seed a
+/// B. Device-local workflow defaults (issue bolph71656-ai/HTDT-Capture#338): values that seed a
 /// new capture but are always overridden by an explicit per-capture or
 /// project/task selection. The effective value used is recorded into
 /// capture authority at the point of use — changing the default later
@@ -125,11 +125,11 @@ public struct CaptureWorkflowDefaults:
     Equatable
 {
     /// Identifier of the task profile seeded when a new capture
-    /// begins (#217/#259). Nil means no seed: the capture keeps the
+    /// begins (legacy bolph71656-ai/HTDT-Capture#217/legacy bolph71656-ai/HTDT-Capture#259). Nil means no seed: the capture keeps the
     /// operator's explicit selection (or the geometry-only default).
     public var defaultTaskProfileIdentifier: String?
     /// Whether the optional return-to-start consistency check starts
-    /// armed for a new scan (#273).
+    /// armed for a new scan (legacy bolph71656-ai/HTDT-Capture#273).
     public var returnToStartCheckEnabled: Bool
 
     public init(
@@ -170,7 +170,7 @@ public struct CaptureWorkflowDefaults:
     }
 }
 
-/// C. Storage & privacy preferences (issue #338): device storage
+/// C. Storage & privacy preferences (issue bolph71656-ai/HTDT-Capture#338): device storage
 /// behavior. These are never capture semantic authority and never
 /// recorded inside annotation records.
 public struct CaptureStoragePrivacyPreferences:
@@ -179,7 +179,7 @@ public struct CaptureStoragePrivacyPreferences:
     Equatable
 {
     /// Backup policy applied to `finalized/` + `exports/` artifacts
-    /// (#305).
+    /// (legacy bolph71656-ai/HTDT-Capture#305).
     public var finalizedBackupPolicy: FinalizedBackupPolicy
 
     public init(
@@ -201,7 +201,7 @@ public struct CaptureStoragePrivacyPreferences:
     }
 }
 
-/// Versioned app-local settings document (issue #338). Lives at
+/// Versioned app-local settings document (issue bolph71656-ai/HTDT-Capture#338). Lives at
 /// `<captureRoot>/app-settings.json` — outside `finalized/`,
 /// `exports/`, and `working/` — so it is never part of a canonical
 /// bundle and never inventoried by `PersistedCaptureInventory`.

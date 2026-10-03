@@ -30,7 +30,7 @@ private func transferTestRoot() throws -> URL {
 
 /// Finalizes one fixture revision under `captureRoot` and writes its
 /// export archive into `exports/` — the same shape the host leaves
-/// on disk (issue #378 test fixture).
+/// on disk (issue bolph71656-ai/HTDT-Capture#378 test fixture).
 @discardableResult
 private func transferFinalizeFixture(
     captureRoot: URL,

@@ -9,7 +9,7 @@ private let healthyBytes: Int64 = 4 * 1024 * 1024 * 1024
 private let hysteresisBytes: Int64 = 64 * 1024 * 1024
 
 /// Deterministic `CaptureStorageSampleDriver`: ticks only when the test
-/// calls `fireTick()`, so no test waits on real time (#140).
+/// calls `fireTick()`, so no test waits on real time (legacy bolph71656-ai/HTDT-Capture#140).
 @MainActor
 private final class ManualStorageSampleDriver: CaptureStorageSampleDriver {
     private(set) var startCount = 0
@@ -49,7 +49,7 @@ private final class ResourceEventRecorder {
     }
 }
 
-// MARK: - Typed storage assessment (#181)
+// MARK: - Typed storage assessment (legacy bolph71656-ai/HTDT-Capture#181)
 
 @Test
 @MainActor
@@ -81,7 +81,7 @@ func unavailableCapacityProducesTypedWarningAssessment() throws {
     )
 
     // "Could not determine" is an explicit typed result, not silently
-    // treated as sufficient capacity (#181).
+    // treated as sufficient capacity (legacy bolph71656-ai/HTDT-Capture#181).
     let assessment = try #require(monitor.currentStorageAssessment())
     #expect(assessment.condition == .capacityUnavailable)
     #expect(assessment.failure == nil)
@@ -132,7 +132,7 @@ func warningAndCriticalThresholdsAreUnchanged() {
     )
 }
 
-// MARK: - Stable machine diagnostics (#183)
+// MARK: - Stable machine diagnostics (legacy bolph71656-ai/HTDT-Capture#183)
 
 @Test
 @MainActor
@@ -155,14 +155,14 @@ func queryFailureUsesStableMachineTokenNotLocalizedText() throws {
     #expect(assessment.event.severity == .warning)
     #expect(assessment.failure == nil)
     // Canonical detail carries only stable tokens + NSError domain/code,
-    // never `localizedDescription` (#183).
+    // never `localizedDescription` (legacy bolph71656-ai/HTDT-Capture#183).
     #expect(
         assessment.event.detail
             == "storage_sample_failed domain=HTDTTestDomain code=42"
     )
 }
 
-// MARK: - Transition tracker hysteresis (#140)
+// MARK: - Transition tracker hysteresis (legacy bolph71656-ai/HTDT-Capture#140)
 
 @Test
 func storageTrackerEmitsOnlyOnTransitionsWithHysteresis() {
@@ -283,7 +283,7 @@ func storageTrackerSuppressesUndeterminedChurn() {
     )
 }
 
-// MARK: - Periodic sampling while started (#140)
+// MARK: - Periodic sampling while started (legacy bolph71656-ai/HTDT-Capture#140)
 
 @Test
 @MainActor
@@ -493,7 +493,7 @@ func unavailableMetadataDuringScanEmitsTypedWarningOnce() {
     monitor.stop()
 }
 
-// MARK: - Final preflight + emission chronology (#140, #190)
+// MARK: - Final preflight + emission chronology (legacy bolph71656-ai/HTDT-Capture#140, legacy bolph71656-ai/HTDT-Capture#190)
 
 @Test
 @MainActor

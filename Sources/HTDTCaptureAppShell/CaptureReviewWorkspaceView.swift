@@ -5,14 +5,14 @@ import HTDTCaptureCore
 import UIKit
 #endif
 
-/// The post-End Review workspace (issue #213), reused read-only for
-/// persisted captures (issue #294). Presents the captured room as a
+/// The post-End Review workspace (issue bolph71656-ai/HTDT-Capture#213), reused read-only for
+/// persisted captures (issue bolph71656-ai/HTDT-Capture#294). Presents the captured room as a
 /// visual artifact first: plan preview, per-frame evidence gallery,
 /// committed annotations, opening review, and the room reference
-/// frame. When `readOnly` is false, per-frame privacy deletion (#241),
-/// room-frame capture (#232), and opening disposition (#231) remain
+/// frame. When `readOnly` is false, per-frame privacy deletion (legacy bolph71656-ai/HTDT-Capture#241),
+/// room-frame capture (legacy bolph71656-ai/HTDT-Capture#232), and opening disposition (legacy bolph71656-ai/HTDT-Capture#231) remain
 /// live; when `spatialCaptureSealed` is true, live-capture actions are
-/// additionally hidden (issue #276).
+/// additionally hidden (issue bolph71656-ai/HTDT-Capture#276).
 public struct CaptureReviewWorkspaceView: View {
     public let model: CaptureReviewWorkspaceModel
     /// Live-edit actions; unused in read-only mode.
@@ -24,7 +24,7 @@ public struct CaptureReviewWorkspaceView: View {
     public let captureRoomFrameOrigin: () -> Void
     public let confirmRoomReferenceFrame: () -> Void
     public let roomFrameOriginPending: WorldPoint3D?
-    /// #325: resolves a revisit flag — the outcome names the real
+    /// legacy bolph71656-ai/HTDT-Capture#325: resolves a revisit flag — the outcome names the real
     /// authority it resolved to (or acknowledge/unavailable); the
     /// marker itself is never mutated into an annotation.
     public let resolveRevisitFlag:
@@ -33,11 +33,11 @@ public struct CaptureReviewWorkspaceView: View {
             ScanRevisitFlagResolution.Outcome,
             String?
         ) -> Void
-    /// #325: reopens a resolved/skipped flag when the marker needs
+    /// legacy bolph71656-ai/HTDT-Capture#325: reopens a resolved/skipped flag when the marker needs
     /// review again.
     public let reopenRevisitFlag: (String) -> Void
-    /// #352: marks one imported task-plan checklist item
-    /// skipped/unavailable from Review. #364 §10: the optional third
+    /// legacy bolph71656-ai/HTDT-Capture#352: marks one imported task-plan checklist item
+    /// skipped/unavailable from Review. legacy bolph71656-ai/HTDT-Capture#364 §10: the optional third
     /// argument carries the collected reason to the mission waiver
     /// ledger; `canRecordTaskPlanReason` gates the prompt.
     public let markTaskPlanItem:
@@ -46,20 +46,20 @@ public struct CaptureReviewWorkspaceView: View {
     /// reason can persist — the checklist only offers "with reason"
     /// items when the waiver channel exists.
     public let canRecordTaskPlanReason: Bool
-    /// #232: confirms a field/install datum derived from the
+    /// legacy bolph71656-ai/HTDT-Capture#232: confirms a field/install datum derived from the
     /// committed room reference frame. Returns false when the room
     /// frame is missing or the commit failed.
     public let confirmFieldDatumFromRoomFrame:
         () async -> Bool
-    /// #232: removes the committed field datum payload.
+    /// legacy bolph71656-ai/HTDT-Capture#232: removes the committed field datum payload.
     public let removeRoomFieldDatum: () async -> Void
-    /// #232: commits a field datum declared from bounded operands —
+    /// legacy bolph71656-ai/HTDT-Capture#232: commits a field datum declared from bounded operands —
     /// entity/measurement/room-frame/stated picks resolved by the
     /// host into the persisted document. Returns false on a failed
     /// or rejected commit.
     public let commitFieldDatum:
         (RoomFieldDatumAuthoringRequest) async -> Bool
-    /// #231: captures the camera position as the center for a
+    /// legacy bolph71656-ai/HTDT-Capture#231: captures the camera position as the center for a
     /// user-declared opening candidate.
     public let captureOpeningCenter: () -> Void
     /// Clears a pending opening-center capture so another candidate
@@ -67,7 +67,7 @@ public struct CaptureReviewWorkspaceView: View {
     public let clearOpeningCenter: () -> Void
     /// Pending center point for a user-declared opening candidate.
     public let openingCenterPending: WorldPoint3D?
-    /// #375: author a note in Review — (text, category,
+    /// legacy bolph71656-ai/HTDT-Capture#375: author a note in Review — (text, category,
     /// needsAttention, bindingRefs). Resolve/supersede/bind actions
     /// follow the note lifecycle; notes are never edited in place.
     public let recordReviewFieldNote:
@@ -76,14 +76,14 @@ public struct CaptureReviewWorkspaceView: View {
     public let supersedeFieldNote:
         (CaptureFieldNoteID, String, CaptureFieldNoteCategory) -> Void
     public let bindFieldNote: (CaptureFieldNoteID, String) -> Void
-    /// #376: advisory privacy flag on an evidence frame.
+    /// legacy bolph71656-ai/HTDT-Capture#376: advisory privacy flag on an evidence frame.
     public let flagEvidenceFrameForPrivacy:
         (EvidenceFrameID) -> Void
-    /// #460: clears a frame's privacy flag — the paired action of
+    /// legacy bolph71656-ai/HTDT-Capture#460: clears a frame's privacy flag — the paired action of
     /// `flagEvidenceFrameForPrivacy`.
     public let unflagEvidenceFrameForPrivacy:
         (EvidenceFrameID) -> Void
-    /// #408/#409: the accepted RoomPlan bindable objects (loaded by
+    /// legacy bolph71656-ai/HTDT-Capture#408/legacy bolph71656-ai/HTDT-Capture#409: the accepted RoomPlan bindable objects (loaded by
     /// the host from `roomplan/captured-room.json`) — they drive
     /// both the 3D scene's surface elements and the survey's
     /// boundary targets. Empty on hosts that cannot decode RoomPlan.
@@ -97,7 +97,7 @@ public struct CaptureReviewWorkspaceView: View {
     @State private var newOpeningState: RoomOpeningState = .open
     @State private var newOpeningWidth = "0.30"
     @State private var newOpeningHeight = "0.30"
-    /// Plan selection is UI state only — it never persists (#367).
+    /// Plan selection is UI state only — it never persists (legacy bolph71656-ai/HTDT-Capture#367).
     @State private var planSelection:
         RoomPlanPreviewModel.PlanMarker?
     @State private var planFocusToken = 0
@@ -106,7 +106,7 @@ public struct CaptureReviewWorkspaceView: View {
     @State private var authoringDatum = false
     @State private var supersedingFieldNote: CaptureFieldNote?
     @State private var bindingFieldNote: CaptureFieldNote?
-    /// #408: Plan stays the default surface; the accepted-geometry
+    /// legacy bolph71656-ai/HTDT-Capture#408: Plan stays the default surface; the accepted-geometry
     /// 3D scene is the second tab over the same committed data.
     @State private var geometryMode: ReviewGeometryMode = .plan
 
@@ -187,7 +187,7 @@ public struct CaptureReviewWorkspaceView: View {
     }
 
     public var body: some View {
-        // #362: regular-width splits the capture's *visual* evidence
+        // legacy bolph71656-ai/HTDT-Capture#362: regular-width splits the capture's *visual* evidence
         // (plan preview + frame gallery) from its *detail* rows; on
         // compact width the same sections compose back into one list.
         CaptureAdaptivePanes {
@@ -219,7 +219,7 @@ public struct CaptureReviewWorkspaceView: View {
             }
 
             Section("Geometry") {
-                // #408: the same committed evidence through two
+                // legacy bolph71656-ai/HTDT-Capture#408: the same committed evidence through two
                 // surfaces — the 2D plan stays default; 3D renders
                 // accepted geometry only (never speculative).
                 if sceneModel.elements.isEmpty,
@@ -282,7 +282,7 @@ public struct CaptureReviewWorkspaceView: View {
                 }
             }
 
-            // #409: the spatial survey pass — object-first review of
+            // legacy bolph71656-ai/HTDT-Capture#409: the spatial survey pass — object-first review of
             // every committed target with its attributed records.
             Section {
                 NavigationLink {
@@ -749,7 +749,7 @@ public struct CaptureReviewWorkspaceView: View {
                             }
                         }
                     }
-                    // User-declared boundary openings (issue #231):
+                    // User-declared boundary openings (issue bolph71656-ai/HTDT-Capture#231):
                     // vents, grilles, undercuts, and penetrations
                     // RoomPlan never infers. A captured camera point
                     // supplies the center; these never promote into
@@ -1049,7 +1049,7 @@ public struct CaptureReviewWorkspaceView: View {
             }
         }
         .sheet(item: $supersedingFieldNote) { note in
-            // Supersession lineage (#420): the correction preloads
+            // Supersession lineage (legacy bolph71656-ai/HTDT-Capture#420): the correction preloads
             // the original category and bindings so a small fix
             // does not silently drop the subject.
             FieldNoteComposeSheet(
@@ -1093,12 +1093,12 @@ public struct CaptureReviewWorkspaceView: View {
         }
     }
 
-    /// Preview-first evidence row (issue #367): thumbnail, human
+    /// Preview-first evidence row (issue bolph71656-ai/HTDT-Capture#367): thumbnail, human
     /// retention label, linked subjects, status symbols. Exact refs —
     /// frame ID, byte count, source paths — stay one disclosure away,
     /// and removal lives in the context menu, never in the primary
     /// row.
-    /// #352: the mission bound before acquisition. Mission
+    /// legacy bolph71656-ai/HTDT-Capture#352: the mission bound before acquisition. Mission
     /// completeness is displayed against committed outcomes and stays
     /// distinct from the technical `ready_for_htdt_ingestion` verdict.
     @ViewBuilder
@@ -1158,7 +1158,7 @@ public struct CaptureReviewWorkspaceView: View {
         }
     }
 
-    /// #227: declared reference targets, their sighting counts, and
+    /// legacy bolph71656-ai/HTDT-Capture#227: declared reference targets, their sighting counts, and
     /// the scale-revisit diagnostics the builder computed at commit
     /// time. Rendered only when a targets document was committed.
     @ViewBuilder
@@ -1243,7 +1243,7 @@ public struct CaptureReviewWorkspaceView: View {
         }
     }
 
-    /// #375: operator field notes bound to this revision. Notes are
+    /// legacy bolph71656-ai/HTDT-Capture#375: operator field notes bound to this revision. Notes are
     /// append-only — corrections supersede — and the unresolved
     /// attention subset also surfaces in the banner above the plan
     /// preview. Binding candidates cover the authority refs the
@@ -1308,7 +1308,7 @@ public struct CaptureReviewWorkspaceView: View {
     }
 
     /// Resolved labels for this workspace's authority refs — the
-    /// shared resolver every note surface uses (issue #420).
+    /// shared resolver every note surface uses (issue bolph71656-ai/HTDT-Capture#420).
     private var fieldNoteResolverCandidates:
         [FieldNoteBindingCandidate]
     { fieldNoteBindingCandidates }
@@ -1415,7 +1415,7 @@ public struct CaptureReviewWorkspaceView: View {
                 // Evidence summaries resolve to record titles when
                 // the ref names a committed record; an unresolvable
                 // ref stays honest rather than vanishing (issue
-                // #420).
+                // legacy bolph71656-ai/HTDT-Capture#420).
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(
                         note.evidenceRefs,
@@ -1520,9 +1520,9 @@ public struct CaptureReviewWorkspaceView: View {
         )
     }
 
-    /// #375: binds an unbound note by superseding it with the same
+    /// legacy bolph71656-ai/HTDT-Capture#375: binds an unbound note by superseding it with the same
     /// text + the chosen ref — the stored lineage shows the intent.
-    /// #420: candidates group by authority kind under localized
+    /// legacy bolph71656-ai/HTDT-Capture#420: candidates group by authority kind under localized
     /// section headers, lead with the human label, and keep the
     /// exact ref as secondary context.
     @ViewBuilder
@@ -1591,7 +1591,7 @@ public struct CaptureReviewWorkspaceView: View {
     }
 
     /// Binding candidates drawn from this revision's committed
-    /// authority + evidence, resolved to human labels (issue #420).
+    /// authority + evidence, resolved to human labels (issue bolph71656-ai/HTDT-Capture#420).
     private var fieldNoteBindingCandidates:
         [FieldNoteBindingCandidate]
     {
@@ -1606,7 +1606,7 @@ public struct CaptureReviewWorkspaceView: View {
         )
     }
 
-    /// #325: every unresolved flag dropped during scanning is listed
+    /// legacy bolph71656-ai/HTDT-Capture#325: every unresolved flag dropped during scanning is listed
     /// for mandatory review, each with its location, suggested
     /// remediation route, and explicit resolve/skip actions. Resolving
     /// links a real authority rather than editing the marker.
@@ -1842,7 +1842,7 @@ public struct CaptureReviewWorkspaceView: View {
         }
     }
 
-    /// "Referenced by" names in human terms (issue #367): entity
+    /// "Referenced by" names in human terms (issue bolph71656-ai/HTDT-Capture#367): entity
     /// labels, measurement types, opening kinds — never the raw
     /// `entity:<id>` / `measurement:<id>` tokens.
     private func referencedSubjects(
@@ -1996,7 +1996,7 @@ public struct CaptureReviewWorkspaceView: View {
     }
 
     /// The composed plan markers — base RoomPlan geometry overlaid
-    /// with the workspace's review items (issue #367). A reviewed
+    /// with the workspace's review items (issue bolph71656-ai/HTDT-Capture#367). A reviewed
     /// opening replaces its raw candidate dot via the shared
     /// `roomplan:<token>:<uuid>` identifier.
     private func planMarkers(
@@ -2009,7 +2009,7 @@ public struct CaptureReviewWorkspaceView: View {
         )
     }
 
-    /// #364 §7.4: a list row reflects plan-marker selection —
+    /// legacy bolph71656-ai/HTDT-Capture#364 §7.4: a list row reflects plan-marker selection —
     /// tapping the row focuses the same marker on the plan, and
     /// selecting the marker there highlights the row.
     private func isSelectedMarker(
@@ -2061,9 +2061,9 @@ public struct CaptureReviewWorkspaceView: View {
         return " · author: " + operatorName(id)
     }
 
-    // MARK: #408/#409 derived surfaces
+    // MARK: legacy bolph71656-ai/HTDT-Capture#408/legacy bolph71656-ai/HTDT-Capture#409 derived surfaces
 
-    /// The accepted-geometry 3D scene (issue #408): every element is
+    /// The accepted-geometry 3D scene (issue bolph71656-ai/HTDT-Capture#408): every element is
     /// committed evidence or a committed authority — mesh snapshots,
     /// RoomPlan bindables, derived candidates, entities, measurements
     /// all come straight off `model`/`roomPlanObjects`.
@@ -2079,7 +2079,7 @@ public struct CaptureReviewWorkspaceView: View {
         )
     }
 
-    /// The spatial survey over the same committed set (issue #409):
+    /// The spatial survey over the same committed set (issue bolph71656-ai/HTDT-Capture#409):
     /// RoomPlan/mesh/entity targets with their attributed records.
     private func surveyModel(
         mode: SurveyMode
@@ -2104,7 +2104,7 @@ public struct CaptureReviewWorkspaceView: View {
     }
 
     /// Row caption: honest remaining-work count for the survey link
-    /// — badges only count what still needs a decision (#406 §5).
+    /// — badges only count what still needs a decision (legacy bolph71656-ai/HTDT-Capture#406 §5).
     private var surveyBadgeText: String {
         let summary = surveyModel(mode: .all).summary
         if summary.remainingCount == 0 {
@@ -2123,7 +2123,7 @@ public struct CaptureReviewWorkspaceView: View {
 
 }
 
-/// The geometry surface toggle (issue #408): Plan is the default;
+/// The geometry surface toggle (issue bolph71656-ai/HTDT-Capture#408): Plan is the default;
 /// the accepted-geometry 3D scene is the second tab.
 private enum ReviewGeometryMode: String {
     case plan
@@ -2136,7 +2136,7 @@ private enum ReviewGeometryMode: String {
 /// Loads a preview HEIC lazily for the evidence gallery. Previews are
 /// derived convenience artifacts; a missing/unreadable preview degrades
 /// to a stable placeholder — never a hidden failure and never a row
-/// jump (issue #367).
+/// jump (issue bolph71656-ai/HTDT-Capture#367).
 struct AsyncPreviewImage: View {
     let url: URL?
 
@@ -2161,9 +2161,9 @@ struct AsyncPreviewImage: View {
 }
 #endif
 
-// MARK: #232 bounded field-datum authoring
+// MARK: legacy bolph71656-ai/HTDT-Capture#232 bounded field-datum authoring
 
-/// The bounded field-datum authoring sheet (issue #232 refinement):
+/// The bounded field-datum authoring sheet (issue bolph71656-ai/HTDT-Capture#232 refinement):
 /// every operand maps to workspace evidence — an authored entity, a
 /// committed measurement, the confirmed room frame, or an
 /// operator-stated value — never a free arbitrary vector. The host

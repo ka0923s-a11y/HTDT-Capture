@@ -1,7 +1,7 @@
 # Physical capture corrections — 2026-09-20
 
-Issue: #80  
-Implementation PR: #81  
+Issue: legacy bolph71656-ai/HTDT-Capture#80  
+Implementation PR: legacy bolph71656-ai/HTDT-Capture#81  
 Starting authority: `fe4bf31d0f53eeef87147a1b687d4a303d36a3ed`
 
 ## Reported physical-device failures
@@ -57,7 +57,7 @@ Repository-native `swift test`, iOS platform/AppShell compilation, and the unsig
 
 ## Physical-device acceptance still required
 
-CI cannot establish camera/depth quality in the reported room. Before closing #80, verify on the same or equivalently difficult physical scene:
+CI cannot establish camera/depth quality in the reported room. Before closing legacy bolph71656-ai/HTDT-Capture#80, verify on the same or equivalently difficult physical scene:
 
 - guidance can reach completion and **End** reaches review instead of a persistence failure;
 - a round table reports a scene-depth-derived circle/ellipse when the observed contour supports it, rather than a forced rectangle;
@@ -65,12 +65,12 @@ CI cannot establish camera/depth quality in the reported room. Before closing #8
 - connected large-base/small-top furniture exposes more than one materially different horizontal profile when both levels are observed;
 - long scans do not reintroduce the earlier memory/crash regression.
 
-If any physical case fails, retain the captured evidence and update #80 with the exact geometry badge, evidence counts, and failure state before further threshold changes.
+If any physical case fails, retain the captured evidence and update legacy bolph71656-ai/HTDT-Capture#80 with the exact geometry badge, evidence counts, and failure state before further threshold changes.
 
 
 ## Second physical-device pass — 19:48–19:49 JST
 
-The first correction (#81) improved the software authority but did **not** close the physical regression. The supplied second-pass screenshots establish the following current-device facts:
+The first correction (legacy bolph71656-ai/HTDT-Capture#81) improved the software authority but did **not** close the physical regression. The supplied second-pass screenshots establish the following current-device facts:
 
 - tracking remained normal;
 - direction coverage reached 100% and the guidance UI reported completion;
@@ -80,11 +80,11 @@ The first correction (#81) improved the software authority but did **not** close
 - pressing **End** still transitioned to `failed` with a generic persistence failure while the visible stage text was stale at “Saving available mesh evidence”;
 - the derived shape badge still reported `Polygon` in a scene containing round/curved furniture.
 
-PR #82 therefore targets a narrower remaining failure surface.
+PR bolph71656-ai/HTDT-Capture#82 therefore targets a narrower remaining failure surface.
 
 ### Remaining end-scan race
 
-The #81 replay guard only handled a duplicate callback **after** the first RoomPlan descriptor had committed to actor state. The store actor can re-enter while awaiting its file-writer actor, so two identical completion callbacks can both observe a nil descriptor before either commit finishes.
+The legacy bolph71656-ai/HTDT-Capture#81 replay guard only handled a duplicate callback **after** the first RoomPlan descriptor had committed to actor state. The store actor can re-enter while awaiting its file-writer actor, so two identical completion callbacks can both observe a nil descriptor before either commit finishes.
 
 The correction adds a byte-identical atomic writer path. If the canonical target appears because another identical writer won the race, the second writer accepts it only when the existing bytes exactly match. Conflicting bytes remain a hard error. Payload declaration registration is likewise idempotent only for an exactly equal declaration.
 
@@ -96,7 +96,7 @@ Residual raw/processed RoomPlan write failures now replace the stale stage strin
 
 The prior derived-shape path projected most of the center camera crop into one object observation. On the physical scene, the round table, chair, floor, cabinet, and nearby objects can therefore contribute to one connected footprint and bias the fitter toward a polygon.
 
-PR #82 introduces a bounded image-grid connected-surface selector for the **derived object-shape path only**:
+PR bolph71656-ai/HTDT-Capture#82 introduces a bounded image-grid connected-surface selector for the **derived object-shape path only**:
 
 - seed from the closest valid depth surface in a central window;
 - flood only through neighboring depth samples whose local depth discontinuity stays within an absolute/relative bound;
@@ -108,7 +108,7 @@ Whole-room spatial coverage is unchanged. This selector does not synthesize unse
 
 ### Added regression coverage
 
-PR #82 adds focused tests for:
+PR bolph71656-ai/HTDT-Capture#82 adds focused tests for:
 
 - byte-identical atomic replay versus conflicting overwrite;
 - concurrent identical RoomPlan raw/processed completion replay;

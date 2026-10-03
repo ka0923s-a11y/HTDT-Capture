@@ -2,8 +2,8 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-/// Contract coverage for the field-authority family (#300/#301/#310/
-/// #314/#324/#331): schema registry mapping, compiled-schema
+/// Contract coverage for the field-authority family (legacy bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#301/legacy bolph71656-ai/HTDT-Capture#310/
+/// legacy bolph71656-ai/HTDT-Capture#314/legacy bolph71656-ai/HTDT-Capture#324/legacy bolph71656-ai/HTDT-Capture#331): schema registry mapping, compiled-schema
 /// validation of canonical encodings, model invariants, and the
 /// measurement authority extension.
 private let fieldAuthorityPaths: [(String, String)] = [
@@ -441,7 +441,7 @@ func wiringIdenticalEndpointsRejected() throws {
 @Test
 func draftDecodeWithoutFieldAuthority() throws {
     // Drafts saved before the field-authority extension lack the key;
-    // they must still decode (issue #314).
+    // they must still decode (issue bolph71656-ai/HTDT-Capture#314).
     let draft = AnnotationWorkspaceDraft(
         captureRevisionID: testRevisionID,
         coordinateSpaceID: testSpaceID,

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Advisory frame-usability diagnostics (#274).
+/// Advisory frame-usability diagnostics (legacy bolph71656-ai/HTDT-Capture#274).
 ///
 /// A retained evidence frame is structurally valid, but its visual
 /// content can still be useless (nearly black, clipped/overexposed,

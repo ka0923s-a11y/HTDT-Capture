@@ -1,7 +1,7 @@
 import Foundation
 
 /// Convenience 3D formats the app can emit from a finalized capture
-/// (issue #306). These are DERIVED artifacts: they are not canonical
+/// (issue bolph71656-ai/HTDT-Capture#306). These are DERIVED artifacts: they are not canonical
 /// capture evidence, are never written inside the inventoried
 /// `finalized/`/`exports/`/`working/` roots, and never include camera
 /// imagery or depth.
@@ -91,7 +91,7 @@ public struct DerivedExportSourcePayload: Codable, Sendable, Equatable {
 /// bundle digest the output was derived from, the coordinate space the
 /// geometry lives in, and the conversion the exporter applied — so a
 /// shared USDZ/OBJ can always be traced back to its evidence (issue
-/// #306).
+/// legacy bolph71656-ai/HTDT-Capture#306).
 public struct DerivedExportProvenance: Codable, Sendable, Equatable {
     public static let expectedSchema = "htdt.derived-export"
     public static let expectedSchemaVersion = "1.0.0"

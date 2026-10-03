@@ -1,6 +1,6 @@
 import Foundation
 
-/// Stable identity of one field note (issue #375). A note keeps this
+/// Stable identity of one field note (issue bolph71656-ai/HTDT-Capture#375). A note keeps this
 /// identity for the life of the capture revision it belongs to —
 /// corrections after finalization arrive as a *new* note on a later
 /// revision that supersedes this one, never an in-place rewrite.
@@ -9,7 +9,7 @@ public struct CaptureFieldNoteID: CaptureIdentifier {
     public init(rawValue: UUID) { self.rawValue = rawValue }
 }
 
-/// Field-note errors (issue #375). Model-level validation failures are
+/// Field-note errors (issue bolph71656-ai/HTDT-Capture#375). Model-level validation failures are
 /// typed so callers can distinguish malformed input from store-state
 /// rejections (seal/consumed stay on `CaptureWorkingSetError`).
 public enum CaptureFieldNoteError: Error, Sendable, Equatable {
@@ -38,7 +38,7 @@ public enum CaptureFieldNoteError: Error, Sendable, Equatable {
     case collectionBoundExceeded
 }
 
-/// The typed category of a field note (issue #375). The well-known set
+/// The typed category of a field note (issue bolph71656-ai/HTDT-Capture#375). The well-known set
 /// covers the issue's vocabulary; deployment-specific categories use
 /// the `x_` extension namespace so free text can never smuggle itself
 /// into the machine-enumerated slot. Decoding accepts any lowercase
@@ -121,7 +121,7 @@ public struct CaptureFieldNoteCategory:
     }
 }
 
-/// Optional severity marker on a field note (issue #375). Orthogonal
+/// Optional severity marker on a field note (issue bolph71656-ai/HTDT-Capture#375). Orthogonal
 /// to `needs_attention`: severity grades what the note describes, the
 /// flag requests operator review before finalization.
 public enum CaptureFieldNoteSeverity: String, Codable, Sendable {
@@ -130,7 +130,7 @@ public enum CaptureFieldNoteSeverity: String, Codable, Sendable {
     case hazard
 }
 
-/// How the note's text was produced (issue #375). Dictation stores the
+/// How the note's text was produced (issue bolph71656-ai/HTDT-Capture#375). Dictation stores the
 /// transcribed text only — audio is never retained, so the bundle
 /// carries no voice payload.
 public enum CaptureFieldNoteAuthoringMethod:
@@ -140,7 +140,7 @@ public enum CaptureFieldNoteAuthoringMethod:
     case dictated
 }
 
-/// Lifecycle of a field note (issue #375). `active` is the recording
+/// Lifecycle of a field note (issue bolph71656-ai/HTDT-Capture#375). `active` is the recording
 /// state; `resolved` marks a follow-up handled; `superseded` marks a
 /// note replaced by a newer one (the replacement records the link via
 /// `supersedes_note_id`). Terminal states never reopen.
@@ -150,12 +150,12 @@ public enum CaptureFieldNoteStatus: String, Codable, Sendable {
     case superseded
 }
 
-/// What a note's spatial anchor means (issue #421): `subject_point`
+/// What a note's spatial anchor means (issue bolph71656-ai/HTDT-Capture#421): `subject_point`
 /// is the exact location the note refers to (validated raycast/3D
 /// pick); `viewpoint` is only where the device stood when the note
 /// was recorded — it must never be presented as the subject's
 /// location. Points authored before the field existed decode as
-/// `subject_point` — every pre-#421 point came from a raycast
+/// `subject_point` — every pre-legacy bolph71656-ai/HTDT-Capture#421 point came from a raycast
 /// placement, never a camera pose.
 public enum CaptureFieldNoteAnchorKind:
     String, Codable, Sendable, CaseIterable
@@ -165,7 +165,7 @@ public enum CaptureFieldNoteAnchorKind:
 }
 
 /// The operator's spatial-authoring intent for a scan-time field
-/// note (issue #421). The host maps the request onto the live AR
+/// note (issue bolph71656-ai/HTDT-Capture#421). The host maps the request onto the live AR
 /// session; an unavailable anchor degrades to `spatialPosition = nil`
 /// rather than fabricating a point.
 public enum CaptureFieldNoteAnchorRequest:
@@ -181,7 +181,7 @@ public enum CaptureFieldNoteAnchorRequest:
     case viewpoint
 }
 
-/// The optional spatial anchor of a field note (issue #375). A point
+/// The optional spatial anchor of a field note (issue bolph71656-ai/HTDT-Capture#375). A point
 /// is only meaningful in a named coordinate space; when the recording
 /// device cannot produce one the position is absent rather than
 /// fabricated.
@@ -190,7 +190,7 @@ public struct CaptureFieldNoteSpatialPosition:
 {
     public let coordinateSpaceID: CoordinateSpaceID
     public let pointMeters: WorldPoint3D
-    /// What the point semantically is (issue #421). Absent on notes
+    /// What the point semantically is (issue bolph71656-ai/HTDT-Capture#421). Absent on notes
     /// authored before the kind existed — those decode as
     /// `subject_point` because every legacy point came from a
     /// raycast placement.
@@ -242,7 +242,7 @@ public struct CaptureFieldNoteSpatialPosition:
     }
 }
 
-/// One operator field note bound to a capture revision (issue #375).
+/// One operator field note bound to a capture revision (issue bolph71656-ai/HTDT-Capture#375).
 ///
 /// A note is supplemental context bound to exact authorities through
 /// `binding_refs` (`entity:`, `measurement:`, `surface:`,
@@ -498,7 +498,7 @@ public struct CaptureFieldNote: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
-/// The persisted field-notes document (issue #375), written to
+/// The persisted field-notes document (issue bolph71656-ai/HTDT-Capture#375), written to
 /// `session/field-notes.json` inside the working set and carried into
 /// the finalized bundle as a canonical `user_annotation` payload —
 /// operator-authored context that survives finalize/export/import.
@@ -552,7 +552,7 @@ public struct CaptureFieldNoteDocument: Codable, Sendable, Equatable {
     }
 }
 
-/// Read helpers over a note collection (issue #375): chronological and
+/// Read helpers over a note collection (issue bolph71656-ai/HTDT-Capture#375): chronological and
 /// category views for the library, plus the pre-finalization
 /// needs-attention surfacing Review uses.
 public struct CaptureFieldNoteCollection: Sendable, Equatable {
@@ -622,7 +622,7 @@ public struct CaptureFieldNoteCollection: Sendable, Equatable {
     }
 }
 
-/// Parent↔child comparison of two field-note collections (issue #375):
+/// Parent↔child comparison of two field-note collections (issue bolph71656-ai/HTDT-Capture#375):
 /// which notes were added on the child, resolved on the child, or
 /// superseded by a child note. Differences key on note identity — a
 /// note id present on both sides but terminal on the child reports as

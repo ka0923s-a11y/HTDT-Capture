@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Coverage for the lifecycle/recovery issues #296, #297, #298, #320:
+/// Coverage for the lifecycle/recovery issues bolph71656-ai/HTDT-Capture#296, legacy bolph71656-ai/HTDT-Capture#297, legacy bolph71656-ai/HTDT-Capture#298, legacy bolph71656-ai/HTDT-Capture#320:
 /// typed guidance-completion sources, post-End draft recovery, review
 /// remediation affordances, and the practice-mode working set.
 final class LifecycleRecoveryTests: XCTestCase {
@@ -149,7 +149,7 @@ final class LifecycleRecoveryTests: XCTestCase {
     }
 }
 
-// MARK: - #296 guidance completion source
+// MARK: - legacy bolph71656-ai/HTDT-Capture#296 guidance completion source
 
 extension LifecycleRecoveryTests {
     private func coverage(
@@ -466,7 +466,7 @@ extension LifecycleRecoveryTests {
     }
 }
 
-// MARK: - #297 post-End draft recovery
+// MARK: - legacy bolph71656-ai/HTDT-Capture#297 post-End draft recovery
 
 extension LifecycleRecoveryTests {
     func testEndAcceptedRevisionReopensAsSealedDraft() async throws {
@@ -1248,7 +1248,7 @@ extension LifecycleRecoveryTests {
     }
 }
 
-// MARK: - #298 review remediation catalog
+// MARK: - legacy bolph71656-ai/HTDT-Capture#298 review remediation catalog
 
 extension LifecycleRecoveryTests {
     private func diagnostic(
@@ -1451,7 +1451,7 @@ extension LifecycleRecoveryTests {
     }
 }
 
-// MARK: - #320 practice mode
+// MARK: - legacy bolph71656-ai/HTDT-Capture#320 practice mode
 
 extension LifecycleRecoveryTests {
     func testPracticeWorkingSetIsFlaggedAndNeverFinalizable()

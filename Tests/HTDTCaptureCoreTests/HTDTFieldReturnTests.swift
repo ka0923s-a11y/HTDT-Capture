@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #400: the non-spatial field-mission return — a first-class
+/// Issue bolph71656-ai/HTDT-Capture#400: the non-spatial field-mission return — a first-class
 /// contribution that completes inventory/photo/settings/wiring plan
 /// tasks without a RoomPlan capture revision. Covers the per-task
 /// capability preflight, the fulfillment ledger, artifact assembly
@@ -465,7 +465,7 @@ final class HTDTFieldReturnTests: XCTestCase {
         )
     }
 
-    // MARK: - Issue #418: outcome semantics + typed fulfillment
+    // MARK: - Issue bolph71656-ai/HTDT-Capture#418: outcome semantics + typed fulfillment
 
     private func seededWorkspace() throws
         -> HTDTFieldReturnWorkspace
@@ -647,7 +647,7 @@ final class HTDTFieldReturnTests: XCTestCase {
         }
     }
 
-    // MARK: - Issue #418 refinement: measurement acquisition
+    // MARK: - Issue bolph71656-ai/HTDT-Capture#418 refinement: measurement acquisition
 
     func testMeasurementAcquisitionRequirementPreflight() throws {
         // Plans carrying the typed acquisition requirement unlock
@@ -705,7 +705,7 @@ final class HTDTFieldReturnTests: XCTestCase {
         XCTAssertEqual(try evaluate(nil)?.enabled, false)
     }
 
-    // MARK: - Issue #419: contribution-ref envelopes
+    // MARK: - Issue bolph71656-ai/HTDT-Capture#419: contribution-ref envelopes
 
     func testEnvelopeDocsCarryContributionRefNotCaptureSlot()
         throws
@@ -894,7 +894,7 @@ final class HTDTFieldReturnTests: XCTestCase {
         )
     }
 
-    /// #450: recording an outcome on a finalized workspace throws the
+    /// legacy bolph71656-ai/HTDT-Capture#450: recording an outcome on a finalized workspace throws the
     /// finalized-container error — a container that *is* finalized
     /// must not report itself as not finalized.
     func testOutcomeRecordingOnFinalizedWorkspaceThrowsAlreadyFinalized()
@@ -926,7 +926,7 @@ final class HTDTFieldReturnTests: XCTestCase {
         }
     }
 
-    /// #453: envelope families live in the `htdt.field_return.*`
+    /// legacy bolph71656-ai/HTDT-Capture#453: envelope families live in the `htdt.field_return.*`
     /// namespace — a capture-side `htdt.capture.*` schema id must
     /// never name an envelope family, or the two namespaces drift as
     /// parallel vocabularies describing the same records.

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Versioned vocabulary for how a capture revision relates to its
-/// parent (issue #319). The kind is declared at `revision/intent.json`
+/// parent (issue bolph71656-ai/HTDT-Capture#319). The kind is declared at `revision/intent.json`
 /// in every non-root bundle — a plain "revised" flag can never express
 /// whether the child re-observed the room or only corrected records.
 public enum CaptureRevisionKind: String, Codable, Sendable {
@@ -58,7 +58,7 @@ public struct CaptureRevisionRecordRef:
     }
 }
 
-/// Persisted `revision/intent.json` (issue #319): the child revision's
+/// Persisted `revision/intent.json` (issue bolph71656-ai/HTDT-Capture#319): the child revision's
 /// declared relationship to its parent — kind, the parent's exact
 /// bundle digest, which capture-session/coordinate-space authorities
 /// were reused, and the semantic diff (added/changed/superseded
@@ -188,7 +188,7 @@ public struct CaptureRevisionIntentDocument:
     }
 }
 
-/// Encoded `revision/intent.json` ready for staging (issue #319).
+/// Encoded `revision/intent.json` ready for staging (issue bolph71656-ai/HTDT-Capture#319).
 public struct CaptureRevisionIntentPackage: Sendable, Equatable {
     public static let path = "revision/intent.json"
 

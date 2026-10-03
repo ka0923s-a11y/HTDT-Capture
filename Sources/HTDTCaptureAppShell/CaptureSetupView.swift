@@ -3,7 +3,7 @@ import SwiftUI
 import HTDTCaptureCore
 import HTDTCapturePlatform
 
-/// Presentation model for the pre-capture setup screen (#212).
+/// Presentation model for the pre-capture setup screen (legacy bolph71656-ai/HTDT-Capture#212).
 /// Built by the host while the session is in `.setup` — before
 /// RoomPlan/the capture clock exist — so every field is a snapshot of
 /// what the operator confirmed at Begin.
@@ -11,28 +11,28 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
     public let capabilities: CaptureCapabilityMatrix
     public let storagePreflight: CaptureStoragePreflight
     public let deviceReadiness: CaptureDeviceReadiness?
-    /// The capture mode the host will actually start in (#248,
+    /// The capture mode the host will actually start in (legacy bolph71656-ai/HTDT-Capture#248,
     /// Option B): mesh when the device is mesh-eligible, nil when the
     /// host cannot start a production capture at all.
     public let resolvedMode: CaptureMode?
     /// Current finalized-data backup policy so the privacy disclosure
     /// states the actual behavior before the operator confirms
-    /// (#305).
+    /// (legacy bolph71656-ai/HTDT-Capture#305).
     public let finalizedBackupPolicy: FinalizedBackupPolicy
-    /// The generic task profile chosen before acquisition (#352).
+    /// The generic task profile chosen before acquisition (legacy bolph71656-ai/HTDT-Capture#352).
     /// Nil means a general capture with no task checklist.
     public let taskProfile: CaptureTaskProfile?
-    /// The imported HTDT task plan bound for this capture (#240/#352),
+    /// The imported HTDT task plan bound for this capture (legacy bolph71656-ai/HTDT-Capture#240/legacy bolph71656-ai/HTDT-Capture#352),
     /// decoded for display. Its bytes persist verbatim at Begin.
     public let importedTaskPlan: HTDTCaptureTaskPlan?
     /// Human-readable import failure for the last attempted plan file.
     public let taskPlanImportError: String?
     /// Last-known camera authorization shown as denied-state UI
-    /// (#295): setup surfaces a denied prerequisite with a direct
+    /// (legacy bolph71656-ai/HTDT-Capture#295): setup surfaces a denied prerequisite with a direct
     /// Settings path instead of letting Begin run into a failure.
     public let cameraPermission: CameraPermissionStatus?
     /// End-accepted drafts that survived an interrupted capture
-    /// (#437) — surfaced on setup so a stranded capture is
+    /// (legacy bolph71656-ai/HTDT-Capture#437) — surfaced on setup so a stranded capture is
     /// discoverable with its next-step affordances before a new
     /// capture starts.
     public let interruptedDrafts: [RecoverableWorkingRevision]
@@ -77,7 +77,7 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
     }
 
     /// Which mission authority will bind at Begin: an imported HTDT
-    /// task plan wins over the generic profile (#352).
+    /// task plan wins over the generic profile (legacy bolph71656-ai/HTDT-Capture#352).
     public var missionKind: CaptureMissionKind {
         importedTaskPlan != nil ? .htdtTaskPlan
             : taskProfile != nil ? .taskProfile
@@ -145,17 +145,17 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
     }
 }
 
-/// The mission authority chosen pre-capture (#352).
+/// The mission authority chosen pre-capture (legacy bolph71656-ai/HTDT-Capture#352).
 public enum CaptureMissionKind: String, Sendable, Equatable {
     /// No task profile or plan — a short happy-path standalone scan.
     case generalCapture = "general_capture"
-    /// A generic operator task profile (#217/#352).
+    /// A generic operator task profile (legacy bolph71656-ai/HTDT-Capture#217/legacy bolph71656-ai/HTDT-Capture#352).
     case taskProfile = "task_profile"
-    /// An imported HTDT task plan (#240) bound verbatim.
+    /// An imported HTDT task plan (legacy bolph71656-ai/HTDT-Capture#240) bound verbatim.
     case htdtTaskPlan = "htdt_task_plan"
 }
 
-/// The explicit pre-capture setup step (#212).
+/// The explicit pre-capture setup step (legacy bolph71656-ai/HTDT-Capture#212).
 ///
 /// Shown between Idle and capability check: the operator reads the
 /// device/storage readiness and the room-preparation protocol, then
@@ -164,40 +164,40 @@ public enum CaptureMissionKind: String, Sendable, Equatable {
 /// capture clock or RoomPlan session starts from this view.
 public struct CaptureSetupView: View {
     public let presentation: CaptureSetupPresentation
-    /// Operator's multi-region capture intent (#353): when on, the
+    /// Operator's multi-region capture intent (legacy bolph71656-ai/HTDT-Capture#353): when on, the
     /// connected-space workflow is reachable for this capture.
     public let connectedSpaceIntent: Binding<Bool>
     /// Opens the mission-document importer (task plans, as-built
-    /// plans, repair task plans as .json) (#353/#321).
+    /// plans, repair task plans as .json) (legacy bolph71656-ai/HTDT-Capture#353/legacy bolph71656-ai/HTDT-Capture#321).
     public let onImportMissionDocument: () -> Void
-    /// Selected capture-strategy profile (#307): guidance/evidence
+    /// Selected capture-strategy profile (legacy bolph71656-ai/HTDT-Capture#307): guidance/evidence
     /// budgets only — the choice steers prompts, never quality gates.
     /// `strategyPinned` means a task plan fixed the strategy and the
     /// picker is display-only.
     public let selectedStrategyID: CaptureStrategyIdentifier
     public let strategyPinnedByTaskPlan: Bool
     /// Imported plan-reference underlay, when the operator attached
-    /// one (#322). Reference-only authority — displayed here so the
+    /// one (legacy bolph71656-ai/HTDT-Capture#322). Reference-only authority — displayed here so the
     /// operator sees the plan is registered before scanning.
     public let planUnderlay: PlanUnderlayDocument?
     public let selectCaptureStrategy:
         (CaptureStrategyIdentifier) -> Void
-    /// Presents the plan-document importer (#322).
+    /// Presents the plan-document importer (legacy bolph71656-ai/HTDT-Capture#322).
     public let importPlanReference: () -> Void
     public let beginScanning: () -> Void
     public let cancel: () -> Void
     /// Picks (or clears) the generic task profile bound at Begin
-    /// (#352). Called with nil for a general capture.
+    /// (legacy bolph71656-ai/HTDT-Capture#352). Called with nil for a general capture.
     public let selectTaskProfile: (CaptureTaskProfile?) -> Void
-    /// Imports an HTDT task plan file (#240) — the URL is opened
+    /// Imports an HTDT task plan file (legacy bolph71656-ai/HTDT-Capture#240) — the URL is opened
     /// inside the coordinator which handles security scope.
     public let importTaskPlan: (URL) -> Void
     /// Removes the imported plan, returning to generic profile intent.
     public let clearTaskPlan: () -> Void
-    /// #437: reopens a stranded draft — leaves setup for the sealed
+    /// legacy bolph71656-ai/HTDT-Capture#437: reopens a stranded draft — leaves setup for the sealed
     /// Review so the capture can be finished.
     public let onResumeDraft: (RecoverableWorkingRevision) -> Void
-    /// #437: permanently removes a stranded draft's saved data.
+    /// legacy bolph71656-ai/HTDT-Capture#437: permanently removes a stranded draft's saved data.
     public let onDiscardDraft: (RecoverableWorkingRevision) -> Void
     /// Sets (or clears, with nil) the reference-object role the
     /// operator picked for one manifest asset (#268).
@@ -205,11 +205,11 @@ public struct CaptureSetupView: View {
         (ReferenceObjectAssetID, ReferenceObjectAssetRole?) -> Void
 
     @State private var importingTaskPlan = false
-    /// Draft pending discard confirmation (#437) — removing it is
+    /// Draft pending discard confirmation (legacy bolph71656-ai/HTDT-Capture#437) — removing it is
     /// irreversible, so the affordance confirms first.
     @State private var pendingDraftDiscard:
         RecoverableWorkingRevision?
-    /// Opens the app's iOS Settings page (#295). The host decides
+    /// Opens the app's iOS Settings page (legacy bolph71656-ai/HTDT-Capture#295). The host decides
     /// whether the platform offers a direct path; the default is a
     /// no-op so previews/tests stay platform-neutral.
     public let openCameraSettings: () -> Void
@@ -264,7 +264,7 @@ public struct CaptureSetupView: View {
             captureMissionSection
             referenceObjectSection
 
-            // #437: a stranded draft is discoverable before a new
+            // legacy bolph71656-ai/HTDT-Capture#437: a stranded draft is discoverable before a new
             // capture starts — the same resume/discard affordances
             // the home surface offers.
             if !presentation.interruptedDrafts.isEmpty {
@@ -326,7 +326,7 @@ public struct CaptureSetupView: View {
                 }
             }
 
-            // #364 §4: actionable readiness summary first; the
+            // legacy bolph71656-ai/HTDT-Capture#364 §4: actionable readiness summary first; the
             // capability diagnostics behind it are evidence, not
             // tasks, so they live in a collapsed device-details
             // disclosure instead of competing with the Begin path.
@@ -418,7 +418,7 @@ public struct CaptureSetupView: View {
                 }
             }
 
-            // #364 §4: strategy choice is a setup control in its own
+            // legacy bolph71656-ai/HTDT-Capture#364 §4: strategy choice is a setup control in its own
             // right — it must render for every readiness state, not
             // only when storage is critical.
             Section("Capture strategy") {
@@ -502,7 +502,7 @@ public struct CaptureSetupView: View {
                 cameraPermissionRows
             }
 
-            // #364 §4: prep items read as a checklist with a
+            // legacy bolph71656-ai/HTDT-Capture#364 §4: prep items read as a checklist with a
             // single "Why?" disclosure; privacy disclosures stay
             // separate so they are never mistaken for technique.
             Section("Room preparation") {
@@ -547,7 +547,7 @@ public struct CaptureSetupView: View {
                 )
             }
 
-            // #353: mission opt-in lives at setup so a simple
+            // legacy bolph71656-ai/HTDT-Capture#353: mission opt-in lives at setup so a simple
             // capture is never burdened with mission controls.
             Section("Mission") {
                 Toggle(
@@ -634,7 +634,7 @@ public struct CaptureSetupView: View {
         }
     }
 
-    /// Working-vs-finalized retention disclosure (#305): states the
+    /// Working-vs-finalized retention disclosure (legacy bolph71656-ai/HTDT-Capture#305): states the
     /// configured policy before the capture starts rather than
     /// implying one.
     private var finalizedDisclosureText: String {
@@ -652,7 +652,7 @@ public struct CaptureSetupView: View {
         }
     }
 
-    /// #352: mission intent is configured here — before acquisition
+    /// legacy bolph71656-ai/HTDT-Capture#352: mission intent is configured here — before acquisition
     /// begins — never after scanning. The chosen authority (a generic
     /// task profile or an imported HTDT plan) is bound to the working
     /// capture at Begin with its identity and version recorded.
@@ -851,7 +851,9 @@ public struct CaptureSetupView: View {
         }
     }
 
-    /// "This capture needs" (#364 §4): the mission's itemized needs
+    /// "This capture needs" (legacy bolph71656-ai/HTDT-Capture#364 §4): the mission's itemized needs
+||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
+    /// "This capture needs" (legacy bolph71656-ai/HTDT-Capture#364 §4): the mission's itemized needs
     /// in operator vocabulary — counts and optional flags, never
     /// schema identifiers. Shown for every mission kind; a general
     /// capture lists only the baseline room-geometry need.
@@ -921,7 +923,7 @@ public struct CaptureSetupView: View {
 
     /// The default theater topology offered by the profile picker —
     /// the same `SpeakerLayoutProfile`-derived preset the annotation
-    /// workspace offers (#426).
+    /// workspace offers (legacy bolph71656-ai/HTDT-Capture#426).
     private static var theaterProfile: CaptureTaskProfile {
         .theaterLayout
     }
@@ -959,7 +961,7 @@ public struct CaptureSetupView: View {
     }
 
     /// Begin stays disabled while the camera is known-denied,
-    /// restricted, or unavailable (#429): starting would land on a
+    /// restricted, or unavailable (legacy bolph71656-ai/HTDT-Capture#429): starting would land on a
     /// guaranteed permission failure, so the permission row's "Open
     /// Settings" action and explanation remain the single path out.
     /// A not-determined status may still begin — the system prompt
@@ -973,7 +975,7 @@ public struct CaptureSetupView: View {
         }
     }
 
-    /// Camera-authorization state in setup (#295): denied gets a
+    /// Camera-authorization state in setup (legacy bolph71656-ai/HTDT-Capture#295): denied gets a
     /// direct path to iOS Settings where the platform permits it,
     /// restricted is explained as device-managed, and a valid
     /// authorization adds no friction.

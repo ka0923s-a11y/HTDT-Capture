@@ -1,6 +1,6 @@
 import Foundation
 
-/// Spatial semantic survey pass (issue #409): a room-scale read
+/// Spatial semantic survey pass (issue bolph71656-ai/HTDT-Capture#409): a room-scale read
 /// model that walks the accepted capture — boundaries, openings,
 /// room objects, and semantic entities — and tells the operator
 /// what is reviewed, what is partially documented, what needs
@@ -52,7 +52,7 @@ public enum SurveyTargetKind: String, Sendable, CaseIterable {
 }
 
 /// Documentation state of one target — computed, never stored
-/// (issue #409 §4). `unknown` and `notApplicable` are first-class
+/// (issue bolph71656-ai/HTDT-Capture#409 §4). `unknown` and `notApplicable` are first-class
 /// distinct from "not visited": the survey never pretends a gap is
 /// reviewed.
 public enum SurveyRecordState: String, Sendable, CaseIterable {
@@ -122,7 +122,7 @@ public enum SurveyRecordFamily: String, Sendable, CaseIterable {
     }
 }
 
-/// Survey filter modes (issue #409 §7): scoped passes over the same
+/// Survey filter modes (issue bolph71656-ai/HTDT-Capture#409 §7): scoped passes over the same
 /// target list.
 public enum SurveyMode: String, Sendable, CaseIterable {
     case all
@@ -133,7 +133,7 @@ public enum SurveyMode: String, Sendable, CaseIterable {
 
 // MARK: - Targets
 
-/// One survey target (issue #409 §2): an accepted-geometry or
+/// One survey target (issue bolph71656-ai/HTDT-Capture#409 §2): an accepted-geometry or
 /// semantic thing the pass walks. `matchTokens` is the complete set
 /// of identity tokens the target answers to — lowercased — so
 /// attribution is exact matching, never fuzzy.
@@ -150,7 +150,7 @@ public struct SurveyTarget: Sendable, Equatable, Identifiable {
     /// surfaces, when the target maps to one.
     public let planMarkerIdentifier: String?
     /// Task-plan item ids whose `target_ref` names this target —
-    /// exact mapping, never fuzzy (issue #409 §8).
+    /// exact mapping, never fuzzy (issue bolph71656-ai/HTDT-Capture#409 §8).
     public let missionItemIDs: [String]
     /// Requirement of the strongest bound plan item (required wins
     /// over optional).
@@ -184,7 +184,7 @@ public struct SurveyTarget: Sendable, Equatable, Identifiable {
     }
 }
 
-/// Token expansion shared by attribution (issue #409 §6): a token
+/// Token expansion shared by attribution (issue bolph71656-ai/HTDT-Capture#409 §6): a token
 /// matches when either side agrees on the bare identity or on a
 /// scheme-qualified form — exact in both directions.
 public enum SurveyMatchTokens {
@@ -218,14 +218,14 @@ public enum SurveyMatchTokens {
 
 // MARK: - Record attribution
 
-/// One committed record attributed to a target (issue #409 §5):
+/// One committed record attributed to a target (issue bolph71656-ai/HTDT-Capture#409 §5):
 /// the object-first detail reads only the kinds present here.
 public struct SurveyRecordRef: Sendable, Equatable, Identifiable {
     public let family: SurveyRecordFamily
     /// AuthorityRecordID / FieldEvidenceID / … string form.
     public let recordID: String
     /// Evidence refs the record carries — the target's evidence
-    /// binding (issue #409 §9).
+    /// binding (issue bolph71656-ai/HTDT-Capture#409 §9).
     public let evidenceRefs: [String]
 
     public init(
@@ -274,7 +274,7 @@ public struct SurveyTargetEntry: Sendable, Equatable, Identifiable {
     public var id: String { target.targetID }
 
     /// Record families actually present — object-first detail shows
-    /// only these kinds (issue #409 §5).
+    /// only these kinds (issue bolph71656-ai/HTDT-Capture#409 §5).
     public var presentFamilies: Set<SurveyRecordFamily> {
         Set(records.map(\.family))
     }
@@ -302,7 +302,7 @@ public struct SurveySummary: Sendable, Equatable {
 
 // MARK: - The model
 
-/// The derived survey over one capture revision (issue #409).
+/// The derived survey over one capture revision (issue bolph71656-ai/HTDT-Capture#409).
 /// `entries` are ordered per the issue's next-unresolved policy:
 /// mission-required gaps → needs-attention → boundaries → objects →
 /// optional rest — so `nextUnresolved` is simply the first entry
@@ -825,7 +825,7 @@ public struct SpatialSurveyModel: Sendable, Equatable {
             )
         }
         // Mission-required targets with no geometry in the capture —
-        // unavailable, never silently absent (issue #409 §8).
+        // unavailable, never silently absent (issue bolph71656-ai/HTDT-Capture#409 §8).
         for item in unavailableItems {
             entries.append(
                 SurveyTargetEntry(

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-// #174: measurement and session timestamp authority must satisfy the
+// legacy bolph71656-ai/HTDT-Capture#174: measurement and session timestamp authority must satisfy the
 // schema's `date` / `date-time` formats at construction, with a single
 // canonical UTC-Z policy.
 

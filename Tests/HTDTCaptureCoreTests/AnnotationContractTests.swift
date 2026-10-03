@@ -2,11 +2,11 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-// annotation_contract cluster: #230 physical-entity authority,
-// #237 equipment-ref compatibility, #243 listening-position roles,
-// #244 subwoofer channel/orientation, #258 spatial uncertainty,
-// #263 per-component authority, #267 lifecycle metadata,
-// #291 reference-point construction.
+// annotation_contract cluster: legacy bolph71656-ai/HTDT-Capture#230 physical-entity authority,
+// legacy bolph71656-ai/HTDT-Capture#237 equipment-ref compatibility, legacy bolph71656-ai/HTDT-Capture#243 listening-position roles,
+// legacy bolph71656-ai/HTDT-Capture#244 subwoofer channel/orientation, legacy bolph71656-ai/HTDT-Capture#258 spatial uncertainty,
+// legacy bolph71656-ai/HTDT-Capture#263 per-component authority, legacy bolph71656-ai/HTDT-Capture#267 lifecycle metadata,
+// legacy bolph71656-ai/HTDT-Capture#291 reference-point construction.
 
 private func makeSpace() -> CoordinateSpaceID { CoordinateSpaceID() }
 
@@ -39,7 +39,7 @@ private func makeRaycastAuthority(
     )
 }
 
-// MARK: - #267 lifecycle metadata
+// MARK: - legacy bolph71656-ai/HTDT-Capture#267 lifecycle metadata
 
 @Test
 func builderAlwaysStampsCreationTime() throws {
@@ -167,7 +167,7 @@ func lifecycleRejectsMalformedTimestamps() {
     }
 }
 
-// MARK: - #243 listening-position roles
+// MARK: - legacy bolph71656-ai/HTDT-Capture#243 listening-position roles
 
 @Test
 func builderRequiresListeningRoleForListeningPositions() throws {
@@ -256,7 +256,7 @@ func reviewFlagsDuplicatePrimaryAndMissingRole() throws {
     })
 }
 
-// MARK: - #244 subwoofer channel role + orientation
+// MARK: - legacy bolph71656-ai/HTDT-Capture#244 subwoofer channel role + orientation
 
 @Test
 func subwooferRequiresChannelRoleAndAcceptsOrientation() throws {
@@ -312,7 +312,7 @@ func reviewFlagsDuplicateChannelRoles() throws {
     })
 }
 
-// MARK: - #258 spatial uncertainty
+// MARK: - legacy bolph71656-ai/HTDT-Capture#258 spatial uncertainty
 
 @Test
 func uncertaintyRequiresAtLeastOneFiniteComponent() throws {
@@ -345,7 +345,7 @@ func uncertaintyRequiresAtLeastOneFiniteComponent() throws {
                 == ["path:evidence/instrument/spec.json"])
 }
 
-// MARK: - #263 per-component authority
+// MARK: - legacy bolph71656-ai/HTDT-Capture#263 per-component authority
 
 @Test
 func componentAuthorityTracksEachFieldIndependently() throws {
@@ -370,7 +370,7 @@ func componentAuthorityTracksEachFieldIndependently() throws {
     let authority = try #require(entity.authority)
     // Placement is evidence-backed; yaw-entered orientation, the
     // catalog-selected equipment ref and the typed role are not
-    // sensor-verified (#263).
+    // sensor-verified (legacy bolph71656-ai/HTDT-Capture#263).
     #expect(authority.placement.state == .evidenceLinked)
     #expect(authority.placement.evidenceRefs == [evidence])
     #expect(authority.orientation?.state == .userAttested)
@@ -413,7 +413,7 @@ func componentRecordMustMatchPresentFields() throws {
     }
 }
 
-// MARK: - #230 physical envelope + projector
+// MARK: - legacy bolph71656-ai/HTDT-Capture#230 physical envelope + projector
 
 @Test
 func envelopeRequiresPositiveDimensionAndProvenance() throws {
@@ -478,7 +478,7 @@ func projectorIsFirstClassWithLensSemantics() throws {
     }
 }
 
-// MARK: - #237 equipment-reference compatibility
+// MARK: - legacy bolph71656-ai/HTDT-Capture#237 equipment-reference compatibility
 
 @Test
 func equipmentReferenceOnlyAttachesToCompatibleTypes() throws {
@@ -557,7 +557,7 @@ func legacyEquipmentRefsStayReadableAndFlagged() throws {
     })
 }
 
-// MARK: - #291 reference-point construction
+// MARK: - legacy bolph71656-ai/HTDT-Capture#291 reference-point construction
 
 @Test
 func capturedPlacementRequiresExplicitConstruction() throws {

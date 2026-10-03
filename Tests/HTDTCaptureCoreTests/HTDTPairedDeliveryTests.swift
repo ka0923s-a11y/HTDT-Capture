@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issues #422/#423: the paired Mission receive leg (pull model —
+/// Issues bolph71656-ai/HTDT-Capture#422/legacy bolph71656-ai/HTDT-Capture#423: the paired Mission receive leg (pull model —
 /// pairing-scoped enumeration, digest-pinned download, canonical
 /// inbox import, receive receipts) and the artifact-aware delivery
 /// queue (deliverable identity, generic wire headers, per-kind
@@ -11,7 +11,7 @@ final class HTDTPairedDeliveryTests: XCTestCase {
 
     // MARK: - Scripted transports
 
-    /// #422: serves a canned listing plus package bytes and records
+    /// legacy bolph71656-ai/HTDT-Capture#422: serves a canned listing plus package bytes and records
     /// every call so tests can assert enumeration/download/receipt
     /// behavior without a network.
     private actor MissionTransport: HTDTMissionReceiveTransport {
@@ -72,8 +72,8 @@ final class HTDTPairedDeliveryTests: XCTestCase {
         }
     }
 
-    /// #423: accepts everything and echoes the artifact identity
-    /// back the way a #423-aware receiver must.
+    /// legacy bolph71656-ai/HTDT-Capture#423: accepts everything and echoes the artifact identity
+    /// back the way a legacy bolph71656-ai/HTDT-Capture#423-aware receiver must.
     private actor EchoTransport: HTDTDeliveryTransport {
         private(set) var submissions:
             [(deliverable: HTDTDeliverableIdentity, deliveryID: String?)]
@@ -209,7 +209,7 @@ final class HTDTPairedDeliveryTests: XCTestCase {
                 Int64(data.count))
     }
 
-    // MARK: - #422 receive leg
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#422 receive leg
 
     func testReceiveImportsAndPostsReceipt() async throws {
         let root = try makeRoot()
@@ -285,7 +285,7 @@ final class HTDTPairedDeliveryTests: XCTestCase {
         XCTAssertEqual(second[0].duplicates, 1)
         XCTAssertEqual(second[0].imported, 0)
         // Same pinned digest: the retry acknowledges without a
-        // second download (#422 retry semantics).
+        // second download (legacy bolph71656-ai/HTDT-Capture#422 retry semantics).
         let downloads = await transport.downloads
         XCTAssertEqual(downloads.count, 1)
         let records = try service.inboxStore.records()
@@ -399,7 +399,7 @@ final class HTDTPairedDeliveryTests: XCTestCase {
         // Revoked destination: skipped by syncAll entirely, and a
         // direct sync notes the revocation without fetching —
         // revocation stops network activity but keeps records
-        // (#422 §revocation).
+        // (legacy bolph71656-ai/HTDT-Capture#422 §revocation).
         let revoked = try pairReceiver(root: root, revoked: true)
         let transport = MissionTransport()
         let service = HTDTMissionReceiveService(
@@ -438,16 +438,16 @@ final class HTDTPairedDeliveryTests: XCTestCase {
         _ = await service.syncAll()
         let second = try service.identityStore.loadOrCreate()
         // Retries reuse the persisted Capture identity — a retry
-        // never mints a second one (#422 §offline).
+        // never mints a second one (legacy bolph71656-ai/HTDT-Capture#422 §offline).
         XCTAssertEqual(
             first.captureInstanceID, second.captureInstanceID
         )
     }
 
-    // MARK: - #423 artifact-aware delivery
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#423 artifact-aware delivery
 
     func testLegacyJobDecodesToCaptureBundleDeliverable() throws {
-        // A ledger row written before #423: no `deliverable` field.
+        // A ledger row written before legacy bolph71656-ai/HTDT-Capture#423: no `deliverable` field.
         let legacy = """
             {
               "delivery_job_id": "job-legacy",
@@ -505,7 +505,7 @@ final class HTDTPairedDeliveryTests: XCTestCase {
             missionRecordID: "mission-rec-9"
         )
         // The kind persists explicitly — no reliance on the file
-        // extension to rediscover it (#423 §4).
+        // extension to rediscover it (legacy bolph71656-ai/HTDT-Capture#423 §4).
         let deliverable = try XCTUnwrap(job.deliverable)
         XCTAssertEqual(deliverable.artifactKind, .fieldReturn)
         XCTAssertEqual(
@@ -601,7 +601,7 @@ final class HTDTPairedDeliveryTests: XCTestCase {
             )
         )
         // During migration both the generic and legacy headers ride —
-        // Capture-only receivers stay usable (#423 §5).
+        // Capture-only receivers stay usable (legacy bolph71656-ai/HTDT-Capture#423 §5).
         XCTAssertEqual(
             request.value(
                 forHTTPHeaderField: "X-HTDT-Artifact-Kind"
@@ -627,7 +627,7 @@ final class HTDTPairedDeliveryTests: XCTestCase {
             contentDigest: "fr-digest-1"
         )
         // A bare HTTP 200 / receipt without the artifact echo is
-        // never accepted as proof of staging (#423 §6).
+        // never accepted as proof of staging (legacy bolph71656-ai/HTDT-Capture#423 §6).
         let empty = Data(
             "{\"ingestion_outcome\":\"accepted\"}".utf8
         )
@@ -703,7 +703,7 @@ final class HTDTPairedDeliveryTests: XCTestCase {
 
     func testDeliverablePreflightGatesOnArtifactKind() throws {
         // A capability document with no declared artifact kinds is a
-        // Capture-only receiver (#423 §5) — captures stay usable,
+        // Capture-only receiver (legacy bolph71656-ai/HTDT-Capture#423 §5) — captures stay usable,
         // field returns are refused with a named gap.
         let captureOnly = HTDTEndpointCapabilityDocument(
             endpointIdentity: "rx-1",

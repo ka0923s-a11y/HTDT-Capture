@@ -226,7 +226,7 @@ public struct CaptureDeviceDocument:
 /// Which capture-session boundary a timing correlation sample closes.
 /// The v1 `session/timing.json` document orders its two correlations
 /// `[start, end]` and has no explicit role field, so the boundary
-/// semantics are carried in the correlation `method` label (#200).
+/// semantics are carried in the correlation `method` label (legacy bolph71656-ai/HTDT-Capture#200).
 public enum CaptureTimingBoundary: Sendable {
     /// The first AR frame the shared session delivers after the start
     /// request. The host samples it before any unrelated configuration
@@ -252,7 +252,7 @@ public enum CaptureTimingBoundary: Sendable {
     }
 
     /// The `method` label when the sample is produced by the
-    /// frame-age-projected estimator (#206): the projected capture
+    /// frame-age-projected estimator (legacy bolph71656-ai/HTDT-Capture#206): the projected capture
     /// instant and the frame-age-inflated uncertainty are identified
     /// by the suffix so downstream consumers can distinguish the
     /// semantics from a plain read-time bracket.
@@ -333,7 +333,7 @@ public struct CaptureTimingCorrelation:
 
 /// Result of `FrameTimingCorrelationEstimator.estimate`: the frame's
 /// projected capture instant and the full uncertainty budget that
-/// instant carries (#206).
+/// instant carries (legacy bolph71656-ai/HTDT-Capture#206).
 public struct FrameTimingCorrelationEstimate:
     Sendable,
     Equatable
@@ -365,7 +365,7 @@ public struct FrameTimingCorrelationEstimate:
 }
 
 /// Deterministic frame-age correction for monotonic↔UTC correlation
-/// samples (#206).
+/// samples (legacy bolph71656-ai/HTDT-Capture#206).
 ///
 /// `ARSession.currentFrame` vends the latest already-produced frame:
 /// its `timestamp` is the capture instant in the host monotonic clock

@@ -23,7 +23,7 @@ extension BundleTimestamp {
     }
 }
 
-/// Lifecycle of one durable delivery job (issue #387). `delivered`
+/// Lifecycle of one durable delivery job (issue bolph71656-ai/HTDT-Capture#387). `delivered`
 /// means *staged at the receiver* — never promoted to a pipeline
 /// stage the receiver did not report.
 public enum HTDTDeliveryJobState: String, Codable, Sendable {
@@ -53,7 +53,7 @@ public enum HTDTDeliveryJobState: String, Codable, Sendable {
     case failed
 }
 
-/// Operator-facing queue filters (#462): the queue grows with every
+/// Operator-facing queue filters (legacy bolph71656-ai/HTDT-Capture#462): the queue grows with every
 /// send — the operator needs the same triage affordances the
 /// evidence contact sheet already has.
 public enum HTDTDeliveryQueueFilter: String, CaseIterable, Sendable {
@@ -81,7 +81,7 @@ public enum HTDTDeliveryQueueFilter: String, CaseIterable, Sendable {
     }
 }
 
-/// Artifact family a delivery job transports (issue #423). The kind
+/// Artifact family a delivery job transports (issue bolph71656-ai/HTDT-Capture#423). The kind
 /// is part of the idempotency contract: the same UUID text under
 /// `capture_bundle` and `field_return` can never collide.
 public enum HTDTDeliverableKind: String, Codable, Sendable {
@@ -105,7 +105,7 @@ public enum HTDTDeliverableKind: String, Codable, Sendable {
     }
 }
 
-/// Typed deliverable identity (issue #423): the discriminated
+/// Typed deliverable identity (issue bolph71656-ai/HTDT-Capture#423): the discriminated
 /// artifact reference the queue, transport headers and receipts bind
 /// instead of Capture-only fields. `semanticDigest` is the artifact's
 /// own root digest — the finalized bundle digest for a capture, the
@@ -119,7 +119,7 @@ public struct HTDTDeliverableIdentity: Codable, Sendable, Equatable {
     public let semanticDigest: String
     /// Artifact schema version where defined.
     public let schemaVersion: String?
-    /// Optional Mission/project routing refs (#423 §1).
+    /// Optional Mission/project routing refs (legacy bolph71656-ai/HTDT-Capture#423 §1).
     public let missionRecordID: String?
     public let projectRef: String?
 
@@ -188,15 +188,15 @@ public struct HTDTDeliverableIdentity: Codable, Sendable, Equatable {
     }
 }
 
-/// A durable, per-archive delivery job (issue #387). The job is
+/// A durable, per-archive delivery job (issue bolph71656-ai/HTDT-Capture#387). The job is
 /// persisted *before* any bytes move, pins the archive identity it
 /// was created from (digest + byte count), owns a private copy of
 /// the payload under `delivery-queue/payloads/`, and is idempotent
 /// at the receiver via the stable `deliveryJobID` sent as
 /// `X-HTDT-Delivery-ID`.
 ///
-/// Issue #423: jobs carry a `deliverable` discriminated identity.
-/// Queue documents written before #423 lack it and reopen exactly —
+/// Issue bolph71656-ai/HTDT-Capture#423: jobs carry a `deliverable` discriminated identity.
+/// Queue documents written before legacy bolph71656-ai/HTDT-Capture#423 lack it and reopen exactly —
 /// `deliverable` is normalized in memory to `capture_bundle` from the
 /// legacy fields; the stored ledger is never rewritten without a
 /// verified migration step.
@@ -211,8 +211,8 @@ public struct HTDTDeliveryJob: Codable, Sendable, Equatable, Identifiable {
     /// Digest the validated export was proven to carry; nil for
     /// field returns (their semantic digest lives in `deliverable`).
     public let bundleDigest: String?
-    /// Discriminated artifact identity (#423). Nil only on documents
-    /// written before #423 — see `normalizedDeliverable`.
+    /// Discriminated artifact identity (legacy bolph71656-ai/HTDT-Capture#423). Nil only on documents
+    /// written before legacy bolph71656-ai/HTDT-Capture#423 — see `normalizedDeliverable`.
     public let deliverable: HTDTDeliverableIdentity?
     /// SHA-256 and size of the archive bytes at enqueue time; the
     /// queue-owned payload copy is re-verified against these before
@@ -228,13 +228,13 @@ public struct HTDTDeliveryJob: Codable, Sendable, Equatable, Identifiable {
     public let sourceArchiveName: String?
     public let destination: HTDTHandoffDestination
     /// Paired receiver's destination id when the job targets a
-    /// QR-paired endpoint (#379); its pin is applied at send time.
+    /// QR-paired endpoint (legacy bolph71656-ai/HTDT-Capture#379); its pin is applied at send time.
     public let pairedDestinationID: String?
-    /// Mission record this delivery satisfies (#386), if any.
+    /// Mission record this delivery satisfies (legacy bolph71656-ai/HTDT-Capture#386), if any.
     public let missionRecordID: String?
     /// Compatibility summary recorded at enqueue/preflight time so
     /// the queue row can show why a send was allowed to proceed with
-    /// named omissions (#374).
+    /// named omissions (legacy bolph71656-ai/HTDT-Capture#374).
     public let compatibilitySummary: String?
     public let createdAtUTC: String
     public var lastAttemptAtUTC: String?
@@ -302,10 +302,10 @@ public struct HTDTDeliveryJob: Codable, Sendable, Equatable, Identifiable {
 
     public var id: String { deliveryJobID }
 
-    /// The artifact this job delivers. Jobs written before #423 lack
+    /// The artifact this job delivers. Jobs written before legacy bolph71656-ai/HTDT-Capture#423 lack
     /// `deliverable`; they normalize in memory to `capture_bundle`
     /// built from the legacy Capture fields — same identity, never
-    /// re-enqueued under a new id (#423 §2).
+    /// re-enqueued under a new id (legacy bolph71656-ai/HTDT-Capture#423 §2).
     public var normalizedDeliverable: HTDTDeliverableIdentity {
         if let deliverable {
             return deliverable
@@ -325,12 +325,12 @@ public struct HTDTDeliveryJob: Codable, Sendable, Equatable, Identifiable {
 
     /// Artifact id text — revision id for captures, contribution id
     /// for field returns. Same-UUID collisions across kinds are
-    /// impossible because `artifactKind` travels with it (#423 §10).
+    /// impossible because `artifactKind` travels with it (legacy bolph71656-ai/HTDT-Capture#423 §10).
     public var artifactIDText: String {
         normalizedDeliverable.artifactID
     }
 
-    /// Queue-row headline: human artifact type + destination (#423 §9).
+    /// Queue-row headline: human artifact type + destination (legacy bolph71656-ai/HTDT-Capture#423 §9).
     public var displayTitle: String {
         destination.name + " · " + artifactKind.displayName
     }
@@ -355,7 +355,7 @@ public struct HTDTDeliveryJob: Codable, Sendable, Equatable, Identifiable {
 
     /// True while the job still needs its queue-owned payload copy —
     /// the archive the export-delete flow must not silently orphan
-    /// mid-flight (#387).
+    /// mid-flight (legacy bolph71656-ai/HTDT-Capture#387).
     public var needsPayload: Bool {
         switch state {
         case .queued, .sending, .retryWait, .paused, .blocked:
@@ -391,7 +391,7 @@ public struct HTDTDeliveryJob: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
-/// Retry classification (issue #387): transient transport and
+/// Retry classification (issue bolph71656-ai/HTDT-Capture#387): transient transport and
 /// receiver-busy statuses back off and retry; semantic rejections,
 /// identity failures and receipt mismatches never retry blindly.
 public struct HTDTDeliveryRetryPolicy: Sendable, Equatable {
@@ -482,8 +482,8 @@ public struct HTDTDeliveryRetryPolicy: Sendable, Equatable {
 
 /// Transport seam for delivery attempts — `HTDTHandoffClient` in
 /// production, a stub in tests. Keeps the queue engine free of
-/// URLSession so resume/retry policy is testable offline (#387).
-/// #423: submissions bind the typed `deliverable` identity rather
+/// URLSession so resume/retry policy is testable offline (legacy bolph71656-ai/HTDT-Capture#387).
+/// legacy bolph71656-ai/HTDT-Capture#423: submissions bind the typed `deliverable` identity rather
 /// than Capture-only fields, so any artifact family travels the
 /// same durable pipeline.
 public protocol HTDTDeliveryTransport: Sendable {
@@ -538,7 +538,7 @@ public enum HTDTDeliveryQueueError: Error, Sendable, Equatable {
     case unreadableDocument
 }
 
-/// Durable delivery queue (issue #387):
+/// Durable delivery queue (issue bolph71656-ai/HTDT-Capture#387):
 /// `<captureRoot>/delivery-queue.json` holds the job ledger and
 /// `<captureRoot>/delivery-queue/payloads/` holds queue-owned archive
 /// copies. Every mutation is persisted via the same atomic
@@ -623,7 +623,7 @@ public struct HTDTDeliveryQueue: Sendable {
     }
 
     /// Enqueue a finalized Capture Bundle archive — preserved as the
-    /// `capture_bundle` specialization of the generic enqueue (#423).
+    /// `capture_bundle` specialization of the generic enqueue (legacy bolph71656-ai/HTDT-Capture#423).
     @discardableResult
     public func enqueue(
         captureRevisionID: CaptureRevisionID,
@@ -659,7 +659,7 @@ public struct HTDTDeliveryQueue: Sendable {
         )
     }
 
-    /// Enqueue a finalized archive of any artifact family (#423).
+    /// Enqueue a finalized archive of any artifact family (legacy bolph71656-ai/HTDT-Capture#423).
     /// The archive's identity is verified (sha256 + byte count), the
     /// payload is copied into queue-owned storage under the kind's
     /// own extension, and only then is the durable job record
@@ -699,7 +699,7 @@ public struct HTDTDeliveryQueue: Sendable {
         let jobID = UUID().uuidString.lowercased()
         // The payload extension derives from the deliverable kind;
         // the kind itself is persisted explicitly on the job record —
-        // never inferred from the filename (#423 §3).
+        // never inferred from the filename (legacy bolph71656-ai/HTDT-Capture#423 §3).
         let payloadRelativePath =
             "delivery-queue/payloads/" + jobID + "."
             + deliverable.artifactKind.payloadExtension
@@ -738,7 +738,7 @@ public struct HTDTDeliveryQueue: Sendable {
     }
 
     /// Convenience: enqueue a finalized Field Return container
-    /// (#423 §7) — same durable pipeline as captures, artifact kind
+    /// (legacy bolph71656-ai/HTDT-Capture#423 §7) — same durable pipeline as captures, artifact kind
     /// `field_return`, no fake CaptureRevisionID.
     @discardableResult
     public func enqueueFieldReturn(
@@ -902,7 +902,7 @@ public struct HTDTDeliveryQueue: Sendable {
                 receiptID = receipt.receiptID
             }
             if let plan = result.response?.repairTaskPlan {
-                // #321: surface a returned repair plan alongside the
+                // legacy bolph71656-ai/HTDT-Capture#321: surface a returned repair plan alongside the
                 // receipt id so the caller can bind the audit link.
                 onRepairPlan?(plan, receiptID)
             }
@@ -910,7 +910,7 @@ public struct HTDTDeliveryQueue: Sendable {
         return document.jobs
     }
 
-    /// Operator controls (issue #387): retry skips the remaining
+    /// Operator controls (issue bolph71656-ai/HTDT-Capture#387): retry skips the remaining
     /// backoff, pause halts a retryable job, resume requeues it,
     /// cancel marks it terminal and drops the queue-owned payload.
     public func retryNow(jobID: String) throws {
@@ -988,7 +988,7 @@ public struct HTDTDeliveryQueue: Sendable {
 
     /// Non-terminal jobs that still pin the given archive digest —
     /// the export-delete flow surfaces these instead of silently
-    /// deleting bytes a pending send depends on (#387).
+    /// deleting bytes a pending send depends on (legacy bolph71656-ai/HTDT-Capture#387).
     public func activeJobsPinningArchive(
         archiveSHA256: String
     ) throws -> [HTDTDeliveryJob] {
@@ -1051,7 +1051,7 @@ public struct HTDTDeliveryQueue: Sendable {
         payloadURL: URL
     ) async -> AttemptResult {
         // Re-verify the pinned identity before every attempt — the
-        // queue sends only the bytes it recorded (#387).
+        // queue sends only the bytes it recorded (legacy bolph71656-ai/HTDT-Capture#387).
         guard let (digest, byteCount) = try? BundleFileReader.sha256(
             payloadURL,
             maxBytes: Int64.max
@@ -1124,7 +1124,7 @@ public struct HTDTDeliveryQueue: Sendable {
         }
     }
 
-    /// Classifies the attempt into the job's next state (issue #387):
+    /// Classifies the attempt into the job's next state (issue bolph71656-ai/HTDT-Capture#387):
     /// `delivered_staged` only on an explicit receiver ack — never a
     /// promotion claim; semantic rejection terminal; transient errors
     /// re-schedule within the retry budget; pin/endpoint problems

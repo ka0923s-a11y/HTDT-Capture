@@ -10,7 +10,7 @@ public enum RoomFieldDatumError: Error, Sendable, Equatable {
     case encodedDocumentMismatch
 }
 
-/// Where the field datum's origin point comes from (issue #232
+/// Where the field datum's origin point comes from (issue bolph71656-ai/HTDT-Capture#232
 /// refinement). The set is bounded so the persisted record names an
 /// install-meaningful anchor, never an arbitrary point.
 public enum RoomFieldDatumOriginKind:
@@ -33,7 +33,7 @@ public enum RoomFieldDatumOriginKind:
 }
 
 /// What defines the field datum's horizontal +Y (front) axis
-/// (issue #232 refinement).
+/// (issue bolph71656-ai/HTDT-Capture#232 refinement).
 public enum RoomFieldDatumAxisKind:
     String,
     Codable,
@@ -51,7 +51,7 @@ public enum RoomFieldDatumAxisKind:
     case screenDirection = "screen_direction"
 }
 
-/// Which explicit Z=0 reference the field frame uses (issue #232
+/// Which explicit Z=0 reference the field frame uses (issue bolph71656-ai/HTDT-Capture#232
 /// refinement): the finished-floor plane, or a riser/platform top as
 /// the alternate explicit vertical zero.
 public enum RoomFieldDatumVerticalKind:
@@ -144,7 +144,7 @@ public struct RoomFieldDatumAxis: Codable, Sendable, Equatable {
 }
 
 /// The vertical datum: where field Z = 0 sits in the bound coordinate
-/// space (issue #232 refinement). `zeroElevationMeters` is the
+/// space (issue bolph71656-ai/HTDT-Capture#232 refinement). `zeroElevationMeters` is the
 /// capture-space elevation of the finished floor or platform top —
 /// always explicit, never inferred from the datum origin's height.
 public struct RoomFieldDatumVertical: Codable, Sendable, Equatable {
@@ -230,7 +230,7 @@ public struct RoomFieldDatumTransform: Codable, Sendable, Equatable {
     }
 }
 
-/// The capture-world → field promotion reference (issue #232). One
+/// The capture-world → field promotion reference (issue bolph71656-ai/HTDT-Capture#232). One
 /// record per revision, persisted at `session/room-field-datum.json`:
 /// it binds a physical install datum — origin, front axis, and an
 /// explicit vertical zero — into the capture's coordinate space, with
@@ -466,7 +466,7 @@ public enum RoomFieldDatumPackageBuilder {
 }
 
 /// Whether a persisted datum still resolves against a revision's
-/// evidence (issue #232 staleness). A referenced wall/corner/platform
+/// evidence (issue bolph71656-ai/HTDT-Capture#232 staleness). A referenced wall/corner/platform
 /// that the revision no longer carries must surface as unresolved —
 /// the datum stays historical rather than silently rebinding.
 public enum RoomFieldDatumStaleness: Sendable, Equatable {
@@ -476,7 +476,7 @@ public enum RoomFieldDatumStaleness: Sendable, Equatable {
     case stale(unresolvedRefs: [String])
 }
 
-/// The reference universe a datum is evaluated against (issue #232
+/// The reference universe a datum is evaluated against (issue bolph71656-ai/HTDT-Capture#232
 /// staleness). `tokens` carries enumerable identities —
 /// `path:`/`frame:`/`entity:`/`measurement:`/`opening:`/
 /// `mesh_anchor:`/`reference_target:` tokens and `room_reference_frame`

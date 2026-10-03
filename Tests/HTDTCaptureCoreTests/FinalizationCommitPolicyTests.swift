@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-// MARK: - adoptFinalized commit-boundary transitions (#160)
+// MARK: - adoptFinalized commit-boundary transitions (legacy bolph71656-ai/HTDT-Capture#160)
 
 @Test
 func validatingCanAdoptCommittedFinalizedRevision() throws {
@@ -40,7 +40,7 @@ func adoptFinalizedIsRejectedOutsideCommitBoundaries() {
     }
 }
 
-// MARK: - FinalizationCommitPolicy (#185)
+// MARK: - FinalizationCommitPolicy (legacy bolph71656-ai/HTDT-Capture#185)
 
 @Test
 func inactiveCommitDoesNotFenceFailures() {

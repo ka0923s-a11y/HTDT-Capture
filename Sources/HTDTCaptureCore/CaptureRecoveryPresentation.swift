@@ -1,6 +1,6 @@
 import Foundation
 
-/// The operator-visible recovery contract (issue #437): every
+/// The operator-visible recovery contract (issue bolph71656-ai/HTDT-Capture#437): every
 /// capture-terminal surface resolves a plain-language reason plus a
 /// typed, ordered set of next steps. Stable action ids — the view
 /// binds each to a real host action; nothing here is decorative.
@@ -145,7 +145,7 @@ public struct CaptureRecoveryPlan: Sendable, Equatable {
     }
 }
 
-/// Resolves the failure → recovery contract (#437). Pure value
+/// Resolves the failure → recovery contract (legacy bolph71656-ai/HTDT-Capture#437). Pure value
 /// mapping so the "what do I do next?" logic stays unit-testable.
 public enum CaptureRecoveryPresentation {
 

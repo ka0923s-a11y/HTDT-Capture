@@ -6,7 +6,7 @@ public enum EquipmentLabelScanError: Error, Sendable {
     case scanUnavailable
 }
 
-/// How one raw string was observed on the scanned label (#345):
+/// How one raw string was observed on the scanned label (legacy bolph71656-ai/HTDT-Capture#345):
 /// OCR text, a barcode payload, or a QR-code payload.
 public enum EquipmentLabelScanBasis:
     String,
@@ -42,7 +42,7 @@ public struct EquipmentLabelScanObservation:
     }
 }
 
-/// A SUGGESTED identity for the scanned unit (#345). Candidates are
+/// A SUGGESTED identity for the scanned unit (legacy bolph71656-ai/HTDT-Capture#345). Candidates are
 /// never auto-committed: the operator must pick one explicitly (or
 /// dismiss the sheet), and the serial field remains editable because a
 /// printed serial is a lookup hint, not proof of identity.
@@ -85,7 +85,7 @@ public struct EquipmentLabelScanCandidate:
     }
 }
 
-/// The complete scan result handed to the confirmation sheet (#345).
+/// The complete scan result handed to the confirmation sheet (legacy bolph71656-ai/HTDT-Capture#345).
 /// Nothing in the result has been committed anywhere; the sheet maps a
 /// confirmed candidate onto the form's equipment/serial fields.
 public struct EquipmentLabelScanResult: Sendable, Equatable {
@@ -97,7 +97,7 @@ public struct EquipmentLabelScanResult: Sendable, Equatable {
     /// Evidence ref (`path:...`) of the persisted source frame the
     /// scan ran on — the image stays linked to the suggestion.
     public let evidenceRef: String
-    /// Advisory usability of the exact source image (#407). Deliberately
+    /// Advisory usability of the exact source image (legacy bolph71656-ai/HTDT-Capture#407). Deliberately
     /// distinct from `confidence` (recognition), catalog-match
     /// confidence, and operator confirmation: a blurry but perfectly
     /// recognized label keeps image quality and match confidence
@@ -141,7 +141,7 @@ public struct EquipmentLabelScanResult: Sendable, Equatable {
 }
 
 /// Provenance recorded on `EquipmentIdentityRecord.label_scan` when a
-/// suggestion was confirmed (#345): the algorithm+version that produced
+/// suggestion was confirmed (legacy bolph71656-ai/HTDT-Capture#345): the algorithm+version that produced
 /// it and the persisted source image. Its presence marks the record's
 /// fields as machine-suggested-then-operator-confirmed, distinct from
 /// fully manually attested fields.
@@ -187,7 +187,7 @@ public struct EquipmentLabelScanProvenance:
     }
 }
 
-/// Suggestion matcher (#345) — pure and deterministic so the same
+/// Suggestion matcher (legacy bolph71656-ai/HTDT-Capture#345) — pure and deterministic so the same
 /// observations always produce the same candidates and the matcher is
 /// fully unit-testable without Vision.
 ///

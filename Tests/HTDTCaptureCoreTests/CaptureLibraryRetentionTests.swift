@@ -29,7 +29,7 @@ private func retentionTestRoot() throws -> URL {
 }
 
 /// Finalizes one fixture revision under `captureRoot` — needed
-/// where the delete path must remove real bytes (issue #394).
+/// where the delete path must remove real bytes (issue bolph71656-ai/HTDT-Capture#394).
 @discardableResult
 private func retentionFinalizeFixture(
     captureRoot: URL,
@@ -129,7 +129,7 @@ private func retentionFinalizeFixture(
 
 /// A fabricated record for the pure-preview tests — byte counts
 /// suffice; the planner never inspects directories it isn't asked
-/// to delete (issue #394).
+/// to delete (issue bolph71656-ai/HTDT-Capture#394).
 private func fabricateRecord(
     seriesID: CaptureSeriesID,
     revisionID: CaptureRevisionID = CaptureRevisionID(),

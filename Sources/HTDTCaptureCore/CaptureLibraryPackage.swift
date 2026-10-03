@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 
 /// `.htdtcapturelibrary` — the Capture Library portability container
-/// (issue #378). A stored-ZIP package carrying byte-exact
+/// (issue bolph71656-ai/HTDT-Capture#378). A stored-ZIP package carrying byte-exact
 /// `.htdtcapture` archives plus filtered app-local metadata and the
 /// handoff-receipt ledger entries for the included revisions. The
 /// package schema version is independent of the capture-bundle schema
@@ -419,7 +419,7 @@ public enum CaptureLibraryPackageWriter {
 }
 
 /// Validates and reads a `.htdtcapturelibrary` container (issue
-/// #378). The container contract mirrors the `.htdtcapture` stored-ZIP
+/// legacy bolph71656-ai/HTDT-Capture#378). The container contract mirrors the `.htdtcapture` stored-ZIP
 /// validator: locals then central then end, method 0, UTF-8 flag, no
 /// extras, sorted names, no collisions, and CRC proven per entry. On
 /// top of the container, `validate` decodes the manifest, enforces the
@@ -685,7 +685,7 @@ public enum CaptureLibraryPackageReader {
                 throw CaptureLibraryPackageError.archiveMalformed
             }
 
-            // Same entry-type policy as the bundle validator (#196):
+            // Same entry-type policy as the bundle validator (legacy bolph71656-ai/HTDT-Capture#196):
             // only regular/directory/unspecified file types pass.
             let unixFileType =
                 (externalAttributes >> 16) & 0o170000

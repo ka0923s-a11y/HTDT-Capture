@@ -1,7 +1,7 @@
 # Phase 2 RoomPlan + Mesh Evidence Implementation Record
 
 Status: In progress  
-Issue: #3
+Issue: legacy bolph71656-ai/HTDT-Capture#3
 
 ## Implemented
 
@@ -83,7 +83,7 @@ The following remain hardware/integration gated:
 - regenerate a real `CapturedRoom` from preserved raw bytes;
 - persist a real final active ARMeshAnchor evidence package from the host working set;
 - prove RoomPlan/mesh alignment on reference geometry;
-- collect the Issue #9 physical accuracy benchmark;
+- collect the Issue bolph71656-ai/HTDT-Capture#9 physical accuracy benchmark;
 - prove session/world resets generate explicit coordinate lineage in real interruption cases.
 
-Issue #3 remains open until those are demonstrated.
+Issue bolph71656-ai/HTDT-Capture#3 remains open until those are demonstrated.

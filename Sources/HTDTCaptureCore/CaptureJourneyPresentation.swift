@@ -1,6 +1,6 @@
 import Foundation
 
-/// The operator-visible capture loop (issue #372): Home → Prepare →
+/// The operator-visible capture loop (issue bolph71656-ai/HTDT-Capture#372): Home → Prepare →
 /// Scan → Review → Details → Finalize → Send. Transient `CaptureState`
 /// values map onto their containing stage — they are progress inside a
 /// stage, never destinations themselves.
@@ -27,7 +27,7 @@ public enum CaptureJourneyStage: String, Sendable, Equatable,
     }
 
     /// Short operator-facing label key — kept deliberately terse so the
-    /// expanded journey trail stays readable on iPad (#372 JOURNEY-90).
+    /// expanded journey trail stays readable on iPad (legacy bolph71656-ai/HTDT-Capture#372 JOURNEY-90).
     public var titleKey: String {
         switch self {
         case .home: return "Home"
@@ -54,7 +54,7 @@ public enum CaptureJourneyStage: String, Sendable, Equatable,
     }
 }
 
-/// Per-stage status shown in the journey trail (issue #372 JOURNEY-40):
+/// Per-stage status shown in the journey trail (issue bolph71656-ai/HTDT-Capture#372 JOURNEY-40):
 /// statuses come from real workflow facts — a stage is never
 /// "complete" merely because it was opened.
 public enum CaptureJourneyStageStatus: String, Sendable, Equatable,
@@ -112,7 +112,7 @@ public enum CaptureJourneyStageStatus: String, Sendable, Equatable,
 }
 
 /// Stable action identifiers the journey presentation recommends
-/// (issue #372 JOURNEY-60). The view binds each id to its host
+/// (issue bolph71656-ai/HTDT-Capture#372 JOURNEY-60). The view binds each id to its host
 /// callback; the presentation itself never performs work.
 public enum CaptureJourneyAction: String, Sendable, Equatable,
     CaseIterable
@@ -214,7 +214,7 @@ public enum CaptureJourneyAction: String, Sendable, Equatable,
     }
 }
 
-/// Mission progress the journey header may surface (issue #372
+/// Mission progress the journey header may surface (issue bolph71656-ai/HTDT-Capture#372
 /// JOURNEY-50): required-task completion is distinct from technical
 /// capture readiness — a capture can be technically ready while the
 /// plan's required tasks are still outstanding.
@@ -232,7 +232,7 @@ public struct CaptureJourneyMissionSummary: Sendable, Equatable {
     }
 }
 
-/// Technical readiness facts (issue #372 JOURNEY-50), surfaced as a
+/// Technical readiness facts (issue bolph71656-ai/HTDT-Capture#372 JOURNEY-50), surfaced as a
 /// compact check list separate from mission progress.
 public struct CaptureJourneyReadinessSummary: Sendable, Equatable {
     /// Bundle/evidence integrity preflight status: nil = not checked.
@@ -250,7 +250,7 @@ public struct CaptureJourneyReadinessSummary: Sendable, Equatable {
 }
 
 /// Inputs the host supplies when resolving the journey presentation
-/// (issue #372 JOURNEY-30). Every fact is already available on the
+/// (issue bolph71656-ai/HTDT-Capture#372 JOURNEY-30). Every fact is already available on the
 /// root view's public model — the presentation adds no persistence.
 public struct CaptureJourneyInputs: Sendable, Equatable {
     public let state: CaptureState
@@ -277,7 +277,7 @@ public struct CaptureJourneyInputs: Sendable, Equatable {
     /// An export archive exists — the Send stage is actionable.
     public let hasExportArchive: Bool
     /// The finalized capture came from an imported archive only —
-    /// earlier stages must not fake completion (issue #372).
+    /// earlier stages must not fake completion (issue bolph71656-ai/HTDT-Capture#372).
     public let isImportedFinalized: Bool
     /// Mission progress; nil when no task plan is active.
     public let mission: CaptureJourneyMissionSummary?
@@ -322,7 +322,7 @@ public struct CaptureJourneyInputs: Sendable, Equatable {
     }
 }
 
-/// The resolved journey presentation (issue #372 JOURNEY-00): one
+/// The resolved journey presentation (issue bolph71656-ai/HTDT-Capture#372 JOURNEY-00): one
 /// current stage, per-stage statuses, one dominant primary action, and
 /// the compact copy the header shows. Pure value — derived from host
 /// state, never persisted to the bundle.
@@ -515,7 +515,7 @@ public struct CaptureJourneyPresentation: Sendable, Equatable {
             var secondary: [CaptureJourneyAction] = []
             if inputs.integrityFail {
                 // A blocking integrity/authority problem outranks every
-                // workflow suggestion (issue #372 JOURNEY-60).
+                // workflow suggestion (issue bolph71656-ai/HTDT-Capture#372 JOURNEY-60).
                 primary = .reviewDiagnostics
             } else if missionOutstanding > 0 {
                 primary = .completeRequiredTasks
@@ -684,7 +684,7 @@ public struct CaptureJourneyPresentation: Sendable, Equatable {
             // Preserve the stage the failure interrupted: completed
             // stages keep their truth, the interrupted stage fails in
             // place, later stages are unavailable — never silently
-            // reset to Home (issue #372 JOURNEY-70).
+            // reset to Home (issue bolph71656-ai/HTDT-Capture#372 JOURNEY-70).
             for stage in CaptureJourneyStage.allCases {
                 if stage == .home { continue }
                 if stage < failedStage {
@@ -732,7 +732,7 @@ public struct CaptureJourneyPresentation: Sendable, Equatable {
     }
 
     /// Required-task mission progress for the journey header (issue
-    /// #372 JOURNEY-50). The same typed fulfillment rules
+    /// legacy bolph71656-ai/HTDT-Capture#372 JOURNEY-50). The same typed fulfillment rules
     /// `CaptureTaskPlanStatus.itemOutcomes` applies. `status` lets
     /// the caller evaluate against the live operator-edited status
     /// (marks, bindings, fulfillments); nil falls back to a fresh

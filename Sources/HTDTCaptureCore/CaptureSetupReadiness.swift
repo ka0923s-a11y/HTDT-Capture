@@ -1,6 +1,6 @@
 import Foundation
 
-/// Pre-capture storage assessment for the setup workflow (#212).
+/// Pre-capture storage assessment for the setup workflow (legacy bolph71656-ai/HTDT-Capture#212).
 /// Uses the same thresholds as the runtime `CaptureResourceMonitor`
 /// policy so the preflight warning agrees with the in-scan failure
 /// boundary: warning below `storageWarningBytes`, blocking below
@@ -52,7 +52,7 @@ public struct CaptureStoragePreflight: Sendable, Equatable {
 }
 
 /// Battery / power-mode readiness surfaced in the pre-capture setup
-/// (#272). These inputs are advisory only: no charge percentage becomes
+/// (legacy bolph71656-ai/HTDT-Capture#272). These inputs are advisory only: no charge percentage becomes
 /// a canonical quality rule, but a nearly depleted or power-throttled
 /// device produces an actionable warning before a long acquisition.
 public struct CaptureDeviceReadiness: Sendable, Equatable {

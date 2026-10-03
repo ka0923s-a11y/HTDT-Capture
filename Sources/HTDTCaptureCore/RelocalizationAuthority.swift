@@ -1,6 +1,6 @@
 import Foundation
 
-/// Relocalization authority model (#323).
+/// Relocalization authority model (legacy bolph71656-ai/HTDT-Capture#323).
 ///
 /// Resuming a scan after an interruption must never trust ARKit's
 /// "relocalized" label alone: a relocalization claim is only an
@@ -17,7 +17,7 @@ import Foundation
 /// validation is a separate gate (RDC 0).
 
 /// A scan segment: one contiguous run of evidence capture under a
-/// single coordinate-space identity (#323). Segment IDs let resumed
+/// single coordinate-space identity (legacy bolph71656-ai/HTDT-Capture#323). Segment IDs let resumed
 /// evidence stay attributable to the exact space it was captured in.
 public struct ScanSegmentID: CaptureIdentifier {
     public let rawValue: UUID
@@ -29,7 +29,7 @@ public struct RelocalizationAttemptID: CaptureIdentifier {
     public init(rawValue: UUID) { self.rawValue = rawValue }
 }
 
-/// The interruption boundary a relocalization attempt crosses (#323).
+/// The interruption boundary a relocalization attempt crosses (legacy bolph71656-ai/HTDT-Capture#323).
 public enum RelocalizationInterruptionBoundary:
     String,
     Codable,
@@ -48,7 +48,7 @@ public enum RelocalizationInterruptionBoundary:
     case userInitiatedResume = "user_initiated_resume"
 }
 
-/// What ARKit reported for the attempt (#323). Mirrors the runtime
+/// What ARKit reported for the attempt (legacy bolph71656-ai/HTDT-Capture#323). Mirrors the runtime
 /// outcome without importing ARKit so the policy model stays
 /// macOS-verifiable. A `.relocalized` value is a *claim*, never an
 /// authority on its own.
@@ -59,7 +59,7 @@ public enum RelocalizationARKitOutcome: String, Codable, Sendable {
 }
 
 /// The kind of explicit reference observation used to verify a
-/// relocalization claim (#323). `unqualified` exists so malformed
+/// relocalization claim (legacy bolph71656-ai/HTDT-Capture#323). `unqualified` exists so malformed
 /// records decode — the acceptance policy never admits it.
 public enum RelocalizationReferenceKind: String, Codable, Sendable {
     case fiducial
@@ -70,7 +70,7 @@ public enum RelocalizationReferenceKind: String, Codable, Sendable {
 }
 
 /// One explicit reference observation made while verifying a
-/// relocalization claim (#323): a measurable comparison between a
+/// relocalization claim (legacy bolph71656-ai/HTDT-Capture#323): a measurable comparison between a
 /// reference known in the prior coordinate space and its observed
 /// pose after resume, expressed as residuals. A check with no
 /// measured residual is not evidence.
@@ -122,13 +122,13 @@ public struct RelocalizationReferenceCheck:
     }
 }
 
-/// The decision recorded on a completed attempt (#323).
+/// The decision recorded on a completed attempt (legacy bolph71656-ai/HTDT-Capture#323).
 public enum RelocalizationDecision: String, Codable, Sendable {
     case accepted
     case rejected
 }
 
-/// A persisted record of one relocalization attempt (#323): prior
+/// A persisted record of one relocalization attempt (legacy bolph71656-ai/HTDT-Capture#323): prior
 /// session/coordinate-space identity, map identity, interruption
 /// boundary, attempt window, the ARKit-reported outcome, explicit
 /// reference observations with residuals, the decision, and the
@@ -160,7 +160,7 @@ public struct RelocalizationAttempt: Codable, Sendable, Equatable {
     public let decision: RelocalizationDecision?
     public let decisionPolicyID: String?
     public let decisionPolicyVersion: String?
-    /// Version authority under which the attempt ran (#323).
+    /// Version authority under which the attempt ran (legacy bolph71656-ai/HTDT-Capture#323).
     public let appVersion: String
     public let osVersion: String
     public let deviceModel: String
@@ -188,7 +188,7 @@ public struct RelocalizationAttempt: Codable, Sendable, Equatable {
             throw AnnotationModelError.emptyAuthorityReference
         }
         // A recorded decision must name the exact policy that made it
-        // (#323): an unversioned acceptance is indistinguishable from
+        // (legacy bolph71656-ai/HTDT-Capture#323): an unversioned acceptance is indistinguishable from
         // trusting the label.
         switch decision {
         case .none:
@@ -253,7 +253,7 @@ public struct RelocalizationAttempt: Codable, Sendable, Equatable {
     }
 }
 
-/// Why an attempt failed acceptance (#323). Every reason is explicit
+/// Why an attempt failed acceptance (legacy bolph71656-ai/HTDT-Capture#323). Every reason is explicit
 /// so a rejection is auditable, never a silent fallback.
 public enum RelocalizationRejectionReason:
     String,
@@ -274,7 +274,7 @@ public enum RelocalizationRejectionReason:
 }
 
 /// Whether an accepted resume keeps the prior coordinate-space
-/// identity or must open a fresh one (#323).
+/// identity or must open a fresh one (legacy bolph71656-ai/HTDT-Capture#323).
 public enum RelocalizationSpaceDisposition:
     String,
     Sendable,
@@ -291,7 +291,7 @@ public enum RelocalizationSpaceDisposition:
     case freshCoordinateSpace = "fresh_coordinate_space"
 }
 
-/// The outcome of evaluating an attempt under a policy (#323).
+/// The outcome of evaluating an attempt under a policy (legacy bolph71656-ai/HTDT-Capture#323).
 public enum RelocalizationEvaluation: Sendable, Equatable {
     /// Fail closed: the attempt is not a resume authority. Callers
     /// must open a fresh coordinate space and record a
@@ -302,7 +302,7 @@ public enum RelocalizationEvaluation: Sendable, Equatable {
     case accept(spaceDisposition: RelocalizationSpaceDisposition)
 }
 
-/// A versioned relocalization acceptance policy (#323). Only a policy
+/// A versioned relocalization acceptance policy (legacy bolph71656-ai/HTDT-Capture#323). Only a policy
 /// instance may turn a completed attempt into a resume decision; the
 /// evaluation result carries the policy identity so the decision is
 /// attributable.
@@ -369,7 +369,7 @@ public struct RelocalizationAcceptancePolicy:
     }
 
     /// Evaluates a completed attempt. Any single failure rejects the
-    /// whole attempt — fail closed (#323). The order of `reasons`
+    /// whole attempt — fail closed (legacy bolph71656-ai/HTDT-Capture#323). The order of `reasons`
     /// follows evaluation order: boundary, outcome, then checks.
     public func evaluate(
         _ attempt: RelocalizationAttempt
@@ -411,7 +411,7 @@ public struct RelocalizationAcceptancePolicy:
     }
 
     /// Applies `evaluate` and records the decision on the attempt
-    /// (#323): the returned copy stamps `decision` plus this policy's
+    /// (legacy bolph71656-ai/HTDT-Capture#323): the returned copy stamps `decision` plus this policy's
     /// identity so the record is self-describing.
     public func recordDecision(
         on attempt: RelocalizationAttempt
@@ -445,7 +445,7 @@ public struct RelocalizationAcceptancePolicy:
     }
 }
 
-/// A scan segment record (#323): the resumption boundary's output.
+/// A scan segment record (legacy bolph71656-ai/HTDT-Capture#323): the resumption boundary's output.
 /// Evidence captured after the boundary is attributed to this segment
 /// and its `coordinateSpaceID`, so frames from different world
 /// identities are never silently merged.
@@ -487,7 +487,7 @@ public struct ScanSegment: Codable, Sendable, Equatable {
 }
 
 extension RelocalizationAttempt {
-    /// The resume decision this attempt authorizes (#323): only an
+    /// The resume decision this attempt authorizes (legacy bolph71656-ai/HTDT-Capture#323): only an
     /// `accepted` evaluation under a named policy opens a new segment.
     /// `preserveCoordinateSpace` reuses `priorCoordinateSpaceID`;
     /// anything else returns a fresh space. `sessionTimestampSeconds`

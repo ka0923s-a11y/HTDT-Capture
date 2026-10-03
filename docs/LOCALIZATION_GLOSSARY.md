@@ -1,4 +1,4 @@
-# Localization glossary & conventions (#399)
+# Localization glossary & conventions (legacy bolph71656-ai/HTDT-Capture#399)
 
 HTDT Capture uses **one Apple-native localization authority**:
 `App/ja.lproj/Localizable.strings`, where the **English source string

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-// #158: spatial transform and camera intrinsics authorities must reject
+// legacy bolph71656-ai/HTDT-Capture#158: spatial transform and camera intrinsics authorities must reject
 // structurally valid but nonphysical matrices.
 
 @Test

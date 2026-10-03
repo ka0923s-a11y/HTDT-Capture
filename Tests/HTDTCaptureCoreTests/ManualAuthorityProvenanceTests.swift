@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-// #143: a user-attested measurement built through the manual authority
+// legacy bolph71656-ai/HTDT-Capture#143: a user-attested measurement built through the manual authority
 // path must not claim a derived (LiDAR / RoomPlan) acquisition method.
 
 @Test

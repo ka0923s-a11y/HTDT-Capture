@@ -1,6 +1,6 @@
 import Foundation
 
-/// Semantic-only child revisions (issue #319): a new capture revision
+/// Semantic-only child revisions (issue bolph71656-ai/HTDT-Capture#319): a new capture revision
 /// that corrects annotations, measurements, opening dispositions, and
 /// equipment metadata of a *finalized* parent bundle without rescanning
 /// the room. The child preserves the parent's sensor evidence byte-for-
@@ -45,7 +45,7 @@ public struct SemanticChildRevisionContext: Sendable {
     public let sessionDocument: CaptureSessionDocument
     public let parentQualityReport: CaptureQualityReport
     public let entities: [CaptureAnnotationEntity]
-    /// Semantic relation graph carried from the parent (#333);
+    /// Semantic relation graph carried from the parent (legacy bolph71656-ai/HTDT-Capture#333);
     /// entity ids are stable across a correction so relations keep
     /// resolving.
     public let relations: [CaptureSemanticRelation]
@@ -84,7 +84,7 @@ public struct SemanticChildRevisionContext: Sendable {
     }
 }
 
-/// Operator edits for one semantic correction (issue #319). A nil field
+/// Operator edits for one semantic correction (issue bolph71656-ai/HTDT-Capture#319). A nil field
 /// means "keep the parent's record"; every field is content-only — the
 /// builder re-binds revision identity and lifecycle metadata itself.
 public struct SemanticChildRevisionEdits: Sendable, Equatable {
@@ -159,7 +159,7 @@ public enum SemanticChildRevisionBuilder {
 
     /// Validates the parent directory and decodes its semantic records.
     /// Only a `pass` bundle may parent a correction — evidence tampering
-    /// must never propagate into a child (issue #319).
+    /// must never propagate into a child (issue bolph71656-ai/HTDT-Capture#319).
     public static func loadContext(
         parentDirectory: URL
     ) throws -> SemanticChildRevisionContext {
@@ -247,7 +247,7 @@ public enum SemanticChildRevisionBuilder {
         )
     }
 
-    /// Builds and finalizes the semantic child bundle (issue #319).
+    /// Builds and finalizes the semantic child bundle (issue bolph71656-ai/HTDT-Capture#319).
     /// `stagingDirectory` must be a fresh, empty directory on the same
     /// volume as `destinationDirectory`; it becomes the child's staging
     /// area and is moved into place atomically by the shared finalizer.
@@ -265,7 +265,7 @@ public enum SemanticChildRevisionBuilder {
         // Re-emitted payloads declare the current schema version, so
         // legacy custom-unscoped tokens carried from a pre-1.1.0
         // parent are normalized into the reserved extension prefix
-        // (#344) — the meaning survives while the child stays
+        // (legacy bolph71656-ai/HTDT-Capture#344) — the meaning survives while the child stays
         // wire-legal.
         let childEntities = try (
             edits.entities ?? context.entities
@@ -463,7 +463,7 @@ public enum SemanticChildRevisionBuilder {
         }
 
         // Quality report: parent counters carried forward, completeness
-        // recomputed against the child collections (issue #319). The
+        // recomputed against the child collections (issue bolph71656-ai/HTDT-Capture#319). The
         // correction can only ever clear `annotation_missing` /
         // `measurement_missing` diagnostics or introduce them —
         // every other finding is evidence-bound and stays verbatim.
@@ -833,7 +833,7 @@ public enum SemanticChildRevisionBuilder {
 private extension SemanticChildRevisionBuilder {
     /// Legacy v1.0.0 payloads may carry custom tokens without the
     /// reserved extension prefix; re-emitting them under the current
-    /// schema version would be wire-illegal (#344). Standard and
+    /// schema version would be wire-illegal (legacy bolph71656-ai/HTDT-Capture#344). Standard and
     /// already-scoped tokens pass through `scopedForAuthoring`
     /// verbatim, so normalization only ever rewrites the legacy
     /// unscoped case.

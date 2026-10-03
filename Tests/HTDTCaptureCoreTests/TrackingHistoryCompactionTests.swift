@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-/// Issue #148: live tracking observations compact into a bounded canonical
+/// Issue bolph71656-ai/HTDT-Capture#148: live tracking observations compact into a bounded canonical
 /// history so a scan-long limited interval survives a recovered End frame.
 @Test
 func repeatedSameStateSamplesCompactIntoOneInterval() async throws {

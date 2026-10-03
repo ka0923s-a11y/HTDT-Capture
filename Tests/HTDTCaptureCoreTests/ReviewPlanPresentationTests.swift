@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-/// Issue #367: the review-plan overlay maps committed workspace
+/// Issue bolph71656-ai/HTDT-Capture#367: the review-plan overlay maps committed workspace
 /// records onto plan markers with stable dedup identifiers, nearest-
 /// first hit-testing, and a VoiceOver summary.
 struct ReviewPlanPresentationTests {

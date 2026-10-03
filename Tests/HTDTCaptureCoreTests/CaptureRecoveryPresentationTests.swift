@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #437: the capture-terminal failure → recovery contract is a
+/// Issue bolph71656-ai/HTDT-Capture#437: the capture-terminal failure → recovery contract is a
 /// pure value mapping — every failure surface resolves a plain-language
 /// reason plus a typed, ordered, fully-bound set of next steps. These
 /// tests pin the mapping itself so no surface can offer a dead or
@@ -328,7 +328,7 @@ final class CaptureRecoveryPresentationTests: XCTestCase {
         }
     }
 
-    // MARK: - Home notice ordering (#437)
+    // MARK: - Home notice ordering (legacy bolph71656-ai/HTDT-Capture#437)
 
     func testInterruptedCaptureNoticeLeadsTheList() {
         let notices = CaptureHomePresentation.notices(

@@ -2,8 +2,8 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Coverage for the integration/wiring payloads (issues #321, #351,
-/// #353, #355): the HTDT repair task plan schema + ledger +
+/// Coverage for the integration/wiring payloads (issues bolph71656-ai/HTDT-Capture#321, legacy bolph71656-ai/HTDT-Capture#351,
+/// legacy bolph71656-ai/HTDT-Capture#353, legacy bolph71656-ai/HTDT-Capture#355): the HTDT repair task plan schema + ledger +
 /// resolution lifecycle, the repair link document carried by the
 /// repair revision, the mission-workflow reachability router, the
 /// as-built plan import, and the file-import instrument adapter.
@@ -60,7 +60,7 @@ final class IntegrationWiringTests: XCTestCase {
         )
     }
 
-    // MARK: - #321 repair task plan
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#321 repair task plan
 
     func testDiagnosticMappingTable() {
         XCTAssertEqual(
@@ -299,7 +299,7 @@ final class IntegrationWiringTests: XCTestCase {
         XCTAssertEqual(validated.repairTaskPlan, plan)
     }
 
-    // MARK: - #353 reachability router
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#353 reachability router
 
     func testMissionRouterHidesWorkflowsOnPlainCapture() {
         let entries = MissionWorkflowRouter.entries(
@@ -369,7 +369,7 @@ final class IntegrationWiringTests: XCTestCase {
         )
     }
 
-    // MARK: - #293 as-built plan import
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#293 as-built plan import
 
     func testAsBuiltPlanImport() throws {
         let spec = try PlannedAsBuiltSpec(
@@ -407,7 +407,7 @@ final class IntegrationWiringTests: XCTestCase {
         )
     }
 
-    // MARK: - #355 file-import instrument adapter
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#355 file-import instrument adapter
 
     func testFileImportAdapterJSON() async throws {
         let payload = """
@@ -474,7 +474,7 @@ final class IntegrationWiringTests: XCTestCase {
     }
 
     /// The exact staged value + provenance survive into the committed
-    /// measurement only on explicit confirmation (#355).
+    /// measurement only on explicit confirmation (legacy bolph71656-ai/HTDT-Capture#355).
     func testFileImportConfirmPreservesValue() async throws {
         let payload = """
             {"value":2.5,"unit":"m",

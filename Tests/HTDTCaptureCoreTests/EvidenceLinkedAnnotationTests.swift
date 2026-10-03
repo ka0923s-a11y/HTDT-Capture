@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-// #184: `evidence_linked` is a provenance claim and requires at least
+// legacy bolph71656-ai/HTDT-Capture#184: `evidence_linked` is a provenance claim and requires at least
 // one evidence or placement source reference at construction.
 
 @Test

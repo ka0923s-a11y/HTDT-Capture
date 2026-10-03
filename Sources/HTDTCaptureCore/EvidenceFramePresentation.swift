@@ -1,6 +1,6 @@
 import Foundation
 
-/// Why a persisted evidence frame exists (#255 selector). Set by the
+/// Why a persisted evidence frame exists (legacy bolph71656-ai/HTDT-Capture#255 selector). Set by the
 /// host at capture time; kept as a stable token, not localized text.
 public enum EvidenceFrameRetentionKind: String, Codable, Sendable {
     /// Manually captured "evidence frame" during scanning.
@@ -9,7 +9,7 @@ public enum EvidenceFrameRetentionKind: String, Codable, Sendable {
     case annotationPlacement = "annotation_placement"
     /// Frame produced by a speaker-heading capture.
     case speakerHeading = "speaker_heading"
-    /// Frame produced by an equipment-identity photo capture (#239).
+    /// Frame produced by an equipment-identity photo capture (legacy bolph71656-ai/HTDT-Capture#239).
     case equipmentIdentity = "equipment_identity"
     /// Frame retained as the source of an accepted iterative-
     /// segmentation observation (#269): the mask's derived record
@@ -21,7 +21,7 @@ public enum EvidenceFrameRetentionKind: String, Codable, Sendable {
 
 /// Presentation data for one persisted evidence frame — the exact
 /// canonical `path:` ref stays the authority; the UI layers thumbnails
-/// and metadata over it (#255).
+/// and metadata over it (legacy bolph71656-ai/HTDT-Capture#255).
 public struct EvidenceFramePresentation: Sendable, Equatable, Identifiable {
     /// Canonical evidence ref (e.g. `path:evidence/frames/<id>.json`).
     public let reference: String
@@ -65,7 +65,7 @@ public struct EvidenceFramePresentation: Sendable, Equatable, Identifiable {
     }
 }
 
-/// Loads `EvidenceFramePresentation`s for a working-set root (#255).
+/// Loads `EvidenceFramePresentation`s for a working-set root (legacy bolph71656-ai/HTDT-Capture#255).
 /// Pure file reads under `rootDirectory`; a frame whose descriptor or
 /// preview is missing degrades to metadata-only rather than dropping
 /// the ref — the canonical reference is still selectable.

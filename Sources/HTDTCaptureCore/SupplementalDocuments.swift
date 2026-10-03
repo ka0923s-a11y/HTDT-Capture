@@ -10,7 +10,7 @@ public enum SupplementalDocumentError: Error, Sendable, Equatable {
 }
 
 /// A working-set payload committed through the store's generic
-/// supplemental-document path (issues #222/#226/#227/#240/#249/#293).
+/// supplemental-document path (issues bolph71656-ai/HTDT-Capture#222/legacy bolph71656-ai/HTDT-Capture#226/legacy bolph71656-ai/HTDT-Capture#227/legacy bolph71656-ai/HTDT-Capture#240/legacy bolph71656-ai/HTDT-Capture#249/legacy bolph71656-ai/HTDT-Capture#293).
 /// Feature modules own their wire documents; this type carries the
 /// final bytes plus the manifest declaration and lets the store
 /// enforce write-once, admission, coordinate-authority, and

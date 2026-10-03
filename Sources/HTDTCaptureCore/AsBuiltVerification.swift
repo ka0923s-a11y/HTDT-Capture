@@ -1,7 +1,7 @@
 import Foundation
 
 /// How the `captureWorld -> planned scene` alignment was established
-/// (issue #293). An explicit authority is required — "looks close
+/// (issue bolph71656-ai/HTDT-Capture#293). An explicit authority is required — "looks close
 /// enough" is never an alignment.
 public enum PlanAlignmentMechanism: String, Codable, Sendable,
     Equatable
@@ -10,13 +10,13 @@ public enum PlanAlignmentMechanism: String, Codable, Sendable,
     /// (e.g. the room's declared origin).
     case roomReferenceFrame = "room_reference_frame"
     /// Alignment was solved against a captured reference/fiducial
-    /// target (issue #227).
+    /// target (issue bolph71656-ai/HTDT-Capture#227).
     case referenceTarget = "reference_target"
     /// Alignment was entered from an explicit surveyed transform.
     case manualSurvey = "manual_survey"
 }
 
-/// Per-item verification outcome (issue #293).
+/// Per-item verification outcome (issue bolph71656-ai/HTDT-Capture#293).
 public enum AsBuiltItemState: String, Codable, Sendable, Equatable {
     /// Planned item has no captured observation yet.
     case pending
@@ -33,7 +33,7 @@ public enum AsBuiltItemState: String, Codable, Sendable, Equatable {
     /// observation's uncertainty band overlaps the tolerance
     /// boundary — or the uncertainty required by the policy was
     /// never declared — so no pass/fail verdict is defensible
-    /// (#356). Explicitly distinct from `captured`: the data is
+    /// (legacy bolph71656-ai/HTDT-Capture#356). Explicitly distinct from `captured`: the data is
     /// there, the verdict is unknowable.
     case indeterminate
     /// Operator marked the item unavailable (e.g. location blocked).
@@ -54,7 +54,7 @@ public enum AsBuiltVerificationError: Error, Sendable, Equatable {
     case invalidResidualValue
     case encodedDocumentMismatch
     /// The document claims a schema_version this contract does not
-    /// support (#332).
+    /// support (legacy bolph71656-ai/HTDT-Capture#332).
     case unsupportedSchema
 }
 
@@ -150,7 +150,7 @@ public struct PlannedAsBuiltSpec: Codable, Sendable, Equatable {
 }
 
 /// The explicit `captureWorld -> planned scene` alignment authority
-/// (issue #293): which mechanism established it, the rigid transform
+/// (issue bolph71656-ai/HTDT-Capture#293): which mechanism established it, the rigid transform
 /// itself, and the evidence it rests on. Ghost overlay is only shown
 /// while a valid authority is installed.
 public struct PlanAlignmentAuthority: Codable, Sendable, Equatable {
@@ -163,7 +163,7 @@ public struct PlanAlignmentAuthority: Codable, Sendable, Equatable {
     public let evidenceRefs: [String]
     public let establishedAtUTC: String
     /// Fit residual of the alignment solution in meters, when the
-    /// establishing mechanism computed one (#356). The alignment
+    /// establishing mechanism computed one (legacy bolph71656-ai/HTDT-Capture#356). The alignment
     /// residual is a bound on how far the frame itself may be off —
     /// it feeds the verdict's uncertainty band; it is never
     /// conflated with per-item observation uncertainty.
@@ -248,7 +248,7 @@ public struct PlanAlignmentAuthority: Codable, Sendable, Equatable {
 }
 
 /// An independently captured actual position for one planned item —
-/// observed truth, never the planned value (issue #293).
+/// observed truth, never the planned value (issue bolph71656-ai/HTDT-Capture#293).
 public struct AsBuiltObservation: Codable, Sendable, Equatable {
     public let plannedEntityID: String
     /// Observed world-space position in the bound coordinate space.
@@ -258,7 +258,7 @@ public struct AsBuiltObservation: Codable, Sendable, Equatable {
     public let placement: PlacementProvenance?
     public let observedAtUTC: String?
     public let evidenceRefs: [String]
-    /// Positional uncertainty authority for this observation (#356).
+    /// Positional uncertainty authority for this observation (legacy bolph71656-ai/HTDT-Capture#356).
     /// The verdict treats a missing record as *unknown* uncertainty —
     /// never as zero.
     public let uncertainty: SpatialUncertaintyAuthority?
@@ -350,7 +350,7 @@ public struct AsBuiltObservation: Codable, Sendable, Equatable {
         )
     }
 
-    /// Conservative positional uncertainty bound in meters (#356):
+    /// Conservative positional uncertainty bound in meters (legacy bolph71656-ai/HTDT-Capture#356):
     /// the isotropic bound when stated, else the worst per-axis
     /// component. An angular-only authority contributes nothing —
     /// the result is nil (unknown), never zero.
@@ -442,7 +442,7 @@ public struct AsBuiltVerificationItem: Codable, Sendable, Equatable {
             }
         }
         // `indeterminate` is an evaluated state — it only exists
-        // when an observation and its deviation are present (#356).
+        // when an observation and its deviation are present (legacy bolph71656-ai/HTDT-Capture#356).
         if state == .indeterminate {
             guard observation != nil, deviation != nil else {
                 throw AsBuiltVerificationError.invalidResidualValue
@@ -485,7 +485,7 @@ public struct AsBuiltVerificationItem: Codable, Sendable, Equatable {
 }
 
 /// The persisted as-built verification document at
-/// `verification/as-built.json` (issue #293). Planned and observed
+/// `verification/as-built.json` (issue bolph71656-ai/HTDT-Capture#293). Planned and observed
 /// authorities stay distinct: the plan spec is immutable input, the
 /// observation is the captured actual, the deviation is computed
 /// through the explicit alignment authority only.
@@ -493,12 +493,12 @@ public struct AsBuiltVerificationDocument: Codable, Sendable,
     Equatable
 {
     public static let schema = "htdt.capture.as-built-verification"
-    /// The payload version this build emits (#332): v1.1.0 stores the
+    /// The payload version this build emits (legacy bolph71656-ai/HTDT-Capture#332): v1.1.0 stores the
     /// deviation vector as the observed-minus-planned delta, adds the
     /// `indeterminate` state, and carries observation/alignment
-    /// uncertainty into the verdict (#356).
+    /// uncertainty into the verdict (legacy bolph71656-ai/HTDT-Capture#356).
     public static let schemaVersion = "1.1.0"
-    /// Every payload version this build can decode (#332). v1.0.0
+    /// Every payload version this build can decode (legacy bolph71656-ai/HTDT-Capture#332). v1.0.0
     /// documents stay readable; their deviation vectors and verdicts
     /// are interpreted as authored under the legacy contract.
     public static let supportedSchemaVersions: [String] = [
@@ -612,7 +612,7 @@ public struct AsBuiltVerificationDocument: Codable, Sendable,
     }
 }
 
-/// Live as-built verification session (issue #293). Without an
+/// Live as-built verification session (issue bolph71656-ai/HTDT-Capture#293). Without an
 /// explicit alignment authority the session still records captured
 /// actuals and operator marks — but spatially evaluated states and
 /// the ghost overlay stay unavailable, and the persisted document
@@ -800,7 +800,7 @@ public struct AsBuiltVerificationSession: Sendable, Equatable {
     }
 
     /// The versioned verdict policy for `schema_version` 1.1.0
-    /// documents (#356). Under a declared tolerance policy the
+    /// documents (legacy bolph71656-ai/HTDT-Capture#356). Under a declared tolerance policy the
     /// verdict must account for both the observation's positional
     /// uncertainty and the alignment authority's residual — the two
     /// stay conceptually distinct on the record and combine as a
@@ -882,7 +882,7 @@ public struct AsBuiltVerificationSession: Sendable, Equatable {
             )
         }
         // `translation_scene` is the signed delta
-        // observed(scene) - planned(scene) (#356) — never the
+        // observed(scene) - planned(scene) (legacy bolph71656-ai/HTDT-Capture#356) — never the
         // absolute observed position — so `distance_m` is always
         // exactly its norm.
         return try AsBuiltDeviation(

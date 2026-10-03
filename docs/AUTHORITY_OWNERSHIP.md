@@ -1,6 +1,6 @@
 # Cross-Product Authority Ownership Contract (v1 draft)
 
-Issue #405 — the single machine-distinguishable claim a Capture-
+Issue bolph71656-ai/HTDT-Capture#405 — the single machine-distinguishable claim a Capture-
 authored artifact makes, so the HTDT ecosystem never has to guess
 what a record means.
 
@@ -48,7 +48,7 @@ per-feature provenance spellings.
 
 ## 3. Issue-specific bindings
 
-**#403 — equipment identity bridge.** `same_physical_equipment` is an
+**legacy bolph71656-ai/HTDT-Capture#403 — equipment identity bridge.** `same_physical_equipment` is an
 `observed`/`operator_attested` claim asserted by the field app: one
 spatial entity and one `inventory_item:` record describe the same
 physical installed unit. Identity is equivalence, never inferred from
@@ -56,14 +56,14 @@ label/model/proximity equality. Conflicts surface through the review
 surface (`PhysicalEquipmentReview`) as advisory findings for operator
 resolution — never automatic merges.
 
-**#407 — evidence image quality preflight.** The image-quality
+**legacy bolph71656-ai/HTDT-Capture#407 — evidence image quality preflight.** The image-quality
 assessment is `capture_derived_diagnostic`: bounded, on-device, per
 exact image, recomputed per retake. It is deliberately distinct from
 recognition confidence, catalog-match confidence, and operator
 confirmation, and it never blocks finalization nor asserts semantic
 verification.
 
-**#333 — semantic relation authority.** Relation records carry their
+**legacy bolph71656-ai/HTDT-Capture#333 — semantic relation authority.** Relation records carry their
 own `provenance_class`, `verification_state`, and `evidence_refs` —
 relation provenance is independent of the provenance of either
 endpoint (an `imported_reference` plan may assert a relation between

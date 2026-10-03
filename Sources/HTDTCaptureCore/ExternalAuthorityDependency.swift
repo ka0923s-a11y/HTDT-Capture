@@ -12,7 +12,7 @@ public enum ExternalAuthorityDependencyError:
 }
 
 /// Closed vocabulary of external authority kinds a capture bundle may
-/// depend on (#337). The manifest mechanism is generic — a new
+/// depend on (legacy bolph71656-ai/HTDT-Capture#337). The manifest mechanism is generic — a new
 /// authority type extends this enum and reuses the whole declaration/
 /// resolution/reporting contract — but the vocabulary itself is
 /// versioned, so a bundle never silently accepts an authority kind the
@@ -28,24 +28,24 @@ public enum ExternalAuthorityDependencyKind:
     /// `equipment_ref` resolves against.
     case equipmentDefinition = "equipment_definition"
     /// Versioned layout profile a `role_binding` resolves against
-    /// (#315).
+    /// (legacy bolph71656-ai/HTDT-Capture#315).
     case layoutProfile = "layout_profile"
-    /// Imported capture task plan (#240).
+    /// Imported capture task plan (legacy bolph71656-ai/HTDT-Capture#240).
     case taskPlan = "task_plan"
-    /// Calibration asset authority (#331).
+    /// Calibration asset authority (legacy bolph71656-ai/HTDT-Capture#331).
     case calibrationAsset = "calibration_asset"
-    /// Manufacturer documentation authority (#275).
+    /// Manufacturer documentation authority (legacy bolph71656-ai/HTDT-Capture#275).
     case manufacturerDocumentation = "manufacturer_documentation"
-    /// Floor-plan authority (#322).
+    /// Floor-plan authority (legacy bolph71656-ai/HTDT-Capture#322).
     case floorPlan = "floor_plan"
-    /// Tolerance-profile authority (#293).
+    /// Tolerance-profile authority (legacy bolph71656-ai/HTDT-Capture#293).
     case toleranceProfile = "tolerance_profile"
 }
 
 /// Portable identity hints that let another HTDT instance resolve the
-/// same authority without transferring a whole catalog (#337). For an
+/// same authority without transferring a whole catalog (legacy bolph71656-ai/HTDT-Capture#337). For an
 /// equipment definition this is the make/model/serial-keyed lookup
-/// context plus the source catalog identity (#302) it was selected
+/// context plus the source catalog identity (legacy bolph71656-ai/HTDT-Capture#302) it was selected
 /// under — enough to locate the identical definition on a remote
 /// instance and to prove hash equality before trusting it.
 public struct ExternalAuthorityResolutionContext:
@@ -57,11 +57,11 @@ public struct ExternalAuthorityResolutionContext:
     public let manufacturer: String?
     public let model: String?
     /// Serial/asset tag recorded on the physical unit — a lookup hint,
-    /// never proof of identity (#345 keeps it a hint).
+    /// never proof of identity (legacy bolph71656-ai/HTDT-Capture#345 keeps it a hint).
     public let serialOrAssetTag: String?
     /// Backend-assigned snapshot ID of the source catalog, when known.
     public let catalogSnapshotID: String?
-    /// Semantic content digest of the source catalog (#302) — the
+    /// Semantic content digest of the source catalog (legacy bolph71656-ai/HTDT-Capture#302) — the
     /// portable pin a receiving instance can match its own catalog
     /// against.
     public let catalogContentSHA256: EvidenceSHA256?
@@ -95,7 +95,7 @@ public struct ExternalAuthorityResolutionContext:
     }
 }
 
-/// One declared external authority dependency (#337).
+/// One declared external authority dependency (legacy bolph71656-ai/HTDT-Capture#337).
 ///
 /// Every field that identifies the authority is exact: `authority_id`,
 /// `authority_version`, and `authority_sha256` name the precise
@@ -232,7 +232,7 @@ public struct ExternalAuthorityDependency:
 }
 
 /// The bundle-level declaration of every external authority the
-/// capture depends on (#337), persisted at
+/// capture depends on (legacy bolph71656-ai/HTDT-Capture#337), persisted at
 /// `derived/authority-dependencies.json`.
 ///
 /// Bundle-local `source_refs` describe provenance *inside* the
@@ -301,7 +301,7 @@ public struct ExternalAuthorityDependencyManifest:
     }
 
     /// Dependencies not satisfiable from `availableKeys` — the generic
-    /// "unresolved external authorities" enumeration (#337). A key is
+    /// "unresolved external authorities" enumeration (legacy bolph71656-ai/HTDT-Capture#337). A key is
     /// the dependency's `identityKey`.
     public func unresolved(
         availableKeys: Set<String>
@@ -310,7 +310,7 @@ public struct ExternalAuthorityDependencyManifest:
     }
 
     /// Required dependencies that stay unresolved — the capture loses
-    /// their declared capability deterministically (#337).
+    /// their declared capability deterministically (legacy bolph71656-ai/HTDT-Capture#337).
     public func capabilityFailures(
         availableKeys: Set<String>
     ) -> [ExternalAuthorityDependency] {
@@ -325,7 +325,7 @@ public struct ExternalAuthorityDependencyManifest:
     }
 }
 
-/// Bundle-persisted wrapper for the dependency manifest (#337) —
+/// Bundle-persisted wrapper for the dependency manifest (legacy bolph71656-ai/HTDT-Capture#337) —
 /// `capture_app_derived` provenance, `derived` role, encoded once into
 /// `data` so persistence writes exactly the bytes that were declared.
 public struct ExternalAuthorityDependencyPackage:
@@ -375,7 +375,7 @@ public struct ExternalAuthorityDependencyPackage:
 }
 
 /// Derives the dependency declarations from committed annotation
-/// content (#337): one `equipment_definition` per distinct
+/// content (legacy bolph71656-ai/HTDT-Capture#337): one `equipment_definition` per distinct
 /// `equipment_ref` identity, one `layout_profile` per distinct
 /// `role_binding` profile, each pinned by exact ID/version/hash.
 public enum ExternalAuthorityDependencyBuilder {
@@ -386,7 +386,7 @@ public enum ExternalAuthorityDependencyBuilder {
     ///
     /// `identityRecords` supplies per-entity serial hints for the
     /// portable resolution context; `catalog` supplies the source
-    /// catalog identity (#302).
+    /// catalog identity (legacy bolph71656-ai/HTDT-Capture#302).
     public static func equipmentDependencies(
         entities: [CaptureAnnotationEntity],
         catalog: HTDTEquipmentCatalogSnapshot?,
@@ -455,7 +455,7 @@ public enum ExternalAuthorityDependencyBuilder {
     }
 
     /// Layout-profile dependencies declared by entity role bindings
-    /// (#337 + #315): one dependency per distinct
+    /// (legacy bolph71656-ai/HTDT-Capture#337 + legacy bolph71656-ai/HTDT-Capture#315): one dependency per distinct
     /// `(profile_id, profile_version)` the committed entities bind to.
     public static func layoutProfileDependencies(
         entities: [CaptureAnnotationEntity]
@@ -507,7 +507,7 @@ public enum ExternalAuthorityDependencyBuilder {
     }
 
     /// Task-plan dependency for a bundle created under an imported
-    /// plan (#240/#337).
+    /// plan (legacy bolph71656-ai/HTDT-Capture#240/legacy bolph71656-ai/HTDT-Capture#337).
     public static func taskPlanDependency(
         plan: HTDTCaptureTaskPlan,
         planSHA256: EvidenceSHA256

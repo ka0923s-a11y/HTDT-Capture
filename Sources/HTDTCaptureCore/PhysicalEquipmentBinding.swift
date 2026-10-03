@@ -1,8 +1,8 @@
 import CryptoKit
 import Foundation
 
-/// Physical-equipment identity bridge (#403) and rack-membership
-/// canonicalization (#333).
+/// Physical-equipment identity bridge (legacy bolph71656-ai/HTDT-Capture#403) and rack-membership
+/// canonicalization (legacy bolph71656-ai/HTDT-Capture#333).
 ///
 /// `CaptureAnnotationEntity` remains the spatial/semantic placement
 /// authority and `SystemInventoryItem` the field inventory / unit
@@ -48,7 +48,7 @@ private enum DerivedRelationID {
 
 extension CaptureSemanticRelation {
     /// Whether this relation asserts `same_physical_equipment` and
-    /// touches `entityID` (#403).
+    /// touches `entityID` (legacy bolph71656-ai/HTDT-Capture#403).
     public func isIdentityBinding(
         touching entityID: AnnotationEntityID
     ) -> Bool {
@@ -57,7 +57,7 @@ extension CaptureSemanticRelation {
     }
 
     /// Whether this relation asserts `same_physical_equipment` and
-    /// touches `itemID` (#403).
+    /// touches `itemID` (legacy bolph71656-ai/HTDT-Capture#403).
     public func isIdentityBinding(
         touching itemID: AuthorityRecordID
     ) -> Bool {
@@ -67,7 +67,7 @@ extension CaptureSemanticRelation {
 }
 
 extension SystemInventoryItem {
-    /// Canonical rack membership (#333/#403): the `member_of_rack`
+    /// Canonical rack membership (legacy bolph71656-ai/HTDT-Capture#333/legacy bolph71656-ai/HTDT-Capture#403): the `member_of_rack`
     /// relation is authoritative; `hostRackEntityID` is the legacy
     /// denormalized convenience read only when no relation exists.
     /// Commit-time validation proves the two agree when both are
@@ -88,7 +88,7 @@ extension SystemInventoryItem {
     /// committed relation when present, else a deterministic derived
     /// view of the legacy `hostRackEntityID` field so pre-relation
     /// bundles expose the same canonical identity without guessing
-    /// equivalence (#333/#403).
+    /// equivalence (legacy bolph71656-ai/HTDT-Capture#333/legacy bolph71656-ai/HTDT-Capture#403).
     public func canonicalRackMembership(
         relations: [CaptureSemanticRelation]
     ) -> CaptureSemanticRelation? {
@@ -118,7 +118,7 @@ extension SystemInventoryItem {
 }
 
 /// Advisory review signal over the physical-equipment identity graph
-/// (#403 §18): findings surface probable candidates and conflicts —
+/// (legacy bolph71656-ai/HTDT-Capture#403 §18): findings surface probable candidates and conflicts —
 /// they are review aids, never automatic merges.
 public struct PhysicalEquipmentFinding:
     Sendable, Equatable, Hashable
@@ -147,7 +147,7 @@ public struct PhysicalEquipmentFinding:
         case duplicateSerialNumber = "duplicate_serial_number"
         /// A bound entity/item pair reports different rack
         /// memberships — semantic installation state must not
-        /// conflict silently with scene placement (#403 §15).
+        /// conflict silently with scene placement (legacy bolph71656-ai/HTDT-Capture#403 §15).
         case conflictingRackMembership =
             "conflicting_rack_membership"
     }
@@ -176,7 +176,7 @@ public struct PhysicalEquipmentFinding:
 }
 
 /// Cross-collection review over entities, inventory and the relation
-/// graph (#403 §18/§19). Bounded and deterministic — warnings aid the
+/// graph (legacy bolph71656-ai/HTDT-Capture#403 §18/§19). Bounded and deterministic — warnings aid the
 /// operator review; they never mutate or merge identity.
 public enum PhysicalEquipmentReview {
     /// Inventory classes that normally also appear as spatial entities

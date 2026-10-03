@@ -1,6 +1,6 @@
 import Foundation
 
-/// Issue #207: evidence-reference selection for the manual-annotation
+/// Issue bolph71656-ai/HTDT-Capture#207: evidence-reference selection for the manual-annotation
 /// flow, split into three disjoint ownership classes so that reverting
 /// a captured authority removes exactly the refs that authority
 /// exclusively introduced — never refs the user explicitly selected,

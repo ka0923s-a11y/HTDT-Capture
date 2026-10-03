@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-// MARK: - #342: octant vocabulary
+// MARK: - legacy bolph71656-ai/HTDT-Capture#342: octant vocabulary
 
 @Test
 func octantSectorMappingMatchesTwelveSectorGridLabels() {
@@ -67,13 +67,13 @@ func octantAzimuthMappingMatchesRegionLabelMath() {
 @Test
 func octantNamesRender() {
     // Japanese equivalents live in `ja.lproj/Localizable.strings`
-    // under the same English keys (#399) — verified by the
+    // under the same English keys (legacy bolph71656-ai/HTDT-Capture#399) — verified by the
     // localization audit, not a second in-code vocabulary.
     #expect(ScanDirectionOctant.rearLeft.name == "rear left")
     #expect(ScanDirectionOctant.front.name == "front")
 }
 
-// MARK: - #342: direction coverage summary
+// MARK: - legacy bolph71656-ai/HTDT-Capture#342: direction coverage summary
 
 private func makeCoverage(
     observed: Set<Int>,
@@ -181,7 +181,7 @@ func directionSummaryEmptyCoverageHasNoMissingBands() {
     #expect(text == "Direction coverage 100 percent.")
 }
 
-// MARK: - #342: spatial coverage summary
+// MARK: - legacy bolph71656-ai/HTDT-Capture#342: spatial coverage summary
 
 private func makeRegion(
     x: Int,

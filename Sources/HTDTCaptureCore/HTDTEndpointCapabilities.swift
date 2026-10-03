@@ -1,7 +1,7 @@
 import Foundation
 
 /// Errors raised while fetching an endpoint's capability document
-/// (issue #374). All failures fail closed for the preflight verdict —
+/// (issue bolph71656-ai/HTDT-Capture#374). All failures fail closed for the preflight verdict —
 /// the queue never treats an unverifiable receiver as compatible.
 public enum HTDTCapabilityFetchError: Error, Sendable, Equatable {
     case invalidEndpointURL
@@ -14,7 +14,7 @@ public enum HTDTCapabilityFetchError: Error, Sendable, Equatable {
 }
 
 /// A capability a paired/configured HTDT receiver advertises over
-/// HTTPS before any archive bytes move (issue #374). The endpoint
+/// HTTPS before any archive bytes move (issue bolph71656-ai/HTDT-Capture#374). The endpoint
 /// answers this small document so the sender can decide — with a
 /// precise, human-readable gap list — whether the bundle it is about
 /// to send is supported, partially deferrable, or doomed.
@@ -46,19 +46,19 @@ public struct HTDTEndpointCapabilityDocument:
     /// unbounded.
     public let maxArchiveBytes: Int64?
     /// Whether the receiver records and returns mission receipts —
-    /// required when the send is bound to a mission envelope (#386).
+    /// required when the send is bound to a mission envelope (legacy bolph71656-ai/HTDT-Capture#386).
     public let missionReceiptsSupported: Bool
     /// Equipment-catalog identity keys the receiver already knows —
     /// a catalog the receiver does not recognize lands as a staged
     /// gap, not a hard failure.
     public let equipmentCatalogsRecognized: [String]
-    /// Per-artifact-family capabilities (#423 §5, #422 §capability
+    /// Per-artifact-family capabilities (legacy bolph71656-ai/HTDT-Capture#423 §5, legacy bolph71656-ai/HTDT-Capture#422 §capability
     /// handshake): which artifact kinds the receiver accepts, with
     /// the schema versions and byte ceiling it stages for each.
     /// Absent on a legacy document means capture-bundle only —
     /// interpreted by `acceptedKinds`, never rewritten.
     public let acceptedArtifactKinds: [HTDTArtifactKindCapability]?
-    /// Direction capability (#422): whether the receiver serves
+    /// Direction capability (legacy bolph71656-ai/HTDT-Capture#422): whether the receiver serves
     /// pending Mission packages to paired Capture identities for
     /// the receive leg. Absent = false (legacy receivers never
     /// offer Mission pulls).
@@ -101,7 +101,7 @@ public struct HTDTEndpointCapabilityDocument:
 
     /// Resolved per-kind capabilities: an explicit list when the
     /// receiver advertises one, otherwise the legacy default —
-    /// `capture_bundle` only (issue #423 §14 backward compat: a
+    /// `capture_bundle` only (issue bolph71656-ai/HTDT-Capture#423 §14 backward compat: a
     /// capture-only receiver stays usable for `.htdtcapture` and is
     /// preflighted as unsupported for field returns).
     public var acceptedKinds: [HTDTArtifactKindCapability] {
@@ -133,7 +133,7 @@ public struct HTDTEndpointCapabilityDocument:
 }
 
 /// One artifact-family admission entry in the capability document
-/// (#423 §5): the receiver stages this kind, within this schema
+/// (legacy bolph71656-ai/HTDT-Capture#423 §5): the receiver stages this kind, within this schema
 /// range and byte ceiling.
 public struct HTDTArtifactKindCapability:
     Codable, Sendable, Equatable
@@ -180,7 +180,7 @@ public struct HTDTAcceptedPayloadSchema:
 
 /// A fetched capability document plus when it was fetched — a cached
 /// snapshot is always labeled with its fetch time and never presented
-/// as live receiver state (issue #374).
+/// as live receiver state (issue bolph71656-ai/HTDT-Capture#374).
 public struct HTDTEndpointCapabilitySnapshot:
     Codable, Sendable, Equatable
 {
@@ -202,7 +202,7 @@ public struct HTDTEndpointCapabilitySnapshot:
 }
 
 /// What the sender knows about the bundle it is about to transfer,
-/// assembled without opening any archive bytes (issue #374).
+/// assembled without opening any archive bytes (issue bolph71656-ai/HTDT-Capture#374).
 public struct HTDTBundleInventory: Sendable, Equatable {
     /// Bundle manifest `schema_version` of the archive being sent.
     public var bundleSchemaVersion: String
@@ -264,7 +264,7 @@ public struct HTDTBundleInventory: Sendable, Equatable {
 }
 
 /// One concrete way a receiver falls short of what the sender needs
-/// (issue #374). `subject` names the schema/family/protocol; `detail`
+/// (issue bolph71656-ai/HTDT-Capture#374). `subject` names the schema/family/protocol; `detail`
 /// is the operator-facing explanation.
 public struct HTDTCompatibilityGap: Sendable, Equatable {
     public enum Kind: String, Sendable {
@@ -284,7 +284,7 @@ public struct HTDTCompatibilityGap: Sendable, Equatable {
             "unrecognized_equipment_catalog"
         case projectRefMismatch = "project_ref_mismatch"
         /// Hard failure — the receiver cannot stage this artifact
-        /// family at all (#423 §5): e.g. a field return aimed at a
+        /// family at all (legacy bolph71656-ai/HTDT-Capture#423 §5): e.g. a field return aimed at a
         /// capture-only receiver. The Send button is disabled with
         /// this explanation; Share remains.
         case unsupportedArtifactKind = "unsupported_artifact_kind"
@@ -301,7 +301,7 @@ public struct HTDTCompatibilityGap: Sendable, Equatable {
     }
 }
 
-/// Verdict of the #374 preflight handshake. Hard failures block the
+/// Verdict of the legacy bolph71656-ai/HTDT-Capture#374 preflight handshake. Hard failures block the
 /// send with a precise list; omissions permit the send while naming
 /// exactly what the receiver will stage-but-not-promote; `unknown`
 /// means the endpoint gave no verifiable capability document.
@@ -325,10 +325,10 @@ public enum HTDTCompatibilityVerdict: Sendable, Equatable {
     }
 }
 
-/// Declared inside a mission envelope (#386): the minimum receiver
+/// Declared inside a mission envelope (legacy bolph71656-ai/HTDT-Capture#386): the minimum receiver
 /// capability a capture run for this mission requires. Surfaced
 /// before scanning starts so an operator never captures a long
-/// mission the chosen receiver cannot ingest (issue #374).
+/// mission the chosen receiver cannot ingest (issue bolph71656-ai/HTDT-Capture#374).
 public struct HTDTMissionReceiverRequirement:
     Codable, Sendable, Equatable
 {
@@ -367,14 +367,14 @@ public struct HTDTMissionReceiverRequirement:
     }
 }
 
-/// Pure preflight classifier (issue #374): no I/O, fully unit
+/// Pure preflight classifier (issue bolph71656-ai/HTDT-Capture#374): no I/O, fully unit
 /// testable. Bundle requirements split into hard gaps (block the
 /// send) and deferrable omissions (stage-only content) — the send
 /// never repackages or strips content to fit.
 public enum HTDTCompatibilityChecker {
     /// Preflight a bundle against a capability document.
     /// `requiresMissionReceipts` is set for queue jobs bound to a
-    /// mission receipt expectation (#386/#387).
+    /// mission receipt expectation (legacy bolph71656-ai/HTDT-Capture#386/legacy bolph71656-ai/HTDT-Capture#387).
     public static func check(
         inventory: HTDTBundleInventory,
         capabilities: HTDTEndpointCapabilityDocument,
@@ -393,7 +393,7 @@ public enum HTDTCompatibilityChecker {
                     + HTDTEndpointCapabilityDocument.handoffProtocol
             ))
         }
-        // Artifact-kind admission (#423 §5): a receiver that
+        // Artifact-kind admission (legacy bolph71656-ai/HTDT-Capture#423 §5): a receiver that
         // enumerates accepted_artifact_kinds without a
         // capture_bundle entry cannot stage captures at all.
         let kindAdmission = capabilities.acceptedKinds.first {
@@ -512,7 +512,7 @@ public enum HTDTCompatibilityChecker {
         return .compatible
     }
 
-    /// Artifact-kind preflight (#423 §5): whether the receiver
+    /// Artifact-kind preflight (legacy bolph71656-ai/HTDT-Capture#423 §5): whether the receiver
     /// stages this artifact family at all. `capture_bundle` keeps
     /// the full bundle check above; other kinds run only the
     /// kind/schema/size admission — never a bundle-manifest
@@ -585,7 +585,7 @@ public enum HTDTCompatibilityChecker {
     }
 
     /// Preflight a mission's declared minimum receiver requirement —
-    /// run before scanning starts (#386/#374). Every requirement is
+    /// run before scanning starts (legacy bolph71656-ai/HTDT-Capture#386/legacy bolph71656-ai/HTDT-Capture#374). Every requirement is
     /// hard: a mission whose receiver cannot meet it must be refused
     /// rather than captured-then-rejected.
     public static func checkMissionRequirement(
@@ -649,7 +649,7 @@ public enum HTDTCompatibilityChecker {
 }
 
 /// Fetches an endpoint's `htdt.endpoint-capabilities` document over
-/// HTTPS with a bounded read (issue #374). When the destination was
+/// HTTPS with a bounded read (issue bolph71656-ai/HTDT-Capture#374). When the destination was
 /// QR-paired, the same pin is enforced for the capability fetch as
 /// for the archive upload.
 public struct HTDTCapabilityClient: Sendable {
@@ -709,7 +709,7 @@ public struct HTDTCapabilityClient: Sendable {
 extension TheaterAuthorityCollection {
     /// Authority families with at least one record — the
     /// `SemanticTaskKind` tokens a receiver must be able to promote
-    /// for a full-fidelity ingestion (issue #374).
+    /// for a full-fidelity ingestion (issue bolph71656-ai/HTDT-Capture#374).
     public func presentAuthorityFamilies() -> [String] {
         var families: [String] = []
         if !surfaceSemantics.isEmpty {

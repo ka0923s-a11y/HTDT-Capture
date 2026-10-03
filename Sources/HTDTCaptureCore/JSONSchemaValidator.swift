@@ -10,7 +10,7 @@ public enum JSONSchemaError: Error, Sendable, Equatable {
     case unresolvedRef(String)
     case unknownSchema(String)
     /// The payload declared a `schema_version` the published support
-    /// matrix does not list for its family (#332) — surfaces an
+    /// matrix does not list for its family (legacy bolph71656-ai/HTDT-Capture#332) — surfaces an
     /// explicit version diagnostic instead of silently passing.
     case unsupportedPayloadVersion(
         family: String,

@@ -1,7 +1,7 @@
 import Foundation
 
 /// How the on-disk copy of a capture revision reached this device
-/// (issue #317). The kind is app-local provenance — the immutable
+/// (issue bolph71656-ai/HTDT-Capture#317). The kind is app-local provenance — the immutable
 /// bundle itself deliberately does not mark device-vs-external origin,
 /// so the library keeps it beside the bundle, never inside it. An
 /// imported bundle's manifest `app` identity is reported separately as
@@ -29,7 +29,7 @@ public enum CaptureAcquisitionOriginKind:
     case legacyUnknown = "legacy_unknown"
 }
 
-/// Transport channel that carried the bundle (issue #317), recorded
+/// Transport channel that carried the bundle (issue bolph71656-ai/HTDT-Capture#317), recorded
 /// separately from the origin kind so a future transport does not need
 /// a new kind.
 public enum CaptureAcquisitionTransport:
@@ -45,7 +45,7 @@ public enum CaptureAcquisitionTransport:
     case unknown = "unknown"
 }
 
-/// One revision's acquisition record (issue #317).
+/// One revision's acquisition record (issue bolph71656-ai/HTDT-Capture#317).
 public struct CaptureAcquisitionOriginRecord:
     Codable,
     Sendable,
@@ -115,7 +115,7 @@ public struct CaptureAcquisitionOriginRecord:
     }
 }
 
-/// Versioned wire document for `capture-origins.json` (issue #317).
+/// Versioned wire document for `capture-origins.json` (issue bolph71656-ai/HTDT-Capture#317).
 public struct CaptureAcquisitionOriginDocument:
     Codable,
     Sendable,
@@ -169,7 +169,7 @@ public enum CaptureAcquisitionOriginError:
     case conflictingOrigin(CaptureRevisionID)
 }
 
-/// Reads and writes `<captureRoot>/capture-origins.json` (issue #317):
+/// Reads and writes `<captureRoot>/capture-origins.json` (issue bolph71656-ai/HTDT-Capture#317):
 /// app-local acquisition provenance keyed by validated revision
 /// identity, deliberately outside `finalized/`, `exports/`, and
 /// `working/` so it is never part of the canonical bundle, never
@@ -253,7 +253,7 @@ public struct CaptureAcquisitionOriginStore: Sendable {
 
     /// Records an acquisition. An identical record for the same
     /// revision is a no-op; a conflicting one fails closed — the first
-    /// observed provenance is authoritative (issue #317).
+    /// observed provenance is authoritative (issue bolph71656-ai/HTDT-Capture#317).
     public func record(
         _ record: CaptureAcquisitionOriginRecord
     ) throws {

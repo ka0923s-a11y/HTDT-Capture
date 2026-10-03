@@ -1,7 +1,7 @@
 import Foundation
 
 /// A lineage diagnostic inside one capture series' revision graph
-/// (issue #396). Diagnostics describe declared-but-unresolved or
+/// (issue bolph71656-ai/HTDT-Capture#396). Diagnostics describe declared-but-unresolved or
 /// inconsistent lineage — they never guess at repair.
 public enum CaptureSeriesRevisionDiagnostic:
     Sendable,
@@ -27,7 +27,7 @@ public enum CaptureSeriesRevisionDiagnostic:
     case cyclicTopology([CaptureRevisionID])
 }
 
-/// Read-side revision-fork graph for one capture series (issue #396).
+/// Read-side revision-fork graph for one capture series (issue bolph71656-ai/HTDT-Capture#396).
 ///
 /// Every edge is declared lineage from the validated manifest's
 /// `parent_revision_id` — UUID identity only, never device-local
@@ -299,7 +299,7 @@ public struct CaptureSeriesRevisionGraph:
 }
 
 /// How an incoming bundle's declared lineage classifies against the
-/// local inventory (issue #396 §7). The classification is computed
+/// local inventory (issue bolph71656-ai/HTDT-Capture#396 §7). The classification is computed
 /// from UUID-declared edges only — timestamps never drive it.
 public enum ImportLineageClassification:
     String,

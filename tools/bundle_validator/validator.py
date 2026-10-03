@@ -49,16 +49,16 @@ MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 MAX_TOTAL_BYTES = 4 * 1024 * 1024 * 1024
 MAX_COMPRESSION_RATIO = 200.0
 
-# v1 source_ref budgets (#195). Lineage work must stay bounded
+# v1 source_ref budgets (legacy bolph71656-ai/HTDT-Capture#195). Lineage work must stay bounded
 # independently of the manifest byte cap; identical limits are enforced
 # by the Swift manifest validator and the reference ingestor.
 MAX_SOURCE_REFS_PER_ENTRY = 32
 MAX_SOURCE_REF_BYTES = 512
 MAX_SOURCE_REFS_TOTAL = 65_536
 
-# Minimum v1 foundation payload set (#194). The manifest's session and
+# Minimum v1 foundation payload set (legacy bolph71656-ai/HTDT-Capture#194). The manifest's session and
 # coordinate-space identity arrays are only meaningful with the documents
-# that ground them, and #127 requires the persisted quality authority.
+# that ground them, and legacy bolph71656-ai/HTDT-Capture#127 requires the persisted quality authority.
 # session/device.json, session/capabilities.json and
 # roomplan/captured-room-metadata.json are intentionally optional.
 FOUNDATION_REQUIRED_PATHS = frozenset({
@@ -67,7 +67,7 @@ FOUNDATION_REQUIRED_PATHS = frozenset({
     "session/capture-session.json",
     "session/timing.json",
 })
-# Processed-only RoomPlan promotion is rejected (#194): whenever the
+# Processed-only RoomPlan promotion is rejected (legacy bolph71656-ai/HTDT-Capture#194): whenever the
 # canonical processed payload is declared, the canonical raw authority
 # must be declared and bound in the processed entry's source_refs.
 # Legacy bundles that carry RoomPlan payloads at non-reserved paths are
@@ -78,7 +78,7 @@ SCHEMA_DIR = (
 )
 
 # Path -> schema-family resolution is driven by
-# support-matrix.json (#332): every schema-owned payload family lists
+# support-matrix.json (legacy bolph71656-ai/HTDT-Capture#332): every schema-owned payload family lists
 # its bundle paths, the published schema document per payload version,
 # the emitted version, and the versions this validator can read.
 # Opaque external authority payloads (roomplan/captured-room*.json)
@@ -140,7 +140,7 @@ def _schema_document_for_version(
     """Resolve the registry document key serving the declared version.
 
     One schema_version maps to exactly one immutable schema document
-    (#332); unlisted versions fail with an explicit version diagnostic."""
+    (legacy bolph71656-ai/HTDT-Capture#332); unlisted versions fail with an explicit version diagnostic."""
     documents = contract.get("documents", {})
     if contract.get("unversioned"):
         key = documents.get("unversioned")
@@ -506,7 +506,7 @@ def _validate_source_refs(manifest: dict, entries_by_path: dict) -> None:
     form lineage cycles.
     """
     declared_paths = set(entries_by_path)
-    # A sha256 source_ref must name exactly one payload authority (#193):
+    # A sha256 source_ref must name exactly one payload authority (legacy bolph71656-ai/HTDT-Capture#193):
     # identical bytes under different logical paths carry different
     # producer/provenance/lineage, so an ambiguous digest cannot stand in
     # for a source authority and must be expressed as a path: ref instead.
@@ -1100,7 +1100,7 @@ def _cross_check_authority_dependencies(
     entities_document,
     declared_entries: dict,
 ) -> None:
-    """Bind derived/authority-dependencies.json to entities.json (#337).
+    """Bind derived/authority-dependencies.json to entities.json (legacy bolph71656-ai/HTDT-Capture#337).
 
     Rules:
     - (kind, authority_id, authority_version) tuples are unique — a
@@ -1222,7 +1222,7 @@ def validate_bundle(path: Path) -> dict:
     # The manifest itself is a schema-owned document; run the published
     # manifest schema as an independent check alongside the dedicated
     # structural validation above. The version dispatch goes through
-    # the support matrix like every other schema-owned payload (#332).
+    # the support matrix like every other schema-owned payload (legacy bolph71656-ai/HTDT-Capture#332).
     m_family, m_contract = _family_for_path("manifest.json")
     if m_contract is None:
         raise ValidationError(
@@ -1241,7 +1241,7 @@ def validate_bundle(path: Path) -> dict:
     declared_entries = {entry["path"]: entry for entry in manifest["files"]}
     declared = set(declared_entries)
 
-    # Minimum foundation payload set (#194): a manifest whose identity
+    # Minimum foundation payload set (legacy bolph71656-ai/HTDT-Capture#194): a manifest whose identity
     # arrays have no grounding documents is not a finalized v1 bundle.
     missing_foundation = sorted(FOUNDATION_REQUIRED_PATHS - declared)
     if missing_foundation:
@@ -1288,7 +1288,7 @@ def validate_bundle(path: Path) -> dict:
             and entry["provenance_class"]
             not in {"apple_roomplan_raw_scan", "apple_roomplan_inference"}
         ):
-            # #332: a declared .json payload must be schema-owned or a
+            # legacy bolph71656-ai/HTDT-Capture#332: a declared .json payload must be schema-owned or a
             # registered external authority slot; anything else is a
             # generic supplemental persistence bypass. Legacy bundles
             # carrying RoomPlan payloads at non-reserved paths stay
@@ -1313,7 +1313,7 @@ def validate_bundle(path: Path) -> dict:
 
     # The session document is guaranteed present and schema-valid by the
     # foundation check above; it grounds the manifest's declared session
-    # and coordinate-space identities (#194).
+    # and coordinate-space identities (legacy bolph71656-ai/HTDT-Capture#194).
     session_document = schema_documents["session/capture-session.json"]
     if session_document["capture_session_id"] not in set(
         manifest["capture_session_ids"]
@@ -1329,7 +1329,7 @@ def validate_bundle(path: Path) -> dict:
             "session/capture-session.json coordinate_space_id is not "
             "declared in manifest coordinate_space_ids"
         )
-    # RoomPlan lineage (#194): the processed inference payload may never
+    # RoomPlan lineage (legacy bolph71656-ai/HTDT-Capture#194): the processed inference payload may never
     # be promoted without its raw authority. When the canonical processed
     # path is declared, the canonical raw payload must be declared and
     # bound by digest in the processed entry's source_refs. Legacy
@@ -1369,7 +1369,7 @@ def validate_bundle(path: Path) -> dict:
                 path_text, document, binary_facts, declared_entries, manifest
             )
 
-    # External authority dependencies (#337): when the manifest is
+    # External authority dependencies (legacy bolph71656-ai/HTDT-Capture#337): when the manifest is
     # declared, every entity-carried external reference must be covered
     # by an exact-pin dependency, embedded copies must name declared
     # payloads, and bound entity refs must resolve.

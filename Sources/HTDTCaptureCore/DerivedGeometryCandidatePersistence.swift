@@ -30,7 +30,7 @@ public enum DerivedGeometryPersistenceError: Error, Sendable, Equatable {
     case encodedDocumentMismatch
 }
 
-/// One persisted derived-geometry candidate (issue #249). Each record
+/// One persisted derived-geometry candidate (issue bolph71656-ai/HTDT-Capture#249). Each record
 /// carries its derivation algorithm/version, source coordinate space,
 /// source evidence references, source mode, a bounded point/contour
 /// representation, the selected shape candidate when resolved, and

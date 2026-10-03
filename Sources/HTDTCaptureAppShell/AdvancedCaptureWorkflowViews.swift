@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import HTDTCaptureCore
 
-/// Connected-room workflow surface (issue #222): the active segment is
+/// Connected-room workflow surface (issue bolph71656-ai/HTDT-Capture#222): the active segment is
 /// always visible, completed segments stay revisitable before
 /// finalization, and every portal relationship is listed explicitly.
 public struct ConnectedSpaceStatusView: View {
@@ -158,12 +158,12 @@ public struct ConnectedSpaceStatusView: View {
     }
 }
 
-/// Task-plan checklist surface (issue #240): every imported plan item
+/// Task-plan checklist surface (issue bolph71656-ai/HTDT-Capture#240): every imported plan item
 /// shows its operator-visible outcome before finalization —
 /// completed, skipped, or unavailable — against committed evidence.
-/// #364 §10: when the plan maps to a mission record the "Mark" menu is
+/// legacy bolph71656-ai/HTDT-Capture#364 §10: when the plan maps to a mission record the "Mark" menu is
 /// task-specific — skip/unavailable collect a reason that persists as
-/// a mission-level waiver note (#397); the status document contract
+/// a mission-level waiver note (legacy bolph71656-ai/HTDT-Capture#397); the status document contract
 /// has no reason field and stays unchanged.
 public struct CaptureTaskPlanChecklistView: View {
     public let plan: HTDTCaptureTaskPlan
@@ -214,7 +214,7 @@ public struct CaptureTaskPlanChecklistView: View {
                 )
             ) {
                 // Plan identity stays inspectable but secondary — it
-                // is a reference, not the row's job (issue #412).
+                // is a reference, not the row's job (issue bolph71656-ai/HTDT-Capture#412).
                 Text("Plan \(plan.planID) v\(plan.planVersion)")
                     .font(.caption2.monospaced())
                     .foregroundStyle(.tertiary)
@@ -258,7 +258,7 @@ public struct CaptureTaskPlanChecklistView: View {
 
     /// The reason interposes before the mark is written — a
     /// reason-less non-evidence outcome can never reach the waiver
-    /// ledger, matching the field-return outcome contract (#418).
+    /// ledger, matching the field-return outcome contract (legacy bolph71656-ai/HTDT-Capture#418).
     private func reasonSheet(
         _ prompt: MarkReasonPrompt
     ) -> some View {
@@ -414,7 +414,7 @@ public struct CaptureTaskPlanChecklistView: View {
     }
 }
 
-/// As-built verification surface (issue #293): planned-vs-observed
+/// As-built verification surface (issue bolph71656-ai/HTDT-Capture#293): planned-vs-observed
 /// deviations per item, only when an explicit alignment authority is
 /// installed — otherwise the list degrades to the non-spatial
 /// checklist states.

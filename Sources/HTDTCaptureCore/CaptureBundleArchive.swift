@@ -519,7 +519,7 @@ public enum StoredCaptureBundleArchiveValidator {
             }
 
             // Entry-type parity with the Python reference validator
-            // (#196): the upper 16 bits of the central-directory external
+            // (legacy bolph71656-ai/HTDT-Capture#196): the upper 16 bits of the central-directory external
             // attributes carry the Unix mode bits for creators that
             // record them. This validator fails closed on any advertised
             // file type other than regular/directory/unspecified —
@@ -632,7 +632,7 @@ public enum StoredCaptureBundleArchiveValidator {
                 .subtracting(["manifest.json"])
         let declaredPaths = Set(declaredByPath.keys)
 
-        // Minimum foundation payload set (#194): same manifest-level
+        // Minimum foundation payload set (legacy bolph71656-ai/HTDT-Capture#194): same manifest-level
         // rule the directory validator and Python validator apply.
         let missingFoundation = BundlePayloadCrossCheck
             .foundationRequiredPaths
@@ -737,7 +737,7 @@ public enum StoredCaptureBundleArchiveValidator {
     }
 }
 
-/// Internal so the field-return container writer (#400) reuses the
+/// Internal so the field-return container writer (legacy bolph71656-ai/HTDT-Capture#400) reuses the
 /// same stored-ZIP CRC32 implementation.
 enum ZIPCRC32 {
     private static let table: [UInt32] = (0..<256).map {
@@ -798,7 +798,7 @@ enum ZIPCRC32 {
     }
 
     /// CRC32 of an in-memory payload (field-return container entries
-    /// assemble in memory — issue #400).
+    /// assemble in memory — issue bolph71656-ai/HTDT-Capture#400).
     static func data(_ data: Data) -> UInt32 {
         update(UInt32.max, data) ^ UInt32.max
     }
@@ -818,7 +818,7 @@ enum ZIPCRC32 {
     }
 }
 
-/// Internal so the field-return container writer (#400) reuses the
+/// Internal so the field-return container writer (legacy bolph71656-ai/HTDT-Capture#400) reuses the
 /// same little-endian append helper.
 extension Data {
     mutating func appendLE<T: FixedWidthInteger>(
@@ -832,7 +832,7 @@ extension Data {
 }
 
 /// Recovery disposition for a pre-existing artifact occupying the
-/// deterministic app-owned export destination (#118). The `.htdtcapture`
+/// deterministic app-owned export destination (legacy bolph71656-ai/HTDT-Capture#118). The `.htdtcapture`
 /// archive at that path is a derived transport wrapper, never capture
 /// authority: a validated archive whose logical bundle digest matches
 /// the finalized revision is reused idempotently, while anything else
@@ -878,7 +878,7 @@ public enum ExistingExportArchiveClassifier {
 }
 
 /// Reads a single stored entry out of a `.htdtcapture` archive without
-/// walking the whole package (issue #219): archive entries use the ZIP
+/// walking the whole package (issue bolph71656-ai/HTDT-Capture#219): archive entries use the ZIP
 /// STORE method with no data descriptors, so an entry's bytes sit at a
 /// known offset after its local header. Intended for small derived
 /// payloads such as frame previews; the archive must already have

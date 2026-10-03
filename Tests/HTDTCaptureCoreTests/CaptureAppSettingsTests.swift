@@ -15,7 +15,7 @@ private func makeSettingsDirectory() throws -> URL {
     return root
 }
 
-// MARK: - Store contract (#338)
+// MARK: - Store contract (legacy bolph71656-ai/HTDT-Capture#338)
 
 @Test
 func settingsLoadReturnsDefaultsWhenFileMissing() throws {
@@ -163,7 +163,7 @@ func settingsMissingKeysInsideSectionDecodeToDefaults() throws {
     #expect(settings.presentation.lengthDisplayUnit == .meter)
 }
 
-// MARK: - Workflow defaults (#338)
+// MARK: - Workflow defaults (legacy bolph71656-ai/HTDT-Capture#338)
 
 @Test
 func defaultTaskProfileResolvesKnownIdentifier() {
@@ -205,7 +205,7 @@ func standalonePresetsCoverGeometryAndListeningPosition() {
     )
 }
 
-// MARK: - Display units (#338 section A)
+// MARK: - Display units (legacy bolph71656-ai/HTDT-Capture#338 section A)
 
 @Test
 func lengthDisplayUnitFormatsCanonicalMeters() {

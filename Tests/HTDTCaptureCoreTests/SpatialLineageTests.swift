@@ -2,9 +2,9 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Tests for the spatial lineage cluster: revision fork graph (#396),
-/// cross-revision spatial registration (#395), and the mission
-/// aggregate fulfillment ledger (#397).
+/// Tests for the spatial lineage cluster: revision fork graph (legacy bolph71656-ai/HTDT-Capture#396),
+/// cross-revision spatial registration (legacy bolph71656-ai/HTDT-Capture#395), and the mission
+/// aggregate fulfillment ledger (legacy bolph71656-ai/HTDT-Capture#397).
 final class SpatialLineageTests: XCTestCase {
 
     private func makeRoot() throws -> URL {
@@ -29,7 +29,7 @@ final class SpatialLineageTests: XCTestCase {
         )
     }
 
-    // MARK: - #396 revision fork graph
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#396 revision fork graph
 
     func testLinearSeriesResolvesSingleHead() {
         let series = CaptureSeriesID()
@@ -313,7 +313,7 @@ final class SpatialLineageTests: XCTestCase {
         )
     }
 
-    // MARK: - #395 cross-revision spatial registration
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#395 cross-revision spatial registration
 
     private func correspondence(
         _ ref: String,
@@ -793,7 +793,7 @@ final class SpatialLineageTests: XCTestCase {
         )
     }
 
-    // MARK: - #397 mission aggregate fulfillment ledger
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#397 mission aggregate fulfillment ledger
 
     private func makeLedgerMission(
         planID: String = "plan-1",

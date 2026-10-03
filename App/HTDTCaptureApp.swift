@@ -159,7 +159,7 @@ private struct HTDTCaptureHostView: View {
             finalizeRejection: coordinator.finalizeRejection,
             exportRejection: coordinator.exportRejection,
             // Sealed for the workspace whenever live spatial capture
-            // is unavailable — a finalization seal (#276) or a
+            // is unavailable — a finalization seal (legacy bolph71656-ai/HTDT-Capture#276) or a
             // recovered draft whose spatial evidence is sealed —
             // regardless of committed annotations, so spatial
             // affordances hide instead of dead-ending on a torn-down
@@ -512,13 +512,13 @@ private struct HTDTCaptureHostView: View {
             )
         )
         .onOpenURL { url in
-            // #393: every external document enters through the
+            // legacy bolph71656-ai/HTDT-Capture#393: every external document enters through the
             // inbound router — the kind is identified, gated by
             // capture state, then handed to its owning importer.
             coordinator.importInboundDocument(from: url)
         }
         // Foregrounding is when an iOS-Settings permission change
-        // takes effect (#295).
+        // takes effect (legacy bolph71656-ai/HTDT-Capture#295).
         .onChange(of: scenePhase) { phase in
             if phase == .active {
                 coordinator.sceneDidBecomeActive()
@@ -538,18 +538,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         String(localized: "Not prepared")
     @Published private(set) var qualityReport: CaptureQualityReport?
     @Published private(set) var advisoryReport: CaptureAdvisoryReport?
-    /// Operator-selected capture-task profile (#217/#259). Nil means the
+    /// Operator-selected capture-task profile (legacy bolph71656-ai/HTDT-Capture#217/legacy bolph71656-ai/HTDT-Capture#259). Nil means the
     /// geometry-only default: task completeness evaluates to an
     /// explicit "no profile" state, never a misleading "Complete".
     @Published private(set) var taskProfile: CaptureTaskProfile?
     @Published private(set) var skippedTaskRequirementIDs: Set<String> = []
-    /// Revisit flags dropped during the live scan (#325). Persisted
+    /// Revisit flags dropped during the live scan (legacy bolph71656-ai/HTDT-Capture#325). Persisted
     /// into the working set at `session/revisit-flags.json` after
     /// every mutation; Review lists every unresolved one.
     @Published private(set)
     var revisitFlags: [ScanRevisitFlag] = []
     private var revisitFlagStore = CaptureRevisitFlagStore()
-    /// #352: the HTDT task plan imported on the setup screen, held as
+    /// legacy bolph71656-ai/HTDT-Capture#352: the HTDT task plan imported on the setup screen, held as
     /// verbatim bytes+plan until `continueBeginCapture` binds it to
     /// the new working revision.
     @Published private(set)
@@ -557,23 +557,23 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Operator-visible failure of the last attempted plan import.
     @Published private(set)
     var pendingTaskPlanImportError: String?
-    /// Live item-mark tracker for the bound task plan (#240/#352).
+    /// Live item-mark tracker for the bound task plan (legacy bolph71656-ai/HTDT-Capture#240/legacy bolph71656-ai/HTDT-Capture#352).
     private var boundTaskPlanStatus: CaptureTaskPlanStatus?
-    /// True when the bounded revisit-flag store is full (#325).
+    /// True when the bounded revisit-flag store is full (legacy bolph71656-ai/HTDT-Capture#325).
     var revisitFlagsFull: Bool {
         revisitFlagStore.isFull
     }
     @Published private(set) var validationReport: BundleValidationReport?
     @Published private(set) var exportURL: URL?
-    /// #437: typed reason the last finalize attempt was rejected —
+    /// legacy bolph71656-ai/HTDT-Capture#437: typed reason the last finalize attempt was rejected —
     /// cleared when a retry starts or the capture leaves Review.
     @Published private(set)
     var finalizeRejection: CaptureFinalizeRejection?
-    /// #437: typed reason the last export attempt was rejected —
+    /// legacy bolph71656-ai/HTDT-Capture#437: typed reason the last export attempt was rejected —
     /// cleared on retry or when the finalized surface is left.
     @Published private(set)
     var exportRejection: CaptureExportRejection?
-    /// #437: true when `.failed` was entered with a durable End
+    /// legacy bolph71656-ai/HTDT-Capture#437: true when `.failed` was entered with a durable End
     /// boundary already committed — the failed working set can be
     /// preserved as a recoverable draft.
     @Published private(set)
@@ -630,53 +630,53 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set)
     var endScanGuidance: String?
     /// Pre-capture setup presentation while the state machine is in
-    /// `.setup` (#212): capabilities, storage preflight, device
+    /// `.setup` (legacy bolph71656-ai/HTDT-Capture#212): capabilities, storage preflight, device
     /// readiness and the resolved production mode, shown before the
     /// capability/permission/RoomPlan pipeline runs.
     @Published private(set)
     var captureSetup: CaptureSetupPresentation?
-    /// Live lighting assessment for dark-room guidance (#283).
+    /// Live lighting assessment for dark-room guidance (legacy bolph71656-ai/HTDT-Capture#283).
     @Published private(set)
     var scanLightingStatus: ScanLightingStatus = .unknown
     /// True when live signals justify surfacing the low-light recovery
-    /// copy instead of generic tracking text (#283).
+    /// copy instead of generic tracking text (legacy bolph71656-ai/HTDT-Capture#283).
     @Published private(set)
     var lowLightGuidanceActive = false
     /// Live status of the operator-targeted object orbit pass, if one
-    /// is active (#250).
+    /// is active (legacy bolph71656-ai/HTDT-Capture#250).
     @Published private(set)
     var targetScanStatus: TargetScanStatus?
-    /// Operator-declared intentionally-unresolved regions (#257), in
+    /// Operator-declared intentionally-unresolved regions (legacy bolph71656-ai/HTDT-Capture#257), in
     /// declaration order.
     @Published private(set)
     var declaredRegionList: [DeclaredCoverageRegion] = []
     /// Whether the optional return-to-start consistency check UI is
-    /// active (#273).
+    /// active (legacy bolph71656-ai/HTDT-Capture#273).
     @Published private(set)
     var loopClosureCheckActive = false
     @Published private(set)
     var loopClosureAssessment: LoopClosureAssessment?
     /// The operator's response to the armed check ("accepted" /
     /// "reobserve" / "continued") — advisory provenance recorded
-    /// beside the verdict at end-scan (#273).
+    /// beside the verdict at end-scan (legacy bolph71656-ai/HTDT-Capture#273).
     private(set) var loopClosureOutcome: String?
     /// Most recent assessment, retained after the check disarms so
     /// the end-scan note keeps the residual + verdict the operator
-    /// answered (#273).
+    /// answered (legacy bolph71656-ai/HTDT-Capture#273).
     private(set) var loopClosureLastAssessment:
         LoopClosureAssessment?
     /// Evidence class that supplied the in-progress object pass'
-    /// aim anchor (#250), e.g. "existing_plane_geometry".
+    /// aim anchor (legacy bolph71656-ai/HTDT-Capture#250), e.g. "existing_plane_geometry".
     private var targetScanAnchorSource: String?
     /// Evidence frames retained by the automatic keyframe policy this
-    /// scan (#216), shown next to the manual/total count.
+    /// scan (legacy bolph71656-ai/HTDT-Capture#216), shown next to the manual/total count.
     @Published private(set)
     var automaticEvidenceFrameCount = 0
-    /// Battery/charging/Low-Power snapshot for the setup screen (#272).
+    /// Battery/charging/Low-Power snapshot for the setup screen (legacy bolph71656-ai/HTDT-Capture#272).
     @Published private(set)
     var deviceReadiness: CaptureDeviceReadiness?
-    /// Whether haptic/announcement guidance cues play (#252). Mirrors
-    /// the persisted presentation preference (#338); default on.
+    /// Whether haptic/announcement guidance cues play (legacy bolph71656-ai/HTDT-Capture#252). Mirrors
+    /// the persisted presentation preference (legacy bolph71656-ai/HTDT-Capture#338); default on.
     @Published var guidanceCuesEnabled = true
     /// Latest advisory copilot resolution for the live scan (#272).
     /// Advisory only — the suggestion can never act on the capture.
@@ -690,7 +690,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var scanCopilotResolvedDigest: String?
     /// In-flight copilot request.
     private var scanCopilotTask: Task<Void, Never>?
-    /// Versioned app-local settings (#338): presentation preferences,
+    /// Versioned app-local settings (legacy bolph71656-ai/HTDT-Capture#338): presentation preferences,
+||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
+    /// Versioned app-local settings (legacy bolph71656-ai/HTDT-Capture#338): presentation preferences,
     /// device-local workflow defaults, and the storage/privacy policy
     /// — never capture authority.
     @Published private(set)
@@ -702,34 +704,34 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         Self.captureRootDirectory().map {
             CaptureAppSettingsStore(captureRoot: $0)
         }
-    /// Operator-selected capture strategy for the next scan (#307).
+    /// Operator-selected capture strategy for the next scan (legacy bolph71656-ai/HTDT-Capture#307).
     /// Drives advisory guidance/evidence budgets only — the canonical
     /// quality rule set never reads it.
     @Published private(set)
     var selectedStrategyID: CaptureStrategyIdentifier = .standard
-    /// True when an imported task plan pins the strategy (#307/#240):
+    /// True when an imported task plan pins the strategy (legacy bolph71656-ai/HTDT-Capture#307/legacy bolph71656-ai/HTDT-Capture#240):
     /// the picker stays visible read-only and `selectCaptureStrategy`
     /// becomes a no-op until a new scan resets the pin.
     @Published private(set)
     var strategyPinnedByTaskPlan = false
-    /// Live storage accounting for the active capture (#308):
+    /// Live storage accounting for the active capture (legacy bolph71656-ai/HTDT-Capture#308):
     /// working-revision bytes by category, evidence counts, device free
     /// space and the automatic-keyframe budget. Advisory only.
     @Published private(set)
     var evidenceStorageAdvisory: CaptureEvidenceStorageAdvisory?
-    /// Acquisition provenance for the library (#317), joined to
+    /// Acquisition provenance for the library (legacy bolph71656-ai/HTDT-Capture#317), joined to
     /// persisted captures by capture_revision_id.
     @Published private(set)
     var captureOrigins:
         [CaptureRevisionID: CaptureAcquisitionOriginRecord] = [:]
     /// Imported plan-reference underlay for the next/active capture
-    /// (#322). Shown in setup; rebound to the live revision's identity
+    /// (legacy bolph71656-ai/HTDT-Capture#322). Shown in setup; rebound to the live revision's identity
     /// at session-foundation and persisted as `reference/plan-
     /// underlay.json`. Reference-only — never observed truth.
     @Published private(set)
     var planUnderlayDocument: PlanUnderlayDocument?
     /// Decoded parent context for an in-flight semantic correction
-    /// (#319); non-nil while the correction sheet is open.
+    /// (legacy bolph71656-ai/HTDT-Capture#319); non-nil while the correction sheet is open.
     @Published private(set)
     var semanticCorrectionContext:
         SemanticChildRevisionContext?
@@ -741,20 +743,20 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set)
     var workingSetIdentity: CaptureWorkingSetIdentity?
     /// Assembled Review workspace (plan preview, evidence gallery,
-    /// openings, room frame) for the post-End states (#213/#241).
+    /// openings, room frame) for the post-End states (legacy bolph71656-ai/HTDT-Capture#213/legacy bolph71656-ai/HTDT-Capture#241).
     @Published private(set)
     var reviewWorkspace: CaptureReviewWorkspaceModel?
-    /// Required-task progress for the journey header (#372):
+    /// Required-task progress for the journey header (legacy bolph71656-ai/HTDT-Capture#372):
     /// evaluated from the active task plan plus the committed
     /// records — distinct from technical readiness.
     @Published private(set)
     var taskPlanMission: CaptureJourneyMissionSummary?
     /// Read-only workspace model for a persisted capture opened from
-    /// the library (#294). Independent of the live-capture workspace.
+    /// the library (legacy bolph71656-ai/HTDT-Capture#294). Independent of the live-capture workspace.
     @Published private(set)
     var persistedWorkspace: CaptureReviewWorkspaceModel?
     /// RoomPlan bindables decoded beside `persistedWorkspace`
-    /// (#408/#409) — drive the read-only 3D scene + survey targets
+    /// (legacy bolph71656-ai/HTDT-Capture#408/legacy bolph71656-ai/HTDT-Capture#409) — drive the read-only 3D scene + survey targets
     /// in the persisted viewer.
     @Published private(set)
     var persistedWorkspaceRoomPlanObjects:
@@ -769,71 +771,71 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// generation's result may land on `persistedWorkspace`.
     private var persistedWorkspaceLoadGeneration = 0
     /// First captured point of the pending two-point room reference
-    /// frame capture (issue #232).
+    /// frame capture (issue bolph71656-ai/HTDT-Capture#232).
     @Published private(set)
     var roomFrameOriginPending: WorldPoint3D?
     /// Camera-captured center pending a user-declared opening
-    /// candidate (issue #231).
+    /// candidate (issue bolph71656-ai/HTDT-Capture#231).
     @Published private(set)
     var openingCenterPending: WorldPoint3D?
     /// Spatial evidence links on committed annotations/measurements
-    /// that no longer resolve after a re-End (issue #236). Surfaced for
+    /// that no longer resolve after a re-End (issue bolph71656-ai/HTDT-Capture#236). Surfaced for
     /// repair; never silently dropped.
     @Published private(set)
     var danglingSpatialIssues: [SpatialEvidenceIssue] = []
     /// Handoff destinations offered for the current finalized capture
-    /// (#225): always the system share/file destination plus any
+    /// (legacy bolph71656-ai/HTDT-Capture#225): always the system share/file destination plus any
     /// operator-configured ingestion endpoints.
     @Published private(set)
     var handoffDestinations: [HTDTHandoffDestination] = []
-    /// Receipts recorded for the adopted finalized revision (#225).
+    /// Receipts recorded for the adopted finalized revision (legacy bolph71656-ai/HTDT-Capture#225).
     @Published private(set)
     var handoffReceipts: [HTDTHandoffReceipt] = []
-    /// The full receipt ledger across every revision (#394): retention
+    /// The full receipt ledger across every revision (legacy bolph71656-ai/HTDT-Capture#394): retention
     /// previews must see receipts from *all* revisions — the
     /// per-adopted `handoffReceipts` subset would under-report
     /// `.handoffReceipts` warnings and falsely mark delivered
     /// revisions `.onlyLocalCopy`.
     var allHandoffReceipts: [HTDTHandoffReceipt] = []
-    /// Mission inbox records (#386) and the record currently driving
+    /// Mission inbox records (legacy bolph71656-ai/HTDT-Capture#386) and the record currently driving
     /// the capture, if any.
     @Published private(set)
     var missionRecords: [HTDTMissionRecord] = []
     @Published private(set)
     var activeMissionRecordID: String?
-    /// QR-paired, identity-pinned receivers (#379).
+    /// QR-paired, identity-pinned receivers (legacy bolph71656-ai/HTDT-Capture#379).
     @Published private(set)
     var pairedDestinations: [PairedHTDTDestination] = []
-    /// Durable delivery-queue ledger (#387).
+    /// Durable delivery-queue ledger (legacy bolph71656-ai/HTDT-Capture#387).
     @Published private(set)
     var deliveryJobs: [HTDTDeliveryJob] = []
-    /// Accepted cross-revision spatial registrations (#395) — the
+    /// Accepted cross-revision spatial registrations (legacy bolph71656-ai/HTDT-Capture#395) — the
     /// app-local transform authority the library surfaces.
     @Published private(set)
     var crossRevisionRegistrations:
         [CrossRevisionRegistration] = []
-    /// Replayed mission progress keyed by inbox record id (#397) —
+    /// Replayed mission progress keyed by inbox record id (legacy bolph71656-ai/HTDT-Capture#397) —
     /// completeness recomputed from the append-only ledger, never a
     /// stored percentage.
     @Published private(set)
     var missionProgressEvaluations:
         [String: MissionProgressEvaluation] = [:]
-    /// SHA of the plan bytes bound to `taskPlan` (#386): the mission's
+    /// SHA of the plan bytes bound to `taskPlan` (legacy bolph71656-ai/HTDT-Capture#386): the mission's
     /// embedded plan import carries its own content digest.
     private var taskPlanSHA256: EvidenceSHA256?
     /// Operator-facing library metadata (names, notes, series
     /// lifecycle state, revision marks) layered over the persisted
-    /// inventory (issues #219/#394).
+    /// inventory (issues bolph71656-ai/HTDT-Capture#219/legacy bolph71656-ai/HTDT-Capture#394).
     @Published private(set)
     var libraryMetadata = CaptureLibraryMetadataDocument()
-    /// #390: one-line operator notice when an app-local durable
+    /// legacy bolph71656-ai/HTDT-Capture#390: one-line operator notice when an app-local durable
     /// document was written by a different app version and could not
     /// be upgraded — its bytes are preserved and journaled instead
     /// of silently emptied. nil when everything migrated or nothing
     /// was preserved.
     @Published private(set)
     var localStateUpgradeNotice: String?
-    /// #378: staged library-package import preview awaiting the
+    /// legacy bolph71656-ai/HTDT-Capture#378: staged library-package import preview awaiting the
     /// operator's confirm — the owning importer has already
     /// validated the manifest, every archive, and the merge.
     @Published private(set)
@@ -841,20 +843,20 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Staging directory backing `libraryImportPreview`; discarded
     /// on confirm or dismiss.
     private var libraryImportStagingDirectory: URL?
-    /// #378: the most recently written `.htdtcapturelibrary`
+    /// legacy bolph71656-ai/HTDT-Capture#378: the most recently written `.htdtcapturelibrary`
     /// package, offered to the ShareLink row on the home surface.
     @Published private(set)
     var libraryExportURL: URL?
     /// Inspection of the retained working set of the current failed
-    /// capture (issue #224); populated on demand.
+    /// capture (issue bolph71656-ai/HTDT-Capture#224); populated on demand.
     @Published private(set)
     var failedInspection: FailedCaptureInspection?
     /// Seed collections for a pre-finalization annotation edit: the
     /// canonical authority previously committed inside the same working
-    /// revision, reloaded for correction (#163).
+    /// revision, reloaded for correction (legacy bolph71656-ai/HTDT-Capture#163).
     @Published private(set)
     var annotationRevisionSeed: AnnotationWorkspaceSeed?
-    /// Operator reference context for exact equipment selection (#211).
+    /// Operator reference context for exact equipment selection (legacy bolph71656-ai/HTDT-Capture#211).
     /// The imported HTDT catalog snapshot is host-owned and mirrored to
     /// an app-support cache so it survives annotation cancel → Review →
     /// re-enter and app relaunch. It is never persisted into the capture
@@ -863,52 +865,52 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set)
     var equipmentCatalog: HTDTEquipmentCatalogSnapshot?
     /// Every catalog snapshot stored in the multi-catalog library
-    /// (#302); the annotation workspace lists them for explicit
+    /// (legacy bolph71656-ai/HTDT-Capture#302); the annotation workspace lists them for explicit
     /// operator selection.
     @Published private(set)
     var equipmentCatalogLibrary:
         [HTDTEquipmentCatalogLibrary.StoredCatalog] = []
-    /// Imported capture task plan (#240), if the host has supplied one;
+    /// Imported capture task plan (legacy bolph71656-ai/HTDT-Capture#240), if the host has supplied one;
     /// its catalog pin and layout profile drive workspace behavior
-    /// (#302/#315). No in-app import path exists yet.
+    /// (legacy bolph71656-ai/HTDT-Capture#302/legacy bolph71656-ai/HTDT-Capture#315). No in-app import path exists yet.
     @Published private(set)
     var taskPlan: HTDTCaptureTaskPlan?
     private let equipmentCatalogStore =
         HTDTCaptureHostCoordinator.makeEquipmentCatalogLibrary()
-    /// App-local operator roster (#458): Author identities saved once
+    /// App-local operator roster (legacy bolph71656-ai/HTDT-Capture#458): Author identities saved once
     /// on this device, persisted beside the equipment catalog at the
     /// capture root — never inside a bundle.
     private let operatorRosterStore =
         HTDTCaptureHostCoordinator.makeOperatorRosterStore()
-    /// Profiles remembered on this device (#458), mirrored to the
+    /// Profiles remembered on this device (legacy bolph71656-ai/HTDT-Capture#458), mirrored to the
     /// Operators sheet.
     @Published private(set)
     var operatorRoster: [OperatorProfile] = []
 
-    /// Visual presentation for each retained evidence frame (#255),
+    /// Visual presentation for each retained evidence frame (legacy bolph71656-ai/HTDT-Capture#255),
     /// refreshed whenever the workspace's linkable ref set changes.
     @Published private(set)
     var annotationEvidenceFrames: [EvidenceFramePresentation] = []
     /// Persisted RoomPlan objects offered for direct placement binding
-    /// (#246), decoded once per annotation session from the accepted
+    /// (legacy bolph71656-ai/HTDT-Capture#246), decoded once per annotation session from the accepted
     /// `roomplan/captured-room.json`.
     @Published private(set)
     var annotationRoomPlanObjects: [RoomPlanBindableObject] = []
     /// Accepted-geometry context for advisory plausibility checks
-    /// (#247); empty means geometry is unavailable ("analysis
+    /// (legacy bolph71656-ai/HTDT-Capture#247); empty means geometry is unavailable ("analysis
     /// unavailable", never a silent pass).
     @Published private(set)
     var spatialPlausibilityContext = SpatialPlausibilityContext()
     /// Findings for the committed annotation set; nil = unavailable.
     @Published private(set)
     var spatialPlausibilityFindings: [SpatialPlausibilityFinding]?
-    /// Session-level equipment-picker recents (#265).
+    /// Session-level equipment-picker recents (legacy bolph71656-ai/HTDT-Capture#265).
     let equipmentRecents = EquipmentRecents()
     /// Explicit operator-selected layout plans for guided batch
-    /// capture (#278): presets act as the task profile until #217/#240
+    /// capture (legacy bolph71656-ai/HTDT-Capture#278): presets act as the task profile until legacy bolph71656-ai/HTDT-Capture#217/legacy bolph71656-ai/HTDT-Capture#240
     /// plans land.
     let speakerLayoutPlans = SpeakerLayoutPresets.all
-    /// Draft autosave store (#266), rooted under the app-private
+    /// Draft autosave store (legacy bolph71656-ai/HTDT-Capture#266), rooted under the app-private
     /// capture root — outside the persisted-inventory scan directories
     /// so drafts never register as capture authority.
     private lazy var annotationDraftStoreValue:
@@ -927,22 +929,22 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var annotationDraftRevisionID: CaptureRevisionID? {
         workingSetIdentity?.captureRevisionID
     }
-    /// Why each retained evidence frame exists (#255 picker labels).
+    /// Why each retained evidence frame exists (legacy bolph71656-ai/HTDT-Capture#255 picker labels).
     private var annotationRetentionKinds:
         [String: EvidenceFrameRetentionKind] = [:]
     /// Committed `derived/equipment-identity.json` bytes, so an empty
     /// record set on the next revision commit discards byte-identical
-    /// rather than leaving a stale attestation (#239).
+    /// rather than leaving a stale attestation (legacy bolph71656-ai/HTDT-Capture#239).
     private var committedIdentityDocData: Data?
     /// Field-authority workspace staged by the annotation editor,
-    /// consumed inside `commitAnnotationAuthority` (#300/#301/#310/
-    /// #314/#324/#331).
+    /// consumed inside `commitAnnotationAuthority` (legacy bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#301/legacy bolph71656-ai/HTDT-Capture#310/
+    /// legacy bolph71656-ai/HTDT-Capture#314/legacy bolph71656-ai/HTDT-Capture#324/legacy bolph71656-ai/HTDT-Capture#331).
     private var pendingFieldAuthority = FieldAuthorityWorkspace()
     private var annotationRoomPlanObjectsLoaded = false
 
-    // MARK: Mission workflow state (#353/#240/#222/#293/#321)
+    // MARK: Mission workflow state (legacy bolph71656-ai/HTDT-Capture#353/legacy bolph71656-ai/HTDT-Capture#240/legacy bolph71656-ai/HTDT-Capture#222/legacy bolph71656-ai/HTDT-Capture#293/legacy bolph71656-ai/HTDT-Capture#321)
 
-    /// Imported capture task plan + per-item outcomes (#240); the
+    /// Imported capture task plan + per-item outcomes (legacy bolph71656-ai/HTDT-Capture#240); the
     /// plan payload persists verbatim in the working revision.
     @Published private(set)
     var captureTaskPlan: HTDTCaptureTaskPlan?
@@ -952,13 +954,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var missionTaskPlanOutcomes:
         [CaptureTaskPlanStatusDocument.ItemOutcome] = []
     /// Operator's multi-region intent declared at setup or in the
-    /// mission sheet (#353); keeps connected-space controls hidden
+    /// mission sheet (legacy bolph71656-ai/HTDT-Capture#353); keeps connected-space controls hidden
     /// from simple captures.
     @Published private(set)
     var connectedSpaceIntent = false
     @Published private(set)
     var connectedSpaceTracker: ConnectedSpaceTracker?
-    /// Imported as-built plan (#293) + verification session bound to
+    /// Imported as-built plan (legacy bolph71656-ai/HTDT-Capture#293) + verification session bound to
     /// the live coordinate space.
     @Published private(set)
     var asBuiltPlan: HTDTAsBuiltPlan?
@@ -973,21 +975,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set)
     var asBuiltActualCandidates: [CaptureAnnotationEntity] = []
     /// A committed room reference frame exists in the working set —
-    /// the as-built plan alignment authority anchor (#293).
+    /// the as-built plan alignment authority anchor (legacy bolph71656-ai/HTDT-Capture#293).
     @Published private(set)
     var roomFrameAvailable = false
-    /// HTDT repair tasks returned by ingestion (#321), across all
+    /// HTDT repair tasks returned by ingestion (legacy bolph71656-ai/HTDT-Capture#321), across all
     /// received plans; unresolved rows are surfaced as actionable.
     @Published private(set)
     var repairTaskRows: [HTDTRepairTaskRow] = []
     /// The revision a repair link was persisted into — resolution
-    /// is only credited when THAT revision promotes (#321).
+    /// is only credited when THAT revision promotes (legacy bolph71656-ai/HTDT-Capture#321).
     private var persistedRepairLinkRevisionID: CaptureRevisionID?
     /// Row currently routed by "Fix in Capture"; resolved by the
     /// promoted repair revision (fresh rescan) or by the next
     /// annotation authority commit (in-place repairs).
     private var activeRepairRow: HTDTRepairTaskRow?
-    /// App-local repair-plan ledger under the capture root (#321).
+    /// App-local repair-plan ledger under the capture root (legacy bolph71656-ai/HTDT-Capture#321).
     private lazy var repairPlanStore: HTDTRepairPlanStore? =
         Self.captureRootDirectory().map {
             HTDTRepairPlanStore(captureRoot: $0)
@@ -1002,12 +1004,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var captureGeneration = UUID()
     /// Published so the scanning UI can show the End transaction as a
     /// visible busy state instead of leaving controls tappable while
-    /// the host guards make them no-op (#279).
+    /// the host guards make them no-op (legacy bolph71656-ai/HTDT-Capture#279).
     @Published private(set) var isEndingScan = false
     @Published private(set) var isCapturingEvidenceFrame = false
     /// Handle on the in-flight manual evidence-save persistence task.
     /// End drains it before sampling the working set so a committed
-    /// save lands wholly before the End boundary (#179).
+    /// save lands wholly before the End boundary (legacy bolph71656-ai/HTDT-Capture#179).
     private var evidenceFrameSaveTask: Task<Void, Never>?
     private var endScanPreflightBlocked = false
     private var captureStartTimingCorrelation:
@@ -1033,19 +1035,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         didSet { syncActiveOperations() }
     }
     private(set) var spatialAuthoritySealedForFinalization = false
-    /// #297: false when the working set was rebuilt from disk by
+    /// legacy bolph71656-ai/HTDT-Capture#297: false when the working set was rebuilt from disk by
     /// `restoreWorkingRevision` — its AR coordinate authority ended
     /// with the prior process, so live spatial mutation is
     /// permanently unavailable.
     @Published private(set) var workingSetSpatialAuthorityLive = true
     /// Recovery provenance for the currently open recovered draft
-    /// (#297): unsupported/superseded files the restore pass found.
+    /// (legacy bolph71656-ai/HTDT-Capture#297): unsupported/superseded files the restore pass found.
     @Published private(set)
     var recoveredDraftReport: WorkingRevisionRestoreReport?
-    /// #320: the active working set is a practice rehearsal — it is
+    /// legacy bolph71656-ai/HTDT-Capture#320: the active working set is a practice rehearsal — it is
     /// never finalizable and never sendable to HTDT.
     @Published private(set) var practiceCaptureActive = false
-    /// First-launch practice prompt (#320): shown until the operator
+    /// First-launch practice prompt (legacy bolph71656-ai/HTDT-Capture#320): shown until the operator
     /// dismisses it; "Don't show again" suppresses it permanently.
     @Published private(set) var practicePromptShown = false
     private var activeCaptureIsPractice = false
@@ -1064,7 +1066,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
     /// Explicit commit-point policy for the finalization transaction
-    /// (#185). While claimed, terminal lifecycle/resource failures are
+    /// (legacy bolph71656-ai/HTDT-Capture#185). While claimed, terminal lifecycle/resource failures are
     /// fenced instead of invalidating the capture generation; a fenced
     /// failure either cancels the transaction pre-promotion (no
     /// finalized destination produced) or is surfaced as post-capture
@@ -1078,7 +1080,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var persistedDeletionInFlight = false {
         didSet { syncActiveOperations() }
     }
-    /// Serializes batch export-archive deletes (#310): records queue
+    /// Serializes batch export-archive deletes (legacy bolph71656-ai/HTDT-Capture#310): records queue
     /// here while a drain task removes them one at a time under the
     /// `persistedDeletionInFlight` flag.
     private var pendingExportArchiveDeletions:
@@ -1086,7 +1088,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var importOperationInFlight = false {
         didSet { syncActiveOperations() }
     }
-    /// Read-only persisted workspace load (#309: the View row was the
+    /// Read-only persisted workspace load (legacy bolph71656-ai/HTDT-Capture#309: the View row was the
     /// one library action with no in-flight guard at all).
     private var persistedWorkspaceLoadInFlight = false {
         didSet { syncActiveOperations() }
@@ -1094,13 +1096,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var exportDiagnosticsInFlight = false {
         didSet { syncActiveOperations() }
     }
-    /// In-flight host operations published for busy-state UI (#309):
+    /// In-flight host operations published for busy-state UI (legacy bolph71656-ai/HTDT-Capture#309):
     /// controls disable visibly instead of silently no-op'ing against
     /// the guards in each action.
     @Published private(set)
     var activeOperations: Set<CaptureHostOperation> = []
     /// Revision a persisted-library operation is currently acting on,
-    /// so that row can show its own progress affordance (#309).
+    /// so that row can show its own progress affordance (legacy bolph71656-ai/HTDT-Capture#309).
     @Published private(set)
     var operationTargetRevisionID: CaptureRevisionID?
 
@@ -1187,7 +1189,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         OperatorRegionDeclarations()
     private var targetScanTracker: TargetedObjectScanTracker?
     /// Fused bounded observations collected while an object pass runs
-    /// (#250): each accepted pass can mint a persisted shape candidate.
+    /// (legacy bolph71656-ai/HTDT-Capture#250): each accepted pass can mint a persisted shape candidate.
     private var targetedObjectFusionTracker =
         DerivedShapeTemporalFusionTracker(
             configuration: DerivedShapeTemporalFusionConfiguration(
@@ -1246,9 +1248,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var scanLightingPolicy = ScanLightingPolicy()
     /// Byte total persisted by automatic keyframes; combined with the
     /// estimator's own bound so a stored overrun still stops the
-    /// selector (#216).
+    /// selector (legacy bolph71656-ai/HTDT-Capture#216).
     private var automaticKeyframePersistedBytes = 0
-    /// Task-plan strategy override resolved at scan start (#307/#240):
+    /// Task-plan strategy override resolved at scan start (legacy bolph71656-ai/HTDT-Capture#307/legacy bolph71656-ai/HTDT-Capture#240):
     /// a pinned recommendation wins over the operator selection until
     /// the next `beginCapture` resets it.
     private var taskPlanStrategyOverride:
@@ -1262,48 +1264,48 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var activeCaptureStrategy: CaptureStrategyProfile =
         .standard
     /// The source under which `activeCaptureStrategy` was resolved —
-    /// echoed into `session/capture-strategy.json` (#307).
+    /// echoed into `session/capture-strategy.json` (legacy bolph71656-ai/HTDT-Capture#307).
     private var pendingStrategySource: CaptureStrategySource =
         .operatorSelected
-    /// App-local acquisition-provenance store (#317): lives outside the
+    /// App-local acquisition-provenance store (legacy bolph71656-ai/HTDT-Capture#317): lives outside the
     /// immutable bundle under the capture root, keyed by
     /// capture_revision_id.
     private var captureOriginStore: CaptureAcquisitionOriginStore?
-    /// Periodic storage sampler for the #308 advisory surface; runs at
+    /// Periodic storage sampler for the legacy bolph71656-ai/HTDT-Capture#308 advisory surface; runs at
     /// the resource-monitor cadence while `.scanning`.
     private var storageSampleTask: Task<Void, Never>?
-    /// Parent record the semantic-correction sheet is editing (#319).
+    /// Parent record the semantic-correction sheet is editing (legacy bolph71656-ai/HTDT-Capture#319).
     private var semanticCorrectionParent: PersistedCaptureRecord?
     /// A semantic-child build stages under `working/` while no store
     /// is bound — the inventory scan would classify it as an orphan,
     /// so the in-flight flag both publishes the busy state and
-    /// blocks the orphan-remove / draft-open paths (#319).
+    /// blocks the orphan-remove / draft-open paths (legacy bolph71656-ai/HTDT-Capture#319).
     private var semanticCorrectionInFlight = false {
         didSet { syncActiveOperations() }
     }
     /// Whether the display idle-timer override is currently held for
-    /// this capture (#272). Restored on every transition out of
+    /// this capture (legacy bolph71656-ai/HTDT-Capture#272). Restored on every transition out of
     /// `.scanning`, so failure/End/reset paths cannot leak it.
     private var displayIdleTimerSuspended = false
     private var deviceReadinessObserving = false
     private var deviceReadinessObservers: [NSObjectProtocol] = []
     /// Latest scan sample's session-clock seconds — the timestamp base
-    /// for advisory notes written from operator actions (#257/#250).
+    /// for advisory notes written from operator actions (legacy bolph71656-ai/HTDT-Capture#257/legacy bolph71656-ai/HTDT-Capture#250).
     private var latestScanTimestampSeconds: Double?
     /// Bounded in-flight automatic keyframe persistence; End drains it
-    /// with the manual save so the End boundary stays atomic (#179).
+    /// with the manual save so the End boundary stays atomic (legacy bolph71656-ai/HTDT-Capture#179).
     private var automaticFrameSaveTask: Task<Void, Never>?
     private var memoryWarningCancellable: AnyCancellable?
     private var derivedPreviewSuspendedForMemoryPressure = false
     private var roomPlanModelRenderingEnabled = true
     // 1.2.0 adds the versioned tracking-recovery and depth-fallback
-    // sufficiency policies (#242, #284). Published 1.1.0 semantics stay
+    // sufficiency policies (legacy bolph71656-ai/HTDT-Capture#242, legacy bolph71656-ai/HTDT-Capture#284). Published 1.1.0 semantics stay
     // pinned in the registry for reopened/older captures.
     private let qualityRequirements = CaptureQualityRequirements(
         rulesetVersion: "1.2.0"
     )
     /// Bounded wait for a RoomPlan completion callback that never
-    /// arrives (#96): warn the operator after `warningDelay`, then
+    /// arrives (legacy bolph71656-ai/HTDT-Capture#96): warn the operator after `warningDelay`, then
     /// terminate the unresolved End attempt at `terminationDelay`
     /// instead of leaving the capture locked in `isEndingScan`.
     private static let roomPlanEndTimeoutPolicy =
@@ -1317,7 +1319,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             CaptureAcquisitionOriginStore(captureRoot: $0)
         }
 
-        // #390: every registered app-local durable document upgrades
+        // legacy bolph71656-ai/HTDT-Capture#390: every registered app-local durable document upgrades
         // before any store reads it — only through a verified
         // version step, preserving bytes + a journal entry whenever
         // the stored version is newer, unreadable, or has no
@@ -1337,7 +1339,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
         }
 
-        // #338: load the versioned app-local settings before any
+        // legacy bolph71656-ai/HTDT-Capture#338: load the versioned app-local settings before any
         // policy application so the at-rest backup policy below
         // matches the operator's stored choice. A corrupt settings
         // file fails closed like the library metadata store — the
@@ -1356,7 +1358,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guidanceCuesEnabled =
             appSettings.presentation.guidanceCuesEnabled
 
-        // #320: the first-launch practice prompt is suppressed only by
+        // legacy bolph71656-ai/HTDT-Capture#320: the first-launch practice prompt is suppressed only by
         // an explicit permanent dismissal; "Not now" hides it for this
         // run while practice stays reachable from the home surface.
         practicePromptShown = !UserDefaults.standard.bool(
@@ -1365,7 +1367,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         // At-rest policy is applied before the first inventory scan so
         // the app-owned roots carry their backup/protection attributes
-        // even when no capture has ever run (#136, #166). Failures are
+        // even when no capture has ever run (legacy bolph71656-ai/HTDT-Capture#136, legacy bolph71656-ai/HTDT-Capture#166). Failures are
         // surfaced in the status line rather than silently ignored.
         if let captureRoot = Self.captureRootDirectory() {
             let policyFailures =
@@ -1386,7 +1388,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         loadPersistedCaptures()
         refreshRepairTaskRows()
 
-        // #386/#379/#387: surface the mission inbox, paired
+        // legacy bolph71656-ai/HTDT-Capture#386/legacy bolph71656-ai/HTDT-Capture#379/legacy bolph71656-ai/HTDT-Capture#387: surface the mission inbox, paired
         // receivers and delivery ledger immediately, then reconcile
         // the durable queue — a job `sending` when the app last
         // exited is rescheduled for an idempotent retry, and every
@@ -1403,19 +1405,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
         }
 
-        // #211/#302: restore the catalog library — the legacy
+        // legacy bolph71656-ai/HTDT-Capture#211/legacy bolph71656-ai/HTDT-Capture#302: restore the catalog library — the legacy
         // single-slot cache migrates in-place, then the active (or
         // sole) stored snapshot becomes the operator's reference
         // context. A missing or invalid entry is surfaced to the
         // workspace rather than silently substituted.
         if let equipmentCatalogStore {
-            // list()/active() fold the pre-#302 single-slot cache into
+            // list()/active() fold the pre-legacy bolph71656-ai/HTDT-Capture#302 single-slot cache into
             // the library on first read.
             equipmentCatalogLibrary = equipmentCatalogStore.list()
             equipmentCatalog = equipmentCatalogStore.active()?.snapshot
         }
 
-        // #458: restore the app-local operator roster — saved Author
+        // legacy bolph71656-ai/HTDT-Capture#458: restore the app-local operator roster — saved Author
         // profiles survive relaunch and are offered for reuse in the
         // Operators sheet of every later capture.
         operatorRoster =
@@ -1476,7 +1478,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Bound space for the annotation workspace. While live capture
     /// runs this is the active session space; once spatial authority
-    /// is sealed for finalization (#276), the same working-set space
+    /// is sealed for finalization (legacy bolph71656-ai/HTDT-Capture#276), the same working-set space
     /// stays the correct binding for non-spatial corrections —
     /// sealing pauses AR, it does not rebind the committed authority.
     /// It is returned whether or not annotations were already
@@ -1496,7 +1498,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         beginCapture(revisionLineage: nil)
     }
 
-    /// #320 practice mode: a full rehearsal of the real capture flow —
+    /// legacy bolph71656-ai/HTDT-Capture#320 practice mode: a full rehearsal of the real capture flow —
     /// scan guidance, End, Review, quality diagnostics — on a working
     /// set that can never finalize or send to HTDT.
     func beginPracticeCapture() {
@@ -1509,7 +1511,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         beginCapture(revisionLineage: nil, practice: true)
     }
 
-    /// #320: "Not now" hides the prompt for this run; "Don't show
+    /// legacy bolph71656-ai/HTDT-Capture#320: "Not now" hides the prompt for this run; "Don't show
     /// again" writes the durable opt-out.
     func dismissPracticePrompt(permanently: Bool) {
         practicePromptShown = false
@@ -1527,7 +1529,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// The new revision shares the parent's `capture_series_id` and
     /// records the parent as `parent_revision_id`; the finalized parent
     /// is never opened for mutation and no spatial evidence is carried
-    /// into the new coordinate space (#155).
+    /// into the new coordinate space (legacy bolph71656-ai/HTDT-Capture#155).
     func revisePersistedCapture(_ record: PersistedCaptureRecord) {
         guard state == .idle,
               !persistedAdoptionInFlight,
@@ -1607,7 +1609,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Starts a correction capture for the currently adopted finalized
     /// revision. The manifest was already validated at adoption, so its
     /// identity is the lineage authority; the host returns to idle and
-    /// begins a fresh scan in a new revision of the same series (#155).
+    /// begins a fresh scan in a new revision of the same series (legacy bolph71656-ai/HTDT-Capture#155).
     func reviseAdoptedCapture() {
         // The in-flight guards run before `resetCapture` — refusing
         // after the reset would dump the operator to idle with no
@@ -1641,7 +1643,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     ) {
         // A persisted-library operation in flight holds authority over
         // the inventory/import pipeline; starting a capture mid-flight
-        // would collide with its completion (#309).
+        // would collide with its completion (legacy bolph71656-ai/HTDT-Capture#309).
         guard state == .idle,
               !importOperationInFlight,
               !persistedAdoptionInFlight,
@@ -1697,7 +1699,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         failedInspection = nil
         // Per-capture mission runtime resets; imported mission
         // inputs (plans, staged payloads, the active repair row)
-        // carry into this new revision on purpose (#353/#321).
+        // carry into this new revision on purpose (legacy bolph71656-ai/HTDT-Capture#353/legacy bolph71656-ai/HTDT-Capture#321).
         connectedSpaceIntent = false
         connectedSpaceTracker = nil
         asBuiltSession = nil
@@ -1714,7 +1716,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         spatialCoverageAggregator =
             SpatialScanCoverageAggregator()
         spatialCoverage = .empty
-        // Resolve the capture strategy for this scan (#307): a pinned
+        // Resolve the capture strategy for this scan (legacy bolph71656-ai/HTDT-Capture#307): a pinned
         // task-plan recommendation wins, then a plan recommendation,
         // then the operator pick. The resolved profile configures the
         // advisory trackers only — canonical quality rules never read
@@ -1788,7 +1790,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         endTargetScan()
         operatorRegionDeclarations = OperatorRegionDeclarations()
         declaredRegionList = []
-        // Device-local workflow defaults seed each capture (#338):
+        // Device-local workflow defaults seed each capture (legacy bolph71656-ai/HTDT-Capture#338):
         // the stored default task profile initializes unset task
         // state, but the project/task plan — the workspace's
         // explicit selection — stays the override authority.
@@ -1820,13 +1822,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // The capability/permission/RoomPlan pipeline and the canonical
         // session clock start only when the operator confirms on the
         // setup screen; `.setup` itself creates no capture authority
-        // (#212).
+        // (legacy bolph71656-ai/HTDT-Capture#212).
         refreshCaptureSetupPresentation()
         startDeviceReadinessObserving()
     }
 
     /// Operator confirmed setup: leave `.setup` and run the ordinary
-    /// capability → permission → prepare → RoomPlan pipeline (#212).
+    /// capability → permission → prepare → RoomPlan pipeline (legacy bolph71656-ai/HTDT-Capture#212).
     func beginScanning() {
         guard state == .setup else {
             return
@@ -1845,7 +1847,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Operator cancelled the pre-capture setup: back to Idle with no
-    /// capture session ever created (#212).
+    /// capture session ever created (legacy bolph71656-ai/HTDT-Capture#212).
     func cancelCaptureSetup() {
         guard state == .setup else {
             return
@@ -1862,7 +1864,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Rebuild the setup-screen model with a fresh storage preflight
-    /// and device readiness sample (#212, #272).
+    /// and device readiness sample (legacy bolph71656-ai/HTDT-Capture#212, legacy bolph71656-ai/HTDT-Capture#272).
     private func refreshCaptureSetupPresentation() {
         capabilities = PlatformCapabilityProbe.current()
         deviceReadiness = Self.currentDeviceReadiness()
@@ -1942,7 +1944,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         refreshCaptureSetupPresentation()
     }
 
-    /// #352: import an HTDT task plan on the setup screen, before any
+    /// legacy bolph71656-ai/HTDT-Capture#352: import an HTDT task plan on the setup screen, before any
+||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
+    /// legacy bolph71656-ai/HTDT-Capture#352: import an HTDT task plan on the setup screen, before any
     /// acquisition. The file is decoded+validated now so the operator
     /// sees failures immediately; the verbatim bytes bind to the
     /// working set only when scanning actually starts.
@@ -1970,7 +1974,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Removes the imported plan so the setup returns to the generic
-    /// task-profile intent (#352).
+    /// task-profile intent (legacy bolph71656-ai/HTDT-Capture#352).
     func clearTaskPlan() {
         guard state == .setup else {
             return
@@ -1981,7 +1985,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// One-shot storage preflight for the setup screen using the same
-    /// volume and thresholds as the runtime resource monitor (#212).
+    /// volume and thresholds as the runtime resource monitor (legacy bolph71656-ai/HTDT-Capture#212).
     /// An undetermined query stays `unknown`, never a fabricated pass.
     private static func currentStoragePreflight()
         -> CaptureStoragePreflight
@@ -2002,7 +2006,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    /// Device battery / power-mode snapshot (#272). On platforms
+    /// Device battery / power-mode snapshot (legacy bolph71656-ai/HTDT-Capture#272). On platforms
     /// without a battery the snapshot reports `unknown` so the UI can
     /// omit the section instead of fabricating readiness.
     private static func currentDeviceReadiness()
@@ -2047,7 +2051,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Battery/Low-Power observation while setup or scanning is live
-    /// (#272). Runtime changes refresh the published snapshot and,
+    /// (legacy bolph71656-ai/HTDT-Capture#272). Runtime changes refresh the published snapshot and,
     /// during a scan, surface a non-blocking advisory before the
     /// battery reaches a critical state.
     private func startDeviceReadinessObserving() {
@@ -2102,7 +2106,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard state == .scanning else {
             return
         }
-        // Advisory-only runtime surface (#272): warn before the battery
+        // Advisory-only runtime surface (legacy bolph71656-ai/HTDT-Capture#272): warn before the battery
         // is critical; never a canonical quality rule and never a
         // failure path.
         if readiness.hasLowBattery {
@@ -2110,7 +2114,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Scoped display keep-awake for active capture (#272). The
+    /// Scoped display keep-awake for active capture (legacy bolph71656-ai/HTDT-Capture#272). The
     /// override is engaged only while `.scanning`; `transition()` calls
     /// this on every state change, so any End/failure/reset path
     /// releases it automatically.
@@ -2264,7 +2268,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         isCapturingEvidenceFrame = true
         let generation = captureGeneration
-        // Synchronous MainActor boundary (#177): the platform split API
+        // Synchronous MainActor boundary (legacy bolph71656-ai/HTDT-Capture#177): the platform split API
         // retains only the frame buffers plus pose/intrinsics metadata
         // here; binary packing, SHA-256 and HEIC preview generation are
         // deferred to the async materialize boundary inside the
@@ -2294,7 +2298,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        // Advisory usability check on the same AR frame (#274): manual
+        // Advisory usability check on the same AR frame (legacy bolph71656-ai/HTDT-Capture#274): manual
         // Save always retains, but a suspect/unusable result is
         // recorded and surfaced so the operator can retake.
         let frameUsability =
@@ -2302,7 +2306,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         // Keep a handle on the persistence task so End can claim its
         // boundary atomically and drain this save before it samples the
-        // working set (#179). While End holds isEndingScan the save's
+        // working set (legacy bolph71656-ai/HTDT-Capture#179). While End holds isEndingScan the save's
         // commit still lands (its bytes are canonically before the End
         // snapshot) but its UI continuation is suppressed so a stale
         // continuation cannot overwrite End/Review status.
@@ -2320,7 +2324,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            // Async boundary (#177): binary packing, SHA-256 and the
+            // Async boundary (legacy bolph71656-ai/HTDT-Capture#177): binary packing, SHA-256 and the
             // derived HEIC preview run off MainActor inside the
             // platform adapter's materialize step. The retained
             // snapshot keeps the same-frame pixel/depth/pose
@@ -2501,7 +2505,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    // MARK: - Operator-targeted object pass (#250)
+    // MARK: - Operator-targeted object pass (legacy bolph71656-ai/HTDT-Capture#250)
 
     /// Begin a "Scan this object" orbit pass. Target authority comes
     /// from a center-of-view raycast against live mesh/depth evidence —
@@ -2584,7 +2588,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // accepted pass's fused points become the shape candidate's
             // evidence, so they must belong to this anchor only.
             targetedObjectFusionTracker.reset()
-            // #250: which evidence class supplied the aim anchor —
+            // legacy bolph71656-ai/HTDT-Capture#250: which evidence class supplied the aim anchor —
             // retained in the accept note's provenance.
             targetScanAnchorSource = anchorSource
             let initialDistance = spatialCoverage
@@ -3524,7 +3528,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return scene?.interfaceOrientation ?? .landscapeRight
     }
 
-    // MARK: - Operator-declared regions (#257)
+    // MARK: - Operator-declared regions (legacy bolph71656-ai/HTDT-Capture#257)
 
     /// Mark a weak/unknown coverage cell intentionally unresolved. The
     /// cell keeps its classification (never becomes "observed");
@@ -3566,7 +3570,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Declare the nearest still-unresolved (weak/unknown) coverage
     /// cell to the current camera position. The bounded spatial scope
-    /// comes from the coverage grid, not free text (#257).
+    /// comes from the coverage grid, not free text (legacy bolph71656-ai/HTDT-Capture#257).
     func declareNearestUnresolvedRegion(
         reason: DeclaredRegionReason
     ) {
@@ -3625,13 +3629,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    // MARK: - Return-to-start consistency check (#273)
+    // MARK: - Return-to-start consistency check (legacy bolph71656-ai/HTDT-Capture#273)
 
     /// Arm/disarm the optional loop-closure check. Arming records the
     /// intent; the assessment stays advisory and unavailable states
     /// report `.unavailable`, never a fabricated pass. Disarming keeps
     /// the last assessment so the end-scan note retains what the
-    /// operator answered (#273).
+    /// operator answered (legacy bolph71656-ai/HTDT-Capture#273).
     func setLoopClosureCheckActive(_ active: Bool) {
         if loopClosureCheckActive, !active {
             loopClosureLastAssessment =
@@ -3645,7 +3649,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Record the operator's response to the armed check (#273) as
+    /// Record the operator's response to the armed check (legacy bolph71656-ai/HTDT-Capture#273) as
     /// advisory provenance: "reobserve" clears the displayed
     /// assessment and keeps the check armed for a fresh walk-back;
     /// "accepted" / "continued" disarm the check. The response joins
@@ -3684,14 +3688,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    // MARK: - Non-visual guidance cues (#252)
+    // MARK: - Non-visual guidance cues (legacy bolph71656-ai/HTDT-Capture#252)
 
     func setGuidanceCuesEnabled(_ enabled: Bool) {
         guidanceCuesEnabled = enabled
         if !enabled {
             scanGuidanceCuePolicy.reset()
         }
-        // The toggle is a presentation preference (#338): persist it
+        // The toggle is a presentation preference (legacy bolph71656-ai/HTDT-Capture#338): persist it
         // so the choice survives relaunch; it never enters capture
         // authority.
         var copy = appSettings
@@ -3699,7 +3703,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         updateAppSettings(copy)
     }
 
-    // MARK: - App-local settings (#338)
+    // MARK: - App-local settings (legacy bolph71656-ai/HTDT-Capture#338)
 
     /// Persists a new settings document and applies its side effects.
     /// Presentation choices take effect at once; the finalized backup
@@ -3748,7 +3752,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Clears the durable equipment-catalog cache (#338): the import
+    /// Clears the durable equipment-catalog cache (legacy bolph71656-ai/HTDT-Capture#338): the import
     /// mirror is removed and the reference context resets for the
     /// next import. Committed captures keep the exact equipment
     /// tuples they recorded — the cache is convenience, never
@@ -3768,7 +3772,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         equipmentCatalogLibrary = []
     }
 
-    /// Applies the stored backup policy to a share archive (#305);
+    /// Applies the stored backup policy to a share archive (legacy bolph71656-ai/HTDT-Capture#305);
     /// export archives are app-owned transport output and follow the
     /// same policy as finalized data. A flag failure is surfaced,
     /// never fatal to the archive already produced.
@@ -3879,7 +3883,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    // MARK: - Automatic evidence keyframes (#216)
+    // MARK: - Automatic evidence keyframes (legacy bolph71656-ai/HTDT-Capture#216)
 
     /// Offer the current live sample to the bounded keyframe policy on
     /// the slow tick. Retention is decided only after frame-usability
@@ -3898,7 +3902,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         // The estimator tracks its own byte bound; this persisted-byte
         // total is the authoritative backstop so a materialized overrun
-        // also stops the selector (#216).
+        // also stops the selector (legacy bolph71656-ai/HTDT-Capture#216).
         guard automaticKeyframePersistedBytes
                 <= automaticKeyframeTracker.configuration
                     .maximumRetainedBytes
@@ -3939,7 +3943,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Snapshot → materialize → persist an automatic keyframe. Runs off
     /// the manual save path's flags; End drains this task alongside the
-    /// manual save so the End evidence boundary stays atomic (#179).
+    /// manual save so the End evidence boundary stays atomic (legacy bolph71656-ai/HTDT-Capture#179).
     private func captureAutomaticEvidenceFrame(
         _ sample: AutomaticKeyframeSample,
         usability: FrameUsabilityAssessment?
@@ -4141,7 +4145,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            // The End boundary must own a stable evidence set (#179):
+            // The End boundary must own a stable evidence set (legacy bolph71656-ai/HTDT-Capture#179):
             // drain an in-flight manual evidence save so its commit or
             // rollback is fully resolved before End snapshots the
             // working set. isEndingScan already blocks a new save from
@@ -4152,7 +4156,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 await pendingSave.value
             }
             // The automatic selector's in-flight write lands inside the
-            // same boundary as a manual save (#216, #179).
+            // same boundary as a manual save (legacy bolph71656-ai/HTDT-Capture#216, legacy bolph71656-ai/HTDT-Capture#179).
             if let pendingAuto = self.automaticFrameSaveTask {
                 await pendingAuto.value
             }
@@ -4163,7 +4167,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 await pendingSeg.value
             }
 
-            // #273: the return-to-start check, when the operator armed
+            // legacy bolph71656-ai/HTDT-Capture#273: the return-to-start check, when the operator armed
             // it, leaves its verdict as advisory provenance. The check
             // never warps coordinates; an un-run or unavailable check
             // records nothing rather than implying a pass. An answered
@@ -4226,7 +4230,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     func continueScanningFromReview() {
-        // #236: saved annotation authority no longer blocks Continue
+        // legacy bolph71656-ai/HTDT-Capture#236: saved annotation authority no longer blocks Continue
         // scanning. The committed annotation/measurement collections
         // and evidence frames survive the End-boundary rollback, so
         // the operator can keep scanning after saving annotations while
@@ -4323,7 +4327,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     func beginAnnotation() {
         // Annotation editing is spatial continuation authority: once a
-        // post-End resource/lifecycle condition sealed it (#112), the
+        // post-End resource/lifecycle condition sealed it (legacy bolph71656-ai/HTDT-Capture#112), the
         // accepted Review remains finalizable but live spatial capture
         // is unavailable. The workspace still opens — under the seal
         // it renders in non-spatial mode (raycast/orientation/scanning
@@ -4339,7 +4343,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         if annotationAuthorityCommitted {
-            // Pre-finalization correction (#163): reload the canonical
+            // Pre-finalization correction (legacy bolph71656-ai/HTDT-Capture#163): reload the canonical
             // annotation/measurement collections already committed
             // inside this working revision and reopen the editor seeded
             // with them. The immutable-revision contract only begins at
@@ -4386,7 +4390,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         committedIdentityDocData = nil
 
-        // Non-canonical draft restore (#266): a draft bound to this
+        // Non-canonical draft restore (legacy bolph71656-ai/HTDT-Capture#266): a draft bound to this
         // exact working revision + coordinate space survived an
         // interruption; seed the workspace with it (marked unsaved) so
         // long authoring sessions are not lost. Mismatched or stale
@@ -4427,7 +4431,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Reads the canonical annotation/measurement collections — plus
-    /// the committed equipment-identity attestations (#239) — already
+    /// the committed equipment-identity attestations (legacy bolph71656-ai/HTDT-Capture#239) — already
     /// inside the working revision so a pre-finalization edit starts
     /// from the persisted authority instead of blank state. Returns
     /// the raw identity-document bytes alongside so a later commit with
@@ -4479,8 +4483,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             TheaterAuthorityCollection.self,
             at: TheaterAuthorityPackage.path
         )
-        // Committed field-authority documents (#300/#301/#310/#314/
-        // #324/#331) seed the editor as the effective state; asset
+        // Committed field-authority documents (legacy bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#301/legacy bolph71656-ai/HTDT-Capture#310/legacy bolph71656-ai/HTDT-Capture#314/
+        // legacy bolph71656-ai/HTDT-Capture#324/legacy bolph71656-ai/HTDT-Capture#331) seed the editor as the effective state; asset
         // payloads stay on disk (write-once), so only newly captured
         // assets re-enter the staged-asset list.
         let targetsDoc = try loadCollection(
@@ -4508,7 +4512,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 AsBuiltWiringDocument.self,
                 at: AsBuiltWiringPackage.path
             )?.routes ?? [],
-            // #227: committed targets/observations seed the editor so
+            // legacy bolph71656-ai/HTDT-Capture#227: committed targets/observations seed the editor so
             // they stay visible and editable; a byte-identical
             // re-commit is a no-op.
             referenceTargets: targetsDoc?.targets,
@@ -4681,7 +4685,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
         }
 
-        // #325: flags are operator review intent — a reopened draft
+        // legacy bolph71656-ai/HTDT-Capture#325: flags are operator review intent — a reopened draft
         // rehydrates them from its persisted document so Resolve /
         // Skip / Reopen act on the durable record instead of
         // no-op'ing on an empty store.
@@ -4701,7 +4705,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Lists captured RoomPlan elements and mesh anchors so authority
     /// sheets offer user-assisted selection instead of typed IDs
-    /// (#218). Pure reads of app-owned canonical files; decode failures
+    /// (legacy bolph71656-ai/HTDT-Capture#218). Pure reads of app-owned canonical files; decode failures
     /// simply yield an empty picker.
     nonisolated private static func capturedSurfaceOptions(
         rootDirectory: URL
@@ -4785,7 +4789,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             try sessionController.snapshotCameraOrientation(
                 depthSelection: .discrete
             )
-        // #177: materialize performs packing/hashing/HEIC off
+        // legacy bolph71656-ai/HTDT-Capture#177: materialize performs packing/hashing/HEIC off
         // MainActor; the retained snapshot preserves the same-frame
         // pose/pixel/depth association.
         let frameArtifacts =
@@ -4840,7 +4844,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Full-3D orientation capture for measurement-point (microphone
-    /// capsule) direction authority (issue #271). Unlike the speaker
+    /// capsule) direction authority (issue bolph71656-ai/HTDT-Capture#271). Unlike the speaker
     /// path this keeps the camera's whole orientation — pitch and roll
     /// included — because a microphone axis is not a horizontal
     /// heading.
@@ -4924,7 +4928,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             try sessionController.snapshotCenterRaycastPlacement(
                 depthSelection: .discrete
             )
-        // #177: materialize performs packing/hashing/HEIC off
+        // legacy bolph71656-ai/HTDT-Capture#177: materialize performs packing/hashing/HEIC off
         // MainActor; the retained snapshot preserves the same-frame
         // pose/pixel/depth association.
         let frameArtifacts =
@@ -4960,7 +4964,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             position.z,
             1,
         ])
-        // #173: the platform snapshot returns bounded hit provenance
+        // legacy bolph71656-ai/HTDT-Capture#173: the platform snapshot returns bounded hit provenance
         // (target type, alignment, hit transform, anchor identity,
         // distance); it is mapped into the annotation model's
         // `RaycastPlacementProvenance` so an estimated-plane fallback
@@ -5006,7 +5010,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Live reticle probe for the camera capture sheet and the
-    /// scanning-surface reticle (#214/#250): classifies what the
+    /// scanning-surface reticle (legacy bolph71656-ai/HTDT-Capture#214/legacy bolph71656-ai/HTDT-Capture#250): classifies what the
     /// shared session's center ray hits right now — mesh, RoomPlan
     /// object, or plane — with no side effects. During scanning the
     /// RoomPlan object list is empty, so hits classify as mesh or
@@ -5021,7 +5025,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    /// Live camera yaw for the heading arrow (#214).
+    /// Live camera yaw for the heading arrow (legacy bolph71656-ai/HTDT-Capture#214).
     func probeCameraHeading() async -> Float? {
         guard state == .annotating else {
             return nil
@@ -5029,7 +5033,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return sessionController.currentCameraHeadingDegrees()
     }
 
-    /// Targeted placement capture (#246): the resolved target class is
+    /// Targeted placement capture (legacy bolph71656-ai/HTDT-Capture#246): the resolved target class is
     /// preserved verbatim in `PlacementProvenance` — a mesh request
     /// produces `mesh_hit_test`, a RoomPlan request `roomplan_binding`,
     /// and an automatic capture never silently downgrades to a plane.
@@ -5058,7 +5062,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return nil
         }
 
-        // #177: materialize performs packing/hashing/HEIC off
+        // legacy bolph71656-ai/HTDT-Capture#177: materialize performs packing/hashing/HEIC off
         // MainActor; the retained snapshot preserves the same-frame
         // pose/pixel/depth association.
         let frameArtifacts =
@@ -5132,12 +5136,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return authority
     }
 
-    /// Equipment-identity photo (#239): captures one plain evidence
+    /// Equipment-identity photo (legacy bolph71656-ai/HTDT-Capture#239): captures one plain evidence
     /// frame during annotation editing and returns its canonical
     /// `path:` ref so the form can bind it as identity evidence —
     /// distinct from spatial placement authority.
     /// Captures a dedicated close-up photo for a field-evidence
-    /// record (#314): a fresh AR frame is materialized and its
+    /// record (legacy bolph71656-ai/HTDT-Capture#314): a fresh AR frame is materialized and its
     /// high-resolution HEIC rendering is returned as image bytes. No
     /// frame descriptor or spatial metadata is persisted, so a
     /// close-up can never impersonate canonical frame authority.
@@ -5173,8 +5177,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Stashes the field-authority workspace staged in the annotation
     /// editor; `commitAnnotationAuthority` persists it inside the same
     /// commit pass so the derived documents land atomically with the
-    /// canonical collections they reference (#300/#301/#310/#314/
-    /// #324/#331).
+    /// canonical collections they reference (legacy bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#301/legacy bolph71656-ai/HTDT-Capture#310/legacy bolph71656-ai/HTDT-Capture#314/
+    /// legacy bolph71656-ai/HTDT-Capture#324/legacy bolph71656-ai/HTDT-Capture#331).
     func commitFieldAuthority(
         _ workspace: FieldAuthorityWorkspace
     ) {
@@ -5224,7 +5228,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Builds the field-authority bundle from the staged workspace —
     /// one derived package per non-empty document family plus staged
-    /// asset writes/removals (#300/#301/#310/#314/#324/#331).
+    /// asset writes/removals (legacy bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#301/legacy bolph71656-ai/HTDT-Capture#310/legacy bolph71656-ai/HTDT-Capture#314/legacy bolph71656-ai/HTDT-Capture#324/legacy bolph71656-ai/HTDT-Capture#331).
     private func buildFieldAuthorityBundle(
         _ workspace: FieldAuthorityWorkspace,
         revisionID: CaptureRevisionID
@@ -5271,7 +5275,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         routes: workspace.wiringRoutes
                     )
                 ),
-            // #227: only carried when the operator declared targets —
+            // legacy bolph71656-ai/HTDT-Capture#227: only carried when the operator declared targets —
             // the builder computes scale/revisit diagnostics at pack
             // time so the committed document is self-contained.
             referenceTargets:
@@ -5319,7 +5323,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Rebuild the visual evidence rows (#255) from the canonical refs.
+    /// Rebuild the visual evidence rows (legacy bolph71656-ai/HTDT-Capture#255) from the canonical refs.
     private func refreshAnnotationEvidenceFrames(
         rootDirectory: URL
     ) {
@@ -5332,9 +5336,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Loads the accepted geometry context for plausibility checks
-    /// (#247): persisted mesh bounds + floor level + RoomPlan room
+    /// (legacy bolph71656-ai/HTDT-Capture#247): persisted mesh bounds + floor level + RoomPlan room
     /// dimensions, plus the bindable object list for `roomplan_binding`
-    /// targets (#246). Everything here is a pure read of canonical
+    /// targets (legacy bolph71656-ai/HTDT-Capture#246). Everything here is a pure read of canonical
     /// files; results are advisory only.
     private func refreshSpatialContext(
         store: CaptureWorkingSetStore,
@@ -5368,7 +5372,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    /// Re-evaluates advisory plausibility findings (#247) for the
+    /// Re-evaluates advisory plausibility findings (legacy bolph71656-ai/HTDT-Capture#247) for the
     /// committed annotation set. Produces nil — rendered as
     /// "analysis unavailable" — when no geometry authority exists.
     private func evaluateSpatialPlausibility(
@@ -5416,7 +5420,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Decodes persisted mesh evidence (`mesh/anchors.json` +
     /// `mesh/geometry/*.meshbin`) and the RoomPlan metadata summary
-    /// into the plausibility context (#247). All-bounds or nothing:
+    /// into the plausibility context (legacy bolph71656-ai/HTDT-Capture#247). All-bounds or nothing:
     /// partial geometry produces a partial-but-real context, never a
     /// fabricated room.
     nonisolated private static func loadPlausibilityContext(
@@ -5486,7 +5490,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Decodes the persisted processed `CapturedRoom` into bindable
-    /// objects (#246). iOS-gated inside the platform.
+    /// objects (legacy bolph71656-ai/HTDT-Capture#246). iOS-gated inside the platform.
     nonisolated private static func loadRoomPlanObjects(
         rootDirectory: URL
     ) -> [RoomPlanBindableObject] {
@@ -5501,7 +5505,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             .roomPlanBindableObjects(fromProcessedData: data)
     }
 
-    /// Marks a frame's retention reason for the visual picker (#255)
+    /// Marks a frame's retention reason for the visual picker (legacy bolph71656-ai/HTDT-Capture#255)
     /// and persists it through the store's revision checkpoint so a
     /// reopened draft labels the frame the same way.
     private func markEvidenceRetention(
@@ -5515,7 +5519,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         Task { try? await store.recordEvidenceRetention(ref, kind: kind) }
     }
 
-    /// Discards the draft bound to the live working revision (#266).
+    /// Discards the draft bound to the live working revision (legacy bolph71656-ai/HTDT-Capture#266).
     /// Called on every terminal path for the workspace: commit, cancel,
     /// finalize, reset — canonical files are never involved.
     private func discardAnnotationDraft() {
@@ -5532,7 +5536,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             workingSetStatus = String(localized: "Annotation authority is currently being saved. Wait for the save result before cancelling.")
             return
         }
-        // Cancel is an explicit draft-discard signal (#266): the
+        // Cancel is an explicit draft-discard signal (legacy bolph71656-ai/HTDT-Capture#266): the
         // operator chose to abandon staged work, so the non-canonical
         // draft is removed rather than restored next time.
         discardAnnotationDraft()
@@ -5562,7 +5566,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        // A re-opened editor (#163) saves a replacement for the
+        // A re-opened editor (legacy bolph71656-ai/HTDT-Capture#163) saves a replacement for the
         // authority committed earlier in the same revision; a first
         // entry commits fresh authority.
         let isRevisionCommit =
@@ -5571,7 +5575,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         annotationCommitInFlight = true
         let annotationPackage: AnnotationEvidencePackage
         let measurementPackage: MeasurementEvidencePackage
-        // Identity attestations (#239) are validated against the staged
+        // Identity attestations (legacy bolph71656-ai/HTDT-Capture#239) are validated against the staged
         // entity set before anything is written, so a bad binding
         // fails the commit atomically with no partial authority.
         let identityPackage: EquipmentIdentityEvidencePackage?
@@ -5680,7 +5684,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
 
-                // #337: the finalized bundle declares every external
+                // legacy bolph71656-ai/HTDT-Capture#337: the finalized bundle declares every external
                 // authority it depends on — exact equipment-definition
                 // tuples + layout-profile bindings + the task plan —
                 // so another HTDT instance resolves them portably and
@@ -5716,8 +5720,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
 
-                // Field-authority family (#300/#301/#310/#314/#324/
-                // #331): the staged derived documents are validated
+                // Field-authority family (legacy bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#301/legacy bolph71656-ai/HTDT-Capture#310/legacy bolph71656-ai/HTDT-Capture#314/legacy bolph71656-ai/HTDT-Capture#324/
+                // legacy bolph71656-ai/HTDT-Capture#331): the staged derived documents are validated
                 // against the just-committed canonical collections —
                 // the canonical write happens first so entity,
                 // measurement and inventory bindings resolve.
@@ -5738,7 +5742,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
 
-                // Commit consumed the draft (#266).
+                // Commit consumed the draft (legacy bolph71656-ai/HTDT-Capture#266).
                 self.discardAnnotationDraft()
                 self.annotationAuthorityCommitted = true
                 self.annotationCommitInFlight = false
@@ -5784,7 +5788,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     }
                 }
 
-                // #321: in-place repair kinds resolve on the
+                // legacy bolph71656-ai/HTDT-Capture#321: in-place repair kinds resolve on the
+||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
+                // legacy bolph71656-ai/HTDT-Capture#321: in-place repair kinds resolve on the
                 // annotation authority commit inside the same
                 // revision.
                 if let row = self.activeRepairRow,
@@ -5831,7 +5837,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         // paired replace is one rollback-capable batch,
                         // so a recoverable write failure leaves the prior
                         // pair byte-for-byte intact and the editor stays
-                        // open; cancelling keeps the prior save (#163).
+                        // open; cancelling keeps the prior save (legacy bolph71656-ai/HTDT-Capture#163).
                         self.annotationCommitInFlight = false
                         self.workingSetStatus =
                             String(localized: "The replacement could not be committed safely; the previously saved annotation and measurement collections remain. Cancel keeps the prior save.")
@@ -5874,7 +5880,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Validates and adopts an imported HTDT equipment-catalog snapshot
-    /// (#211). The snapshot is operator reference context only: it is
+    /// (legacy bolph71656-ai/HTDT-Capture#211). The snapshot is operator reference context only: it is
     /// held on the host and mirrored to an app-support cache so it
     /// survives annotation cancel → Review → re-enter and app relaunch.
     /// No catalog bytes enter the capture bundle; annotations keep
@@ -5891,7 +5897,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             HTDTEquipmentCatalogSnapshot.self,
             from: data
         )
-        // Store under its content key and make it active (#302); a
+        // Store under its content key and make it active (legacy bolph71656-ai/HTDT-Capture#302); a
         // write failure leaves the previously adopted catalog active
         // and the in-session context usable.
         if let encoded = try? JSONEncoder().encode(snapshot) {
@@ -5904,7 +5910,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return snapshot
     }
 
-    /// Explicit operator catalog selection (#302): activates a stored
+    /// Explicit operator catalog selection (legacy bolph71656-ai/HTDT-Capture#302): activates a stored
     /// snapshot by content key; an unknown key is ignored rather than
     /// silently substituting a different catalog.
     func selectEquipmentCatalog(contentKey: String) {
@@ -5919,7 +5925,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         equipmentCatalogLibrary = equipmentCatalogStore.list()
     }
 
-    /// Label-scan assist (#345): captures a fresh close-up frame,
+    /// Label-scan assist (legacy bolph71656-ai/HTDT-Capture#345): captures a fresh close-up frame,
     /// persists it as equipment-identity evidence, runs Vision
     /// OCR/barcode recognition, and returns suggestion candidates.
     /// Nothing is committed — the sheet only suggests; the operator
@@ -6022,7 +6028,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     func finalizeCapture() {
-        // #320: a practice working set is never finalizable — the
+        // legacy bolph71656-ai/HTDT-Capture#320: a practice working set is never finalizable — the
         // store also rejects the seal, so the gate here is just the
         // early, honest refusal.
         guard state == .reviewing,
@@ -6034,7 +6040,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        // #437: a new attempt replaces the rejection it answered.
+        // legacy bolph71656-ai/HTDT-Capture#437: a new attempt replaces the rejection it answered.
         finalizeRejection = nil
         reviewOperationInFlight = true
         let generation = captureGeneration
@@ -6254,7 +6260,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        // #437: a new attempt replaces the rejection it answered.
+        // legacy bolph71656-ai/HTDT-Capture#437: a new attempt replaces the rejection it answered.
         exportRejection = nil
         exportOperationInFlight = true
         workingSetStatus = String(localized: "Creating validated .htdtcapture archive")
@@ -6408,7 +6414,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         resetCaptureImpl(preservingFailedDraft: false)
     }
 
-    /// #437: the failed surface's discard and draft-preservation
+    /// legacy bolph71656-ai/HTDT-Capture#437: the failed surface's discard and draft-preservation
     /// paths share the same teardown. `preservingFailedDraft` keeps
     /// an end-accepted failed working set on disk as a recoverable
     /// draft — the inventory picks it up on the next refresh — and
@@ -6462,15 +6468,15 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         committedIdentityDocData = nil
         // Terminal reset also drops imported mission inputs; the
         // active repair row survives because the repair loop spans
-        // reset → new capture → finalize (#321).
+        // reset → new capture → finalize (legacy bolph71656-ai/HTDT-Capture#321).
         captureTaskPlan = nil
         captureTaskPlanImport = nil
         captureTaskPlanStatus = nil
         asBuiltPlan = nil
         asBuiltPlanImport = nil
         // A failed/finalized revision's drafts are bound to it
-        // forever; purge them (#266) — except when the failed working
-        // set is being preserved as a recoverable draft (#437): the
+        // forever; purge them (legacy bolph71656-ai/HTDT-Capture#266) — except when the failed working
+        // set is being preserved as a recoverable draft (legacy bolph71656-ai/HTDT-Capture#437): the
         // annotation drafts reopen with it.
         if !preserveDraft {
             annotationDraftStore?.discardAll()
@@ -6650,7 +6656,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return total
     }
 
-    /// #437 "Keep the draft for later" on the failed surface: the
+    /// legacy bolph71656-ai/HTDT-Capture#437 "Keep the draft for later" on the failed surface: the
     /// failed end-accepted working set is preserved on disk as a
     /// recoverable draft — teardown still runs, the working root
     /// stays, and the next inventory refresh lists it on Home.
@@ -6665,7 +6671,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    /// #437 "Reopen the draft and finish" on the failed surface:
+    /// legacy bolph71656-ai/HTDT-Capture#437 "Reopen the draft and finish" on the failed surface:
     /// preserves the failed end-accepted working set as a recoverable
     /// draft, then immediately reopens it into sealed Review — the
     /// same destination the home draft affordance offers.
@@ -6704,7 +6710,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         openRecoveredDraft(draft)
     }
 
-    /// #437 "Discard and start a new capture" on the failed surface:
+    /// legacy bolph71656-ai/HTDT-Capture#437 "Discard and start a new capture" on the failed surface:
     /// permanently removes the failed capture's retained data, then
     /// opens capture setup — a real two-step path, not a dead
     /// confirm.
@@ -6724,7 +6730,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// *inputs* stay set on purpose: `beginCapture` deliberately
     /// carries `captureTaskPlan*`, `asBuiltPlan*`, the plan underlay,
     /// and the armed repair row into the retried revision
-    /// (#353/#321), and a suspended draft repopulates them from the
+    /// (legacy bolph71656-ai/HTDT-Capture#353/legacy bolph71656-ai/HTDT-Capture#321), and a suspended draft repopulates them from the
     /// persisted import docs on reopen. The mission pointer
     /// (`taskPlan`) is mission-lifetime and survives too.
     private func clearVolatileCaptureState() {
@@ -6846,7 +6852,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         evidenceFrameSaveTask = nil
     }
 
-    /// Operator-initiated discard of the active capture (issue #254):
+    /// Operator-initiated discard of the active capture (issue bolph71656-ai/HTDT-Capture#254):
     /// scanning, review, or annotation state. The caller must
     /// have already shown a confirmation; this fence is terminal —
     /// AR is stopped, all in-flight writes are fenced by the store's
@@ -6912,13 +6918,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// #297: reopen an end-accepted working revision that survived a
+    /// legacy bolph71656-ai/HTDT-Capture#297: reopen an end-accepted working revision that survived a
     /// relaunch. `restoreWorkingRevision` rebuilds a full working-set
     /// store whose spatial authority is permanently sealed; the host
     /// lands in Review where semantic authoring and finalization work
     /// but live-capture affordances are gone.
     func openRecoveredDraft(_ draft: RecoverableWorkingRevision) {
-        // #437: the setup surface offers the same stranded-draft
+        // legacy bolph71656-ai/HTDT-Capture#437: the setup surface offers the same stranded-draft
         // affordances as Home — resuming leaves setup for Review.
         if state == .setup {
             cancelCaptureSetup()
@@ -6958,7 +6964,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.recoveredDraftReport = restored.report
                 self.activeCaptureIsPractice = false
                 self.practiceCaptureActive = false
-                // Not the #112/#276 resource seal — the review controls
+                // Not the legacy bolph71656-ai/HTDT-Capture#112/legacy bolph71656-ai/HTDT-Capture#276 resource seal — the review controls
                 // still run; only live-spatial paths are gated, by
                 // `workingSetSpatialAuthorityLive`.
                 self.spatialAuthoritySealedForFinalization = false
@@ -7019,7 +7025,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 await self.refreshMissionOutcomes()
                 // Retention kinds persisted with the checkpoint — a
                 // recovered draft labels the picker's entries the same
-                // way the live session did (#255).
+                // way the live session did (legacy bolph71656-ai/HTDT-Capture#255).
                 self.annotationRetentionKinds =
                     await store.evidenceRetentionKindMap()
                 if let document =
@@ -7058,7 +7064,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// #297 "Save and finish later": leave Review without discarding.
+    /// legacy bolph71656-ai/HTDT-Capture#297 "Save and finish later": leave Review without discarding.
     /// The working revision's phase document already says
     /// end-accepted, so it stays listed as a recoverable draft on the
     /// home surface and on the next launch.
@@ -7088,7 +7094,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        // Draft autosaves bound to this revision stay on disk (#266):
+        // Draft autosaves bound to this revision stay on disk (legacy bolph71656-ai/HTDT-Capture#266):
         // the draft is meant to be reopened, so unlike
         // discard/reset this does not purge the annotation-draft
         // store. Mission-derived payloads (task-plan status,
@@ -7120,12 +7126,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Permanently remove a recoverable draft's working revision
-    /// (#297). Routed through the same path-safety-verified working-root
+    /// (legacy bolph71656-ai/HTDT-Capture#297). Routed through the same path-safety-verified working-root
     /// removal as abandoned revisions.
     func discardRecoveredDraft(
         _ draft: RecoverableWorkingRevision
     ) {
-        // #437: the setup surface offers the same discard affordance
+        // legacy bolph71656-ai/HTDT-Capture#437: the setup surface offers the same discard affordance
         // as Home — removing a draft leaves setup too.
         if state == .setup {
             cancelCaptureSetup()
@@ -7174,7 +7180,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// #298 remediation router: each action routes to the surface that
+    /// legacy bolph71656-ai/HTDT-Capture#298 remediation router: each action routes to the surface that
     /// can legitimately clear the finding — never a quality-gate
     /// bypass. Actions the current working set cannot support were
     /// already filtered out by the view layer.
@@ -7192,7 +7198,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
              .addMeasurement,
              .reviewTaskRequirements:
             // The annotation workspace hosts entity/measurement
-            // authoring plus the task-profile picker (#217/#259).
+            // authoring plus the task-profile picker (legacy bolph71656-ai/HTDT-Capture#217/legacy bolph71656-ai/HTDT-Capture#259).
             beginAnnotation()
         case .verifyIntegrityAgain:
             guard state == .reviewing,
@@ -7228,7 +7234,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Rebuilds the review workspace model from the live working set
-    /// (issues #213, #231, #232, #241). Called on entry to Review and
+    /// (issues bolph71656-ai/HTDT-Capture#213, legacy bolph71656-ai/HTDT-Capture#231, legacy bolph71656-ai/HTDT-Capture#232, legacy bolph71656-ai/HTDT-Capture#241). Called on entry to Review and
     /// after every authority commit that changes committed payloads.
     func refreshReviewWorkspace() {
         guard state == .reviewing || state == .annotating,
@@ -7237,8 +7243,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
         // A recovered draft's spatial authority ended with the prior
-        // process (#297): the workspace renders it sealed even though
-        // the #276 finalization seal flag is unset.
+        // process (legacy bolph71656-ai/HTDT-Capture#297): the workspace renders it sealed even though
+        // the legacy bolph71656-ai/HTDT-Capture#276 finalization seal flag is unset.
         let sealed = spatialAuthoritySealedForFinalization
             || !workingSetSpatialAuthorityLive
         Task { @MainActor [weak self] in
@@ -7342,7 +7348,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
             #endif
             self.reviewWorkspace = model
-            // Required-task mission progress (#372): evaluated from
+            // Required-task mission progress (legacy bolph71656-ai/HTDT-Capture#372): evaluated from
             // the committed records against the active plan — kept
             // separate from technical readiness.
             if let taskPlan {
@@ -7381,7 +7387,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Captures the operator-confirmed room-origin point for the
-    /// pending room reference frame (issue #232).
+    /// pending room reference frame (issue bolph71656-ai/HTDT-Capture#232).
     func captureRoomFrameOriginPoint() {
         guard state == .reviewing || state == .annotating,
               !spatialAuthoritySealedForFinalization,
@@ -7408,7 +7414,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Confirms the two-point room reference frame: builds the typed
     /// document from the pending origin + a second camera sample and
-    /// commits it to the working set (issue #232).
+    /// commits it to the working set (issue bolph71656-ai/HTDT-Capture#232).
     func confirmRoomReferenceFrame() {
         guard state == .reviewing || state == .annotating,
               !spatialAuthoritySealedForFinalization,
@@ -7485,7 +7491,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Captures the camera position as the center for a
-    /// user-declared opening candidate (issue #231).
+    /// user-declared opening candidate (issue bolph71656-ai/HTDT-Capture#231).
     func captureOpeningCenterPoint() {
         guard state == .reviewing || state == .annotating,
               !spatialAuthoritySealedForFinalization,
@@ -7511,12 +7517,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Clears the pending user-declared opening center so another
-    /// candidate can be marked (issue #231).
+    /// candidate can be marked (issue bolph71656-ai/HTDT-Capture#231).
     func clearOpeningCenterPoint() {
         openingCenterPending = nil
     }
 
-    /// Confirms the field/install datum (issue #232): derived from
+    /// Confirms the field/install datum (issue bolph71656-ai/HTDT-Capture#232): derived from
     /// the committed room reference frame and the processed
     /// payload's finished-floor level, then committed as
     /// `session/room-field-datum.json`. Never a
@@ -7608,7 +7614,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Commits a field datum declared from bounded operands —
     /// entity/measurement/room-frame/stated picks authored in
-    /// Review (issue #232). Resolution is pure (entity positions,
+    /// Review (issue bolph71656-ai/HTDT-Capture#232). Resolution is pure (entity positions,
     /// measurement endpoints, frame vectors); the host only binds
     /// revision/session/space and commits.
     func commitFieldDatum(
@@ -7676,7 +7682,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Removes the committed field datum payload (issue #232).
+    /// Removes the committed field datum payload (issue bolph71656-ai/HTDT-Capture#232).
     func removeRoomFieldDatum() async {
         guard let store = workingSetStore else { return }
         do {
@@ -7690,7 +7696,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Enumerates RoomPlan door/window/opening candidates from the
     /// committed processed payload and merges them with any committed
-    /// review document (issue #231). Returns nil when no processed
+    /// review document (issue bolph71656-ai/HTDT-Capture#231). Returns nil when no processed
     /// RoomPlan payload exists.
     func openingReviewCandidates()
         async -> [RoomOpeningCandidate]?
@@ -7719,7 +7725,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    /// Commits a revised opening-review document (issue #231). The
+    /// Commits a revised opening-review document (issue bolph71656-ai/HTDT-Capture#231). The
     /// store enforces revision/session/space binding and evidence-link
     /// congruence.
     func commitOpeningReview(
@@ -7753,7 +7759,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Removes an unreferenced optional evidence frame for privacy
-    /// (issue #241). The store refuses end-boundary and referenced
+    /// (issue bolph71656-ai/HTDT-Capture#241). The store refuses end-boundary and referenced
     /// frames; on success the workspace is rebuilt so the gallery
     /// reflects the removal immediately.
     func removeEvidenceFrameForPrivacy(
@@ -7774,7 +7780,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Loads the read-only persisted-capture workspace for a validated
-    /// finalized record (issue #294). Runs off the main actor.
+    /// finalized record (issue bolph71656-ai/HTDT-Capture#294). Runs off the main actor.
     /// `true` only when the decode actually launched — callers push
     /// the viewer only then, so a refused call never strands the
     /// operator on a spinner.
@@ -7782,7 +7788,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func loadPersistedWorkspace(
         _ record: PersistedCaptureRecord
     ) -> Bool {
-        // #309: the read-only open had no in-flight guard at all —
+        // legacy bolph71656-ai/HTDT-Capture#309: the read-only open had no in-flight guard at all —
         // every tap re-launched the decode. Guard + mark the row busy.
         // A tap landing while a decode is still running is *not*
         // refused: it supersedes the older request — the generation
@@ -7859,7 +7865,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         manifest: manifest,
                         planPreview: planPreview
                     ),
-                    // #408/#409: bindables from the persisted
+                    // legacy bolph71656-ai/HTDT-Capture#408/legacy bolph71656-ai/HTDT-Capture#409: bindables from the persisted
                     // bundle's captured-room.json — the read-only
                     // 3D scene and survey targets over the same
                     // committed surface list.
@@ -7891,7 +7897,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Metadata-only comparison of the adopted finalized revision with
-    /// its parent (issue #221). Loads both manifests' decoded contents.
+    /// its parent (issue bolph71656-ai/HTDT-Capture#221). Loads both manifests' decoded contents.
     func compareAdoptedRevisionWithParent()
         async -> CaptureRevisionComparison?
     {
@@ -7930,7 +7936,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Inspects the retained working set of the current failed capture
-    /// (issue #224). Runs off the main actor and publishes the result.
+    /// (issue bolph71656-ai/HTDT-Capture#224). Runs off the main actor and publishes the result.
     func inspectFailedCapture() {
         guard state == .failed,
               let store = workingSetStore
@@ -7967,11 +7973,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Writes the diagnostic package for the current failed capture and
-    /// returns its URL for sharing (issue #224). The package is a
+    /// returns its URL for sharing (issue bolph71656-ai/HTDT-Capture#224). The package is a
     /// bounded JSON report — not a capture bundle — listing retained
     /// files plus decoded session/authority context.
     func exportFailedCaptureDiagnostics() async -> URL? {
-        // #309: exporting a diagnostic package is a real IO
+        // legacy bolph71656-ai/HTDT-Capture#309: exporting a diagnostic package is a real IO
         // operation — guard against concurrent taps and surface it in
         // the busy-operation set.
         guard state == .failed,
@@ -8030,7 +8036,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    // MARK: derived export (issues #306 / #318)
+    // MARK: derived export (issues bolph71656-ai/HTDT-Capture#306 / legacy bolph71656-ai/HTDT-Capture#318)
 
     /// Where a finalized revision's directory, digest, manifest and
     /// display name come from for a derived export — the currently
@@ -8082,7 +8088,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    /// Availability probe for the derived-export sheets (issue #306):
+    /// Availability probe for the derived-export sheets (issue bolph71656-ai/HTDT-Capture#306):
     /// which geometry sources the finalized bundle carries, plus the
     /// preview-bearing evidence frames the report may offer for
     /// explicit opt-in.
@@ -8137,7 +8143,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }.value
     }
 
-    /// Runs a derived 3D export for a finalized capture (issue #306).
+    /// Runs a derived 3D export for a finalized capture (issue bolph71656-ai/HTDT-Capture#306).
     /// The result is written under `<captureRoot>/derived-exports/` —
     /// never inside the canonical `finalized/` or `exports/` roots.
     func exportDerived3D(
@@ -8260,7 +8266,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }.value
     }
 
-    /// Runs the field-survey report export (issue #318). Only the
+    /// Runs the field-survey report export (issue bolph71656-ai/HTDT-Capture#318). Only the
     /// preview frames the operator explicitly selected are embedded;
     /// the canonical bundle is never modified.
     func exportSurveyReport(
@@ -8353,7 +8359,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Loads the handoff destinations for `sendCaptureToHTDT`
-    /// (#225): the system file/share destination plus any
+    /// (legacy bolph71656-ai/HTDT-Capture#225): the system file/share destination plus any
     /// operator-configured ingestion endpoints from
     /// `<captureRoot>/handoff-destinations.json`.
     func refreshHandoffDestinations() {
@@ -8364,7 +8370,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         ]
         if let root = Self.captureRootDirectory() {
-            // #379: QR-paired, identity-pinned receivers are named
+            // legacy bolph71656-ai/HTDT-Capture#379: QR-paired, identity-pinned receivers are named
             // destinations; configured raw endpoints remain as
             // unpinned fallbacks.
             if let paired = try? PairedHTDTDestinationStore(
@@ -8393,7 +8399,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         handoffDestinations = destinations
     }
 
-    /// Explicit operator Send-to-HTDT action (issue #225). Sends the
+    /// Explicit operator Send-to-HTDT action (issue bolph71656-ai/HTDT-Capture#225). Sends the
     /// validated archive bytes — the same `.htdtcapture` the share
     /// flow produces — and records an append-only receipt bound to the
     /// exact `capture_revision_id` and bundle digest. Never uploads
@@ -8491,7 +8497,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             workingSetStatus = outcomeStatus
 
         case .endpoint:
-            // #387: endpoint sends are durable jobs — recorded before
+            // legacy bolph71656-ai/HTDT-Capture#387: endpoint sends are durable jobs — recorded before
             // bytes move, idempotent at the receiver via the stable
             // delivery id, and retried under the queue's policy rather
             // than a one-shot fire-and-forget upload.
@@ -8574,8 +8580,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Refreshes the mission inbox, paired destinations and delivery
-    /// queue into the published props the home screen renders (#386/
-    /// #379/#387).
+    /// queue into the published props the home screen renders (legacy bolph71656-ai/HTDT-Capture#386/
+    /// legacy bolph71656-ai/HTDT-Capture#379/legacy bolph71656-ai/HTDT-Capture#387).
     private func refreshMissionDeliveryStores() {
         guard let captureRoot = Self.captureRootDirectory() else {
             missionRecords = []
@@ -8586,7 +8592,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
         let inbox = HTDTMissionInboxStore(captureRoot: captureRoot)
-        // #456: advance each record's lifecycle from the associations
+        // legacy bolph71656-ai/HTDT-Capture#456: advance each record's lifecycle from the associations
         // already on disk — an associated committed artifact is
         // `finalized`, a staged send is `delivered`.
         _ = try? inbox.reconcileLifecycles(
@@ -8611,7 +8617,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             (try? CrossRevisionRegistrationStore(
                 captureRoot: captureRoot
             ).load().registrations) ?? []
-        // #397: replay each mission's ledger into an evaluation —
+        // legacy bolph71656-ai/HTDT-Capture#397: replay each mission's ledger into an evaluation —
         // plan compatibility is required to evaluate, so a record
         // whose embedded plan cannot decode simply yields no
         // evaluation rather than a guessed one.
@@ -8669,7 +8675,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Sets or clears the operator's preferred head for a branched
-    /// series (issue #396). App-local metadata only — the choice
+    /// series (issue bolph71656-ai/HTDT-Capture#396). App-local metadata only — the choice
     /// never mutates any revision bundle.
     func preferRevisionHead(
         _ seriesID: CaptureSeriesID,
@@ -8699,7 +8705,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// The declared field datum of a persisted finalized revision
-    /// (#395): the shared physical anchor a registration is
+    /// (legacy bolph71656-ai/HTDT-Capture#395): the shared physical anchor a registration is
     /// established from. nil when the revision never recorded one or
     /// its bytes no longer decode — the caller fails closed.
     private func fieldDatumDocument(
@@ -8730,7 +8736,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Computes the inspectable shared-field-datum fit for a revision
-    /// pair (#395) without persisting anything — the UI shows the
+    /// pair (legacy bolph71656-ai/HTDT-Capture#395) without persisting anything — the UI shows the
     /// residuals before any accept decision.
     func proposeRevisionAlignment(
         _ sourceRevisionID: CaptureRevisionID,
@@ -8759,7 +8765,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Accepts the shared-field-datum registration for the pair as
-    /// immutable authority (#395): re-solves from the same declared
+    /// immutable authority (legacy bolph71656-ai/HTDT-Capture#395): re-solves from the same declared
     /// correspondences, refuses when a registration already binds the
     /// directed pair, and never rewrites either revision.
     @discardableResult
@@ -8806,7 +8812,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Commits `revision/registrations.json` into the working set
-    /// (#395): when accepted registrations name this revision, the
+    /// (legacy bolph71656-ai/HTDT-Capture#395): when accepted registrations name this revision, the
     /// exported bundle carries the transform authority as a declared
     /// supplemental document for HTDT. Best-effort — a commit
     /// failure never blocks finalization; the app-local registry
@@ -8839,7 +8845,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Ingests a finalized revision's task-plan status document into
-    /// the mission progress ledger (#397): exact plan compatibility
+    /// the mission progress ledger (legacy bolph71656-ai/HTDT-Capture#397): exact plan compatibility
     /// gates acceptance, and the ledger is app-local — failures never
     /// disturb the committed revision.
     private func ingestMissionProgress(
@@ -8873,7 +8879,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    /// Explicit mission-level waiver for a plan item (#397) —
+    /// Explicit mission-level waiver for a plan item (legacy bolph71656-ai/HTDT-Capture#397) —
     /// auditable and distinct from a revision-local skip.
     func waiveMissionItem(
         _ recordID: String,
@@ -8900,7 +8906,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Inbox import shared by every mission entry point (#386/#457):
+    /// Inbox import shared by every mission entry point (legacy bolph71656-ai/HTDT-Capture#386/legacy bolph71656-ai/HTDT-Capture#457):
     /// envelopes and bare plans land as mission records with the
     /// dedup/supersession contract intact.
     private func importMissionEnvelopeData(_ data: Data) throws {
@@ -8920,7 +8926,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Imports a mission package file — envelope or bare task plan —
-    /// into the inbox (issue #386).
+    /// into the inbox (issue bolph71656-ai/HTDT-Capture#386).
     func importMissionPackage(_ url: URL) async {
         let accessing =
             url.startAccessingSecurityScopedResource()
@@ -8947,8 +8953,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Starts or resumes a mission record: dependencies are evaluated
     /// before Start, a single mission may be active at a time, and
-    /// the embedded plan becomes the capture's task plan (#386).
-    /// Launch routing (issue #410): the mission workflow never assumes
+    /// the embedded plan becomes the capture's task plan (legacy bolph71656-ai/HTDT-Capture#386).
+    /// Launch routing (issue bolph71656-ai/HTDT-Capture#410): the mission workflow never assumes
     /// spatial capture — the boundary classifies the record into a
     /// spatial, field-return, artifact-review, or unsupported route.
     func startMission(_ recordID: String) async {
@@ -8960,7 +8966,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         case .fieldReturn:
             // Start still activates the record — the non-spatial
             // path continues in the field-return workspace, never
-            // in a scan session (#410).
+            // in a scan session (legacy bolph71656-ai/HTDT-Capture#410).
             do {
                 _ = try store.startMission(
                     recordID: recordID,
@@ -9010,7 +9016,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             taskPlan = resume.planImport.plan
             taskPlanSHA256 = resume.planImport.planSHA256
-            // #386/#353: the mission's plan must also enter the
+            // legacy bolph71656-ai/HTDT-Capture#386/legacy bolph71656-ai/HTDT-Capture#353: the mission's plan must also enter the
             // capture pipeline's imported-plan channel — the
             // checklist entry, the review mission section, item
             // marks, and the persisted status document all read this
@@ -9033,7 +9039,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Mission launch routing (issue #410): re-decodes the record's
+    /// Mission launch routing (issue bolph71656-ai/HTDT-Capture#410): re-decodes the record's
     /// embedded plan and classifies its items spatial vs field —
     /// the route a mission takes is decided at the boundary, never
     /// inside whichever surface Start was pressed on.
@@ -9079,7 +9085,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Clears the active-mission pointer and the plan context —
-    /// records and their captures are never touched (#386).
+    /// records and their captures are never touched (legacy bolph71656-ai/HTDT-Capture#386).
     func deactivateMission() async {
         try? missionInboxStore?.pauseActiveMission()
         taskPlan = nil
@@ -9098,7 +9104,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Closes a mission whose field work or delivery already landed
-    /// (#456) — the explicit counterpart of the derived states.
+    /// (legacy bolph71656-ai/HTDT-Capture#456) — the explicit counterpart of the derived states.
     func completeMission(_ recordID: String) async {
         guard let store = missionInboxStore else { return }
         do {
@@ -9114,7 +9120,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         refreshMissionDeliveryStores()
     }
 
-    /// Persists the operator's mission annotation (#463) — operator
+    /// Persists the operator's mission annotation (legacy bolph71656-ai/HTDT-Capture#463) — operator
     /// truth only, never written into the mission payload.
     func updateMissionUserNote(
         _ recordID: String,
@@ -9132,9 +9138,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// The dependency report the mission detail view renders before
-    /// Start (#386) — declared dependencies, catalog pin, and any
+    /// Start (legacy bolph71656-ai/HTDT-Capture#386) — declared dependencies, catalog pin, and any
     /// mission-level receiver requirement gaps against paired
-    /// destinations (#374).
+    /// destinations (legacy bolph71656-ai/HTDT-Capture#374).
     func evaluateMissionDependencies(
         _ recordID: String
     ) async throws -> HTDTMissionDependencyReport {
@@ -9200,7 +9206,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Decodes and validates a QR pairing payload for the confirm
-    /// sheet (#379).
+    /// sheet (legacy bolph71656-ai/HTDT-Capture#379).
     func pairDestinationPayload(
         _ data: Data
     ) throws -> HTDTReceiverPairingPayload {
@@ -9208,7 +9214,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Stores the confirmed pairing — the pinned identity now binds
-    /// sends to that receiver (#379).
+    /// sends to that receiver (legacy bolph71656-ai/HTDT-Capture#379).
     func confirmPairing(
         _ payload: HTDTReceiverPairingPayload
     ) async {
@@ -9216,7 +9222,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             _ = try pairedDestinationStore?.pair(payload: payload)
             refreshMissionDeliveryStores()
             refreshHandoffDestinations()
-            // #422: a fresh pairing is one of the receive leg's
+            // legacy bolph71656-ai/HTDT-Capture#422: a fresh pairing is one of the receive leg's
             // refresh triggers — pull pending missions now.
             _ = await checkHTDTForMissions()
         } catch {
@@ -9241,7 +9247,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Fetches a paired receiver's capability document with the
-    /// pairing pin and stores it as a labeled cache (#374/#379).
+    /// pairing pin and stores it as a labeled cache (legacy bolph71656-ai/HTDT-Capture#374/legacy bolph71656-ai/HTDT-Capture#379).
     func refreshEndpointCapabilities(
         _ destinationID: String
     ) async {
@@ -9269,7 +9275,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Delivery queue operator controls (#387). A rejected mutation
+    /// Delivery queue operator controls (legacy bolph71656-ai/HTDT-Capture#387). A rejected mutation
     /// surfaces as a status line instead of vanishing behind `try?` —
     /// the operator must know the job state did not change.
     func deliveryRetryNow(_ jobID: String) async {
@@ -9336,7 +9342,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Endpoint capability preflight (#374): fetches the
+    /// Endpoint capability preflight (legacy bolph71656-ai/HTDT-Capture#374): fetches the
     /// destination's capability document (pinned when the endpoint is
     /// paired) and classifies the validated export's compatibility —
     /// without uploading a single archive byte.
@@ -9441,7 +9447,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Deletes a validated export archive independently of its
-    /// finalized capture (issue #251). Refuses when the finalized copy
+    /// finalized capture (issue bolph71656-ai/HTDT-Capture#251). Refuses when the finalized copy
     /// no longer exists on disk — the archive is the last copy, which
     /// is exactly the case where deleting it would lose the capture.
     /// Batch callers enqueue per record; one drain task runs the
@@ -9499,7 +9505,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Saves operator library metadata — display name and note — for a
-    /// series or a single revision (issue #219). App-local only; the
+    /// series or a single revision (issue bolph71656-ai/HTDT-Capture#219). App-local only; the
     /// capture bundle is never modified.
     func updateLibraryEntry(
         revisionID: CaptureRevisionID?,
@@ -9567,7 +9573,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
             self.persistedInventory = inventory
             // Operator-facing names/notes layer over the inventory
-            // (issue #219); loaded with each scan so UI edits reflect
+            // (issue bolph71656-ai/HTDT-Capture#219); loaded with each scan so UI edits reflect
             // the latest document.
             if let root = Self.captureRootDirectory(),
                let document = try? CaptureLibraryMetadataStore(
@@ -9576,7 +9582,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             {
                 self.libraryMetadata = document
             }
-            // Acquisition provenance join (#317): every validated
+            // Acquisition provenance join (legacy bolph71656-ai/HTDT-Capture#317): every validated
             // bundle gets a declared origin — explicit records stay
             // authoritative; entries that predate the provenance store
             // backfill as `legacy_unknown` rather than being silently
@@ -9927,7 +9933,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Host-level validated import for an external `.htdtcapture`
-    /// document (#165). The incoming archive is treated as untrusted:
+    /// document (legacy bolph71656-ai/HTDT-Capture#165). The incoming archive is treated as untrusted:
     /// its bytes are validated before the manifest identity is read,
     /// and the staged importer only publishes the extracted directory
     /// into `finalized/` after the extracted bundle revalidates to the
@@ -9935,7 +9941,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// active capture's coordinate authority can never be overwritten
     /// by a document open. On success the imported revision is opened
     /// into the read-only finalized workflow, where any
-    /// revise-existing action stays explicit (#155).
+    /// revise-existing action stays explicit (legacy bolph71656-ai/HTDT-Capture#155).
     func importCaptureArchive(from url: URL) {
         guard state == .idle else {
             workingSetStatus = String(localized: "An external capture archive can only be imported while no capture is active")
@@ -10054,7 +10060,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 guard self.state == .idle else {
                     return
                 }
-                // Acquisition provenance (#317): the imported bundle
+                // Acquisition provenance (legacy bolph71656-ai/HTDT-Capture#317): the imported bundle
                 // carries `imported_file` — never silently grouped
                 // with device-created captures. A digest-pinned
                 // re-import of identical bytes stays a no-op; a
@@ -10106,7 +10112,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// The single validated file-entry boundary (issue #393):
+    /// The single validated file-entry boundary (issue bolph71656-ai/HTDT-Capture#393):
     /// identify the document kind, hold its security-scoped access
     /// for the whole async import, gate by capture state, then hand
     /// to the owning importer — which remains authoritative for its
@@ -10144,7 +10150,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Catalogs arriving via the shared boundary (#393): stored
+    /// Catalogs arriving via the shared boundary (legacy bolph71656-ai/HTDT-Capture#393): stored
     /// without activation while a capture is active — explicit
     /// adoption stays an operator action on the catalog picker;
     /// adopted immediately while idle.
@@ -10182,7 +10188,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// #378: validates a `.htdtcapturelibrary` package and stages an
+    /// legacy bolph71656-ai/HTDT-Capture#378: validates a `.htdtcapturelibrary` package and stages an
     /// import preview — manifest → per-archive validation → dedup /
     /// conflict classification → merge counts. Nothing is imported
     /// until `confirmLibraryImport`.
@@ -10267,7 +10273,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// #378: commits the staged library import — each new revision's
+    /// legacy bolph71656-ai/HTDT-Capture#378: commits the staged library import — each new revision's
     /// archive bytes are installed verbatim, filtered metadata merges
     /// with adopt-empty / retain-local-conflict, receipts append
     /// deduped.
@@ -10338,7 +10344,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Dismisses the staged library preview and removes its staging
-    /// directory (#378). Refused while the commit is in flight —
+    /// directory (legacy bolph71656-ai/HTDT-Capture#378). Refused while the commit is in flight —
     /// discarding the staging directory under a running importer
     /// fails the import as if the package were corrupt.
     func dismissLibraryImport() {
@@ -10352,7 +10358,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         libraryImportStagingDirectory = nil
     }
 
-    /// #378: exports every persisted capture — active and archived —
+    /// legacy bolph71656-ai/HTDT-Capture#378: exports every persisted capture — active and archived —
     /// plus filtered metadata and receipts as one
     /// `.htdtcapturelibrary` package under `derived-exports/` for
     /// sharing — `exports/` is scanned by the inventory, which
@@ -10440,7 +10446,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// #394: archives or restores a series — the lifecycle state is
+    /// legacy bolph71656-ai/HTDT-Capture#394: archives or restores a series — the lifecycle state is
     /// app-local metadata; the canonical bundles and receipts are
     /// untouched.
     func setSeriesArchived(
@@ -10472,7 +10478,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// #394: sets/clears a revision's importance marks — milestone,
+    /// legacy bolph71656-ai/HTDT-Capture#394: sets/clears a revision's importance marks — milestone,
     /// keep local, favorite, pinned.
     func updateRevisionMark(
         _ revisionID: CaptureRevisionID,
@@ -10497,7 +10503,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// #394: dependency-aware series delete — the preview's blockers
+    /// legacy bolph71656-ai/HTDT-Capture#394: dependency-aware series delete — the preview's blockers
     /// (pending delivery jobs, importance marks without the explicit
     /// override) skip revisions instead of deleting them, and the
     /// result names exactly what left the device.
@@ -10608,7 +10614,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    /// Advisory payload decode for a reopened capture (#223): same
+    /// Advisory payload decode for a reopened capture (legacy bolph71656-ai/HTDT-Capture#223): same
     /// manifest-authenticated pattern as the quality report, degrading
     /// to nil for captures finalized before the advisory contract.
     nonisolated private static func persistedAdvisoryReport(
@@ -10634,7 +10640,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    /// Operator task-profile selection (#217/#259). Advisory only —
+    /// Operator task-profile selection (legacy bolph71656-ai/HTDT-Capture#217/legacy bolph71656-ai/HTDT-Capture#259). Advisory only —
     /// recorded to the working set so seal persists the completeness
     /// evaluation inside the advisory payload.
     func selectTaskProfile(
@@ -10644,7 +10650,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let previous = taskProfile
         taskProfile = profile
         self.skippedTaskRequirementIDs = skippedRequirementIDs
-        // #352: profile selection on the setup screen is pending
+        // legacy bolph71656-ai/HTDT-Capture#352: profile selection on the setup screen is pending
         // mission intent, bound at Begin; keep the presentation in
         // sync. Once a working set exists the same action is an
         // explicit mission change and records provenance.
@@ -10679,12 +10685,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    // MARK: - Revisit flags (#325)
+    // MARK: - Revisit flags (legacy bolph71656-ai/HTDT-Capture#325)
 
     /// One-tap flag during scanning: snapshots the center-raycast
     /// target (or the camera pose when no hit exists), appends a
     /// bounded marker, persists the flag document, and confirms
-    /// through the #252 cue channel. Returns the new flag id so the
+    /// through the legacy bolph71656-ai/HTDT-Capture#252 cue channel. Returns the new flag id so the
     /// view can offer the optional details sheet, nil when the flag
     /// could not be recorded.
     func flagForReview() -> String? {
@@ -10798,7 +10804,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         persistRevisitFlags()
     }
 
-    /// #325 Review resolution: the outcome names what the flag
+    /// legacy bolph71656-ai/HTDT-Capture#325 Review resolution: the outcome names what the flag
     /// resolved to — linked authority, acknowledged, or unavailable.
     func resolveRevisitFlag(
         _ flagID: String,
@@ -10843,7 +10849,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Persists the current flag document; failures surface on the
-    /// status line rather than silently dropping flags (#325).
+    /// status line rather than silently dropping flags (legacy bolph71656-ai/HTDT-Capture#325).
     private func persistRevisitFlags() {
         guard let store = workingSetStore,
               let identity = workingSetIdentity
@@ -10962,14 +10968,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         Task { await refreshMissionOutcomes() }
     }
 
-    /// #352 Review-time checklist marks for the bound task plan.
-    /// Also forwards the mark to an imported task plan (#240) — the
+    /// legacy bolph71656-ai/HTDT-Capture#352 Review-time checklist marks for the bound task plan.
+    /// Also forwards the mark to an imported task plan (legacy bolph71656-ai/HTDT-Capture#240) — the
     /// two statuses coexist: `boundTaskPlanStatus` tracks the
     /// mission-bound plan persisted via the working set, while
     /// `captureTaskPlanStatus` is the standalone imported plan.
-    /// #364 §10: an operator reason captured by the checklist's
+    /// legacy bolph71656-ai/HTDT-Capture#364 §10: an operator reason captured by the checklist's
     /// "with reason" marks persists as a mission-level waiver note
-    /// (#397) on every mission record matching a marked plan.
+    /// (legacy bolph71656-ai/HTDT-Capture#397) on every mission record matching a marked plan.
     func markTaskPlanItem(
         _ itemID: String,
         outcome: TaskPlanItemOutcome,
@@ -11049,7 +11055,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// #364 §10: whether a mission-inbox record exists for the
+    /// legacy bolph71656-ai/HTDT-Capture#364 §10: whether a mission-inbox record exists for the
     /// checklist's plan — the waiver note is the only audited reason
     /// channel, so "with reason" marking is only offered when a
     /// record can persist it.
@@ -11063,7 +11069,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Persists a marking reason as an explicit mission-level waiver
-    /// (#397) on the record matching the marked plan — append-only
+    /// (legacy bolph71656-ai/HTDT-Capture#397) on the record matching the marked plan — append-only
     /// and auditable, and the status document contract keeps its
     /// unchanged no-reason field set. No matching record means no
     /// ledger channel: the mark still lands, the reason is reported
@@ -11108,7 +11114,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Operator capture-strategy selection (#307). Advisory only —
+    /// Operator capture-strategy selection (legacy bolph71656-ai/HTDT-Capture#307). Advisory only —
     /// ignored when a pinned task-plan recommendation is in force, and
     /// applied only at the next `beginCapture`, never retroactively to
     /// a running scan.
@@ -11121,7 +11127,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         selectedStrategyID = identifier
     }
 
-    /// Applies a task plan's strategy recommendation (#307/#240).
+    /// Applies a task plan's strategy recommendation (legacy bolph71656-ai/HTDT-Capture#307/legacy bolph71656-ai/HTDT-Capture#240).
     /// `recommended_capture_strategy` adopts the profile as a soft
     /// recommendation; `capture_strategy_pinned` locks the picker
     /// until the plan is cleared. Unknown ids are ignored — plan
@@ -11147,7 +11153,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Clears any task-plan strategy override, returning the picker to
-    /// the operator's explicit selection (#307).
+    /// the operator's explicit selection (legacy bolph71656-ai/HTDT-Capture#307).
     func clearTaskPlanStrategyOverride() {
         taskPlanStrategyOverride = nil
         strategyPinnedByTaskPlan = false
@@ -11158,7 +11164,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Resolves which published profile steers the next scan and under
-    /// what source that choice is recorded (#307).
+    /// what source that choice is recorded (legacy bolph71656-ai/HTDT-Capture#307).
     private func resolvedCaptureStrategy()
         -> (CaptureStrategyProfile, CaptureStrategySource)
     {
@@ -11181,7 +11187,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    /// Imports a plan-reference underlay document (#322). The JSON
+    /// Imports a plan-reference underlay document (legacy bolph71656-ai/HTDT-Capture#322). The JSON
     /// must carry its own explicit scale/alignment authority — this
     /// path never infers scale. When a working set is already live the
     /// document is rebound to the active revision and persisted
@@ -11216,7 +11222,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Rebinds the pending underlay to the live revision's identity
-    /// and writes `reference/plan-underlay.json` (#322). A failure is
+    /// and writes `reference/plan-underlay.json` (legacy bolph71656-ai/HTDT-Capture#322). A failure is
     /// recorded as a warning — the underlay stays operator-visible
     /// in memory and never blocks scanning.
     private func persistPendingPlanUnderlay() async {
@@ -11265,7 +11271,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    // MARK: - Field notes (#375)
+    // MARK: - Field notes (legacy bolph71656-ai/HTDT-Capture#375)
 
     /// Commits an operator field note bound to this revision. During
     /// scanning `attachLatestEvidence` binds the most recently
@@ -11284,7 +11290,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         anchorRequest: CaptureFieldNoteAnchorRequest = .none
     ) {
         // Notes are operator-authored supplemental docs — not spatial
-        // authority — so the #276 finalization seal never silences
+        // authority — so the legacy bolph71656-ai/HTDT-Capture#276 finalization seal never silences
         // them; the store's own mutability contract is the boundary.
         guard let store = workingSetStore,
               state == .scanning || state == .reviewing
@@ -11292,7 +11298,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         else {
             return
         }
-        // #421: resolve the requested anchor against the live
+        // legacy bolph71656-ai/HTDT-Capture#421: resolve the requested anchor against the live
         // session now — a validated raycast point or the device
         // viewpoint — while the AR session's pose is fresh. A miss
         // degrades to `spatialPosition = nil` (the note still
@@ -11352,7 +11358,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Resolves a scan-time anchor request into a validated spatial
-    /// position (issue #421): `subjectPoint` performs the live center
+    /// position (issue bolph71656-ai/HTDT-Capture#421): `subjectPoint` performs the live center
     /// hit test against captured geometry (mesh, RoomPlan object, or
     /// plane — the same resolution the reticle probe reports);
     /// `viewpoint` takes the device pose from the current frame. Both
@@ -11398,7 +11404,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Marks an active field note resolved — the terminal lifecycle
-    /// transition Review exposes (#375).
+    /// transition Review exposes (legacy bolph71656-ai/HTDT-Capture#375).
     func resolveFieldNote(_ noteID: CaptureFieldNoteID) {
         guard let store = workingSetStore else { return }
         Task { @MainActor [weak self] in
@@ -11415,7 +11421,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Supersedes a note with a corrected replacement — the stored
     /// bytes pair commits atomically so the lineage never splits
-    /// (#375).
+    /// (legacy bolph71656-ai/HTDT-Capture#375).
     func supersedeFieldNote(
         _ noteID: CaptureFieldNoteID,
         replacementText: String,
@@ -11470,7 +11476,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             && workingSetStore != nil
     }
 
-    /// Review-side authoring entry point (#375): same commit path as
+    /// Review-side authoring entry point (legacy bolph71656-ai/HTDT-Capture#375): same commit path as
     /// a mid-scan note but carrying the operator's binding refs
     /// instead of the latest-evidence attachment.
     func recordReviewFieldNote(
@@ -11487,7 +11493,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    /// Binds an unbound note to an authority/evidence ref (#375) by
+    /// Binds an unbound note to an authority/evidence ref (legacy bolph71656-ai/HTDT-Capture#375) by
     /// superseding it — the stored pair keeps the original text and
     /// gains the binding, so the lineage shows the Review-time intent.
     func bindFieldNote(
@@ -11534,7 +11540,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    // MARK: - Evidence privacy flag (#376)
+    // MARK: - Evidence privacy flag (legacy bolph71656-ai/HTDT-Capture#376)
 
     /// Marks an evidence frame privacy-sensitive in the contact sheet
     /// — an advisory note carrying `frame=<id>`, riding the same
@@ -11561,7 +11567,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// #460: records the paired clearing note — the flag is advisory,
+    /// legacy bolph71656-ai/HTDT-Capture#460: records the paired clearing note — the flag is advisory,
     /// so the operator must be able to undo it without losing the
     /// provenance trail (declare/revoke precedent).
     func unflagEvidenceFrameForPrivacy(_ frameID: EvidenceFrameID) {
@@ -11585,9 +11591,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    // MARK: - Support & Diagnostics (#389)
+    // MARK: - Support & Diagnostics (legacy bolph71656-ai/HTDT-Capture#389)
 
-    /// Collects a privacy-reviewed app diagnostic package (#389).
+    /// Collects a privacy-reviewed app diagnostic package (legacy bolph71656-ai/HTDT-Capture#389).
     /// Everything is already privacy-shaped at collection: resource
     /// events arrive as counts, endpoint reachability as a verdict
     /// class, device identity as a model family — never serials,
@@ -11656,7 +11662,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Model family only ("iPad") — never a serial or machine
-    /// identifier, per the #389 privacy envelope.
+    /// identifier, per the legacy bolph71656-ai/HTDT-Capture#389 privacy envelope.
     private static func diagnosticsDeviceFamily() -> String {
         #if os(iOS)
         return UIDevice.current.model
@@ -11665,8 +11671,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         #endif
     }
 
-    /// The last endpoint capability-preflight result (#374), mirrored
-    /// into diagnostics (#389) as a reachability verdict class.
+    /// The last endpoint capability-preflight result (legacy bolph71656-ai/HTDT-Capture#374), mirrored
+    /// into diagnostics (legacy bolph71656-ai/HTDT-Capture#389) as a reachability verdict class.
     private var lastEndpointPreflightVerdict:
         HTDTCompatibilityVerdict?
     private var lastEndpointPreflightCheckedAtUTC: String?
@@ -11679,10 +11685,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             BundleTimestamp.utcString(from: Date())
     }
 
-    // MARK: - Field mission returns (#400)
+    // MARK: - Field mission returns (legacy bolph71656-ai/HTDT-Capture#400)
 
     /// Index of finalized field returns under the capture root —
-    /// never inside a capture bundle (issue #400). Draft workspaces
+    /// never inside a capture bundle (issue bolph71656-ai/HTDT-Capture#400). Draft workspaces
     /// live as `field-returns/<contribution>.draft.json` beside the
     /// finalized `.htdtfieldreturn` artifacts.
     private static func fieldReturnsDirectory(
@@ -11705,7 +11711,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Field-return draft workspace files under `field-returns/` —
     /// decoded best-effort; a corrupt draft is skipped, never
-    /// repaired in place (issue #400).
+    /// repaired in place (issue bolph71656-ai/HTDT-Capture#400).
     private func fieldReturnDrafts(
         directory: URL
     ) -> [HTDTFieldReturnWorkspace] {
@@ -11730,7 +11736,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Finalized `.htdtfieldreturn` artifact files under
-    /// `field-returns/` — listed in mission history (#400).
+    /// `field-returns/` — listed in mission history (legacy bolph71656-ai/HTDT-Capture#400).
     func fieldReturnArtifacts() -> [URL] {
         guard let root = Self.captureRootDirectory(),
               let names = try? FileManager.default
@@ -11750,7 +11756,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Finalized field-return documents for mission history (#400) —
+    /// Finalized field-return documents for mission history (legacy bolph71656-ai/HTDT-Capture#400) —
     /// each container is verified on read; a corrupt artifact is
     /// skipped rather than presented as a contribution.
     func listFieldReturns() async
@@ -11763,7 +11769,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Opens the field-return workspace for a mission record (#400):
+    /// Opens the field-return workspace for a mission record (legacy bolph71656-ai/HTDT-Capture#400):
     /// resumes a persisted draft when one exists, otherwise seeds the
     /// task ledger from the mission's plan items with the per-task
     /// capability preflight applied — spatial tasks enter the ledger
@@ -11809,7 +11815,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Persists a draft workspace to the field-returns directory so a
-    /// relaunch resumes the operator's outcomes (#400).
+    /// relaunch resumes the operator's outcomes (legacy bolph71656-ai/HTDT-Capture#400).
     func persistFieldReturnDraft(
         _ workspace: HTDTFieldReturnWorkspace
     ) async {
@@ -11840,7 +11846,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Finalizes a field-return workspace into a `.htdtfieldreturn`
-    /// container (#400): the assembler embeds the non-spatial
+    /// container (legacy bolph71656-ai/HTDT-Capture#400): the assembler embeds the non-spatial
     /// authority documents and evidence assets, the archive writer
     /// produces a stored-ZIP container with a verified
     /// `container-manifest.json`, the index records the finalized
@@ -11915,7 +11921,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Paired Mission receive leg (issue #422): pulls pending
+    /// Paired Mission receive leg (issue bolph71656-ai/HTDT-Capture#422): pulls pending
     /// Mission packages from every active paired receiver,
     /// verifies the exact bytes against each descriptor's pinned
     /// digest, and feeds the canonical Mission Inbox importer —
@@ -11977,7 +11983,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Resolves the finalized `.htdtfieldreturn` container's URL
-    /// (#423) — nil until finalize has produced the artifact.
+    /// (legacy bolph71656-ai/HTDT-Capture#423) — nil until finalize has produced the artifact.
     func fieldReturnArtifactURL(
         contributionID: HTDTFieldReturnID
     ) -> URL? {
@@ -11993,7 +11999,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         ) ? url : nil
     }
 
-    /// Field-return artifact preflight (#423 §5): classifies the
+    /// Field-return artifact preflight (legacy bolph71656-ai/HTDT-Capture#423 §5): classifies the
     /// `.htdtfieldreturn` container against the destination's
     /// capability document — kind/schema/size admission, never a
     /// bundle-manifest check against non-bundle bytes. Fetch failure
@@ -12086,7 +12092,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Sends a finalized `.htdtfieldreturn` container through the
-    /// same durable delivery queue captures ride (issue #423): the
+    /// same durable delivery queue captures ride (issue bolph71656-ai/HTDT-Capture#423): the
     /// job is recorded before any bytes move, idempotent at the
     /// receiver via its stable delivery id, and retries carry the
     /// exact finalized bytes — re-finalization is never required.
@@ -12203,7 +12209,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Opens the semantic-correction sheet (#319): the selected
+    /// Opens the semantic-correction sheet (legacy bolph71656-ai/HTDT-Capture#319): the selected
     /// library record's finalized bundle is validated and its semantic
     /// records decoded as the correction's starting point. The parent
     /// stays untouched — edits produce a new child revision only on
@@ -12244,7 +12250,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Builds the semantic child revision (#319): metadata edits only —
+    /// Builds the semantic child revision (legacy bolph71656-ai/HTDT-Capture#319): metadata edits only —
     /// the parent's sensor evidence is carried over byte-for-byte and
     /// the child gets its own lifecycle timestamps plus the exact
     /// semantic diff in `revision/intent.json`.
@@ -12333,7 +12339,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    /// #352: freezes the mission the operator chose on the setup
+    /// legacy bolph71656-ai/HTDT-Capture#352: freezes the mission the operator chose on the setup
     /// screen onto the fresh working revision — the imported HTDT
     /// task-plan bytes persist verbatim at
     /// `session/capture-task-plan.json` with an initial all-pending
@@ -12437,10 +12443,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    /// App-owned catalog library (#302): every imported snapshot kept
+    /// App-owned catalog library (legacy bolph71656-ai/HTDT-Capture#302): every imported snapshot kept
     /// under its content key with an explicit active-selection pointer.
     /// The legacy single-slot cache file (`imported-equipment-catalog
-    /// .json`, #211) migrates in on first use. The directory lives
+    /// .json`, legacy bolph71656-ai/HTDT-Capture#211) migrates in on first use. The directory lives
     /// directly under the capture app-support root — outside
     /// `finalized/`, `exports/` and `working/` — so the persisted-
     /// capture inventory never classifies it as a capture artifact and
@@ -12462,7 +12468,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// #458: the roster file sits directly under the capture root —
+    /// legacy bolph71656-ai/HTDT-Capture#458: the roster file sits directly under the capture root —
     /// outside `finalized/`, `exports/` and `working/` — for the same
     /// reason the equipment catalog does: the persisted-capture
     /// inventory must never classify app-owned identity metadata as a
@@ -12475,7 +12481,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// #458: remember an operator profile app-wide (upsert by
+    /// legacy bolph71656-ai/HTDT-Capture#458: remember an operator profile app-wide (upsert by
     /// `operator_id`). Called when the workspace saves an Author
     /// profile — committed captures keep their own immutable copy.
     func updateOperatorRoster(_ profile: OperatorProfile) {
@@ -12487,7 +12493,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         operatorRoster = roster.operators
     }
 
-    /// #458: forget a roster profile; in-capture records keep the
+    /// legacy bolph71656-ai/HTDT-Capture#458: forget a roster profile; in-capture records keep the
     /// copy they already committed.
     func removeFromOperatorRoster(
         operatorID: OperatorProfileID
@@ -12522,7 +12528,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         guard cameraPermission == .authorized else {
-            // #295: a denied/restricted/unavailable camera is a
+            // legacy bolph71656-ai/HTDT-Capture#295: a denied/restricted/unavailable camera is a
             // recoverable prerequisite, not a failed capture. Stay in
             // `.permissions` so the operator can open iOS Settings or
             // retry; no working revision is created for a pre-capture
@@ -12541,7 +12547,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         await continueCapturePreparation()
     }
 
-    /// Everything after the permission gate (#295): working-set
+    /// Everything after the permission gate (legacy bolph71656-ai/HTDT-Capture#295): working-set
     /// creation, handler binding, `.prepared` → `.scanning`. Reached
     /// from `continueBeginCapture` or from a permission retry after
     /// the operator enabled camera access in Settings.
@@ -12570,7 +12576,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         // Backup-exclusion / Data Protection failures never silently
         // pass: they enter the revision's own resource-event record and
-        // remain visible in the working-set status (#136, #166).
+        // remain visible in the working-set status (legacy bolph71656-ai/HTDT-Capture#136, legacy bolph71656-ai/HTDT-Capture#166).
         if !prepared.storagePolicyWarnings.isEmpty {
             for warning in prepared.storagePolicyWarnings {
                 await prepared.store.recordResourceEvent(
@@ -12593,11 +12599,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let store = prepared.store
 
         // Mission payloads imported before the working set existed
-        // persist into this revision now (#353); a pending repair
-        // link binds it to the task it answers (#321).
+        // persist into this revision now (legacy bolph71656-ai/HTDT-Capture#353); a pending repair
+        // link binds it to the task it answers (legacy bolph71656-ai/HTDT-Capture#321).
         await activateStagedMissionState(store: store)
 
-        // #352: bind the mission configured on the setup screen to the
+        // legacy bolph71656-ai/HTDT-Capture#352: bind the mission configured on the setup screen to the
         // new working revision before any scan sample lands — plan
         // identity+version are recorded verbatim; the mission is
         // workflow intent, never observed truth.
@@ -12625,7 +12631,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         }
 
-        // CONTRACT (#168): the sibling platform agent exposes an
+        // CONTRACT (legacy bolph71656-ai/HTDT-Capture#168): the sibling platform agent exposes an
         // ARSession lifecycle surface `sessionLifecycleHandler` on
         // SharedARSessionController delivering interruption-began,
         // interruption-ended, and terminal-failure events on MainActor.
@@ -12646,7 +12652,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         // Bounded mesh lifecycle + RoomPlan instruction diagnostics
-        // (#268/#260). Both are advisory provenance sinks on the store,
+        // (legacy bolph71656-ai/HTDT-Capture#268/legacy bolph71656-ai/HTDT-Capture#260). Both are advisory provenance sinks on the store,
         // never quality gates.
         sessionController.meshAnchorLifecycleHandler = {
             [weak self] kind, anchorIDs, timestampSeconds in
@@ -12738,7 +12744,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
         }
 
-        // Benchmark binding (#285): resolve refs whose compatibility
+        // Benchmark binding (legacy bolph71656-ai/HTDT-Capture#285): resolve refs whose compatibility
         // predicates deterministically match this capture's app/device/
         // OS/configuration context. An empty authority publishes an
         // explicit empty list.
@@ -12846,7 +12852,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        // #200: RoomPlan's run() necessarily starts the shared ARSession,
+        // legacy bolph71656-ai/HTDT-Capture#200: RoomPlan's run() necessarily starts the shared ARSession,
         // so the first usable monotonic↔UTC correlation is captured
         // immediately here — before the active-configuration retry window
         // and before session-foundation persistence, which must not delay
@@ -12942,7 +12948,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // non-plain outcome becomes a bounded advisory.
         await persistReferenceObjectConfigurationEcho(store: store)
 
-        // Strategy provenance (#307): record which published
+        // Strategy provenance (legacy bolph71656-ai/HTDT-Capture#307): record which published
+||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
+        // Strategy provenance (legacy bolph71656-ai/HTDT-Capture#307): record which published
         // guidance/evidence policy steers this scan so a consumer can
         // read exactly what the advisory budgets were. Advisory
         // provenance only — a write failure degrades to a status note,
@@ -12977,7 +12985,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
         }
 
-        // Plan-reference underlay (#322): an operator import held
+        // Plan-reference underlay (legacy bolph71656-ai/HTDT-Capture#322): an operator import held
         // during setup is rebound to the live revision and persisted
         // now that capture/coordinate-space identity exists.
         if planUnderlayDocument != nil {
@@ -13267,7 +13275,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Periodic storage accounting for the #308 advisory surface. Runs
+    /// Periodic storage accounting for the legacy bolph71656-ai/HTDT-Capture#308 advisory surface. Runs
+||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
+    /// Periodic storage accounting for the legacy bolph71656-ai/HTDT-Capture#308 advisory surface. Runs
     /// at the resource-monitor cadence while `.scanning`; each sample
     /// recomputes the working revision's retained bytes by category,
     /// the measured device free space against the warning/critical
@@ -13354,7 +13364,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Measured device free capacity for important usage (#308):
+    /// Measured device free capacity for important usage (legacy bolph71656-ai/HTDT-Capture#308):
     /// nil when the platform cannot report a value — the UI then
     /// shows "unknown" rather than a fabricated number.
     private static func measuredAvailableStorageBytes() -> Int64? {
@@ -13371,7 +13381,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Re-check camera authorization while the permission gate is
-    /// open (#295): granted resumes the ordinary preparation
+    /// open (legacy bolph71656-ai/HTDT-Capture#295): granted resumes the ordinary preparation
     /// pipeline; anything else only refreshes the displayed state.
     func retryCameraPermission() {
         guard state == .permissions else {
@@ -13391,7 +13401,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Foreground refresh (#295): an iOS Settings trip can flip camera
+    /// Foreground refresh (legacy bolph71656-ai/HTDT-Capture#295): an iOS Settings trip can flip camera
     /// authorization; an authorized status resumes capture
     /// preparation and refreshes the setup presentation when pending.
     func sceneDidBecomeActive() {
@@ -13405,7 +13415,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Opens the app's iOS Settings page where the operator can enable
-    /// camera access (#295). Platforms without a Settings deep link
+    /// camera access (legacy bolph71656-ai/HTDT-Capture#295). Platforms without a Settings deep link
     /// treat this as a no-op.
     func openCameraSettings() {
         #if os(iOS) && canImport(UIKit)
@@ -13418,7 +13428,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         #endif
     }
 
-    /// Leaves the capability/permission gate without a capture (#295):
+    /// Leaves the capability/permission gate without a capture (legacy bolph71656-ai/HTDT-Capture#295):
     /// nothing was started, so no working revision exists to clean up.
     func cancelCaptureStart() {
         guard state == .capabilityCheck
@@ -13605,7 +13615,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return nil
         }
 
-        // #177: binary packing, hashing and the HEIC preview for the
+        // legacy bolph71656-ai/HTDT-Capture#177: binary packing, hashing and the HEIC preview for the
         // retained End frame run off MainActor inside the materialize
         // boundary; the synchronous snapshot above already rejected an
         // unavailable-tracking frame before this expensive step.
@@ -13795,7 +13805,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
         }
 
-        // Mark the committed End-boundary frame (issue #241): it is the
+        // Mark the committed End-boundary frame (issue bolph71656-ai/HTDT-Capture#241): it is the
         // closing spatial observation and is not removable in the
         // visual evidence review.
         try? await store.markEndBoundaryFrames(
@@ -13919,7 +13929,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         workingSetStatus = String(localized: "Waiting for final RoomPlan result")
 
         // Persist the bounded End-boundary advisory coverage/task
-        // context while the tracker state is still live (#223, #217).
+        // context while the tracker state is still live (legacy bolph71656-ai/HTDT-Capture#223, legacy bolph71656-ai/HTDT-Capture#217).
         // The report is written later at seal so a rejected End attempt
         // never leaves a stale advisory payload.
         let coverage = scanCoverage
@@ -13930,7 +13940,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         await store.recordAdvisoryEndContext(
             CaptureEndCoverageSummary(
                 // 1.1.0: adds the additive 3D voxel layer summary
-                // (#329); older payloads read as azimuth-only 2D.
+                // (legacy bolph71656-ai/HTDT-Capture#329); older payloads read as azimuth-only 2D.
                 algorithm: "advisory-scan-coverage",
                 algorithmVersion: "1.1.0",
                 endSessionTimestampSeconds:
@@ -14017,8 +14027,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 ),
                 guidanceCompletionSource:
                     progress.completionSource.rawValue,
-                // #347: unresolved weak regions beyond the displayed
-                // map window, and #336: the retention capacity outcome
+                // legacy bolph71656-ai/HTDT-Capture#347: unresolved weak regions beyond the displayed
+                // map window, and legacy bolph71656-ai/HTDT-Capture#336: the retention capacity outcome
                 // — both persist with the end advisory so a completed
                 // capture's global/capacity state is never lost.
                 remoteWeakRegionCount:
@@ -14031,7 +14041,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     spatial.capacity.evictionCount,
                 spatialCapacitySaturated:
                     spatial.capacity.isSaturated,
-                // #343: sector/octant labels on this capture resolve
+                // legacy bolph71656-ai/HTDT-Capture#343: sector/octant labels on this capture resolve
                 // against the starting facing direction.
                 directionReference:
                     StartRelativeDirection.convention
@@ -14070,7 +14080,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // Restarting the same RoomCaptureSession here could let a late
             // callback from this unresolved stop be consumed by a later End
             // attempt. Keep waiting briefly, but never leave the operator in
-            // an unbounded pseudo-scanning state (#96).
+            // an unbounded pseudo-scanning state (legacy bolph71656-ai/HTDT-Capture#96).
             self.workingSetStatus = String(localized: "RoomPlan is still producing the final result")
             self.endScanGuidance = String(localized: "Final RoomPlan processing is taking longer than usual. Keep the app in the foreground; HTDT will stop this unresolved attempt if RoomPlan does not complete.")
 
@@ -14148,7 +14158,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
-            // #208: raw/processed RoomPlan JSON materialization, hashing
+            // legacy bolph71656-ai/HTDT-Capture#208: raw/processed RoomPlan JSON materialization, hashing
             // and descriptor construction are nonisolated CPU work on
             // the Sendable CapturedRoomData/CapturedRoom values; each
             // `await` suspends this MainActor task so the encoding runs
@@ -14280,7 +14290,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
             self.isEndingScan = false
 
-            // #236: after a re-End following Continue scanning, any
+            // legacy bolph71656-ai/HTDT-Capture#236: after a re-End following Continue scanning, any
             // committed annotation link that referenced the rolled-back
             // mesh/RoomPlan authority must surface for repair — it is
             // never silently dropped or rewritten.
@@ -14424,7 +14434,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 SpatialScanCoverageAggregator()
             spatialCoverage = .empty
             // Mid-scan tracker reset keeps the strategy resolved at
-            // Begin (#307): the budgets persist for the whole
+            // Begin (legacy bolph71656-ai/HTDT-Capture#307): the budgets persist for the whole
             // revision, not per sampling restart.
             motionGuidanceTracker = ScanMotionGuidanceTracker(
                 configuration:
@@ -14510,7 +14520,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                             spatialCoverage: self.spatialCoverage
                         )
 
-                    // #283: live lighting assessment drives the
+                    // legacy bolph71656-ai/HTDT-Capture#283: live lighting assessment drives the
                     // low-light recovery surface; a missing ambient
                     // reading leaves the status `unknown`.
                     self.scanLightingStatus =
@@ -14527,7 +14537,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                                 trackingState: sample.trackingState
                             )
 
-                    // #252: edge-triggered, rate-limited non-visual
+                    // legacy bolph71656-ai/HTDT-Capture#252: edge-triggered, rate-limited non-visual
                     // cues; 4 Hz sampling never becomes a stream.
                     if self.guidanceCuesEnabled {
                         let cues = self.scanGuidanceCuePolicy.update(
@@ -14549,7 +14559,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         }
                     }
 
-                    // #250: a live targeted-object pass tracks camera
+                    // legacy bolph71656-ai/HTDT-Capture#250: a live targeted-object pass tracks camera
                     // position against its bounded anchor.
                     if let tracker = self.targetScanTracker {
                         if let position = sample.cameraPosition {
@@ -14586,13 +14596,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         }
                     }
 
-                    // #273: while the operator armed the return-to-start
+                    // legacy bolph71656-ai/HTDT-Capture#273: while the operator armed the return-to-start
                     // check, keep the residual updated each tick.
                     if self.loopClosureCheckActive {
                         self.updateLoopClosureAssessment()
                     }
 
-                    // #216/#274: bounded automatic keyframe selection,
+                    // legacy bolph71656-ai/HTDT-Capture#216/legacy bolph71656-ai/HTDT-Capture#274: bounded automatic keyframe selection,
                     // evaluated on the slow (4 s) tick so evidence
                     // writes never join the 250 ms path.
                     if sampleIndex.isMultiple(of: 16) {
@@ -14611,7 +14621,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     }
 
                     // Persist transition-compacted tracking history into
-                    // the canonical quality authority (#148). The gate
+                    // the canonical quality authority (legacy bolph71656-ai/HTDT-Capture#148). The gate
                     // emits the baseline observation and then only
                     // (state, reason) transitions; identical samples are
                     // compacted and the store bounds retained history.
@@ -14998,7 +15008,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         throw PlatformCaptureError.configurationUnavailable
     }
 
-    /// Start-boundary correlation (#200): returns the first bracketed
+    /// Start-boundary correlation (legacy bolph71656-ai/HTDT-Capture#200): returns the first bracketed
     /// ARSession frame↔UTC sample available after the start request,
     /// labelled `.sessionStart` so the timing document identifies it as
     /// the earliest observed session time. Invoked immediately after
@@ -15050,8 +15060,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         refreshAnnotationEvidenceFrames(
             rootDirectory: await store.rootDirectory
         )
-        // Accepted-geometry context for Review plausibility (#247)
-        // and RoomPlan binding targets (#246); pure reads of canonical
+        // Accepted-geometry context for Review plausibility (legacy bolph71656-ai/HTDT-Capture#247)
+        // and RoomPlan binding targets (legacy bolph71656-ai/HTDT-Capture#246); pure reads of canonical
         // files, advisory only.
         await refreshSpatialContext(
             store: store,
@@ -15067,7 +15077,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // A resource/lifecycle event may have sealed spatial
         // continuation while this refresh was suspended on the store
         // actor. Under the seal the ordered resource-event chain owns
-        // the user-facing recovery status (#115); publishing the
+        // the user-facing recovery status (legacy bolph71656-ai/HTDT-Capture#115); publishing the
         // generic Review quality text here could overwrite that
         // explanation depending on which continuation resumes last.
         // The refreshed report/refs above still publish so a deferred
@@ -15104,7 +15114,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     ) async {
         // Claim the commit transaction before the first suspension so a
         // lifecycle/resource failure can no longer invalidate this
-        // generation underneath an in-flight promotion (#185). Ordinary
+        // generation underneath an in-flight promotion (legacy bolph71656-ai/HTDT-Capture#185). Ordinary
         // stale callbacks still hit the generation guards below.
         finalizationCommit.claimCommit()
 
@@ -15117,7 +15127,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         var stagedQualityReport: CaptureQualityReport?
 
         do {
-            // #353/#240/#222/#293: mission-derived payloads are part
+            // legacy bolph71656-ai/HTDT-Capture#353/legacy bolph71656-ai/HTDT-Capture#240/legacy bolph71656-ai/HTDT-Capture#222/legacy bolph71656-ai/HTDT-Capture#293: mission-derived payloads are part
             // of the bundle — persist before the seal freezes the
             // working set.
             if let revisionID =
@@ -15133,13 +15143,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             }
 
-            // #395: when accepted cross-revision registrations name
+            // legacy bolph71656-ai/HTDT-Capture#395: when accepted cross-revision registrations name
             // this revision, commit the registrations document now —
             // before the seal — so the frozen snapshot's payload
             // declarations include the transform authority.
             await commitCrossRevisionRegistrations(store)
 
-            // CONTRACT (#180): the sibling store agent adds
+            // CONTRACT (legacy bolph71656-ai/HTDT-Capture#180): the sibling store agent adds
             // sealForFinalization()/unseal() on CaptureWorkingSetStore.
             // The seal drains in-flight writes, then rejects further
             // working-set mutations for the rest of the commit
@@ -15182,7 +15192,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 for: sealed.snapshot
             )
 
-            // Pre-commit cancellation point (#185): a lifecycle failure
+            // Pre-commit cancellation point (legacy bolph71656-ai/HTDT-Capture#185): a lifecycle failure
             // fenced before the promotion begins aborts the
             // transaction. No finalized destination is produced; the
             // working set returns to Review and the deferred lifecycle
@@ -15201,7 +15211,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             }
 
             // The atomic move inside finalize(...) is the irreversible
-            // filesystem commit point (#160): the working directory was
+            // filesystem commit point (legacy bolph71656-ai/HTDT-Capture#160): the working directory was
             // renamed into finalized/, so the returned revision is
             // durable finalized authority. Beyond this line the host
             // must adopt the revision, never roll it back, and never
@@ -15215,7 +15225,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             promotedRevision = finalized
             finalizationCommit.markPromoted()
 
-            // #166: promotion is a same-volume move, which preserves the
+            // legacy bolph71656-ai/HTDT-Capture#166: promotion is a same-volume move, which preserves the
             // Data Protection class applied at working-revision
             // creation; reapply it explicitly so the finalized
             // directory can never silently sit under a weaker class. A
@@ -15230,7 +15240,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     Self.persistenceDiagnostic(error)
             }
 
-            // #305: a same-volume rename carries the working
+            // legacy bolph71656-ai/HTDT-Capture#305: a same-volume rename carries the working
             // directory's backup-exclusion flag into finalized/;
             // write the selected policy explicitly so finalized
             // data honors it (default: backup-eligible per
@@ -15350,7 +15360,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        // #437: the commit aborted and rolled back — the capture is
+        // legacy bolph71656-ai/HTDT-Capture#437: the commit aborted and rolled back — the capture is
         // still in Review unchanged, so the rejection surface names
         // the step and the concrete next-step set. A fenced
         // lifecycle failure below may still route elsewhere; that
@@ -15392,11 +15402,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Post-commit adoption (#160): the working directory was already
+    /// Post-commit adoption (legacy bolph71656-ai/HTDT-Capture#160): the working directory was already
     /// moved into `finalized/` atomically, so the promoted revision is
     /// durable truth. The independent post-promotion validation runs in
     /// a bounded detached task so the full re-hash never executes on
-    /// MainActor (#192); only the compact report crosses back.
+    /// MainActor (legacy bolph71656-ai/HTDT-Capture#192); only the compact report crosses back.
     ///
     /// Commit wins: a generation change alone must not abandon a
     /// successfully promoted revision, so adoption is unconditional.
@@ -15414,7 +15424,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 directory: finalized.directory
             )
 
-        // Commit wins (#185): a lifecycle failure fenced while the
+        // Commit wins (legacy bolph71656-ai/HTDT-Capture#185): a lifecycle failure fenced while the
         // finalizer or revalidation was suspended becomes post-capture
         // status, never a reason to abandon the promoted revision.
         let fencedFailure = finalizationCommit.postCommitFailure()
@@ -15439,7 +15449,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         // Finalization consumed the working revision: discard the
         // non-canonical annotation draft so a later session can never
-        // restore pre-commit staging (#266).
+        // restore pre-commit staging (legacy bolph71656-ai/HTDT-Capture#266).
         discardAnnotationDraft()
 
         sessionController.stopAndPauseARSession()
@@ -15449,13 +15459,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         finalizedRevision = finalized
         exportURL = nil
         reviewWorkspace = nil
-        // #364 §11: the mission summary survives finalization — the
+        // legacy bolph71656-ai/HTDT-Capture#364 §11: the mission summary survives finalization — the
         // finalized surface reports required-task completion for the
         // capture just committed. Every fresh capture/reset path
         // clears it before a new working set begins.
         danglingSpatialIssues = []
 
-        // Acquisition provenance (#317): a bundle produced by this
+        // Acquisition provenance (legacy bolph71656-ai/HTDT-Capture#317): a bundle produced by this
         // device's capture flow records `created_on_this_device`.
         // Failure here never disturbs the committed revision — it is
         // app-local metadata, not bundle authority.
@@ -15472,7 +15482,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             captureOrigins[finalized.captureRevisionID] = originRecord
         }
 
-        // #386: a finalized capture under an active mission joins
+        // legacy bolph71656-ai/HTDT-Capture#386: a finalized capture under an active mission joins
         // that mission's associations — the mission record, never
         // the bundle, carries the intent.
         if let missionID = activeMissionRecordID {
@@ -15481,7 +15491,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 captureRevisionID:
                     finalized.captureRevisionID
             )
-            // #397: the revision's accepted item outcomes join the
+            // legacy bolph71656-ai/HTDT-Capture#397: the revision's accepted item outcomes join the
             // mission's append-only ledger — replayable completeness
             // across every associated revision, never a stored
             // percentage.
@@ -15502,7 +15512,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )) ?? []
         }
 
-        // #321: a promoted revision carrying a persisted repair link
+        // legacy bolph71656-ai/HTDT-Capture#321: a promoted revision carrying a persisted repair link
         // resolves the fresh-rescan task it answers.
         if let row = activeRepairRow,
            persistedRepairLinkRevisionID
@@ -15573,7 +15583,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         self.loadPersistedCaptures()
     }
 
-    /// Independent post-promotion revalidation (#192): the full
+    /// Independent post-promotion revalidation (legacy bolph71656-ai/HTDT-Capture#192): the full
     /// directory scan + digest run on a bounded detached worker and
     /// only the compact report (or a diagnostic token) returns to the
     /// MainActor. One retry distinguishes a transient read failure
@@ -15633,9 +15643,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Shared ordered entry point for every resource/lifecycle event:
     /// CaptureResourceMonitor notifications and ARSession lifecycle
-    /// callbacks (#168) converge here so generation fencing, the
+    /// callbacks (legacy bolph71656-ai/HTDT-Capture#168) converge here so generation fencing, the
     /// preserved-Review seal, the ordered event-record chain, and the
-    /// finalization commit fence (#185) stay identical across sources.
+    /// finalization commit fence (legacy bolph71656-ai/HTDT-Capture#185) stay identical across sources.
     private func applyResourceLifecycleEvent(
         _ event: CaptureResourceEvent,
         failure: CaptureFailureCode?,
@@ -15765,7 +15775,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// CONTRACT (#168): the sibling platform agent exposes an ARSession
+    /// CONTRACT (legacy bolph71656-ai/HTDT-Capture#168): the sibling platform agent exposes an ARSession
     /// lifecycle surface `sessionLifecycleHandler` on
     /// SharedARSessionController delivering interruption-began,
     /// interruption-ended, and terminal-failure events on MainActor.
@@ -15784,7 +15794,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         switch event {
         case .wasInterrupted:
             // Interruption alone is not terminal: the session may
-            // resume. Record warning provenance only; #148's tracking
+            // resume. Record warning provenance only; legacy bolph71656-ai/HTDT-Capture#148's tracking
             // transition recording captures the observable degradation,
             // and a genuine coordinate-space reset is registered by the
             // platform layer when continuity is demonstrably lost.
@@ -15825,7 +15835,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         case .cameraTrackingStateChanged(let trackingEvent):
             // Route through the same transition gate as the scan
             // coverage loop so delegate-delivered transitions extend
-            // the bounded #148 history without duplicate recordings.
+            // the bounded legacy bolph71656-ai/HTDT-Capture#148 history without duplicate recordings.
             guard state == .scanning, !isEndingScan,
                   scanTrackingTransitionGate
                     .shouldRecord(trackingEvent)
@@ -15862,7 +15872,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         // A revise-existing capture keeps the parent's series identity
         // and records the exact prior revision as its parent; a fresh
-        // capture starts a new series root (#155).
+        // capture starts a new series root (legacy bolph71656-ai/HTDT-Capture#155).
         let identity = CaptureWorkingSetIdentity(
             captureSeriesID:
                 activeRevisionLineage?.captureSeriesID
@@ -15884,7 +15894,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 isDirectory: true
             )
 
-        // #320: a practice working set carries the marker in its
+        // legacy bolph71656-ai/HTDT-Capture#320: a practice working set carries the marker in its
         // durable state document — it can never be finalized and is
         // never listed as a recoverable draft.
         let store = try CaptureWorkingSetStore(
@@ -15895,7 +15905,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         // The revision directory exists now: apply the transient-working
         // at-rest policy (backup exclusion + Data Protection class)
-        // before any evidence lands (#136, #166). Failures are reported
+        // before any evidence lands (legacy bolph71656-ai/HTDT-Capture#136, legacy bolph71656-ai/HTDT-Capture#166). Failures are reported
         // to the caller instead of being silently ignored.
         var storagePolicyWarnings: [String] = []
         do {
@@ -16025,7 +16035,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Map a fenced lifecycle failure to the ordered
     /// resource/lifecycle event that a live monitor callback would
     /// have carried, so a deferred application keeps identical
-    /// provenance shape (#185). Warning severity preserves the
+    /// provenance shape (legacy bolph71656-ai/HTDT-Capture#185). Warning severity preserves the
     /// Review-retained quality policy if the deferred application
     /// lands on a preservable boundary.
     nonisolated private static func lifecycleResourceEvent(
@@ -16053,7 +16063,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         try stateMachine.apply(event)
         state = stateMachine.state
         lastFailure = stateMachine.lastFailure
-        // #456: entering Review from a live scan under an active
+        // legacy bolph71656-ai/HTDT-Capture#456: entering Review from a live scan under an active
         // mission completes the field-capture leg of its lifecycle;
         // the store only advances `in_progress` records.
         if case .beginReview = event,
@@ -16063,7 +16073,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 recordID: missionID
             )
         }
-        // #437: a rejection flag lives only while the surface that
+        // legacy bolph71656-ai/HTDT-Capture#437: a rejection flag lives only while the surface that
         // shows it is active — entering `.validating` (a retry) or
         // leaving Review/finalized/failed clears it.
         if state != .reviewing {
@@ -16075,7 +16085,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         if state != .failed {
             failedDraftRecoverable = false
         }
-        // #272: the display keep-awake override is scoped strictly to
+        // legacy bolph71656-ai/HTDT-Capture#272: the display keep-awake override is scoped strictly to
         // `.scanning`; every transition out of it restores the device
         // default regardless of which path left scanning.
         updateDisplayIdleTimer()
@@ -16089,7 +16099,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     private func fail(_ code: CaptureFailureCode) {
-        // (#185) While the finalization commit transaction is claimed,
+        // (legacy bolph71656-ai/HTDT-Capture#185) While the finalization commit transaction is claimed,
         // a lifecycle/resource failure is fenced instead of
         // invalidating the capture generation underneath an in-flight
         // promotion. The commit path observes the fenced failure at its
@@ -16161,7 +16171,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             lastFailure = .unknown
         }
 
-        // #437: whether the failed working set's durable End boundary
+        // legacy bolph71656-ai/HTDT-Capture#437: whether the failed working set's durable End boundary
         // survived decides if "reopen as draft" is a real recovery —
         // a mid-scan failure leaves non-resumable data and the failed
         // surface says so plainly instead of offering a dead path.
@@ -16173,16 +16183,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             } ?? false
     }
 
-    // MARK: - Mission workflows (issues #353, #240, #222, #293, #321)
+    // MARK: - Mission workflows (issues bolph71656-ai/HTDT-Capture#353, legacy bolph71656-ai/HTDT-Capture#240, legacy bolph71656-ai/HTDT-Capture#222, legacy bolph71656-ai/HTDT-Capture#293, legacy bolph71656-ai/HTDT-Capture#321)
 
-    /// Schema probe for the unified mission-document importer (#353):
+    /// Schema probe for the unified mission-document importer (legacy bolph71656-ai/HTDT-Capture#353):
     /// the `schema` field alone decides which importer owns the file.
     private struct MissionSchemaProbe: Decodable {
         let schema: String?
     }
 
     /// Reachable mission surfaces for the current context — the
-    /// production entry list the root view renders (#353).
+    /// production entry list the root view renders (legacy bolph71656-ai/HTDT-Capture#353).
     var missionEntries: [MissionWorkflowEntry] {
         let captureInProgress =
             state == .scanning
@@ -16199,7 +16209,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 captureInProgress: captureInProgress,
                 // Matches beginAnnotation()'s guard: the workspace
                 // also opens under the finalization seal, rendering
-                // in non-spatial mode (#276).
+                // in non-spatial mode (legacy bolph71656-ai/HTDT-Capture#276).
                 annotationWorkspaceEnterable:
                     state == .reviewing
                     && !isEndingScan
@@ -16215,17 +16225,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         asBuiltSession?.ghostOverlayEnabled ?? false
     }
 
-    /// The installed plan→capture alignment authority (#293).
+    /// The installed plan→capture alignment authority (legacy bolph71656-ai/HTDT-Capture#293).
     var asBuiltAlignment: PlanAlignmentAuthority? {
         asBuiltSession?.alignment
     }
 
-    /// Versioned tolerance policy the plan supplies (#293), when any.
+    /// Versioned tolerance policy the plan supplies (legacy bolph71656-ai/HTDT-Capture#293), when any.
     var asBuiltTolerancePolicyRef: String? {
         asBuiltSession?.tolerancePolicyRef
     }
 
-    /// #293: ghost-overlay plan model — planned targets projected
+    /// legacy bolph71656-ai/HTDT-Capture#293: ghost-overlay plan model — planned targets projected
     /// through the installed alignment authority with observed
     /// actuals and deviation connectors. nil until an explicit
     /// alignment authority is established.
@@ -16240,7 +16250,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         connectedSpaceIntent = intent
     }
 
-    /// Unified mission-document importer (#353). Allowed while the
+    /// Unified mission-document importer (legacy bolph71656-ai/HTDT-Capture#353). Allowed while the
     /// capture is idle, in setup, or in progress — imported payloads
     /// persist as supplemental documents once a working set exists,
     /// so a plan can be staged before the scan or added mid-capture.
@@ -16274,9 +16284,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Schema-sniffed dispatch (#353). Task plans and as-built plans
+    /// Schema-sniffed dispatch (legacy bolph71656-ai/HTDT-Capture#353). Task plans and as-built plans
     /// persist verbatim as imported-reference supplemental documents;
-    /// repair plans enter the app-local ledger (#321).
+    /// repair plans enter the app-local ledger (legacy bolph71656-ai/HTDT-Capture#321).
     private func activateMissionDocument(_ data: Data) throws {
         let schema = try? JSONDecoder().decode(
             MissionSchemaProbe.self,
@@ -16284,7 +16294,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         ).schema
         switch schema {
         case HTDTMissionPackage.schema:
-            // #457: a mission envelope picked on the document import
+            // legacy bolph71656-ai/HTDT-Capture#457: a mission envelope picked on the document import
             // belongs to the inbox — every mission import affordance
             // accepts every mission payload shape.
             try importMissionEnvelopeData(data)
@@ -16335,7 +16345,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Creates the as-built verification session against the live
-    /// coordinate authority (#293). Deferred when no spatial
+    /// coordinate authority (legacy bolph71656-ai/HTDT-Capture#293). Deferred when no spatial
     /// authority is bound yet — `activateStagedMissionState` retries
     /// once the working set exists.
     private func configureAsBuiltSession() {
@@ -16363,7 +16373,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Working set just bound: build the as-built session on the live
     /// space and persist staged mission payloads plus the repair link
-    /// into this revision (#353/#321).
+    /// into this revision (legacy bolph71656-ai/HTDT-Capture#353/legacy bolph71656-ai/HTDT-Capture#321).
     private func activateStagedMissionState(
         store: CaptureWorkingSetStore
     ) async {
@@ -16554,7 +16564,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Mission-derived payloads packaged at finalization (#353):
+    /// Mission-derived payloads packaged at finalization (legacy bolph71656-ai/HTDT-Capture#353):
     /// task-plan status, connected-space map, as-built verdicts — all
     /// captureAppDerived and bound to this revision's authority.
     private func persistMissionDerivedDocuments(
@@ -16663,7 +16673,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// The link document binding this new revision back to the repair
-    /// task it answers (#321). Only built when this capture is a
+    /// task it answers (legacy bolph71656-ai/HTDT-Capture#321). Only built when this capture is a
     /// revision OF the task's pinned source revision — an unrelated
     /// capture must never claim the repair.
     private func makeRepairLink() -> HTDTRepairTaskLink? {
@@ -16719,10 +16729,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         connectedSpaceTracker = nil
     }
 
-    /// Operator mark on a task-plan item (#240). Completion of
+    /// Operator mark on a task-plan item (legacy bolph71656-ai/HTDT-Capture#240). Completion of
     /// entity/measurement items stays computed from committed
     /// evidence — explicit marks only assert non-evidence outcomes.
-    /// #364 §10: a collected reason persists as a mission waiver
+    /// legacy bolph71656-ai/HTDT-Capture#364 §10: a collected reason persists as a mission waiver
     /// note when the imported plan matches a mission record.
     func markTaskPlanItem(
         _ itemID: String,
@@ -16745,7 +16755,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Connected-space ops (#222): the tracker binds to the live
+    /// Connected-space ops (legacy bolph71656-ai/HTDT-Capture#222): the tracker binds to the live
     /// coordinate authority lazily on first use.
     private func withConnectedTracker(
         _ statusOnFailure: String,
@@ -16825,7 +16835,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Establishes plan→capture alignment from the committed room
-    /// reference frame (#293): scene axes are origin O, front F, up U
+    /// reference frame (legacy bolph71656-ai/HTDT-Capture#293): scene axes are origin O, front F, up U
     /// — the columns of `worldFromScene` are [U×F, U, F, O], so
     /// `sceneFromCapture = inverse(worldFromScene)` is exact rigid
     /// math rather than a guess.
@@ -16879,7 +16889,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Records a committed annotation entity as the actual position
-    /// for one planned item (#293) — the observation keeps the
+    /// for one planned item (legacy bolph71656-ai/HTDT-Capture#293) — the observation keeps the
     /// entity's exact world transform and placement provenance, never
     /// retyped numbers.
     func asBuiltRecordActual(
@@ -16896,7 +16906,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // `orientationWorld` is contracted in the capture world
             // frame — the committed entity stores local axes, so the
             // annotation transform rotates them into world before the
-            // observation is written (issue #293).
+            // observation is written (issue bolph71656-ai/HTDT-Capture#293).
             let orientationWorld: OrientationAxes? = try entity
                 .orientation.map { axes in
                     let front = entity.worldFromAnnotation.applying(
@@ -16948,7 +16958,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Routes an unresolved repair task into its remediation path
-    /// (#321). Fresh-rescan tasks revise the pinned source revision so
+    /// (legacy bolph71656-ai/HTDT-Capture#321). Fresh-rescan tasks revise the pinned source revision so
     /// the new capture's coordinate authority is clean; in-place
     /// kinds enter the annotation workspace of the live revision.
     /// The source revision is never opened for mutation.
@@ -16993,7 +17003,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Records an HTDT-returned repair plan into the app-local ledger
-    /// (#321). The canonical re-encode pins the plan digest that the
+    /// (legacy bolph71656-ai/HTDT-Capture#321). The canonical re-encode pins the plan digest that the
     /// repair link cites.
     private func recordRepairTaskPlan(
         _ plan: HTDTRepairTaskPlan,

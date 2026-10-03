@@ -275,7 +275,7 @@ public struct ScanCoverageSample: Sendable {
     public let activeMeshAnchorCount: Int
     public let hasSceneDepth: Bool
     /// Ambient scene illumination in lumens from the frame's light
-    /// estimate, when the platform provides one (#283). nil means no
+    /// estimate, when the platform provides one (legacy bolph71656-ai/HTDT-Capture#283). nil means no
     /// reading — lighting assessment must then stay `unknown`, never a
     /// fabricated pass/fail.
     public let ambientLightIntensityLumens: Double?

@@ -17,7 +17,7 @@ public enum TheaterAuthorityError: Error, Sendable, Equatable {
     /// A rack placement asserting no slot, label, facing, or evidence.
     case emptyPlacementObservation
     /// A rack placement's `host_rack_entity_id` disagrees with the
-    /// item's rack membership (#402).
+    /// item's rack membership (legacy bolph71656-ai/HTDT-Capture#402).
     case rackPlacementRackMismatch
 }
 
@@ -194,7 +194,7 @@ public struct SurfaceRegionBinding: Codable, Sendable, Equatable {
     }
 }
 
-/// User-attested host classification for a bound surface (#218). The
+/// User-attested host classification for a bound surface (legacy bolph71656-ai/HTDT-Capture#218). The
 /// operator attests the class; the app never guesses it.
 public enum SurfaceHostClassification: String, Codable, Sendable, CaseIterable {
     case roomBoundary = "room_boundary"
@@ -203,7 +203,7 @@ public enum SurfaceHostClassification: String, Codable, Sendable, CaseIterable {
 }
 
 /// Optional treatment placement metadata carried by a surface-semantic
-/// authority (#218). It describes coverage, never physics: no
+/// authority (legacy bolph71656-ai/HTDT-Capture#218). It describes coverage, never physics: no
 /// absorption or material coefficients are synthesized here.
 public struct TreatmentPlacementAuthority: Codable, Sendable, Equatable {
     public let footprintWidthMeters: Double?
@@ -296,7 +296,7 @@ public struct TreatmentPlacementAuthority: Codable, Sendable, Equatable {
     }
 }
 
-/// Explicit, spatially extended surface authority (#218): binds a
+/// Explicit, spatially extended surface authority (legacy bolph71656-ai/HTDT-Capture#218): binds a
 /// user-attested host classification — and optionally a treatment
 /// footprint — to exact captured geometry. This is the promotion input
 /// for HTDT `SurfaceSemanticAssignment`; it is not itself a semantic
@@ -361,7 +361,7 @@ public struct SurfaceSemanticAuthority: Codable, Sendable, Equatable {
     }
 }
 
-/// Where a construction/material identity claim comes from (#233).
+/// Where a construction/material identity claim comes from (legacy bolph71656-ai/HTDT-Capture#233).
 /// The observation is a material-authoring candidate; acoustic
 /// coefficient authority stays a separate downstream step.
 public enum ConstructionObservationSource: String, Codable, Sendable, CaseIterable {
@@ -447,7 +447,7 @@ public struct SurfaceConstructionObservation: Codable, Sendable, Equatable {
     }
 }
 
-/// Operator-declared geometry-reliability concern (#256). The mark is a
+/// Operator-declared geometry-reliability concern (legacy bolph71656-ai/HTDT-Capture#256). The mark is a
 /// downstream caution flag, not a material classification and never a
 /// geometry rewrite.
 public enum ProblemSurfaceKind: String, Codable, Sendable, CaseIterable {
@@ -510,7 +510,7 @@ public struct ProblemSurfaceObservation: Codable, Sendable, Equatable {
     }
 }
 
-/// Bounded theater-construction feature (#262). Candidates stay
+/// Bounded theater-construction feature (legacy bolph71656-ai/HTDT-Capture#262). Candidates stay
 /// derived/user-attested authoring input — they never rewrite raw
 /// RoomPlan/mesh evidence.
 public enum ConstructionFeatureKind: String, Codable, Sendable, CaseIterable {
@@ -594,7 +594,7 @@ public struct ConstructionFeatureCandidate: Codable, Sendable, Equatable {
     }
 }
 
-/// Time-varying element whose state was observed (#264). States are
+/// Time-varying element whose state was observed (legacy bolph71656-ai/HTDT-Capture#264). States are
 /// operator-attested; nothing is inferred from images.
 public enum RoomStateKind: String, Codable, Sendable, CaseIterable {
     case curtain
@@ -735,7 +735,7 @@ public struct RoomStateObservation: Codable, Sendable, Equatable {
 }
 
 /// Immutable named set of operating conditions true together at capture
-/// time (#264). A snapshot is a version point: a deliberate room-state
+/// time (legacy bolph71656-ai/HTDT-Capture#264). A snapshot is a version point: a deliberate room-state
 /// change produces a new snapshot, never a mutation of the prior one.
 /// `stateDigest` is SHA-256 over the canonical encoding of the sorted
 /// resolved observation records, so the bound set is content-addressed.
@@ -825,7 +825,7 @@ public struct RoomStateSnapshot: Codable, Sendable, Equatable {
     }
 }
 
-/// Physical electronics inventory item (#281). Distinct from spatial
+/// Physical electronics inventory item (legacy bolph71656-ai/HTDT-Capture#281). Distinct from spatial
 /// acoustic annotations: an inventory record is evidence-bound identity
 /// for AV electronics, not a placement authority. `worldFromItem` is
 /// present only when a physical location was actually captured.
@@ -987,7 +987,7 @@ public struct SystemInventoryItem: Codable, Sendable, Equatable,
     }
 }
 
-/// Which side of a rack slot presents the unit's front panel (#402).
+/// Which side of a rack slot presents the unit's front panel (legacy bolph71656-ai/HTDT-Capture#402).
 public enum RackFacing: String, Codable, Sendable, CaseIterable {
     case front
     case rear
@@ -995,7 +995,7 @@ public enum RackFacing: String, Codable, Sendable, CaseIterable {
     case unknown
 }
 
-/// Where one inventory unit sits inside its host rack (#402).
+/// Where one inventory unit sits inside its host rack (legacy bolph71656-ai/HTDT-Capture#402).
 /// Placement is observation authority separate from the item's
 /// identity: a unit keeps its model/serial when it moves slots, and
 /// `SystemInventoryItem.hostRackEntityID` records membership only, so
@@ -1133,7 +1133,7 @@ public enum FurnitureRelevance: String, Codable, Sendable, CaseIterable {
     case unknown
 }
 
-/// Operator confirmation of what a captured object actually is (#288).
+/// Operator confirmation of what a captured object actually is (legacy bolph71656-ai/HTDT-Capture#288).
 /// `source` keeps an app/RoomPlan suggestion provenance-distinct from a
 /// user confirmation; `.unknown` is a first-class result.
 public struct FurnitureSemanticConfirmation: Codable, Sendable, Equatable {
@@ -1207,7 +1207,7 @@ public struct FurnitureSemanticConfirmation: Codable, Sendable, Equatable {
 }
 
 /// How a speaker is physically installed relative to the room boundary
-/// (#280). Proximity is never promoted to mounting semantics: the record
+/// (legacy bolph71656-ai/HTDT-Capture#280). Proximity is never promoted to mounting semantics: the record
 /// exists only when the operator attests a mode.
 public enum SpeakerMountingMode: String, Codable, Sendable, CaseIterable {
     case freestanding
@@ -1313,7 +1313,7 @@ public enum TransparencyAuthoritySource: String, Codable, Sendable, CaseIterable
     case other
 }
 
-/// Projection-screen product semantics (#289): aperture vs frame,
+/// Projection-screen product semantics (legacy bolph71656-ai/HTDT-Capture#289): aperture vs frame,
 /// attested acoustic transparency, masking state, and the
 /// behind-screen speaker relation. The transparency flag is
 /// installation semantics — it never fabricates transmission or
@@ -1330,7 +1330,7 @@ public struct ProjectionScreenSemantics: Codable, Sendable, Equatable {
     /// Provenance of the transparency claim. Required whenever the
     /// claim is not `unknown`.
     public let transparencySource: TransparencyAuthoritySource?
-    /// Masking/deployed state observation under the #264 room-state
+    /// Masking/deployed state observation under the legacy bolph71656-ai/HTDT-Capture#264 room-state
     /// model, when recorded.
     public let maskingObservationID: RoomStateObservationID?
     /// Speakers installed behind the screen, by exact entity id.
@@ -1446,7 +1446,7 @@ public struct ProjectionScreenSemantics: Codable, Sendable, Equatable {
     }
 }
 
-/// Seat-level layout authority (#290): links a physical `seat` entity
+/// Seat-level layout authority (legacy bolph71656-ai/HTDT-Capture#290): links a physical `seat` entity
 /// to its row, riser, and the exact ear/eye reference entities used by
 /// acoustic and sightline analysis. A seat may exist with no listening
 /// target and a listening position with no physical seat — the link is
@@ -1595,13 +1595,13 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
     public let speakerInstallations: [SpeakerInstallationAuthority]
     public let screenSemantics: [ProjectionScreenSemantics]
     public let seatLayouts: [SeatLayoutAuthority]
-    /// Observed output->speaker routing claims (#316).
+    /// Observed output->speaker routing claims (legacy bolph71656-ai/HTDT-Capture#316).
     public let routingVerifications: [RoutingVerificationAuthority]
-    /// Field-commissioned projector lens/optics state (#335).
+    /// Field-commissioned projector lens/optics state (legacy bolph71656-ai/HTDT-Capture#335).
     public let projectorCommissionings: [ProjectorCommissioningAuthority]
-    /// Attested installation-alignment assist outcomes (#346).
+    /// Attested installation-alignment assist outcomes (legacy bolph71656-ai/HTDT-Capture#346).
     public let installationAlignments: [InstallationAlignmentRecord]
-    /// Rack slot/facing observations bound to inventory items (#402).
+    /// Rack slot/facing observations bound to inventory items (legacy bolph71656-ai/HTDT-Capture#402).
     /// Placement authority stays separate from item identity: a unit
     /// keeps its serial/model when it moves slots.
     public let rackPlacements: [RackPlacementObservation]
@@ -1754,7 +1754,7 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
         for placement in rackPlacements {
             // A placement can only exist where its item is a member —
             // the item's `hostRackEntityID` is the membership claim,
-            // the placement's the slot observation (#402).
+            // the placement's the slot observation (legacy bolph71656-ai/HTDT-Capture#402).
             guard let rack = itemRacks[placement.itemID] else {
                 throw TheaterAuthorityError.unresolvedFeatureReference
             }
@@ -1885,7 +1885,7 @@ public struct TheaterAuthorityCollection: Codable, Sendable, Equatable {
 }
 
 public extension TheaterAuthorityCollection {
-    /// Placements bound to one inventory item, in stored order (#402).
+    /// Placements bound to one inventory item, in stored order (legacy bolph71656-ai/HTDT-Capture#402).
     func rackPlacements(
         for itemID: AuthorityRecordID
     ) -> [RackPlacementObservation] {
@@ -1893,7 +1893,7 @@ public extension TheaterAuthorityCollection {
     }
 
     /// Upserts the item and, when given, its placement in one
-    /// validating rebuild (#402): the pair is staged atomically so a
+    /// validating rebuild (legacy bolph71656-ai/HTDT-Capture#402): the pair is staged atomically so a
     /// placement never lands without the item it describes.
     func upsertingInventoryItem(
         _ item: SystemInventoryItem,
@@ -1936,7 +1936,7 @@ public extension TheaterAuthorityCollection {
         )
     }
 
-    /// Removes one placement observation, keeping the item (#402).
+    /// Removes one placement observation, keeping the item (legacy bolph71656-ai/HTDT-Capture#402).
     func removingRackPlacement(
         _ placementID: AuthorityRecordID
     ) throws -> TheaterAuthorityCollection {
@@ -1966,7 +1966,7 @@ public extension TheaterAuthorityCollection {
     }
 
     /// Removes the item and every placement bound to it — a placement
-    /// cannot outlive the unit it describes (#402). Other records
+    /// cannot outlive the unit it describes (legacy bolph71656-ai/HTDT-Capture#402). Other records
     /// still referencing the item (e.g. routing sources) refuse the
     /// delete through the validating init.
     func removingInventoryItem(
@@ -1997,7 +1997,7 @@ public extension TheaterAuthorityCollection {
     }
 
     /// Conservative same-unit candidates within the staged inventory
-    /// (#402 §7): an identical non-empty serial/asset text, or an
+    /// (legacy bolph71656-ai/HTDT-Capture#402 §7): an identical non-empty serial/asset text, or an
     /// identical exact catalog reference sharing the same rack or
     /// label. Detection never merges — the operator decides whether
     /// the candidate is the same physical unit.

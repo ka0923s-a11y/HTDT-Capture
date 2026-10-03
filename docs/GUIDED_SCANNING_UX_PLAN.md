@@ -1,6 +1,6 @@
 # Guided Scanning UX Plan
 
-Status: G100A/G100B implemented by PR #47; G100C implemented by PR #49; G100D implemented by PR #53; G100E observation confidence implemented by PR #59; G100F current-relative direction guidance implemented by PR #60; physical-device acceptance remains open.  
+Status: G100A/G100B implemented by PR bolph71656-ai/HTDT-Capture#47; G100C implemented by PR bolph71656-ai/HTDT-Capture#49; G100D implemented by PR bolph71656-ai/HTDT-Capture#53; G100E observation confidence implemented by PR bolph71656-ai/HTDT-Capture#59; G100F current-relative direction guidance implemented by PR bolph71656-ai/HTDT-Capture#60; physical-device acceptance remains open.  
 Scope: scanner-first iOS UX; no Capture Bundle schema promotion in these slices.
 
 ## 1. Problem statement

@@ -7,7 +7,7 @@ public enum AsBuiltPlanError: Error, Sendable, Equatable {
     case unsupportedSchema
 }
 
-/// The HTDT-side as-built plan (issue #293, wired by #353): the
+/// The HTDT-side as-built plan (issue bolph71656-ai/HTDT-Capture#293, wired by legacy bolph71656-ai/HTDT-Capture#353): the
 /// planned positions the capture is verified against. The plan is
 /// workflow input only — its scene-frame coordinates never become
 /// capture truth; verification always requires an explicit alignment

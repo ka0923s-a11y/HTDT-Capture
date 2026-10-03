@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import HTDTCaptureCore
 
-/// Label-scan suggestion review (#345): lists OCR/QR/barcode-derived
+/// Label-scan suggestion review (legacy bolph71656-ai/HTDT-Capture#345): lists OCR/QR/barcode-derived
 /// equipment candidates for explicit operator confirmation. The sheet
 /// NEVER commits anything itself — a candidate is applied only when
 /// the operator taps it, and the serial stays editable text.

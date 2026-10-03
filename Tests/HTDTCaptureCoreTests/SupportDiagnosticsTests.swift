@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #389: the Support & Diagnostics package — a bounded,
+/// Issue bolph71656-ai/HTDT-Capture#389: the Support & Diagnostics package — a bounded,
 /// privacy-reviewed export independent of any capture bundle. Covers
 /// the correlation tag, payload shape, privacy preview, health
 /// summary, endpoint verdict mapping, and the forbidden-content

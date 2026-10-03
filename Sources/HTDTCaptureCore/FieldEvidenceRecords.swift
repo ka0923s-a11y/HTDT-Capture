@@ -5,7 +5,7 @@ public struct FieldEvidenceID: CaptureIdentifier {
     public init(rawValue: UUID) { self.rawValue = rawValue }
 }
 
-/// The typed purpose of a field-evidence record (issue #300). The kind
+/// The typed purpose of a field-evidence record (issue bolph71656-ai/HTDT-Capture#300). The kind
 /// is machine-enumerated authority, never a display label.
 public enum FieldEvidenceKind: String, Codable, Sendable, CaseIterable {
     case installationPhoto = "installation_photo"
@@ -50,7 +50,7 @@ public enum FieldEvidenceMediaType: String, Codable, Sendable {
 }
 
 /// Bundle-path conventions for field-evidence binary assets
-/// (issues #300/#314). Captured close-ups and imported documents live
+/// (issues bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#314). Captured close-ups and imported documents live
 /// under separate directories so provenance is pinned by the manifest
 /// binding alone — a path under `captured/` can never masquerade as an
 /// imported document or carry spatial authority.
@@ -76,9 +76,9 @@ public enum FieldEvidenceAssetPaths {
 }
 
 /// How the asset bytes (or absence of them) entered the capture
-/// (issue #300). A linked scan frame keeps its canonical frame path —
+/// (issue bolph71656-ai/HTDT-Capture#300). A linked scan frame keeps its canonical frame path —
 /// bytes are never duplicated; a captured close-up is a dedicated
-/// non-spatial photo (issue #314); an imported file keeps its exact
+/// non-spatial photo (issue bolph71656-ai/HTDT-Capture#314); an imported file keeps its exact
 /// bytes and hash; `authored_note` marks asset-free text records.
 public enum FieldEvidenceAcquisition: String, Codable, Sendable {
     case linkedFrame = "linked_frame"
@@ -87,13 +87,13 @@ public enum FieldEvidenceAcquisition: String, Codable, Sendable {
     case authoredNote = "authored_note"
 }
 
-/// The asset a field-evidence record points at (issue #300). Exactly
+/// The asset a field-evidence record points at (issue bolph71656-ai/HTDT-Capture#300). Exactly
 /// one of three variants, discriminated by `kind`:
 /// - `canonical_frame`: wraps an existing `evidence/frames/<id>`
 ///   descriptor without duplicating its bytes;
 /// - `captured_photo`: a dedicated close-up photo persisted under
 ///   `evidence/field/captured/` — image evidence only, explicitly
-///   without spatial authority (issue #314);
+///   without spatial authority (issue bolph71656-ai/HTDT-Capture#314);
 /// - `imported_file`: an external document/photo imported verbatim
 ///   under `evidence/field/imported/`, retaining exact bytes, SHA-256,
 ///   media type and original filename.
@@ -241,7 +241,7 @@ public struct FieldEvidenceAsset: Codable, Sendable, Equatable {
     /// A captured close-up or imported file carries no spatial
     /// authority — only a `canonical_frame` asset refers to a real
     /// ARKit observation. This distinction is machine-readable via
-    /// `kind` and `asset_path` (issue #314).
+    /// `kind` and `asset_path` (issue bolph71656-ai/HTDT-Capture#314).
     public var carriesSpatialAuthority: Bool {
         kind == .canonicalFrame
     }
@@ -323,7 +323,7 @@ public struct FieldEvidenceAsset: Codable, Sendable, Equatable {
 }
 
 /// One typed field-evidence record bound to exact authorities of the
-/// revision it was collected for (issues #300/#314). `target_refs`
+/// revision it was collected for (issues bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#314). `target_refs`
 /// names the exact bindings — `entity:<uuid>` annotations,
 /// `measurement:<uuid>` measurements, `capture_revision:<uuid>` /
 /// `capture_session:<uuid>` scope, `inventory_item:<uuid>`,
@@ -346,7 +346,7 @@ public struct FieldEvidenceRecord: Codable, Sendable, Equatable {
     public let captureRevisionID: CaptureRevisionID
     public let recordedAtUTC: String
     /// Optional author binding to `derived/operator-profiles.json`
-    /// (issue #310).
+    /// (issue bolph71656-ai/HTDT-Capture#310).
     public let operatorID: OperatorProfileID?
     /// Optional explicitly authored observation — only ever present
     /// when the operator typed it, never inferred.
@@ -446,7 +446,7 @@ public struct FieldEvidenceRecord: Codable, Sendable, Equatable {
     }
 }
 
-/// The derived `derived/field-evidence.json` payload (issue #300):
+/// The derived `derived/field-evidence.json` payload (issue bolph71656-ai/HTDT-Capture#300):
 /// the revision's committed set of typed field-evidence records.
 /// Every record's `capture_revision_id` must equal the document's
 /// bound revision.
@@ -498,7 +498,7 @@ public struct FieldEvidenceDocument: Codable, Sendable, Equatable {
 
 /// A binary asset payload committed with the field-evidence document —
 /// one captured close-up photo or one imported file, byte-exact with a
-/// fixed manifest declaration derived from its path (#300/#314).
+/// fixed manifest declaration derived from its path (legacy bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#314).
 public struct FieldEvidenceAssetPayload: Sendable, Equatable {
     public let path: String
     public let data: Data

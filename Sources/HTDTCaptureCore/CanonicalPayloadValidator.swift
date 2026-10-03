@@ -38,11 +38,11 @@ public struct BundlePayloadCrossCheck: Sendable {
     var depthGeometry: [String: BinaryPayloadSummary] = [:]
     var confidenceGeometry: [String: BinaryPayloadSummary] = [:]
     /// Schema family -> declared schema_version observed during this
-    /// validation pass (#332). Exposed on the validation report so the
+    /// validation pass (legacy bolph71656-ai/HTDT-Capture#332). Exposed on the validation report so the
     /// library can show each payload's source version + compatibility.
     public private(set) var payloadVersions: [String: String] = [:]
 
-    /// Minimum v1 foundation payload set (#194): the manifest's
+    /// Minimum v1 foundation payload set (legacy bolph71656-ai/HTDT-Capture#194): the manifest's
     /// session and coordinate identities must be grounded in declared
     /// documents. Mirrors ``FOUNDATION_REQUIRED_PATHS`` in the Python
     /// reference validator.
@@ -119,7 +119,7 @@ public struct BundlePayloadCrossCheck: Sendable {
         }
     }
 
-    /// #194: the session document grounds the manifest's declared
+    /// legacy bolph71656-ai/HTDT-Capture#194: the session document grounds the manifest's declared
     /// session and coordinate-space identities.
     private func checkSessionIdentity(
         declaredByPath: [String: BundleFileEntry],
@@ -161,7 +161,7 @@ public struct BundlePayloadCrossCheck: Sendable {
         }
     }
 
-    /// #194: a processed RoomPlan payload may never be promoted without
+    /// legacy bolph71656-ai/HTDT-Capture#194: a processed RoomPlan payload may never be promoted without
     /// its raw authority bound by digest or path reference.
     private func checkRoomPlanLineage(
         declaredByPath: [String: BundleFileEntry]
@@ -422,7 +422,7 @@ public enum CanonicalPayloadValidator {
     public static let confidenceMediaType =
         "application/vnd.htdt.confidencebin"
 
-    /// Validates a schema-owned JSON payload (#188 canonical bytes, #135
+    /// Validates a schema-owned JSON payload (legacy bolph71656-ai/HTDT-Capture#188 canonical bytes, legacy bolph71656-ai/HTDT-Capture#135
     /// schema) and returns its parsed value. Returns nil when the path is
     /// not owned by a published schema.
     public static func validateSchemaOwnedJSON(
@@ -458,7 +458,7 @@ public enum CanonicalPayloadValidator {
                 detail: "bytes are not canonical JSON"
             )
         }
-        // Version dispatch (#332): the payload's declared
+        // Version dispatch (legacy bolph71656-ai/HTDT-Capture#332): the payload's declared
         // schema_version selects exactly one immutable registry
         // document via the support matrix; unlisted versions fail with
         // an explicit unsupported-version diagnostic.
@@ -511,7 +511,7 @@ public enum CanonicalPayloadValidator {
     }
 
     /// Decodes and structurally validates a canonical binary payload
-    /// (#142). Returns nil when the media type is not a canonical binary
+    /// (legacy bolph71656-ai/HTDT-Capture#142). Returns nil when the media type is not a canonical binary
     /// format.
     public static func validateBinaryPayload(
         path: String,

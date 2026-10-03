@@ -350,7 +350,7 @@ class ReferenceIngestorTests(unittest.TestCase):
             processed["source_refs"] = []
             manifest_path.write_bytes(canonical_json_bytes(manifest))
 
-            # #194: processed-only RoomPlan promotion is rejected at the
+            # legacy bolph71656-ai/HTDT-Capture#194: processed-only RoomPlan promotion is rejected at the
             # validator boundary before ingestion.
             with self.assertRaises(ValidationError) as ctx:
                 validate_bundle(copy_root)
@@ -375,7 +375,7 @@ class ReferenceIngestorTests(unittest.TestCase):
             processed["source_refs"] = [f"sha256:{MESH_SHA256}"]
             manifest_path.write_bytes(canonical_json_bytes(manifest))
 
-            # #194: a processed RoomPlan payload that fails to name its
+            # legacy bolph71656-ai/HTDT-Capture#194: a processed RoomPlan payload that fails to name its
             # raw authority is rejected at the validator boundary.
             with self.assertRaises(ValidationError) as ctx:
                 validate_bundle(copy_root)
@@ -389,7 +389,7 @@ class ReferenceIngestorTests(unittest.TestCase):
             shutil.copytree(FIXTURE, copy_root)
             _drop_payload(copy_root, QUALITY_PATH)
 
-            # #194: capture-quality.json is a required foundation
+            # legacy bolph71656-ai/HTDT-Capture#194: capture-quality.json is a required foundation
             # payload; the validator fails closed first.
             with self.assertRaises(ValidationError) as ctx:
                 validate_bundle(copy_root)
@@ -517,7 +517,7 @@ class ReferenceIngestorTests(unittest.TestCase):
                         "session/capture-session.json",
                         mutate,
                     )
-                    # #194: the validator now grounds manifest identity
+                    # legacy bolph71656-ai/HTDT-Capture#194: the validator now grounds manifest identity
                     # arrays in the session authority, so this fails
                     # closed at validation before ingestion.
                     with self.assertRaises(ValidationError) as ctx:
@@ -546,7 +546,7 @@ class ReferenceIngestorTests(unittest.TestCase):
             ]
             manifest_path.write_bytes(canonical_json_bytes(manifest))
 
-            # #194: session/timing.json is a required foundation
+            # legacy bolph71656-ai/HTDT-Capture#194: session/timing.json is a required foundation
             # payload, so the hardened validator fails closed before
             # the ingestor's timing_ref check is reached.
             with self.assertRaises(ValidationError) as ctx:

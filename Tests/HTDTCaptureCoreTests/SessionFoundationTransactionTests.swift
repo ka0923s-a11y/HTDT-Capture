@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #203: session foundation persistence is one recoverable
+/// Issue bolph71656-ai/HTDT-Capture#203: session foundation persistence is one recoverable
 /// transaction. A failure at any of the four canonical write positions
 /// leaves either no committed foundation or a complete prior
 /// foundation — never a partial set of declarations or a bound

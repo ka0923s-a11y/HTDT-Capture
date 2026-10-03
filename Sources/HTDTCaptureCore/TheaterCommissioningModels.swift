@@ -1,7 +1,7 @@
 import Foundation
 
 /// The theater-semantic record kinds a mission/task plan can request
-/// (#359) and that the authority workspace groups under (#357). Covers
+/// (legacy bolph71656-ai/HTDT-Capture#359) and that the authority workspace groups under (legacy bolph71656-ai/HTDT-Capture#357). Covers
 /// every section of `TheaterAuthorityCollection`; the wire value is the
 /// exact token a task plan's `semantic_kind` field carries.
 public enum SemanticTaskKind: String, Codable, Sendable, CaseIterable {
@@ -24,8 +24,8 @@ public enum SemanticTaskKind: String, Codable, Sendable, CaseIterable {
 /// Flat, human-facing identity of one authority record: the exact id,
 /// the semantic kind a task plan can request, an optional exact subtype
 /// token within the kind, and the primary entity the record describes
-/// when the kind binds one. Task-plan fulfillment matching (#359) and
-/// the workspace record list (#357) both consume this shape.
+/// when the kind binds one. Task-plan fulfillment matching (legacy bolph71656-ai/HTDT-Capture#359) and
+/// the workspace record list (legacy bolph71656-ai/HTDT-Capture#357) both consume this shape.
 public struct AuthorityRecordDescriptor: Sendable, Equatable,
     Identifiable
 {
@@ -226,7 +226,7 @@ public extension TheaterAuthorityCollection {
     }
 }
 
-// MARK: - Routing / physical-source verification (#316)
+// MARK: - Routing / physical-source verification (legacy bolph71656-ai/HTDT-Capture#316)
 
 /// Frequency band a routing claim covers. Bass-managed channels carry
 /// low-frequency energy to a subwoofer path that a full-range claim
@@ -243,7 +243,7 @@ public enum RoutingBandScope: String, Codable, Sendable, CaseIterable {
     case unknown
 }
 
-/// State of one logical-output -> physical-speaker claim (#316).
+/// State of one logical-output -> physical-speaker claim (legacy bolph71656-ai/HTDT-Capture#316).
 /// `verified` and `conflicting` are distinct operator-attested results;
 /// `manualLabel` is a label only, `unknown` a first-class result.
 public enum RoutingVerificationState: String, Codable, Sendable,
@@ -270,7 +270,7 @@ public enum RoutingVerificationMethod: String, Codable, Sendable,
 }
 
 /// Typed authority recording which logical output channel actually
-/// drives which installed speaker entity/entities (#316). Planned
+/// drives which installed speaker entity/entities (legacy bolph71656-ai/HTDT-Capture#316). Planned
 /// topology (`expectedChannelRoles` in the task plan, speaker layout
 /// plans) stays a separate authority — this record only ever carries
 /// the observed/attested routing, and Capture never changes AVR or DSP
@@ -299,7 +299,7 @@ public struct RoutingVerificationAuthority: Codable, Sendable, Equatable {
     public let verificationState: RoutingVerificationState
     /// Required for every state except `unknown`.
     public let verificationMethod: RoutingVerificationMethod?
-    /// Device/configuration context reference shared with the #301
+    /// Device/configuration context reference shared with the legacy bolph71656-ai/HTDT-Capture#301
     /// session context (e.g. an AVR configuration hash or free-text
     /// "AVR preset A"), so a stale config can be seen to invalidate
     /// the observation.
@@ -474,7 +474,7 @@ public struct RoutingVerificationAuthority: Codable, Sendable, Equatable {
     }
 }
 
-// MARK: - Projector commissioning (#335)
+// MARK: - Projector commissioning (legacy bolph71656-ai/HTDT-Capture#335)
 
 /// Whether a projector lens/optics value was attested in the field or
 /// explicitly recorded as not known. `unknown` is a first-class answer —
@@ -577,12 +577,12 @@ public enum ProjectorFocusState: String, Codable, Sendable, CaseIterable {
     case unknown
 }
 
-/// Field-commissioned state of one projector install (#335): which
+/// Field-commissioned state of one projector install (legacy bolph71656-ai/HTDT-Capture#335): which
 /// lens/reference point is the optical authority (distinct from the
 /// cabinet center), throw distance with explicit endpoint semantics,
 /// lens shift/zoom/memory-preset state, optical axis, and the evidence
 /// each claim rests on. Nothing here is a manufacturer capability —
-/// capability data stays with the HTDT equipment authority (#415);
+/// capability data stays with the HTDT equipment authority (legacy bolph71656-ai/HTDT-Capture#415);
 /// this record carries only what was observed in the field.
 public struct ProjectorCommissioningAuthority: Codable, Sendable,
     Equatable
@@ -615,11 +615,11 @@ public struct ProjectorCommissioningAuthority: Codable, Sendable,
     /// planned projector spec id). Identifies intent only — planned
     /// values stay plan-side.
     public let plannedSpecRef: String?
-    /// Device/configuration context shared with #301 (e.g. projector
+    /// Device/configuration context shared with legacy bolph71656-ai/HTDT-Capture#301 (e.g. projector
     /// settings profile), as with routing records.
     public let deviceContextRef: String?
     /// The `ProjectionScreenSemantics` record the projected image
-    /// lands on, composing aperture/masking authority (#289) with
+    /// lands on, composing aperture/masking authority (legacy bolph71656-ai/HTDT-Capture#289) with
     /// this observation.
     public let screenSemanticsAuthorityID: AuthorityRecordID?
     public let observedAtUTC: String
@@ -810,10 +810,10 @@ public struct ProjectorCommissioningAuthority: Codable, Sendable,
     }
 }
 
-// MARK: - Installation alignment assist (#346)
+// MARK: - Installation alignment assist (legacy bolph71656-ai/HTDT-Capture#346)
 
 /// How the assist guided the operator. `spatial_delta` is only possible
-/// under a proven plan alignment authority (#232/#227/#293); without
+/// under a proven plan alignment authority (legacy bolph71656-ai/HTDT-Capture#232/legacy bolph71656-ai/HTDT-Capture#227/legacy bolph71656-ai/HTDT-Capture#293); without
 /// one the assistant degrades to `textual_instructions` and never
 /// fabricates metric guidance.
 public enum AlignmentGuidanceMode: String, Codable, Sendable,
@@ -835,7 +835,7 @@ public enum PrecisionSufficiency: String, Codable, Sendable,
     case unknown
 }
 
-/// One attested outcome of the installation-alignment assist (#346):
+/// One attested outcome of the installation-alignment assist (legacy bolph71656-ai/HTDT-Capture#346):
 /// which exact planned target was aimed at, how guidance ran, whether
 /// it could claim sufficient precision, the final independently
 /// captured entity, and the deviation reported against the plan.

@@ -4,7 +4,7 @@ import HTDTCaptureCore
 #if canImport(CoreVideo)
 import CoreVideo
 
-/// Cheap bounded image-usability probe for evidence frames (#274).
+/// Cheap bounded image-usability probe for evidence frames (legacy bolph71656-ai/HTDT-Capture#274).
 ///
 /// Samples the luma content on a fixed coarse grid — never the full
 /// frame — to produce `FrameUsabilityMetrics` (mean luminance, clipped

@@ -1,12 +1,12 @@
 import Foundation
 
-/// Selectable capture-strategy identifiers (issue #307). A strategy is a
+/// Selectable capture-strategy identifiers (issue bolph71656-ai/HTDT-Capture#307). A strategy is a
 /// published, versioned advisory-policy bundle: it sizes the guidance
 /// and evidence budgets the operator works against (spatial guidance
 /// attempts, weak-region re-observation, automatic evidence-frame
 /// retention) plus the advisory review posture the app prompts for.
 /// It never redefines `ready_for_htdt_ingestion`, never claims capture
-/// accuracy, and is orthogonal to the #217 task-completeness profile —
+/// accuracy, and is orthogonal to the legacy bolph71656-ai/HTDT-Capture#217 task-completeness profile —
 /// a task profile describes what the operator intends to document,
 /// while a strategy describes how the app budgets guidance to get there.
 public enum CaptureStrategyIdentifier:
@@ -18,7 +18,7 @@ public enum CaptureStrategyIdentifier:
     /// Fast coverage pass: small budgets so a quick sweep does not
     /// nag the operator for additional orbits or retained evidence.
     case quickScan = "quick_scan"
-    /// The pre-#307 fixed policy, named and persisted explicitly.
+    /// The pre-legacy bolph71656-ai/HTDT-Capture#307 fixed policy, named and persisted explicitly.
     case standard = "standard"
     /// Large-room sweep: bigger guidance and evidence budgets.
     case detailed = "detailed"
@@ -40,8 +40,8 @@ public enum CaptureStrategyReviewExpectation:
     case thorough
 }
 
-/// Where the strategy selection came from (issue #307). An operator
-/// choice is recorded verbatim; a #240 capture-task plan may recommend
+/// Where the strategy selection came from (issue bolph71656-ai/HTDT-Capture#307). An operator
+/// choice is recorded verbatim; a legacy bolph71656-ai/HTDT-Capture#240 capture-task plan may recommend
 /// or pin a strategy — a pinned strategy is the plan's binding, not an
 /// operator preference.
 public enum CaptureStrategySource: String, Codable, Sendable {
@@ -50,7 +50,7 @@ public enum CaptureStrategySource: String, Codable, Sendable {
     case taskPlanPinned = "task_plan_pinned"
 }
 
-/// One published strategy profile (issue #307). Instances are produced
+/// One published strategy profile (issue bolph71656-ai/HTDT-Capture#307). Instances are produced
 /// only by `CaptureStrategyCatalog`; the identifier+policyVersion pair
 /// is the persisted contract — once published, a combination never
 /// changes meaning.
@@ -102,7 +102,7 @@ public struct CaptureStrategyProfile: Sendable, Equatable {
     }
 }
 
-/// The published strategy catalog (issue #307). A `strategy_id` +
+/// The published strategy catalog (issue bolph71656-ai/HTDT-Capture#307). A `strategy_id` +
 /// `policy_version` pair always denotes exactly this resolved profile;
 /// changing a budget requires a new `policy_version` so persisted
 /// bundles keep their recorded meaning.
@@ -305,7 +305,7 @@ public struct CaptureStrategyPolicyEcho:
     }
 }
 
-/// Persisted `session/capture-strategy.json` document (issue #307):
+/// Persisted `session/capture-strategy.json` document (issue bolph71656-ai/HTDT-Capture#307):
 /// which published strategy drove this revision's advisory budgets,
 /// where the selection came from, and the resolved policy echo. The
 /// document is advisory provenance only — nothing in it feeds
@@ -380,7 +380,7 @@ public struct CaptureStrategyDocument: Codable, Sendable, Equatable {
 }
 
 /// Encoded `session/capture-strategy.json` package ready for the
-/// working-set store (issue #307).
+/// working-set store (issue bolph71656-ai/HTDT-Capture#307).
 public struct CaptureStrategyPackage: Sendable, Equatable {
     public static let path = "session/capture-strategy.json"
 

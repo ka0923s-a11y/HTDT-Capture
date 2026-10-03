@@ -1,6 +1,6 @@
 import Foundation
 
-/// Resolved capture mode (#248). Production startup intentionally
+/// Resolved capture mode (legacy bolph71656-ai/HTDT-Capture#248). Production startup intentionally
 /// requires `roomPlanMesh` (Option B): a scan only begins on a device
 /// whose configuration can run RoomPlan with scene reconstruction.
 /// `evidenceDepth`/`degradedNoDepth` are *runtime resolution* outcomes
@@ -54,7 +54,7 @@ public struct CaptureCapabilityMatrix: Codable, Sendable, Equatable {
             && combinedRoomPlanSceneDepthVerified == nil
     }
 
-    /// Modes a scan may start in (#248, Option B). Production capture
+    /// Modes a scan may start in (legacy bolph71656-ai/HTDT-Capture#248, Option B). Production capture
     /// requires RoomPlan + scene reconstruction, so the only startup
     /// mode is `roomPlanMesh`.
     public var startupModes: [CaptureMode] {

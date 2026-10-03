@@ -6,7 +6,7 @@ public struct SettingsObservationID: CaptureIdentifier {
 }
 
 /// Enumerated setting-parameter tokens recorded by an installed
-/// settings observation (issue #301). Covers the commissioning field
+/// settings observation (issue bolph71656-ai/HTDT-Capture#301). Covers the commissioning field
 /// set — per-channel gain/delay/crossover/polarity, speaker size and
 /// bass management, PEQ band parameters, DSP/processor presets and
 /// modes, and physical subwoofer knobs — plus `other` for anything the
@@ -36,7 +36,7 @@ public enum ObservedSettingParameter: String, Codable, Sendable,
     case other
 }
 
-/// Tri-state for an observed setting (issue #301): a physically read
+/// Tri-state for an observed setting (issue bolph71656-ai/HTDT-Capture#301): a physically read
 /// value, an explicit `unknown` (checked but not determinable), or an
 /// explicit `not_applicable`. Never silently absent.
 public enum ObservedSettingState: String, Codable, Sendable {
@@ -46,7 +46,7 @@ public enum ObservedSettingState: String, Codable, Sendable {
 }
 
 /// One observed setting inside an installed-settings observation
-/// (issue #301). `scope` binds the setting to a channel/PQ band/subwoofer
+/// (issue bolph71656-ai/HTDT-Capture#301). `scope` binds the setting to a channel/PQ band/subwoofer
 /// within the target device — a lowercase namespace token plus id
 /// (`channel:L`, `peq_band:3`, `sub:SW1`) or the literal `global`.
 ///
@@ -216,7 +216,7 @@ public struct ObservedSetting: Codable, Sendable, Equatable {
 }
 
 /// One commissioning observation of an installed device's effective
-/// settings (issue #301): the operator's field record of an AVR, DSP,
+/// settings (issue bolph71656-ai/HTDT-Capture#301): the operator's field record of an AVR, DSP,
 /// processor or subwoofer — bound to the exact device authority via
 /// `target_ref` (`inventory_item:`/`entity:`/`equipment:`), with its
 /// own timestamp and optional operator identity. Observations are user
@@ -284,7 +284,7 @@ public struct InstalledSettingsObservation: Codable, Sendable,
 }
 
 /// The derived `derived/settings-observations.json` payload (issue
-/// #301): committed installed-settings observations for the revision.
+/// legacy bolph71656-ai/HTDT-Capture#301): committed installed-settings observations for the revision.
 public struct InstalledSettingsDocument: Codable, Sendable, Equatable {
     public static let schema = "htdt.capture.settings-observations"
     public static let schemaVersion = "1.0.0"

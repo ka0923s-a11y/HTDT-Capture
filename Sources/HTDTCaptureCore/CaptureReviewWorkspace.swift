@@ -1,6 +1,6 @@
 import Foundation
 
-/// Why a retained evidence frame exists in the capture (issue #241).
+/// Why a retained evidence frame exists in the capture (issue bolph71656-ai/HTDT-Capture#241).
 /// Surfaced verbatim to the operator during privacy review.
 public enum EvidenceRetentionReason: String, Sendable, Equatable {
     /// The frame committed by the End boundary transaction; it is the
@@ -12,7 +12,7 @@ public enum EvidenceRetentionReason: String, Sendable, Equatable {
     /// datum.
     case linkedToAuthority = "linked_to_authority"
     /// The bounded automatic-keyframe policy retained the frame during
-    /// scanning (issue #241): identified through the committed advisory
+    /// scanning (issue bolph71656-ai/HTDT-Capture#241): identified through the committed advisory
     /// notes so it is never mistaken for an operator pick.
     case automaticKeyframe = "automatic_keyframe"
     /// Operator-saved evidence not referenced by any authority; an
@@ -21,7 +21,7 @@ public enum EvidenceRetentionReason: String, Sendable, Equatable {
 }
 
 /// One retained evidence frame as presented in the visual evidence
-/// review (issue #241) and the Review evidence gallery (issue #213).
+/// review (issue bolph71656-ai/HTDT-Capture#241) and the Review evidence gallery (issue bolph71656-ai/HTDT-Capture#213).
 public struct ReviewEvidenceItem:
     Sendable,
     Equatable,
@@ -47,7 +47,7 @@ public struct ReviewEvidenceItem:
     public let referencedBy: [String]
     public let retentionReason: EvidenceRetentionReason
     /// True only when the frame is safe to delete: unreferenced and not
-    /// the End-boundary observation (issue #241).
+    /// the End-boundary observation (issue bolph71656-ai/HTDT-Capture#241).
     public let removable: Bool
 
     public init(
@@ -80,7 +80,7 @@ public struct ReviewEvidenceItem:
 }
 
 /// A platform-independent top-down plan model projected from RoomPlan
-/// output plus the operator's openings/frame annotations (issue #213).
+/// output plus the operator's openings/frame annotations (issue bolph71656-ai/HTDT-Capture#213).
 /// The view renders it on a SwiftUI `Canvas`; nothing here depends on
 /// RoomPlan/UIKit so the model round-trips on macOS for tests.
 public struct RoomPlanPreviewModel: Sendable, Equatable {
@@ -114,7 +114,7 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
             case annotation
             case roomFrameOrigin
             case roomFrameFront
-            // Committed spatial-authority entities (issue #367): the
+            // Committed spatial-authority entities (issue bolph71656-ai/HTDT-Capture#367): the
             // glyph grammar distinguishes equipment classes instead of
             // one generic object dot.
             case speaker
@@ -125,10 +125,10 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
             case measurement
             case referencePoint
             case genericEntity
-            /// An unresolved operator revisit flag (#325).
+            /// An unresolved operator revisit flag (legacy bolph71656-ai/HTDT-Capture#325).
             case revisitFlag
             /// A planned as-built target projected through the
-            /// installed alignment authority (issue #293): rendered as
+            /// installed alignment authority (issue bolph71656-ai/HTDT-Capture#293): rendered as
             /// a ghost/reference marker — design authority, never
             /// observed truth.
             case plannedTarget
@@ -151,7 +151,7 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
         public let linkedItemID: String?
         /// Whether the review surface offers the marker for selection.
         public let selectable: Bool
-        /// Review/task state carried by the marker (issue #367): glyph
+        /// Review/task state carried by the marker (issue bolph71656-ai/HTDT-Capture#367): glyph
         /// shape stays the category, this status drives only the
         /// badge/attention overlay.
         public let reviewStatus: PlanMarkerReviewStatus
@@ -182,7 +182,7 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
     }
 
     /// A plan-space link between two markers — e.g. an as-built
-    /// planned ghost and its observed actual (issue #293). Drawn as a
+    /// planned ghost and its observed actual (issue bolph71656-ai/HTDT-Capture#293). Drawn as a
     /// connector under the markers; status colors the deviation
     /// emphasis, never the geometry meaning.
     public struct PlanConnector: Sendable, Equatable {
@@ -239,11 +239,11 @@ public struct RoomPlanPreviewModel: Sendable, Equatable {
     }
 }
 
-/// The assembled Review/privacy workspace model (issues #213, #231,
-/// #232, #241): RoomPlan summary + plan preview, the evidence gallery,
+/// The assembled Review/privacy workspace model (issues bolph71656-ai/HTDT-Capture#213, legacy bolph71656-ai/HTDT-Capture#231,
+/// legacy bolph71656-ai/HTDT-Capture#232, legacy bolph71656-ai/HTDT-Capture#241): RoomPlan summary + plan preview, the evidence gallery,
 /// committed annotations/measurements, the opening review, and the room
 /// reference frame. Built both for the live post-End working set and,
-/// read-only, for a persisted finalized bundle (issue #294).
+/// read-only, for a persisted finalized bundle (issue bolph71656-ai/HTDT-Capture#294).
 public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
     public let captureRevisionID: CaptureRevisionID
     public let coordinateSpaceID: CoordinateSpaceID?
@@ -256,63 +256,63 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
     public let evidenceItems: [ReviewEvidenceItem]
     public let annotations: [CaptureAnnotationEntity]
     public let measurements: [CaptureMeasurement]
-    /// Committed operator profiles (#310); Review shows the recorded
+    /// Committed operator profiles (legacy bolph71656-ai/HTDT-Capture#310); Review shows the recorded
     /// author identity before export.
     public let operatorProfiles: [OperatorProfile]
-    /// Committed field-evidence records (#300/#314).
+    /// Committed field-evidence records (legacy bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#314).
     public let fieldEvidence: [FieldEvidenceRecord]
-    /// Committed instrument profile versions (#331).
+    /// Committed instrument profile versions (legacy bolph71656-ai/HTDT-Capture#331).
     public let instruments: [MeasurementInstrumentProfile]
-    /// Committed installed-settings observations (#301).
+    /// Committed installed-settings observations (legacy bolph71656-ai/HTDT-Capture#301).
     public let settingsObservations:
         [InstalledSettingsObservation]
-    /// Committed as-built wiring routes (#324).
+    /// Committed as-built wiring routes (legacy bolph71656-ai/HTDT-Capture#324).
     public let wiringRoutes: [AsBuiltWiringRoute]
-    /// Committed fiducial/reference-target capture document (#227),
+    /// Committed fiducial/reference-target capture document (legacy bolph71656-ai/HTDT-Capture#227),
     /// when declared targets exist.
     public let referenceTargets: ReferenceTargetCaptureDocument?
     public let openingReview: OpeningReviewDocument?
     public let roomReferenceFrame: RoomReferenceFrameDocument?
-    /// Committed field/install datum (issue #232), if any.
+    /// Committed field/install datum (issue bolph71656-ai/HTDT-Capture#232), if any.
     public let roomFieldDatum: RoomFieldDatumDocument?
     /// Staleness of the committed datum against this workspace's own
     /// reference universe; nil when no datum is committed.
     public let roomFieldDatumStaleness: RoomFieldDatumStaleness?
     public let qualityReport: CaptureQualityReport?
-    /// True for the persisted-capture viewer (#294): everything
+    /// True for the persisted-capture viewer (legacy bolph71656-ai/HTDT-Capture#294): everything
     /// renders read-only.
     public let readOnly: Bool
     /// True when the live capture's spatial authority was sealed for
-    /// finalization (issue #276): semantic edits remain allowed but
+    /// finalization (issue bolph71656-ai/HTDT-Capture#276): semantic edits remain allowed but
     /// live spatial capture is unavailable.
     public let spatialCaptureSealed: Bool
-    /// Operator revisit flags dropped during scanning (#325) — every
+    /// Operator revisit flags dropped during scanning (legacy bolph71656-ai/HTDT-Capture#325) — every
     /// unresolved flag must surface here for mandatory review.
     public let revisitFlags: [ScanRevisitFlag]
-    /// The imported HTDT task plan bound before scanning (#352), when
+    /// The imported HTDT task plan bound before scanning (legacy bolph71656-ai/HTDT-Capture#352), when
     /// the capture carries one. Mission intent, not observed truth.
     public let captureTaskPlan: HTDTCaptureTaskPlan?
-    /// Task-plan item outcomes as of Review time (#352).
+    /// Task-plan item outcomes as of Review time (legacy bolph71656-ai/HTDT-Capture#352).
     public let taskPlanStatus: CaptureTaskPlanStatusDocument?
-    /// Operator field notes committed on this revision (issue #375).
+    /// Operator field notes committed on this revision (issue bolph71656-ai/HTDT-Capture#375).
     /// Needs-attention notes surface in Review before Finalize;
     /// resolved/superseded notes stay visible in the library views.
     public let fieldNotes: [CaptureFieldNote]
-    /// Pre-finalization evidence contact sheet (issue #376): one
+    /// Pre-finalization evidence contact sheet (issue bolph71656-ai/HTDT-Capture#376): one
     /// tile per committed evidence frame with pose, depth and
     /// usability summaries, reference counts and privacy flags.
     /// nil only when the bundle declares no frame descriptors.
     public let contactSheet: EvidenceContactSheetModel?
-    /// Committed theater-authority records (#408/#409): the semantic
+    /// Committed theater-authority records (legacy bolph71656-ai/HTDT-Capture#408/legacy bolph71656-ai/HTDT-Capture#409): the semantic
     /// layer of the 3D review surface and the survey pass's record
     /// source. nil when no authorities payload is declared.
     public let theaterAuthorities: TheaterAuthorityCollection?
-    /// Derived geometry candidates (issue #408): the derived layer
+    /// Derived geometry candidates (issue bolph71656-ai/HTDT-Capture#408): the derived layer
     /// of the 3D review surface. Never substitutes captured
     /// evidence.
     public let derivedGeometryCandidates:
         [DerivedGeometryCandidateRecord]
-    /// Decoded mesh anchor snapshots (issue #408): the captured
+    /// Decoded mesh anchor snapshots (issue bolph71656-ai/HTDT-Capture#408): the captured
     /// evidence layer of the 3D review surface — full vertex/index
     /// geometry, not a LOD.
     public let meshSnapshots: [MeshAnchorSnapshot]
@@ -389,8 +389,8 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
 
 /// Assembles `CaptureReviewWorkspaceModel` instances from committed
 /// capture bytes. Shared by the post-End Review workspace (working set,
-/// issue #213), the visual evidence review (issue #241), and the
-/// persisted-capture viewer (issue #294).
+/// issue bolph71656-ai/HTDT-Capture#213), the visual evidence review (issue bolph71656-ai/HTDT-Capture#241), and the
+/// persisted-capture viewer (issue bolph71656-ai/HTDT-Capture#294).
 public enum CaptureReviewWorkspaceLoader {
     /// Builds the workspace model for a live working set. Frame
     /// descriptors and evidence payloads are read from the declared
@@ -419,7 +419,7 @@ public enum CaptureReviewWorkspaceLoader {
     }
 
     /// Builds the read-only workspace model for a validated finalized
-    /// bundle (issue #294). The manifest's declared file set decides
+    /// bundle (issue bolph71656-ai/HTDT-Capture#294). The manifest's declared file set decides
     /// which payloads are decoded — a byte-verified member only, never
     /// an undeclared extra file. `planPreview` is injected by the
     /// caller: its derivation needs the platform RoomPlan decoder,
@@ -504,7 +504,7 @@ public enum CaptureReviewWorkspaceLoader {
             RoomFieldDatumDocument.self,
             RoomFieldDatumPackage.path
         )
-        // Automatic-keyframe retention (issue #241): committed
+        // Automatic-keyframe retention (issue bolph71656-ai/HTDT-Capture#241): committed
         // advisory notes name which frames the bounded policy
         // retained, so review classifies them separately from
         // operator picks.
@@ -565,7 +565,7 @@ public enum CaptureReviewWorkspaceLoader {
             CaptureRevisitFlagDocument.self,
             CaptureRevisitFlagDocument.path
         )
-        // #352: the mission authority the capture was bound to before
+        // legacy bolph71656-ai/HTDT-Capture#352: the mission authority the capture was bound to before
         // scanning — the verbatim imported plan plus the live item
         // status derived alongside it. The plan file stores the plan
         // bytes verbatim (no envelope).
@@ -577,7 +577,7 @@ public enum CaptureReviewWorkspaceLoader {
             CaptureTaskPlanStatusDocument.self,
             CaptureTaskPlanStatusDocument.path
         )
-        // Operator field notes (issue #375): absent on pre-#375
+        // Operator field notes (issue bolph71656-ai/HTDT-Capture#375): absent on pre-legacy bolph71656-ai/HTDT-Capture#375
         // bundles, decoded verbatim when committed.
         let fieldNotes = decodeIfDeclared(
             CaptureFieldNoteDocument.self,
@@ -624,7 +624,7 @@ public enum CaptureReviewWorkspaceLoader {
             )
         }
 
-        // Datum staleness (issue #232): every token the datum
+        // Datum staleness (issue bolph71656-ai/HTDT-Capture#232): every token the datum
         // carries must resolve against this revision's evidence
         // universe — declared paths, frame/entity/measurement/
         // opening identities, `room_reference_frame` when committed,
@@ -723,7 +723,7 @@ public enum CaptureReviewWorkspaceLoader {
             ?? roomReferenceFrame?.coordinateSpaceID
             ?? descriptors.first?.coordinateSpaceID
 
-        // Evidence contact sheet (issue #376): equipment-identity
+        // Evidence contact sheet (issue bolph71656-ai/HTDT-Capture#376): equipment-identity
         // field-evidence records mark identity evidence — tiles the
         // operator may want to filter to or privacy-flag.
         let identityFrameIDs = Set(
@@ -749,7 +749,7 @@ public enum CaptureReviewWorkspaceLoader {
                 readOnly: readOnly
             )
 
-        // Accepted-geometry review inputs (issues #408/#409): the
+        // Accepted-geometry review inputs (issues bolph71656-ai/HTDT-Capture#408/legacy bolph71656-ai/HTDT-Capture#409): the
         // 3D surface's captured/derived/semantic layers and the
         // survey pass's record universe — decoded from the same
         // declared payloads, never undeclared disk contents.
@@ -911,7 +911,7 @@ public enum CaptureReviewWorkspaceLoader {
                 "opening:" + opening.sourceRef
             )
         }
-        // A field-evidence record bound to this frame (#300/#314)
+        // A field-evidence record bound to this frame (legacy bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#314)
         // retains it — the canonical frame is linked, never copied.
         for record in fieldEvidence {
             guard record.asset?.kind == .canonicalFrame,
@@ -923,7 +923,7 @@ public enum CaptureReviewWorkspaceLoader {
                     + record.evidenceID.description
             )
         }
-        // A field note bound to this frame (#375) retains it —
+        // A field note bound to this frame (legacy bolph71656-ai/HTDT-Capture#375) retains it —
         // evidence refs resolve `frame:`/`path:` tokens the same
         // way annotations do.
         for note in fieldNotes {
@@ -1003,7 +1003,7 @@ public enum CaptureReviewWorkspaceLoader {
 }
 
 /// The decoded contents of one persisted bundle directory: the
-/// non-binary payloads plus the frame descriptors (issues #221, #294).
+/// non-binary payloads plus the frame descriptors (issues bolph71656-ai/HTDT-Capture#221, legacy bolph71656-ai/HTDT-Capture#294).
 /// Produced only for directories that already passed
 /// `BundleDirectoryValidator`; the loader never substitutes for that
 /// validation.
@@ -1018,12 +1018,12 @@ public struct PersistedCaptureContents: Sendable, Equatable {
     public let openingReview: OpeningReviewDocument?
     public let roomReferenceFrame: RoomReferenceFrameDocument?
     public let roomFieldDatum: RoomFieldDatumDocument?
-    /// Decoded mesh anchor index (issue #232 datum staleness), iff
+    /// Decoded mesh anchor index (issue bolph71656-ai/HTDT-Capture#232 datum staleness), iff
     /// declared.
     public let meshAnchorIndex: MeshAnchorEvidenceIndex?
-    /// Decoded reference-target document (issue #227), iff declared.
+    /// Decoded reference-target document (issue bolph71656-ai/HTDT-Capture#227), iff declared.
     public let referenceTargets: ReferenceTargetCaptureDocument?
-    /// Operator field notes (issue #375), iff declared — decoded
+    /// Operator field notes (issue bolph71656-ai/HTDT-Capture#375), iff declared — decoded
     /// verbatim so the library and parent/child note comparisons
     /// work on persisted bundles too.
     public let fieldNotes: [CaptureFieldNote]
@@ -1037,7 +1037,7 @@ public struct PersistedCaptureContents: Sendable, Equatable {
     public let issues: [String]
     /// The revision's declared intent (`revision/intent.json`) — the
     /// machine-readable added/changed/superseded/reused record diff
-    /// for child revisions (#319/#155). Nil on root revisions.
+    /// for child revisions (legacy bolph71656-ai/HTDT-Capture#319/legacy bolph71656-ai/HTDT-Capture#155). Nil on root revisions.
     public let revisionIntent: CaptureRevisionIntentDocument?
 
     public init(
@@ -1079,7 +1079,7 @@ public struct PersistedCaptureContents: Sendable, Equatable {
     }
 
     /// The revision's reference universe for field-datum staleness
-    /// evaluation (issue #232): every enumerable identity plus the
+    /// evaluation (issue bolph71656-ai/HTDT-Capture#232): every enumerable identity plus the
     /// raw RoomPlan payload for surface-id resolution.
     public var datumReferenceUniverse:
         RoomFieldDatumReferenceUniverse
@@ -1270,7 +1270,7 @@ public enum PersistedCaptureContentsLoader {
     }
 }
 
-/// One compared field between a parent and child revision (issue #221).
+/// One compared field between a parent and child revision (issue bolph71656-ai/HTDT-Capture#221).
 public struct RevisionFieldComparison: Sendable, Equatable {
     public let field: String
     public let parent: String
@@ -1290,14 +1290,14 @@ public struct RevisionFieldComparison: Sendable, Equatable {
 }
 
 /// Metadata-only comparison between a revision and its declared parent
-/// (issue #221). The child never inherits spatial coordinates; this
+/// (issue bolph71656-ai/HTDT-Capture#221). The child never inherits spatial coordinates; this
 /// comparison is what the operator uses to verify the new scan covered
 /// the same room before replacing the parent.
 public struct CaptureRevisionComparison: Sendable, Equatable {
     public let parentRevisionID: CaptureRevisionID
     public let childRevisionID: CaptureRevisionID
     public let fields: [RevisionFieldComparison]
-    /// Field-note lineage between the two revisions (issue #375):
+    /// Field-note lineage between the two revisions (issue bolph71656-ai/HTDT-Capture#375):
     /// notes added on the child, superseded by a child note, or
     /// resolved on the child — keyed on stable note ids, so a parent
     /// note untouched by the child never reports as removed.
@@ -1471,7 +1471,7 @@ public enum CaptureRevisionComparator {
                 child: datumSummary(child)
             )
         )
-        // Field-datum staleness (issue #232): a datum committed
+        // Field-datum staleness (issue bolph71656-ai/HTDT-Capture#232): a datum committed
         // against the parent is evaluated against the child's
         // reference universe — removed walls/corners/platforms must
         // surface as unresolved rather than silently rebinding.
@@ -1504,7 +1504,7 @@ public enum CaptureRevisionComparator {
                 child: dims(child.roomMetadata)
             )
         )
-        // Field-note lineage (issue #375): the comparison reports
+        // Field-note lineage (issue bolph71656-ai/HTDT-Capture#375): the comparison reports
         // which notes the child added, resolved, or superseded so
         // the operator can verify a follow-up from the parent was
         // actually addressed.
@@ -1534,7 +1534,7 @@ public enum CaptureRevisionComparator {
             )
         )
 
-        // Exact semantic diff (#319): when the child declared a
+        // Exact semantic diff (legacy bolph71656-ai/HTDT-Capture#319): when the child declared a
         // semantic_correction intent, surface the revision kind, the
         // operator's correction note, and the per-record
         // added/changed/superseded/reused accounting — never averaged

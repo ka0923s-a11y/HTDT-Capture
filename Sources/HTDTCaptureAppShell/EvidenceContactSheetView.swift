@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import HTDTCaptureCore
 
-/// The pre-finalization evidence contact sheet (issue #376): every
+/// The pre-finalization evidence contact sheet (issue bolph71656-ai/HTDT-Capture#376): every
 /// retained frame as a tile with thumbnail, scan order, heading,
 /// depth/confidence summary, usability warnings, reference counts,
 /// retained bytes, and the privacy flag. Removal always goes through
@@ -13,7 +13,7 @@ struct EvidenceContactSheetView: View {
     let removeEvidenceFrame:
         (EvidenceFrameID) async -> Void
     let flagForPrivacy: (EvidenceFrameID) -> Void
-    /// #460: clears a frame's privacy flag — the paired action of
+    /// legacy bolph71656-ai/HTDT-Capture#460: clears a frame's privacy flag — the paired action of
     /// `flagForPrivacy`.
     let unflagForPrivacy: (EvidenceFrameID) -> Void
 

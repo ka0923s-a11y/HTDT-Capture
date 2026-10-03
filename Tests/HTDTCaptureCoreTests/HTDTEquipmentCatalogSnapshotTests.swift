@@ -82,7 +82,7 @@ func equipmentCatalogRejectsDuplicateExactIdentity() throws {
     }
 }
 
-// MARK: - Entry-level decoder validation (#201)
+// MARK: - Entry-level decoder validation (legacy bolph71656-ai/HTDT-Capture#201)
 //
 // Synthesized Decodable used to assign entry fields directly, so JSON
 // the pinned HTDT producer could never emit (empty identity fields,
@@ -254,7 +254,7 @@ func equipmentCatalogEntryRoundTripsIdentityKind() throws {
     #expect(decoded.identityKind == .userDefined)
 }
 
-// MARK: - Equipment catalog cache (#211)
+// MARK: - Equipment catalog cache (legacy bolph71656-ai/HTDT-Capture#211)
 
 private let catalogFixtureData = Data(
     """

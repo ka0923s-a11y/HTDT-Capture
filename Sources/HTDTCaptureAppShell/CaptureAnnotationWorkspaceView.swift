@@ -5,17 +5,17 @@ import HTDTCaptureCore
 
 /// The canonical annotation/measurement authority already committed in
 /// the working revision, reloaded so a pre-finalization correction
-/// pass starts from the persisted values instead of blank state (#163).
+/// pass starts from the persisted values instead of blank state (legacy bolph71656-ai/HTDT-Capture#163).
 /// A seed produced from a recovered draft is marked so the workspace
-/// shows the records as unsaved (#266).
+/// shows the records as unsaved (legacy bolph71656-ai/HTDT-Capture#266).
 public struct AnnotationWorkspaceSeed: Sendable, Equatable {
     public let annotations: [CaptureAnnotationEntity]
     public let measurements: [CaptureMeasurement]
     /// Equipment-identity attestations committed for this revision
-    /// (#239) — persisted beside the canonical collections on save.
+    /// (legacy bolph71656-ai/HTDT-Capture#239) — persisted beside the canonical collections on save.
     public let equipmentIdentityRecords: [EquipmentIdentityRecord]
     /// The speaker-layout plan in progress, when a draft recorded one
-    /// (#266/#278).
+    /// (legacy bolph71656-ai/HTDT-Capture#266/legacy bolph71656-ai/HTDT-Capture#278).
     public let speakerLayoutPlan: SpeakerLayoutPlan?
     /// True when this seed was restored from an on-disk non-canonical
     /// draft rather than committed authority.
@@ -23,8 +23,8 @@ public struct AnnotationWorkspaceSeed: Sendable, Equatable {
     /// Committed theater-semantic authorities, when an
     /// `annotations/authorities.json` file exists in the revision.
     public let authorities: TheaterAuthorityCollection?
-    /// Committed or draft-restored field-authority state (#300/#301/
-    /// #310/#314/#324/#331): operator profiles, field evidence,
+    /// Committed or draft-restored field-authority state (legacy bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#301/
+    /// legacy bolph71656-ai/HTDT-Capture#310/legacy bolph71656-ai/HTDT-Capture#314/legacy bolph71656-ai/HTDT-Capture#324/legacy bolph71656-ai/HTDT-Capture#331): operator profiles, field evidence,
     /// instrument profiles, settings observations and wiring routes.
     public let fieldAuthority: FieldAuthorityWorkspace
 
@@ -48,17 +48,17 @@ public struct AnnotationWorkspaceSeed: Sendable, Equatable {
     }
 }
 
-/// The annotation/measurement authoring surface (#5 Phase 4). Stages
+/// The annotation/measurement authoring surface (legacy bolph71656-ai/HTDT-Capture#5 Phase 4). Stages
 /// records against the committed workspace, edits existing rows
-/// in-place (#245), links visual evidence (#255), binds exact catalog
-/// equipment via a searchable picker (#265), records optional
-/// physical-device identity attestations (#239), and offers the guided
-/// speaker-layout flow (#278). Placement/heading captures run through
-/// the shared live AR session with a visible reticle (#214) and can
-/// target mesh or RoomPlan objects, never only planes (#246).
+/// in-place (legacy bolph71656-ai/HTDT-Capture#245), links visual evidence (legacy bolph71656-ai/HTDT-Capture#255), binds exact catalog
+/// equipment via a searchable picker (legacy bolph71656-ai/HTDT-Capture#265), records optional
+/// physical-device identity attestations (legacy bolph71656-ai/HTDT-Capture#239), and offers the guided
+/// speaker-layout flow (legacy bolph71656-ai/HTDT-Capture#278). Placement/heading captures run through
+/// the shared live AR session with a visible reticle (legacy bolph71656-ai/HTDT-Capture#214) and can
+/// target mesh or RoomPlan objects, never only planes (legacy bolph71656-ai/HTDT-Capture#246).
 ///
 /// Staged state is autosaved to an app-private draft bound to the
-/// exact working revision + coordinate space (#266); the canonical
+/// exact working revision + coordinate space (legacy bolph71656-ai/HTDT-Capture#266); the canonical
 /// `annotations/`/`measurements/` payloads are written only by Save.
 public struct CaptureAnnotationWorkspaceView: View {
     public let coordinateSpaceID: CoordinateSpaceID
@@ -69,110 +69,110 @@ public struct CaptureAnnotationWorkspaceView: View {
     /// revision (kept for compatibility — superseded visually by
     /// `evidenceFrames`).
     public let availableEvidenceRefs: [String]
-    /// Visual presentation data for each evidence frame (#255).
+    /// Visual presentation data for each evidence frame (legacy bolph71656-ai/HTDT-Capture#255).
     public let evidenceFrames: [EvidenceFramePresentation]
     /// Captured RoomPlan elements/mesh anchors offered as binding
-    /// targets in the authority sheets (#218).
+    /// targets in the authority sheets (legacy bolph71656-ai/HTDT-Capture#218).
     public let roomPlanSurfaces: [CapturedSurfaceOption]
     public let meshAnchors: [CapturedSurfaceOption]
     public let statusMessage: String?
     public let replacesCommittedAuthority: Bool
-    /// Spatial authority sealed for finalization (#276): live capture
+    /// Spatial authority sealed for finalization (legacy bolph71656-ai/HTDT-Capture#276): live capture
     /// affordances stay hidden (cameraPreview is nil) while label,
     /// role, equipment, and scalar corrections remain editable.
     public let spatialCaptureSealed: Bool
-    /// Shared AR preview for the camera capture sheets (#214).
+    /// Shared AR preview for the camera capture sheets (legacy bolph71656-ai/HTDT-Capture#214).
     public let cameraPreview: AnyView?
-    /// Pollable reticle probe (#214/#246).
+    /// Pollable reticle probe (legacy bolph71656-ai/HTDT-Capture#214/legacy bolph71656-ai/HTDT-Capture#246).
     public let probePlacementTarget:
         () async -> AnnotationPlacementProbe
-    /// Pollable camera heading in degrees (#214).
+    /// Pollable camera heading in degrees (legacy bolph71656-ai/HTDT-Capture#214).
     public let probeCameraHeading: () async -> Float?
-    /// Targeted placement capture (#246) — nil result means no hit.
+    /// Targeted placement capture (legacy bolph71656-ai/HTDT-Capture#246) — nil result means no hit.
     public let captureTargetedPlacement: (
         PlacementTargetPreference
     ) async throws -> AnnotationPlacementAuthority?
     public let captureSpeakerOrientation:
         () async throws -> AnnotationOrientationAuthority
     /// Full-3D orientation capture for measurement-point direction
-    /// authority (issue #271); distinct from the horizontal-heading
+    /// authority (issue bolph71656-ai/HTDT-Capture#271); distinct from the horizontal-heading
     /// `captureSpeakerOrientation` convention.
     public let capturePointOrientation:
         () async throws -> AnnotationOrientationAuthority
     /// Captures a plain evidence frame for equipment-identity photos
-    /// (#239); returns the canonical `path:` ref.
+    /// (legacy bolph71656-ai/HTDT-Capture#239); returns the canonical `path:` ref.
     public let captureIdentityPhoto: () async throws -> String
     /// Captures a dedicated close-up photo for field evidence
-    /// (#314): a fresh camera frame materialized as an image, with no
+    /// (legacy bolph71656-ai/HTDT-Capture#314): a fresh camera frame materialized as an image, with no
     /// frame descriptor persisted — image evidence, never spatial
     /// authority.
     public let captureFieldEvidencePhoto:
         () async throws -> CapturedFieldPhoto
     /// Receives the staged field-authority state on Save so the host
-    /// can persist the derived documents (#300/#301/#310/#314/#324/
-    /// #331).
+    /// can persist the derived documents (legacy bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#301/legacy bolph71656-ai/HTDT-Capture#310/legacy bolph71656-ai/HTDT-Capture#314/legacy bolph71656-ai/HTDT-Capture#324/
+    /// legacy bolph71656-ai/HTDT-Capture#331).
     public let onCommitFieldAuthority:
         (FieldAuthorityWorkspace) -> Void
-    /// Recognized RoomPlan objects offered for direct binding (#246).
+    /// Recognized RoomPlan objects offered for direct binding (legacy bolph71656-ai/HTDT-Capture#246).
     public let roomPlanObjects: [RoomPlanBindableObject]
-    /// Advisory plausibility context for live flags (#247).
+    /// Advisory plausibility context for live flags (legacy bolph71656-ai/HTDT-Capture#247).
     public let plausibilityContext: SpatialPlausibilityContext
-    /// Session equipment picker recents (#265).
+    /// Session equipment picker recents (legacy bolph71656-ai/HTDT-Capture#265).
     public let equipmentRecents: EquipmentRecents
-    /// Available speaker-layout plans (#278); empty hides the flow.
+    /// Available speaker-layout plans (legacy bolph71656-ai/HTDT-Capture#278); empty hides the flow.
     public let speakerLayoutPlans: [SpeakerLayoutPlan]
-    /// Draft persistence + binding for autosave (#266). A draft only
+    /// Draft persistence + binding for autosave (legacy bolph71656-ai/HTDT-Capture#266). A draft only
     /// ever seeds the workspace when both IDs match exactly.
     public let draftStore: AnnotationWorkspaceDraftStore?
     public let draftRevisionID: CaptureRevisionID?
     /// Live task-plan tracker — when bound, the authority workspace
-    /// deep-links mission items into record authoring (#357/#359).
+    /// deep-links mission items into record authoring (legacy bolph71656-ai/HTDT-Capture#357/legacy bolph71656-ai/HTDT-Capture#359).
     public let taskPlanStatus: Binding<CaptureTaskPlanStatus>?
-    /// Design targets for the placement-verification flow (#346).
+    /// Design targets for the placement-verification flow (legacy bolph71656-ai/HTDT-Capture#346).
     public let plannedTargets: [PlannedAsBuiltSpec]
-    /// Proven plan alignment the placement assist runs under (#293).
+    /// Proven plan alignment the placement assist runs under (legacy bolph71656-ai/HTDT-Capture#293).
     public let establishedAlignment: PlanAlignmentAuthority?
     /// Validates and adopts an imported catalog snapshot through the
-    /// host (#211). The host keeps the catalog alive across this view's
+    /// host (legacy bolph71656-ai/HTDT-Capture#211). The host keeps the catalog alive across this view's
     /// lifecycle (and relaunch, via an app-support cache); the default
     /// only decodes through the validating initializer.
     public let onImportEquipmentCatalog:
         (Data) throws -> HTDTEquipmentCatalogSnapshot
     /// Every catalog snapshot stored in the host's multi-catalog
-    /// library (#302); each entry's snapshot carries its identity so
+    /// library (legacy bolph71656-ai/HTDT-Capture#302); each entry's snapshot carries its identity so
     /// the operator can see source project/instance, freshness, and
     /// definition counts, and switch the active catalog explicitly.
     public let equipmentCatalogLibrary:
         [HTDTEquipmentCatalogLibrary.StoredCatalog]
-    /// Activates a stored catalog by its content key (#302); the
+    /// Activates a stored catalog by its content key (legacy bolph71656-ai/HTDT-Capture#302); the
     /// host owns the store so a failed activation never mutates the
     /// workspace's adopted snapshot.
     public let onSelectEquipmentCatalog: (String) -> Void
-    /// App-local operator roster (#458): profiles remembered on this
+    /// App-local operator roster (legacy bolph71656-ai/HTDT-Capture#458): profiles remembered on this
     /// device, offered for one-tap reuse in the Operators sheet.
     public let operatorRoster: [OperatorProfile]
-    /// #458: remember an operator profile app-wide.
+    /// legacy bolph71656-ai/HTDT-Capture#458: remember an operator profile app-wide.
     public let onUpdateOperatorRoster: (OperatorProfile) -> Void
-    /// #458: forget a roster profile.
+    /// legacy bolph71656-ai/HTDT-Capture#458: forget a roster profile.
     public let onRemoveFromOperatorRoster: (OperatorProfileID) -> Void
-    /// Imported capture task plan (#240), when the host has one — its
+    /// Imported capture task plan (legacy bolph71656-ai/HTDT-Capture#240), when the host has one — its
     /// pinned catalog identity drives the stale/missing-catalog
-    /// warning (#302) and its layout profile drives role bindings
-    /// (#315).
+    /// warning (legacy bolph71656-ai/HTDT-Capture#302) and its layout profile drives role bindings
+    /// (legacy bolph71656-ai/HTDT-Capture#315).
     public let taskPlan: HTDTCaptureTaskPlan?
-    /// Label-scan assist (#345): captures a label frame and returns
+    /// Label-scan assist (legacy bolph71656-ai/HTDT-Capture#345): captures a label frame and returns
     /// suggestion candidates; nil hides the control.
     public let scanEquipmentLabel:
         (() async throws -> EquipmentLabelScanResult)?
-    /// Current capture-task profile (#217); nil means geometry-only.
+    /// Current capture-task profile (legacy bolph71656-ai/HTDT-Capture#217); nil means geometry-only.
     public let taskProfile: CaptureTaskProfile?
     /// Presentation-only length unit for rendering canonical meter
-    /// values (#338); the persisted bytes always stay canonical.
+    /// values (legacy bolph71656-ai/HTDT-Capture#338); the persisted bytes always stay canonical.
     public let lengthDisplayUnit: LengthDisplayUnit
     public let onSelectTaskProfile:
         (CaptureTaskProfile?, Set<String>) -> Void
     /// True while the host is committing the staged authority
-    /// (#309): Save stays disabled and shows progress instead of
+    /// (legacy bolph71656-ai/HTDT-Capture#309): Save stays disabled and shows progress instead of
     /// looking tappable while `onCommit` would be guarded out.
     public let commitInFlight: Bool
     public let onCommit: (
@@ -182,11 +182,11 @@ public struct CaptureAnnotationWorkspaceView: View {
         TheaterAuthorityCollection
     ) -> Void
     public let onCancel: () -> Void
-    /// Operator-initiated capture discard (#254): asks the host to
+    /// Operator-initiated capture discard (legacy bolph71656-ai/HTDT-Capture#254): asks the host to
     /// confirm, stop, and remove the whole working revision.
     public let onDiscard: () -> Void
 
-    /// One snapshot of every staged collection (#330). Undo/redo
+    /// One snapshot of every staged collection (legacy bolph71656-ai/HTDT-Capture#330). Undo/redo
     /// operate only on these staged values — never on committed
     /// canonical authority, which changes only through `onCommit`.
     private struct StagedSnapshot: Equatable {
@@ -198,7 +198,7 @@ public struct CaptureAnnotationWorkspaceView: View {
     }
 
     /// Staged state at workspace open: the committed authority seed,
-    /// or a recovered draft (#266). Dirty means staged ≠ baseline;
+    /// or a recovered draft (legacy bolph71656-ai/HTDT-Capture#266). Dirty means staged ≠ baseline;
     /// a restored draft is treated as dirty until Save commits it.
     private let seedBaseline: StagedSnapshot
 
@@ -208,7 +208,7 @@ public struct CaptureAnnotationWorkspaceView: View {
     @State private var speakerLayoutPlan: SpeakerLayoutPlan?
     @State private var restoredFromDraft: Bool
     @State private var authorities: TheaterAuthorityCollection
-    /// Bounded local undo/redo over staged snapshots (#330).
+    /// Bounded local undo/redo over staged snapshots (legacy bolph71656-ai/HTDT-Capture#330).
     @State private var undoStack: [StagedSnapshot] = []
     @State private var redoStack: [StagedSnapshot] = []
     @State private var confirmingCancel = false
@@ -218,7 +218,7 @@ public struct CaptureAnnotationWorkspaceView: View {
     @State private var editingMeasurementID: MeasurementID?
     @State private var layoutFlowPlan: SpeakerLayoutPlan?
     /// The catalog snapshot currently adopted by the host, seeded when
-    /// this workspace opens (#211). Selecting "Replace equipment
+    /// this workspace opens (legacy bolph71656-ai/HTDT-Capture#211). Selecting "Replace equipment
     /// catalog" always runs through `onImportEquipmentCatalog`, so an
     /// unsupported file never silently substitutes the kept snapshot.
     @State private var equipmentCatalog:
@@ -226,7 +226,7 @@ public struct CaptureAnnotationWorkspaceView: View {
     @State private var importingEquipmentCatalog = false
     @State private var equipmentCatalogError: String?
     @State private var draftSaveTask: Task<Void, Never>?
-    /// Staged field-authority state (#300/#301/#310/#314/#324/#331),
+    /// Staged field-authority state (legacy bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#301/legacy bolph71656-ai/HTDT-Capture#310/legacy bolph71656-ai/HTDT-Capture#314/legacy bolph71656-ai/HTDT-Capture#324/legacy bolph71656-ai/HTDT-Capture#331),
     /// autosaved with the draft and committed on Save.
     @State private var fieldAuthority = FieldAuthorityWorkspace()
     @State private var showingOperators = false
@@ -241,7 +241,7 @@ public struct CaptureAnnotationWorkspaceView: View {
     @State private var observingTarget:
         ReferenceTargetDeclaration?
 
-    /// Undo-history bound (#330): snapshots are deep value copies, so
+    /// Undo-history bound (legacy bolph71656-ai/HTDT-Capture#330): snapshots are deep value copies, so
     /// the stack is capped at a deterministic depth.
     private let maxUndoDepth = 64
 
@@ -419,7 +419,7 @@ public struct CaptureAnnotationWorkspaceView: View {
     }
 
     public var body: some View {
-        // #362: on regular width the staged records (annotations,
+        // legacy bolph71656-ai/HTDT-Capture#362: on regular width the staged records (annotations,
         // measurements, speaker layout) sit beside the context and
         // commit controls; compact width composes into one list.
         CaptureAdaptivePanes {
@@ -629,7 +629,7 @@ public struct CaptureAnnotationWorkspaceView: View {
             )
         }
         // Autosave drafts on any staged change and when the workspace
-        // disappears (#266).
+        // disappears (legacy bolph71656-ai/HTDT-Capture#266).
         .onChange(of: annotations) { _, _ in scheduleDraftSave() }
         .onChange(of: measurements) { _, _ in scheduleDraftSave() }
         .onChange(of: identityRecords) { _, _ in scheduleDraftSave() }
@@ -662,14 +662,14 @@ public struct CaptureAnnotationWorkspaceView: View {
         }
         annotations.remove(atOffsets: offsets)
         // An attestation bound to a deleted entity can never outlive
-        // it (#239).
+        // it (legacy bolph71656-ai/HTDT-Capture#239).
         identityRecords.removeAll {
             removedIDs.contains($0.entityID)
         }
         scheduleDraftSave()
     }
 
-    // MARK: Workspace edit transaction (#330)
+    // MARK: Workspace edit transaction (legacy bolph71656-ai/HTDT-Capture#330)
 
     private var stagedSnapshot: StagedSnapshot {
         StagedSnapshot(
@@ -682,7 +682,7 @@ public struct CaptureAnnotationWorkspaceView: View {
     }
 
     /// Staged ≠ seed baseline, or the seed itself was a recovered
-    /// draft that was never committed authority (#266).
+    /// draft that was never committed authority (legacy bolph71656-ai/HTDT-Capture#266).
     private var isDirty: Bool {
         restoredFromDraft || stagedSnapshot != seedBaseline
     }
@@ -727,7 +727,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         scheduleDraftSave()
     }
 
-    /// Concise replacement preview (#330): how the staged collections
+    /// Concise replacement preview (legacy bolph71656-ai/HTDT-Capture#330): how the staged collections
     /// differ from the committed seed, by stable entity/measurement
     /// identity.
     private var stagedChangeSummary: String? {
@@ -816,7 +816,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    /// #276 seal notice: every raycast/orientation/scan affordance is
+    /// legacy bolph71656-ai/HTDT-Capture#276 seal notice: every raycast/orientation/scan affordance is
     /// already hidden via `cameraPreview == nil`; this names why.
     @ViewBuilder
     private var sealedSpatialNotice: some View {
@@ -831,7 +831,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         }
     }
 
-    // MARK: Draft autosave (#266)
+    // MARK: Draft autosave (legacy bolph71656-ai/HTDT-Capture#266)
 
     private func scheduleDraftSave() {
         draftSaveTask?.cancel()
@@ -870,7 +870,7 @@ public struct CaptureAnnotationWorkspaceView: View {
     private func commit() {
         discardDraft()
         // Stamp the selected operator identity onto newly authored
-        // records that do not already carry one (#310); an explicit
+        // records that do not already carry one (legacy bolph71656-ai/HTDT-Capture#310); an explicit
         // author on a record is never overwritten.
         if let operatorID = fieldAuthority.selectedOperatorID {
             for index in annotations.indices
@@ -898,8 +898,8 @@ public struct CaptureAnnotationWorkspaceView: View {
         onCommit(annotations, measurements, identityRecords, authorities)
     }
 
-    /// Task items (#217) whose match clause targets this entity type —
-    /// used to auto-scope row-triggered evidence capture (#314).
+    /// Task items (legacy bolph71656-ai/HTDT-Capture#217) whose match clause targets this entity type —
+    /// used to auto-scope row-triggered evidence capture (legacy bolph71656-ai/HTDT-Capture#314).
     private func taskScopeRefs(
         for entity: CaptureAnnotationEntity
     ) -> [String] {
@@ -915,7 +915,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         }
     }
 
-    /// Cancel is one tap when nothing was staged (#330); a dirty
+    /// Cancel is one tap when nothing was staged (legacy bolph71656-ai/HTDT-Capture#330); a dirty
     /// workspace requires an explicit discard decision first.
     private func requestCancel() {
         if isDirty {
@@ -948,7 +948,7 @@ public struct CaptureAnnotationWorkspaceView: View {
 
             let data = try Data(contentsOf: url)
             // The host validates (schema + authority version), adopts
-            // and durably caches the snapshot (#211). A failed import
+            // and durably caches the snapshot (legacy bolph71656-ai/HTDT-Capture#211). A failed import
             // keeps the previously adopted catalog instead of clearing
             // it: the error is shown and nothing is silently replaced.
             equipmentCatalog = try onImportEquipmentCatalog(data)
@@ -960,7 +960,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         }
     }
 
-    /// Preset capture-task profiles (#217): geometry-only stays valid,
+    /// Preset capture-task profiles (legacy bolph71656-ai/HTDT-Capture#217): geometry-only stays valid,
     /// theater presets pick a speaker-role set the operator expects; a
     /// host may substitute any custom `CaptureTaskProfile` since the
     /// completeness model is driven by requirements, not presets.
@@ -1061,7 +1061,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         case "room_and_listening_position":
             return .roomAndListeningPosition
         case "theater_layout":
-            // #426: the same `SpeakerLayoutProfile`-derived preset
+            // legacy bolph71656-ai/HTDT-Capture#426: the same `SpeakerLayoutProfile`-derived preset
             // Capture setup offers — never a separate literal list.
             return .theaterLayout
         default:
@@ -1093,7 +1093,7 @@ public struct CaptureAnnotationWorkspaceView: View {
             }
         }
     }
-    /// Active role vocabulary (#315): the task plan's exact layout
+    /// Active role vocabulary (legacy bolph71656-ai/HTDT-Capture#315): the task plan's exact layout
     /// profile wins; ad-hoc captures get the built-in generic
     /// profile so speaker roles are still versioned bindings rather
     /// than free tokens.
@@ -1146,7 +1146,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         }
     }
 
-    /// Snapshot identity rows (#302): label, generated timestamp,
+    /// Snapshot identity rows (legacy bolph71656-ai/HTDT-Capture#302): label, generated timestamp,
     /// source project/instance, definition count — a legacy v1
     /// cache decodes as `isLegacy` and reads "unknown/legacy".
     @ViewBuilder
@@ -1192,7 +1192,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         }
     }
 
-    /// Task-plan catalog pin (#302/#240): a plan may pin the exact
+    /// Task-plan catalog pin (legacy bolph71656-ai/HTDT-Capture#302/legacy bolph71656-ai/HTDT-Capture#240): a plan may pin the exact
     /// catalog content hash it was authored against; a missing or
     /// different active catalog is surfaced, never silently
     /// substituted.
@@ -1289,7 +1289,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         }
     }
     /// Layout plans the batch flow offers, always including the
-    /// task's own custom/nonstandard `layoutProfile` (#278) — the
+    /// task's own custom/nonstandard `layoutProfile` (legacy bolph71656-ai/HTDT-Capture#278) — the
     /// preset list is no longer the only entry point.
     private var offeredLayoutPlans: [SpeakerLayoutPlan] {
         var plans = speakerLayoutPlans
@@ -1396,7 +1396,7 @@ public struct CaptureAnnotationWorkspaceView: View {
             }
         }
     }
-    /// Field authority (#300/#301/#310/#314/#324/#331): operator
+    /// Field authority (legacy bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#301/legacy bolph71656-ai/HTDT-Capture#310/legacy bolph71656-ai/HTDT-Capture#314/legacy bolph71656-ai/HTDT-Capture#324/legacy bolph71656-ai/HTDT-Capture#331): operator
     /// identity, typed field evidence, measurement instruments,
     /// installed-settings observations and as-built wiring routes —
     /// all derived documents staged beside the canonical collections.
@@ -1658,7 +1658,7 @@ public struct CaptureAnnotationWorkspaceView: View {
             }
         }
 
-        // #227: declared fiducial/reference targets plus their
+        // legacy bolph71656-ai/HTDT-Capture#227: declared fiducial/reference targets plus their
         // evidence-linked sightings — the scale/drift/repeatability
         // document built at commit time.
         Section(String(localized: "Reference targets")) {
@@ -1752,7 +1752,7 @@ public struct CaptureAnnotationWorkspaceView: View {
     @ViewBuilder
     private var commitSection: some View {
         Section {
-            // #330: the workspace edit transaction — undo/redo over
+            // legacy bolph71656-ai/HTDT-Capture#330: the workspace edit transaction — undo/redo over
             // staged state, a dirty marker, and a replacement preview
             // before the single canonical commit.
             HStack(spacing: 16) {
@@ -1948,7 +1948,7 @@ public struct CaptureAnnotationWorkspaceView: View {
                 authorities: Binding(
                     get: { authorities },
                     set: { newValue in
-                        // #330: theater-authority edits join the same
+                        // legacy bolph71656-ai/HTDT-Capture#330: theater-authority edits join the same
                         // staged undo transaction.
                         guard newValue != authorities else {
                             return
@@ -2126,7 +2126,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         switch measurement.value {
         case let .scalar(value):
             // Canonical meter values render in the operator's display
-            // unit (#338); the stored value and unit never change.
+            // unit (legacy bolph71656-ai/HTDT-Capture#338); the stored value and unit never change.
             if measurement.unit == .meter {
                 detail = lengthDisplayUnit.format(
                     lengthMeters: value
