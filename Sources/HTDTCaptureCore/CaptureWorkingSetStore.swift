@@ -540,7 +540,7 @@ public actor CaptureWorkingSetStore {
     private var captureStrategyDocument: CaptureStrategyDocument?
     private var planUnderlayDocument: PlanUnderlayDocument?
     private var referenceTargetDocument: ReferenceTargetCaptureDocument?
-    /// #268: bounded accumulator behind the canonical
+    /// legacy bolph71656-ai/HTDT-Capture#268: bounded accumulator behind the canonical
     /// `evidence/reference-object-observations.json` payload — the
     /// ARKit `ARObjectAnchor` pose/lifecycle record for this revision.
     private var referenceObjectObservationBuffer =
@@ -576,6 +576,12 @@ public actor CaptureWorkingSetStore {
     /// so sustained pressure emits one bounded event rather than one
     /// per admission.
     private var backlogPressureActive = false
+    /// Read-only exposure of `backlogPressureActive` so the optional-
+    /// work admission policy (legacy bolph71656-ai/HTDT-Capture#273) reuses this authority's writer-
+    /// backlog signal instead of a parallel measurement.
+    public var persistenceBacklogPressureActive: Bool {
+        backlogPressureActive
+    }
     /// Bumped on every seal-state transition. A `sealForFinalization`
     /// call captures it so an `unseal`/`consume` that slips into a
     /// writer suspension deterministically aborts the in-flight seal
@@ -4417,8 +4423,12 @@ public actor CaptureWorkingSetStore {
             // Recompute usable-depth counters: samples are tracked per
             // package payload, which is no longer retained in memory,
             // so recount from the remaining descriptors' payloads.
+            // The sufficiency accumulator (legacy bolph71656-ai/HTDT-Capture#284) feeds the quality
+            // fallback gate — rebuild it in the same pass so the gate
+            // never evaluates removed frames' statistics.
             var usableSamples = 0
             var usableFrames = 0
+            depthSufficiencyAccumulator = DepthSufficiencyAccumulator()
             for remaining in frameDescriptors {
                 guard let depthPath =
                         remaining.depth?.depthRelativePath
@@ -4440,6 +4450,32 @@ public actor CaptureWorkingSetStore {
                 usableSamples += samples
                 if samples > 0 {
                     usableFrames += 1
+                }
+                if let payload,
+                   let depth = try? DepthBinaryCodec.decode(payload)
+                {
+                    let confidence = remaining.depth?
+                        .confidenceRelativePath
+                        .flatMap { confidencePath in
+                            let confidenceURL = confidencePath
+                                .split(separator: "/")
+                                .reduce(rootDirectory) {
+                                    $0.appendingPathComponent(
+                                        String($1),
+                                        isDirectory: false
+                                    )
+                                }
+                            return try? Data(
+                                contentsOf: confidenceURL
+                            )
+                        }
+                        .flatMap {
+                            try? ConfidenceBinaryCodec.decode($0)
+                        }
+                    depthSufficiencyAccumulator.record(
+                        depth: depth,
+                        confidence: confidence
+                    )
                 }
             }
             usableDepthSampleCount = usableSamples
@@ -5071,39 +5107,51 @@ public actor CaptureWorkingSetStore {
     /// kept; a derived declaration left with no resolvable refs is
     /// un-manifestable, so its document is dropped with the
     /// declaration instead of stranding a dangling `path:` ref that
-    /// fails finalization.
+    /// fails finalization. Derived docs may cite other derived docs
+    /// (field-evidence → settings/wiring/profiles, profiles →
+    /// calibration evidence), so a drop can expose another dangling
+    /// ref — iterate to a fixpoint like the restore path does.
     private func pruneDerivedSourceRefs(
         removedPaths: Set<String>
     ) async throws {
-        let derivedDeclarations = declarations.filter {
-            $0.value.role == .derived
-        }
-        for (path, declaration) in derivedDeclarations {
-            guard let refs = declaration.sourceRefs else {
-                continue
+        var pendingRemoval = removedPaths
+        var changed = true
+        while changed {
+            changed = false
+            let derivedDeclarations = declarations.filter {
+                $0.value.role == .derived
+            }.sorted {
+                BundleLogicalPath.utf8Less($0.key, $1.key)
             }
-            let surviving = refs.filter { ref in
-                guard ref.hasPrefix("path:") else {
-                    return true
+            for (path, declaration) in derivedDeclarations {
+                guard let refs = declaration.sourceRefs else {
+                    continue
                 }
-                let cited = String(ref.dropFirst("path:".count))
-                return !removedPaths.contains(cited)
-                    && declarations[cited] != nil
-            }
-            guard surviving.count != refs.count else {
-                continue
-            }
-            if surviving.isEmpty {
-                try await removeCommittedPayload(path: path)
-            } else {
-                declarations[path] = BundlePayloadDeclaration(
-                    path: declaration.path,
-                    mediaType: declaration.mediaType,
-                    producer: declaration.producer,
-                    provenanceClass: declaration.provenanceClass,
-                    role: declaration.role,
-                    sourceRefs: surviving
-                )
+                let surviving = refs.filter { ref in
+                    guard ref.hasPrefix("path:") else {
+                        return true
+                    }
+                    let cited = String(ref.dropFirst("path:".count))
+                    return !pendingRemoval.contains(cited)
+                        && declarations[cited] != nil
+                }
+                guard surviving.count != refs.count else {
+                    continue
+                }
+                changed = true
+                if surviving.isEmpty {
+                    try await removeCommittedPayload(path: path)
+                    pendingRemoval.insert(path)
+                } else {
+                    declarations[path] = BundlePayloadDeclaration(
+                        path: declaration.path,
+                        mediaType: declaration.mediaType,
+                        producer: declaration.producer,
+                        provenanceClass: declaration.provenanceClass,
+                        role: declaration.role,
+                        sourceRefs: surviving
+                    )
+                }
             }
         }
     }
@@ -5310,7 +5358,7 @@ public actor CaptureWorkingSetStore {
     }
 
     /// Installs the reference-object configuration echo for this
-    /// revision (#268): which assets the operator picked, which the
+    /// revision (legacy bolph71656-ai/HTDT-Capture#268): which assets the operator picked, which the
     /// selection policy dropped and why, and each configured asset's
     /// artifact-load outcome. Rewrites the canonical
     /// `evidence/reference-object-observations.json` payload; a later
@@ -5334,7 +5382,7 @@ public actor CaptureWorkingSetStore {
         try await persistReferenceObjectObservations()
     }
 
-    /// Records one `ARObjectAnchor` delegate observation (#268).
+    /// Records one `ARObjectAnchor` delegate observation (legacy bolph71656-ai/HTDT-Capture#268).
     /// `kind` is the delegate callback (add/update/remove); the buffer
     /// coalesces steady-state `updated` callbacks into one mutable
     /// per-anchor record and appends genuine lifecycle transitions —
@@ -5389,7 +5437,7 @@ public actor CaptureWorkingSetStore {
     }
 
     /// The committed reference-object observation document, iff this
-    /// revision has one (#268).
+    /// revision has one (legacy bolph71656-ai/HTDT-Capture#268).
     public var referenceObjectDocument:
         ReferenceObjectObservationDocument?
     {
@@ -5414,7 +5462,7 @@ public actor CaptureWorkingSetStore {
     }
 
     /// Rewrites `evidence/reference-object-observations.json` from the
-    /// buffer (#268). No-ops before session/coordinate authority binds
+    /// buffer (legacy bolph71656-ai/HTDT-Capture#268). No-ops before session/coordinate authority binds
     /// or while neither a configuration nor an observation exists —
     /// the payload only ever carries real, bound evidence.
     private func persistReferenceObjectObservations() async throws {
@@ -5475,8 +5523,6 @@ public actor CaptureWorkingSetStore {
         ] = package.data
     }
 
-    /// Replaces the advisory End-boundary coverage snapshot (legacy bolph71656-ai/HTDT-Capture#223). The
-||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
     /// Replaces the advisory End-boundary coverage snapshot (legacy bolph71656-ai/HTDT-Capture#223). The
     /// host records it once per accepted End attempt; the latest call
     /// wins so repeated End presses stay deterministic.
@@ -5736,10 +5782,17 @@ public actor CaptureWorkingSetStore {
         let data = try document.encoded()
         let reservation = try reserveAdmission(bytes: data.count)
         defer { releaseAdmission(reservation) }
-        try await writer.writeIfIdentical(
-            data,
-            to: CaptureStorePath(CaptureAdvisoryNoteDocument.path)
-        )
+        // The advisories document is lifecycle-mutable like the field
+        // notes one — each recorded note rewrites the whole payload.
+        // `writeIfIdentical` would reject every note after the first.
+        try await writer.writeBatchReplacing([
+            try CaptureFileWriteRequest(
+                data: data,
+                path: CaptureStorePath(
+                    CaptureAdvisoryNoteDocument.path
+                )
+            ),
+        ])
         try register(
             BundlePayloadDeclaration(
                 path: CaptureAdvisoryNoteDocument.path,
@@ -5773,7 +5826,7 @@ public actor CaptureWorkingSetStore {
             findings += ReferenceTargetCaptureBuilder
                 .reviewDiagnostics(for: document)
         }
-        // #268: reference-object load/selection/truncation findings
+        // legacy bolph71656-ai/HTDT-Capture#268: reference-object load/selection/truncation findings
         // join the same advisory surface — read-only diagnostics
         // derived from the committed document, never persisted
         // advisories and never a quality gate.
@@ -6115,7 +6168,7 @@ public actor CaptureWorkingSetStore {
             throw CaptureWorkingSetError
                 .practiceWorkingSetNotFinalizable
         }
-        // #268: flush the freshest buffered reference-object poses —
+        // legacy bolph71656-ai/HTDT-Capture#268: flush the freshest buffered reference-object poses —
         // steady-state `updated` records coalesce in memory and only
         // persist on lifecycle records or here at the seal boundary,
         // so the sealed document always carries the latest pose.
@@ -7179,7 +7232,7 @@ public actor CaptureWorkingSetStore {
             )
 
         case "reference_object_observation":
-            // #268: an accepted observation resolves to a committed
+            // legacy bolph71656-ai/HTDT-Capture#268: an accepted observation resolves to a committed
             // record inside the canonical observation document —
             // a ref naming an uncommitted observation, or one recorded
             // in a different coordinate space, fails closed like any

@@ -4,7 +4,7 @@ import Foundation
 import FoundationModels
 #endif
 
-/// The Foundation Models adapter for the scan copilot (#272).
+/// The Foundation Models adapter for the scan copilot (legacy bolph71656-ai/HTDT-Capture#272).
 ///
 /// Everything here is doubly gated:
 ///   1. `#if canImport(FoundationModels) && compiler(>=6.4)` —
@@ -19,7 +19,7 @@ import FoundationModels
 ///      unsupported locales the producer is never created and every
 ///      resolution falls back to `ScanCopilotBaseline`.
 ///
-/// Per #272: one fresh `LanguageModelSession` per suggestion request
+/// Per legacy bolph71656-ai/HTDT-Capture#272: one fresh `LanguageModelSession` per suggestion request
 /// (no long-lived agent), no tools (`toolCallingMode = .disallowed`),
 /// `contextSizeExceeded` is a normal failure — the input is rebuilt
 /// smaller once via `context.reduced()`, never by silently dropping
@@ -30,7 +30,7 @@ import FoundationModels
 
 /// Prompt/copy revision stamped into provenance — bump when the
 /// instruction or prompt text changes so eval records stay
-/// comparable (#272 audit field).
+/// comparable (legacy bolph71656-ai/HTDT-Capture#272 audit field).
 public let scanCopilotPromptRevision = "scan-copilot-v1"
 
 /// Assembles the copilot's model producer for the current runtime.
@@ -231,7 +231,7 @@ public struct FoundationScanCopilotModel: ScanCopilotModelProducing {
 
     /// Provenance assembled strictly from API-exposed fields —
     /// variant display name, OS version, locale, context size, usage
-    /// counts, and the app-owned prompt revision (#272).
+    /// counts, and the app-owned prompt revision (legacy bolph71656-ai/HTDT-Capture#272).
     private func provenance(
         model: SystemLanguageModel,
         usage: LanguageModelSession.Usage?

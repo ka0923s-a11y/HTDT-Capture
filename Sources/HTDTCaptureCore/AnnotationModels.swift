@@ -635,11 +635,18 @@ public struct ChannelRole: RawRepresentable, Codable, Hashable, Sendable,
     public let rawValue: String
 
     public init?(rawValue: String) {
+        // Schema grammar: a standard token from `standardSet`, or a
+        // custom `X_[A-Z0-9_]+` token. A plain uppercase token like
+        // "SIDE" decodes fine at this layer but is un-emittable — the
+        // entities schema rejects it at finalize, so admission must
+        // match the schema exactly.
         guard !rawValue.isEmpty,
               rawValue == rawValue.uppercased(),
               rawValue.allSatisfy({
                   $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_")
-              })
+              }),
+              Self.standardSet.contains(rawValue)
+                  || (rawValue.hasPrefix("X_") && rawValue.count > 2)
         else {
             return nil
         }
@@ -1536,6 +1543,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
             placement: placement,
             orientation: orientation,
             channelRole: channelRole,
+            roleBinding: roleBinding,
             acousticCenter: acousticCenter,
             equipmentRef: equipmentRef,
             evidenceRefs: evidenceRefs,
@@ -1545,6 +1553,7 @@ public struct CaptureAnnotationEntity: Codable, Sendable, Equatable {
             authority: authority,
             lifecycle: lifecycle,
             referencePoint: referencePoint,
+            lineage: lineage,
             authorOperatorID: operatorID
         )
     }

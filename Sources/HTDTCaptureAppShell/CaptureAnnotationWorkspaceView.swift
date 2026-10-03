@@ -10,6 +10,9 @@ import HTDTCaptureCore
 /// shows the records as unsaved (legacy bolph71656-ai/HTDT-Capture#266).
 public struct AnnotationWorkspaceSeed: Sendable, Equatable {
     public let annotations: [CaptureAnnotationEntity]
+    /// Committed semantic relation graph (legacy bolph71656-ai/HTDT-Capture#333); a re-commit must
+    /// re-declare it verbatim or the rebuild drops every relation.
+    public let relations: [CaptureSemanticRelation]
     public let measurements: [CaptureMeasurement]
     /// Equipment-identity attestations committed for this revision
     /// (legacy bolph71656-ai/HTDT-Capture#239) — persisted beside the canonical collections on save.
@@ -30,6 +33,7 @@ public struct AnnotationWorkspaceSeed: Sendable, Equatable {
 
     public init(
         annotations: [CaptureAnnotationEntity] = [],
+        relations: [CaptureSemanticRelation] = [],
         measurements: [CaptureMeasurement] = [],
         equipmentIdentityRecords: [EquipmentIdentityRecord] = [],
         speakerLayoutPlan: SpeakerLayoutPlan? = nil,
@@ -39,6 +43,7 @@ public struct AnnotationWorkspaceSeed: Sendable, Equatable {
             FieldAuthorityWorkspace()
     ) {
         self.annotations = annotations
+        self.relations = relations
         self.measurements = measurements
         self.equipmentIdentityRecords = equipmentIdentityRecords
         self.speakerLayoutPlan = speakerLayoutPlan
@@ -195,6 +200,11 @@ public struct CaptureAnnotationWorkspaceView: View {
         var identityRecords: [EquipmentIdentityRecord]
         var speakerLayoutPlan: SpeakerLayoutPlan?
         var authorities: TheaterAuthorityCollection
+        /// Field-authority edits (legacy bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#301/legacy bolph71656-ai/HTDT-Capture#310/legacy bolph71656-ai/HTDT-Capture#314/legacy bolph71656-ai/HTDT-Capture#324/legacy bolph71656-ai/HTDT-Capture#331) are
+        /// staged state like every other collection — the dirty
+        /// check and undo/redo must see them or Save appears clean
+        /// while uncommitted records exist.
+        var fieldAuthority: FieldAuthorityWorkspace
     }
 
     /// Staged state at workspace open: the committed authority seed,
@@ -405,7 +415,9 @@ public struct CaptureAnnotationWorkspaceView: View {
             measurements: seed?.measurements ?? [],
             identityRecords: seed?.equipmentIdentityRecords ?? [],
             speakerLayoutPlan: seed?.speakerLayoutPlan,
-            authorities: seed?.authorities ?? .empty
+            authorities: seed?.authorities ?? .empty,
+            fieldAuthority: seed?.fieldAuthority
+                ?? FieldAuthorityWorkspace()
         )
     }
 
@@ -504,7 +516,8 @@ public struct CaptureAnnotationWorkspaceView: View {
                     selectedOperatorID:
                         fieldAuthority.selectedOperatorID,
                     captureFieldEvidencePhoto:
-                        captureFieldEvidencePhoto
+                        spatialCaptureSealed
+                            ? nil : captureFieldEvidencePhoto
                 ) { record, asset in
                     fieldAuthority.fieldEvidence.append(record)
                     if let asset {
@@ -569,7 +582,8 @@ public struct CaptureAnnotationWorkspaceView: View {
                     selectedOperatorID:
                         fieldAuthority.selectedOperatorID,
                     captureTargetedPlacement:
-                        captureTargetedPlacement
+                        spatialCaptureSealed
+                            ? nil : captureTargetedPlacement
                 ) { route in
                     fieldAuthority.wiringRoutes.append(route)
                     scheduleDraftSave()
@@ -600,7 +614,8 @@ public struct CaptureAnnotationWorkspaceView: View {
                         $0.targetID == target.targetID
                     }.count,
                     captureTargetedPlacement:
-                        captureTargetedPlacement
+                        spatialCaptureSealed
+                            ? nil : captureTargetedPlacement
                 ) { observation in
                     var staged = fieldAuthority
                         .referenceTargetObservations ?? []
@@ -611,10 +626,9 @@ public struct CaptureAnnotationWorkspaceView: View {
                 }
             }
         }
-        .confirmationDialog(
+        .alert(
             "Discard unsaved changes?",
-            isPresented: $confirmingCancel,
-            titleVisibility: .visible
+            isPresented: $confirmingCancel
         ) {
             Button(
                 "Discard changes",
@@ -666,6 +680,24 @@ public struct CaptureAnnotationWorkspaceView: View {
         identityRecords.removeAll {
             removedIDs.contains($0.entityID)
         }
+        // A measurement endpoint naming a deleted entity would dangle
+        // in the committed collection — drop the dead `entity:` refs
+        // so save never writes an unresolvable endpoint (legacy bolph71656-ai/HTDT-Capture#239).
+        let removedRefs = Set(removedIDs.map {
+            "entity:\($0.description)"
+        })
+        for index in measurements.indices {
+            let refs = measurements[index].endpointRefs
+            let surviving = refs.filter {
+                !removedRefs.contains($0)
+            }
+            if surviving.count != refs.count,
+               let pruned = try? measurements[index]
+                   .withEndpointRefs(surviving)
+            {
+                measurements[index] = pruned
+            }
+        }
         scheduleDraftSave()
     }
 
@@ -677,7 +709,8 @@ public struct CaptureAnnotationWorkspaceView: View {
             measurements: measurements,
             identityRecords: identityRecords,
             speakerLayoutPlan: speakerLayoutPlan,
-            authorities: authorities
+            authorities: authorities,
+            fieldAuthority: fieldAuthority
         )
     }
 
@@ -707,6 +740,7 @@ public struct CaptureAnnotationWorkspaceView: View {
         identityRecords = snapshot.identityRecords
         speakerLayoutPlan = snapshot.speakerLayoutPlan
         authorities = snapshot.authorities
+        fieldAuthority = snapshot.fieldAuthority
     }
 
     private func undo() {
@@ -1846,6 +1880,7 @@ public struct CaptureAnnotationWorkspaceView: View {
             equipmentRecents: equipmentRecents,
             roomPlanObjects: roomPlanObjects,
             cameraPreview: cameraPreview,
+            spatialCaptureSealed: spatialCaptureSealed,
             probePlacementTarget: probePlacementTarget,
             probeCameraHeading: probeCameraHeading,
             captureTargetedPlacement:
@@ -1879,6 +1914,7 @@ public struct CaptureAnnotationWorkspaceView: View {
             equipmentRecents: equipmentRecents,
             roomPlanObjects: roomPlanObjects,
             cameraPreview: cameraPreview,
+            spatialCaptureSealed: spatialCaptureSealed,
             probePlacementTarget: probePlacementTarget,
             probeCameraHeading: probeCameraHeading,
             captureTargetedPlacement:
@@ -1944,7 +1980,11 @@ public struct CaptureAnnotationWorkspaceView: View {
                 equipmentCatalogEntries:
                     equipmentCatalog?.definitions ?? [],
                 equipmentRecents: equipmentRecents,
-                scanEquipmentLabel: scanEquipmentLabel,
+                // The label scan needs a live camera frame — under
+                // the spatial seal the session is gone, so the
+                // affordance hides like the other camera paths.
+                scanEquipmentLabel:
+                    spatialCaptureSealed ? nil : scanEquipmentLabel,
                 authorities: Binding(
                     get: { authorities },
                     set: { newValue in
@@ -1983,6 +2023,7 @@ public struct CaptureAnnotationWorkspaceView: View {
                     equipmentRecents: equipmentRecents,
                     roomPlanObjects: roomPlanObjects,
                     cameraPreview: cameraPreview,
+                    spatialCaptureSealed: spatialCaptureSealed,
                     probePlacementTarget: probePlacementTarget,
                     probeCameraHeading: probeCameraHeading,
                     captureTargetedPlacement:

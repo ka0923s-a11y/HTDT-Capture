@@ -1,4 +1,4 @@
-# lane-b — high-quality visual evidence (#275)
+# lane-b — high-quality visual evidence (legacy bolph71656-ai/HTDT-Capture#275)
 
 Protocol revision: **v1** (initial scaffold)
 

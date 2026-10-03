@@ -1,4 +1,4 @@
-# lane-a — source-quality preflight (#277)
+# lane-a — source-quality preflight (legacy bolph71656-ai/HTDT-Capture#277)
 
 Protocol revision: **v1** (initial scaffold)
 

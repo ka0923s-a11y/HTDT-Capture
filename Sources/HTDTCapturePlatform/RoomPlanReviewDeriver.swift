@@ -20,13 +20,10 @@ private protocol RoomPlanPlanItem {
     var identifier: UUID { get }
 }
 
-@available(iOS 17.0, *)
 extension CapturedRoom.Surface: RoomPlanPlanItem {}
 
-@available(iOS 17.0, *)
 extension CapturedRoom.Object: RoomPlanPlanItem {}
 
-@available(iOS 17.0, *)
 public enum RoomPlanReviewDeriver {
     public enum DeriverError: Error, Sendable, Equatable {
         case undecodableRoomPayload

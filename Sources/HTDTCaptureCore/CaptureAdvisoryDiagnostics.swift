@@ -554,7 +554,7 @@ public struct CaptureVerticalBandSummary: Sendable, Equatable, Codable {
 /// advisory context still produces a valid payload.
 public struct CaptureAdvisoryReport: Sendable, Equatable, Codable {
     public static let schema = "htdt.capture.advisory"
-    public static let schemaVersion = "1.0.0"
+    public static let schemaVersion = "1.1.0"
     public static let payloadPath = "quality/capture-advisory.json"
 
     public let schema: String

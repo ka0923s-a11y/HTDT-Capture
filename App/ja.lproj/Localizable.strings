@@ -67,6 +67,8 @@
 "Delete local capture?" = "ローカルキャプチャを削除しますか？";
 "Delete capture" = "キャプチャを削除";
 "Delete capture and export" = "キャプチャと書き出しを削除";
+"Delete interrupted capture files?" = "中断したキャプチャのファイルを削除しますか？";
+"This permanently deletes these interrupted capture files from this device." = "中断したキャプチャのファイルをこの端末から完全に削除します。";
 "This permanently deletes the finalized capture and any export archive stored for it from this device." = "確定済みキャプチャと、それに保存されている書き出しアーカイブをこの端末から完全に削除します。";
 
 "Idle" = "待機中";
@@ -1486,6 +1488,7 @@
 "Interrupted capture data needs attention." = "中断されたキャプチャデータは対応が必要です。";
 "Interrupted capture files" = "中断されたキャプチャファイル";
 "Unreadable artifacts" = "読み取り不可能なアーティファクト";
+"Cannot be removed automatically — delete it from the capture folder manually." = "自動では削除できません。キャプチャフォルダから手動で削除してください。";
 
 "Camera access is required" = "カメラへのアクセスが必要です";
 "Enable camera access in Settings to scan a room." = "部屋をスキャンするには設定でカメラへのアクセスを許可してください。";
@@ -2180,6 +2183,9 @@
 "Object pass recorded; the item's shape could not be resolved — rescan it or annotate it in review" = "対象パスを記録しました。項目の形状を解決できませんでした。再スキャンするか、レビューで注釈を付けてください";
 "Object pass recorded; the capture's item limit is reached — annotate additional items in review" = "対象パスを記録しました。キャプチャの項目上限に達しました。追加項目はレビューで注釈を付けてください";
 "Object pass started; keep the aimed object centered and move around it" = "対象パスを開始しました。対象を画面中央に保ちながら周囲を移動してください";
+"Object pass ended early — device pressure rose during the measurement" = "対象パスを途中終了しました。計測中にデバイスの負荷が上昇しました";
+"Request deferred — the device is under load or capture is busy; try again when conditions ease" = "要求を延期しました。デバイスに負荷がかかっているかキャプチャがビジーです。状態が回復してから再度お試しください";
+"Request declined — this work cannot run during the current capture step" = "要求を拒否しました。この作業は現在のキャプチャステップでは実行できません";
 "Opened the persisted capture; its validated archive is ready to share" = "保存済みキャプチャを開きました。検証済みアーカイブを共有できます";
 "Opened the persisted finalized capture; export can be prepared" = "保存済みの確定キャプチャを開きました。書き出しを作成できます";
 "Opening center captured" = "開口部の中心を記録しました";
@@ -3712,6 +3718,34 @@
 "%lld unresolved repair tasks" = "未解決の修復タスク %lld 件";
 "Capture cancelled" = "キャプチャをキャンセルしました";
 "Stops the capture and permanently removes the working revision. Finalized captures are never touched." = "キャプチャを停止し、作業中のリビジョンを完全に削除します。確定済みのキャプチャは対象外です。";
+"The camera lens may be smudged — wipe it gently, then tap Recheck." = "カメラレンズが汚れている可能性があります。やさしく拭いてから「再チェック」をタップしてください。";
+"The scene looks dark to the camera; brighter, even lighting improves photo evidence quality." = "カメラからはシーンが暗く見えています。明るく均一な照明にすると写真エビデンスの品質が向上します。";
+"Recheck" = "再チェック";
+"Continue anyway" = "このまま続行";
+"Use lowercase letters, digits and underscores." = "小文字の英字・数字・アンダースコアのみ使用できます。";
+"Guidance finished: %lld weak area was marked intentionally unresolved. It remains reviewable in spatial coverage." = "ガイダンス完了: 弱い領域%lld箇所が意図的に未解決のままマークされています。空間カバレッジで確認できます。";
+"Guidance finished: %lld weak areas were marked intentionally unresolved. They remain reviewable in spatial coverage." = "ガイダンス完了: 弱い領域%lld箇所が意図的に未解決のままマークされています。空間カバレッジで確認できます。";
+"Finished with areas marked intentionally unresolved" = "意図的に未解決とマークされた領域を残して終了";
+"Turn left" = "左を向く";
+"Turn right" = "右を向く";
+"Tilt up" = "上に傾ける";
+"Tilt down" = "下に傾ける";
+"Hold steady to recover tracking" = "そのまま静止してトラッキングを回復";
+"Delivered and staged at the receiver" = "受信側に配信・ステージ済み";
+"Queued; will retry automatically" = "キューに登録済み。自動で再試行します";
+"Blocked; needs a decision in Deliveries" = "ブロック中。配信一覧で対応が必要です";
+"Rejected by the receiver; will not retry" = "受信側に拒否されました。再試行しません";
+"Could not queue the delivery" = "配信をキューに登録できませんでした";
+"Finish the current capture work before starting this mission" = "現在のキャプチャ作業を終えてからミッションを開始してください";
+"Finish the current capture work before opening a saved capture" = "現在のキャプチャ作業を終えてから保存済みキャプチャを開いてください";
+"Delete archive copy?" = "アーカイブコピーを削除しますか？";
+"Removes the derived export archive permanently; the canonical finalized capture stays." = "派生エクスポートアーカイブを完全に削除します。正本のファイナライズ済みキャプチャは残ります。";
+"Delete all derived archives?" = "派生アーカイブをすべて削除しますか？";
+"Removes every derived export archive in this series permanently; the canonical finalized captures stay." = "このシリーズの派生エクスポートアーカイブをすべて完全に削除します。正本のファイナライズ済みキャプチャは残ります。";
+"Delete derived archives" = "派生アーカイブを削除";
+"Clear equipment catalog cache?" = "機材カタログキャッシュを消去しますか？";
+"Removes the imported catalog from this device. Committed captures keep the exact equipment tuples they recorded." = "インポート済みカタログをこのデバイスから削除します。コミット済みキャプチャは記録した機材タプルを保持します。";
+"Clear cache" = "キャッシュを消去";
 "Segmentation model downloading…" = "セグメンテーションモデルをダウンロード中…";
 "Segmentation model not on this device" = "セグメンテーションモデルがこのデバイスにありません";
 "Segmentation prep failed" = "セグメンテーションの準備に失敗しました";

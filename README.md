@@ -1,6 +1,6 @@
 # HTDT-Capture
 
-HTDT-Capture is the iPhone/iPad capture frontend for **Home Theater Digital Twin (HTDT)**.
+HTDT-Capture is the iPhone capture frontend for **Home Theater Digital Twin (HTDT)** — targeting iOS 27 on LiDAR hardware (qualified profile: iPhone 17 Pro; runtime probes remain the capability truth, see ADR-0005).
 
 The project is designed to preserve real-room capture evidence and provenance rather than merely generate a visually attractive 3D model.
 

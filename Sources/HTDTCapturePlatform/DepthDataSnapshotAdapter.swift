@@ -31,7 +31,6 @@ public struct DepthArtifactSnapshot: Sendable {
     }
 }
 
-@available(iOS 17.0, *)
 public enum DepthDataSnapshotAdapter {
     public static func snapshot(
         _ depthData: ARDepthData

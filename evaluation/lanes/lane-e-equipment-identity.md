@@ -1,4 +1,4 @@
-# lane-e — equipment identity (#270)
+# lane-e — equipment identity (legacy bolph71656-ai/HTDT-Capture#270)
 
 Protocol revision: **v1** (initial scaffold)
 
@@ -6,7 +6,7 @@ Compare: (1) direct Vision OCR/barcode + deterministic matcher; (2) + Foundation
 
 Metrics: exact manufacturer/model accuracy; catalog recall@1/@3; raw model/serial preservation; false-confident suggestion rate; abstention behavior; operator correction rate/time; context/token usage and overflow; unnecessary tool calls; latency/resource cost.
 
-## Implementation state (PR #287)
+## Implementation state (PR bolph71656-ai/HTDT-Capture#287)
 
 Built (off by default behind `equipment_identity_ai_assist_enabled`, iOS 26+ / `canImport(FoundationModels)`):
 
@@ -14,7 +14,7 @@ Built (off by default behind `equipment_identity_ai_assist_enabled`, iOS 26+ / `
 - `EquipmentIdentityAIValidator` — deterministic grounding gate: catalog keys ⊆ injected bounded slice; `evidenceLinks` ⊆ raw observations; manufacturer/model/serial must trace to raw OCR/barcode/candidate/catalog strings; `needsOperatorConfirmation` forced true.
 - Advisory renders display-only in `EquipmentLabelScanSheet` ("AI suggestion (experimental)"); never enters `candidates`; deterministic result byte-identical when the lane is off or unavailable.
 
-Deferred (SDK-gated, candidate future arms): Vision `OCRTool`/`BarcodeReaderTool` route (symbols absent from iOS 26.5 SDK; iOS-27-only in RC SDK — catalog facts currently injected as bounded prompt slice instead); `SystemLanguageModel.variant` provenance and image prompt segments (iOS 27 only); `GenerationOptions.ToolCallingMode` policy (iOS 27 only); focused Spotlight; long-lived session comparison arm (explicitly out of scope per #270).
+Deferred (SDK-gated, candidate future arms): Vision `OCRTool`/`BarcodeReaderTool` route (symbols absent from iOS 26.5 SDK; iOS-27-only in RC SDK — catalog facts currently injected as bounded prompt slice instead); `SystemLanguageModel.variant` provenance and image prompt segments (iOS 27 only); `GenerationOptions.ToolCallingMode` policy (iOS 27 only); focused Spotlight; long-lived session comparison arm (explicitly out of scope per legacy bolph71656-ai/HTDT-Capture#270).
 
 ## Pending runs (device-gated)
 

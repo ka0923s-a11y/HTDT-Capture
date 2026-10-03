@@ -3,7 +3,6 @@ import SwiftUI
 #if os(iOS) && canImport(RoomPlan)
 import RoomPlan
 
-@available(iOS 17.0, *)
 @MainActor
 public struct RoomPlanLiveCaptureView: UIViewRepresentable {
     public final class Coordinator {

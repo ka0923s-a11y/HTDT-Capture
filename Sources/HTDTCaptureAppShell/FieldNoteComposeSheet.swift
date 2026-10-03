@@ -166,6 +166,18 @@ public struct FieldNoteComposeSheet: View {
                             text: $customCategory
                         )
                         .font(.callout)
+                        if effectiveCategory == nil,
+                           !customCategory
+                               .trimmingCharacters(
+                                   in: .whitespacesAndNewlines
+                               ).isEmpty
+                        {
+                            Text(
+                                "Use lowercase letters, digits and underscores."
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -272,15 +284,15 @@ public struct FieldNoteComposeSheet: View {
                         }
                         dismiss()
                     }
+                    // `effectiveCategory` can still be nil when the
+                    // custom token is non-empty but grammar-invalid —
+                    // disabling is what stops a silent discard on
+                    // Save (onSave is skipped and the sheet closes).
                     .disabled(
                         text.trimmingCharacters(
                             in: .whitespacesAndNewlines
                         ).isEmpty
-                            || (categoryToken == Self.customToken
-                                && customCategory
-                                    .trimmingCharacters(
-                                        in: .whitespacesAndNewlines
-                                    ).isEmpty)
+                            || effectiveCategory == nil
                     )
                 }
             }

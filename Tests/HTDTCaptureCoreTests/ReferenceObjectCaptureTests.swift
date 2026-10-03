@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-/// Coverage for issue #268: the reference-object asset manifest,
+/// Coverage for issue bolph71656-ai/HTDT-Capture#268: the reference-object asset manifest,
 /// per-mission selection policy, bounded observation buffer, and the
 /// canonical `evidence/reference-object-observations.json` document.
 struct ReferenceObjectCaptureTests {

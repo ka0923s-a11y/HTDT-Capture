@@ -1,10 +1,10 @@
-# lane-d — iterative segmentation + spatial fusion (#269)
+# lane-d — iterative segmentation + spatial fusion (legacy bolph71656-ai/HTDT-Capture#269)
 
 Protocol revision: **v2** (fixtures/metrics/decision sections filled; v1 was the initial scaffold)
 
 iOS 27 `GenerateIterativeSegmentationRequest` as operator-seeded mask evidence for targeted-object geometry. A confirmed mask lands as a persisted observation in `derived/segmentation-observations.json` — always `.derived`, never canonical, and never overwriting sceneDepth/mesh evidence. The physical-benchmark numbers in this lane are **device-gated**: they need iPhone-class hardware on iOS 27 (target: iPhone 17 Pro). Software-side behavior (seed reprojection, bounded refinement, confidence filtering, persistence, orientation authority) is verified by `Tests/HTDTCaptureCoreTests/ObjectSegmentationTests.swift` on macOS.
 
-Implementation landed in PR #285 (`Sources/HTDTCaptureCore/ObjectSegmentation*.swift`, `SharedARSessionController.swift` wiring, `docs/PHASE7_VISION_SEGMENTATION_FUSION.md`).
+Implementation landed in PR bolph71656-ai/HTDT-Capture#285 (`Sources/HTDTCaptureCore/ObjectSegmentation*.swift`, `SharedARSessionController.swift` wiring, `docs/PHASE7_VISION_SEGMENTATION_FUSION.md`).
 
 ## Fixtures
 

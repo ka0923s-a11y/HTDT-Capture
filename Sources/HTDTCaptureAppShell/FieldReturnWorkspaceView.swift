@@ -6,6 +6,24 @@ import HTDTCaptureCore
 import UIKit
 #endif
 
+/// Outcome of a field-return send through the durable delivery queue
+/// (legacy bolph71656-ai/HTDT-Capture#423), surfaced inside the sheet so the operator sees what the
+/// queue decided — the host status line is not visible on a modal
+/// surface.
+public enum FieldReturnSendOutcome: String, Sendable, Equatable {
+    /// Delivered and staged at the receiver; receipt saved.
+    case deliveredStaged
+    /// Queued for retry under the queue's policy.
+    case queuedForRetry
+    /// Delivery blocked — needs an operator decision in Deliveries.
+    case blocked
+    /// The receiver rejected the artifact; it will not be retried.
+    case rejected
+    /// The delivery could not be queued (invalid destination, missing
+    /// artifact, or queue error).
+    case failed
+}
+
 /// The non-spatial field-return workspace (issues bolph71656-ai/HTDT-Capture#400, legacy bolph71656-ai/HTDT-Capture#417,
 /// legacy bolph71656-ai/HTDT-Capture#418): the operator-facing surface for completing a mission's
 /// inventory/photo/settings/wiring tasks without a RoomPlan capture
@@ -94,6 +112,11 @@ struct HTDTFieldReturnWorkspaceView: View {
     @State private var sendVerdicts:
         [String: HTDTCompatibilityVerdict] = [:]
     @State private var sendingToDestinationID: String?
+    /// Last send result per destination — the queue's verdict is
+    /// returned by the action because the host status line is not
+    /// visible inside this sheet.
+    @State private var sendOutcomes:
+        [String: FieldReturnSendOutcome] = [:]
 
     var body: some View {
         Group {
@@ -359,6 +382,14 @@ struct HTDTFieldReturnWorkspaceView: View {
                 sendingToDestinationID != nil
                     || (verdict.map { !$0.sendPermitted } ?? false)
             )
+            if let outcome = sendOutcomes[destination.destinationID] {
+                Label(
+                    sendOutcomeText(outcome),
+                    systemImage: sendOutcomeSymbol(outcome)
+                )
+                .font(.footnote)
+                .foregroundStyle(sendOutcomeStyle(outcome))
+            }
             if let verdict {
                 Text(sendVerdictCaption(verdict))
                     .font(.caption)
@@ -426,10 +457,70 @@ struct HTDTFieldReturnWorkspaceView: View {
     ) async {
         sendingToDestinationID = destination.destinationID
         defer { sendingToDestinationID = nil }
-        await actions.sendFieldReturnToHTDT(
+        let outcome = await actions.sendFieldReturnToHTDT(
             workspace.contributionID,
             destination.handoffDestination
         )
+        sendOutcomes[destination.destinationID] = outcome
+    }
+
+    private func sendOutcomeText(
+        _ outcome: FieldReturnSendOutcome
+    ) -> String {
+        switch outcome {
+        case .deliveredStaged:
+            return String(
+                localized: "Delivered and staged at the receiver"
+            )
+        case .queuedForRetry:
+            return String(
+                localized: "Queued; will retry automatically"
+            )
+        case .blocked:
+            return String(
+                localized:
+                    "Blocked; needs a decision in Deliveries"
+            )
+        case .rejected:
+            return String(
+                localized:
+                    "Rejected by the receiver; will not retry"
+            )
+        case .failed:
+            return String(
+                localized: "Could not queue the delivery"
+            )
+        }
+    }
+
+    private func sendOutcomeSymbol(
+        _ outcome: FieldReturnSendOutcome
+    ) -> String {
+        switch outcome {
+        case .deliveredStaged:
+            return "checkmark.circle.fill"
+        case .queuedForRetry:
+            return "clock.arrow.circlepath"
+        case .blocked:
+            return "pause.circle.fill"
+        case .rejected, .failed:
+            return "xmark.circle.fill"
+        }
+    }
+
+    private func sendOutcomeStyle(
+        _ outcome: FieldReturnSendOutcome
+    ) -> Color {
+        switch outcome {
+        case .deliveredStaged:
+            return .green
+        case .queuedForRetry:
+            return .secondary
+        case .blocked:
+            return .orange
+        case .rejected, .failed:
+            return .red
+        }
     }
 
     private func shareFinalized(

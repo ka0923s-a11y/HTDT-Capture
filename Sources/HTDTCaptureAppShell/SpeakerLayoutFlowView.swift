@@ -21,6 +21,10 @@ public struct SpeakerLayoutFlowView: View {
     public let equipmentRecents: EquipmentRecents
     public let roomPlanObjects: [RoomPlanBindableObject]
     public let cameraPreview: AnyView?
+    /// Spatial authority sealed for finalization (legacy bolph71656-ai/HTDT-Capture#276): camera
+    /// placement/heading capture is unavailable — the controls
+    /// disable like `cameraPreview` being nil.
+    public let spatialCaptureSealed: Bool
     public let probePlacementTarget:
         () async -> AnnotationPlacementProbe
     public let probeCameraHeading: () async -> Float?
@@ -72,6 +76,7 @@ public struct SpeakerLayoutFlowView: View {
         equipmentRecents: EquipmentRecents = EquipmentRecents(),
         roomPlanObjects: [RoomPlanBindableObject] = [],
         cameraPreview: AnyView? = nil,
+        spatialCaptureSealed: Bool = false,
         probePlacementTarget: @escaping
             () async -> AnnotationPlacementProbe =
             { .unavailable },
@@ -104,6 +109,7 @@ public struct SpeakerLayoutFlowView: View {
         self.equipmentRecents = equipmentRecents
         self.roomPlanObjects = roomPlanObjects
         self.cameraPreview = cameraPreview
+        self.spatialCaptureSealed = spatialCaptureSealed
         self.probePlacementTarget = probePlacementTarget
         self.probeCameraHeading = probeCameraHeading
         self.captureTargetedPlacement = captureTargetedPlacement
@@ -174,7 +180,9 @@ public struct SpeakerLayoutFlowView: View {
                             systemImage: "camera.viewfinder"
                         )
                     }
-                    .disabled(cameraPreview == nil)
+                    .disabled(
+                        cameraPreview == nil || spatialCaptureSealed
+                    )
 
                     if role.isSubwoofer {
                         Text(
@@ -196,7 +204,9 @@ public struct SpeakerLayoutFlowView: View {
                             systemImage: "location.north"
                         )
                     }
-                    .disabled(cameraPreview == nil)
+                    .disabled(
+                        cameraPreview == nil || spatialCaptureSealed
+                    )
 
                     equipmentRow(role: role)
 
@@ -363,6 +373,7 @@ public struct SpeakerLayoutFlowView: View {
         }
         .disabled(
             capturingIdentityPhoto || cameraPreview == nil
+                || spatialCaptureSealed
         )
         TextField(
             String(localized:

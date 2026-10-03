@@ -36,13 +36,13 @@ public struct CaptureSetupPresentation: Sendable, Equatable {
     /// discoverable with its next-step affordances before a new
     /// capture starts.
     public let interruptedDrafts: [RecoverableWorkingRevision]
-    /// Shipped `.referenceobject` catalog for this build (#268) —
+    /// Shipped `.referenceobject` catalog for this build (legacy bolph71656-ai/HTDT-Capture#268) —
     /// nil when the bundle carries no `ReferenceObjects/manifest.json`.
     /// Mission-scoped: the operator picks up to
     /// `ReferenceObjectSelectionPolicy.maxConfiguredObjects` assets
     /// here; there is no global catalog browser.
     public let referenceObjectManifest: ReferenceObjectAssetManifest?
-    /// The operator's current per-mission picks (#268). Persisted
+    /// The operator's current per-mission picks (legacy bolph71656-ai/HTDT-Capture#268). Persisted
     /// verbatim into the observation document's selection echo when
     /// the session configuration is applied.
     public let referenceObjectRequests: [ReferenceObjectSelectionRequest]
@@ -200,7 +200,7 @@ public struct CaptureSetupView: View {
     /// legacy bolph71656-ai/HTDT-Capture#437: permanently removes a stranded draft's saved data.
     public let onDiscardDraft: (RecoverableWorkingRevision) -> Void
     /// Sets (or clears, with nil) the reference-object role the
-    /// operator picked for one manifest asset (#268).
+    /// operator picked for one manifest asset (legacy bolph71656-ai/HTDT-Capture#268).
     public let setReferenceObjectRole:
         (ReferenceObjectAssetID, ReferenceObjectAssetRole?) -> Void
 
@@ -584,7 +584,7 @@ public struct CaptureSetupView: View {
                 importTaskPlan(url)
             }
         }
-        .confirmationDialog(
+        .alert(
             "Discard the draft?",
             isPresented: Binding(
                 get: { pendingDraftDiscard != nil },
@@ -592,7 +592,6 @@ public struct CaptureSetupView: View {
                     if !presented { pendingDraftDiscard = nil }
                 }
             ),
-            titleVisibility: .visible,
             presenting: pendingDraftDiscard
         ) { draft in
             Button("Discard the draft", role: .destructive) {
@@ -766,7 +765,7 @@ public struct CaptureSetupView: View {
         }
     }
 
-    /// #268: bounded per-mission reference-object picker — one row
+    /// legacy bolph71656-ai/HTDT-Capture#268: bounded per-mission reference-object picker — one row
     /// per shipped asset, an off/detection/tracking choice each. The
     /// selection lands on the session configuration at Begin and is
     /// echoed into the observation document; there is deliberately
@@ -851,8 +850,6 @@ public struct CaptureSetupView: View {
         }
     }
 
-    /// "This capture needs" (legacy bolph71656-ai/HTDT-Capture#364 §4): the mission's itemized needs
-||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
     /// "This capture needs" (legacy bolph71656-ai/HTDT-Capture#364 §4): the mission's itemized needs
     /// in operator vocabulary — counts and optional flags, never
     /// schema identifiers. Shown for every mission kind; a general

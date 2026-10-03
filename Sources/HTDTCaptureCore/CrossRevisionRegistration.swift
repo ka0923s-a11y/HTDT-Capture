@@ -1021,7 +1021,7 @@ public struct CrossRevisionRegistrationPackage: Sendable, Equatable {
         BundlePayloadDeclaration(
             path: Self.path,
             mediaType: "application/json",
-            producer: "capture_app_derived",
+            producer: "capture_app",
             provenanceClass: .captureAppDerived,
             role: .canonical
         )

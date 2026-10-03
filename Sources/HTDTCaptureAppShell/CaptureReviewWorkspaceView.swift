@@ -1069,7 +1069,7 @@ public struct CaptureReviewWorkspaceView: View {
         .sheet(item: $bindingFieldNote) { note in
             fieldNoteBindingSheet(note)
         }
-        .confirmationDialog(
+        .alert(
             "Remove evidence frame?",
             isPresented: Binding(
                 get: { confirmingFrameRemoval != nil },
@@ -1077,7 +1077,6 @@ public struct CaptureReviewWorkspaceView: View {
                     if !shown { confirmingFrameRemoval = nil }
                 }
             ),
-            titleVisibility: .visible,
             presenting: confirmingFrameRemoval
         ) { frameID in
             Button("Remove frame", role: .destructive) {
@@ -1145,6 +1144,7 @@ public struct CaptureReviewWorkspaceView: View {
                             model.taskPlanStatus?.items ?? [],
                         canRecordReason:
                             canRecordTaskPlanReason,
+                        canMark: !model.readOnly,
                         onMark: markTaskPlanItem
                     )
                 }

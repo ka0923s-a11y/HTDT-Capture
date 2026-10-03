@@ -28,9 +28,7 @@ public struct ScanLightingPolicy: Sendable, Equatable {
     }
 
     public func assess(
-        ambientIntensityLumens: Double?,
-        trackingState: TrackingQualityState?,
-        trackingReason: String?
+        ambientIntensityLumens: Double?
     ) -> ScanLightingStatus {
         guard let ambientIntensityLumens,
               ambientIntensityLumens.isFinite,
@@ -45,12 +43,10 @@ public struct ScanLightingPolicy: Sendable, Equatable {
     }
 
     /// Whether live guidance should surface the low-light recovery
-    /// message: either the light estimate alone is clearly low, or a
-    /// low estimate coincides with degraded tracking (the case where a
-    /// generic "move slowly" prompt would mislead).
+    /// message: only a clearly-low light estimate qualifies — the case
+    /// where a generic "move slowly" prompt would mislead.
     public func shouldSurfaceLowLightGuidance(
-        status: ScanLightingStatus,
-        trackingState: TrackingQualityState?
+        status: ScanLightingStatus
     ) -> Bool {
         status == .lowLight
     }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// iOS 27 reference-object evidence lane (#268): asset manifest,
+/// iOS 27 reference-object evidence lane (legacy bolph71656-ai/HTDT-Capture#268): asset manifest,
 /// mission-scoped selection, and the persisted observation document.
 ///
 /// Authority model (from the issue contract):
@@ -165,7 +165,7 @@ public struct ReferenceObjectTrainingProvenance: Codable, Sendable,
 
 /// Optional calibrated rigid transform from the recognized marker
 /// (reference-object) frame into the equipment frame it stands for
-/// (#268). Without it, consumers only have the marker pose.
+/// (legacy bolph71656-ai/HTDT-Capture#268). Without it, consumers only have the marker pose.
 public struct ReferenceObjectMarkerBinding: Codable, Sendable,
     Equatable
 {
@@ -443,7 +443,7 @@ public struct ReferenceObjectSelectionPlan: Sendable, Equatable {
     }
 }
 
-/// Deterministic selection policy (#268): at most 10 objects may be
+/// Deterministic selection policy (legacy bolph71656-ai/HTDT-Capture#268): at most 10 objects may be
 /// configured per session across detection+tracking combined (ARKit's
 /// hard cap), each request must name a shipped asset and a role the
 /// asset supports, and duplicates collapse to the first request.
@@ -536,7 +536,7 @@ public struct ReferenceObjectObservationID: CaptureIdentifier {
     public init(rawValue: UUID) { self.rawValue = rawValue }
 }
 
-/// One persisted reference-object pose observation (#268). The record
+/// One persisted reference-object pose observation (legacy bolph71656-ai/HTDT-Capture#268). The record
 /// is sensor truth: what ARKit reported, when, and in which coordinate
 /// space — never an operator identity claim.
 public struct ReferenceObjectPoseObservation: Codable, Sendable,
@@ -783,7 +783,7 @@ public struct ReferenceObjectSelectionEcho: Codable, Sendable,
     }
 }
 
-/// The persisted observation document (#268). Written incrementally
+/// The persisted observation document (legacy bolph71656-ai/HTDT-Capture#268). Written incrementally
 /// during scanning by `CaptureWorkingSetStore` under the same
 /// canonical/`.captureAppDerived` reserved-path convention as
 /// `evidence/reference-targets.json`, then restored verbatim for
@@ -935,7 +935,7 @@ public struct ReferenceObjectObservationPackage: Sendable, Equatable {
 }
 
 /// Bounded in-memory accumulator behind the store's incremental doc
-/// writes (#268). ARKit fires `updated` per frame in tracking mode —
+/// writes (legacy bolph71656-ai/HTDT-Capture#268). ARKit fires `updated` per frame in tracking mode —
 /// the buffer therefore coalesces: per anchor it keeps one mutable
 /// `updated` record carrying the latest pose, plus appended records
 /// only for genuine lifecycle transitions (`added`,

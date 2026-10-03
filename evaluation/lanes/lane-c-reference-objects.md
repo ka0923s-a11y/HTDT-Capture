@@ -1,4 +1,4 @@
-# lane-c — reference objects (#268)
+# lane-c — reference objects (legacy bolph71656-ai/HTDT-Capture#268)
 
 Protocol revision: **v2** (fixtures/metrics/decision sections filled; v1 was the initial scaffold)
 

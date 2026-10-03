@@ -309,7 +309,7 @@ final class ZZSeedRecoveredDraftTests: XCTestCase {
         // `advisory/operator-advisories.json` writer is write-once
         // (AtomicCaptureFileWriter.writeIfIdentical throws
         // alreadyExists on differing bytes), so pre-seeding any note
-        // would prevent observing #275 highResolutionStill notes
+        // would prevent observing legacy bolph71656-ai/HTDT-Capture#275 highResolutionStill notes
         // landing on disk during simulator verification.
         try await store.recordFieldNote(try CaptureFieldNote(
             captureRevisionID: revisionID,

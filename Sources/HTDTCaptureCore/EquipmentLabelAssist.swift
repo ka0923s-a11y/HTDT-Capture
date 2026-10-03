@@ -106,7 +106,7 @@ public struct EquipmentLabelScanResult: Sendable, Equatable {
     public let candidates: [EquipmentLabelScanCandidate]
     /// Every distinct observed string, for the sheet's raw-text view.
     public let rawObservations: [String]
-    /// Optional Foundation Models advisory lane outcome (#270). Always
+    /// Optional Foundation Models advisory lane outcome (legacy bolph71656-ai/HTDT-Capture#270). Always
     /// nil unless the experimental flag ran the bounded pass; advisory
     /// only — it never modifies `candidates`/`rawObservations`, and a
     /// suggestion can never be applied without the operator picking a

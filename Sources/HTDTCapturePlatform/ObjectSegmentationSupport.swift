@@ -8,7 +8,7 @@ import CoreVideo
 import UIKit
 import Vision
 
-// MARK: - Iterative Vision segmentation support (issue #269)
+// MARK: - Iterative Vision segmentation support (issue bolph71656-ai/HTDT-Capture#269)
 //
 // This file holds the platform half of the operator-seeded iterative
 // segmentation feature: the downloadable-asset lifecycle, the
@@ -511,7 +511,7 @@ public actor IterativeObjectSegmenter {
     }
 }
 
-// MARK: - Display-orientation authority (issue #269)
+// MARK: - Display-orientation authority (issue bolph71656-ai/HTDT-Capture#269)
 
 extension SharedARSessionController {
 
@@ -519,7 +519,7 @@ extension SharedARSessionController {
     /// display-mapping authority for it in one hop, so the seed's
     /// transform and the image it seeds can never mix frames.
     ///
-    /// Authority order (#269):
+    /// Authority order (legacy bolph71656-ai/HTDT-Capture#269):
     ///   1. iOS 27 `ARSession.viewRotationAngle` +
     ///      `ARFrame.displayTransform(viewRotationAngle:viewportSize:)`
     ///      — adopted only when the session reports a finite angle,

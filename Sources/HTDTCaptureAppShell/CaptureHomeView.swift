@@ -363,6 +363,10 @@ public struct CaptureHomeView: View {
     /// document-import outcomes are idle-only, so the home surface
     /// must render them or every import result is silently dropped.
     public let workingSetStatus: String?
+    /// First-launch practice prompt (legacy bolph71656-ai/HTDT-Capture#320): the host shows it once
+    /// per install until dismissed; practice stays reachable from
+    /// the landing surface either way.
+    public let practicePromptShown: Bool
     /// App settings document backing the idle Settings surface.
     public let appSettings: CaptureAppSettings
     /// Host-managed equipment-catalog reference context, for the
@@ -427,6 +431,7 @@ public struct CaptureHomeView: View {
         missionProgressEvaluations:
             [String: MissionProgressEvaluation] = [:],
         workingSetStatus: String? = nil,
+        practicePromptShown: Bool = false,
         appSettings: CaptureAppSettings = CaptureAppSettings(),
         equipmentCatalog: HTDTEquipmentCatalogSnapshot? = nil,
         actions: CaptureRootActions = CaptureRootActions()
@@ -457,6 +462,7 @@ public struct CaptureHomeView: View {
         self.missionProgressEvaluations =
             missionProgressEvaluations
         self.workingSetStatus = workingSetStatus
+        self.practicePromptShown = practicePromptShown
         self.appSettings = appSettings
         self.equipmentCatalog = equipmentCatalog
         self.actions = actions
@@ -567,7 +573,11 @@ public struct CaptureHomeView: View {
         .sheet(item: $surveyReportTarget) { target in
             SurveyReportExportSheet(target: target, actions: actions)
         }
-        .confirmationDialog(
+        // Alerts, not confirmationDialog: when the dialog anchors
+        // as a popover (iOS 26+), the anchored presentation drops
+        // every action child after the first — an alert's centered
+        // modal renders every button.
+        .alert(
             "Delete local capture?",
             isPresented: Binding(
                 get: { pendingDeletion != nil },
@@ -575,12 +585,8 @@ public struct CaptureHomeView: View {
                     if !presented { pendingDeletion = nil }
                 }
             ),
-            titleVisibility: .visible,
             presenting: pendingDeletion
         ) { pending in
-            // Each branch carries its own Cancel — iOS 26 renders
-            // only the first action-producing child, so a button
-            // written after the `if` never appears.
             if pending.blockers.isEmpty {
                 Button(
                     pending.archiveOnly
@@ -602,7 +608,7 @@ public struct CaptureHomeView: View {
             Text(pending.deletionDialogMessage)
         }
         // legacy bolph71656-ai/HTDT-Capture#437: draft discard confirms — the removal is permanent.
-        .confirmationDialog(
+        .alert(
             "Discard the draft?",
             isPresented: Binding(
                 get: { pendingDraftDiscard != nil },
@@ -610,7 +616,6 @@ public struct CaptureHomeView: View {
                     if !presented { pendingDraftDiscard = nil }
                 }
             ),
-            titleVisibility: .visible,
             presenting: pendingDraftDiscard
         ) { draft in
             Button("Discard the draft", role: .destructive) {
@@ -711,6 +716,54 @@ public struct CaptureHomeView: View {
                         !capabilities.roomPlanMeshEligible
                     )
                     .accessibilityIdentifier("home.newCapture")
+                }
+                // legacy bolph71656-ai/HTDT-Capture#320 practice mode: a guided rehearsal of the real
+                // scan → End → Review flow that can never produce a
+                // finalized bundle. Always reachable from the
+                // landing surface; the first-launch prompt is
+                // dismissible forever.
+                if practicePromptShown {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("New here? Try a practice capture first.")
+                            .font(.headline)
+                        Text(
+                            "Practice mode walks through scanning, End, and Review exactly like a real capture, but nothing is finalized or sent to HTDT. The data stays on this device marked as practice."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        Button(
+                            "Start practice capture",
+                            action: actions.beginPracticeCapture
+                        )
+                        .disabled(!capabilities.roomPlanMeshEligible)
+                        // Dismissal choices sit side-by-side with
+                        // padded hit regions — stacked caption
+                        // buttons were close enough that a "Not
+                        // now" tap resolved to the permanent
+                        // "Don't show again" below it.
+                        HStack(spacing: 16) {
+                            Button("Not now") {
+                                actions.dismissPracticePrompt(false)
+                            }
+                            .buttonStyle(.bordered)
+                            Button("Don't show again") {
+                                actions.dismissPracticePrompt(true)
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .contentShape(Rectangle())
+                        }
+                    }
+                    .accessibilityIdentifier("home.practicePrompt")
+                } else {
+                    Button(
+                        "Practice a capture (no real bundle)",
+                        action: actions.beginPracticeCapture
+                    )
+                    .disabled(!capabilities.roomPlanMeshEligible)
+                    .accessibilityIdentifier("home.practiceCapture")
                 }
                 // The rest of the Work queue — every row is
                 // actionable, informational items never list.
@@ -1599,6 +1652,8 @@ public struct CaptureHomeView: View {
         case .maintenance:
             CaptureLibraryMaintenanceView(
                 inventory: persistedInventory,
+                canRemoveArtifact:
+                    actions.canRemoveQuarantinedArtifact,
                 removeQuarantinedArtifact:
                     actions.removeQuarantinedArtifact,
                 removeWorkingOrphan:
@@ -1993,6 +2048,11 @@ private struct CaptureSeriesDetailView: View {
     /// Pending registration flow (legacy bolph71656-ai/HTDT-Capture#395): the revision the operator
     /// chose to align, the picked counterpart, the inspected proposal,
     /// and any failure text.
+    /// Confirmed archive-copy deletion (legacy bolph71656-ai/HTDT-Capture#251): derived bytes go
+    /// through the same two-step pattern every permanent removal
+    /// takes — the canonical capture is untouched.
+    @State private var pendingArchiveDeletion:
+        PersistedCaptureRecord?
     @State private var registrationSource:
         PersistedCaptureRecord?
     @State private var registrationTarget:
@@ -2309,6 +2369,26 @@ private struct CaptureSeriesDetailView: View {
                 registrationSheet
             }
             .presentationDetents([.medium, .large])
+        }
+        .alert(
+            "Delete archive copy?",
+            isPresented: Binding(
+                get: { pendingArchiveDeletion != nil },
+                set: { presented in
+                    if !presented { pendingArchiveDeletion = nil }
+                }
+            ),
+            presenting: pendingArchiveDeletion
+        ) { record in
+            Button("Delete archive copy", role: .destructive) {
+                actions.deleteExportArchive(record)
+                pendingArchiveDeletion = nil
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text(
+                "Removes the derived export archive permanently; the canonical finalized capture stays."
+            )
         }
     }
 
@@ -2900,7 +2980,7 @@ private struct CaptureSeriesDetailView: View {
             // without touching the canonical finalized capture
             // (legacy bolph71656-ai/HTDT-Capture#251).
             Button("Delete archive copy") {
-                actions.deleteExportArchive(record)
+                pendingArchiveDeletion = record
             }
         }
         Button("Delete…", role: .destructive) {
@@ -2927,6 +3007,8 @@ private struct CaptureSeriesDetailView: View {
 /// reachable but out of the normal theater library.
 private struct CaptureLibraryMaintenanceView: View {
     let inventory: PersistedCaptureInventoryResult
+    let canRemoveArtifact:
+        (PersistedCaptureQuarantinedArtifact) -> Bool
     let removeQuarantinedArtifact:
         (PersistedCaptureQuarantinedArtifact) -> Void
     let removeWorkingOrphan:
@@ -2941,6 +3023,10 @@ private struct CaptureLibraryMaintenanceView: View {
     // entry in this list.
     @State private var pendingArtifactRemoval:
         PersistedCaptureQuarantinedArtifact?
+    // Interrupted-capture leftovers get the same confirmation — a
+    // single tap must never destroy bytes outright.
+    @State private var pendingOrphanRemoval:
+        PersistedCaptureWorkingOrphan?
 
     var body: some View {
         List {
@@ -3019,14 +3105,27 @@ private struct CaptureLibraryMaintenanceView: View {
                             Text(artifact.reason)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            Button(
-                                "Remove artifact",
-                                role: .destructive
-                            ) {
-                                pendingArtifactRemoval = artifact
+                            if canRemoveArtifact(artifact) {
+                                Button(
+                                    "Remove artifact",
+                                    role: .destructive
+                                ) {
+                                    pendingArtifactRemoval = artifact
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            } else {
+                                // The store can never prove ownership
+                                // of this item (e.g. a working/ dir
+                                // whose name is not a revision UUID),
+                                // so a Remove button would always
+                                // fail — say so instead.
+                                Text(
+                                    "Cannot be removed automatically — delete it from the capture folder manually."
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
                         }
                     }
                 }
@@ -3067,7 +3166,7 @@ private struct CaptureLibraryMaintenanceView: View {
                                 "Delete",
                                 role: .destructive
                             ) {
-                                removeWorkingOrphan(orphan)
+                                pendingOrphanRemoval = orphan
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
@@ -3095,7 +3194,7 @@ private struct CaptureLibraryMaintenanceView: View {
         }
         .navigationTitle("Library maintenance")
         .inlineNavigationBarTitle()
-        .confirmationDialog(
+        .alert(
             "Remove unreadable artifact?",
             isPresented: Binding(
                 get: { pendingArtifactRemoval != nil },
@@ -3103,7 +3202,6 @@ private struct CaptureLibraryMaintenanceView: View {
                     if !presented { pendingArtifactRemoval = nil }
                 }
             ),
-            titleVisibility: .visible,
             presenting: pendingArtifactRemoval
         ) { artifact in
             Button("Remove artifact", role: .destructive) {
@@ -3112,9 +3210,32 @@ private struct CaptureLibraryMaintenanceView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { artifact in
-            // Single `Text` — `confirmationDialog`'s `message:`
-            // renders only the first child on iOS 26.
             Text(artifact.url.lastPathComponent + "\n" + artifact.reason)
+        }
+        .alert(
+            "Delete interrupted capture files?",
+            isPresented: Binding(
+                get: { pendingOrphanRemoval != nil },
+                set: { presented in
+                    if !presented { pendingOrphanRemoval = nil }
+                }
+            ),
+            presenting: pendingOrphanRemoval
+        ) { orphan in
+            Button("Delete", role: .destructive) {
+                removeWorkingOrphan(orphan)
+                pendingOrphanRemoval = nil
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { orphan in
+            Text(
+                orphan.url.lastPathComponent
+                    + "\n"
+                    + String(
+                        localized:
+                            "This permanently deletes these interrupted capture files from this device."
+                    )
+            )
         }
     }
 }
@@ -3380,6 +3501,7 @@ private struct CaptureSeriesRetentionView: View {
     let onDeleteSeries: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var confirmingArchivePurge = false
 
     private var preview: CaptureSeriesRetentionPreview {
         CaptureLibraryRetentionPlanner.seriesPreview(
@@ -3587,12 +3709,7 @@ private struct CaptureSeriesRetentionView: View {
                     // archive copies leave nothing unrecoverable —
                     // the canonical finalized bundles stay.
                     Button("Delete derived archives only") {
-                        for record in group.revisions
-                        where record.exportArchive != nil
-                            && record.finalizedDirectory != nil
-                        {
-                            actions.deleteExportArchive(record)
-                        }
+                        confirmingArchivePurge = true
                     }
                     .disabled(
                         preview.totalDerivedArchiveBytes == 0
@@ -3612,6 +3729,27 @@ private struct CaptureSeriesRetentionView: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+        .alert(
+            "Delete all derived archives?",
+            isPresented: $confirmingArchivePurge
+        ) {
+            Button(
+                "Delete derived archives",
+                role: .destructive
+            ) {
+                for record in group.revisions
+                where record.exportArchive != nil
+                    && record.finalizedDirectory != nil
+                {
+                    actions.deleteExportArchive(record)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "Removes every derived export archive in this series permanently; the canonical finalized captures stay."
+            )
         }
     }
 }

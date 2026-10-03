@@ -230,10 +230,16 @@ public enum ARSessionLifecycleEvent: Sendable, Equatable {
     /// app does not run collaborative sessions; the event is forwarded so
     /// the host can register unexpected output.
     case didOutputCollaborationData(priorityIsCritical: Bool)
+    /// Anchor-identity evidence that the world origin reset across a
+    /// relocalization: every anchor identifier observed while tracking
+    /// last ran normally is gone after tracking recovered. Emitted only
+    /// when the pre-loss anchor set was non-empty — absent anchors
+    /// cannot prove a reset, so nothing is claimed without evidence.
+    case spatialDiscontinuityDetected(sessionTimestampSeconds: Double)
 }
 
 /// What `configureReferenceObjects` actually achieved on the live
-/// session (#268) — the recorded outcome distinguishes applied sets,
+/// session (legacy bolph71656-ai/HTDT-Capture#268) — the recorded outcome distinguishes applied sets,
 /// an unsupported tracking request, a refused configuration, and a
 /// post-run read-back mismatch, so provenance never overstates what
 /// ARKit adopted.
@@ -275,7 +281,6 @@ public struct ReferenceObjectReconfigurationResult:
     }
 }
 
-@available(iOS 17.0, *)
 @MainActor
 private final class ARSessionLifecycleBridge:
     NSObject,
@@ -289,6 +294,13 @@ private final class ARSessionLifecycleBridge:
 
     var eventHandler: (
         @MainActor (ARSessionLifecycleEvent) -> Void
+    )?
+
+    /// Called with every `didUpdate` frame timestamp so the
+    /// controller's bounded cadence tracker sees the live frame
+    /// interval distribution (legacy bolph71656-ai/HTDT-Capture#273 instrumentation).
+    var frameTimestampHandler: (
+        @MainActor (Double) -> Void
     )?
 
     func session(
@@ -317,6 +329,9 @@ private final class ARSessionLifecycleBridge:
     /// callback during a frame gap would stamp `0` — which reads as
     /// "session start" in the recorded history.
     nonisolated(unsafe) private var lastObservedTimestamp: Double?
+    /// Anchor-identity continuity check across relocalization.
+    nonisolated(unsafe) private var relocalizationBaseline =
+        RelocalizationAnchorBaseline()
 
     func session(
         _ session: ARSession,
@@ -324,6 +339,24 @@ private final class ARSessionLifecycleBridge:
     ) {
         if let timestamp = session.currentFrame?.timestamp {
             lastObservedTimestamp = timestamp
+        }
+        if case .limited(.relocalizing) = camera.trackingState {
+            relocalizationBaseline.trackingBecameRelocalizing()
+        }
+        if camera.trackingState == .normal {
+            let currentIdentifiers = Set(
+                session.currentFrame?.anchors.map(\.identifier) ?? []
+            )
+            if relocalizationBaseline.trackingBecameNormal(
+                currentAnchorIdentifiers: currentIdentifiers
+            ) {
+                eventHandler?(
+                    .spatialDiscontinuityDetected(
+                        sessionTimestampSeconds:
+                            lastObservedTimestamp ?? 0
+                    )
+                )
+            }
         }
         eventHandler?(
             .cameraTrackingStateChanged(
@@ -362,6 +395,11 @@ private final class ARSessionLifecycleBridge:
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         lastObservedTimestamp = frame.timestamp
+        relocalizationBaseline.didUpdateFrame(
+            trackingNormal: frame.camera.trackingState == .normal,
+            anchorIdentifiers: Set(frame.anchors.map(\.identifier))
+        )
+        frameTimestampHandler?(frame.timestamp)
         passthrough?.session?(session, didUpdate: frame)
     }
 
@@ -459,7 +497,6 @@ private final class ARSessionLifecycleBridge:
     }
 }
 
-@available(iOS 17.0, *)
 @MainActor
 @objc(HTDTRoomPlanViewDelegateBridge)
 private final class RoomPlanViewDelegateBridge:
@@ -499,7 +536,6 @@ private final class RoomPlanViewDelegateBridge:
 // requirements (unlike the ObjC ARSessionDelegate/RoomCaptureViewDelegate
 // bridges above), so the bridge cannot be MainActor-isolated. The
 // handler is assigned once before `run` and only read afterwards.
-@available(iOS 17.0, *)
 private final class RoomPlanSessionInstructionBridge:
     RoomCaptureSessionDelegate,
     @unchecked Sendable
@@ -509,7 +545,9 @@ private final class RoomPlanSessionInstructionBridge:
     )?
     /// Fires on every RoomCaptureSession end — inside the bounded End
     /// transaction or on its own. The host distinguishes the two by
-    /// capture state; an end outside End is otherwise invisible.
+    /// capture state; an end outside End is otherwise invisible. The
+    /// payload is a stable `domain#code` diagnostic token (nil on a
+    /// clean end), never localized UI text.
     nonisolated(unsafe) var endHandler: (
         @Sendable (String?) -> Void
     )?
@@ -564,11 +602,15 @@ private final class RoomPlanSessionInstructionBridge:
         didEndWith data: CapturedRoomData,
         error: (any Error)?
     ) {
-        endHandler?(error?.localizedDescription)
+        endHandler?(
+            error.map {
+                let nsError = $0 as NSError
+                return "\(nsError.domain)#\(nsError.code)"
+            }
+        )
     }
 }
 
-@available(iOS 17.0, *)
 @MainActor
 public final class SharedARSessionController {
     public let arSession: ARSession
@@ -585,6 +627,12 @@ public final class SharedARSessionController {
         RoomPlanSessionInstructionBridge()
     private let sessionDelegateBridge = ARSessionLifecycleBridge()
     private var liveRoomCaptureViewMountObserved = false
+
+    /// Bounded AR frame-interval measurement (legacy bolph71656-ai/HTDT-Capture#273 instrumentation).
+    /// Fed by the lifecycle bridge's `didUpdate` passthrough; the
+    /// admission policy never reads it — it exists for the physical
+    /// benchmark profile.
+    private var frameCadenceTracker = ARFrameCadenceTracker()
 
     /// Handler invoked on the main actor for ARSession lifecycle events:
     /// interruption began/ended, terminal failure, camera tracking
@@ -611,7 +659,7 @@ public final class SharedARSessionController {
         set { sessionDelegateBridge.meshAnchorHandler = newValue }
     }
 
-    /// Reference-object anchor add/update/remove callbacks (#268) from
+    /// Reference-object anchor add/update/remove callbacks (legacy bolph71656-ai/HTDT-Capture#268) from
     /// the single shared session delegate — never a second delegate.
     /// Anchors arrive unfiltered so the host can read the matched
     /// `referenceObject` name, pose transform, and `isTracked`.
@@ -627,7 +675,7 @@ public final class SharedARSessionController {
     }
 
     /// Installs reference-object detection/tracking sets on the live
-    /// `ARWorldTrackingConfiguration` and re-runs the session (#268).
+    /// `ARWorldTrackingConfiguration` and re-runs the session (legacy bolph71656-ai/HTDT-Capture#268).
     ///
     /// The result is always honest about what the running
     /// configuration adopted: `trackingObjects` is only reachable on
@@ -736,8 +784,6 @@ public final class SharedARSessionController {
     }
 
     /// RoomPlan coaching/instruction observations (legacy bolph71656-ai/HTDT-Capture#260). Installed as
-||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
-    /// RoomPlan coaching/instruction observations (legacy bolph71656-ai/HTDT-Capture#260). Installed as
     /// `roomCaptureSession.delegate` when RoomPlan runs; invoked from the
     /// framework's delegate queue (nonisolated), so hop to MainActor
     /// inside the handler if needed.
@@ -750,11 +796,11 @@ public final class SharedARSessionController {
         }
     }
 
-    /// Fires with the error description (nil on a clean end) every time
-    /// the RoomCaptureSession ends — inside the bounded End transaction
-    /// or on its own. An end outside End stops the room model
-    /// accumulating while the host still shows a scanning surface, so
-    /// the host records it as provenance.
+    /// Fires with a stable `domain#code` error token (nil on a clean
+    /// end) every time the RoomCaptureSession ends — inside the bounded
+    /// End transaction or on its own. An end outside End stops the room
+    /// model accumulating while the host still shows a scanning
+    /// surface, so the host records it as provenance.
     public var roomPlanDidEndHandler: (
         @Sendable (String?) -> Void
     )? {
@@ -777,6 +823,24 @@ public final class SharedARSessionController {
         self.roomCaptureView.isModelEnabled = true
         self.roomCaptureView.delegate = roomPlanDelegateBridge
         installSessionLifecycleBridge()
+        sessionDelegateBridge.frameTimestampHandler = {
+            [weak self] timestamp in
+            self?.frameCadenceTracker.record(
+                timestampSeconds: timestamp
+            )
+        }
+    }
+
+    /// The bounded frame-interval distribution observed so far this
+    /// capture (legacy bolph71656-ai/HTDT-Capture#273 physical-benchmark metric).
+    public func frameCadenceSummary() -> ARFrameCadenceSummary {
+        frameCadenceTracker.summary()
+    }
+
+    /// Clears the cadence window — call when a new capture generation
+    /// starts so the distribution describes one capture only.
+    public func resetFrameCadenceTracking() {
+        frameCadenceTracker.reset()
     }
 
     /// Installs the lifecycle bridge as `arSession.delegate` while
@@ -813,7 +877,7 @@ public final class SharedARSessionController {
             return
         }
         liveRoomCaptureViewMountObserved = true
-        // #269: bind the layer that displays the ARFrame so iOS 27's
+        // legacy bolph71656-ai/HTDT-Capture#269: bind the layer that displays the ARFrame so iOS 27's
         // `viewRotationAngle` becomes a live rotation authority for the
         // segmentation display-transform path.
         if #available(iOS 27, *) {
@@ -1470,7 +1534,7 @@ public final class SharedARSessionController {
         return Double(rim.count) / Double(points.count)
     }
 
-    /// Result of a mask-gated targeted observation (#269).
+    /// Result of a mask-gated targeted observation (legacy bolph71656-ai/HTDT-Capture#269).
     public struct MaskedTargetedObservationResult: Sendable {
         /// The observation to feed `DerivedShapeTemporalFusionTracker`.
         public let observation: DerivedShapeObservation
@@ -1498,7 +1562,7 @@ public final class SharedARSessionController {
         }
     }
 
-    /// Mask-gated targeted observation for the #269 segmentation path:
+    /// Mask-gated targeted observation for the legacy bolph71656-ai/HTDT-Capture#269 segmentation path:
     /// identical window/plane/rim guards to
     /// `liveTargetedShapeObservation`, but the depth evidence is
     /// limited to samples whose source-image position falls inside the
@@ -2538,7 +2602,7 @@ public final class SharedARSessionController {
         voxelSizeMeters: Double,
         maxPoints: Int,
         minimumPointCount: Int = 8,
-        // #269: when set, replaces the default
+        // legacy bolph71656-ai/HTDT-Capture#269: when set, replaces the default
         // `live-scene-depth:<ts>:` stem so mask-gated evidence carries
         // its producing observation's id.
         evidenceRefStem: String? = nil
@@ -2822,8 +2886,11 @@ public final class SharedARSessionController {
             candidateBoundaryPoints.count >= 8
             ? candidateBoundaryPoints
             : candidateFallbackPoints
+        // No-rejection floor matches the depth path's default: a
+        // sub-8-point observation can't carry a shape fit and only
+        // adds noise to the accumulator.
         guard sourcePoints.count
-                >= (supportPlaneRejection?.minimumPointCount ?? 1)
+                >= (supportPlaneRejection?.minimumPointCount ?? 8)
         else {
             return nil
         }
@@ -3296,7 +3363,6 @@ private struct LiveDerivedVoxelKey: Hashable {
 /// live ARMesh triangle, or a persisted RoomPlan object — so the
 /// reticle can name the target class before capture; the capture
 /// then resolves the same candidates and returns bounded provenance.
-@available(iOS 17.0, *)
 extension SharedARSessionController {
     /// Bounded capture result for a targeted placement. `target` names
     /// the resolved target class; the method-specific fields are

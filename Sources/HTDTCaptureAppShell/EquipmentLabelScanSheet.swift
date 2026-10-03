@@ -79,7 +79,7 @@ public struct EquipmentLabelScanSheet: View {
                 }
             }
 
-            // #270: the experimental advisory lane renders separately
+            // legacy bolph71656-ai/HTDT-Capture#270: the experimental advisory lane renders separately
             // and display-only — it never enters `candidates`, so the
             // deterministic barcode/matcher lanes and the manual-entry
             // fallback remain the only pickable rows.

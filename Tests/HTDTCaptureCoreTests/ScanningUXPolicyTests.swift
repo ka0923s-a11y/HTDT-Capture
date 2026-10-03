@@ -94,38 +94,20 @@ final class ScanningUXPolicyTests: XCTestCase {
     func testLightingAssessment() {
         let policy = ScanLightingPolicy()
         XCTAssertEqual(
-            policy.assess(
-                ambientIntensityLumens: nil,
-                trackingState: .normal,
-                trackingReason: nil
-            ),
+            policy.assess(ambientIntensityLumens: nil),
             .unknown
         )
         XCTAssertEqual(
-            policy.assess(
-                ambientIntensityLumens: 400,
-                trackingState: .normal,
-                trackingReason: nil
-            ),
+            policy.assess(ambientIntensityLumens: 400),
             .adequate
         )
-        let low = policy.assess(
-            ambientIntensityLumens: 12,
-            trackingState: .limited,
-            trackingReason: "insufficientFeatures"
-        )
+        let low = policy.assess(ambientIntensityLumens: 12)
         XCTAssertEqual(low, .lowLight)
         XCTAssertTrue(
-            policy.shouldSurfaceLowLightGuidance(
-                status: low,
-                trackingState: .limited
-            )
+            policy.shouldSurfaceLowLightGuidance(status: low)
         )
         XCTAssertFalse(
-            policy.shouldSurfaceLowLightGuidance(
-                status: .adequate,
-                trackingState: .limited
-            )
+            policy.shouldSurfaceLowLightGuidance(status: .adequate)
         )
     }
 
@@ -450,12 +432,13 @@ final class ScanningUXPolicyTests: XCTestCase {
             action: .rotate,
             horizontalDirection: .left
         )
+        // In-place turn prompts map to turn cues, never move cues.
         XCTAssertEqual(
             policy.update(
                 cueInputs(guidance: guidance),
                 timestampSeconds: 0
             ),
-            [.moveLeft]
+            [.turnLeft]
         )
         // Same guidance re-evaluated at 4 Hz emits nothing.
         XCTAssertTrue(
@@ -463,6 +446,45 @@ final class ScanningUXPolicyTests: XCTestCase {
                 cueInputs(guidance: guidance),
                 timestampSeconds: 0.25
             ).isEmpty
+        )
+    }
+
+    func testTiltAndTrackingRecoveryGuidanceEmitCues() {
+        var policy = ScanGuidanceCuePolicy()
+        XCTAssertEqual(
+            policy.update(
+                cueInputs(
+                    guidance: ScanMotionGuidance(
+                        action: .tilt,
+                        verticalDirection: .down
+                    )
+                ),
+                timestampSeconds: 0
+            ),
+            [.tiltDown]
+        )
+        XCTAssertEqual(
+            policy.update(
+                cueInputs(
+                    guidance: ScanMotionGuidance(
+                        action: .tilt,
+                        verticalDirection: .up
+                    )
+                ),
+                timestampSeconds: 2
+            ),
+            [.tiltUp]
+        )
+        XCTAssertEqual(
+            policy.update(
+                cueInputs(
+                    guidance: ScanMotionGuidance(
+                        action: .trackingRecovery
+                    )
+                ),
+                timestampSeconds: 4
+            ),
+            [.regainTracking]
         )
     }
 

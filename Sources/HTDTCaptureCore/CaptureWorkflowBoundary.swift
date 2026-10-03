@@ -126,7 +126,7 @@ public enum CaptureWorkflowActionMap {
         "requestScanCopilotSuggestion",
     ]
     public static let reviewAuthoring: Set<String> = [
-        "beginAnnotation", "captureRaycastPlacement",
+        "beginAnnotation",
         "captureSpeakerOrientation", "capturePointOrientation",
         "probePlacementTarget", "probeCameraHeading",
         "captureTargetedPlacement", "commitFieldAuthority",

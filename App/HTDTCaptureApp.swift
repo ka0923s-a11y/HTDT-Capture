@@ -106,6 +106,8 @@ private struct HTDTCaptureHostView: View {
                 coordinator.automaticEvidenceFrameCount,
             lowLightGuidanceActive:
                 coordinator.lowLightGuidanceActive,
+            sourceQualityAdvisory:
+                coordinator.sourceQualityAdvisory,
             targetScanStatus: coordinator.targetScanStatus,
             segmentationInteraction:
                 coordinator.segmentationInteraction,
@@ -248,8 +250,6 @@ private struct HTDTCaptureHostView: View {
                 continueScanning:
                     coordinator.continueScanningFromReview,
                 beginAnnotation: coordinator.beginAnnotation,
-                captureRaycastPlacement:
-                    coordinator.captureRaycastPlacement,
                 captureSpeakerOrientation:
                     coordinator.captureSpeakerOrientation,
                 capturePointOrientation:
@@ -279,6 +279,10 @@ private struct HTDTCaptureHostView: View {
                     coordinator.updateRevisitFlagDetails,
                 resolveRevisitFlag: coordinator.resolveRevisitFlag,
                 reopenRevisitFlag: coordinator.reopenRevisitFlag,
+                recheckSourceQuality:
+                    coordinator.recheckSourceQualityPreflight,
+                dismissSourceQualityAdvisory:
+                    coordinator.dismissSourceQualityAdvisory,
                 requestScanCopilotSuggestion:
                     coordinator.requestScanCopilotSuggestion,
                 markTaskPlanItem:
@@ -298,6 +302,8 @@ private struct HTDTCaptureHostView: View {
                     coordinator.openPersistedCapture,
                 deletePersistedCapture:
                     coordinator.deletePersistedCapture,
+                canRemoveQuarantinedArtifact:
+                    coordinator.canRemoveQuarantinedArtifact,
                 removeQuarantinedArtifact:
                     coordinator.removeQuarantinedArtifact,
                 removeWorkingOrphan:
@@ -582,30 +588,30 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var annotationAuthorityCommitted = false
     @Published private(set)
     var annotationEvidenceRefs: [String] = []
-    /// #268: `reference_object_observation:<id>` tokens appended to
+    /// legacy bolph71656-ai/HTDT-Capture#268: `reference_object_observation:<id>` tokens appended to
     /// `annotationEvidenceRefs` so a matched observation is offerable
     /// as entity evidence — the operator accepts it explicitly; it is
     /// never bound silently.
     private var referenceObjectObservationTokens: [String] = []
-    /// #268: shipped `.referenceobject` catalog decoded once from
+    /// legacy bolph71656-ai/HTDT-Capture#268: shipped `.referenceobject` catalog decoded once from
     /// `ReferenceObjects/manifest.json`; nil when this build ships
     /// none (or the manifest fails validation — surfaced as a
     /// support-advisory detail, never silently).
     private(set) var referenceObjectManifest:
         ReferenceObjectAssetManifest?
     private var referenceObjectManifestResolved = false
-    /// #268: the operator's per-mission picks from setup — persisted
+    /// legacy bolph71656-ai/HTDT-Capture#268: the operator's per-mission picks from setup — persisted
     /// verbatim into the observation document's selection echo.
     private(set) var pendingReferenceObjectRequests:
         [ReferenceObjectSelectionRequest] = []
-    /// #268: the configureReferenceObjects outcome between its
+    /// legacy bolph71656-ai/HTDT-Capture#268: the configureReferenceObjects outcome between its
     /// application (pre-coordinate-binding) and the post-foundation
     /// persistence hop.
     private var pendingReferenceObjectConfiguration:
         (selection: ReferenceObjectSelectionEcho,
          configuredAssets: [ReferenceObjectConfiguredAsset],
          outcome: ReferenceObjectReconfigurationResult)?
-    /// #268: `entity_id=observation_id` pairings already advisored —
+    /// legacy bolph71656-ai/HTDT-Capture#268: `entity_id=observation_id` pairings already advisored —
     /// an entity re-commit does not re-report an unchanged
     /// acceptance.
     private var acceptedReferenceObjectPairings: Set<String> = []
@@ -642,6 +648,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// copy instead of generic tracking text (legacy bolph71656-ai/HTDT-Capture#283).
     @Published private(set)
     var lowLightGuidanceActive = false
+    /// legacy bolph71656-ai/HTDT-Capture#277: the bounded camera-source preflight advisory — at most
+    /// one source-quality card, advisory only, never gates capture.
+    @Published private(set)
+    var sourceQualityAdvisory: CameraSourceAdvisory?
+    private var sourcePreflightTask: Task<Void, Never>?
+    private let cameraSourcePreflightPolicy =
+        CameraSourcePreflightPolicy()
     /// Live status of the operator-targeted object orbit pass, if one
     /// is active (legacy bolph71656-ai/HTDT-Capture#250).
     @Published private(set)
@@ -678,7 +691,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Whether haptic/announcement guidance cues play (legacy bolph71656-ai/HTDT-Capture#252). Mirrors
     /// the persisted presentation preference (legacy bolph71656-ai/HTDT-Capture#338); default on.
     @Published var guidanceCuesEnabled = true
-    /// Latest advisory copilot resolution for the live scan (#272).
+    /// Latest advisory copilot resolution for the live scan (legacy bolph71656-ai/HTDT-Capture#272).
     /// Advisory only — the suggestion can never act on the capture.
     @Published private(set)
     var scanCopilotResolution: ScanCopilotResolution?
@@ -686,12 +699,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set)
     var isScanCopilotResolving = false
     /// Digest of the context the current resolution was validated
-    /// against — equivalent states debounce to one request (#272).
+    /// against — equivalent states debounce to one request (legacy bolph71656-ai/HTDT-Capture#272).
     private var scanCopilotResolvedDigest: String?
     /// In-flight copilot request.
     private var scanCopilotTask: Task<Void, Never>?
-    /// Versioned app-local settings (legacy bolph71656-ai/HTDT-Capture#338): presentation preferences,
-||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
     /// Versioned app-local settings (legacy bolph71656-ai/HTDT-Capture#338): presentation preferences,
     /// device-local workflow defaults, and the storage/privacy policy
     /// — never capture authority.
@@ -1053,7 +1064,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var activeCaptureIsPractice = false
     private static let practicePromptDismissedDefaultsKey =
         "practice_prompt_dismissed"
-    /// Experimental equipment-identity AI assist (#270): UserDefaults
+    /// Experimental equipment-identity AI assist (legacy bolph71656-ai/HTDT-Capture#270): UserDefaults
     /// flag, absent/false = off. Evaluation-gated — no measured benefit
     /// over the deterministic lane means it never ships on by default.
     /// Even when on it can never change the deterministic result; it
@@ -1208,7 +1219,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Shape candidates minted by accepted object passes during this
     /// capture; persisted into `derived/geometry-candidates.json` at End.
     private var targetedObjectProxies: [DerivedShapeProxy] = []
-    // #269: operator-seeded Vision iterative segmentation inside an
+    // legacy bolph71656-ai/HTDT-Capture#269: operator-seeded Vision iterative segmentation inside an
     // object pass. Bounded temporal policy: one run per accepted mask;
     // a re-run happens only on an explicit operator request (new
     // selection / refinement), never at frame rate.
@@ -1219,7 +1230,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var segmentationAssetTask: Task<Void, Never>?
     private var segmentationRunTask: Task<Void, Never>?
     /// In-flight evidence save for a segmentation source frame; drained
-    /// with the other frame saves at the End boundary (#179).
+    /// with the other frame saves at the End boundary (legacy bolph71656-ai/HTDT-Capture#179).
     private var segmentationFrameSaveTask: Task<Void, Never>?
     /// The live mask context for the current object pass.
     private var segmentationRun: SegmentationRunContext?
@@ -1298,6 +1309,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     private var memoryWarningCancellable: AnyCancellable?
     private var derivedPreviewSuspendedForMemoryPressure = false
     private var roomPlanModelRenderingEnabled = true
+    /// legacy bolph71656-ai/HTDT-Capture#273 Stage 1 optional-work admission/degradation ledger —
+    /// layered on the resource monitor/session authorities, not a
+    /// scheduler. Evaluates per-tick optional work and bounds each
+    /// feature's one-in-flight request.
+    private var optionalWorkTracker = OptionalWorkAdmissionTracker()
+    /// Admission ticket held by a running targeted object pass (legacy bolph71656-ai/HTDT-Capture#273);
+    /// `endTargetScan` finishes it with the pass's outcome.
+    private var targetedObjectAdmission:
+        OptionalWorkAdmissionTicket?
+    /// Set while the live ARSession reports an interruption that has
+    /// not yet been resolved — feeds the optional-work health
+    /// snapshot (legacy bolph71656-ai/HTDT-Capture#273).
+    private var arSessionInterrupted = false
     // 1.2.0 adds the versioned tracking-recovery and depth-fallback
     // sufficiency policies (legacy bolph71656-ai/HTDT-Capture#242, legacy bolph71656-ai/HTDT-Capture#284). Published 1.1.0 semantics stay
     // pinned in the registry for reopened/older captures.
@@ -1787,6 +1811,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         semanticCorrectionParent = nil
         scanLightingStatus = .unknown
         lowLightGuidanceActive = false
+        sourcePreflightTask?.cancel()
+        sourcePreflightTask = nil
+        sourceQualityAdvisory = nil
+        // legacy bolph71656-ai/HTDT-Capture#273: a fresh capture drops every optional-work
+        // registration; the new generation already invalidates
+        // outstanding results through the existing fence.
+        optionalWorkTracker.resetInflight()
+        targetedObjectAdmission = nil
+        arSessionInterrupted = false
+        // legacy bolph71656-ai/HTDT-Capture#273: a fresh capture also opens a fresh frame-cadence
+        // window so the distribution describes one capture only.
+        sessionController.resetFrameCadenceTracking()
         endTargetScan()
         operatorRegionDeclarations = OperatorRegionDeclarations()
         declaredRegionList = []
@@ -1890,7 +1926,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    /// #268: decodes `ReferenceObjects/manifest.json` once — the
+    /// legacy bolph71656-ai/HTDT-Capture#268: decodes `ReferenceObjects/manifest.json` once — the
     /// shipped, provenance-manifested `.referenceobject` catalog.
     /// A missing bundle directory means this build ships no assets
     /// (a normal condition); an undecodable manifest is surfaced in
@@ -1921,7 +1957,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return manifest
     }
 
-    /// #268: the setup picker writes one (asset, role) pair per row;
+    /// legacy bolph71656-ai/HTDT-Capture#268: the setup picker writes one (asset, role) pair per row;
     /// nil clears the pick. Requests resolve through the selection
     /// policy at Begin — invalid combinations are dropped with
     /// reasons recorded into the selection echo, never silently
@@ -1944,8 +1980,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         refreshCaptureSetupPresentation()
     }
 
-    /// legacy bolph71656-ai/HTDT-Capture#352: import an HTDT task plan on the setup screen, before any
-||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
     /// legacy bolph71656-ai/HTDT-Capture#352: import an HTDT task plan on the setup screen, before any
     /// acquisition. The file is decoded+validated now so the operator
     /// sees failures immediately; the verbatim bytes bind to the
@@ -2144,7 +2178,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
     }
 
-    /// #272: on-demand advisory copilot request. The pipeline is
+    /// legacy bolph71656-ai/HTDT-Capture#272: on-demand advisory copilot request. The pipeline is
     /// deterministic diagnostics -> bounded context -> optional model
     /// -> deterministic validator -> advisory chip; whatever resolves,
     /// the suggestion only re-words or re-ranks guidance the scan
@@ -2180,7 +2214,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Bounded snapshot of the live deterministic scan state handed
-    /// to the copilot (#272): codes, severities, counts and bounded
+    /// to the copilot (legacy bolph71656-ai/HTDT-Capture#272): codes, severities, counts and bounded
     /// identifiers only — never raw bundles, poses, or payloads.
     private func scanCopilotContext() -> ScanCopilotContext {
         let weakRegionKeys = spatialCoverage.regions
@@ -2511,6 +2545,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// from a center-of-view raycast against live mesh/depth evidence —
     /// a bounded anchor the operator aimed at, never a fabricated
     /// segmentation.
+    /// legacy bolph71656-ai/HTDT-Capture#273: the targeted object pass is the operator's explicit
+    /// measurement task — an `activeAssist` admission. The start is
+    /// gated by the same health snapshot every optional workload uses;
+    /// a deferral surfaces as a clear status line plus advisory
+    /// provenance instead of silently doing nothing.
     func beginTargetScan() {
         guard state == .scanning,
               !isEndingScan,
@@ -2518,6 +2557,38 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         else {
             return
         }
+        let generation = captureGeneration
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.captureGeneration == generation,
+                  self.state == .scanning,
+                  !self.isEndingScan,
+                  self.targetScanTracker == nil
+            else {
+                return
+            }
+            let health = await self.captureHealthSnapshot()
+            let admission = self.optionalWorkTracker.begin(
+                .targetedObjectPass,
+                phase: .targetOrMeasurement,
+                health: health,
+                sessionTimestampSeconds:
+                    self.latestScanTimestampSeconds
+            )
+            guard let ticket = admission.ticket else {
+                self.admitOptionalWorkDenial(
+                    workload: .targetedObjectPass,
+                    decision: admission.decision,
+                    phase: .targetOrMeasurement
+                )
+                return
+            }
+            self.targetedObjectAdmission = ticket
+            self.performBeginTargetScan()
+        }
+    }
+
+    private func performBeginTargetScan() {
         do {
             // Aim at live mesh/RoomPlan geometry first so the anchor
             // lands on the aimed item (a small object on a desk), not
@@ -2610,7 +2681,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 guidance: .hold,
                 distanceToTargetMeters: initialDistance
             )
-            // #269: a fresh pass is a fresh seeding surface. Probe the
+            // legacy bolph71656-ai/HTDT-Capture#269: a fresh pass is a fresh seeding surface. Probe the
             // downloadable Vision asset (non-mutating) so the UI can
             // advertise readiness without ever starting a download.
             resetSegmentationRun(
@@ -2619,6 +2690,17 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             refreshSegmentationAssetStatus()
             workingSetStatus = String(localized: "Object pass started; keep the aimed object centered and move around it")
         } catch {
+            // The pass never started — release the admission slot so
+            // a later assist is not permanently blocked (legacy bolph71656-ai/HTDT-Capture#273).
+            if let ticket = targetedObjectAdmission {
+                optionalWorkTracker.finish(
+                    ticket,
+                    outcome: .failed,
+                    sessionTimestampSeconds:
+                        latestScanTimestampSeconds
+                )
+                targetedObjectAdmission = nil
+            }
             workingSetStatus = String(localized: "No surface was detected at the aim point; aim at the object and try again")
         }
     }
@@ -2649,7 +2731,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         let anchorSource = targetScanAnchorSource
         let fusedObservation =
             targetedObjectFusionTracker.fusedObservation()
-        endTargetScan()
+        endTargetScan(outcome: .completed)
         // Provenance note fires even when the pass was accepted before
         // the first status tick. `radius_m` reports the effective
         // observation window — the anchor bound is an orbit region,
@@ -2733,7 +2815,18 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         endTargetScan()
     }
 
-    private func endTargetScan() {
+    private func endTargetScan(
+        outcome: OptionalWorkOutcome = .cancelled
+    ) {
+        if let ticket = targetedObjectAdmission {
+            optionalWorkTracker.finish(
+                ticket,
+                outcome: outcome,
+                sessionTimestampSeconds:
+                    latestScanTimestampSeconds
+            )
+            targetedObjectAdmission = nil
+        }
         targetScanTracker = nil
         targetScanStatus = nil
         // Accepted minted proxies survive in targetedObjectProxies; the
@@ -2743,7 +2836,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         resetSegmentationRun(phase: .unavailable)
     }
 
-    // MARK: - Operator-seeded iterative segmentation (#269)
+    // MARK: - Operator-seeded iterative segmentation (legacy bolph71656-ai/HTDT-Capture#269)
     //
     // One operator-requested mask per selection, fused into the bounded
     // object-pass tracker exactly once on "Use". Mask bytes persist
@@ -2838,7 +2931,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         else {
             return
         }
-        // #273: Vision work is derived-quality work — refused under
+        // legacy bolph71656-ai/HTDT-Capture#273: Vision work is derived-quality work — refused under
         // thermal or memory pressure like the live preview path.
         let thermal = ProcessInfo.processInfo.thermalState
         guard !derivedPreviewSuspendedForMemoryPressure,
@@ -3265,7 +3358,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
     /// Persist the run's source frame as a real evidence frame so the
     /// record's `source_frame_ref` resolves to a declared payload; the
-    /// save is tracked for the End-boundary drain (#179).
+    /// save is tracked for the End-boundary drain (legacy bolph71656-ai/HTDT-Capture#179).
     private func persistSegmentationSourceFrame(
         _ snapshot: CapturedFrameSnapshot
     ) {
@@ -3813,11 +3906,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         case .endAvailable, .targetObserved:
             UIImpactFeedbackGenerator(style: .medium)
                 .impactOccurred()
-        case .evidenceSaved, .holdSteady, .revisitFlagSaved:
+        case .evidenceSaved, .holdSteady, .revisitFlagSaved,
+             .regainTracking:
             UIImpactFeedbackGenerator(style: .light)
                 .impactOccurred()
         case .moveLeft, .moveRight, .moveForward, .moveBack,
-             .orbitLeft, .orbitRight:
+             .orbitLeft, .orbitRight, .turnLeft, .turnRight,
+             .tiltUp, .tiltDown:
             UISelectionFeedbackGenerator().selectionChanged()
         }
         UIAccessibility.post(
@@ -3864,6 +3959,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return String(localized: "Move forward")
         case .moveBack:
             return String(localized: "Move back")
+        case .turnLeft:
+            return String(localized: "Turn left")
+        case .turnRight:
+            return String(localized: "Turn right")
+        case .tiltUp:
+            return String(localized: "Tilt up")
+        case .tiltDown:
+            return String(localized: "Tilt down")
+        case .regainTracking:
+            return String(localized: "Hold steady to recover tracking")
         case .holdSteady:
             return String(localized: "Hold steady")
         case .orbitLeft:
@@ -4130,6 +4235,132 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
+    /// legacy bolph71656-ai/HTDT-Capture#277: schedule the bounded camera-source preflight — acquire
+    /// ONE stable ordinary camera frame while tracking is normal, run
+    /// Vision's DetectLensSmudgeRequest off the AR callback path, then
+    /// surface at most one advisory card. Advisory only: it never
+    /// blocks End/finalization, never invalidates geometry, and the
+    /// Continue path always exists. It runs once per scan start and
+    /// again only on the operator's explicit Recheck.
+    private func scheduleSourceQualityPreflight(generation: UUID) {
+        sourcePreflightTask?.cancel()
+        sourcePreflightTask = Task { [weak self] in
+            await self?.runSourceQualityPreflight(
+                generation: generation
+            )
+        }
+    }
+
+    private func runSourceQualityPreflight(
+        generation: UUID
+    ) async {
+        #if os(iOS) && canImport(Vision)
+        // Skips rather than blocks: no stable sample within the
+        // bounded wait means no check and no advisory.
+        guard let sample = await CameraSourcePreflight
+            .acquireStableFrameSample(
+                session: sessionController.arSession,
+                policy: cameraSourcePreflightPolicy
+            )
+        else {
+            return
+        }
+        // Off the AR delegate queue on a utility task; the sampled
+        // pixel buffer is retained only for this bounded analysis.
+        let confidence = await CameraSourcePreflight.smudgeConfidence(
+            of: sample.pixelBuffer
+        )
+        guard !Task.isCancelled,
+              state == .scanning,
+              captureGeneration == generation
+        else {
+            return
+        }
+        let outcome = CameraSourcePreflightOutcome(
+            stableFrameAcquired: true,
+            smudgeConfidence: confidence,
+            ambientIntensityLumens: sample.ambientIntensityLumens,
+            sampledTimestampSeconds: sample.timestampSeconds,
+            visionRequestRevision: "detect_lens_smudge_request"
+        )
+        sourceQualityAdvisory = CameraSourcePreflightAssessment.assess(
+            outcome: outcome,
+            policy: cameraSourcePreflightPolicy
+        )
+        recordSourceQualityPreflightNote(
+            outcome: outcome,
+            operatorAction: nil
+        )
+        #endif
+    }
+
+    /// Operator "Recheck" on the source-quality card: re-runs the same
+    /// bounded preflight once; the fresh outcome replaces the card.
+    func recheckSourceQualityPreflight() {
+        guard state == .scanning else {
+            return
+        }
+        sourceQualityAdvisory = nil
+        recordSourceQualityPreflightNote(
+            outcome: nil,
+            operatorAction: "recheck"
+        )
+        scheduleSourceQualityPreflight(
+            generation: captureGeneration
+        )
+    }
+
+    /// Operator "Continue anyway": dismisses the card; the choice is
+    /// recorded and capture is never gated by the advisory.
+    func dismissSourceQualityAdvisory() {
+        guard sourceQualityAdvisory != nil else {
+            return
+        }
+        sourceQualityAdvisory = nil
+        recordSourceQualityPreflightNote(
+            outcome: nil,
+            operatorAction: "continue_anyway"
+        )
+    }
+
+    /// Bounded diagnostics for the preflight: policy revision plus the
+    /// honest outcome fields — never raw frames or new room imagery.
+    private func recordSourceQualityPreflightNote(
+        outcome: CameraSourcePreflightOutcome?,
+        operatorAction: String?
+    ) {
+        var parts = [
+            "policy_rev=\(cameraSourcePreflightPolicy.policyRevision)"
+        ]
+        if let outcome {
+            parts.append(
+                "stable_frame=\(outcome.stableFrameAcquired ? 1 : 0)"
+            )
+            parts.append(
+                outcome.smudgeConfidence.map {
+                    String(format: "smudge_confidence=%.3f", $0)
+                } ?? "smudge_confidence=unavailable"
+            )
+            if let lumens = outcome.ambientIntensityLumens {
+                parts.append(
+                    String(format: "ambient_lumens=%.1f", lumens)
+                )
+            }
+        }
+        if let operatorAction {
+            parts.append("operator_action=\(operatorAction)")
+        }
+        recordAdvisoryNote(
+            CaptureAdvisoryNote(
+                kind: .sourceQualityPreflight,
+                sessionTimestampSeconds:
+                    outcome?.sampledTimestampSeconds
+                        ?? latestScanTimestampSeconds ?? 0,
+                detail: parts.joined(separator: " ")
+            )
+        )
+    }
+
     func beginReview() {
         guard state == .scanning, !isEndingScan else {
             return
@@ -4160,7 +4391,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             if let pendingAuto = self.automaticFrameSaveTask {
                 await pendingAuto.value
             }
-            // #269: an accepted segmentation persists its source frame;
+            // legacy bolph71656-ai/HTDT-Capture#269: an accepted segmentation persists its source frame;
             // that save must land inside this End boundary too so the
             // derived doc's source_frame_ref resolves.
             if let pendingSeg = self.segmentationFrameSaveTask {
@@ -4265,7 +4496,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             do {
                 try self.sessionController.startRoomPlan()
                 self.noteRoomPlanScanSegment()
-                // #269: mission boundary — prep the downloadable
+                // legacy bolph71656-ai/HTDT-Capture#269: mission boundary — prep the downloadable
                 // segmentation asset before scanning resumes so a later
                 // Isolate attempt never triggers mid-scan network work.
                 self.prepareSegmentationAssets()
@@ -4459,10 +4690,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         }
 
-        let annotations = try loadCollection(
+        let annotationCollection = try loadCollection(
             CaptureAnnotationCollection.self,
             at: AnnotationEvidencePackage.path
-        )?.entities ?? []
+        )
+        let annotations = annotationCollection?.entities ?? []
         let measurements = try loadCollection(
             CaptureMeasurementCollection.self,
             at: MeasurementEvidencePackage.path
@@ -4522,6 +4754,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return (
             AnnotationWorkspaceSeed(
                 annotations: annotations,
+                relations: annotationCollection?.relations ?? [],
                 measurements: measurements,
                 equipmentIdentityRecords: identityRecords ?? [],
                 authorities: authorities,
@@ -4912,103 +5145,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return authority
     }
 
-    func captureRaycastPlacement()
-        async throws -> AnnotationPlacementAuthority
-    {
-        guard state == .annotating,
-              !spatialAuthoritySealedForFinalization,
-              workingSetSpatialAuthorityLive,
-              let store = workingSetStore
-        else {
-            throw PlatformCaptureError.raycastMiss
-        }
-
-        let generation = captureGeneration
-        let snapshot =
-            try sessionController.snapshotCenterRaycastPlacement(
-                depthSelection: .discrete
-            )
-        // legacy bolph71656-ai/HTDT-Capture#177: materialize performs packing/hashing/HEIC off
-        // MainActor; the retained snapshot preserves the same-frame
-        // pose/pixel/depth association.
-        let frameArtifacts =
-            try await ARFrameArtifactAdapter.materialize(
-                snapshot.frameArtifacts
-            )
-        let package = try FrameEvidencePackageBuilder.build(
-            descriptor: frameArtifacts.descriptor,
-            pixelPayload: frameArtifacts.pixelPayload,
-            depthPayload: frameArtifacts.depthPayload,
-            confidencePayload:
-                frameArtifacts.confidencePayload,
-            previewPayload:
-                frameArtifacts.previewPayload
-        )
-        try await store.persistFramePackage(package)
-
-        guard captureGeneration == generation,
-              state == .annotating
-        else {
-            throw PlatformCaptureError.raycastMiss
-        }
-
-        let evidenceRef = "path:" + package.descriptorPath
-        markEvidenceRetention(evidenceRef, .annotationPlacement)
-        let position = snapshot.positionWorld
-        let transform = try Matrix4x4F(values: [
-            1, 0, 0, 0,
-            0, 1, 0, 0,
-            0, 0, 1, 0,
-            position.x,
-            position.y,
-            position.z,
-            1,
-        ])
-        // legacy bolph71656-ai/HTDT-Capture#173: the platform snapshot returns bounded hit provenance
-        // (target type, alignment, hit transform, anchor identity,
-        // distance); it is mapped into the annotation model's
-        // `RaycastPlacementProvenance` so an estimated-plane fallback
-        // stays distinguishable from observed-plane geometry after
-        // serialization. The same type name exists in both modules, so
-        // the model target is module-qualified.
-        let raycast = try snapshot.raycastProvenance.map {
-            try HTDTCaptureCore.RaycastPlacementProvenance(
-                targetType: $0.target.rawValue,
-                hitDistanceMeters: $0.hitDistanceMeters,
-                hitAnchorIdentifier: $0.hitAnchorIdentifier,
-                hitTransform: $0.hitWorldTransform
-            )
-        }
-        let placement = try PlacementProvenance(
-            method: .raycast,
-            sourceEvidenceRefs: [evidenceRef],
-            raycast: raycast
-        )
-        let authority = try AnnotationPlacementAuthority(
-            worldFromAnnotation: transform,
-            placement: placement,
-            coordinateSpaceID:
-                package.descriptor.coordinateSpaceID,
-            evidenceRefs: [evidenceRef]
-        )
-
-        let workingSnapshot = await store.snapshot()
-        guard captureGeneration == generation,
-              state == .annotating
-        else {
-            throw PlatformCaptureError.raycastMiss
-        }
-        annotationEvidenceRefs =
-            workingSnapshot.evidenceFrameRefs
-                + referenceObjectObservationTokens
-        refreshAnnotationEvidenceFrames(
-            rootDirectory: await store.rootDirectory
-        )
-        workingSetStatus = String(localized: "Evidence-linked raycast placement captured")
-
-        return authority
-    }
-
     /// Live reticle probe for the camera capture sheet and the
     /// scanning-surface reticle (legacy bolph71656-ai/HTDT-Capture#214/legacy bolph71656-ai/HTDT-Capture#250): classifies what the
     /// shared session's center ray hits right now — mesh, RoomPlan
@@ -5042,7 +5178,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func captureTargetedPlacement(
         preference: PlacementTargetPreference
     ) async throws -> AnnotationPlacementAuthority? {
+        // Post-seal the annotating state stays open for semantic
+        // edits, but live spatial evidence can no longer be captured —
+        // the frame package would write into a sealed working set.
         guard state == .annotating,
+              workingSetSpatialAuthorityLive,
               let store = workingSetStore
         else {
             throw PlatformCaptureError.raycastMiss
@@ -5148,8 +5288,39 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func captureFieldEvidencePhoto() async throws
         -> CapturedFieldPhoto
     {
-        guard state == .annotating else {
+        // Same seal boundary as `captureTargetedPlacement`: a field
+        // photo is a spatial evidence frame in the working set.
+        guard state == .annotating,
+              workingSetSpatialAuthorityLive
+        else {
             throw PlatformCaptureError.currentFrameUnavailable
+        }
+        // legacy bolph71656-ai/HTDT-Capture#273: bounded high-quality visual request — an assist
+        // admission that sheds under pressure like every other
+        // optional workload.
+        let health = await captureHealthSnapshot()
+        let admission = optionalWorkTracker.begin(
+            .fieldEvidencePhotoCapture,
+            phase: .reviewAnnotation,
+            health: health,
+            sessionTimestampSeconds: latestScanTimestampSeconds
+        )
+        guard let ticket = admission.ticket else {
+            admitOptionalWorkDenial(
+                workload: .fieldEvidencePhotoCapture,
+                decision: admission.decision,
+                phase: .reviewAnnotation
+            )
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+        var admissionOutcome = OptionalWorkOutcome.failed
+        defer {
+            optionalWorkTracker.finish(
+                ticket,
+                outcome: admissionOutcome,
+                sessionTimestampSeconds:
+                    latestScanTimestampSeconds
+            )
         }
         let generation = captureGeneration
         let snapshot =
@@ -5161,11 +5332,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard captureGeneration == generation,
               state == .annotating
         else {
+            admissionOutcome = .staleRejected
             throw PlatformCaptureError.currentFrameUnavailable
         }
         guard let preview = artifacts.previewPayload else {
+            admissionOutcome = .failed
             throw PlatformCaptureError.currentFrameUnavailable
         }
+        admissionOutcome = .completed
         return CapturedFieldPhoto(
             data: preview,
             mediaType: .heic,
@@ -5186,10 +5360,40 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     func captureIdentityPhoto() async throws -> String {
+        // Same seal boundary: the identity photo persists a frame
+        // package into the working set.
         guard state == .annotating,
+              workingSetSpatialAuthorityLive,
               let store = workingSetStore
         else {
             throw PlatformCaptureError.currentFrameUnavailable
+        }
+
+        // legacy bolph71656-ai/HTDT-Capture#273: bounded high-quality visual request — an assist
+        // admission gated on capture health.
+        let health = await captureHealthSnapshot()
+        let admission = optionalWorkTracker.begin(
+            .identityPhotoCapture,
+            phase: .reviewAnnotation,
+            health: health,
+            sessionTimestampSeconds: latestScanTimestampSeconds
+        )
+        guard let ticket = admission.ticket else {
+            admitOptionalWorkDenial(
+                workload: .identityPhotoCapture,
+                decision: admission.decision,
+                phase: .reviewAnnotation
+            )
+            throw PlatformCaptureError.currentFrameUnavailable
+        }
+        var admissionOutcome = OptionalWorkOutcome.failed
+        defer {
+            optionalWorkTracker.finish(
+                ticket,
+                outcome: admissionOutcome,
+                sessionTimestampSeconds:
+                    latestScanTimestampSeconds
+            )
         }
 
         let generation = captureGeneration
@@ -5211,6 +5415,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard captureGeneration == generation,
               state == .annotating
         else {
+            admissionOutcome = .staleRejected
             throw PlatformCaptureError.currentFrameUnavailable
         }
 
@@ -5223,6 +5428,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             rootDirectory: await store.rootDirectory
         )
         workingSetStatus = String(localized: "Identity evidence photo captured")
+        admissionOutcome = .completed
         return evidenceRef
     }
 
@@ -5584,6 +5790,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             annotationPackage =
                 try AnnotationEvidencePackageBuilder.build(
                     entities: annotations,
+                    relations:
+                        annotationRevisionSeed?.relations ?? [],
                     priorEntities: isRevisionCommit
                         ? annotationRevisionSeed?.annotations
                         : nil
@@ -5749,7 +5957,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.annotationEditIsRevision = false
                 self.annotationRevisionSeed = nil
 
-                // #268: each reference-object observation ref that
+                // legacy bolph71656-ai/HTDT-Capture#268: each reference-object observation ref that
                 // landed in an entity's evidence_refs is an operator
                 // acceptance — bounded advisory provenance, one note
                 // per newly bound pairing. The ref rides alongside
@@ -5788,8 +5996,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     }
                 }
 
-                // legacy bolph71656-ai/HTDT-Capture#321: in-place repair kinds resolve on the
-||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
                 // legacy bolph71656-ai/HTDT-Capture#321: in-place repair kinds resolve on the
                 // annotation authority commit inside the same
                 // revision.
@@ -5930,13 +6136,46 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// OCR/barcode recognition, and returns suggestion candidates.
     /// Nothing is committed — the sheet only suggests; the operator
     /// confirms a candidate explicitly (or cancels and types manually).
+    /// legacy bolph71656-ai/HTDT-Capture#345 Vision label scan — an `activeAssist` one-shot (legacy bolph71656-ai/HTDT-Capture#273):
+    /// admission-gated on capture health, bounded to one in flight,
+    /// and its ticket finishes with the request's outcome.
     func scanEquipmentLabel() async throws
         -> EquipmentLabelScanResult
     {
+        // Same seal boundary as `captureIdentityPhoto`: the close-up
+        // label frame persists into the working set.
         guard state == .annotating,
+              workingSetSpatialAuthorityLive,
               let store = workingSetStore
         else {
             throw EquipmentLabelScanError.scanUnavailable
+        }
+
+        let health = await captureHealthSnapshot()
+        let admission = optionalWorkTracker.begin(
+            .equipmentLabelScan,
+            phase: .reviewAnnotation,
+            health: health,
+            sessionTimestampSeconds: latestScanTimestampSeconds
+        )
+        guard let ticket = admission.ticket else {
+            // Deferred/rejected: the operator sees why on the status
+            // line and the denial persists as advisory provenance.
+            admitOptionalWorkDenial(
+                workload: .equipmentLabelScan,
+                decision: admission.decision,
+                phase: .reviewAnnotation
+            )
+            throw EquipmentLabelScanError.scanUnavailable
+        }
+        var admissionOutcome = OptionalWorkOutcome.failed
+        defer {
+            optionalWorkTracker.finish(
+                ticket,
+                outcome: admissionOutcome,
+                sessionTimestampSeconds:
+                    latestScanTimestampSeconds
+            )
         }
 
         let generation = captureGeneration
@@ -5964,6 +6203,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         guard captureGeneration == generation,
               state == .annotating
         else {
+            // The capture generation moved on mid-request — the
+            // finished work's result is stale by the feature's own
+            // boundary (legacy bolph71656-ai/HTDT-Capture#273 stale-result rejection).
+            admissionOutcome = .staleRejected
             throw PlatformCaptureError.currentFrameUnavailable
         }
 
@@ -5981,7 +6224,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             catalog: equipmentCatalog?.definitions ?? []
         )
 
-        // #270: optional advisory lane — a bounded, task-scoped
+        // legacy bolph71656-ai/HTDT-Capture#270: optional advisory lane — a bounded, task-scoped
         // Foundation Models suggestion layered ON TOP of the unchanged
         // deterministic result. Off by default (UserDefaults flag) and
         // zero-impact when unavailable: Simulator/ineligible devices,
@@ -6013,6 +6256,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
 
         workingSetStatus = String(localized: "Label scanned — review the suggestions")
+        admissionOutcome = .completed
         return EquipmentLabelScanResult(
             algorithm: EquipmentLabelScanMatcher.algorithm,
             algorithmVersion:
@@ -6584,6 +6828,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         automaticFrameSaveTask = nil
         scanLightingStatus = .unknown
         lowLightGuidanceActive = false
+        sourcePreflightTask?.cancel()
+        sourcePreflightTask = nil
+        sourceQualityAdvisory = nil
         endTargetScan()
         operatorRegionDeclarations = OperatorRegionDeclarations()
         declaredRegionList = []
@@ -6831,6 +7078,9 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         revisitFlags = []
         clearScanCopilot()
         scanLightingStatus = .unknown
+        sourcePreflightTask?.cancel()
+        sourcePreflightTask = nil
+        sourceQualityAdvisory = nil
         automaticEvidenceFrameCount = 0
         automaticKeyframePersistedBytes = 0
         automaticKeyframeTracker = AutomaticKeyframeTracker()
@@ -7299,7 +7549,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             }
             #if os(iOS) && canImport(RoomPlan)
-            if #available(iOS 17.0, *) {
+            do {
                 let processedURL = snapshot.rootDirectory
                     .appendingPathComponent(
                         "roomplan/captured-room.json",
@@ -7548,12 +7798,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
         if let data = try? Data(contentsOf: processedURL) {
             #if os(iOS) && canImport(RoomPlan)
-            if #available(iOS 17.0, *) {
-                floorY = RoomPlanReviewDeriver
-                    .finishedFloorElevationMeters(
-                        processedPayload: data
-                    )
-            }
+            floorY = RoomPlanReviewDeriver
+                .finishedFloorElevationMeters(
+                    processedPayload: data
+                )
             #endif
         }
         guard let zeroElevation = floorY else {
@@ -7713,10 +7961,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         var enumerated: [RoomOpeningCandidate] = []
         #if os(iOS) && canImport(RoomPlan)
-        if #available(iOS 17.0, *) {
-            enumerated = (try? RoomPlanReviewDeriver
-                .enumerateOpenings(processedPayload: data)) ?? []
-        }
+        enumerated = (try? RoomPlanReviewDeriver
+            .enumerateOpenings(processedPayload: data)) ?? []
         #endif
         let existing = snapshot.openingReview?.openings ?? []
         return OpeningReviewEditor.merge(
@@ -8176,31 +8422,23 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 case .roomPlanProcessed:
                     if selection.format == .usdz {
                         #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
-                        if #available(iOS 17.0, *) {
-                            result =
-                                try DerivedExportRunner.exportUSDZ(
-                                    bundleDirectory:
-                                        context.directory,
-                                    bundleDigest:
-                                        context.bundleDigest,
-                                    captureRoot: captureRoot
-                                ) { destination in
-                                    try DerivedRoomPlanExportSupport
-                                        .writeUSDZ(
-                                            bundleDirectory:
-                                                context.directory,
-                                            manifest:
-                                                context.manifest,
-                                            to: destination
-                                        )
-                                }
-                        } else {
-                            throw DerivedExportError
-                                .unsupportedCombination(
-                                    reason:
-                                        "USDZ export requires iOS 17 RoomPlan"
-                                )
-                        }
+                        result =
+                            try DerivedExportRunner.exportUSDZ(
+                                bundleDirectory:
+                                    context.directory,
+                                bundleDigest:
+                                    context.bundleDigest,
+                                captureRoot: captureRoot
+                            ) { destination in
+                                try DerivedRoomPlanExportSupport
+                                    .writeUSDZ(
+                                        bundleDirectory:
+                                            context.directory,
+                                        manifest:
+                                            context.manifest,
+                                        to: destination
+                                    )
+                            }
                         #else
                         throw DerivedExportError
                             .unsupportedCombination(
@@ -8210,32 +8448,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         #endif
                     } else {
                         #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
-                        if #available(iOS 17.0, *) {
-                            let objects =
-                                try DerivedRoomPlanExportSupport
-                                    .bindableObjects(
-                                        bundleDirectory:
-                                            context.directory,
-                                        manifest: context.manifest
-                                    )
-                            result =
-                                try DerivedExportRunner.exportMesh(
+                        let objects =
+                            try DerivedRoomPlanExportSupport
+                                .bindableObjects(
                                     bundleDirectory:
                                         context.directory,
-                                    bundleDigest:
-                                        context.bundleDigest,
-                                    captureRoot: captureRoot,
-                                    format: selection.format,
-                                    source: .roomPlanProcessed,
-                                    roomPlanObjects: objects
+                                    manifest: context.manifest
                                 )
-                        } else {
-                            throw DerivedExportError
-                                .unsupportedCombination(
-                                    reason:
-                                        "RoomPlan-derived exports require iOS 17 RoomPlan"
-                                )
-                        }
+                        result =
+                            try DerivedExportRunner.exportMesh(
+                                bundleDirectory:
+                                    context.directory,
+                                bundleDigest:
+                                    context.bundleDigest,
+                                captureRoot: captureRoot,
+                                format: selection.format,
+                                source: .roomPlanProcessed,
+                                roomPlanObjects: objects
+                            )
                         #else
                         throw DerivedExportError
                             .unsupportedCombination(
@@ -8287,16 +8517,14 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         ) { () -> DerivedExportOutcome in
             var plan: RoomPlanPreviewModel? = nil
             #if os(iOS) && canImport(ARKit) && canImport(RoomPlan)
-            if #available(iOS 17.0, *) {
-                if let data = try? DerivedRoomPlanExportSupport
-                    .processedRoomData(
-                        bundleDirectory: context.directory,
-                        manifest: context.manifest
-                    )
-                {
-                    plan = try? RoomPlanReviewDeriver
-                        .planPreview(processedPayload: data)
-                }
+            if let data = try? DerivedRoomPlanExportSupport
+                .processedRoomData(
+                    bundleDirectory: context.directory,
+                    manifest: context.manifest
+                )
+            {
+                plan = try? RoomPlanReviewDeriver
+                    .planPreview(processedPayload: data)
             }
             #endif
 
@@ -9005,7 +9233,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             )
             return
         case .spatialCapture:
-            break
+            // `beginCapture` refuses outside idle; binding the plan
+            // and activating the record before that check would leave
+            // the mission started with no capture for its tasks.
+            guard state == .idle,
+                  !importOperationInFlight,
+                  !persistedAdoptionInFlight,
+                  !persistedDeletionInFlight,
+                  !persistedWorkspaceLoadInFlight
+            else {
+                workingSetStatus = String(
+                    localized:
+                        "Finish the current capture work before starting this mission"
+                )
+                return
+            }
         }
         do {
             let resume = try store.startMission(
@@ -9640,6 +9882,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
               !persistedWorkspaceLoadInFlight,
               let store = persistedStore
         else {
+            workingSetStatus = String(
+                localized:
+                    "Finish the current capture work before opening a saved capture"
+            )
             return
         }
 
@@ -9838,6 +10084,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     + "]"
             }
         }
+    }
+
+    /// Mirrors `PersistedCaptureInventory.canRemoveArtifact` — the
+    /// maintenance view gates the Remove affordance on this so a
+    /// quarantined item the store would only refuse never shows a
+    /// doomed button.
+    func canRemoveQuarantinedArtifact(
+        _ artifact: PersistedCaptureQuarantinedArtifact
+    ) -> Bool {
+        persistedStore?.canRemoveArtifact(artifact) ?? false
     }
 
     /// Removes a quarantined artifact. Removal authority is limited to
@@ -11792,6 +12048,29 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return draft
         }
 
+        // A finalized workspace lives in the store index, not the
+        // drafts — reopen it so the Deliver/Share section stays
+        // reachable instead of shadowing it with a fresh draft.
+        // Newest first: a finalized follow-up supersedes earlier
+        // returns for the same mission.
+        let linkedContributionIDs = Set(record.fieldReturnIDs)
+        if let finalized = try? HTDTFieldReturnStore(captureRoot: root)
+            .load().workspaces
+            .filter({
+                $0.isFinalized
+                    && ($0.missionRecordID == missionRecordID
+                        || linkedContributionIDs.contains(
+                            $0.contributionID.description
+                        ))
+            })
+            .sorted(by: {
+                ($0.finalizedAtUTC ?? "") > ($1.finalizedAtUTC ?? "")
+            })
+            .first
+        {
+            return finalized
+        }
+
         var workspace = HTDTFieldReturnWorkspace(
             missionRecordID: record.recordID,
             missionID: record.missionID,
@@ -12101,7 +12380,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     func sendFieldReturnToHTDT(
         contributionID: HTDTFieldReturnID,
         destination: HTDTHandoffDestination
-    ) async {
+    ) async -> FieldReturnSendOutcome {
         guard destination.kind == .endpoint,
               let urlString = destination.url,
               URL(string: urlString) != nil
@@ -12110,10 +12389,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 localized:
                     "The destination has no valid HTTPS endpoint"
             )
-            return
+            return .failed
         }
         guard let root = Self.captureRootDirectory() else {
-            return
+            return .failed
         }
         guard let document = try? HTDTFieldReturnStore(
             captureRoot: root
@@ -12126,7 +12405,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 localized:
                     "Finalize the field return before sending it"
             )
-            return
+            return .failed
         }
         let archiveURL = Self.fieldReturnsDirectory(
             captureRoot: root
@@ -12140,7 +12419,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 localized:
                     "The finalized field-return file is missing"
             )
-            return
+            return .failed
         }
         let pairedID = (try? PairedHTDTDestinationStore(
             captureRoot: root
@@ -12176,36 +12455,43 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             )
             deliveryJobs = jobs
+            let outcome: FieldReturnSendOutcome
             switch jobs.first(where: {
                 $0.deliveryJobID == job.deliveryJobID
             })?.state {
             case .deliveredStaged:
+                outcome = .deliveredStaged
                 workingSetStatus = String(
                     localized:
                         "Field return delivered and staged at the receiver; receipt saved"
                 )
             case .rejected:
+                outcome = .rejected
                 workingSetStatus = String(
                     localized:
                         "The receiver rejected the field return; it will not be retried"
                 )
             case .blocked:
+                outcome = .blocked
                 workingSetStatus = String(
                     localized:
                         "Delivery is blocked and needs an operator decision (see Deliveries)"
                 )
             default:
+                outcome = .queuedForRetry
                 workingSetStatus = String(
                     localized:
                         "Field return queued; it will retry under the queue's policy (see Deliveries)"
                 )
             }
             refreshMissionDeliveryStores()
+            return outcome
         } catch {
             workingSetStatus = String(
                 localized:
                     "The field-return delivery could not be queued"
             )
+            return .failed
         }
     }
 
@@ -12672,7 +12958,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
             }
         }
-        // #268: reference-object anchors ride the same single delegate
+        // legacy bolph71656-ai/HTDT-Capture#268: reference-object anchors ride the same single delegate
         // bridge — add/update/remove plus the tracked-state read are
         // buffered into the canonical observation document. isTracked
         // loss is a lifecycle record, never anchor removal.
@@ -12716,7 +13002,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // Inside End (`isEndingScan`) the transaction already owns the
         // transition, so the callback is expected there.
         sessionController.roomPlanDidEndHandler = {
-            [weak self] errorDescription in
+            [weak self] errorToken in
             Task { @MainActor [weak self] in
                 guard let self,
                       self.captureGeneration == generation,
@@ -12726,7 +13012,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     return
                 }
                 let detail =
-                    errorDescription.map {
+                    errorToken.map {
                         "ended_with_error error=\($0)"
                     } ?? "ended_without_error"
                 self.recordAdvisoryNote(
@@ -12737,7 +13023,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         detail: detail
                     )
                 )
-                if errorDescription != nil {
+                if errorToken != nil {
                     self.workingSetStatus =
                         String(localized: "RoomPlan scanning ended unexpectedly; press End to finish with the evidence captured so far, or discard")
                 }
@@ -12841,7 +13127,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             try sessionController.startRoomPlan()
             noteRoomPlanScanSegment()
-            // #269: prep the downloadable segmentation asset now —
+            // legacy bolph71656-ai/HTDT-Capture#269: prep the downloadable segmentation asset now —
             // before the scan mission starts — so a later operator
             // Isolate request never triggers mid-scan network work.
             prepareSegmentationAssets()
@@ -12870,13 +13156,19 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        // legacy bolph71656-ai/HTDT-Capture#277: bounded camera-source preflight — one stable frame,
+        // Vision smudge check off the AR callback path, advisory only.
+        // Scheduled after frames flow so it never delays capture start;
+        // it skips itself when no stable sample arrives promptly.
+        scheduleSourceQualityPreflight(generation: generation)
+
         guard state == .scanning,
               captureGeneration == generation
         else {
             return
         }
 
-        // #268: install the operator's reference-object sets on the
+        // legacy bolph71656-ai/HTDT-Capture#268: install the operator's reference-object sets on the
         // live configuration BEFORE the coordinate space binds — the
         // session re-run ARKit performs for a configuration change then
         // absorbs into the not-yet-bound space, so the bound space is
@@ -12943,13 +13235,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
-        // #268: the coordinate space is bound now — the configuration
+        // legacy bolph71656-ai/HTDT-Capture#268: the coordinate space is bound now — the configuration
         // echo lands in the canonical observation document, and any
         // non-plain outcome becomes a bounded advisory.
         await persistReferenceObjectConfigurationEcho(store: store)
 
-        // Strategy provenance (legacy bolph71656-ai/HTDT-Capture#307): record which published
-||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
         // Strategy provenance (legacy bolph71656-ai/HTDT-Capture#307): record which published
         // guidance/evidence policy steers this scan so a consumer can
         // read exactly what the advisory budgets were. Advisory
@@ -13008,10 +13298,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         workingSetStatus = String(localized: "Scanning; live RoomPlan camera and active AR configuration are ready")
     }
 
-    // MARK: - Reference objects (#268)
+    // MARK: - Reference objects (legacy bolph71656-ai/HTDT-Capture#268)
 
     /// Loads the operator-selected `.referenceobject` artifacts and
-    /// installs them on the live session configuration (#268). Runs
+    /// installs them on the live session configuration (legacy bolph71656-ai/HTDT-Capture#268). Runs
     /// after the start-boundary timing correlation and before
     /// `waitForActiveConfiguration` — the session re-run ARKit
     /// performs for a configuration change then absorbs into the
@@ -13132,7 +13422,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Persists the configuration echo once the coordinate space is
-    /// bound (#268) and advisors a non-plain outcome — the canonical
+    /// bound (legacy bolph71656-ai/HTDT-Capture#268) and advisors a non-plain outcome — the canonical
     /// `evidence/reference-object-observations.json` then carries
     /// exactly what the session was asked to adopt and what it did.
     private func persistReferenceObjectConfigurationEcho(
@@ -13188,7 +13478,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Converts each `ARObjectAnchor` in a delegate callback into a
-    /// persisted pose observation (#268). Anchors whose matched name
+    /// persisted pose observation (legacy bolph71656-ai/HTDT-Capture#268). Anchors whose matched name
     /// is not in the shipped manifest, or whose transform fails the
     /// rigid-pose invariant, are counted as resource events — never
     /// silently dropped and never written.
@@ -13263,7 +13553,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     }
 
     /// Rebuilds the offerable `reference_object_observation:<id>`
-    /// tokens from the committed record (#268) and merges them onto
+    /// tokens from the committed record (legacy bolph71656-ai/HTDT-Capture#268) and merges them onto
     /// `annotationEvidenceRefs` — the entity form then lists each
     /// observation as evidence the operator may accept.
     private func refreshReferenceObjectObservationTokens(
@@ -13275,8 +13565,6 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
-    /// Periodic storage accounting for the legacy bolph71656-ai/HTDT-Capture#308 advisory surface. Runs
-||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
     /// Periodic storage accounting for the legacy bolph71656-ai/HTDT-Capture#308 advisory surface. Runs
     /// at the resource-monitor cadence while `.scanning`; each sample
     /// recomputes the working revision's retained bytes by category,
@@ -14248,7 +14536,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 generation: generation
             )
 
-            // #269: emit the accepted segmentation records as derived
+            // legacy bolph71656-ai/HTDT-Capture#269: emit the accepted segmentation records as derived
             // evidence while every referenced frame descriptor is
             // declared and the working set is still mutable.
             await self.persistSegmentationObservations(
@@ -14380,7 +14668,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             try sessionController.startRoomPlan()
             noteRoomPlanScanSegment()
-            // #269: prep the downloadable segmentation asset now —
+            // legacy bolph71656-ai/HTDT-Capture#269: prep the downloadable segmentation asset now —
             // before the scan mission starts — so a later operator
             // Isolate request never triggers mid-scan network work.
             prepareSegmentationAssets()
@@ -14526,15 +14814,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                     self.scanLightingStatus =
                         self.scanLightingPolicy.assess(
                             ambientIntensityLumens:
-                                sample.ambientLightIntensityLumens,
-                            trackingState: sample.trackingState,
-                            trackingReason: sample.trackingReason
+                                sample.ambientLightIntensityLumens
                         )
                     self.lowLightGuidanceActive =
                         self.scanLightingPolicy
                             .shouldSurfaceLowLightGuidance(
-                                status: self.scanLightingStatus,
-                                trackingState: sample.trackingState
+                                status: self.scanLightingStatus
                             )
 
                     // legacy bolph71656-ai/HTDT-Capture#252: edge-triggered, rate-limited non-visual
@@ -14690,7 +14975,24 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                         self.setRoomPlanModelRenderingEnabled(
                             !resourcePressure
                         )
-                        let derivedWorkAllowed = !resourcePressure
+                        // legacy bolph71656-ai/HTDT-Capture#273: the fused derived-shape preview is
+                        // optional semantic work on a bounded
+                        // (periodic) cadence — its per-tick admission
+                        // comes from the shared policy instead of the
+                        // ad-hoc resource check it used before.
+                        let derivedHealth =
+                            await self.captureHealthSnapshot(
+                                thermalState: thermalState
+                            )
+                        let derivedWorkAllowed =
+                            self.optionalWorkTracker.evaluate(
+                                .derivedShapePreview,
+                                phase: self.optionalWorkPhase,
+                                health: derivedHealth,
+                                sessionTimestampSeconds:
+                                    spatialSample
+                                        .sessionTimestampSeconds
+                            ).isAllowed
 
                         if derivedWorkAllowed,
                            (
@@ -15051,7 +15353,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         qualityReport = report
         advisoryReport = advisory
-        // #268: repopulate the observation tokens first — a reopened
+        // legacy bolph71656-ai/HTDT-Capture#268: repopulate the observation tokens first — a reopened
         // draft's committed observations are offerable evidence refs
         // just like live-scan records.
         await refreshReferenceObjectObservationTokens(store: store)
@@ -15617,6 +15919,150 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         return (nil, diagnostic)
     }
 
+    // MARK: - Optional-work admission (legacy bolph71656-ai/HTDT-Capture#273)
+
+    /// The capture phase the admission policy sees: the targeted
+    /// object pass turns `.scanning` into `.targetOrMeasurement` for
+    /// the duration of the explicit measurement task.
+    private var optionalWorkPhase: OptionalWorkPhase {
+        OptionalWorkPhase(
+            state: state,
+            measurementTaskActive: targetScanTracker != nil
+        )
+    }
+
+    /// Point-in-time `captureHealth` for admission decisions — every
+    /// field maps to a signal an existing authority already measures
+    /// (legacy bolph71656-ai/HTDT-Capture#273 Inputs; no invented counters). The snapshot is async only
+    /// because the persistence-backlog signal lives inside the working
+    /// set actor.
+    private func captureHealthSnapshot(
+        thermalState: ProcessInfo.ThermalState =
+            ProcessInfo.processInfo.thermalState
+    ) async -> CaptureHealthSnapshot {
+        let backlogActive: Bool
+        if let store = workingSetStore {
+            backlogActive =
+                await store.persistenceBacklogPressureActive
+        } else {
+            backlogActive = false
+        }
+        let scanning = state == .scanning
+        return CaptureHealthSnapshot(
+            thermalState: thermalState,
+            storageBand: resourceMonitor?.storagePressureState
+                ?? .healthy,
+            memoryPressureActive:
+                derivedPreviewSuspendedForMemoryPressure,
+            interruptionActive: arSessionInterrupted,
+            persistenceBacklogActive: backlogActive,
+            renderingMitigationActive: !roomPlanModelRenderingEnabled,
+            latestTrackingState: scanning
+                ? spatialCoverage.latestTrackingState
+                : nil,
+            // Scene depth is "absent" only when the device supports it
+            // and the latest sample reported none — unsupported
+            // hardware is never counted as missing evidence.
+            sceneDepthRecentlyAbsent: scanning
+                && capabilities.sceneDepthSupported
+                ? !spatialCoverage.latestHasSceneDepth
+                : nil
+        )
+    }
+
+    /// Surfaces an explicit-request denial (legacy bolph71656-ai/HTDT-Capture#273 "clear UI if an
+    /// explicit operator request is deferred/rejected"): the status
+    /// line tells the operator why, and an advisory note carries the
+    /// machine-stable provenance into the finalized bundle.
+    private func admitOptionalWorkDenial(
+        workload: OptionalWorkload,
+        decision: OptionalWorkAdmissionDecision,
+        phase: OptionalWorkPhase
+    ) {
+        switch decision {
+        case .defer:
+            workingSetStatus = String(
+                localized:
+                    "Request deferred — the device is under load or capture is busy; try again when conditions ease"
+            )
+        case .reject:
+            workingSetStatus = String(
+                localized:
+                    "Request declined — this work cannot run during the current capture step"
+            )
+        case .allow:
+            return
+        }
+        recordAdvisoryNote(
+            CaptureAdvisoryNote(
+                kind: .optionalWorkAdmission,
+                sessionTimestampSeconds:
+                    latestScanTimestampSeconds ?? 0,
+                detail:
+                    "workload=\(workload.identifier)"
+                    + " outcome=\(decision.logToken)"
+                    + " phase=\(phase.rawValue)"
+                    + " reason=\(decision.denialReason?.rawValue ?? "none")"
+            )
+        )
+    }
+
+    /// Re-derives the pressure band from the existing authorities and
+    /// applies the in-flight action it implies for every registered
+    /// optional workload (legacy bolph71656-ai/HTDT-Capture#273 pressure policy). Called on each
+    /// resource/lifecycle event so a transition — not a periodic
+    /// poll — sheds or reinstates optional work.
+    private func applyOptionalWorkPressureActions() async {
+        let health = await captureHealthSnapshot()
+        let pressure = health.pressureState
+        for action in optionalWorkTracker
+            .inflightActions(health: health)
+        {
+            switch action.action {
+            case .suspend:
+                optionalWorkTracker.suspend(
+                    action.ticket,
+                    pressure: pressure,
+                    sessionTimestampSeconds:
+                        latestScanTimestampSeconds
+                )
+            case .cancel:
+                _ = optionalWorkTracker.cancel(
+                    action.ticket,
+                    pressure: pressure,
+                    sessionTimestampSeconds:
+                        latestScanTimestampSeconds
+                )
+                applyOptionalWorkCancellation(action.ticket)
+            case .continueWork:
+                optionalWorkTracker.resume(
+                    action.ticket,
+                    sessionTimestampSeconds:
+                        latestScanTimestampSeconds
+                )
+            }
+        }
+    }
+
+    /// Feature-owned cancellation for pressure-cancelled in-flight
+    /// work. Each bounded feature that registers tickets adds its
+    /// cancel hook here (legacy bolph71656-ai/HTDT-Capture#273 request safety — cancellation where the
+    /// API allows).
+    private func applyOptionalWorkCancellation(
+        _ ticket: OptionalWorkAdmissionTicket
+    ) {
+        switch ticket.workloadIdentifier {
+        case OptionalWorkload.targetedObjectPass.identifier:
+            cancelTargetScan()
+            workingSetStatus = String(
+                localized:
+                    "Object pass ended early — device pressure rose during the measurement"
+            )
+        default:
+            break
+        }
+    }
+
     private func configureResourceMonitor(
         store: CaptureWorkingSetStore,
         rootDirectory: URL,
@@ -15743,6 +16189,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 return
             }
 
+            // legacy bolph71656-ai/HTDT-Capture#273: every resource/lifecycle event re-derives the
+            // pressure band and applies it to in-flight optional work.
+            await self.applyOptionalWorkPressureActions()
+
             if self.state == .reviewing {
                 await self.refreshQuality(
                     store: store,
@@ -15798,6 +16248,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             // transition recording captures the observable degradation,
             // and a genuine coordinate-space reset is registered by the
             // platform layer when continuity is demonstrably lost.
+            arSessionInterrupted = true
             applyResourceLifecycleEvent(
                 CaptureResourceEvent(
                     kind: .interruption,
@@ -15810,6 +16261,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 generation: generation
             )
         case .interruptionEnded:
+            arSessionInterrupted = false
             applyResourceLifecycleEvent(
                 CaptureResourceEvent(
                     kind: .interruption,
@@ -15822,6 +16274,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 generation: generation
             )
         case .failed(let reason):
+            arSessionInterrupted = false
             applyResourceLifecycleEvent(
                 CaptureResourceEvent(
                     kind: .interruption,
@@ -15851,6 +16304,58 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         case .didOutputCollaborationData:
             // Collaboration data is unused by this capture flow.
             return
+        case .spatialDiscontinuityDetected(let seconds):
+            // Anchor-identity proof of a world-origin reset: bump the
+            // live coordinate space so new evidence binds correctly and
+            // persist the transition so the bundle attests broken
+            // continuity instead of silently claiming preserved.
+            guard state == .scanning || state == .annotating,
+                  !isEndingScan
+            else {
+                return
+            }
+            let nextSpaceID =
+                sessionController.registerSpatialDiscontinuity(
+                    reason: .worldOriginReset,
+                    sessionTimestampSeconds: seconds
+                )
+            applyResourceLifecycleEvent(
+                CaptureResourceEvent(
+                    kind: .interruption,
+                    severity: .error,
+                    detail:
+                        "world origin reset across relocalization; evidence captured after this point binds to a new coordinate space"
+                ),
+                failure: nil,
+                store: store,
+                generation: generation
+            )
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.captureGeneration == generation
+                else {
+                    return
+                }
+                do {
+                    try await store.recordCoordinateDiscontinuity(
+                        to: nextSpaceID,
+                        reason: .worldOriginReset,
+                        sessionTimestampSeconds: seconds
+                    )
+                } catch {
+                    self.applyResourceLifecycleEvent(
+                        CaptureResourceEvent(
+                            kind: .persistenceFailure,
+                            severity: .error,
+                            detail:
+                                "coordinate discontinuity record failed: \((error as NSError).domain)#\((error as NSError).code)"
+                        ),
+                        failure: nil,
+                        store: store,
+                        generation: generation
+                    )
+                }
+            }
         }
     }
 
@@ -15998,6 +16503,49 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             default:
                 return "working_set:"
                     + String(describing: workingSetError)
+            }
+        }
+
+        if let packageError =
+            error as? CaptureLibraryPackageError
+        {
+            switch packageError {
+            case .invalidDestinationExtension:
+                return "library_package:invalid_destination_extension"
+            case .destinationAlreadyExists:
+                return "library_package:destination_exists"
+            case .archiveMalformed:
+                return "library_package:archive_malformed"
+            case .archiveEntryMismatch:
+                return "library_package:archive_entry_mismatch"
+            case .archiveEntryTypeForbidden:
+                return "library_package:entry_type_forbidden"
+            case .manifestMissing:
+                return "library_package:manifest_missing"
+            case .manifestDecodeFailed:
+                return "library_package:manifest_decode_failed"
+            case .manifestNotCanonical:
+                return "library_package:manifest_not_canonical"
+            case .unsupportedSchemaVersion:
+                return "library_package:unsupported_schema_version"
+            case .unsupportedBundleSchema:
+                return "library_package:unsupported_bundle_schema"
+            case .archiveSHA256Mismatch:
+                return "library_package:archive_sha256_mismatch"
+            case .archiveDigestMismatch:
+                return "library_package:archive_digest_mismatch"
+            case .archiveValidationFailed:
+                return "library_package:archive_validation_failed"
+            case .archiveTooLargeForClassicZIP:
+                return "library_package:archive_too_large"
+            case .filenameTooLong:
+                return "library_package:filename_too_long"
+            case .fileOpenFailed:
+                return "library_package:file_open_failed"
+            case .atomicPublishFailed:
+                return "library_package:atomic_publish_failed"
+            case .emptyPackage:
+                return "library_package:empty_package"
             }
         }
 

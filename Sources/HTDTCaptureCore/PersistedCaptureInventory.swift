@@ -1178,6 +1178,20 @@ public struct PersistedCaptureInventory: Sendable {
     public func removeArtifact(
         _ artifact: PersistedCaptureQuarantinedArtifact
     ) throws {
+        guard canRemoveArtifact(artifact) else {
+            throw PersistedCaptureInventoryError
+                .unsafeArtifactLocation
+        }
+        try FileManager.default.removeItem(at: artifact.url)
+    }
+
+    /// Whether `removeArtifact` would accept this artifact — the same
+    /// ownership predicates, without deleting. Callers use it to gate
+    /// the affordance so the UI never offers a removal that can only
+    /// fail.
+    public func canRemoveArtifact(
+        _ artifact: PersistedCaptureQuarantinedArtifact
+    ) -> Bool {
         let resolved = artifact.url
             .standardizedFileURL
             .resolvingSymlinksInPath()
@@ -1195,8 +1209,7 @@ public struct PersistedCaptureInventory: Sendable {
             resolvedWorking,
         ].compactMap { $0 }
         guard roots.contains(parent) else {
-            throw PersistedCaptureInventoryError
-                .unsafeArtifactLocation
+            return false
         }
         if parent == resolvedWorking,
            childKind(resolved) == .directory
@@ -1212,14 +1225,10 @@ public struct PersistedCaptureInventory: Sendable {
                     && UUID(
                         uuidString: String(name.dropFirst(10))
                     ) != nil
-            guard isRevisionDirectory
-                    || isWriterRollbackQuarantine
-            else {
-                throw PersistedCaptureInventoryError
-                    .unsafeArtifactLocation
-            }
+            return isRevisionDirectory
+                || isWriterRollbackQuarantine
         }
-        try FileManager.default.removeItem(at: artifact.url)
+        return true
     }
 
     /// Removes one abandoned item inside the app-owned `working/`

@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - Normalized display/image geometry (issue #269)
+// MARK: - Normalized display/image geometry (issue bolph71656-ai/HTDT-Capture#269)
 //
 // The UI-to-image seed mapping is an explicit authority chain:
 //
@@ -128,7 +128,7 @@ public struct NormalizedAffine2D: Codable, Sendable, Equatable {
 /// The display-mapping authority actually used to produce a seed,
 /// recorded on the observation. `viewRotationAngle` is the iOS 27
 /// ARKit rotation authority; `interfaceOrientation` is the documented
-/// legacy path kept as the fallback/reference (#269).
+/// legacy path kept as the fallback/reference (legacy bolph71656-ai/HTDT-Capture#269).
 public enum SegmentationDisplayAuthority: Sendable, Equatable {
     /// iOS 27 `ARSession.viewRotationAngle` qualified the display
     /// transform; the value is the degrees passed to
@@ -219,7 +219,7 @@ public enum SegmentationViewToImageMapping {
     }
 }
 
-// MARK: - Bounded policy (issue #269)
+// MARK: - Bounded policy (issue bolph71656-ai/HTDT-Capture#269)
 
 /// Deliberate bounds on iterative segmentation usage: never at frame
 /// rate, bounded refinement counts, bounded persisted mask size.
@@ -463,7 +463,7 @@ public struct SegmentationGesture: Sendable, Equatable {
     }
 }
 
-// MARK: - Asset readiness (issue #269)
+// MARK: - Asset readiness (issue bolph71656-ai/HTDT-Capture#269)
 
 /// Runtime truth for the downloadable segmentation model asset.
 /// `assetStatus`/`downloadAssets()` on the request is the authority;
@@ -550,7 +550,7 @@ public struct SegmentationInteractionState: Sendable, Equatable {
     )
 }
 
-// MARK: - Persisted observation record (issue #269)
+// MARK: - Persisted observation record (issue bolph71656-ai/HTDT-Capture#269)
 
 public struct SegmentationObservationID: CaptureIdentifier {
     public let rawValue: UUID
@@ -577,7 +577,7 @@ public enum SegmentationPersistenceError: Error, Sendable, Equatable {
 }
 
 /// One accepted segmentation, persisted as a derived image-processing
-/// observation (issue #269): the mask lives only here — linked to its
+/// observation (issue bolph71656-ai/HTDT-Capture#269): the mask lives only here — linked to its
 /// exact source frame + seed/refinement metadata — never as canonical
 /// geometry and never with a fabricated semantic confidence.
 public struct ObjectSegmentationObservation: Codable, Sendable,
@@ -595,7 +595,7 @@ public struct ObjectSegmentationObservation: Codable, Sendable,
     /// ran on, materialized through the normal frame pipeline.
     public let sourceFrameRef: String
     /// `streamed` — the ARKit session frame; `high_quality_visual`
-    /// is reserved for #275 sources and never emitted yet.
+    /// is reserved for legacy bolph71656-ai/HTDT-Capture#275 sources and never emitted yet.
     public let sourceFrameKind: String
     public let sessionTimestampSeconds: Double
     public let imageWidth: Int
@@ -976,7 +976,7 @@ public enum SegmentationDepthGate {
     /// Projects a world point through the frame's own
     /// `T_world_from_camera` + intrinsics into the capturedImage's
     /// pixel space and tests the mask there — the "rays constrain
-    /// mesh support" direction of #269. Returns nil when the point is
+    /// mesh support" direction of legacy bolph71656-ai/HTDT-Capture#269. Returns nil when the point is
     /// behind the camera or lands outside the image.
     public static func projectedImagePoint(
         worldX: Double,

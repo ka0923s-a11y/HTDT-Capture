@@ -4,7 +4,7 @@ import Foundation
 import HTDTCaptureCore
 
 /// Converts `ARObjectAnchor` delegate callbacks into
-/// `ReferenceObjectPoseObservation` records (#268).
+/// `ReferenceObjectPoseObservation` records (legacy bolph71656-ai/HTDT-Capture#268).
 ///
 /// The adapter writes sensor truth only: the anchor's identifier,
 /// its reported world-space pose, the matched object resolved by the

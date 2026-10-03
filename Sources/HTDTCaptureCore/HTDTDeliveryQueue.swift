@@ -1119,9 +1119,44 @@ public struct HTDTDeliveryQueue: Sendable {
                 response: nil,
                 error: error,
                 receiptOutcome: "failed",
-                receiptDetail: String(describing: error)
+                receiptDetail: Self.detailText(error)
             )
         }
+    }
+
+    /// Concise, operator-facing detail for `lastErrorDetail` /
+    /// `receiptDetail`. `String(describing:)` on an NSError dumps its
+    /// entire UserInfo (debug descriptions, URLs, private paths) into
+    /// the Deliveries row, so each failure family maps to one
+    /// sentence; transport detail is already humanized at the throw
+    /// site (legacy bolph71656-ai/HTDT-Capture#423/legacy bolph71656-ai/HTDT-Capture#387).
+    private static func detailText(_ error: Error) -> String {
+        if let handoff = error as? HTDTHandoffError {
+            switch handoff {
+            case .invalidEndpointURL:
+                return "The destination address is not a usable "
+                    + "receiver URL; fix it in Deliveries."
+            case .archiveIdentityMismatch:
+                return "The queued archive copy no longer matches "
+                    + "the pinned identity."
+            case .serverRejected(let detail):
+                return detail.isEmpty
+                    ? "The receiver rejected the payload."
+                    : detail
+            case .endpointRejected(let statusCode):
+                return "The receiver answered with HTTP "
+                    + "\(statusCode)."
+            case .malformedServerReceipt:
+                return "The receiver's reply could not be "
+                    + "verified as a delivery receipt."
+            case .transportFailed(let detail):
+                return detail
+            case .pinnedIdentityMismatch:
+                return "The receiver's identity changed since "
+                    + "pairing; re-pair the destination."
+            }
+        }
+        return error.localizedDescription
     }
 
     /// Classifies the attempt into the job's next state (issue bolph71656-ai/HTDT-Capture#387):
@@ -1176,12 +1211,12 @@ public struct HTDTDeliveryQueue: Sendable {
         if HTDTDeliveryRetryPolicy.isOperatorDecision(error) {
             job.state = .blocked
             job.lastError = HTDTDeliveryRetryPolicy.errorKind(error)
-            job.lastErrorDetail = String(describing: error)
+            job.lastErrorDetail = Self.detailText(error)
             return job
         }
         if HTDTDeliveryRetryPolicy.isRetryable(error) {
             job.lastError = HTDTDeliveryRetryPolicy.errorKind(error)
-            job.lastErrorDetail = String(describing: error)
+            job.lastErrorDetail = Self.detailText(error)
             if job.attemptCount >= retryPolicy.maxAttempts {
                 job.state = .failed
                 job.nextAttemptAtUTC = nil
@@ -1196,7 +1231,7 @@ public struct HTDTDeliveryQueue: Sendable {
         }
         job.state = .failed
         job.lastError = HTDTDeliveryRetryPolicy.errorKind(error)
-        job.lastErrorDetail = String(describing: error)
+        job.lastErrorDetail = Self.detailText(error)
         return job
     }
 

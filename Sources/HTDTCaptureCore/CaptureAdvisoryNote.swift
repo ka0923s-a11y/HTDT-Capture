@@ -9,7 +9,9 @@ import Foundation
 /// they surface in Review through the quality report's diagnostics as
 /// info/warning entries, so downstream HTDT can distinguish e.g. an
 /// intentionally unresolved region from a forgotten one.
-public enum CaptureAdvisoryNoteKind: String, Codable, Sendable {
+public enum CaptureAdvisoryNoteKind:
+    String, Codable, Sendable, CaseIterable
+{
     /// Operator declared a coverage region intentionally unresolved.
     case declaredRegion = "declared_region"
     /// Operator revoked a previously declared region.
@@ -23,11 +25,9 @@ public enum CaptureAdvisoryNoteKind: String, Codable, Sendable {
     /// An operator-targeted object orbit pass completed (legacy bolph71656-ai/HTDT-Capture#250).
     case targetScanPass = "target_scan_pass"
     /// An operator-seeded iterative-segmentation attempt ran inside an
-    /// object pass (#269): seed kind, mask outcome, bounded refinement
+    /// object pass (legacy bolph71656-ai/HTDT-Capture#269): seed kind, mask outcome, bounded refinement
     /// count and the display-mapping authority are recorded.
     case segmentationPass = "segmentation_pass"
-    /// An operator revisit flag was dropped mid-scan (legacy bolph71656-ai/HTDT-Capture#325).
-||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
     /// An operator revisit flag was dropped mid-scan (legacy bolph71656-ai/HTDT-Capture#325).
     case revisitFlag = "revisit_flag"
     /// A revisit flag was resolved/skipped/unavailable in Review
@@ -55,21 +55,28 @@ public enum CaptureAdvisoryNoteKind: String, Codable, Sendable {
     /// End transaction — so the room model stopped accumulating while
     /// the operator still sees a scanning surface.
     case roomPlanSessionEnded = "roomplan_session_ended"
+    /// The bounded camera-source preflight ran (issue bolph71656-ai/HTDT-Capture#277): records
+    /// the stable-frame/smudge outcome and the operator's action.
+    case sourceQualityPreflight = "source_quality_preflight"
     /// The operator's per-mission reference-object selection was
-    /// resolved and applied to the ARSession (#268) — records selected
+    /// resolved and applied to the ARSession (legacy bolph71656-ai/HTDT-Capture#268) — records selected
     /// counts plus any dropped requests verbatim.
     case referenceObjectSelection = "reference_object_selection"
     /// The session reconfiguration for reference objects completed
     /// with a non-plain outcome: an artifact failed to load, the
     /// running configuration did not adopt the object sets, or the
-    /// platform refused (#268).
+    /// platform refused (legacy bolph71656-ai/HTDT-Capture#268).
     case referenceObjectConfigurationOutcome =
         "reference_object_configuration_outcome"
     /// The operator accepted a matched reference-object observation
     /// into an entity's evidence — the observation ref lands alongside
     /// existing evidence, never overwriting placement/orientation
-    /// (#268).
+    /// (legacy bolph71656-ai/HTDT-Capture#268).
     case referenceObjectAcceptance = "reference_object_acceptance"
+    /// An explicit operator-requested optional workload was deferred or
+    /// rejected by the admission policy (legacy bolph71656-ai/HTDT-Capture#273) — the persisted
+    /// provenance for "the operator asked, the policy said no".
+    case optionalWorkAdmission = "optional_work_admission"
 }
 
 public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
@@ -151,6 +158,9 @@ public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
         case .roomPlanSessionEnded:
             code = "roomplan_session_ended"
             severity = .warning
+        case .sourceQualityPreflight:
+            code = "source_quality_preflight"
+            severity = .info
         case .referenceObjectSelection:
             code = "reference_object_selection"
             severity = .info
@@ -160,6 +170,9 @@ public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
         case .referenceObjectAcceptance:
             code = "reference_object_acceptance"
             severity = .info
+        case .optionalWorkAdmission:
+            code = "optional_work_admission"
+            severity = .warning
         }
         return QualityDiagnostic(
             code: code,

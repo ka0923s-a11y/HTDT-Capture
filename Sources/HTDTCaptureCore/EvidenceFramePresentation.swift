@@ -12,7 +12,7 @@ public enum EvidenceFrameRetentionKind: String, Codable, Sendable {
     /// Frame produced by an equipment-identity photo capture (legacy bolph71656-ai/HTDT-Capture#239).
     case equipmentIdentity = "equipment_identity"
     /// Frame retained as the source of an accepted iterative-
-    /// segmentation observation (#269): the mask's derived record
+    /// segmentation observation (legacy bolph71656-ai/HTDT-Capture#269): the mask's derived record
     /// references this descriptor.
     case segmentationSource = "segmentation_source"
     /// Retention reason is not recorded for this frame.

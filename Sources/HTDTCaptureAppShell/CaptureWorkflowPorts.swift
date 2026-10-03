@@ -24,15 +24,15 @@ public struct SpatialCaptureActions {
     public let retakeTargetScan: () -> Void
     public let acceptTargetScan: () -> Void
     public let cancelTargetScan: () -> Void
-    /// #269: operator seed/refine gesture over the preview
+    /// legacy bolph71656-ai/HTDT-Capture#269: operator seed/refine gesture over the preview
     /// (view-normalized points; the coordinator maps them through the
     /// recorded display-transform authority).
     public let segmentationGesture: (SegmentationGesture) -> Void
-    /// #269: fuse + persist the accepted mask ("Use").
+    /// legacy bolph71656-ai/HTDT-Capture#269: fuse + persist the accepted mask ("Use").
     public let useSegmentation: () -> Void
-    /// #269: drop the live segmentation run ("Cancel"/"New selection").
+    /// legacy bolph71656-ai/HTDT-Capture#269: drop the live segmentation run ("Cancel"/"New selection").
     public let cancelSegmentation: () -> Void
-    /// #269: explicit operator asset-prep request — the only mid-scan
+    /// legacy bolph71656-ai/HTDT-Capture#269: explicit operator asset-prep request — the only mid-scan
     /// path allowed to reach `downloadAssets()`.
     public let segmentationAssetPrepare: () -> Void
     public let declareNearestUnresolvedRegion: (DeclaredRegionReason) -> Void
@@ -65,7 +65,7 @@ public struct SpatialCaptureActions {
     public let revisitConnectedRegion: (CaptureRegionID) -> Void
     public let selectCaptureStrategy: (CaptureStrategyIdentifier) -> Void
     public let recordFieldNote: (String, CaptureFieldNoteCategory, Bool, Bool, Bool, CaptureFieldNoteAnchorRequest) -> Void
-    /// #272: on-demand advisory copilot request (advisory only).
+    /// legacy bolph71656-ai/HTDT-Capture#272: on-demand advisory copilot request (advisory only).
     public let requestScanCopilotSuggestion: () -> Void
 
     public init(from actions: CaptureRootActions) {
@@ -118,7 +118,6 @@ public struct SpatialCaptureActions {
 /// Review/authoring workflow (issue bolph71656-ai/HTDT-Capture#410): annotation + measurement + authority commits, room frame/datum, opening review, evidence curation, semantic correction, as-built verification, revision lineage, field notes, remediation, finalize/export-prep, persisted workspace.
 public struct ReviewAuthoringActions {
     public let beginAnnotation: () -> Void
-    public let captureRaycastPlacement: () async throws -> AnnotationPlacementAuthority
     public let captureSpeakerOrientation: () async throws -> AnnotationOrientationAuthority
     public let capturePointOrientation: () async throws -> AnnotationOrientationAuthority
     public let probePlacementTarget: () async -> AnnotationPlacementProbe
@@ -166,7 +165,6 @@ public struct ReviewAuthoringActions {
 
     public init(from actions: CaptureRootActions) {
         self.beginAnnotation = actions.beginAnnotation
-        self.captureRaycastPlacement = actions.captureRaycastPlacement
         self.captureSpeakerOrientation = actions.captureSpeakerOrientation
         self.capturePointOrientation = actions.capturePointOrientation
         self.probePlacementTarget = actions.probePlacementTarget
@@ -342,7 +340,7 @@ public struct TransferActions {
     public let preflightDestination: (HTDTHandoffDestination) async -> HTDTCompatibilityVerdict
     /// legacy bolph71656-ai/HTDT-Capture#423: field-return deliverable preflight + durable-queue send.
     public let preflightFieldReturn: (HTDTFieldReturnID, HTDTHandoffDestination) async -> HTDTCompatibilityVerdict
-    public let sendFieldReturnToHTDT: (HTDTFieldReturnID, HTDTHandoffDestination) async -> Void
+    public let sendFieldReturnToHTDT: (HTDTFieldReturnID, HTDTHandoffDestination) async -> FieldReturnSendOutcome
     public let deleteExportArchive: (PersistedCaptureRecord) -> Void
 
     public init(from actions: CaptureRootActions) {

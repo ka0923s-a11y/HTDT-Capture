@@ -92,6 +92,12 @@ public struct AnnotationEditSeed: Sendable, Equatable {
     /// Lifecycle keeps its original `created_at_utc`; a save stamps
     /// `updated_at_utc` via `revised(at:)` (legacy bolph71656-ai/HTDT-Capture#267).
     public let originalLifecycle: AnnotationLifecycle?
+    /// Type-anchored and cross-revision authorities the form does not
+    /// touch — acoustic-center offset, lineage linkage, and the
+    /// operator identity binding survive an edit verbatim.
+    public let originalAcousticCenter: AcousticCenterOffsetAuthority?
+    public let originalLineage: AnnotationEntityLineage?
+    public let originalAuthorOperatorID: OperatorProfileID?
 
     /// New placement authority produced by a fresh capture during the
     /// edit session; nil means the original provenance is kept.
@@ -127,6 +133,9 @@ public struct AnnotationEditSeed: Sendable, Equatable {
         self.originalListeningRole = nil
         self.originalUncertainty = nil
         self.originalLifecycle = nil
+        self.originalAcousticCenter = nil
+        self.originalLineage = nil
+        self.originalAuthorOperatorID = nil
     }
 
     public init(entity: CaptureAnnotationEntity) {
@@ -163,6 +172,9 @@ public struct AnnotationEditSeed: Sendable, Equatable {
         self.originalListeningRole = entity.listeningRole
         self.originalUncertainty = entity.uncertainty
         self.originalLifecycle = entity.lifecycle
+        self.originalAcousticCenter = entity.acousticCenter
+        self.originalLineage = entity.lineage
+        self.originalAuthorOperatorID = entity.authorOperatorID
     }
 
     /// Rebuilds the entity preserving `entityID` and untouched fields.
@@ -425,6 +437,9 @@ public struct AnnotationEditSeed: Sendable, Equatable {
             orientation: orientation,
             channelRole: channelRole,
             roleBinding: roleBinding,
+            acousticCenter: type == self.type
+                ? originalAcousticCenter
+                : nil,
             equipmentRef: equipmentRef,
             evidenceRefs: evidenceRefs,
             physicalEnvelope: type == self.type
@@ -436,7 +451,9 @@ public struct AnnotationEditSeed: Sendable, Equatable {
             uncertainty: originalUncertainty,
             authority: authority,
             lifecycle: lifecycle,
-            referencePoint: referencePoint
+            referencePoint: referencePoint,
+            lineage: originalLineage,
+            authorOperatorID: originalAuthorOperatorID
         )
     }
 
@@ -471,6 +488,18 @@ public struct MeasurementEditSeed: Sendable, Equatable {
     public let statedUncertainty: Double?
     public let sourceValueText: String?
     public let evidenceRefs: [String]
+    /// Fields the scalar edit form does not touch; they describe what
+    /// was measured (endpoints, spatial authority, lineage, operator
+    /// identity) and therefore survive an edit verbatim.
+    public let originalCoordinateSpaceID: CoordinateSpaceID?
+    public let originalEndpointRefs: [String]
+    public let originalObservedAtUTC: String?
+    public let originalSourceAuthority: MeasurementSourceAuthority?
+    public let originalUncertainty: MeasurementUncertainty?
+    public let originalLineage: MeasurementLineage?
+    public let originalInstrumentAuthority:
+        MeasurementInstrumentReference?
+    public let originalAuthorOperatorID: OperatorProfileID?
 
     public init(measurement: CaptureMeasurement) {
         self.measurementID = measurement.measurementID
@@ -482,6 +511,17 @@ public struct MeasurementEditSeed: Sendable, Equatable {
         self.statedUncertainty = measurement.statedUncertainty
         self.sourceValueText = measurement.sourceValueText
         self.evidenceRefs = measurement.evidenceRefs
+        self.originalCoordinateSpaceID =
+            measurement.coordinateSpaceID
+        self.originalEndpointRefs = measurement.endpointRefs
+        self.originalObservedAtUTC = measurement.observedAtUTC
+        self.originalSourceAuthority = measurement.sourceAuthority
+        self.originalUncertainty = measurement.uncertainty
+        self.originalLineage = measurement.lineage
+        self.originalInstrumentAuthority =
+            measurement.instrumentAuthority
+        self.originalAuthorOperatorID =
+            measurement.authorOperatorID
     }
 }
 
@@ -508,17 +548,45 @@ public enum MeasurementEditSupport {
         else {
             throw MeasurementModelError.unscopedCustomQuantity
         }
+        // A re-authored value is a new user attestation — the
+        // derivation record is intentionally not carried (the result
+        // is no longer computed), while endpoint/spatial authority,
+        // lineage, instrument authority, and operator binding describe
+        // what was measured rather than how and therefore survive.
+        let uncertainty: MeasurementUncertainty?
+        if let original = seed.originalUncertainty,
+           (original.unit?.dimension ?? unit.dimension) == unit.dimension,
+           statedUncertainty == nil
+            || statedUncertainty == original.value
+        {
+            uncertainty = original
+        } else {
+            uncertainty = nil
+        }
         return try CaptureMeasurement(
             measurementID: seed.measurementID,
             quantityType: scopedQuantityType,
             value: .scalar(value),
             unit: unit,
+            coordinateSpaceID: seed.originalEndpointRefs.isEmpty
+                ? nil
+                : seed.originalCoordinateSpaceID,
+            endpointRefs: seed.originalEndpointRefs,
             acquisitionMethod: acquisitionMethod,
             instrument: instrument,
             statedUncertainty: statedUncertainty,
+            observedAtUTC: seed.originalObservedAtUTC,
             userAttestation: .attested,
             provenanceClass: .userAttestedMeasurement,
             sourceValueText: sourceValueText,
+            sourceAuthority:
+                acquisitionMethod == .manufacturerSpecification
+                ? seed.originalSourceAuthority
+                : nil,
+            uncertainty: uncertainty,
+            lineage: seed.originalLineage,
+            instrumentAuthority: seed.originalInstrumentAuthority,
+            authorOperatorID: seed.originalAuthorOperatorID,
             evidenceRefs: evidenceRefs
         )
     }

@@ -14,6 +14,14 @@ public enum ScanGuidanceCue: String, Sendable, Equatable, CaseIterable {
     case moveRight = "move_right"
     case moveForward = "move_forward"
     case moveBack = "move_back"
+    /// In-place yaw instruction — never "move" wording (legacy bolph71656-ai/HTDT-Capture#252 cue map).
+    case turnLeft = "turn_left"
+    case turnRight = "turn_right"
+    case tiltUp = "tilt_up"
+    case tiltDown = "tilt_down"
+    /// Tracking-recovery guidance (hold steady, re-show seen features)
+    /// — distinct from the `trackingRecovered` state cue.
+    case regainTracking = "regain_tracking"
     case holdSteady = "hold_steady"
     case orbitLeft = "orbit_left"
     case orbitRight = "orbit_right"
@@ -119,14 +127,20 @@ public struct ScanGuidanceCuePolicy: Sendable, Equatable {
                 }
             case .rotate:
                 if guidance.horizontalDirection == .left {
-                    cues.append(.moveLeft)
+                    cues.append(.turnLeft)
                 } else {
-                    cues.append(.moveRight)
+                    cues.append(.turnRight)
                 }
+            case .tilt:
+                if guidance.verticalDirection == .down {
+                    cues.append(.tiltDown)
+                } else {
+                    cues.append(.tiltUp)
+                }
+            case .trackingRecovery:
+                cues.append(.regainTracking)
             case .holdObserve:
                 cues.append(.holdSteady)
-            case .trackingRecovery, .tilt:
-                break
             }
         }
 

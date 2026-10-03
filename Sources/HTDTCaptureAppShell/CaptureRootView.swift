@@ -21,20 +21,18 @@ public struct CaptureRootActions {
     public let retakeTargetScan: () -> Void
     public let acceptTargetScan: () -> Void
     public let cancelTargetScan: () -> Void
-    /// #269: operator seed/refine gesture over the preview — points are
+    /// legacy bolph71656-ai/HTDT-Capture#269: operator seed/refine gesture over the preview — points are
     /// view-normalized; the coordinator maps them through the recorded
     /// display-transform authority.
     public let segmentationGesture:
         (SegmentationGesture) -> Void
-    /// #269: fuse + persist the accepted mask ("Use").
+    /// legacy bolph71656-ai/HTDT-Capture#269: fuse + persist the accepted mask ("Use").
     public let useSegmentation: () -> Void
-    /// #269: drop the live run ("Cancel" / "New selection").
+    /// legacy bolph71656-ai/HTDT-Capture#269: drop the live run ("Cancel" / "New selection").
     public let cancelSegmentation: () -> Void
-    /// #269: explicit operator asset-prep request — the only mid-scan
+    /// legacy bolph71656-ai/HTDT-Capture#269: explicit operator asset-prep request — the only mid-scan
     /// path allowed to reach `downloadAssets()`.
     public let segmentationAssetPrepare: () -> Void
-    /// legacy bolph71656-ai/HTDT-Capture#257 declared-region actions.
-||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
     /// legacy bolph71656-ai/HTDT-Capture#257 declared-region actions.
     public let declareNearestUnresolvedRegion:
         (DeclaredRegionReason) -> Void
@@ -50,8 +48,6 @@ public struct CaptureRootActions {
         (ScanMovementCapability) -> Void
     public let continueScanning: () -> Void
     public let beginAnnotation: () -> Void
-    public let captureRaycastPlacement:
-        () async throws -> AnnotationPlacementAuthority
     public let captureSpeakerOrientation:
         () async throws -> AnnotationOrientationAuthority
     /// Full-3D orientation capture for measurement-point direction
@@ -123,13 +119,13 @@ public struct CaptureRootActions {
         ) -> Void
     /// legacy bolph71656-ai/HTDT-Capture#325: reopens a resolved/skipped/unavailable flag.
     public let reopenRevisitFlag: (String) -> Void
-    /// #272: on-demand scan copilot advisory request. Advisory
+    /// legacy bolph71656-ai/HTDT-Capture#277: re-runs the bounded source-quality preflight once.
+    public let recheckSourceQuality: () -> Void
+    /// legacy bolph71656-ai/HTDT-Capture#277: dismisses the source-quality advisory card.
+    public let dismissSourceQualityAdvisory: () -> Void
+    /// legacy bolph71656-ai/HTDT-Capture#272: on-demand scan copilot advisory request. Advisory
     /// only — can never start, stop, or finish the capture.
     public let requestScanCopilotSuggestion: () -> Void
-    /// legacy bolph71656-ai/HTDT-Capture#352: marks a bound task-plan checklist item in Review.
-    /// legacy bolph71656-ai/HTDT-Capture#364 §10: the optional third argument is the collected
-    /// reason, persisted as a mission-level waiver note (legacy bolph71656-ai/HTDT-Capture#397) when
-||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
     /// legacy bolph71656-ai/HTDT-Capture#352: marks a bound task-plan checklist item in Review.
     /// legacy bolph71656-ai/HTDT-Capture#364 §10: the optional third argument is the collected
     /// reason, persisted as a mission-level waiver note (legacy bolph71656-ai/HTDT-Capture#397) when
@@ -162,6 +158,8 @@ public struct CaptureRootActions {
         (CaptureRevisionID) -> Void
     public let deletePersistedCapture:
         (CaptureRevisionID) -> Void
+    public let canRemoveQuarantinedArtifact:
+        (PersistedCaptureQuarantinedArtifact) -> Bool
     public let removeQuarantinedArtifact:
         (PersistedCaptureQuarantinedArtifact) -> Void
     public let removeWorkingOrphan:
@@ -388,7 +386,7 @@ public struct CaptureRootActions {
     /// capture.
     public let retryCameraPermission: () -> Void
     public let openCameraSettings: () -> Void
-    /// #268: picks (nil clears) the reference-object role for one
+    /// legacy bolph71656-ai/HTDT-Capture#268: picks (nil clears) the reference-object role for one
     /// manifest asset on the setup screen.
     public let setReferenceObjectRole:
         (ReferenceObjectAssetID, ReferenceObjectAssetRole?) -> Void
@@ -474,8 +472,11 @@ public struct CaptureRootActions {
     public let preflightFieldReturn:
         (HTDTFieldReturnID, HTDTHandoffDestination) async
             -> HTDTCompatibilityVerdict
+    /// legacy bolph71656-ai/HTDT-Capture#423 send outcome, surfaced inside the sheet — the durable
+    /// queue's verdict is otherwise invisible on a modal surface.
     public let sendFieldReturnToHTDT:
-        (HTDTFieldReturnID, HTDTHandoffDestination) async -> Void
+        (HTDTFieldReturnID, HTDTHandoffDestination) async
+            -> FieldReturnSendOutcome
     /// legacy bolph71656-ai/HTDT-Capture#423: the finalized `.htdtfieldreturn` container's URL for
     /// the share sheet — nil when no finalized artifact exists.
     public let fieldReturnArtifactURL:
@@ -510,10 +511,6 @@ public struct CaptureRootActions {
             (ScanMovementCapability) -> Void = { _ in },
         continueScanning: @escaping () -> Void = {},
         beginAnnotation: @escaping () -> Void = {},
-        captureRaycastPlacement: @escaping
-            () async throws -> AnnotationPlacementAuthority = {
-                throw ManualAuthorityBuilderError.invalidPosition
-            },
         captureSpeakerOrientation: @escaping
             () async throws -> AnnotationOrientationAuthority = {
                 throw ManualAuthorityBuilderError.invalidSpeakerYaw
@@ -569,6 +566,8 @@ public struct CaptureRootActions {
                 String?
             ) -> Void = { _, _, _ in },
         reopenRevisitFlag: @escaping (String) -> Void = { _ in },
+        recheckSourceQuality: @escaping () -> Void = {},
+        dismissSourceQualityAdvisory: @escaping () -> Void = {},
         requestScanCopilotSuggestion: @escaping () -> Void = {},
         markTaskPlanItem: @escaping
             (String, TaskPlanItemOutcome, String?) -> Void =
@@ -591,6 +590,9 @@ public struct CaptureRootActions {
             (CaptureRevisionID) -> Void = { _ in },
         deletePersistedCapture: @escaping
             (CaptureRevisionID) -> Void = { _ in },
+        canRemoveQuarantinedArtifact: @escaping
+            (PersistedCaptureQuarantinedArtifact) -> Bool
+                = { _ in true },
         removeQuarantinedArtifact: @escaping
             (PersistedCaptureQuarantinedArtifact) -> Void
                 = { _ in },
@@ -805,7 +807,7 @@ public struct CaptureRootActions {
                 },
         sendFieldReturnToHTDT: @escaping
             (HTDTFieldReturnID, HTDTHandoffDestination) async
-                -> Void = { _, _ in },
+                -> FieldReturnSendOutcome = { _, _ in .failed },
         fieldReturnArtifactURL: @escaping
             (HTDTFieldReturnID) -> URL? = { _ in nil },
         updateOperatorRoster: @escaping
@@ -836,7 +838,6 @@ public struct CaptureRootActions {
             setScanMovementCapability
         self.continueScanning = continueScanning
         self.beginAnnotation = beginAnnotation
-        self.captureRaycastPlacement = captureRaycastPlacement
         self.captureSpeakerOrientation =
             captureSpeakerOrientation
         self.capturePointOrientation =
@@ -859,6 +860,9 @@ public struct CaptureRootActions {
         self.updateRevisitFlagDetails = updateRevisitFlagDetails
         self.resolveRevisitFlag = resolveRevisitFlag
         self.reopenRevisitFlag = reopenRevisitFlag
+        self.recheckSourceQuality = recheckSourceQuality
+        self.dismissSourceQualityAdvisory =
+            dismissSourceQualityAdvisory
         self.requestScanCopilotSuggestion =
             requestScanCopilotSuggestion
         self.markTaskPlanItem = markTaskPlanItem
@@ -872,6 +876,8 @@ public struct CaptureRootActions {
         self.resetCapture = resetCapture
         self.openPersistedCapture = openPersistedCapture
         self.deletePersistedCapture = deletePersistedCapture
+        self.canRemoveQuarantinedArtifact =
+            canRemoveQuarantinedArtifact
         self.removeQuarantinedArtifact =
             removeQuarantinedArtifact
         self.removeWorkingOrphan = removeWorkingOrphan
@@ -1114,22 +1120,22 @@ public struct CaptureRootView: View {
     public let isCapturingEvidence: Bool
     public let automaticEvidenceCount: Int
     public let lowLightGuidanceActive: Bool
+    /// legacy bolph71656-ai/HTDT-Capture#277: bounded camera-source preflight advisory card.
+    public let sourceQualityAdvisory: CameraSourceAdvisory?
     public let targetScanStatus: TargetScanStatus?
-    /// #269 live iterative-segmentation interaction state for the
+    /// legacy bolph71656-ai/HTDT-Capture#269 live iterative-segmentation interaction state for the
     /// object-pass UI (nil-equivalent `.unavailable` when idle).
     public let segmentationInteraction: SegmentationInteractionState
     public let declaredRegions: [DeclaredCoverageRegion]
     public let loopClosureCheckActive: Bool
     public let loopClosureAssessment: LoopClosureAssessment?
     public let guidanceCuesEnabled: Bool
-    /// Latest copilot resolution for the live scan (#272); nil
+    /// Latest copilot resolution for the live scan (legacy bolph71656-ai/HTDT-Capture#272); nil
     /// until the operator asks. Advisory only.
     public let scanCopilotResolution: ScanCopilotResolution?
     /// True while a copilot request is resolving (model or
     /// deterministic) so the UI can show a pending affordance.
     public let isScanCopilotResolving: Bool
-    /// Revisit flags dropped during the live scan (legacy bolph71656-ai/HTDT-Capture#325).
-||||||| parent of 01a3ae6 (docs: qualify legacy issue references to bolph71656-ai/HTDT-Capture)
     /// Revisit flags dropped during the live scan (legacy bolph71656-ai/HTDT-Capture#325).
     public let revisitFlags: [ScanRevisitFlag]
     /// True when the bounded flag store is full.
@@ -1370,6 +1376,7 @@ public struct CaptureRootView: View {
         isCapturingEvidence: Bool = false,
         automaticEvidenceCount: Int = 0,
         lowLightGuidanceActive: Bool = false,
+        sourceQualityAdvisory: CameraSourceAdvisory? = nil,
         targetScanStatus: TargetScanStatus? = nil,
         segmentationInteraction: SegmentationInteractionState =
             .unavailable,
@@ -1500,6 +1507,7 @@ public struct CaptureRootView: View {
         self.isCapturingEvidence = isCapturingEvidence
         self.automaticEvidenceCount = automaticEvidenceCount
         self.lowLightGuidanceActive = lowLightGuidanceActive
+        self.sourceQualityAdvisory = sourceQualityAdvisory
         self.targetScanStatus = targetScanStatus
         self.segmentationInteraction = segmentationInteraction
         self.declaredRegions = declaredRegions
@@ -1713,6 +1721,7 @@ public struct CaptureRootView: View {
                     automaticEvidenceCount: automaticEvidenceCount,
                     evidenceStorageAdvisory: evidenceStorageAdvisory,
                     lowLightGuidanceActive: lowLightGuidanceActive,
+                    sourceQualityAdvisory: sourceQualityAdvisory,
                     targetScanStatus: targetScanStatus,
                     declaredRegions: declaredRegions,
                     loopClosureCheckActive: loopClosureCheckActive,
@@ -1749,6 +1758,10 @@ public struct CaptureRootView: View {
                     recordLoopClosureOutcome:
                         actions.recordLoopClosureOutcome,
                     discardCapture: actions.discardActiveCapture,
+                    recheckSourceQuality:
+                        actions.recheckSourceQuality,
+                    dismissSourceQualityAdvisory:
+                        actions.dismissSourceQualityAdvisory,
                     probePlacementTarget:
                         actions.probePlacementTarget,
                     recordFieldNote: actions.recordFieldNote,
@@ -1794,6 +1807,7 @@ public struct CaptureRootView: View {
                     missionProgressEvaluations:
                         missionProgressEvaluations,
                     workingSetStatus: workingSetStatus,
+                    practicePromptShown: practicePromptShown,
                     appSettings: appSettings,
                     equipmentCatalog: equipmentCatalog,
                     actions: actions
@@ -2308,10 +2322,13 @@ public struct CaptureRootView: View {
                         .background(.bar)
                     }
                 }
-                .confirmationDialog(
+                // Alert, not confirmationDialog: the anchored
+                // popover presentation (iOS 26+) drops every
+                // action child after the first — an alert's
+                // centered modal renders every button.
+                .alert(
                     "Discard capture?",
-                    isPresented: $confirmingDiscard,
-                    titleVisibility: .visible
+                    isPresented: $confirmingDiscard
                 ) {
                     Button(
                         "Discard capture",
@@ -2328,7 +2345,7 @@ public struct CaptureRootView: View {
                 // legacy bolph71656-ai/HTDT-Capture#437: the destructive steps on the failed surface
                 // confirm before removing retained data — optionally
                 // continuing into capture setup.
-                .confirmationDialog(
+                .alert(
                     "Discard the failed capture's data?",
                     isPresented: Binding(
                         get: { pendingFailedDiscard != nil },
@@ -2338,7 +2355,6 @@ public struct CaptureRootView: View {
                             }
                         }
                     ),
-                    titleVisibility: .visible,
                     presenting: pendingFailedDiscard
                 ) { intent in
                     switch intent {
@@ -2534,7 +2550,7 @@ public struct CaptureRootView: View {
                         actions: actions
                     )
                 }
-                .confirmationDialog(
+                .alert(
                     "Delete local capture?",
                     isPresented: Binding(
                         get: { pendingDeletion != nil },
@@ -2544,13 +2560,8 @@ public struct CaptureRootView: View {
                             }
                         }
                     ),
-                    titleVisibility: .visible,
                     presenting: pendingDeletion
                 ) { pending in
-                    // Each branch carries its own Cancel — iOS 26
-                    // renders only the first action-producing child,
-                    // so a button written after the `if` never
-                    // appears.
                     if pending.blockers.isEmpty {
                         Button(
                             pending.archiveOnly
@@ -2569,9 +2580,6 @@ public struct CaptureRootView: View {
                         Button("Cancel", role: .cancel) {}
                     }
                 } message: { pending in
-                    // iOS 26 renders only the first `message:`
-                    // child — the blocker list and its guidance must
-                    // fold into one `Text` to reach the operator.
                     if pending.blockers.isEmpty {
                         Text(deletionExplanationText(for: pending))
                     } else {
@@ -2703,7 +2711,7 @@ public struct CaptureRootView: View {
         // trigger can live inside a pushed diagnostics detail, and a
         // dialog attached to the list behind it would stay hidden
         // until the operator navigates back.
-        .confirmationDialog(
+        .alert(
             pendingRemediation
                 == .startReplacementRevision
                 ? "Start a replacement capture?"
@@ -2715,12 +2723,8 @@ public struct CaptureRootView: View {
                         pendingRemediation = nil
                     }
                 }
-            ),
-            titleVisibility: .visible
+            )
         ) {
-            // Each branch carries its own Cancel — iOS 26 renders
-            // only the first action-producing child, so a button
-            // written after the `if` never appears.
             if pendingRemediation
                 == .startReplacementRevision
             {
@@ -2821,40 +2825,6 @@ public struct CaptureRootView: View {
                 importingCaptureArchive = true
             }
             .disabled(hostBusy)
-
-            // legacy bolph71656-ai/HTDT-Capture#320 practice mode: a guided rehearsal of the real
-            // scan → End → Review flow that can never produce a
-            // finalized bundle. Always reachable from here; the
-            // first-launch prompt is dismissible forever.
-            if practicePromptShown {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("New here? Try a practice capture first.")
-                        .font(.headline)
-                    Text(
-                        "Practice mode walks through scanning, End, and Review exactly like a real capture, but nothing is finalized or sent to HTDT. The data stays on this device marked as practice."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    Button(
-                        "Start practice capture",
-                        action: actions.beginPracticeCapture
-                    )
-                    .disabled(!capabilities.roomPlanMeshEligible)
-                    Button("Not now") {
-                        actions.dismissPracticePrompt(false)
-                    }
-                    Button("Don't show again") {
-                        actions.dismissPracticePrompt(true)
-                    }
-                    .font(.caption)
-                }
-            } else {
-                Button(
-                    "Practice a capture (no real bundle)",
-                    action: actions.beginPracticeCapture
-                )
-                .disabled(!capabilities.roomPlanMeshEligible)
-            }
 
         case .setup:
             EmptyView()
@@ -3060,10 +3030,9 @@ public struct CaptureRootView: View {
                         .foregroundStyle(.secondary)
                 }
                 recoveryStepsView(plan)
-                    .confirmationDialog(
+                    .alert(
                         "Export includes visual evidence?",
-                        isPresented: $confirmingExport,
-                        titleVisibility: .visible
+                        isPresented: $confirmingExport
                     ) {
                         Button("Prepare .htdtcapture") {
                             actions.prepareExport()
@@ -3121,10 +3090,9 @@ public struct CaptureRootView: View {
                 }
                 .capturePrimaryAction()
                 .disabled(hostBusy)
-                .confirmationDialog(
+                .alert(
                     "Export includes visual evidence?",
-                    isPresented: $confirmingExport,
-                    titleVisibility: .visible
+                    isPresented: $confirmingExport
                 ) {
                     Button("Prepare .htdtcapture") {
                         actions.prepareExport()

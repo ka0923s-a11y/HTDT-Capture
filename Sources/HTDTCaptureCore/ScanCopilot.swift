@@ -1,6 +1,6 @@
 import Foundation
 
-/// Scan copilot (#272): an *optional* on-device model layer that
+/// Scan copilot (legacy bolph71656-ai/HTDT-Capture#272): an *optional* on-device model layer that
 /// re-ranks or re-words operator guidance derived from the existing
 /// deterministic diagnostics — never a new authority.
 ///
@@ -24,7 +24,7 @@ public enum ScanCopilotStage: String, Codable, Sendable, Equatable {
     case review
 }
 
-/// Whitelisted advisory actions (#272 output schema). There is
+/// Whitelisted advisory actions (legacy bolph71656-ai/HTDT-Capture#272 output schema). There is
 /// deliberately no finish/complete/discard case: an accepted
 /// suggestion can never express capture lifecycle control by
 /// construction.
@@ -51,7 +51,7 @@ public enum ScanCopilotAction: String, Codable, Sendable, Equatable, CaseIterabl
     /// Whether accepting this action asks the operator to physically
     /// translate. Movement actions may only be suggested when the
     /// deterministic movement-safety policy currently allows
-    /// translation guidance (#257/#313).
+    /// translation guidance (legacy bolph71656-ai/HTDT-Capture#257/legacy bolph71656-ai/HTDT-Capture#313).
     public var requiresMovementQualification: Bool {
         switch self {
         case .moveToGap, .rescanTarget:
@@ -201,7 +201,7 @@ public struct ScanCopilotDiagnosticItem: Codable, Sendable, Equatable {
 }
 
 /// Bounded, versioned snapshot of the deterministic diagnostic state
-/// the copilot may reason over (#272). Construction caps every field:
+/// the copilot may reason over (legacy bolph71656-ai/HTDT-Capture#272). Construction caps every field:
 /// lists truncate, strings clamp, counts floor at zero — the encoded
 /// context stays well inside the model's context budget and can never
 /// smuggle raw bundles, frame payloads, or unbounded history.
@@ -350,7 +350,7 @@ public struct ScanCopilotContext: Codable, Sendable, Equatable {
     /// Stable identity of this exact diagnostic state. A suggestion is
     /// only meaningful against the context it was generated for —
     /// equivalent states share a digest so repeated taps debounce to
-    /// one model request (#272 trigger policy).
+    /// one model request (legacy bolph71656-ai/HTDT-Capture#272 trigger policy).
     public var contextDigest: String {
         guard let data = try? JSONEncoder.canonical.encode(self)
         else {
@@ -541,7 +541,7 @@ public struct ScanCopilotModelDraft: Sendable, Equatable {
     }
 }
 
-/// A validated, accepted suggestion (#272 output shape). Every field
+/// A validated, accepted suggestion (legacy bolph71656-ai/HTDT-Capture#272 output shape). Every field
 /// is typed; the template ID is the `short_instruction` a persisted
 /// record would carry (localized text resolves at presentation).
 public struct ScanCopilotSuggestion: Sendable, Equatable {
@@ -574,7 +574,7 @@ public struct ScanCopilotSuggestion: Sendable, Equatable {
 }
 
 /// Why a draft failed deterministic validation. Machine-readable so
-/// evaluation records can count rejection categories (#272 metrics).
+/// evaluation records can count rejection categories (legacy bolph71656-ai/HTDT-Capture#272 metrics).
 public enum ScanCopilotValidationViolation:
     String,
     Sendable,
@@ -615,7 +615,7 @@ public enum ScanCopilotValidationViolation:
     case noActionWhileBlocking = "no_action_while_blocking"
 }
 
-/// Deterministic validator (#272): the only path from a model draft
+/// Deterministic validator (legacy bolph71656-ai/HTDT-Capture#272): the only path from a model draft
 /// to a displayed suggestion. Enforces the whitelist, the movement
 /// qualification, the finish prohibition, ID provenance, staleness,
 /// and the no-suppression rule. Zero unsafe-movement/finish actions
@@ -781,7 +781,7 @@ public enum ScanCopilotValidator {
     }
 }
 
-/// The deterministic arm of the copilot (#272): the same bounded
+/// The deterministic arm of the copilot (legacy bolph71656-ai/HTDT-Capture#272): the same bounded
 /// suggestion type, produced with no model at all. It is the
 /// fallback whenever the model path is unavailable, fails, or is
 /// rejected — the deterministic UX is complete on its own.
@@ -944,7 +944,7 @@ public enum ScanCopilotSuggestionSource:
 }
 
 /// Only fields the API actually exposes — never a fabricated model
-/// revision (#272 audit rule).
+/// revision (legacy bolph71656-ai/HTDT-Capture#272 audit rule).
 public struct ScanCopilotModelProvenance: Sendable, Equatable {
     /// `SystemLanguageModel.variant.displayName` when the SDK exposes
     /// it (iOS 27+); nil when unavailable — never invented.
@@ -1118,9 +1118,9 @@ public struct ScanCopilotEngine: Sendable {
 /// Localized operator-facing copy for copilot output. The only
 /// instruction text a suggestion can ever render — the model selects
 /// a template, this table supplies the wording, and movement
-/// templates keep the #313 qualified-path phrasing. Additional
+/// templates keep the legacy bolph71656-ai/HTDT-Capture#313 qualified-path phrasing. Additional
 /// captioning always labels the suggestion source so model output
-/// is never presented as authoritative (#272).
+/// is never presented as authoritative (legacy bolph71656-ai/HTDT-Capture#272).
 public enum ScanCopilotCopy {
     /// The advisory instruction line for a whitelisted template.
     public static func instruction(
@@ -1197,7 +1197,7 @@ public enum ScanCopilotCopy {
 
     /// The source label stamped on every displayed suggestion so a
     /// model pick is never indistinguishable from the deterministic
-    /// baseline (#272 provenance).
+    /// baseline (legacy bolph71656-ai/HTDT-Capture#272 provenance).
     public static func sourceCaption(
         for resolution: ScanCopilotResolution
     ) -> String {

@@ -224,7 +224,6 @@ public protocol CaptureStorageSampleDriver: AnyObject, Sendable {
 
 /// Default `CaptureStorageSampleDriver`: a task loop sleeping `interval`
 /// between ticks until cancelled (legacy bolph71656-ai/HTDT-Capture#140).
-@available(iOS 17.0, *)
 @MainActor
 public final class CaptureStorageSampleTimerDriver
     : CaptureStorageSampleDriver
@@ -297,7 +296,6 @@ public struct CaptureResourceMonitorLogEntry: Sendable, Equatable {
     }
 }
 
-@available(iOS 17.0, *)
 @MainActor
 public final class CaptureResourceMonitor: NSObject {
     public typealias EventHandler = @MainActor (
@@ -332,6 +330,14 @@ public final class CaptureResourceMonitor: NSObject {
     /// will populate `CaptureResourceEvent` once the canonical model gains
     /// `occurred_at_utc`/`sequence` fields (legacy bolph71656-ai/HTDT-Capture#190).
     public private(set) var eventLog: [CaptureResourceMonitorLogEntry] = []
+
+    /// The storage band the pressure tracker currently reports — the same
+    /// signal that emits `storagePressure` events. Read-only exposure so
+    /// the optional-work admission policy (legacy bolph71656-ai/HTDT-Capture#273) consumes this authority's
+    /// band instead of re-deriving storage pressure.
+    public var storagePressureState: CaptureStoragePressureTracker.State {
+        storageTracker.state
+    }
 
     public init(
         rootDirectory: URL,

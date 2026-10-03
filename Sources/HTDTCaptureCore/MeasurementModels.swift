@@ -873,8 +873,40 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
             sourceValueText: sourceValueText,
             sourceAuthority: sourceAuthority,
             derivation: derivation,
+            uncertainty: uncertainty,
+            lineage: lineage,
             instrumentAuthority: instrumentAuthority,
             authorOperatorID: operatorID,
+            evidenceRefs: evidenceRefs
+        )
+    }
+
+    /// A copy of this measurement with `endpoint_refs` replaced —
+    /// used when a referenced entity is deleted so the staged record
+    /// never dangles against the entity graph.
+    public func withEndpointRefs(
+        _ refs: [String]
+    ) throws -> CaptureMeasurement {
+        try CaptureMeasurement(
+            measurementID: measurementID,
+            quantityType: quantityType,
+            value: value,
+            unit: unit,
+            coordinateSpaceID: coordinateSpaceID,
+            endpointRefs: refs,
+            acquisitionMethod: acquisitionMethod,
+            instrument: instrument,
+            statedUncertainty: statedUncertainty,
+            observedAtUTC: observedAtUTC,
+            userAttestation: userAttestation,
+            provenanceClass: provenanceClass,
+            sourceValueText: sourceValueText,
+            sourceAuthority: sourceAuthority,
+            derivation: derivation,
+            uncertainty: uncertainty,
+            lineage: lineage,
+            instrumentAuthority: instrumentAuthority,
+            authorOperatorID: authorOperatorID,
             evidenceRefs: evidenceRefs
         )
     }
@@ -901,6 +933,8 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
             sourceValueText: sourceValueText,
             sourceAuthority: sourceAuthority,
             derivation: derivation,
+            uncertainty: uncertainty,
+            lineage: lineage,
             instrumentAuthority: reference,
             authorOperatorID: authorOperatorID,
             evidenceRefs: evidenceRefs
