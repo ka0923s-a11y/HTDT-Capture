@@ -8,7 +8,10 @@ The IPA can also be built locally on a Mac with the script below.
 
 ## Requirements
 
-- macOS with Xcode installed and launched at least once (license accepted)
+- macOS with **Xcode 27 or newer** (the app uses iOS 27 APIs — an older
+  iPhoneOS SDK fails the archive with "cannot find type" errors). The
+  script auto-picks the newest `/Applications/Xcode*.app` shipping an
+  iOS 27+ SDK; pin a specific toolchain with `DEVELOPER_DIR` instead.
 - [XcodeGen](https://github.com/yonsm/XcodeGen) 2.42.0+: `brew install xcodegen`
 - For a device-installable (signed) IPA: an Apple ID joined to an Apple
   Developer team, added in Xcode → Settings → Accounts

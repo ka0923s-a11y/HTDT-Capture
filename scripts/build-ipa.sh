@@ -42,9 +42,56 @@ if ! command -v xcodegen >/dev/null; then
   exit 1
 fi
 
+# The app targets iOS 27 APIs — it cannot compile against an older
+# iPhoneOS SDK (e.g. `DownloadableAssetsRequestStatus` is iOS-27-only).
+# Unless the caller pinned a toolchain with DEVELOPER_DIR, pick the
+# newest installed Xcode that ships an iOS 27+ SDK so a machine with
+# several Xcodes side by side doesn't silently use an old one.
+# Invoke that app's own xcodebuild by absolute path: a bare
+# `xcodebuild` on PATH (or one from another Xcode's bin dir) may keep
+# using its own SDKs even when DEVELOPER_DIR points elsewhere.
+if [ -n "${DEVELOPER_DIR:-}" ]; then
+  XCODEBUILD="$DEVELOPER_DIR/usr/bin/xcodebuild"
+  [ -x "$XCODEBUILD" ] || XCODEBUILD="$(command -v xcodebuild)"
+else
+  BEST_APP=""
+  BEST_MAJOR=0
+  for app in /Applications/Xcode*.app; do
+    for sdk in \
+      "$app"/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS[0-9]*.sdk
+    do
+      [ -d "$sdk" ] || continue
+      ver="$(basename "$sdk" .sdk)"
+      major="${ver#iPhoneOS}"
+      major="${major%%.*}"
+      [ "$major" -ge 27 ] 2>/dev/null || continue
+      if [ "$major" -gt "$BEST_MAJOR" ]; then
+        BEST_MAJOR="$major"
+        BEST_APP="$app"
+      fi
+    done
+  done
+  if [ -n "$BEST_APP" ]; then
+    DEVELOPER_DIR="$BEST_APP/Contents/Developer"
+    export DEVELOPER_DIR
+    XCODEBUILD="$BEST_APP/Contents/Developer/usr/bin/xcodebuild"
+    echo "Using Xcode at $BEST_APP (iPhoneOS ${BEST_MAJOR} SDK)"
+  else
+    CURRENT_SDK="$(xcodebuild -showsdks 2>/dev/null \
+      | sed -n 's/.*iPhoneOS \([0-9][0-9]*\)\..*/\1/p' | sort -n | tail -1)"
+    if [ -z "${CURRENT_SDK:-}" ] || [ "$CURRENT_SDK" -lt 27 ]; then
+      echo "No Xcode with an iOS 27+ SDK found under /Applications/Xcode*.app." >&2
+      echo "This app uses iOS 27 APIs — install Xcode 27 or set DEVELOPER_DIR to it." >&2
+      exit 1
+    fi
+    XCODEBUILD="$(command -v xcodebuild)"
+  fi
+fi
+"$XCODEBUILD" -version
+
 xcodegen generate --spec project.yml
 
-xcodebuild \
+"$XCODEBUILD" \
   -project HTDTCapture.xcodeproj \
   -scheme HTDTCapture \
   -resolvePackageDependencies
@@ -71,7 +118,7 @@ if [ -n "$TEAM_ID" ]; then
 fi
 
 set -o pipefail
-xcodebuild "${ARCHIVE_ARGS[@]}" "${SIGN_ARGS[@]}" archive \
+"$XCODEBUILD" "${ARCHIVE_ARGS[@]}" "${SIGN_ARGS[@]}" archive \
   | tee "$ROOT/build-xcode.log"
 
 APP="$ROOT/build/HTDTCapture.xcarchive/Products/Applications/HTDTCapture.app"
@@ -98,7 +145,7 @@ if [ -n "$TEAM_ID" ]; then
 </dict>
 </plist>
 EOF
-  xcodebuild \
+  "$XCODEBUILD" \
     -exportArchive \
     -archivePath "$ROOT/build/HTDTCapture.xcarchive" \
     -exportPath "$ROOT/build/ipa-export" \
