@@ -785,6 +785,15 @@ enum BundleReservedPaths {
             provenanceClass: .captureAppDerived,
             role: .canonical
         ),
+        // #268: iOS 27 reference-object pose observations — sensor
+        // truth written incrementally during scanning under the same
+        // canonical/app-derived convention as reference targets.
+        "evidence/reference-object-observations.json": Binding(
+            mediaType: "application/json",
+            producer: "reference_object_capture",
+            provenanceClass: .captureAppDerived,
+            role: .canonical
+        ),
         "session/capture-task-plan.json": Binding(
             mediaType: "application/json",
             producer: "htdt_plan",

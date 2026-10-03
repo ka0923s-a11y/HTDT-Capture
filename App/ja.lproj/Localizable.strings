@@ -3734,3 +3734,7 @@
 "Isolation failed" = "分離に失敗しました";
 "Try again" = "もう一度試す";
 "Isolation source frame" = "分離ソースフレーム";
+"Detection" = "検出";
+"Tracking" = "トラッキング";
+"Reference objects" = "参照オブジェクト";
+"%d of %d reference objects selected for this mission. Detection tracks stationary fixtures; tracking follows movable objects and raises power use. Matched objects land as observations you accept per annotation — they never overwrite equipment identity." = "このミッションで %d 個中 %d 個の参照オブジェクトを選択しました。検出は固定設備を追跡し、トラッキングは可動オブジェクトを追跡して消費電力が増加します。一致したオブジェクトは注釈ごとに受け入れる観測として記録され、機器の同一性を上書きすることはありません。";

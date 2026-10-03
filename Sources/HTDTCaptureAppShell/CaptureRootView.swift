@@ -379,6 +379,10 @@ public struct CaptureRootActions {
     /// capture.
     public let retryCameraPermission: () -> Void
     public let openCameraSettings: () -> Void
+    /// #268: picks (nil clears) the reference-object role for one
+    /// manifest asset on the setup screen.
+    public let setReferenceObjectRole:
+        (ReferenceObjectAssetID, ReferenceObjectAssetRole?) -> Void
     /// Leaves `.capabilityCheck`/`.permissions` back to `.idle`.
     public let cancelCaptureStart: () -> Void
     /// Revision lineage (#396): operator-picked preferred head for a
@@ -734,6 +738,9 @@ public struct CaptureRootActions {
         dismissPracticePrompt: @escaping (Bool) -> Void = { _ in },
         retryCameraPermission: @escaping () -> Void = {},
         openCameraSettings: @escaping () -> Void = {},
+        setReferenceObjectRole: @escaping
+            (ReferenceObjectAssetID, ReferenceObjectAssetRole?)
+                -> Void = { _, _ in },
         cancelCaptureStart: @escaping () -> Void = {},
         preferRevisionHead: @escaping
             (CaptureSeriesID, CaptureRevisionID?) -> Void
@@ -944,6 +951,7 @@ public struct CaptureRootActions {
         self.dismissPracticePrompt = dismissPracticePrompt
         self.retryCameraPermission = retryCameraPermission
         self.openCameraSettings = openCameraSettings
+        self.setReferenceObjectRole = setReferenceObjectRole
         self.cancelCaptureStart = cancelCaptureStart
         self.preferRevisionHead = preferRevisionHead
         self.proposeRevisionAlignment = proposeRevisionAlignment
@@ -1799,7 +1807,9 @@ public struct CaptureRootView: View {
                         draft in
                         actions.discardRecoveredDraft(draft)
                     },
-                    openCameraSettings: actions.openCameraSettings
+                    openCameraSettings: actions.openCameraSettings,
+                    setReferenceObjectRole:
+                        actions.setReferenceObjectRole
                 )
             } else if state == .annotating,
                let coordinateSpaceID =

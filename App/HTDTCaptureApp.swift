@@ -2,6 +2,9 @@ import Combine
 import Foundation
 import RoomPlan
 import SwiftUI
+#if canImport(ARKit)
+import ARKit
+#endif
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -442,6 +445,8 @@ private struct HTDTCaptureHostView: View {
                     coordinator.retryCameraPermission,
                 openCameraSettings:
                     coordinator.openCameraSettings,
+                setReferenceObjectRole:
+                    coordinator.setReferenceObjectRole,
                 cancelCaptureStart:
                     coordinator.cancelCaptureStart,
                 preferRevisionHead:
@@ -571,6 +576,33 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     var annotationAuthorityCommitted = false
     @Published private(set)
     var annotationEvidenceRefs: [String] = []
+    /// #268: `reference_object_observation:<id>` tokens appended to
+    /// `annotationEvidenceRefs` so a matched observation is offerable
+    /// as entity evidence — the operator accepts it explicitly; it is
+    /// never bound silently.
+    private var referenceObjectObservationTokens: [String] = []
+    /// #268: shipped `.referenceobject` catalog decoded once from
+    /// `ReferenceObjects/manifest.json`; nil when this build ships
+    /// none (or the manifest fails validation — surfaced as a
+    /// support-advisory detail, never silently).
+    private(set) var referenceObjectManifest:
+        ReferenceObjectAssetManifest?
+    private var referenceObjectManifestResolved = false
+    /// #268: the operator's per-mission picks from setup — persisted
+    /// verbatim into the observation document's selection echo.
+    private(set) var pendingReferenceObjectRequests:
+        [ReferenceObjectSelectionRequest] = []
+    /// #268: the configureReferenceObjects outcome between its
+    /// application (pre-coordinate-binding) and the post-foundation
+    /// persistence hop.
+    private var pendingReferenceObjectConfiguration:
+        (selection: ReferenceObjectSelectionEcho,
+         configuredAssets: [ReferenceObjectConfiguredAsset],
+         outcome: ReferenceObjectReconfigurationResult)?
+    /// #268: `entity_id=observation_id` pairings already advisored —
+    /// an entity re-commit does not re-report an unchanged
+    /// acceptance.
+    private var acceptedReferenceObjectPairings: Set<String> = []
     var annotationRoomPlanSurfaces: [CapturedSurfaceOption] = []
     var annotationMeshAnchors: [CapturedSurfaceOption] = []
     @Published private(set)
@@ -1604,6 +1636,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         finalizedRevision = nil
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
+        referenceObjectObservationTokens = []
         annotationRoomPlanSurfaces = []
         annotationMeshAnchors = []
         captureStartTimingCorrelation = nil
@@ -1817,8 +1850,65 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             cameraPermission:
                 CameraPermissionController.currentStatus(),
             interruptedDrafts:
-                persistedInventory.recoverableDrafts
+                persistedInventory.recoverableDrafts,
+            referenceObjectManifest:
+                resolvedReferenceObjectManifest(),
+            referenceObjectRequests: pendingReferenceObjectRequests
         )
+    }
+
+    /// #268: decodes `ReferenceObjects/manifest.json` once — the
+    /// shipped, provenance-manifested `.referenceobject` catalog.
+    /// A missing bundle directory means this build ships no assets
+    /// (a normal condition); an undecodable manifest is surfaced in
+    /// the setup status line rather than swallowed.
+    private func resolvedReferenceObjectManifest()
+        -> ReferenceObjectAssetManifest?
+    {
+        if referenceObjectManifestResolved {
+            return referenceObjectManifest
+        }
+        referenceObjectManifestResolved = true
+        guard let url = Bundle.main.url(
+            forResource:
+                ReferenceObjectAssetManifest.manifestFilename,
+            withExtension: nil,
+            subdirectory:
+                ReferenceObjectAssetManifest.bundleDirectory
+        ), let data = try? Data(contentsOf: url),
+           let manifest = try? JSONDecoder().decode(
+               ReferenceObjectAssetManifest.self,
+               from: data
+           )
+        else {
+            referenceObjectManifest = nil
+            return nil
+        }
+        referenceObjectManifest = manifest
+        return manifest
+    }
+
+    /// #268: the setup picker writes one (asset, role) pair per row;
+    /// nil clears the pick. Requests resolve through the selection
+    /// policy at Begin — invalid combinations are dropped with
+    /// reasons recorded into the selection echo, never silently
+    /// reshaped.
+    func setReferenceObjectRole(
+        _ assetID: ReferenceObjectAssetID,
+        _ role: ReferenceObjectAssetRole?
+    ) {
+        pendingReferenceObjectRequests.removeAll {
+            $0.assetID == assetID
+        }
+        if let role {
+            pendingReferenceObjectRequests.append(
+                ReferenceObjectSelectionRequest(
+                    assetID: assetID,
+                    role: role
+                )
+            )
+        }
+        refreshCaptureSetupPresentation()
     }
 
     /// #352: import an HTDT task plan on the setup screen, before any
@@ -4596,6 +4686,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         annotationEvidenceRefs =
             workingSnapshot.evidenceFrameRefs
+                + referenceObjectObservationTokens
         refreshAnnotationEvidenceFrames(
             rootDirectory: await store.rootDirectory
         )
@@ -4667,6 +4758,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         annotationEvidenceRefs =
             workingSnapshot.evidenceFrameRefs
+                + referenceObjectObservationTokens
         workingSetStatus = String(localized: "Evidence-linked point direction captured")
 
         return authority
@@ -4760,6 +4852,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
         annotationEvidenceRefs =
             workingSnapshot.evidenceFrameRefs
+                + referenceObjectObservationTokens
         refreshAnnotationEvidenceFrames(
             rootDirectory: await store.rootDirectory
         )
@@ -4887,6 +4980,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             throw PlatformCaptureError.raycastMiss
         }
         annotationEvidenceRefs = workingSnapshot.evidenceFrameRefs
+            + referenceObjectObservationTokens
         refreshAnnotationEvidenceFrames(
             rootDirectory: await store.rootDirectory
         )
@@ -4976,6 +5070,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         markEvidenceRetention(evidenceRef, .equipmentIdentity)
         let workingSnapshot = await store.snapshot()
         annotationEvidenceRefs = workingSnapshot.evidenceFrameRefs
+            + referenceObjectObservationTokens
         refreshAnnotationEvidenceFrames(
             rootDirectory: await store.rootDirectory
         )
@@ -5506,6 +5601,45 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 self.annotationEditIsRevision = false
                 self.annotationRevisionSeed = nil
 
+                // #268: each reference-object observation ref that
+                // landed in an entity's evidence_refs is an operator
+                // acceptance — bounded advisory provenance, one note
+                // per newly bound pairing. The ref rides alongside
+                // placement/orientation authority; nothing was
+                // overwritten to put it there.
+                for entity in annotations {
+                    for ref in entity.evidenceRefs {
+                        guard ref.hasPrefix(
+                            "reference_object_observation:"
+                        ) else {
+                            continue
+                        }
+                        let pairing = entity.entityID.description
+                            + "="
+                            + String(
+                                ref.dropFirst(
+                                    "reference_object_observation:"
+                                        .count
+                                )
+                            )
+                        guard acceptedReferenceObjectPairings
+                            .insert(pairing).inserted
+                        else {
+                            continue
+                        }
+                        recordAdvisoryNote(
+                            CaptureAdvisoryNote(
+                                kind:
+                                    .referenceObjectAcceptance,
+                                sessionTimestampSeconds:
+                                    latestScanTimestampSeconds ?? 0,
+                                detail:
+                                    "entity_id=\(entity.entityID.description) observation_id=\(String(ref.dropFirst("reference_object_observation:".count)))"
+                            )
+                        )
+                    }
+                }
+
                 // #321: in-place repair kinds resolve on the
                 // annotation authority commit inside the same
                 // revision.
@@ -5687,6 +5821,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         markEvidenceRetention(evidenceRef, .equipmentIdentity)
         let workingSnapshot = await store.snapshot()
         annotationEvidenceRefs = workingSnapshot.evidenceFrameRefs
+            + referenceObjectObservationTokens
         refreshAnnotationEvidenceFrames(
             rootDirectory: await store.rootDirectory
         )
@@ -6140,6 +6275,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         exportURL = nil
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
+        referenceObjectObservationTokens = []
         annotationEvidenceFrames = []
         annotationRoomPlanObjects = []
         annotationRoomPlanObjectsLoaded = false
@@ -6425,6 +6561,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         exportURL = nil
         annotationAuthorityCommitted = false
         annotationEvidenceRefs = []
+        referenceObjectObservationTokens = []
         annotationEvidenceFrames = []
         annotationRoomPlanObjects = []
         annotationRoomPlanObjectsLoaded = false
@@ -12350,6 +12487,31 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 }
             }
         }
+        // #268: reference-object anchors ride the same single delegate
+        // bridge — add/update/remove plus the tracked-state read are
+        // buffered into the canonical observation document. isTracked
+        // loss is a lifecycle record, never anchor removal.
+        sessionController.objectAnchorLifecycleHandler = {
+            [weak self] kind, anchors, timestampSeconds in
+            guard let self,
+                  self.captureGeneration == generation
+            else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                // Read the context at callback time, not bind time —
+                // a mid-scan spatial discontinuity mints a new
+                // coordinate-space authority the observation must name.
+                await self.recordReferenceObjectAnchors(
+                    kind,
+                    anchors: anchors,
+                    sessionTimestampSeconds: timestampSeconds,
+                    store: store,
+                    context: self.sessionController.context
+                )
+            }
+        }
         sessionController.roomPlanInstructionHandler = {
             [weak self] observation in
             Task { @MainActor [weak self] in
@@ -12529,6 +12691,20 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             return
         }
 
+        // #268: install the operator's reference-object sets on the
+        // live configuration BEFORE the coordinate space binds — the
+        // session re-run ARKit performs for a configuration change then
+        // absorbs into the not-yet-bound space, so the bound space is
+        // the space observations actually live in. The outcome is
+        // persisted (and advisored) right after the foundation commits.
+        await applyReferenceObjectConfigurationBeforeBinding()
+
+        guard state == .scanning,
+              captureGeneration == generation
+        else {
+            return
+        }
+
         let activeConfiguration: CaptureConfigurationProfile
         do {
             activeConfiguration =
@@ -12581,6 +12757,11 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             fail(.persistenceFailure)
             return
         }
+
+        // #268: the coordinate space is bound now — the configuration
+        // echo lands in the canonical observation document, and any
+        // non-plain outcome becomes a bounded advisory.
+        await persistReferenceObjectConfigurationEcho(store: store)
 
         // Strategy provenance (#307): record which published
         // guidance/evidence policy steers this scan so a consumer can
@@ -12638,6 +12819,273 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             generation: generation
         )
         workingSetStatus = String(localized: "Scanning; live RoomPlan camera and active AR configuration are ready")
+    }
+
+    // MARK: - Reference objects (#268)
+
+    /// Loads the operator-selected `.referenceobject` artifacts and
+    /// installs them on the live session configuration (#268). Runs
+    /// after the start-boundary timing correlation and before
+    /// `waitForActiveConfiguration` — the session re-run ARKit
+    /// performs for a configuration change then absorbs into the
+    /// not-yet-bound coordinate space, so `appliedBeforeCoordinateBinding`
+    /// is recorded as true and every observation lands in the bound
+    /// space (a post-binding reconfiguration is never offered: the
+    /// coordinate policy requires a new revision instead).
+    ///
+    /// Legacy `.arobject` artifacts are refused at the load gate —
+    /// iOS 27 cannot mix archive formats in one session — and
+    /// `trackingObjects` requests on an OS/SDK that lacks them come
+    /// back `.trackingUnsupported`, never silently demoted.
+    private func
+        applyReferenceObjectConfigurationBeforeBinding() async
+    {
+        guard let manifest = resolvedReferenceObjectManifest(),
+              !pendingReferenceObjectRequests.isEmpty
+        else {
+            return
+        }
+        let plan = ReferenceObjectSelectionPolicy.resolve(
+            requests: pendingReferenceObjectRequests,
+            manifest: manifest
+        )
+        var detectionObjects = Set<ARReferenceObject>()
+        var trackingObjects = Set<ARReferenceObject>()
+        var configured: [ReferenceObjectConfiguredAsset] = []
+        for request in plan.selected {
+            guard let asset = manifest.asset(for: request.assetID)
+            else {
+                continue
+            }
+            var outcome: ReferenceObjectLoadOutcome
+            var detail: String?
+            var object: ARReferenceObject?
+            guard asset.artifactFilename.hasSuffix(
+                ".referenceobject"
+            ) else {
+                outcome = .rejected
+                detail =
+                    "legacy .arobject artifacts cannot mix with .referenceobject payloads in one session"
+                configured.append(
+                    ReferenceObjectConfiguredAsset(
+                        asset: asset,
+                        role: request.role,
+                        loadOutcome: outcome,
+                        loadDetail: detail
+                    )
+                )
+                continue
+            }
+            if let url = Bundle.main.url(
+                forResource: asset.artifactFilename,
+                withExtension: nil,
+                subdirectory:
+                    ReferenceObjectAssetManifest.bundleDirectory
+            ) {
+                do {
+                    object = try ARReferenceObject(archiveURL: url)
+                    outcome = .loaded
+                } catch {
+                    outcome = .rejected
+                    detail = String(describing: error)
+                }
+            } else {
+                outcome = .unavailable
+                detail =
+                    "artifact missing from ReferenceObjects bundle directory"
+            }
+            configured.append(
+                ReferenceObjectConfiguredAsset(
+                    asset: asset,
+                    role: request.role,
+                    loadOutcome: outcome,
+                    loadDetail: detail
+                )
+            )
+            if let object {
+                // The manifest's arkit_object_name is the match key
+                // anchors carry back — the asset-id lookup at callback
+                // time is a manifest concern, never an ARKit one.
+                object.name = asset.arkitObjectName
+                switch request.role {
+                case .detection:
+                    detectionObjects.insert(object)
+                case .tracking:
+                    trackingObjects.insert(object)
+                }
+            }
+        }
+        let echo = ReferenceObjectSelectionEcho(
+            requested: pendingReferenceObjectRequests,
+            dropped: plan.rejected
+        )
+        guard !detectionObjects.isEmpty || !trackingObjects.isEmpty
+        else {
+            // Every selection failed the load gate — still record the
+            // echo (dropped picks + load outcomes are evidence), no
+            // session re-run needed.
+            pendingReferenceObjectConfiguration = (
+                echo,
+                configured,
+                ReferenceObjectReconfigurationResult(
+                    status: .configured,
+                    detail: "no_loadable_objects no_change",
+                    sessionRestarted: false
+                )
+            )
+            return
+        }
+        let result = sessionController.configureReferenceObjects(
+            detection: detectionObjects,
+            tracking: trackingObjects
+        )
+        pendingReferenceObjectConfiguration = (
+            echo, configured, result
+        )
+    }
+
+    /// Persists the configuration echo once the coordinate space is
+    /// bound (#268) and advisors a non-plain outcome — the canonical
+    /// `evidence/reference-object-observations.json` then carries
+    /// exactly what the session was asked to adopt and what it did.
+    private func persistReferenceObjectConfigurationEcho(
+        store: CaptureWorkingSetStore
+    ) async {
+        guard let pending = pendingReferenceObjectConfiguration else {
+            return
+        }
+        pendingReferenceObjectConfiguration = nil
+        do {
+            try await store.recordReferenceObjectConfiguration(
+                selection: pending.selection,
+                configuredAssets: pending.configuredAssets,
+                appliedBeforeCoordinateBinding: true
+            )
+        } catch {
+            await store.recordResourceEvent(
+                CaptureResourceEvent(
+                    kind: .persistenceFailure,
+                    severity: .warning,
+                    detail:
+                        "reference-object configuration echo could not be persisted: \(error)"
+                )
+            )
+        }
+        let droppedDetail = pending.selection.dropped.map {
+            "\($0.assetID.rawValue)=\($0.reason.rawValue)"
+        }.joined(separator: " ")
+        recordAdvisoryNote(
+            CaptureAdvisoryNote(
+                kind: .referenceObjectSelection,
+                sessionTimestampSeconds:
+                    latestScanTimestampSeconds ?? 0,
+                detail:
+                    "requested=\(pending.selection.requested.count) "
+                    + "dropped=\(pending.selection.dropped.count)"
+                    + (droppedDetail.isEmpty
+                        ? "" : " \(droppedDetail)")
+            )
+        )
+        if pending.outcome.status != .configured {
+            recordAdvisoryNote(
+                CaptureAdvisoryNote(
+                    kind: .referenceObjectConfigurationOutcome,
+                    sessionTimestampSeconds:
+                        latestScanTimestampSeconds ?? 0,
+                    detail:
+                        "status=\(pending.outcome.status.rawValue) "
+                        + pending.outcome.detail
+                )
+            )
+        }
+    }
+
+    /// Converts each `ARObjectAnchor` in a delegate callback into a
+    /// persisted pose observation (#268). Anchors whose matched name
+    /// is not in the shipped manifest, or whose transform fails the
+    /// rigid-pose invariant, are counted as resource events — never
+    /// silently dropped and never written.
+    private func recordReferenceObjectAnchors(
+        _ kind: MeshAnchorLifecycleKind,
+        anchors: [ARObjectAnchor],
+        sessionTimestampSeconds: Double,
+        store: CaptureWorkingSetStore,
+        context: CaptureSessionContext
+    ) async {
+        guard let manifest = referenceObjectManifest else {
+            return
+        }
+        for anchor in anchors {
+            guard let asset = ARReferenceObjectObservationAdapter
+                .matchedAsset(for: anchor, manifest: manifest)
+            else {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "reference-object anchor did not match the shipped manifest (kind=\(kind.rawValue))"
+                    )
+                )
+                continue
+            }
+            let role = pendingReferenceObjectRequests.first {
+                $0.assetID == asset.assetID
+            }?.role ?? .detection
+            guard let observation =
+                ARReferenceObjectObservationAdapter.observation(
+                    for: anchor,
+                    asset: asset,
+                    role: role,
+                    kind: kind,
+                    captureSessionID: context.captureSessionID,
+                    coordinateSpaceID: context.coordinateSpaceID,
+                    sessionTimestampSeconds:
+                        sessionTimestampSeconds
+                )
+            else {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "reference-object anchor pose failed rigid-transform validation (asset=\(asset.assetID.rawValue))"
+                    )
+                )
+                continue
+            }
+            do {
+                try await store.recordReferenceObjectObservation(
+                    observation,
+                    kind: kind
+                )
+                await refreshReferenceObjectObservationTokens(
+                    store: store
+                )
+            } catch {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "reference-object observation could not be persisted: \(error)"
+                    )
+                )
+            }
+        }
+    }
+
+    /// Rebuilds the offerable `reference_object_observation:<id>`
+    /// tokens from the committed record (#268) and merges them onto
+    /// `annotationEvidenceRefs` — the entity form then lists each
+    /// observation as evidence the operator may accept.
+    private func refreshReferenceObjectObservationTokens(
+        store: CaptureWorkingSetStore
+    ) async {
+        let observations = await store.referenceObjectObservations
+        referenceObjectObservationTokens = observations.map {
+            $0.evidenceRefToken
+        }
     }
 
     /// Periodic storage accounting for the #308 advisory surface. Runs
@@ -14414,7 +14862,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
 
         qualityReport = report
         advisoryReport = advisory
+        // #268: repopulate the observation tokens first — a reopened
+        // draft's committed observations are offerable evidence refs
+        // just like live-scan records.
+        await refreshReferenceObjectObservationTokens(store: store)
         annotationEvidenceRefs = snapshot.evidenceFrameRefs
+            + referenceObjectObservationTokens
         refreshAnnotationEvidenceFrames(
             rootDirectory: await store.rootDirectory
         )
