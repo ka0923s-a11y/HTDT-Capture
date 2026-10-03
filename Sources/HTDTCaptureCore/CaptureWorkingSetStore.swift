@@ -5558,10 +5558,17 @@ public actor CaptureWorkingSetStore {
         let data = try document.encoded()
         let reservation = try reserveAdmission(bytes: data.count)
         defer { releaseAdmission(reservation) }
-        try await writer.writeIfIdentical(
-            data,
-            to: CaptureStorePath(CaptureAdvisoryNoteDocument.path)
-        )
+        // The document accumulates every note, so each call rewrites
+        // it wholesale — the write must be replace-capable, not
+        // create-or-noop.
+        try await writer.writeBatchReplacing([
+            CaptureFileWriteRequest(
+                data: data,
+                path: try CaptureStorePath(
+                    CaptureAdvisoryNoteDocument.path
+                )
+            ),
+        ])
         try register(
             BundlePayloadDeclaration(
                 path: CaptureAdvisoryNoteDocument.path,

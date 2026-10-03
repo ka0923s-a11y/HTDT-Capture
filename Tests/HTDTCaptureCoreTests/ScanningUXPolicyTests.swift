@@ -818,6 +818,47 @@ final class ScanningUXPolicyTests: XCTestCase {
         )
     }
 
+    func testStoreRewritesAdvisoryDocumentAcrossNotes() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let store = try CaptureWorkingSetStore(
+            rootDirectory: root
+        )
+        let first = CaptureAdvisoryNote(
+            kind: .automaticKeyframe,
+            sessionTimestampSeconds: 1,
+            detail: "policy=auto_keyframe_v1 frame=f1"
+        )
+        let second = CaptureAdvisoryNote(
+            kind: .highResolutionStill,
+            sessionTimestampSeconds: 2,
+            detail: "outcome=captured purpose=equipment_label"
+        )
+        try await store.recordAdvisoryNote(first)
+        try await store.recordAdvisoryNote(second)
+
+        // The canonical payload must hold the full accumulated
+        // history — the second note rewrites the document.
+        let payloadURL = root.appendingPathComponent(
+            CaptureAdvisoryNoteDocument.path
+        )
+        let decoded = try JSONDecoder().decode(
+            CaptureAdvisoryNoteDocument.self,
+            from: Data(contentsOf: payloadURL)
+        )
+        XCTAssertEqual(decoded.notes, [first, second])
+        let findings = await store.advisoryFindings
+        XCTAssertEqual(findings.count, 2)
+    }
+
     // MARK: - fixtures (mirroring ScanMotionGuidanceTests)
 
     private func coverage(
