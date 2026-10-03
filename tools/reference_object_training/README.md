@@ -1,4 +1,4 @@
-# Reference-object training pipeline (issue #268)
+# Reference-object training pipeline (legacy bolph71656-ai/HTDT-Capture#268)
 
 Reproducible authority for every `.referenceobject` shipped in
 `App/ReferenceObjects/`. Two artifacts:

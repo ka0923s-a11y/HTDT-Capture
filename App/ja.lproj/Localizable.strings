@@ -2510,7 +2510,7 @@
 "Share text summary" = "テキスト要約を共有";
 "Bundles a privacy-reviewed diagnostic report for support. Capture evidence — images, depth, mesh, annotations — is never included." = "サポート向けにプライバシー審査済みの診断レポートを生成します。キャプチャエビデンス（画像・深度・メッシュ・アノテーション）は含まれません。";
 "Quote the correlation tag when contacting support — it matches this report exactly and contains no personal information." = "サポートへの問い合わせ時にこの相関タグをお伝えください。レポートと完全に一致し、個人情報は含まれません。";
-"Excluded by default: capture images, depth, mesh, annotations, serials, project names, secrets, file paths. A separate capture-diagnostic attachment can be produced from a failed capture's inspection screen (issue #224) — it is never bundled here." = "既定で除外: キャプチャ画像・深度・メッシュ・アノテーション・シリアル・プロジェクト名・シークレット・ファイルパス。失敗したキャプチャの検査画面から別途キャプチャ診断添付を生成できます（issue #224）— ここには同梱されません。";
+"Excluded by default: capture images, depth, mesh, annotations, serials, project names, secrets, file paths. A separate capture-diagnostic attachment can be produced from a failed capture's inspection screen (issue bolph71656-ai/HTDT-Capture#224) — it is never bundled here." = "既定で除外: キャプチャ画像・深度・メッシュ・アノテーション・シリアル・プロジェクト名・シークレット・ファイルパス。失敗したキャプチャの検査画面から別途キャプチャ診断添付を生成できます（issue bolph71656-ai/HTDT-Capture#224）— ここには同梱されません。";
 "Export writes the bounded package to a share destination you choose — nothing is sent automatically." = "エクスポートは選択した共有先に制限されたパッケージを書き出します。自動送信は行いません。";
 
 // MARK: Field return (#400)

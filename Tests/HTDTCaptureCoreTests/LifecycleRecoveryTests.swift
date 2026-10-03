@@ -1034,6 +1034,217 @@ extension LifecycleRecoveryTests {
         )
     }
 
+    /// `derived/segmentation-observations.json` is a `.derived`-bound
+    /// leftover whose committed refs are the per-observation
+    /// `source_frame_ref` `path:` values: restore must re-derive and
+    /// prune them rather than dropping the document as un-manifestable
+    /// (legacy bolph71656-ai/HTDT-Capture#269 evidence must survive recovery).
+    func testSegmentationObservationsLeftoverRestoresAsDerived()
+        async throws
+    {
+        let root = try makeCaptureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let captureRoot = root.appendingPathComponent(
+            "HTDTCapture",
+            isDirectory: true
+        )
+        let (_, directory, context, identity) =
+            try await makeEndAcceptedRevision(
+                captureRoot: captureRoot
+            )
+
+        func makeObservation(
+            sourceFrameRef: String
+        ) throws -> ObjectSegmentationObservation {
+            try ObjectSegmentationObservation(
+                captureSessionID: context.captureSessionID,
+                coordinateSpaceID: context.coordinateSpaceID,
+                sourceFrameRef: sourceFrameRef,
+                sourceFrameKind: "streamed",
+                sessionTimestampSeconds: 1.5,
+                imageWidth: 640,
+                imageHeight: 480,
+                pixelFormatFourCC: 0x4247_5241,
+                viewRotationOrDisplayTransformRevision: "rotation:0",
+                seedKind: .point,
+                seedPoints: [
+                    NormalizedPoint2D(x: 0.5, y: 0.5)
+                ],
+                refinementCount: 0,
+                qualityLevel: "accurate",
+                maskWidth: 2,
+                maskHeight: 2,
+                maskEncoding: "bitpack_msb_rows_base64",
+                maskPayloadRef: "inline",
+                maskPayloadBase64: "gA==",
+                maskAcceptThreshold: 0.5,
+                visionRequest: "segmentation",
+                osVersion: "26.0",
+                osBuild: "1",
+                appVersion: "1.0",
+                appBuild: "1",
+                downstream3DPointCount: 0
+            )
+        }
+
+        let liveDoc = ObjectSegmentationObservationDocument(
+            captureRevisionID: identity.captureRevisionID,
+            captureSessionID: context.captureSessionID,
+            observations: [
+                try makeObservation(
+                    sourceFrameRef:
+                        "path:session/capture-session.json"
+                ),
+                try makeObservation(
+                    sourceFrameRef:
+                        "path:evidence/frames/does-not-exist.json"
+                ),
+            ]
+        )
+        let derivedDirectory = directory
+            .appendingPathComponent("derived", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: derivedDirectory,
+            withIntermediateDirectories: true
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [
+            .sortedKeys, .withoutEscapingSlashes,
+        ]
+        try encoder.encode(liveDoc).write(
+            to: derivedDirectory.appendingPathComponent(
+                "segmentation-observations.json"
+            )
+        )
+
+        let result = PersistedCaptureInventory(
+            captureRoot: captureRoot
+        ).scan()
+        let draft = try XCTUnwrap(result.recoverableDrafts.first)
+        let (restored, report) =
+            try await CaptureWorkingSetStore
+                .restoreWorkingRevision(draft)
+        let snapshot = await restored.snapshot()
+
+        XCTAssertFalse(
+            report.unmanifestablePaths.contains(
+                ObjectSegmentationObservationPackage.path
+            )
+        )
+        let declared = snapshot.payloadDeclarations.first {
+            $0.path == ObjectSegmentationObservationPackage.path
+        }
+        let declaration = try XCTUnwrap(declared)
+        XCTAssertEqual(declaration.role, .derived)
+        // Only the surviving path: ref survives the fixpoint prune;
+        // the dead frame ref must not re-trap finalization.
+        XCTAssertEqual(
+            declaration.sourceRefs,
+            ["path:session/capture-session.json"]
+        )
+
+        _ = try await restored.sealForFinalization(
+            requirements: CaptureQualityRequirements(
+                rulesetVersion: "0.0.0-test",
+                requireCompletedRoomPlan: false,
+                minimumActiveMeshAnchors: 0,
+                minimumEvidenceFrames: 0
+            )
+        )
+    }
+
+    /// Same leftover with every `source_frame_ref` dead: all refs
+    /// prune out, so the document is un-manifestable and removed
+    /// rather than re-declared with dangling refs.
+    func testSegmentationObservationsDeadRefsUnmanifestable()
+        async throws
+    {
+        let root = try makeCaptureRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let captureRoot = root.appendingPathComponent(
+            "HTDTCapture",
+            isDirectory: true
+        )
+        let (_, directory, context, identity) =
+            try await makeEndAcceptedRevision(
+                captureRoot: captureRoot
+            )
+        let deadDoc = ObjectSegmentationObservationDocument(
+            captureRevisionID: identity.captureRevisionID,
+            captureSessionID: context.captureSessionID,
+            observations: [
+                try ObjectSegmentationObservation(
+                    captureSessionID: context.captureSessionID,
+                    coordinateSpaceID: context.coordinateSpaceID,
+                    sourceFrameRef:
+                        "path:evidence/frames/does-not-exist.json",
+                    sourceFrameKind: "streamed",
+                    sessionTimestampSeconds: 1.5,
+                    imageWidth: 640,
+                    imageHeight: 480,
+                    pixelFormatFourCC: 0x4247_5241,
+                    viewRotationOrDisplayTransformRevision:
+                        "rotation:0",
+                    seedKind: .point,
+                    seedPoints: [
+                        NormalizedPoint2D(x: 0.5, y: 0.5)
+                    ],
+                    refinementCount: 0,
+                    qualityLevel: "accurate",
+                    maskWidth: 2,
+                    maskHeight: 2,
+                    maskEncoding: "bitpack_msb_rows_base64",
+                    maskPayloadRef: "inline",
+                    maskPayloadBase64: "gA==",
+                    maskAcceptThreshold: 0.5,
+                    visionRequest: "segmentation",
+                    osVersion: "26.0",
+                    osBuild: "1",
+                    appVersion: "1.0",
+                    appBuild: "1",
+                    downstream3DPointCount: 0
+                ),
+            ]
+        )
+        let derivedDirectory = directory
+            .appendingPathComponent("derived", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: derivedDirectory,
+            withIntermediateDirectories: true
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [
+            .sortedKeys, .withoutEscapingSlashes,
+        ]
+        try encoder.encode(deadDoc).write(
+            to: derivedDirectory.appendingPathComponent(
+                "segmentation-observations.json"
+            )
+        )
+
+        let result = PersistedCaptureInventory(
+            captureRoot: captureRoot
+        ).scan()
+        let draft = try XCTUnwrap(result.recoverableDrafts.first)
+        let (_, report) =
+            try await CaptureWorkingSetStore
+                .restoreWorkingRevision(draft)
+
+        XCTAssertTrue(
+            report.unmanifestablePaths.contains(
+                ObjectSegmentationObservationPackage.path
+            )
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: derivedDirectory
+                    .appendingPathComponent(
+                        "segmentation-observations.json"
+                    ).path
+            )
+        )
+    }
+
     /// `revision/registrations.json` is schema-owned but carried no
     /// reserved-path binding: restore must re-register it under its
     /// exact canonical metadata — application/json plus
