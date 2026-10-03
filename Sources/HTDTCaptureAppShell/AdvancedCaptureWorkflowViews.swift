@@ -172,6 +172,9 @@ public struct CaptureTaskPlanChecklistView: View {
     /// Whether a mission record exists for this plan so a reason can
     /// persist as a waiver note — gates the "with reason" menu items.
     public let canRecordReason: Bool
+    /// Whether outcomes may be marked at all — false for a read-only
+    /// persisted capture, where the checklist renders as a record.
+    public let canMark: Bool
     public let onMark:
         (String, TaskPlanItemOutcome, String?) -> Void
 
@@ -191,6 +194,7 @@ public struct CaptureTaskPlanChecklistView: View {
         plan: HTDTCaptureTaskPlan,
         outcomes: [CaptureTaskPlanStatusDocument.ItemOutcome],
         canRecordReason: Bool = false,
+        canMark: Bool = true,
         onMark: @escaping
             (String, TaskPlanItemOutcome, String?) -> Void =
             { _, _, _ in }
@@ -198,6 +202,7 @@ public struct CaptureTaskPlanChecklistView: View {
         self.plan = plan
         self.outcomes = outcomes
         self.canRecordReason = canRecordReason
+        self.canMark = canMark
         self.onMark = onMark
     }
 
@@ -337,6 +342,7 @@ public struct CaptureTaskPlanChecklistView: View {
                 .font(.caption2)
                 .foregroundStyle(CaptureColorRole.attention.color)
             }
+            if canMark {
             Menu(String(localized: "Mark")) {
                 // `.completed` is only markable for surface-review
                 // items — evidence-backed kinds complete through
@@ -395,6 +401,7 @@ public struct CaptureTaskPlanChecklistView: View {
                 }
             }
             .font(.caption)
+            }
         }
     }
 

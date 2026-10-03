@@ -45,6 +45,8 @@ public struct CaptureSettingsView: View {
         self.onClearEquipmentCatalog = onClearEquipmentCatalog
     }
 
+    @State private var confirmingCatalogClear = false
+
     public var body: some View {
         List {
             presentationSection
@@ -55,6 +57,25 @@ public struct CaptureSettingsView: View {
         .navigationTitle(
             String(localized: "Settings")
         )
+        .confirmationDialog(
+            "Clear equipment catalog cache?",
+            isPresented: $confirmingCatalogClear,
+            titleVisibility: .visible
+        ) {
+            // One action-producing child — iOS 26 renders only
+            // the first child, so a bare second Button's Cancel
+            // never appears.
+            Group {
+                Button("Clear cache", role: .destructive) {
+                    onClearEquipmentCatalog()
+                }
+                Button("Cancel", role: .cancel) {}
+            }
+        } message: {
+            Text(
+                "Removes the imported catalog from this device. Committed captures keep the exact equipment tuples they recorded."
+            )
+        }
     }
 
     private var presentationSection: some View {
@@ -254,9 +275,10 @@ public struct CaptureSettingsView: View {
                     String(
                         localized: "Clear equipment catalog cache"
                     ),
-                    role: .destructive,
-                    action: onClearEquipmentCatalog
-                )
+                    role: .destructive
+                ) {
+                    confirmingCatalogClear = true
+                }
             } else {
                 Text(
                     String(

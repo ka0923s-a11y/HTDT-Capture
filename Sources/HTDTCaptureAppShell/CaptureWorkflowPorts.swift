@@ -98,7 +98,6 @@ public struct SpatialCaptureActions {
 /// Review/authoring workflow (issue #410): annotation + measurement + authority commits, room frame/datum, opening review, evidence curation, semantic correction, as-built verification, revision lineage, field notes, remediation, finalize/export-prep, persisted workspace.
 public struct ReviewAuthoringActions {
     public let beginAnnotation: () -> Void
-    public let captureRaycastPlacement: () async throws -> AnnotationPlacementAuthority
     public let captureSpeakerOrientation: () async throws -> AnnotationOrientationAuthority
     public let capturePointOrientation: () async throws -> AnnotationOrientationAuthority
     public let probePlacementTarget: () async -> AnnotationPlacementProbe
@@ -146,7 +145,6 @@ public struct ReviewAuthoringActions {
 
     public init(from actions: CaptureRootActions) {
         self.beginAnnotation = actions.beginAnnotation
-        self.captureRaycastPlacement = actions.captureRaycastPlacement
         self.captureSpeakerOrientation = actions.captureSpeakerOrientation
         self.capturePointOrientation = actions.capturePointOrientation
         self.probePlacementTarget = actions.probePlacementTarget
@@ -322,7 +320,7 @@ public struct TransferActions {
     public let preflightDestination: (HTDTHandoffDestination) async -> HTDTCompatibilityVerdict
     /// #423: field-return deliverable preflight + durable-queue send.
     public let preflightFieldReturn: (HTDTFieldReturnID, HTDTHandoffDestination) async -> HTDTCompatibilityVerdict
-    public let sendFieldReturnToHTDT: (HTDTFieldReturnID, HTDTHandoffDestination) async -> Void
+    public let sendFieldReturnToHTDT: (HTDTFieldReturnID, HTDTHandoffDestination) async -> FieldReturnSendOutcome
     public let deleteExportArchive: (PersistedCaptureRecord) -> Void
 
     public init(from actions: CaptureRootActions) {

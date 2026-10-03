@@ -2052,6 +2052,11 @@ private struct CaptureSeriesDetailView: View {
     /// Pending registration flow (#395): the revision the operator
     /// chose to align, the picked counterpart, the inspected proposal,
     /// and any failure text.
+    /// Confirmed archive-copy deletion (#251): derived bytes go
+    /// through the same two-step pattern every permanent removal
+    /// takes — the canonical capture is untouched.
+    @State private var pendingArchiveDeletion:
+        PersistedCaptureRecord?
     @State private var registrationSource:
         PersistedCaptureRecord?
     @State private var registrationTarget:
@@ -2368,6 +2373,32 @@ private struct CaptureSeriesDetailView: View {
                 registrationSheet
             }
             .presentationDetents([.medium, .large])
+        }
+        .confirmationDialog(
+            "Delete archive copy?",
+            isPresented: Binding(
+                get: { pendingArchiveDeletion != nil },
+                set: { presented in
+                    if !presented { pendingArchiveDeletion = nil }
+                }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingArchiveDeletion
+        ) { record in
+            // One action-producing child — iOS 26 renders only
+            // the first child, so a bare second Button's Cancel
+            // never appears.
+            Group {
+                Button("Delete archive copy", role: .destructive) {
+                    actions.deleteExportArchive(record)
+                    pendingArchiveDeletion = nil
+                }
+                Button("Cancel", role: .cancel) {}
+            }
+        } message: { _ in
+            Text(
+                "Removes the derived export archive permanently; the canonical finalized capture stays."
+            )
         }
     }
 
@@ -2959,7 +2990,7 @@ private struct CaptureSeriesDetailView: View {
             // without touching the canonical finalized capture
             // (#251).
             Button("Delete archive copy") {
-                actions.deleteExportArchive(record)
+                pendingArchiveDeletion = record
             }
         }
         Button("Delete…", role: .destructive) {
@@ -3481,6 +3512,7 @@ private struct CaptureSeriesRetentionView: View {
     let onDeleteSeries: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var confirmingArchivePurge = false
 
     private var preview: CaptureSeriesRetentionPreview {
         CaptureLibraryRetentionPlanner.seriesPreview(
@@ -3688,12 +3720,7 @@ private struct CaptureSeriesRetentionView: View {
                     // archive copies leave nothing unrecoverable —
                     // the canonical finalized bundles stay.
                     Button("Delete derived archives only") {
-                        for record in group.revisions
-                        where record.exportArchive != nil
-                            && record.finalizedDirectory != nil
-                        {
-                            actions.deleteExportArchive(record)
-                        }
+                        confirmingArchivePurge = true
                     }
                     .disabled(
                         preview.totalDerivedArchiveBytes == 0
@@ -3713,6 +3740,33 @@ private struct CaptureSeriesRetentionView: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+        .confirmationDialog(
+            "Delete all derived archives?",
+            isPresented: $confirmingArchivePurge,
+            titleVisibility: .visible
+        ) {
+            // One action-producing child — iOS 26 renders only
+            // the first child, so a bare second Button's Cancel
+            // never appears.
+            Group {
+                Button(
+                    "Delete derived archives",
+                    role: .destructive
+                ) {
+                    for record in group.revisions
+                    where record.exportArchive != nil
+                        && record.finalizedDirectory != nil
+                    {
+                        actions.deleteExportArchive(record)
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            }
+        } message: {
+            Text(
+                "Removes every derived export archive in this series permanently; the canonical finalized captures stay."
+            )
         }
     }
 }

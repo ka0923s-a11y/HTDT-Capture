@@ -36,8 +36,6 @@ public struct CaptureRootActions {
         (ScanMovementCapability) -> Void
     public let continueScanning: () -> Void
     public let beginAnnotation: () -> Void
-    public let captureRaycastPlacement:
-        () async throws -> AnnotationPlacementAuthority
     public let captureSpeakerOrientation:
         () async throws -> AnnotationOrientationAuthority
     /// Full-3D orientation capture for measurement-point direction
@@ -449,8 +447,11 @@ public struct CaptureRootActions {
     public let preflightFieldReturn:
         (HTDTFieldReturnID, HTDTHandoffDestination) async
             -> HTDTCompatibilityVerdict
+    /// #423 send outcome, surfaced inside the sheet — the durable
+    /// queue's verdict is otherwise invisible on a modal surface.
     public let sendFieldReturnToHTDT:
-        (HTDTFieldReturnID, HTDTHandoffDestination) async -> Void
+        (HTDTFieldReturnID, HTDTHandoffDestination) async
+            -> FieldReturnSendOutcome
     /// #423: the finalized `.htdtfieldreturn` container's URL for
     /// the share sheet — nil when no finalized artifact exists.
     public let fieldReturnArtifactURL:
@@ -480,10 +481,6 @@ public struct CaptureRootActions {
             (ScanMovementCapability) -> Void = { _ in },
         continueScanning: @escaping () -> Void = {},
         beginAnnotation: @escaping () -> Void = {},
-        captureRaycastPlacement: @escaping
-            () async throws -> AnnotationPlacementAuthority = {
-                throw ManualAuthorityBuilderError.invalidPosition
-            },
         captureSpeakerOrientation: @escaping
             () async throws -> AnnotationOrientationAuthority = {
                 throw ManualAuthorityBuilderError.invalidSpeakerYaw
@@ -771,7 +768,7 @@ public struct CaptureRootActions {
                 },
         sendFieldReturnToHTDT: @escaping
             (HTDTFieldReturnID, HTDTHandoffDestination) async
-                -> Void = { _, _ in },
+                -> FieldReturnSendOutcome = { _, _ in .failed },
         fieldReturnArtifactURL: @escaping
             (HTDTFieldReturnID) -> URL? = { _ in nil },
         updateOperatorRoster: @escaping
@@ -798,7 +795,6 @@ public struct CaptureRootActions {
             setScanMovementCapability
         self.continueScanning = continueScanning
         self.beginAnnotation = beginAnnotation
-        self.captureRaycastPlacement = captureRaycastPlacement
         self.captureSpeakerOrientation =
             captureSpeakerOrientation
         self.capturePointOrientation =

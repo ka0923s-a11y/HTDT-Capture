@@ -1150,6 +1150,7 @@ public struct CaptureReviewWorkspaceView: View {
                             model.taskPlanStatus?.items ?? [],
                         canRecordReason:
                             canRecordTaskPlanReason,
+                        canMark: !model.readOnly,
                         onMark: markTaskPlanItem
                     )
                 }
