@@ -1213,7 +1213,9 @@ def _load_roomplan_capture_metadata(
             "processed_serialization_format",
             "raw_byte_count",
             "raw_serialization_format",
+            "captured_room_version",
             "runtime",
+            "summary",
             "surface_count",
             "object_count",
             "dimensions",
@@ -1323,6 +1325,55 @@ def _load_roomplan_capture_metadata(
                 raise IngestionError(
                     f"{field}.dimensions[{name!r}] must be finite"
                 )
+
+    captured_room_version = document.get("captured_room_version")
+    if (
+        captured_room_version is not None
+        and not isinstance(captured_room_version, str)
+    ):
+        raise IngestionError(
+            f"{field}.captured_room_version must be a string"
+        )
+
+    summary = document.get("summary")
+    if summary is not None:
+        if not isinstance(summary, dict):
+            raise IngestionError(f"{field}.summary must be an object")
+        _require_document_keys(
+            summary,
+            required=set(),
+            optional={"surface_count", "object_count", "dimensions_m"},
+            field=f"{field}.summary",
+        )
+        for key in ("surface_count", "object_count"):
+            value = summary.get(key)
+            if value is not None:
+                _require_non_negative_int(
+                    value, f"{field}.summary.{key}"
+                )
+        summary_dimensions = summary.get("dimensions_m")
+        if summary_dimensions is not None:
+            if not isinstance(summary_dimensions, dict):
+                raise IngestionError(
+                    f"{field}.summary.dimensions_m must be an object"
+                )
+            _require_document_keys(
+                summary_dimensions,
+                required={"x_m", "y_m", "z_m"},
+                optional=set(),
+                field=f"{field}.summary.dimensions_m",
+            )
+            for name, value in summary_dimensions.items():
+                if (
+                    not isinstance(value, (int, float))
+                    or isinstance(value, bool)
+                    or not math.isfinite(value)
+                    or value < 0
+                ):
+                    raise IngestionError(
+                        f"{field}.summary.dimensions_m[{name!r}] "
+                        "must be a non-negative finite number"
+                    )
 
     return document
 
@@ -1535,7 +1586,10 @@ class _EvidenceRefContext:
                 f"{field} uses unsupported reference grammar: {ref!r}"
             )
 
-        if prefix == "user":
+        if prefix in {"user", "instrument_reading"}:
+            # ``instrument_reading:<id>`` names an external instrument
+            # reading the adapter reported; like ``user:`` it is an
+            # authored token with no in-bundle target.
             return {"ref": ref, "kind": "annotation_authored", "target": None}
 
         if prefix == "path":
