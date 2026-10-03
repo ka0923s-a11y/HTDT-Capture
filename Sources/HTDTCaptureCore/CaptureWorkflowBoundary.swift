@@ -107,6 +107,8 @@ public enum CaptureWorkflowActionMap {
         "beginCapture", "beginScanning", "cancelCaptureSetup",
         "beginReview", "captureEvidenceFrame", "beginTargetScan",
         "retakeTargetScan", "acceptTargetScan", "cancelTargetScan",
+        "segmentationGesture", "useSegmentation", "cancelSegmentation",
+        "segmentationAssetPrepare",
         "declareNearestUnresolvedRegion", "revokeOperatorRegion",
         "setGuidanceCuesEnabled", "setLoopClosureCheckActive",
         "recordLoopClosureOutcome",

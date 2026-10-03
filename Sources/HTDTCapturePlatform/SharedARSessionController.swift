@@ -611,6 +611,12 @@ public final class SharedARSessionController {
             return
         }
         liveRoomCaptureViewMountObserved = true
+        // #269: bind the layer that displays the ARFrame so iOS 27's
+        // `viewRotationAngle` becomes a live rotation authority for the
+        // segmentation display-transform path.
+        if #available(iOS 27, *) {
+            arSession.viewLayer = roomCaptureView.layer
+        }
         roomCaptureView.setNeedsLayout()
         roomCaptureView.layoutIfNeeded()
     }
@@ -1262,6 +1268,442 @@ public final class SharedARSessionController {
         return Double(rim.count) / Double(points.count)
     }
 
+    /// Result of a mask-gated targeted observation (#269).
+    public struct MaskedTargetedObservationResult: Sendable {
+        /// The observation to feed `DerivedShapeTemporalFusionTracker`.
+        public let observation: DerivedShapeObservation
+        /// Depth/mesh samples inside the mask∩window BEFORE voxel
+        /// reduction — the true spatial-support count for the record's
+        /// downstream depth-confidence policy context.
+        public let supportedSampleCount: Int
+        /// "arkit_confidence_map_nonzero" when a real confidence map
+        /// was enforced, "confidence_map_absent" when the device
+        /// provided none, "mesh_ray_gated" when only mesh support
+        /// survived.
+        public let depthConfidencePolicy: String
+        public let usedMeshFallback: Bool
+
+        public init(
+            observation: DerivedShapeObservation,
+            supportedSampleCount: Int,
+            depthConfidencePolicy: String,
+            usedMeshFallback: Bool
+        ) {
+            self.observation = observation
+            self.supportedSampleCount = supportedSampleCount
+            self.depthConfidencePolicy = depthConfidencePolicy
+            self.usedMeshFallback = usedMeshFallback
+        }
+    }
+
+    /// Mask-gated targeted observation for the #269 segmentation path:
+    /// identical window/plane/rim guards to
+    /// `liveTargetedShapeObservation`, but the depth evidence is
+    /// limited to samples whose source-image position falls inside the
+    /// operator's accepted mask on the RETAINED source frame — the same
+    /// frame's own pose + intrinsics unproject it, so depth authority
+    /// is same-frame by construction. The mesh fallback keeps only
+    /// candidates whose projection through the source frame lands
+    /// inside the mask silhouette (rays constrain mesh support; a 2D
+    /// mask is never extruded into geometry).
+    ///
+    /// The depth decode runs `nonisolated` on the retained snapshot
+    /// inside a utility-priority detached task — Vision/mask work stays
+    /// off the AR delegate and MainActor paths; only the mesh-anchor
+    /// read and observation assembly touch the actor.
+    public func maskedTargetedShapeObservation(
+        snapshot: CapturedFrameSnapshot,
+        mask: SegmentationMaskGrid,
+        target: ScanTargetAnchor,
+        observationID: SegmentationObservationID,
+        windowRadiusMeters: Double? = nil,
+        voxelSizeMeters: Double = 0.012,
+        maxPoints: Int = 256,
+        minimumPointCount: Int = 8
+    ) async -> MaskedTargetedObservationResult? {
+        guard !mask.isEmpty,
+              voxelSizeMeters.isFinite,
+              voxelSizeMeters > 0,
+              maxPoints > 0,
+              minimumPointCount > 0
+        else {
+            return nil
+        }
+
+        let targetPosition = SIMD3<Float>(
+            Float(target.x),
+            Float(target.y),
+            Float(target.z)
+        )
+        let radius = Float(
+            min(
+                windowRadiusMeters ?? target.radiusMeters,
+                Self.maximumTargetedObservationWindowMeters
+            )
+        )
+        guard radius.isFinite, radius > 0 else {
+            return nil
+        }
+
+        let evidenceStem =
+            "live-segmentation:"
+            + observationID.rawValue.uuidString.lowercased()
+
+        let depthResult = await Task.detached(priority: .utility) {
+            Self.maskedSceneDepthWorldPoints(
+                snapshot: snapshot,
+                mask: mask,
+                targetCenter: targetPosition,
+                windowRadiusMeters: radius,
+                maxPoints: 512
+            )
+        }.value
+
+        if !depthResult.points.isEmpty {
+            let planeY = DerivedHorizontalPlaneSegmentation
+                .dominantPlaneY(
+                    verticalPositions: depthResult.points.map {
+                        Double($0.y)
+                    }
+                )
+            let objectPoints = DerivedHorizontalPlaneSegmentation
+                .pointsAbove(
+                    planeY: planeY,
+                    marginMeters: 0.015,
+                    minimumPointCount: minimumPointCount,
+                    in: depthResult.points
+                ) {
+                    Double($0.y)
+                }
+
+            // Same rim guard as the live path: a whole-window survivor
+            // outlining the clip sphere is the support surface, not
+            // the segmented item.
+            if planeY != nil,
+               objectPoints.count == depthResult.points.count,
+               rimFraction(
+                   of: objectPoints,
+                   center: targetPosition,
+                   radius: radius
+               ) > 0.5
+            {
+                // fall through to the mesh path — unresolved there is
+                // still honest (nil), never a fabricated solid.
+            } else if let observation =
+                liveDepthDerivedShapeObservation(
+                    points: objectPoints,
+                    sessionTimestampSeconds:
+                        snapshot.sessionTimestampSeconds,
+                    floorReferenceY: nil,
+                    voxelSizeMeters: voxelSizeMeters,
+                    maxPoints: maxPoints,
+                    minimumPointCount: minimumPointCount,
+                    evidenceRefStem: evidenceStem
+                )
+            {
+                return MaskedTargetedObservationResult(
+                    observation: observation,
+                    supportedSampleCount: depthResult.points.count,
+                    depthConfidencePolicy: depthResult.confidencePolicy,
+                    usedMeshFallback: false
+                )
+            }
+        }
+
+        // Mesh fallback, constrained by the mask's silhouette: only
+        // mesh points whose projection through the SOURCE frame's own
+        // pose/intrinsics lands inside the accepted mask count as
+        // evidence. The frame is explicitly related (same coordinate
+        // space, recorded pose), so this is the "segmented rays
+        // constrain mesh support" path — never an extrusion.
+        guard let frame = arSession.currentFrame else {
+            return nil
+        }
+        let imageWidth = CVPixelBufferGetWidth(snapshot.capturedImage)
+        let imageHeight = CVPixelBufferGetHeight(snapshot.capturedImage)
+        guard imageWidth > 0, imageHeight > 0 else {
+            return nil
+        }
+
+        guard let meshObservation = liveDerivedShapeObservation(
+            anchors: frame.anchors.compactMap { $0 as? ARMeshAnchor },
+            classifications: nil,
+            sessionTimestampSeconds: snapshot.sessionTimestampSeconds,
+            voxelSizeMeters: 0.015,
+            maxPoints: maxPoints,
+            maxInspectedFaces: 1_500,
+            boundingCenter: targetPosition,
+            boundingRadiusMeters: radius,
+            supportPlaneRejection: (
+                marginMeters: 0.015,
+                minimumPointCount: minimumPointCount
+            )
+        ) else {
+            return nil
+        }
+
+        let maskGatedPoints = meshObservation.points.filter { point in
+            SegmentationDepthGate.maskContains(
+                mask: mask,
+                worldX: point.position.x,
+                worldY: point.verticalPositionMeters
+                    ?? Double(targetPosition.y),
+                worldZ: point.position.y,
+                worldFromCamera: snapshot.worldFromCamera,
+                intrinsics: snapshot.intrinsics,
+                imageWidth: imageWidth,
+                imageHeight: imageHeight
+            )
+        }
+        guard maskGatedPoints.count >= minimumPointCount else {
+            return nil
+        }
+
+        if rimFraction(
+            of: maskGatedPoints.map {
+                SIMD3<Float>(
+                    Float($0.position.x),
+                    Float(
+                        $0.verticalPositionMeters
+                            ?? Double(targetPosition.y)
+                    ),
+                    Float($0.position.y)
+                )
+            },
+            center: targetPosition,
+            radius: radius
+        ) > 0.5 {
+            return nil
+        }
+
+        let gated = DerivedShapeObservation(
+            coordinateSpaceID: meshObservation.coordinateSpaceID,
+            points: maskGatedPoints,
+            observationStartSeconds:
+                meshObservation.observationStartSeconds,
+            observationEndSeconds:
+                meshObservation.observationEndSeconds
+        )
+        return MaskedTargetedObservationResult(
+            observation: gated,
+            supportedSampleCount: maskGatedPoints.count,
+            depthConfidencePolicy: "mesh_ray_gated",
+            usedMeshFallback: true
+        )
+    }
+
+    /// Depth-map decode for a mask-gated observation: mirrors
+    /// `liveSceneDepthWorldPoints` exactly (confidence-map filtering,
+    /// depth-range guards, scaled intrinsics, the
+    /// `T_world_from_camera` unproject convention) but reads the
+    /// RETAINED snapshot's own `ARDepthData` — the same-frame guarantee
+    /// is structural — and admits only samples inside the mask and the
+    /// observation window. Never upsamples depth: only real depth-map
+    /// samples produce world points.
+    ///
+    /// `nonisolated`: pixel locks and row walks run wherever the
+    /// caller's task runs (a detached bounded task in practice), never
+    /// on MainActor or the AR delegate.
+    nonisolated static func maskedSceneDepthWorldPoints(
+        snapshot: CapturedFrameSnapshot,
+        mask: SegmentationMaskGrid,
+        targetCenter: SIMD3<Float>,
+        windowRadiusMeters: Float,
+        maxPoints: Int,
+        minimumDepthMeters: Float = 0.15,
+        maximumDepthMeters: Float = 4.5
+    ) -> (points: [SIMD3<Float>], confidencePolicy: String) {
+        let empty: ([SIMD3<Float>], String) = ([], "unavailable")
+        guard maxPoints > 0,
+              minimumDepthMeters > 0,
+              maximumDepthMeters > minimumDepthMeters,
+              windowRadiusMeters.isFinite,
+              windowRadiusMeters > 0,
+              !mask.isEmpty,
+              let depthData =
+                snapshot.smoothedDepthData ?? snapshot.discreteDepthData
+        else {
+            return empty
+        }
+
+        let depthMap = depthData.depthMap
+        let width = CVPixelBufferGetWidth(depthMap)
+        let height = CVPixelBufferGetHeight(depthMap)
+        guard width > 1,
+              height > 1,
+              CVPixelBufferGetPixelFormatType(depthMap)
+                == kCVPixelFormatType_DepthFloat32,
+              CVPixelBufferLockBaseAddress(depthMap, .readOnly)
+                == kCVReturnSuccess
+        else {
+            return empty
+        }
+        defer {
+            CVPixelBufferUnlockBaseAddress(depthMap, .readOnly)
+        }
+        guard let depthBaseAddress =
+                CVPixelBufferGetBaseAddress(depthMap)
+        else {
+            return empty
+        }
+
+        var confidenceMap: CVPixelBuffer?
+        var confidencePolicy = "confidence_map_absent"
+        if let candidateConfidenceMap = depthData.confidenceMap,
+           CVPixelBufferGetWidth(candidateConfidenceMap) == width,
+           CVPixelBufferGetHeight(candidateConfidenceMap) == height,
+           CVPixelBufferGetPixelFormatType(candidateConfidenceMap)
+                == kCVPixelFormatType_OneComponent8,
+           CVPixelBufferLockBaseAddress(
+                candidateConfidenceMap,
+                .readOnly
+           ) == kCVReturnSuccess
+        {
+            if CVPixelBufferGetBaseAddress(candidateConfidenceMap)
+                != nil
+            {
+                confidenceMap = candidateConfidenceMap
+                confidencePolicy = "arkit_confidence_map_nonzero"
+            } else {
+                CVPixelBufferUnlockBaseAddress(
+                    candidateConfidenceMap,
+                    .readOnly
+                )
+            }
+        }
+        defer {
+            if let confidenceMap {
+                CVPixelBufferUnlockBaseAddress(
+                    confidenceMap,
+                    .readOnly
+                )
+            }
+        }
+
+        let imageWidth = CVPixelBufferGetWidth(snapshot.capturedImage)
+        let imageHeight = CVPixelBufferGetHeight(snapshot.capturedImage)
+        guard imageWidth > 0, imageHeight > 0 else {
+            return empty
+        }
+
+        // Intrinsics scale to depth-map resolution exactly like the
+        // live path — depth pixels index the same normalized image
+        // space the mask tests in.
+        let scaleX = Float(width) / Float(imageWidth)
+        let scaleY = Float(height) / Float(imageHeight)
+        let intrinsics = snapshot.intrinsics
+        let fx = intrinsics.fx * scaleX
+        let fy = intrinsics.fy * scaleY
+        let cx = intrinsics.cx * scaleX
+        let cy = intrinsics.cy * scaleY
+        guard fx.isFinite, fy.isFinite, fx > 0, fy > 0 else {
+            return empty
+        }
+
+        let depthBytesPerRow = CVPixelBufferGetBytesPerRow(depthMap)
+        let confidenceBytesPerRow =
+            confidenceMap.map { CVPixelBufferGetBytesPerRow($0) } ?? 0
+        let confidenceBaseAddress =
+            confidenceMap.flatMap { CVPixelBufferGetBaseAddress($0) }
+        guard depthBytesPerRow >= width * MemoryLayout<Float>.size
+        else {
+            return empty
+        }
+        if confidenceMap != nil, confidenceBytesPerRow < width {
+            return empty
+        }
+
+        let step = max(
+            1,
+            Int(
+                ceil(
+                    sqrt(
+                        Double(width) * Double(height)
+                            / Double(maxPoints)
+                    )
+                )
+            )
+        )
+        let radiusSquared =
+            windowRadiusMeters * windowRadiusMeters
+
+        // Column-major worldFromCamera: basis columns 0–2, translation
+        // column 3 — the snapshot's own `T_world_from_camera`.
+        let m = snapshot.worldFromCamera.values
+
+        var points: [SIMD3<Float>] = []
+        points.reserveCapacity(maxPoints)
+
+        var y = step / 2
+        while y < height, points.count < maxPoints {
+            let depthRow = depthBaseAddress
+                .advanced(by: y * depthBytesPerRow)
+                .assumingMemoryBound(to: Float.self)
+            let confidenceRow =
+                confidenceBaseAddress?
+                    .advanced(by: y * confidenceBytesPerRow)
+                    .assumingMemoryBound(to: UInt8.self)
+
+            var x = step / 2
+            while x < width, points.count < maxPoints {
+                defer { x += step }
+                // The mask is the spatial gate: depth pixels outside
+                // the accepted silhouette never become evidence.
+                guard mask.contains(
+                    depthX: x,
+                    depthY: y,
+                    depthWidth: width,
+                    depthHeight: height
+                ) else {
+                    continue
+                }
+                let depth = depthRow[x]
+                guard depth.isFinite,
+                      depth >= minimumDepthMeters,
+                      depth <= maximumDepthMeters
+                else {
+                    continue
+                }
+                if let confidenceRow,
+                   confidenceRow[x] == 0
+                {
+                    continue
+                }
+                let localX = (Float(x) - cx) * depth / fx
+                let localY = -(Float(y) - cy) * depth / fy
+                // camera→world via column-major transform:
+                // world = R * local + t.
+                let worldX =
+                    m[0] * localX + m[4] * localY
+                    - m[8] * depth + m[12]
+                let worldY =
+                    m[1] * localX + m[5] * localY
+                    - m[9] * depth + m[13]
+                let worldZ =
+                    m[2] * localX + m[6] * localY
+                    - m[10] * depth + m[14]
+                guard worldX.isFinite,
+                      worldY.isFinite,
+                      worldZ.isFinite
+                else {
+                    continue
+                }
+                let dx = worldX - targetCenter.x
+                let dy = worldY - targetCenter.y
+                let dz = worldZ - targetCenter.z
+                guard dx * dx + dy * dy + dz * dz
+                        <= radiusSquared
+                else {
+                    continue
+                }
+                points.append(SIMD3<Float>(worldX, worldY, worldZ))
+            }
+            y += step
+        }
+
+        return (points, confidencePolicy)
+    }
+
     public func snapshotActiveMeshAnchors() throws -> [MeshAnchorSnapshot] {
         guard let frame = arSession.currentFrame else {
             throw PlatformCaptureError.currentFrameUnavailable
@@ -1893,7 +2335,11 @@ public final class SharedARSessionController {
         floorReferenceY: Double?,
         voxelSizeMeters: Double,
         maxPoints: Int,
-        minimumPointCount: Int = 8
+        minimumPointCount: Int = 8,
+        // #269: when set, replaces the default
+        // `live-scene-depth:<ts>:` stem so mask-gated evidence carries
+        // its producing observation's id.
+        evidenceRefStem: String? = nil
     ) -> DerivedShapeObservation? {
         guard maxPoints > 0,
               minimumPointCount > 0,
@@ -1925,11 +2371,12 @@ public final class SharedARSessionController {
                     y: Double(point.z)
                 ),
                 evidenceRef:
-                    "live-scene-depth:"
-                    + String(
-                        format: "%.3f",
-                        sessionTimestampSeconds
-                    )
+                    (evidenceRefStem
+                        ?? "live-scene-depth:"
+                            + String(
+                                format: "%.3f",
+                                sessionTimestampSeconds
+                            ))
                     + ":"
                     + String(index),
                 evidenceKind: .sceneDepth,

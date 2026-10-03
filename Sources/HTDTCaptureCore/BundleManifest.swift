@@ -770,6 +770,15 @@ enum BundleReservedPaths {
             provenanceClass: .captureAppDerived,
             role: .derived
         ),
+        // Iterative-segmentation observations (issue #269): masks
+        // persist only as derived image-processing evidence bound to
+        // the persisted source-frame descriptors they ran on.
+        "derived/segmentation-observations.json": Binding(
+            mediaType: "application/json",
+            producer: "derived_segmentation",
+            provenanceClass: .captureAppDerived,
+            role: .derived
+        ),
         "evidence/reference-targets.json": Binding(
             mediaType: "application/json",
             producer: "reference_target_capture",

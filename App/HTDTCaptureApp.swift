@@ -104,6 +104,8 @@ private struct HTDTCaptureHostView: View {
             lowLightGuidanceActive:
                 coordinator.lowLightGuidanceActive,
             targetScanStatus: coordinator.targetScanStatus,
+            segmentationInteraction:
+                coordinator.segmentationInteraction,
             declaredRegions: coordinator.declaredRegionList,
             loopClosureCheckActive:
                 coordinator.loopClosureCheckActive,
@@ -216,6 +218,14 @@ private struct HTDTCaptureHostView: View {
                 retakeTargetScan: coordinator.retakeTargetScan,
                 acceptTargetScan: coordinator.acceptTargetScan,
                 cancelTargetScan: coordinator.cancelTargetScan,
+                segmentationGesture:
+                    coordinator.segmentationGesture,
+                useSegmentation:
+                    coordinator.useSegmentation,
+                cancelSegmentation:
+                    coordinator.cancelSegmentation,
+                segmentationAssetPrepare:
+                    coordinator.segmentationAssetPrepare,
                 declareNearestUnresolvedRegion:
                     coordinator.declareNearestUnresolvedRegion,
                 revokeOperatorRegion:
@@ -1134,6 +1144,37 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     /// Shape candidates minted by accepted object passes during this
     /// capture; persisted into `derived/geometry-candidates.json` at End.
     private var targetedObjectProxies: [DerivedShapeProxy] = []
+    // #269: operator-seeded Vision iterative segmentation inside an
+    // object pass. Bounded temporal policy: one run per accepted mask;
+    // a re-run happens only on an explicit operator request (new
+    // selection / refinement), never at frame rate.
+    private let segmentationPolicy = SegmentationRunPolicy()
+    private let segmentationAssetController =
+        ObjectSegmentationAssetController()
+    private let segmentationSegmenter = IterativeObjectSegmenter()
+    private var segmentationAssetTask: Task<Void, Never>?
+    private var segmentationRunTask: Task<Void, Never>?
+    /// In-flight evidence save for a segmentation source frame; drained
+    /// with the other frame saves at the End boundary (#179).
+    private var segmentationFrameSaveTask: Task<Void, Never>?
+    /// The live mask context for the current object pass.
+    private var segmentationRun: SegmentationRunContext?
+    /// Accepted records awaiting the End-boundary doc write. Entries
+    /// survive pass End/cancel — the record is already evidence.
+    private var pendingSegmentationObservations:
+        [ObjectSegmentationObservation] = []
+    /// Asset status probed for the current pass — the UI advertises it
+    /// and a non-ready state only ever shows an explicit "prepare"
+    /// affordance, never an automatic mid-scan download.
+    private var segmentationAssetReadiness: SegmentationAssetReadiness =
+        .unknown
+    /// Deliberate `qualityLevel` for every Vision request this capture —
+    /// `.balanced` trades the ~2× accurate-model latency for a mask
+    /// quality that already exceeds the depth-gate precision.
+    private var segmentationQualityLevel: SegmentationQualityLevel =
+        .balanced
+    @Published private(set) var segmentationInteraction =
+        SegmentationInteractionState.unavailable
     /// Best resolved object proxy per item seen across the whole scan,
     /// independent of the sliding fusion window — the live preview only
     /// shows the current tick, but End must persist every item that was
@@ -1659,6 +1700,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         bestDerivedObjectProxies = []
         targetedObjectFusionTracker.reset()
         derivedPreviewSuspendedForMemoryPressure = false
+        resetSegmentationCaptureState()
         setRoomPlanModelRenderingEnabled(true)
         scanEvidenceFrameCount = 0
         scanDepthEvidenceCount = 0
@@ -2330,6 +2372,13 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 guidance: .hold,
                 distanceToTargetMeters: initialDistance
             )
+            // #269: a fresh pass is a fresh seeding surface. Probe the
+            // downloadable Vision asset (non-mutating) so the UI can
+            // advertise readiness without ever starting a download.
+            resetSegmentationRun(
+                phase: .seeding
+            )
+            refreshSegmentationAssetStatus()
             workingSetStatus = String(localized: "Object pass started; keep the aimed object centered and move around it")
         } catch {
             workingSetStatus = String(localized: "No surface was detected at the aim point; aim at the object and try again")
@@ -2348,6 +2397,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         )
         targetedObjectFusionTracker.reset()
         targetScanStatus = nil
+        resetSegmentationRun(phase: .seeding)
     }
 
     /// Complete the pass: fit the fused bounded observation into a
@@ -2452,6 +2502,792 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         // fusion window itself is per-pass and always discards.
         targetedObjectFusionTracker.reset()
         targetScanAnchorSource = nil
+        resetSegmentationRun(phase: .unavailable)
+    }
+
+    // MARK: - Operator-seeded iterative segmentation (#269)
+    //
+    // One operator-requested mask per selection, fused into the bounded
+    // object-pass tracker exactly once on "Use". Mask bytes persist
+    // only as derived evidence
+    // (derived/segmentation-observations.json) bound to the persisted
+    // source frame; an unsupported mask stays 2D derived evidence —
+    // never extruded into canonical geometry.
+
+    /// Bounded state for one Vision attempt inside the active object
+    /// pass. `observationID` is minted at seed time so the mask-gated
+    /// depth decode names the same id the persisted record carries.
+    private struct SegmentationRunContext {
+        let observationID: SegmentationObservationID
+        let source: SegmentationSourceFrame
+        let seedKind: SegmentationSeedKind
+        /// Image-normalized (top-left) seed points actually used:
+        /// the tap point, box corners, or the decimated scribble path.
+        var seedPoints: [NormalizedPoint2D]
+        var seedBox: NormalizedRect2D?
+        var includedPoints: [NormalizedPoint2D] = []
+        var excludedPoints: [NormalizedPoint2D] = []
+        var mask: SegmentationMaskGrid
+        var maskPixelCount = 0
+    }
+
+    /// Kick the downloadable-asset probe/prep — called once per capture
+    /// right after RoomPlan starts (prepare BEFORE the mission begins)
+    /// and again only on an explicit operator request. Never triggered
+    /// by a segmentation attempt mid-scan.
+    private func prepareSegmentationAssets() {
+        guard segmentationAssetTask == nil else {
+            return
+        }
+        segmentationAssetTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            defer { self.segmentationAssetTask = nil }
+            let readiness = await self.segmentationAssetController
+                .prepare()
+            self.applySegmentationAssetReadiness(readiness)
+        }
+    }
+
+    /// Non-mutating status probe — never starts a download. Called when
+    /// an object pass begins so the UI reflects the real asset state.
+    private func refreshSegmentationAssetStatus() {
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            let readiness = await self.segmentationAssetController
+                .status()
+            self.applySegmentationAssetReadiness(readiness)
+        }
+    }
+
+    /// Explicit operator request from the object-pass UI ("Prepare the
+    /// segmentation model") — the only mid-scan path allowed to reach
+    /// `downloadAssets()`.
+    func segmentationAssetPrepare() {
+        prepareSegmentationAssets()
+    }
+
+    private func applySegmentationAssetReadiness(
+        _ readiness: SegmentationAssetReadiness
+    ) {
+        segmentationAssetReadiness = readiness
+        guard state == .scanning, targetScanTracker != nil else {
+            return
+        }
+        var updated = segmentationInteraction
+        updated.assetReadiness = readiness
+        if updated.phase == .unavailable || updated.phase == .failed {
+            // Asset resolution arrived after the pass opened — the
+            // pass is seeding-capable only when the model is ready.
+            updated = SegmentationInteractionState(
+                phase: .seeding,
+                assetReadiness: readiness
+            )
+        }
+        segmentationInteraction = updated
+    }
+
+    /// View-side gesture forwarded as normalized points. `seeding`
+    /// seeds a run; `maskReady` turns a tap into a bounded
+    /// include/exclude refinement.
+    func segmentationGesture(_ gesture: SegmentationGesture) {
+        guard state == .scanning,
+              !isEndingScan,
+              let tracker = targetScanTracker
+        else {
+            return
+        }
+        // #273: Vision work is derived-quality work — refused under
+        // thermal or memory pressure like the live preview path.
+        let thermal = ProcessInfo.processInfo.thermalState
+        guard !derivedPreviewSuspendedForMemoryPressure,
+              thermal != .serious, thermal != .critical
+        else {
+            updateSegmentationInteraction(
+                phase: .failed,
+                detail: "thermal_or_memory_pressure"
+            )
+            return
+        }
+        switch gesture.kind {
+        case .seedPoint, .seedBox, .seedScribble:
+            guard segmentationInteraction.phase == .seeding,
+                  segmentationInteraction.assetReadiness
+                      .admitsSegmentation
+            else {
+                return
+            }
+            beginSegmentationRun(gesture, tracker: tracker)
+        case .includePoint, .excludePoint:
+            guard segmentationInteraction.phase == .maskReady,
+                  let run = segmentationRun
+            else {
+                return
+            }
+            refineSegmentationRun(gesture, run: run)
+        }
+    }
+
+    private func updateSegmentationInteraction(
+        phase: SegmentationInteractionPhase,
+        maskPixelCount: Int? = nil,
+        refinementCount: Int? = nil,
+        fusedWorldPointCount: Int? = nil,
+        detail: String? = nil
+    ) {
+        var updated = segmentationInteraction
+        updated.phase = phase
+        updated.assetReadiness = segmentationAssetReadiness
+        updated.maskPixelCount = maskPixelCount
+        updated.refinementCount = refinementCount ?? 0
+        updated.fusedWorldPointCount = fusedWorldPointCount
+        updated.canRefine =
+            phase == .maskReady
+            && segmentationPolicy.acceptsRefinement(
+                count: refinementCount ?? 0
+            )
+        // Bounded temporal rule: a re-run is an explicit operator
+        // request only — allowed from a fresh/cleared surface or a
+        // completed attempt, never implicit on a timer or frame tick.
+        updated.canResegment =
+            phase == .seeding || phase == .maskReady
+            || phase == .accepted || phase == .failed
+        updated.detail = detail
+        segmentationInteraction = updated
+    }
+
+    private func beginSegmentationRun(
+        _ gesture: SegmentationGesture,
+        tracker: TargetedObjectScanTracker
+    ) {
+        guard segmentationRunTask == nil else {
+            return
+        }
+        let policy = segmentationPolicy
+        // Snapshot frame + display authority on the SAME pose-linked
+        // frame — the Vision input image and the depth/mesh evidence
+        // this mask may later fuse share one coordinate authority.
+        let source: SegmentationSourceFrame
+        do {
+            source = try sessionController
+                .snapshotSegmentationSourceFrame(
+                    viewportWidthPoints: gesture.viewportWidthPoints,
+                    viewportHeightPoints: gesture.viewportHeightPoints,
+                    interfaceOrientation:
+                        Self.currentInterfaceOrientation()
+                )
+        } catch {
+            updateSegmentationInteraction(
+                phase: .failed,
+                detail: "source_frame_unavailable"
+            )
+            return
+        }
+        let imagePoints = gesture.viewNormalizedPoints.compactMap {
+            SegmentationViewToImageMapping.imageNormalizedPoint(
+                fromViewPoint: $0,
+                displayTransform: source.imageFromViewDisplayTransform
+            )
+        }
+        guard !imagePoints.isEmpty else {
+            updateSegmentationInteraction(
+                phase: .seeding,
+                detail: "seed_outside_image"
+            )
+            return
+        }
+        let imageWidth = CVPixelBufferGetWidth(
+            source.snapshot.capturedImage
+        )
+        let imageHeight = CVPixelBufferGetHeight(
+            source.snapshot.capturedImage
+        )
+        let seed: ObjectSegmentationSeed
+        let seedKind: SegmentationSeedKind
+        var seedBox: NormalizedRect2D?
+        var recordSeedPoints = imagePoints
+        switch gesture.kind {
+        case .seedPoint:
+            guard let point = imagePoints.first,
+                  imagePoints.count == 1,
+                  let vision = SegmentationViewToImageMapping
+                      .visionPoint(fromImagePoint: point)
+            else {
+                return
+            }
+            seed = .point(x: vision.x, y: vision.y)
+            seedKind = .point
+        case .seedBox:
+            guard imagePoints.count >= 2 else {
+                return
+            }
+            let xs = imagePoints.map(\.x)
+            let ys = imagePoints.map(\.y)
+            let rect = NormalizedRect2D(
+                x: xs.min() ?? 0,
+                y: ys.min() ?? 0,
+                width: (xs.max() ?? 0) - (xs.min() ?? 0),
+                height: (ys.max() ?? 0) - (ys.min() ?? 0)
+            )
+            guard rect.isUnitSquare else {
+                return
+            }
+            // Vision NormalizedRect is lower-left origin.
+            seed = .box(
+                x: rect.x,
+                y: 1 - rect.y - rect.height,
+                width: rect.width,
+                height: rect.height
+            )
+            seedBox = rect
+            seedKind = .box
+            recordSeedPoints = [imagePoints[0], imagePoints[1]]
+        case .seedScribble:
+            guard imagePoints.count >= 2 else {
+                return
+            }
+            // Lasso → bounded scribble: decimate to the policy point
+            // cap, then rasterize inside the platform adapter.
+            let decimated = Self.decimateTo(
+                maximum: policy.maximumScribblePoints,
+                points: imagePoints
+            )
+            let pixels = decimated.map {
+                SIMD2<Float>(
+                    Float($0.x * Double(imageWidth)),
+                    Float($0.y * Double(imageHeight))
+                )
+            }
+            seed = .scribble(imagePixelPoints: pixels)
+            seedKind = .scribble
+            recordSeedPoints = decimated
+        case .includePoint, .excludePoint:
+            return
+        }
+        let run = SegmentationRunContext(
+            observationID: SegmentationObservationID(),
+            source: source,
+            seedKind: seedKind,
+            seedPoints: recordSeedPoints,
+            seedBox: seedBox,
+            mask: SegmentationMaskGrid(
+                width: imageWidth,
+                height: imageHeight
+            )
+        )
+        segmentationRun = run
+        updateSegmentationInteraction(phase: .running)
+        let level = segmentationQualityLevel
+        let threshold = policy.maskAcceptThreshold
+        let limit = policy.maximumRefinementCount
+        let generation = captureGeneration
+        let segmenter = segmentationSegmenter
+        segmentationRunTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            defer { self.segmentationRunTask = nil }
+            // Off the AR delegate path: the actor hops Vision work to
+            // a detached utility task; only state updates return here.
+            do {
+                let mask = try await segmenter.start(
+                    image: source.snapshot.capturedImage,
+                    seed: seed,
+                    qualityLevel: level,
+                    maskAcceptThreshold: threshold,
+                    refinementLimit: limit
+                )
+                guard self.captureGeneration == generation,
+                      self.state == .scanning,
+                      self.segmentationRun?.observationID
+                        == run.observationID
+                else {
+                    return
+                }
+                guard mask.setCount >= policy.minimumMaskPixelCount else {
+                    self.segmentationRun = nil
+                    self.updateSegmentationInteraction(
+                        phase: .seeding,
+                        detail: "mask_too_small"
+                    )
+                    return
+                }
+                var updated = run
+                updated.mask = mask
+                updated.maskPixelCount = mask.setCount
+                self.segmentationRun = updated
+                self.updateSegmentationInteraction(
+                    phase: .maskReady,
+                    maskPixelCount: mask.setCount,
+                    refinementCount: 0
+                )
+            } catch ObjectSegmentationError.assetNotReady {
+                self.segmentationRun = nil
+                self.updateSegmentationInteraction(
+                    phase: .seeding,
+                    detail: "asset_not_ready"
+                )
+            } catch {
+                self.segmentationRun = nil
+                self.updateSegmentationInteraction(
+                    phase: .failed,
+                    detail: "segmentation_failed"
+                )
+            }
+        }
+    }
+
+    private func refineSegmentationRun(
+        _ gesture: SegmentationGesture,
+        run: SegmentationRunContext
+    ) {
+        let refinementCount =
+            run.includedPoints.count + run.excludedPoints.count
+        guard segmentationRunTask == nil,
+              segmentationPolicy.acceptsRefinement(
+                  count: refinementCount
+              ),
+              let viewPoint = gesture.viewNormalizedPoints.first,
+              let imagePoint = SegmentationViewToImageMapping
+                  .imageNormalizedPoint(
+                      fromViewPoint: viewPoint,
+                      displayTransform:
+                          run.source.imageFromViewDisplayTransform
+                  ),
+              let vision = SegmentationViewToImageMapping
+                  .visionPoint(fromImagePoint: imagePoint)
+        else {
+            return
+        }
+        let included = gesture.kind == .includePoint
+        updateSegmentationInteraction(phase: .running)
+        let generation = captureGeneration
+        let segmenter = segmentationSegmenter
+        let threshold = segmentationPolicy.maskAcceptThreshold
+        let limit = segmentationPolicy.maximumRefinementCount
+        segmentationRunTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            defer { self.segmentationRunTask = nil }
+            do {
+                let mask = try await segmenter.refine(
+                    visionNormalizedX: vision.x,
+                    visionNormalizedY: vision.y,
+                    included: included
+                )
+                guard self.captureGeneration == generation,
+                      self.state == .scanning,
+                      self.segmentationRun?.observationID
+                        == run.observationID
+                else {
+                    return
+                }
+                let newCount = refinementCount + 1
+                var updated = run
+                updated.mask = mask
+                updated.maskPixelCount = mask.setCount
+                if included {
+                    updated.includedPoints.append(imagePoint)
+                } else {
+                    updated.excludedPoints.append(imagePoint)
+                }
+                self.segmentationRun = updated
+                self.updateSegmentationInteraction(
+                    phase: .maskReady,
+                    maskPixelCount: mask.setCount,
+                    refinementCount: newCount
+                )
+            } catch {
+                self.updateSegmentationInteraction(
+                    phase: .maskReady,
+                    maskPixelCount: run.maskPixelCount,
+                    refinementCount: refinementCount,
+                    detail: "refinement_failed"
+                )
+            }
+        }
+    }
+
+    /// "Use": fuse the accepted mask's spatially-supported depth (or
+    /// mesh projection) into the pass tracker exactly once, then
+    /// record the derived observation + persist the source frame.
+    func useSegmentation() {
+        guard state == .scanning,
+              !isEndingScan,
+              segmentationInteraction.phase == .maskReady,
+              let run = segmentationRun
+        else {
+            return
+        }
+        updateSegmentationInteraction(phase: .running)
+        let generation = captureGeneration
+        let policy = segmentationPolicy
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            guard self.captureGeneration == generation,
+                  self.state == .scanning,
+                  self.segmentationRun?.observationID
+                    == run.observationID,
+                  let tracker = self.targetScanTracker
+            else {
+                return
+            }
+            let result = await self.sessionController
+                .maskedTargetedShapeObservation(
+                    snapshot: run.source.snapshot,
+                    mask: run.mask,
+                    target: tracker.target,
+                    observationID: run.observationID,
+                    minimumPointCount: policy.minimumWorldPointCount
+                )
+            guard self.captureGeneration == generation,
+                  self.state == .scanning
+            else {
+                return
+            }
+            if let result {
+                // One accepted mask feeds the bounded fusion exactly
+                // once — the pass keeps orbiting on its own samples.
+                _ = self.targetedObjectFusionTracker.record(
+                    result.observation,
+                    timestampSeconds:
+                        run.source.snapshot.sessionTimestampSeconds
+                )
+            }
+            self.finalizeSegmentationObservation(
+                run: run,
+                fusedWorldPointCount:
+                    result?.observation.points.count ?? 0,
+                depthConfidencePolicy:
+                    result?.depthConfidencePolicy
+            )
+            let fusedCount = result?.observation.points.count ?? 0
+            self.updateSegmentationInteraction(
+                phase: .accepted,
+                fusedWorldPointCount: fusedCount,
+                detail: result == nil ? "unsupported_mask_2d_only" : nil
+            )
+            let refinementApplied = run.includedPoints.count
+                + run.excludedPoints.count
+            var noteDetail =
+                "seed_kind=\(run.seedKind.rawValue)"
+                + " mask_px=\(run.maskPixelCount)"
+                + " refinements=\(refinementApplied)"
+                + " fused_3d=\(fusedCount)"
+                + " authority=\(run.source.authority.revisionToken)"
+            if let policyToken = result?.depthConfidencePolicy {
+                noteDetail += " depth_policy=\(policyToken)"
+            }
+            self.recordAdvisoryNote(
+                CaptureAdvisoryNote(
+                    kind: .segmentationPass,
+                    sessionTimestampSeconds:
+                        run.source.snapshot.sessionTimestampSeconds,
+                    detail: noteDetail
+                )
+            )
+        }
+    }
+
+    /// "Cancel"/"New selection": drop the live run; an accepted record
+    /// stays in pendingSegmentationObservations (already evidence).
+    func cancelSegmentation() {
+        resetSegmentationRun(
+            phase: targetScanTracker == nil ? .unavailable : .seeding
+        )
+    }
+
+    private func resetSegmentationRun(
+        phase: SegmentationInteractionPhase
+    ) {
+        segmentationRunTask?.cancel()
+        segmentationRunTask = nil
+        segmentationRun = nil
+        updateSegmentationInteraction(phase: phase)
+    }
+
+    /// Scan/generation reset: drop the live run AND the queued
+    /// observations — records belong to the torn-down working set.
+    private func resetSegmentationCaptureState() {
+        segmentationRunTask?.cancel()
+        segmentationRunTask = nil
+        segmentationFrameSaveTask?.cancel()
+        segmentationFrameSaveTask = nil
+        segmentationRun = nil
+        pendingSegmentationObservations = []
+        segmentationAssetReadiness = .unknown
+        segmentationInteraction = .unavailable
+    }
+
+    /// Persist the run's source frame as a real evidence frame so the
+    /// record's `source_frame_ref` resolves to a declared payload; the
+    /// save is tracked for the End-boundary drain (#179).
+    private func persistSegmentationSourceFrame(
+        _ snapshot: CapturedFrameSnapshot
+    ) {
+        guard let store = workingSetStore,
+              segmentationFrameSaveTask == nil
+        else {
+            return
+        }
+        segmentationFrameSaveTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            defer { self.segmentationFrameSaveTask = nil }
+            do {
+                let artifacts = try await ARFrameArtifactAdapter
+                    .materialize(snapshot)
+                let package = try FrameEvidencePackageBuilder.build(
+                    descriptor: artifacts.descriptor,
+                    pixelPayload: artifacts.pixelPayload,
+                    depthPayload: artifacts.depthPayload,
+                    confidencePayload: artifacts.confidencePayload,
+                    previewPayload: artifacts.previewPayload
+                )
+                try await store.persistFramePackage(package)
+                self.markEvidenceRetention(
+                    "path:" + package.descriptorPath,
+                    .segmentationSource
+                )
+            } catch {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "Segmentation source frame could not be persisted; the mask record will be dropped at End: "
+                            + Self.persistenceDiagnostic(error)
+                    )
+                )
+            }
+        }
+    }
+
+    /// Build the derived record and queue it for the End-boundary doc.
+    private func finalizeSegmentationObservation(
+        run: SegmentationRunContext,
+        fusedWorldPointCount: Int,
+        depthConfidencePolicy: String?
+    ) {
+        let snapshot = run.source.snapshot
+        let frameRef =
+            "path:evidence/frames/"
+            + snapshot.frameID.rawValue.uuidString.lowercased()
+            + ".json"
+        persistSegmentationSourceFrame(snapshot)
+        let persistedMask = run.mask.downsampled(
+            toMaximumDimension:
+                segmentationPolicy.persistedMaskMaximumDimension
+        )
+        let provenance = PlatformRuntimeProvenance.current()
+        do {
+            let record = try ObjectSegmentationObservation(
+                observationID: run.observationID,
+                captureSessionID: snapshot.captureSessionID,
+                coordinateSpaceID: snapshot.coordinateSpaceID,
+                sourceFrameRef: frameRef,
+                sourceFrameKind: "streamed",
+                sessionTimestampSeconds:
+                    snapshot.sessionTimestampSeconds,
+                imageWidth: CVPixelBufferGetWidth(
+                    snapshot.capturedImage
+                ),
+                imageHeight: CVPixelBufferGetHeight(
+                    snapshot.capturedImage
+                ),
+                pixelFormatFourCC: CVPixelBufferGetPixelFormatType(
+                    snapshot.capturedImage
+                ),
+                viewRotationOrDisplayTransformRevision:
+                    run.source.revisionToken,
+                seedKind: run.seedKind,
+                seedPoints: run.seedPoints,
+                seedBox: run.seedBox,
+                refinementIncludedPoints: run.includedPoints,
+                refinementExcludedPoints: run.excludedPoints,
+                refinementCount:
+                    run.includedPoints.count
+                    + run.excludedPoints.count,
+                qualityLevel: segmentationQualityLevel.rawValue,
+                maskWidth: persistedMask.width,
+                maskHeight: persistedMask.height,
+                maskEncoding: "bitpack_msb_rows_base64",
+                maskPayloadRef: "inline",
+                maskPayloadBase64: persistedMask.base64Encoded,
+                maskAcceptThreshold:
+                    segmentationPolicy.maskAcceptThreshold,
+                visionRequest: "GenerateIterativeSegmentationRequest",
+                osVersion: provenance.osVersion,
+                osBuild: provenance.osBuild ?? "unknown",
+                appVersion: provenance.appVersion,
+                appBuild: provenance.appBuild,
+                downstreamSpatialFrameRef:
+                    fusedWorldPointCount > 0 ? frameRef : nil,
+                downstreamDepthConfidencePolicy:
+                    depthConfidencePolicy,
+                downstream3DPointCount: fusedWorldPointCount
+            )
+            pendingSegmentationObservations.append(record)
+        } catch {
+            Task { @MainActor [weak self] in
+                guard let self,
+                      let store = self.workingSetStore
+                else {
+                    return
+                }
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "Segmentation observation rejected by the record contract: "
+                            + Self.persistenceDiagnostic(error)
+                    )
+                )
+            }
+        }
+    }
+
+    /// Emit `derived/segmentation-observations.json` at the End commit.
+    /// A record persists only when its source frame actually declared —
+    /// a dropped frame write must not leave an unresolvable ref.
+    private func persistSegmentationObservations(
+        store: CaptureWorkingSetStore,
+        captureSessionID: CaptureSessionID,
+        coordinateSpaceID: CoordinateSpaceID,
+        generation: UUID
+    ) async {
+        let snapshot = await store.snapshot()
+        let declaredPaths = Set(
+            snapshot.payloadDeclarations.map(\.path)
+        )
+        let resolvable = pendingSegmentationObservations.filter {
+            $0.sourceFrameRef.hasPrefix("path:")
+                && declaredPaths.contains(
+                    String($0.sourceFrameRef.dropFirst(5))
+                )
+        }
+        let dropped =
+            pendingSegmentationObservations.count - resolvable.count
+        guard self.captureGeneration == generation else {
+            return
+        }
+        guard !resolvable.isEmpty else {
+            if dropped > 0 {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "\(dropped) segmentation observation(s) dropped: source frames undeclared."
+                    )
+                )
+            }
+            // A re-End with nothing honest to write must not strand a
+            // stale document.
+            if snapshot.payloadDeclarations.contains(where: {
+                $0.path == ObjectSegmentationObservationPackage.path
+            }) {
+                try? await store.removeSupplementalDocument(
+                    path: ObjectSegmentationObservationPackage.path
+                )
+            }
+            return
+        }
+
+        var sourceRefs = Array(
+            Set(resolvable.map(\.sourceFrameRef))
+        ).sorted(by: BundleLogicalPath.utf8Less)
+        if sourceRefs.count > BundleManifest.maxSourceRefsPerEntry {
+            sourceRefs = Array(
+                sourceRefs.prefix(
+                    BundleManifest.maxSourceRefsPerEntry
+                )
+            )
+        }
+        do {
+            let built =
+                try ObjectSegmentationObservationPackageBuilder.build(
+                    observations: resolvable,
+                    captureRevisionID:
+                        snapshot.identity.captureRevisionID,
+                    captureSessionID: captureSessionID,
+                    sourcePayloadRefs: sourceRefs
+                )
+            let document = try WorkingSetSupplementalDocument(
+                path: ObjectSegmentationObservationPackage.path,
+                data: built.package.data,
+                declaration: built.declaration,
+                coordinateSpaceIDs: [coordinateSpaceID],
+                captureSessionIDs: [captureSessionID]
+            )
+            if snapshot.payloadDeclarations.contains(where: {
+                $0.path == ObjectSegmentationObservationPackage.path
+            }) {
+                try await store.replaceSupplementalDocument(document)
+            } else {
+                try await store.persistSupplementalDocument(document)
+            }
+            if dropped > 0 {
+                await store.recordResourceEvent(
+                    CaptureResourceEvent(
+                        kind: .persistenceFailure,
+                        severity: .warning,
+                        detail:
+                            "\(dropped) segmentation observation(s) dropped: source frames undeclared."
+                    )
+                )
+            }
+        } catch {
+            await store.recordResourceEvent(
+                CaptureResourceEvent(
+                    kind: .persistenceFailure,
+                    severity: .warning,
+                    detail:
+                        "Segmentation observations could not be persisted: "
+                        + Self.persistenceDiagnostic(error)
+                )
+            )
+        }
+    }
+
+    private static func decimateTo(
+        maximum: Int,
+        points: [NormalizedPoint2D]
+    ) -> [NormalizedPoint2D] {
+        guard points.count > maximum, maximum > 1 else {
+            return points
+        }
+        let step = Double(points.count - 1) / Double(maximum - 1)
+        return (0..<maximum).map { index in
+            points[min(
+                points.count - 1,
+                Int((Double(index) * step).rounded())
+            )]
+        }
+    }
+
+    /// The interface-orientation input for the documented legacy
+    /// `displayTransform(for:viewportSize:)` fallback — used only when
+    /// iOS 27 `viewRotationAngle` is unavailable (the primary
+    /// authority) or non-finite. Never a SwiftUI size-class value.
+    private static func currentInterfaceOrientation()
+        -> UIInterfaceOrientation
+    {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+            ?? UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first
+        return scene?.interfaceOrientation ?? .landscapeRight
     }
 
     // MARK: - Operator-declared regions (#257)
@@ -3086,6 +3922,12 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             if let pendingAuto = self.automaticFrameSaveTask {
                 await pendingAuto.value
             }
+            // #269: an accepted segmentation persists its source frame;
+            // that save must land inside this End boundary too so the
+            // derived doc's source_frame_ref resolves.
+            if let pendingSeg = self.segmentationFrameSaveTask {
+                await pendingSeg.value
+            }
 
             // #273: the return-to-start check, when the operator armed
             // it, leaves its verdict as advisory provenance. The check
@@ -3185,6 +4027,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             do {
                 try self.sessionController.startRoomPlan()
                 self.noteRoomPlanScanSegment()
+                // #269: mission boundary — prep the downloadable
+                // segmentation asset before scanning resumes so a later
+                // Isolate attempt never triggers mid-scan network work.
+                self.prepareSegmentationAssets()
             } catch {
                 self.reviewOperationInFlight = false
                 self.workingSetStatus =
@@ -5406,6 +6252,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         bestDerivedObjectProxies = []
         targetedObjectFusionTracker.reset()
         derivedPreviewSuspendedForMemoryPressure = false
+        resetSegmentationCaptureState()
         scanEvidenceFrameCount = 0
         scanDepthEvidenceCount = 0
         endScanGuidance = nil
@@ -5633,6 +6480,7 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         bestDerivedObjectProxies = []
         targetedObjectFusionTracker.reset()
         derivedObjectFusionTracker.reset()
+        resetSegmentationCaptureState()
         derivedVolumeFusionTracker.reset()
         derivedWallFusionTracker.reset()
         derivedPreviewSuspendedForMemoryPressure = false
@@ -11646,6 +12494,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             try sessionController.startRoomPlan()
             noteRoomPlanScanSegment()
+            // #269: prep the downloadable segmentation asset now —
+            // before the scan mission starts — so a later operator
+            // Isolate request never triggers mid-scan network work.
+            prepareSegmentationAssets()
         } catch {
             await store.recordRoomPlanGuidanceUnavailable()
             workingSetStatus = String(localized: "RoomPlan could not start after the live camera view was presented")
@@ -12759,6 +13611,16 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 generation: generation
             )
 
+            // #269: emit the accepted segmentation records as derived
+            // evidence while every referenced frame descriptor is
+            // declared and the working set is still mutable.
+            await self.persistSegmentationObservations(
+                store: store,
+                captureSessionID: captureSessionID,
+                coordinateSpaceID: coordinateSpaceID,
+                generation: generation
+            )
+
             self.acceptedRoomPlanRawSHA256 =
                 raw.descriptor.sha256
             self.acceptedEndMeshWasPersisted =
@@ -12881,6 +13743,10 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         do {
             try sessionController.startRoomPlan()
             noteRoomPlanScanSegment()
+            // #269: prep the downloadable segmentation asset now —
+            // before the scan mission starts — so a later operator
+            // Isolate request never triggers mid-scan network work.
+            prepareSegmentationAssets()
         } catch {
             isEndingScan = false
             workingSetStatus =
@@ -12973,6 +13839,8 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
             targetedObjectProxies = []
             bestDerivedObjectProxies = []
             targetedObjectFusionTracker.reset()
+        
+            resetSegmentationCaptureState()
         }
 
         scanCoverageTask = Task { @MainActor [weak self] in

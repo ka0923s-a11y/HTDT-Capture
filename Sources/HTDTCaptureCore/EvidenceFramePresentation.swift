@@ -11,6 +11,10 @@ public enum EvidenceFrameRetentionKind: String, Codable, Sendable {
     case speakerHeading = "speaker_heading"
     /// Frame produced by an equipment-identity photo capture (#239).
     case equipmentIdentity = "equipment_identity"
+    /// Frame retained as the source of an accepted iterative-
+    /// segmentation observation (#269): the mask's derived record
+    /// references this descriptor.
+    case segmentationSource = "segmentation_source"
     /// Retention reason is not recorded for this frame.
     case unknown
 }
