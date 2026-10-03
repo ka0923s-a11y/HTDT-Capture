@@ -137,6 +137,14 @@ public struct ObservationStabilityTracker: Sendable {
     private var regions: [RegionEvidence]
     private var sessionDepthEvidenceObserved = false
     private var sessionMeshEvidenceObserved = false
+    private var lastDepthEvidenceTimestampSeconds: Double?
+    private var lastMeshEvidenceTimestampSeconds: Double?
+    /// Trailing window for the evidence path a region can still be
+    /// scored against (#L2): a sensor path that stopped producing
+    /// evidence longer ago than this no longer counts as active
+    /// support, so a region observed late is never demanded evidence
+    /// the session has already stopped capturing.
+    private static let evidenceRecencyWindowSeconds: Double = 15
 
     public init(sectorCount: Int = 12) {
         precondition(sectorCount > 0)
@@ -156,9 +164,17 @@ public struct ObservationStabilityTracker: Sendable {
         // pose or tracking is not usable for region accumulation.
         if sample.hasSceneDepth {
             sessionDepthEvidenceObserved = true
+            if sample.sessionTimestampSeconds.isFinite {
+                lastDepthEvidenceTimestampSeconds =
+                    sample.sessionTimestampSeconds
+            }
         }
         if sample.activeMeshAnchorCount > 0 {
             sessionMeshEvidenceObserved = true
+            if sample.sessionTimestampSeconds.isFinite {
+                lastMeshEvidenceTimestampSeconds =
+                    sample.sessionTimestampSeconds
+            }
         }
 
         guard sample.yawRadians.isFinite,
@@ -232,7 +248,7 @@ public struct ObservationStabilityTracker: Sendable {
 
         if Self.isWellObserved(
             region,
-            geometryEvidenceMode: geometryEvidenceMode
+            geometryEvidenceMode: scoringGeometryEvidenceMode
         ) {
             region.reachedWellObserved = true
         }
@@ -297,7 +313,7 @@ public struct ObservationStabilityTracker: Sendable {
             state = .provisional
         } else if Self.isWellObserved(
                       region,
-                      geometryEvidenceMode: geometryEvidenceMode
+                      geometryEvidenceMode: scoringGeometryEvidenceMode
                   ),
                   stabilityScore >= 0.68
         {
@@ -315,7 +331,7 @@ public struct ObservationStabilityTracker: Sendable {
                   diversityCount >= 3,
                   region.consistentMovementCount >= 2,
                   Self.activeGeometrySupportFraction(
-                      geometryEvidenceMode: geometryEvidenceMode,
+                      geometryEvidenceMode: scoringGeometryEvidenceMode,
                       depthFraction: depthFraction,
                       meshFraction: meshFraction
                   ) < 0.35
@@ -343,16 +359,65 @@ public struct ObservationStabilityTracker: Sendable {
 
     /// Geometry evidence path inferred from the samples recorded so far.
     ///
-    /// The required supporting evidence follows this mode: a session that
-    /// has only produced scene depth is scored on depth alone (the bounded
-    /// fallback must not demand nonexistent mesh anchors), a mesh-only
-    /// session is scored on mesh alone, a session producing both keeps the
-    /// stronger combined requirement, and a session with no geometry
-    /// evidence can never be well observed.
+    /// Session-level provenance reported on the emitted summary: a
+    /// session that produced scene depth at any point reports it, even
+    /// if the path later stopped — the bundle genuinely contains that
+    /// evidence. Region scoring instead uses
+    /// `scoringGeometryEvidenceMode`.
     private var geometryEvidenceMode: ObservationGeometryEvidenceMode {
         switch (
             sessionMeshEvidenceObserved,
             sessionDepthEvidenceObserved
+        ) {
+        case (true, true):
+            return .meshAndDepth
+        case (true, false):
+            return .meshOnly
+        case (false, true):
+            return .depthOnly
+        case (false, false):
+            return .none
+        }
+    }
+
+    /// Evidence paths still live for scoring purposes: the paths the
+    /// session produced within the trailing recency window. A depth or
+    /// mesh path that stopped producing evidence longer ago than the
+    /// window no longer counts as available support, so a region
+    /// observed late is never scored against evidence the session has
+    /// already stopped capturing. Samples without timestamps fall back
+    /// to session-level observation rather than claiming nothing is
+    /// active.
+    private var scoringGeometryEvidenceMode: ObservationGeometryEvidenceMode {
+        let latestEvidenceTimestamp =
+            [
+                lastDepthEvidenceTimestampSeconds,
+                lastMeshEvidenceTimestampSeconds
+            ].compactMap { $0 }.max()
+
+        func isRecent(
+            _ lastTimestamp: Double?,
+            observed: Bool
+        ) -> Bool {
+            guard observed else { return false }
+            guard let lastTimestamp,
+                  let latestEvidenceTimestamp
+            else {
+                return true
+            }
+            return latestEvidenceTimestamp - lastTimestamp
+                <= Self.evidenceRecencyWindowSeconds
+        }
+
+        switch (
+            isRecent(
+                lastMeshEvidenceTimestampSeconds,
+                observed: sessionMeshEvidenceObserved
+            ),
+            isRecent(
+                lastDepthEvidenceTimestampSeconds,
+                observed: sessionDepthEvidenceObserved
+            )
         ) {
         case (true, true):
             return .meshAndDepth

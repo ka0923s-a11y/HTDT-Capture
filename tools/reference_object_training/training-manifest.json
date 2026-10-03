@@ -1,0 +1,40 @@
+{
+  "schema": "htdt.reference-object-training",
+  "schema_version": "1.0.0",
+  "toolchain": {
+    "xcode": "27.0",
+    "sdk": "iPhoneOS27.0.sdk",
+    "invocation": "xcrun --toolchain com.apple.dt.toolchain.XcodeDefault createml objecttracker",
+    "notes": "Train with the Xcode the app ships against. Verified against Xcode 27 RC (iPhoneOS27.0.sdk): options are -s/--source, -o/--output, -m/--training-mode {standard|extended}, --front|--upright|--all-angles (default --upright), --objects-to-avoid (repeatable), --checkpoint, --summary, --summary-fd, --csv-progress, --csv-fd."
+  },
+  "assets": [
+    {
+      "_comment": "EXAMPLE entry — fields show the required provenance shape. Real assets replace this; one entry per shipped .referenceobject revision.",
+      "asset_id": "example-fixture-panel",
+      "asset_revision": 1,
+      "arkit_object_name": "fixture_panel",
+      "supported_roles": ["detection"],
+      "physical_binding": "Example fixture panel — replace with the real mounted object this asset represents.",
+      "source_usdz": {
+        "path": "assets/usdz/example-fixture-panel.usdz",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "revision": "v1",
+        "measured_dimensions_m": {"x": 0.30, "y": 0.20, "z": 0.05},
+        "scale_validation": "calipers on the physical panel; USDZ units are meters — compare bounding box before training"
+      },
+      "training": {
+        "mode": "standard",
+        "viewing_angles": "upright",
+        "objects_to_avoid": [],
+        "strip_usdz": true
+      },
+      "output": {
+        "path": "App/ReferenceObjects/fixture_panel.referenceobject",
+        "sha256": "fill-after-training"
+      },
+      "marker_to_equipment_transform_id": null,
+      "license_provenance": "Original scan of own equipment; no third-party content.",
+      "trained_with": {"xcode": "27.0", "createml_date": null}
+    }
+  ]
+}

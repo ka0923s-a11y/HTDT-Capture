@@ -398,6 +398,73 @@ func removeArtifactAllowsWorkingLeafButNotUnprovenDirectory() throws {
 }
 
 @Test
+func canRemoveArtifactAgreesWithRemoveArtifact() throws {
+    let root = try makeOrphanCaptureRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let inventory = PersistedCaptureInventory(captureRoot: root)
+    let working = root.appendingPathComponent(
+        "working",
+        isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+        at: working,
+        withIntermediateDirectories: true
+    )
+    func artifact(_ url: URL) -> PersistedCaptureQuarantinedArtifact {
+        PersistedCaptureQuarantinedArtifact(
+            kind: .unexpectedItem,
+            url: url,
+            reason: "probe"
+        )
+    }
+
+    let leaf = working.appendingPathComponent(
+        "stray.partial",
+        isDirectory: false
+    )
+    try Data([0x01]).write(to: leaf)
+    #expect(inventory.canRemoveArtifact(artifact(leaf)))
+
+    let revisionDir = working.appendingPathComponent(
+        UUID().uuidString.lowercased(),
+        isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+        at: revisionDir,
+        withIntermediateDirectories: true
+    )
+    #expect(inventory.canRemoveArtifact(artifact(revisionDir)))
+
+    let rollbackDir = working.appendingPathComponent(
+        ".rollback-\(UUID().uuidString)",
+        isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+        at: rollbackDir,
+        withIntermediateDirectories: true
+    )
+    #expect(inventory.canRemoveArtifact(artifact(rollbackDir)))
+
+    let unproven = working.appendingPathComponent(
+        "unproven",
+        isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+        at: unproven,
+        withIntermediateDirectories: true
+    )
+    #expect(!inventory.canRemoveArtifact(artifact(unproven)))
+
+    let outside = root.appendingPathComponent(
+        "outside.txt",
+        isDirectory: false
+    )
+    try Data([0x02]).write(to: outside)
+    #expect(!inventory.canRemoveArtifact(artifact(outside)))
+}
+
+@Test
 func storagePolicyExcludesOnlyTheWorkingRootFromBackup() throws {
     let root = try makeOrphanCaptureRoot()
     defer { try? FileManager.default.removeItem(at: root) }

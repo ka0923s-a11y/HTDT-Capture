@@ -106,6 +106,12 @@ public struct EquipmentLabelScanResult: Sendable, Equatable {
     public let candidates: [EquipmentLabelScanCandidate]
     /// Every distinct observed string, for the sheet's raw-text view.
     public let rawObservations: [String]
+    /// Optional Foundation Models advisory lane outcome (#270). Always
+    /// nil unless the experimental flag ran the bounded pass; advisory
+    /// only — it never modifies `candidates`/`rawObservations`, and a
+    /// suggestion can never be applied without the operator picking a
+    /// deterministic candidate as usual.
+    public let aiAdvisory: EquipmentIdentityAIResult?
 
     public init(
         algorithm: String,
@@ -113,7 +119,8 @@ public struct EquipmentLabelScanResult: Sendable, Equatable {
         evidenceRef: String,
         candidates: [EquipmentLabelScanCandidate],
         rawObservations: [String],
-        imageQuality: EvidenceImageQualityAssessment? = nil
+        imageQuality: EvidenceImageQualityAssessment? = nil,
+        aiAdvisory: EquipmentIdentityAIResult? = nil
     ) {
         self.algorithm = algorithm
         self.algorithmVersion = algorithmVersion
@@ -121,6 +128,7 @@ public struct EquipmentLabelScanResult: Sendable, Equatable {
         self.candidates = candidates
         self.rawObservations = rawObservations
         self.imageQuality = imageQuality
+        self.aiAdvisory = aiAdvisory
     }
 
     /// True when the operator genuinely has to choose — zero or more

@@ -785,8 +785,10 @@ public struct FieldEvidenceFormView: View {
     public let evidenceFrames: [EvidenceFramePresentation]
     public let taskScopeRefs: [String]
     /// Captures a new close-up photo; returns raw bytes + metadata.
+    /// nil means no live camera — the close-up option is hidden
+    /// (e.g. under the spatial seal, when the session is torn down).
     public let captureFieldEvidencePhoto:
-        () async throws -> CapturedFieldPhoto
+        (() async throws -> CapturedFieldPhoto)?
     public let onCommit:
         (FieldEvidenceRecord, StagedFieldAsset?) -> Void
 
@@ -821,8 +823,8 @@ public struct FieldEvidenceFormView: View {
         evidenceFrames: [EvidenceFramePresentation] = [],
         taskScopeRefs: [String] = [],
         selectedOperatorID: OperatorProfileID? = nil,
-        captureFieldEvidencePhoto: @escaping
-            () async throws -> CapturedFieldPhoto,
+        captureFieldEvidencePhoto:
+            (() async throws -> CapturedFieldPhoto)? = nil,
         onCommit: @escaping
             (FieldEvidenceRecord, StagedFieldAsset?) -> Void
     ) {
@@ -911,13 +913,15 @@ public struct FieldEvidenceFormView: View {
                             "Text-only evidence; no binary asset is stored.")
                     )
                     .tag(0)
-                    DescribedPickerOption(
-                        title: String(localized:
-                            "Capture close-up photo"),
-                        detail: String(localized:
-                            "Shoot a close-up photo with the camera as the evidence asset.")
-                    )
-                    .tag(1)
+                    if captureFieldEvidencePhoto != nil {
+                        DescribedPickerOption(
+                            title: String(localized:
+                                "Capture close-up photo"),
+                            detail: String(localized:
+                                "Shoot a close-up photo with the camera as the evidence asset.")
+                        )
+                        .tag(1)
+                    }
                     DescribedPickerOption(
                         title: String(localized:
                             "Import document"),
@@ -1138,6 +1142,7 @@ public struct FieldEvidenceFormView: View {
     }
 
     private func capturePhoto() {
+        guard let captureFieldEvidencePhoto else { return }
         capturingPhoto = true
         errorText = nil
         Task { @MainActor in
@@ -2075,10 +2080,13 @@ public struct WiringRouteFormView: View {
     public let inventoryItems: [SystemInventoryItem]
     public let evidenceRefSuggestions: [String]
     public let selectedOperatorID: OperatorProfileID?
-    /// Captures a world-space point under the reticle.
+    /// Captures a world-space point under the reticle. nil means
+    /// no live camera session (e.g. under the spatial seal) — the
+    /// reticle-capture buttons hide; manual and bound-entry paths
+    /// still work.
     public let captureTargetedPlacement:
-        (PlacementTargetPreference) async throws
-            -> AnnotationPlacementAuthority?
+        ((PlacementTargetPreference) async throws
+            -> AnnotationPlacementAuthority?)?
     public let onCommit: (AsBuiltWiringRoute) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -2108,9 +2116,9 @@ public struct WiringRouteFormView: View {
         inventoryItems: [SystemInventoryItem] = [],
         evidenceRefSuggestions: [String] = [],
         selectedOperatorID: OperatorProfileID? = nil,
-        captureTargetedPlacement: @escaping
-            (PlacementTargetPreference) async throws
-            -> AnnotationPlacementAuthority? = { _ in nil },
+        captureTargetedPlacement:
+            ((PlacementTargetPreference) async throws
+                -> AnnotationPlacementAuthority?)? = nil,
         onCommit: @escaping (AsBuiltWiringRoute) -> Void
     ) {
         self.captureRevisionID = captureRevisionID
@@ -2217,10 +2225,12 @@ public struct WiringRouteFormView: View {
                                 $0.id == segment.id
                             }
                             renumber()
-                        }
-                    ) {
-                        try await capturePoint()
-                    }
+                        },
+                        capturePoint:
+                            captureTargetedPlacement != nil
+                                ? { try await capturePoint() }
+                                : nil
+                    )
                 }
                 Button(
                     String(localized: "Add path segment")
@@ -2395,19 +2405,21 @@ public struct WiringRouteFormView: View {
                 )
                 .font(.caption.monospaced())
             }
-            Button(
-                String(localized:
-                    "Capture endpoint position")
-            ) {
-                Task { @MainActor in
-                    do {
-                        let point =
-                            try await capturePoint()
-                        draft.wrappedValue.position = point
-                    } catch {
-                        errorText =
-                            AnnotationPresentation
-                                .errorText(error)
+            if captureTargetedPlacement != nil {
+                Button(
+                    String(localized:
+                        "Capture endpoint position")
+                ) {
+                    Task { @MainActor in
+                        do {
+                            let point =
+                                try await capturePoint()
+                            draft.wrappedValue.position = point
+                        } catch {
+                            errorText =
+                                AnnotationPresentation
+                                    .errorText(error)
+                        }
                     }
                 }
             }
@@ -2419,9 +2431,11 @@ public struct WiringRouteFormView: View {
     private func capturePoint() async throws
         -> (point: SpatialVector3F, space: CoordinateSpaceID)
     {
-        guard let authority = try await captureTargetedPlacement(
-            .automatic
-        ) else {
+        guard let captureTargetedPlacement,
+              let authority = try await captureTargetedPlacement(
+                .automatic
+              )
+        else {
             throw FieldAuthorityModelError.endpointConflict
         }
         let values = authority.worldFromAnnotation.values
@@ -2536,8 +2550,9 @@ public struct WiringSegmentDraft: Identifiable, Sendable {
 struct SegmentEditor: View {
     @Binding var segment: WiringSegmentDraft
     let onDelete: () -> Void
-    let capturePoint: () async throws
-        -> (point: SpatialVector3F, space: CoordinateSpaceID)
+    /// nil hides the reticle-capture button (no live camera).
+    let capturePoint: (() async throws
+        -> (point: SpatialVector3F, space: CoordinateSpaceID))?
     @State private var waypointText = ""
     @State private var capturing = false
     @State private var errorText: String?
@@ -2635,29 +2650,31 @@ struct SegmentEditor: View {
                     }
                     .disabled(waypointText.isEmpty)
                 }
-                Button(
-                    capturing
-                        ? String(localized: "Capturing…")
-                        : String(localized:
-                            "Capture waypoint at reticle")
-                ) {
-                    capturing = true
-                    Task { @MainActor in
-                        do {
-                            let point =
-                                try await capturePoint()
-                            segment.waypoints.append(
-                                point.point
-                            )
-                        } catch {
-                            errorText =
-                                AnnotationPresentation
-                                    .errorText(error)
+                if let capturePoint {
+                    Button(
+                        capturing
+                            ? String(localized: "Capturing…")
+                            : String(localized:
+                                "Capture waypoint at reticle")
+                    ) {
+                        capturing = true
+                        Task { @MainActor in
+                            do {
+                                let point =
+                                    try await capturePoint()
+                                segment.waypoints.append(
+                                    point.point
+                                )
+                            } catch {
+                                errorText =
+                                    AnnotationPresentation
+                                        .errorText(error)
+                            }
+                            capturing = false
                         }
-                        capturing = false
                     }
+                    .disabled(capturing)
                 }
-                .disabled(capturing)
             }
             if let errorText {
                 Text(errorText).foregroundStyle(CaptureColorRole.blocked.color)
@@ -2837,8 +2854,8 @@ public struct ReferenceTargetObservationSheet: View {
     /// camera session; the sheet then records dimension-only
     /// observations.
     public let captureTargetedPlacement:
-        (PlacementTargetPreference) async throws
-            -> AnnotationPlacementAuthority?
+        ((PlacementTargetPreference) async throws
+            -> AnnotationPlacementAuthority?)?
     public let onCommit: (ReferenceTargetObservation) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -2853,11 +2870,10 @@ public struct ReferenceTargetObservationSheet: View {
         target: ReferenceTargetDeclaration,
         coordinateSpaceID: CoordinateSpaceID,
         observationIndex: Int,
-        captureTargetedPlacement: @escaping (
-            PlacementTargetPreference
-        ) async throws -> AnnotationPlacementAuthority? = { _ in
-            nil
-        },
+        captureTargetedPlacement: (
+            (PlacementTargetPreference) async throws
+                -> AnnotationPlacementAuthority?
+        )? = nil,
         onCommit: @escaping (ReferenceTargetObservation) -> Void
     ) {
         self.target = target
@@ -2904,12 +2920,15 @@ public struct ReferenceTargetObservationSheet: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
-                Button(
-                    String(localized: "Capture position at reticle")
-                ) {
-                    capturePosition()
+                if captureTargetedPlacement != nil {
+                    Button(
+                        String(localized:
+                            "Capture position at reticle")
+                    ) {
+                        capturePosition()
+                    }
+                    .disabled(capturing)
                 }
-                .disabled(capturing)
             }
             if let errorText {
                 Text(errorText)
@@ -2931,6 +2950,7 @@ public struct ReferenceTargetObservationSheet: View {
     }
 
     private func capturePosition() {
+        guard let captureTargetedPlacement else { return }
         capturing = true
         errorText = nil
         Task {

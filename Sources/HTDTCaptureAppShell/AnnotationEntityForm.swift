@@ -25,6 +25,11 @@ public struct AnnotationEntityForm: View {
     /// Shared AR preview for the camera sheets; nil disables camera
     /// capture controls (they stay visible but report unavailable).
     public let cameraPreview: AnyView?
+    /// Spatial authority sealed for finalization (#276): camera
+    /// placement/orientation capture can no longer write live spatial
+    /// evidence, so the camera affordances hide like `cameraPreview`
+    /// being nil. Semantic edits stay open.
+    public let spatialCaptureSealed: Bool
     public let probePlacementTarget:
         () async -> AnnotationPlacementProbe
     public let probeCameraHeading: () async -> Float?
@@ -141,6 +146,7 @@ public struct AnnotationEntityForm: View {
         equipmentRecents: EquipmentRecents = EquipmentRecents(),
         roomPlanObjects: [RoomPlanBindableObject] = [],
         cameraPreview: AnyView? = nil,
+        spatialCaptureSealed: Bool = false,
         probePlacementTarget: @escaping
             () async -> AnnotationPlacementProbe =
             { .unavailable },
@@ -179,6 +185,7 @@ public struct AnnotationEntityForm: View {
         self.equipmentRecents = equipmentRecents
         self.roomPlanObjects = roomPlanObjects
         self.cameraPreview = cameraPreview
+        self.spatialCaptureSealed = spatialCaptureSealed
         self.probePlacementTarget = probePlacementTarget
         self.probeCameraHeading = probeCameraHeading
         self.captureTargetedPlacement = captureTargetedPlacement
@@ -657,11 +664,13 @@ public struct AnnotationEntityForm: View {
                     )
                 )
                 .font(.caption.monospacedDigit())
+                if cameraPreview != nil && !spatialCaptureSealed {
                 Button(
                     String(localized: "Capture again with camera")
                 ) {
                     cameraMode = .position
                     showingCameraSheet = true
+                }
                 }
                 Button(
                     String(localized: "Use manual position instead")
@@ -671,7 +680,7 @@ public struct AnnotationEntityForm: View {
                     positionEdited = true
                 }
             } else {
-                if cameraPreview != nil {
+                if cameraPreview != nil && !spatialCaptureSealed {
                     Button {
                         cameraMode = .position
                         showingCameraSheet = true
@@ -875,11 +884,13 @@ public struct AnnotationEntityForm: View {
                         )
                     )
                 }
+                if cameraPreview != nil && !spatialCaptureSealed {
                 Button(
                     String(localized: "Capture heading again")
                 ) {
                     cameraMode = .heading
                     showingCameraSheet = true
+                }
                 }
                 Button(
                     String(localized: "Use manual yaw instead")
@@ -889,7 +900,7 @@ public struct AnnotationEntityForm: View {
                         .replaceOrientationAuthority(nil)
                 }
             } else {
-                if cameraPreview != nil {
+                if cameraPreview != nil && !spatialCaptureSealed {
                     Button {
                         cameraMode = .heading
                         showingCameraSheet = true
@@ -976,6 +987,7 @@ public struct AnnotationEntityForm: View {
                     }
                     .disabled(
                         scanningLabel || cameraPreview == nil
+                            || spatialCaptureSealed
                     )
                     if labelScanProvenance != nil {
                         LabeledContent(
@@ -1005,6 +1017,7 @@ public struct AnnotationEntityForm: View {
                     }
                     .disabled(
                         capturingIdentityPhoto || cameraPreview == nil
+                            || spatialCaptureSealed
                     )
                     if !identityEvidenceRefs.isEmpty {
                         LabeledContent(

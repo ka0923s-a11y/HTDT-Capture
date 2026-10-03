@@ -206,8 +206,15 @@ public struct HTDTEndpointCapabilitySnapshot:
 public struct HTDTBundleInventory: Sendable, Equatable {
     /// Bundle manifest `schema_version` of the archive being sent.
     public var bundleSchemaVersion: String
-    /// Registry schema names for every payload the manifest declares.
+    /// Payload schema identifiers for every payload the manifest
+    /// declares — the wire `schema_id` tokens receivers advertise in
+    /// `accepted_payload_schemas` (family name fallback for
+    /// schema-less families like frame descriptors).
     public var payloadSchemaNames: [String]
+    /// The payload version this bundle carries per schema identifier,
+    /// resolved through the support matrix's `emitted` slot — this
+    /// build authored these payloads at exactly those versions.
+    public var payloadSchemaVersions: [String: String]
     /// Authority families (`SemanticTaskKind` tokens) present with at
     /// least one record in the bundle's authority collection.
     public var authorityFamilies: [String]
@@ -221,6 +228,7 @@ public struct HTDTBundleInventory: Sendable, Equatable {
     public init(
         bundleSchemaVersion: String,
         payloadSchemaNames: [String],
+        payloadSchemaVersions: [String: String] = [:],
         authorityFamilies: [String],
         equipmentCatalogKeys: [String] = [],
         archiveByteCount: Int64,
@@ -228,6 +236,7 @@ public struct HTDTBundleInventory: Sendable, Equatable {
     ) {
         self.bundleSchemaVersion = bundleSchemaVersion
         self.payloadSchemaNames = payloadSchemaNames
+        self.payloadSchemaVersions = payloadSchemaVersions
         self.authorityFamilies = authorityFamilies
         self.equipmentCatalogKeys = equipmentCatalogKeys
         self.archiveByteCount = archiveByteCount
@@ -235,8 +244,10 @@ public struct HTDTBundleInventory: Sendable, Equatable {
     }
 
     /// Inventory derived from a validated bundle manifest. Payload
-    /// schema names come from `CaptureBundleSchemaRegistry`; payload
-    /// contents are never opened or repackaged for preflight.
+    /// schema identifiers come from `CaptureBundleSchemaRegistry` —
+    /// translated to wire `schema_id` tokens so they join correctly
+    /// against the receiver's advertised `accepted_payload_schemas`;
+    /// payload contents are never opened or repackaged for preflight.
     public init(
         manifest: BundleManifest,
         authorities: TheaterAuthorityCollection,
@@ -245,16 +256,27 @@ public struct HTDTBundleInventory: Sendable, Equatable {
         projectRef: String? = nil
     ) {
         var schemas = Set<String>()
+        var versions: [String: String] = [:]
         for file in manifest.files {
-            if let name = CaptureBundleSchemaRegistry.schemaName(
+            guard let family = CaptureBundleSchemaRegistry.schemaName(
                 forPath: file.path
-            ) {
-                schemas.insert(name)
+            ) else {
+                continue
+            }
+            let contract = CaptureBundleSchemaRegistry.supportMatrix
+                .families[family]
+            let wireName = contract?.schemaID ?? family
+            schemas.insert(wireName)
+            if let emitted = contract?.emitted,
+               emitted != "unversioned"
+            {
+                versions[wireName] = emitted
             }
         }
         self.init(
             bundleSchemaVersion: manifest.schemaVersion,
             payloadSchemaNames: schemas.sorted(),
+            payloadSchemaVersions: versions,
             authorityFamilies: authorities.presentAuthorityFamilies(),
             equipmentCatalogKeys: equipmentCatalogKeys,
             archiveByteCount: archiveByteCount,
@@ -288,6 +310,11 @@ public struct HTDTCompatibilityGap: Sendable, Equatable {
         /// capture-only receiver. The Send button is disabled with
         /// this explanation; Share remains.
         case unsupportedArtifactKind = "unsupported_artifact_kind"
+        /// Hard failure — the receiver advertises the schema family
+        /// but not the version this bundle carries; the delivery is
+        /// guaranteed to fail `unsupported_newer` mid-ingest.
+        case unsupportedPayloadVersion =
+            "unsupported_payload_version"
     }
 
     public let kind: Kind
@@ -467,6 +494,24 @@ public enum HTDTCompatibilityChecker {
                 subject: name,
                 detail: "Receiver stages but cannot promote payload "
                     + "schema " + name
+            ))
+        }
+        // Version-level check: an advertised family whose read list
+        // excludes this bundle's emitted version is a guaranteed
+        // `unsupported_newer` rejection — preflight must catch it
+        // before the archive goes over the wire.
+        for (name, version) in inventory.payloadSchemaVersions {
+            guard let accepted = acceptedSchemas[name],
+                  !accepted.isEmpty,
+                  !accepted.contains(version)
+            else {
+                continue
+            }
+            hard.append(HTDTCompatibilityGap(
+                kind: .unsupportedPayloadVersion,
+                subject: name,
+                detail: "Receiver cannot read payload schema " + name
+                    + " version " + version
             ))
         }
         for family in inventory.authorityFamilies

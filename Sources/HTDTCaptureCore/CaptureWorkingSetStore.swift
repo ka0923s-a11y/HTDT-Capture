@@ -540,6 +540,16 @@ public actor CaptureWorkingSetStore {
     private var captureStrategyDocument: CaptureStrategyDocument?
     private var planUnderlayDocument: PlanUnderlayDocument?
     private var referenceTargetDocument: ReferenceTargetCaptureDocument?
+    /// #268: bounded accumulator behind the canonical
+    /// `evidence/reference-object-observations.json` payload — the
+    /// ARKit `ARObjectAnchor` pose/lifecycle record for this revision.
+    private var referenceObjectObservationBuffer =
+        ReferenceObjectObservationBuffer()
+    /// Whether the session reconfiguration was applied before the
+    /// working set bound its coordinate space — the honest
+    /// `applied_before_coordinate_binding` record.
+    private var
+        referenceObjectsAppliedBeforeCoordinateBinding = false
     private var benchmarkRefs: [String] = []
     /// Advisory provenance notes recorded by the operator or capture
     /// policies; persisted at `advisory/operator-advisories.json` and
@@ -566,6 +576,12 @@ public actor CaptureWorkingSetStore {
     /// so sustained pressure emits one bounded event rather than one
     /// per admission.
     private var backlogPressureActive = false
+    /// Read-only exposure of `backlogPressureActive` so the optional-
+    /// work admission policy (#273) reuses this authority's writer-
+    /// backlog signal instead of a parallel measurement.
+    public var persistenceBacklogPressureActive: Bool {
+        backlogPressureActive
+    }
     /// Bumped on every seal-state transition. A `sealForFinalization`
     /// call captures it so an `unseal`/`consume` that slips into a
     /// writer suspension deterministically aborts the in-flight seal
@@ -4407,8 +4423,12 @@ public actor CaptureWorkingSetStore {
             // Recompute usable-depth counters: samples are tracked per
             // package payload, which is no longer retained in memory,
             // so recount from the remaining descriptors' payloads.
+            // The sufficiency accumulator (#284) feeds the quality
+            // fallback gate — rebuild it in the same pass so the gate
+            // never evaluates removed frames' statistics.
             var usableSamples = 0
             var usableFrames = 0
+            depthSufficiencyAccumulator = DepthSufficiencyAccumulator()
             for remaining in frameDescriptors {
                 guard let depthPath =
                         remaining.depth?.depthRelativePath
@@ -4430,6 +4450,32 @@ public actor CaptureWorkingSetStore {
                 usableSamples += samples
                 if samples > 0 {
                     usableFrames += 1
+                }
+                if let payload,
+                   let depth = try? DepthBinaryCodec.decode(payload)
+                {
+                    let confidence = remaining.depth?
+                        .confidenceRelativePath
+                        .flatMap { confidencePath in
+                            let confidenceURL = confidencePath
+                                .split(separator: "/")
+                                .reduce(rootDirectory) {
+                                    $0.appendingPathComponent(
+                                        String($1),
+                                        isDirectory: false
+                                    )
+                                }
+                            return try? Data(
+                                contentsOf: confidenceURL
+                            )
+                        }
+                        .flatMap {
+                            try? ConfidenceBinaryCodec.decode($0)
+                        }
+                    depthSufficiencyAccumulator.record(
+                        depth: depth,
+                        confidence: confidence
+                    )
                 }
             }
             usableDepthSampleCount = usableSamples
@@ -5061,39 +5107,51 @@ public actor CaptureWorkingSetStore {
     /// kept; a derived declaration left with no resolvable refs is
     /// un-manifestable, so its document is dropped with the
     /// declaration instead of stranding a dangling `path:` ref that
-    /// fails finalization.
+    /// fails finalization. Derived docs may cite other derived docs
+    /// (field-evidence → settings/wiring/profiles, profiles →
+    /// calibration evidence), so a drop can expose another dangling
+    /// ref — iterate to a fixpoint like the restore path does.
     private func pruneDerivedSourceRefs(
         removedPaths: Set<String>
     ) async throws {
-        let derivedDeclarations = declarations.filter {
-            $0.value.role == .derived
-        }
-        for (path, declaration) in derivedDeclarations {
-            guard let refs = declaration.sourceRefs else {
-                continue
+        var pendingRemoval = removedPaths
+        var changed = true
+        while changed {
+            changed = false
+            let derivedDeclarations = declarations.filter {
+                $0.value.role == .derived
+            }.sorted {
+                BundleLogicalPath.utf8Less($0.key, $1.key)
             }
-            let surviving = refs.filter { ref in
-                guard ref.hasPrefix("path:") else {
-                    return true
+            for (path, declaration) in derivedDeclarations {
+                guard let refs = declaration.sourceRefs else {
+                    continue
                 }
-                let cited = String(ref.dropFirst("path:".count))
-                return !removedPaths.contains(cited)
-                    && declarations[cited] != nil
-            }
-            guard surviving.count != refs.count else {
-                continue
-            }
-            if surviving.isEmpty {
-                try await removeCommittedPayload(path: path)
-            } else {
-                declarations[path] = BundlePayloadDeclaration(
-                    path: declaration.path,
-                    mediaType: declaration.mediaType,
-                    producer: declaration.producer,
-                    provenanceClass: declaration.provenanceClass,
-                    role: declaration.role,
-                    sourceRefs: surviving
-                )
+                let surviving = refs.filter { ref in
+                    guard ref.hasPrefix("path:") else {
+                        return true
+                    }
+                    let cited = String(ref.dropFirst("path:".count))
+                    return !pendingRemoval.contains(cited)
+                        && declarations[cited] != nil
+                }
+                guard surviving.count != refs.count else {
+                    continue
+                }
+                changed = true
+                if surviving.isEmpty {
+                    try await removeCommittedPayload(path: path)
+                    pendingRemoval.insert(path)
+                } else {
+                    declarations[path] = BundlePayloadDeclaration(
+                        path: declaration.path,
+                        mediaType: declaration.mediaType,
+                        producer: declaration.producer,
+                        provenanceClass: declaration.provenanceClass,
+                        role: declaration.role,
+                        sourceRefs: surviving
+                    )
+                }
             }
         }
     }
@@ -5297,6 +5355,172 @@ public actor CaptureWorkingSetStore {
             anchorID: anchorID,
             sessionTimestampSeconds: sessionTimestampSeconds
         )
+    }
+
+    /// Installs the reference-object configuration echo for this
+    /// revision (#268): which assets the operator picked, which the
+    /// selection policy dropped and why, and each configured asset's
+    /// artifact-load outcome. Rewrites the canonical
+    /// `evidence/reference-object-observations.json` payload; a later
+    /// call replaces the configuration section (e.g. a corrected
+    /// selection retry) without touching recorded observations.
+    public func recordReferenceObjectConfiguration(
+        selection: ReferenceObjectSelectionEcho,
+        configuredAssets: [ReferenceObjectConfiguredAsset],
+        appliedBeforeCoordinateBinding: Bool
+    ) async throws {
+        try requireMutable()
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+
+        referenceObjectObservationBuffer.setConfiguration(
+            selection: selection,
+            configuredAssets: configuredAssets
+        )
+        referenceObjectsAppliedBeforeCoordinateBinding =
+            appliedBeforeCoordinateBinding
+        try await persistReferenceObjectObservations()
+    }
+
+    /// Records one `ARObjectAnchor` delegate observation (#268).
+    /// `kind` is the delegate callback (add/update/remove); the buffer
+    /// coalesces steady-state `updated` callbacks into one mutable
+    /// per-anchor record and appends genuine lifecycle transitions —
+    /// `isTracked` loss is a lifecycle event, never anchor removal.
+    ///
+    /// Like the mesh-lifecycle sink this is non-throwing for guard
+    /// rejections: a sealed/non-live working set counts the drop as a
+    /// sealed mutation rejection. A coordinate-space or session
+    /// mismatch is counted the same way — under the
+    /// `single_space_per_revision` policy a pose outside the bound
+    /// space can never be silently reinterpreted into it. Only write
+    /// failures throw.
+    public func recordReferenceObjectObservation(
+        _ observation: ReferenceObjectPoseObservation,
+        kind: MeshAnchorLifecycleKind
+    ) async throws {
+        guard liveSpatialAuthority else {
+            sealedMutationRejectionCount += 1
+            return
+        }
+        guard sealState == .mutable else {
+            sealedMutationRejectionCount += 1
+            return
+        }
+        guard let boundSession = captureSessionID,
+              observation.captureSessionID == boundSession,
+              let boundSpace = coordinateSpaceID,
+              observation.coordinateSpaceID == boundSpace
+        else {
+            sealedMutationRejectionCount += 1
+            return
+        }
+        inFlightMutations += 1
+        defer { mutationDidFinish() }
+        guard
+            let landed = referenceObjectObservationBuffer.record(
+                observation,
+                kind: kind
+            )
+        else {
+            return
+        }
+        // Steady-state `updated` records rewrite the buffer's
+        // coalesced record in place — persisting them would rewrite
+        // the document every frame. Lifecycle records (added,
+        // tracked-loss/resume, removed) persist immediately; the
+        // freshest pose flushes at the seal boundary.
+        guard landed.lifecycleEvent != .updated else {
+            return
+        }
+        try await persistReferenceObjectObservations()
+    }
+
+    /// The committed reference-object observation document, iff this
+    /// revision has one (#268).
+    public var referenceObjectDocument:
+        ReferenceObjectObservationDocument?
+    {
+        guard let data = supplementalDocuments[
+            ReferenceObjectObservationPackage.path
+        ] else {
+            return nil
+        }
+        return try? JSONDecoder().decode(
+            ReferenceObjectObservationDocument.self,
+            from: data
+        )
+    }
+
+    /// Live observation records as the buffer currently knows them —
+    /// the review/acceptance surface reads these; persistence lags
+    /// only by the pending write, never by coalescing.
+    public var referenceObjectObservations:
+        [ReferenceObjectPoseObservation]
+    {
+        referenceObjectObservationBuffer.documentObservations()
+    }
+
+    /// Rewrites `evidence/reference-object-observations.json` from the
+    /// buffer (#268). No-ops before session/coordinate authority binds
+    /// or while neither a configuration nor an observation exists —
+    /// the payload only ever carries real, bound evidence.
+    private func persistReferenceObjectObservations() async throws {
+        guard let captureSessionID,
+              let coordinateSpaceID
+        else {
+            return
+        }
+        let selection = referenceObjectObservationBuffer.selection
+        guard selection != nil
+                || !referenceObjectObservationBuffer.records.isEmpty
+        else {
+            return
+        }
+        let package = try ReferenceObjectObservationBuilder.build(
+            captureRevisionID: identity.captureRevisionID,
+            captureSessionID: captureSessionID,
+            coordinateSpaceID: coordinateSpaceID,
+            appliedBeforeCoordinateBinding:
+                referenceObjectsAppliedBeforeCoordinateBinding,
+            selection: selection ?? ReferenceObjectSelectionEcho(
+                requested: [],
+                dropped: []
+            ),
+            configuredAssets:
+                referenceObjectObservationBuffer.configuredAssets,
+            observations:
+                referenceObjectObservationBuffer.documentObservations(),
+            truncatedObservationCount:
+                referenceObjectObservationBuffer.truncatedRecordCount
+        )
+        let reservation = try reserveAdmission(
+            bytes: package.data.count
+        )
+        defer { releaseAdmission(reservation) }
+        // The document accumulates every lifecycle record, so each
+        // persist rewrites it wholesale — the write must be
+        // replace-capable, not create-or-noop.
+        try await writer.writeBatchReplacing([
+            CaptureFileWriteRequest(
+                data: package.data,
+                path: try CaptureStorePath(
+                    ReferenceObjectObservationPackage.path
+                )
+            ),
+        ])
+        try register(
+            BundlePayloadDeclaration(
+                path: ReferenceObjectObservationPackage.path,
+                mediaType: "application/json",
+                producer: "reference_object_capture",
+                provenanceClass: .captureAppDerived,
+                role: .canonical
+            )
+        )
+        supplementalDocuments[
+            ReferenceObjectObservationPackage.path
+        ] = package.data
     }
 
     /// Replaces the advisory End-boundary coverage snapshot (#223). The
@@ -5558,10 +5782,17 @@ public actor CaptureWorkingSetStore {
         let data = try document.encoded()
         let reservation = try reserveAdmission(bytes: data.count)
         defer { releaseAdmission(reservation) }
-        try await writer.writeIfIdentical(
-            data,
-            to: CaptureStorePath(CaptureAdvisoryNoteDocument.path)
-        )
+        // The advisories document is lifecycle-mutable like the field
+        // notes one — each recorded note rewrites the whole payload.
+        // `writeIfIdentical` would reject every note after the first.
+        try await writer.writeBatchReplacing([
+            try CaptureFileWriteRequest(
+                data: data,
+                path: CaptureStorePath(
+                    CaptureAdvisoryNoteDocument.path
+                )
+            ),
+        ])
         try register(
             BundlePayloadDeclaration(
                 path: CaptureAdvisoryNoteDocument.path,
@@ -5593,6 +5824,19 @@ public actor CaptureWorkingSetStore {
             from: data
         ) {
             findings += ReferenceTargetCaptureBuilder
+                .reviewDiagnostics(for: document)
+        }
+        // #268: reference-object load/selection/truncation findings
+        // join the same advisory surface — read-only diagnostics
+        // derived from the committed document, never persisted
+        // advisories and never a quality gate.
+        if let data = supplementalDocuments[
+            ReferenceObjectObservationPackage.path
+        ], let document = try? JSONDecoder().decode(
+            ReferenceObjectObservationDocument.self,
+            from: data
+        ) {
+            findings += ReferenceObjectObservationBuilder
                 .reviewDiagnostics(for: document)
         }
         return findings
@@ -5924,6 +6168,13 @@ public actor CaptureWorkingSetStore {
             throw CaptureWorkingSetError
                 .practiceWorkingSetNotFinalizable
         }
+        // #268: flush the freshest buffered reference-object poses —
+        // steady-state `updated` records coalesce in memory and only
+        // persist on lifecycle records or here at the seal boundary,
+        // so the sealed document always carries the latest pose.
+        inFlightMutations += 1
+        try await persistReferenceObjectObservations()
+        mutationDidFinish()
         sealState = .sealed
         sealGeneration += 1
         let generation = sealGeneration
@@ -6979,6 +7230,36 @@ public actor CaptureWorkingSetStore {
                 ref: ref,
                 coordinateSpaceID: coordinateSpaceID
             )
+
+        case "reference_object_observation":
+            // #268: an accepted observation resolves to a committed
+            // record inside the canonical observation document —
+            // a ref naming an uncommitted observation, or one recorded
+            // in a different coordinate space, fails closed like any
+            // other spatial link.
+            guard
+                let data = supplementalDocuments[
+                    ReferenceObjectObservationPackage.path
+                ],
+                let document = try? JSONDecoder().decode(
+                    ReferenceObjectObservationDocument.self,
+                    from: data
+                ),
+                let observation = document.observations.first(
+                    where: {
+                        $0.observationID.description == value
+                    }
+                )
+            else {
+                throw CaptureWorkingSetError
+                    .unresolvableSpatialEvidenceLink(ref)
+            }
+            guard observation.coordinateSpaceID == coordinateSpaceID
+            else {
+                throw CaptureWorkingSetError
+                    .spatialEvidenceSpaceMismatch(ref)
+            }
+            return
 
         default:
             return
@@ -8372,6 +8653,7 @@ public actor CaptureWorkingSetStore {
                 "session/connected-spaces.json",
                 "session/field-notes.json",
                 "evidence/reference-targets.json",
+                "evidence/reference-object-observations.json",
                 "verification/as-built.json":
                 break
             default:
@@ -8397,6 +8679,32 @@ public actor CaptureWorkingSetStore {
                     continue
                 }
                 referenceTargetDocument = document
+                sourceRefs = [
+                    "capture_session:"
+                        + document.captureSessionID.description
+                ]
+            }
+            if path == ReferenceObjectObservationPackage.path {
+                guard let document = try? decoder.decode(
+                    ReferenceObjectObservationDocument.self,
+                    from: data
+                ) else {
+                    consumeIfPresent(path)
+                    try await writer.removeIfPresent(
+                        CaptureStorePath(path)
+                    )
+                    unmanifestablePaths.append(path)
+                    continue
+                }
+                // Rebuild the buffer so a reopened draft keeps
+                // appending consistently — in-place `updated`
+                // coalescing and tracked-flip state restore exactly.
+                referenceObjectObservationBuffer =
+                    ReferenceObjectObservationBuffer(
+                        restoring: document
+                    )
+                referenceObjectsAppliedBeforeCoordinateBinding =
+                    document.appliedBeforeCoordinateBinding
                 sourceRefs = [
                     "capture_session:"
                         + document.captureSessionID.description

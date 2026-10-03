@@ -179,7 +179,6 @@ public enum PlatformCapabilityProbe {
 import ARKit
 import RoomPlan
 
-@available(iOS 17.0, *)
 extension PlatformCapabilityProbe {
     @MainActor
     public static func current() -> CaptureCapabilityMatrix {

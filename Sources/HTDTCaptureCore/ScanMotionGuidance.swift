@@ -49,7 +49,7 @@ public extension ScanMotionGuidanceAction {
 /// `unrestricted` suppresses movement guidance: the app never claims to
 /// know the operator's path is safe, so a constrained mode removes
 /// translation prompts entirely rather than coaching risky movement.
-public enum ScanMovementCapability: String, Sendable, Equatable {
+public enum ScanMovementCapability: String, Codable, Sendable, Equatable {
     case unrestricted
     case stationaryOnly = "stationary_only"
     /// The operator can move, but the current surroundings make guided
@@ -95,6 +95,11 @@ public enum ScanGuidanceCompletionSource:
     /// The operator declared a movement-constrained scan; movement-
     /// dependent guidance is satisfied vacuously, never observed.
     case movementConstrained = "movement_constrained"
+    /// Every actionable weak region was either observed or saturated,
+    /// but at least one weak region was left unresolved by operator
+    /// declaration (inaccessible/occluded/unsafe/out-of-scope) —
+    /// completion by negotiated leave, not observation.
+    case operatorDeclaredUnresolved = "operator_declared_unresolved"
 }
 
 public struct ScanGuidanceProgress: Sendable, Equatable {
@@ -112,6 +117,9 @@ public struct ScanGuidanceProgress: Sendable, Equatable {
     /// viewport (#347). Nonzero means unresolved coverage exists
     /// beyond what the operator is looking at right now.
     public let remoteWeakRegionCount: Int
+    /// Weak regions still unresolved because the operator declared
+    /// them intentionally left — never observed, never retried.
+    public let operatorDeclaredWeakRegionCount: Int
     public let directionCoverageFraction: Double
     public let isComplete: Bool
     /// Typed reason behind `isComplete` (issue #296). `.incomplete`
@@ -127,6 +135,7 @@ public struct ScanGuidanceProgress: Sendable, Equatable {
         actionableWeakRegionCount: Int,
         saturatedWeakRegionCount: Int,
         remoteWeakRegionCount: Int = 0,
+        operatorDeclaredWeakRegionCount: Int = 0,
         directionCoverageFraction: Double,
         isComplete: Bool,
         completionSource: ScanGuidanceCompletionSource? = nil
@@ -139,6 +148,8 @@ public struct ScanGuidanceProgress: Sendable, Equatable {
         self.actionableWeakRegionCount = actionableWeakRegionCount
         self.saturatedWeakRegionCount = saturatedWeakRegionCount
         self.remoteWeakRegionCount = remoteWeakRegionCount
+        self.operatorDeclaredWeakRegionCount =
+            operatorDeclaredWeakRegionCount
         self.directionCoverageFraction = directionCoverageFraction
         self.isComplete = isComplete
         self.completionSource = completionSource
@@ -150,6 +161,7 @@ public struct ScanGuidanceProgress: Sendable, Equatable {
     /// rather than observation (issue #296).
     public var unresolvedWeakRegionCount: Int {
         actionableWeakRegionCount + saturatedWeakRegionCount
+            + operatorDeclaredWeakRegionCount
     }
 
     public static let empty = ScanGuidanceProgress(
@@ -437,7 +449,10 @@ public struct ScanMotionGuidanceTracker: Sendable {
         spatialCoverage: SpatialScanCoverageSummary,
         observation: ObservationStabilitySummary
     ) -> ScanMotionGuidance? {
-        updateWeakObservationCounts(spatialCoverage.regions)
+        updateWeakObservationCounts(
+            spatialCoverage.regions,
+            recentlyEvictedKeys: spatialCoverage.recentlyEvictedKeys
+        )
         resetCameraHistoryIfTargetChanged(spatialCoverage)
         appendCameraPosition(spatialCoverage.currentCameraPosition)
 
@@ -593,14 +608,19 @@ public struct ScanMotionGuidanceTracker: Sendable {
                 spatialCoverage.knownRegionCount > 0
                 && actionable == 0
             )
+        let declaredUnresolved = spatialCoverage.regions.filter {
+            $0.classification == .weak
+                && declaredRegionKeys.contains($0.key)
+        }.count
         let isComplete = directionReady && spatialComplete
 
         // Completion source precedence (issue #296): an operator-
         // declared movement constraint dominates — movement-dependent
         // guidance never ran. A spent global budget outranks per-region
-        // retry saturation, and both outrank a genuinely-observed
+        // retry saturation, retry saturation outranks an operator-
+        // declared leave, and all three outrank a genuinely-observed
         // completion, so a "complete" claim is never attributed to
-        // observation when a bound terminated the loop.
+        // observation when a bound or a declaration terminated the loop.
         let completionSource: ScanGuidanceCompletionSource
         if !isComplete {
             completionSource = .incomplete
@@ -610,6 +630,8 @@ public struct ScanMotionGuidanceTracker: Sendable {
             completionSource = .attemptBudgetExhausted
         } else if saturated > 0 {
             completionSource = .weakRegionRetriesExhausted
+        } else if declaredUnresolved > 0 {
+            completionSource = .operatorDeclaredUnresolved
         } else {
             completionSource = .observed
         }
@@ -623,6 +645,7 @@ public struct ScanMotionGuidanceTracker: Sendable {
             actionableWeakRegionCount: actionable,
             saturatedWeakRegionCount: saturated,
             remoteWeakRegionCount: remote,
+            operatorDeclaredWeakRegionCount: declaredUnresolved,
             directionCoverageFraction: coverage.coverageFraction,
             isComplete: isComplete,
             completionSource: completionSource
@@ -691,7 +714,8 @@ public struct ScanMotionGuidanceTracker: Sendable {
     }
 
     private mutating func updateWeakObservationCounts(
-        _ regions: [SpatialCoverageRegion]
+        _ regions: [SpatialCoverageRegion],
+        recentlyEvictedKeys: Set<SpatialCoverageCellKey>
     ) {
         let currentKeys = Set(regions.map(\.key))
         weakObservationCounts =
@@ -716,9 +740,17 @@ public struct ScanMotionGuidanceTracker: Sendable {
             }
         }
 
+        // Retry-budget tombstones: a key the coverage tracker reports
+        // as capacity-evicted keeps its spent attempts, so a cell
+        // reappearing later resumes its budget instead of earning a
+        // fresh one. Keys absent for any other reason — including
+        // tombstones that fell off the bounded recency list — drop.
+        // Present non-weak regions already lost their counter in the
+        // loop above: resolution earns a fresh budget.
         weakGuidanceAttempts =
             weakGuidanceAttempts.filter {
                 currentKeys.contains($0.key)
+                    || recentlyEvictedKeys.contains($0.key)
             }
     }
 

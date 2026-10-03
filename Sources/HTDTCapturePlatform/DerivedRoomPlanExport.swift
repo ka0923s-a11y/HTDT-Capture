@@ -9,7 +9,6 @@ import RoomPlan
 /// writers, and produces the USDZ convenience artifact through
 /// RoomPlan's own `CapturedRoom.export(to:exportOptions:)`.
 /// Everything reads from the finalized bundle — never the live session.
-@available(iOS 17.0, *)
 public enum DerivedRoomPlanExportSupport {
     /// Whether the bundle carries a processed RoomPlan payload (and
     /// thus supports USDZ and bounding-box exports).
