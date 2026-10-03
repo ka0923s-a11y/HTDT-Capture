@@ -2183,6 +2183,9 @@
 "Object pass recorded; the item's shape could not be resolved — rescan it or annotate it in review" = "対象パスを記録しました。項目の形状を解決できませんでした。再スキャンするか、レビューで注釈を付けてください";
 "Object pass recorded; the capture's item limit is reached — annotate additional items in review" = "対象パスを記録しました。キャプチャの項目上限に達しました。追加項目はレビューで注釈を付けてください";
 "Object pass started; keep the aimed object centered and move around it" = "対象パスを開始しました。対象を画面中央に保ちながら周囲を移動してください";
+"Object pass ended early — device pressure rose during the measurement" = "対象パスを途中終了しました。計測中にデバイスの負荷が上昇しました";
+"Request deferred — the device is under load or capture is busy; try again when conditions ease" = "要求を延期しました。デバイスに負荷がかかっているかキャプチャがビジーです。状態が回復してから再度お試しください";
+"Request declined — this work cannot run during the current capture step" = "要求を拒否しました。この作業は現在のキャプチャステップでは実行できません";
 "Opened the persisted capture; its validated archive is ready to share" = "保存済みキャプチャを開きました。検証済みアーカイブを共有できます";
 "Opened the persisted finalized capture; export can be prepared" = "保存済みの確定キャプチャを開きました。書き出しを作成できます";
 "Opening center captured" = "開口部の中心を記録しました";

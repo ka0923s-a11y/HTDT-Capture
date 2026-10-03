@@ -9,7 +9,9 @@ import Foundation
 /// they surface in Review through the quality report's diagnostics as
 /// info/warning entries, so downstream HTDT can distinguish e.g. an
 /// intentionally unresolved region from a forgotten one.
-public enum CaptureAdvisoryNoteKind: String, Codable, Sendable {
+public enum CaptureAdvisoryNoteKind:
+    String, Codable, Sendable, CaseIterable
+{
     /// Operator declared a coverage region intentionally unresolved.
     case declaredRegion = "declared_region"
     /// Operator revoked a previously declared region.
@@ -68,6 +70,10 @@ public enum CaptureAdvisoryNoteKind: String, Codable, Sendable {
     /// existing evidence, never overwriting placement/orientation
     /// (#268).
     case referenceObjectAcceptance = "reference_object_acceptance"
+    /// An explicit operator-requested optional workload was deferred or
+    /// rejected by the admission policy (#273) — the persisted
+    /// provenance for "the operator asked, the policy said no".
+    case optionalWorkAdmission = "optional_work_admission"
 }
 
 public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
@@ -158,6 +164,9 @@ public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
         case .referenceObjectAcceptance:
             code = "reference_object_acceptance"
             severity = .info
+        case .optionalWorkAdmission:
+            code = "optional_work_admission"
+            severity = .warning
         }
         return QualityDiagnostic(
             code: code,
