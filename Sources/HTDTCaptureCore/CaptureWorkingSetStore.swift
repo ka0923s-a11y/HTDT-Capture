@@ -5450,12 +5450,17 @@ public actor CaptureWorkingSetStore {
             bytes: package.data.count
         )
         defer { releaseAdmission(reservation) }
-        try await writer.writeIfIdentical(
-            package.data,
-            to: CaptureStorePath(
-                ReferenceObjectObservationPackage.path
-            )
-        )
+        // The document accumulates every lifecycle record, so each
+        // persist rewrites it wholesale — the write must be
+        // replace-capable, not create-or-noop.
+        try await writer.writeBatchReplacing([
+            CaptureFileWriteRequest(
+                data: package.data,
+                path: try CaptureStorePath(
+                    ReferenceObjectObservationPackage.path
+                )
+            ),
+        ])
         try register(
             BundlePayloadDeclaration(
                 path: ReferenceObjectObservationPackage.path,

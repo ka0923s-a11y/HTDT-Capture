@@ -583,4 +583,80 @@ struct ReferenceObjectCaptureTests {
         )
         #expect(manifest.schema == "htdt.capture.reference-object-assets")
     }
+
+    /// Store-level regression: every lifecycle record must reach the
+    /// persisted document — the accumulating payload requires a
+    /// replace-capable write, or the second record is dropped.
+    @Test func storePersistsEveryLifecycleRecord() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let context = CaptureSessionContext()
+        let store = try CaptureWorkingSetStore(rootDirectory: root)
+        try await store.persistSessionFoundation(
+            CaptureSessionFoundationPackageBuilder.build(
+                context: context,
+                capabilities: CaptureCapabilityMatrix(
+                    roomPlanSupported: true,
+                    worldTrackingSupported: true,
+                    sceneReconstructionSupported: true,
+                    sceneDepthSupported: true
+                ),
+                configurationProfile: CaptureConfigurationProfile(
+                    captureMode: .roomPlanMesh,
+                    worldAlignment: "gravity",
+                    sceneReconstruction: "mesh"
+                ),
+                startedAtUTC: "2026-09-20T01:00:00Z",
+                device: try CaptureDeviceDocument(
+                    osVersion: "iOS 20.0",
+                    hardwareModel: "iPhone99,1",
+                    appVersion: "0.1.0",
+                    appBuild: "1"
+                )
+            )
+        )
+
+        let anchor = UUID()
+        try await store.recordReferenceObjectObservation(
+            makeObservation(
+                anchor: anchor,
+                session: context.captureSessionID,
+                space: context.coordinateSpaceID,
+                timestamp: 1,
+                event: .added
+            ),
+            kind: .added
+        )
+        try await store.recordReferenceObjectObservation(
+            makeObservation(
+                anchor: anchor,
+                session: context.captureSessionID,
+                space: context.coordinateSpaceID,
+                timestamp: 2,
+                event: .updated,
+                tracked: false
+            ),
+            kind: .updated
+        )
+
+        let url = root.appendingPathComponent(
+            ReferenceObjectObservationPackage.path
+        )
+        let decoded = try JSONDecoder().decode(
+            ReferenceObjectObservationDocument.self,
+            from: Data(contentsOf: url)
+        )
+        #expect(
+            decoded.observations.map(\.lifecycleEvent)
+                == [.added, .trackingLost]
+        )
+    }
 }
