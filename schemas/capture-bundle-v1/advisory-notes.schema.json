@@ -41,6 +41,7 @@
               "frame_usability",
               "loop_closure_check",
               "target_scan_pass",
+              "segmentation_pass",
               "revisit_flag",
               "revisit_flag_resolution",
               "mission_bound",

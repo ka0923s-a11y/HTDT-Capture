@@ -22,6 +22,10 @@ public enum CaptureAdvisoryNoteKind: String, Codable, Sendable {
     case loopClosureCheck = "loop_closure_check"
     /// An operator-targeted object orbit pass completed (#250).
     case targetScanPass = "target_scan_pass"
+    /// An operator-seeded iterative-segmentation attempt ran inside an
+    /// object pass (#269): seed kind, mask outcome, bounded refinement
+    /// count and the display-mapping authority are recorded.
+    case segmentationPass = "segmentation_pass"
     /// An operator revisit flag was dropped mid-scan (#325).
     case revisitFlag = "revisit_flag"
     /// A revisit flag was resolved/skipped/unavailable in Review
@@ -102,6 +106,9 @@ public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
             severity = .info
         case .targetScanPass:
             code = "target_scan_pass"
+            severity = .info
+        case .segmentationPass:
+            code = "segmentation_pass"
             severity = .info
         case .revisitFlag:
             code = "revisit_flag"
