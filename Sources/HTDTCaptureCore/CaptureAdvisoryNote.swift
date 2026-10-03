@@ -49,6 +49,9 @@ public enum CaptureAdvisoryNoteKind: String, Codable, Sendable {
     /// End transaction — so the room model stopped accumulating while
     /// the operator still sees a scanning surface.
     case roomPlanSessionEnded = "roomplan_session_ended"
+    /// The bounded camera-source preflight ran (issue #277): records
+    /// the stable-frame/smudge outcome and the operator's action.
+    case sourceQualityPreflight = "source_quality_preflight"
 }
 
 public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
@@ -127,6 +130,9 @@ public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
         case .roomPlanSessionEnded:
             code = "roomplan_session_ended"
             severity = .warning
+        case .sourceQualityPreflight:
+            code = "source_quality_preflight"
+            severity = .info
         }
         return QualityDiagnostic(
             code: code,

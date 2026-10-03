@@ -35,6 +35,9 @@ public struct CaptureScanningView: View {
         CaptureEvidenceStorageAdvisory?
     /// Live low-light recovery surface (#283).
     public let lowLightGuidanceActive: Bool
+    /// #277: bounded camera-source preflight advisory — one card,
+    /// advisory only, always with a Continue path.
+    public let sourceQualityAdvisory: CameraSourceAdvisory?
     /// Active targeted-object pass status (#250).
     public let targetScanStatus: TargetScanStatus?
     /// Operator-declared unresolved regions (#257).
@@ -72,6 +75,10 @@ public struct CaptureScanningView: View {
     /// #273: "Rescan" response — discards the in-progress working
     /// revision entirely (the host's own confirm contract applies).
     public let discardCapture: () -> Void
+    /// #277: re-runs the bounded source-quality preflight once.
+    public let recheckSourceQuality: () -> Void
+    /// #277: dismisses the advisory card (recorded, never gating).
+    public let dismissSourceQualityAdvisory: () -> Void
     /// #214/#250: live center-ray probe for the scanning-surface
     /// reticle, so aim-based actions never fire a blind center
     /// raycast.
@@ -135,6 +142,7 @@ public struct CaptureScanningView: View {
         evidenceStorageAdvisory:
             CaptureEvidenceStorageAdvisory? = nil,
         lowLightGuidanceActive: Bool = false,
+        sourceQualityAdvisory: CameraSourceAdvisory? = nil,
         targetScanStatus: TargetScanStatus? = nil,
         declaredRegions: [DeclaredCoverageRegion] = [],
         loopClosureCheckActive: Bool = false,
@@ -161,6 +169,8 @@ public struct CaptureScanningView: View {
         recordLoopClosureOutcome: @escaping
             (String) -> Void = { _ in },
         discardCapture: @escaping () -> Void = {},
+        recheckSourceQuality: @escaping () -> Void = {},
+        dismissSourceQualityAdvisory: @escaping () -> Void = {},
         probePlacementTarget: @escaping
             () async -> AnnotationPlacementProbe =
             { .unavailable },
@@ -188,6 +198,7 @@ public struct CaptureScanningView: View {
         self.automaticEvidenceCount = automaticEvidenceCount
         self.evidenceStorageAdvisory = evidenceStorageAdvisory
         self.lowLightGuidanceActive = lowLightGuidanceActive
+        self.sourceQualityAdvisory = sourceQualityAdvisory
         self.targetScanStatus = targetScanStatus
         self.declaredRegions = declaredRegions
         self.loopClosureCheckActive = loopClosureCheckActive
@@ -209,6 +220,9 @@ public struct CaptureScanningView: View {
             setLoopClosureCheckActive
         self.recordLoopClosureOutcome = recordLoopClosureOutcome
         self.discardCapture = discardCapture
+        self.recheckSourceQuality = recheckSourceQuality
+        self.dismissSourceQualityAdvisory =
+            dismissSourceQualityAdvisory
         self.probePlacementTarget = probePlacementTarget
         self.recordFieldNote = recordFieldNote
         self.captureEvidenceFrame = captureEvidenceFrame
@@ -591,8 +605,12 @@ public struct CaptureScanningView: View {
             // compact HUD shows at most one highest-priority advisory
             // — the actionable environment warning outranks transient
             // status text; everything else stays reachable through
-            // the expanded details.
-            if lowLightGuidanceActive {
+            // the expanded details. #277: the one-shot source-quality
+            // card shares this slot while it is pending — it is
+            // operator-actionable (Recheck) and self-dismisses.
+            if let sourceQualityAdvisory {
+                sourceQualityCard(sourceQualityAdvisory)
+            } else if lowLightGuidanceActive {
                 Label(
                     "The room is too dark for reliable visual capture. Turn on normal room lighting while scanning — it can be dimmed again afterward.",
                     systemImage: "lightbulb"
@@ -636,6 +654,53 @@ public struct CaptureScanningView: View {
         // VoiceOver reaches the action sentence first: it carries the
         // next-action guidance rather than Canvas drawing order (#342).
         .accessibilitySortPriority(1)
+    }
+
+    /// #277: the single source-quality card — smudge and (Stage-B,
+    /// disabled by default) low-light findings share one surface so
+    /// the HUD never stacks two source warnings. Advisory only:
+    /// "Continue anyway" always exists and never gates End.
+    @ViewBuilder
+    private func sourceQualityCard(
+        _ advisory: CameraSourceAdvisory
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if advisory.smudgeSuspected {
+                Label(
+                    "The camera lens may be smudged — wipe it gently, then tap Recheck.",
+                    systemImage: "camera.fill"
+                )
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(CaptureColorRole.attention.color)
+                .lineLimit(3)
+                .minimumScaleFactor(0.8)
+            }
+            if advisory.lowLightSuspected {
+                Label(
+                    "The scene looks dark to the camera; brighter, even lighting improves photo evidence quality.",
+                    systemImage: "lightbulb"
+                )
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(CaptureColorRole.attention.color)
+                .lineLimit(3)
+                .minimumScaleFactor(0.8)
+            }
+            HStack(spacing: 8) {
+                Button(String(localized: "Recheck")) {
+                    recheckSourceQuality()
+                }
+                .font(.caption2.weight(.semibold))
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Button(String(localized: "Continue anyway")) {
+                    dismissSourceQualityAdvisory()
+                }
+                .font(.caption2.weight(.semibold))
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+            }
+        }
     }
 
     @ViewBuilder

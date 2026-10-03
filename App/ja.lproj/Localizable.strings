@@ -3712,3 +3712,7 @@
 "%lld unresolved repair tasks" = "未解決の修復タスク %lld 件";
 "Capture cancelled" = "キャプチャをキャンセルしました";
 "Stops the capture and permanently removes the working revision. Finalized captures are never touched." = "キャプチャを停止し、作業中のリビジョンを完全に削除します。確定済みのキャプチャは対象外です。";
+"The camera lens may be smudged — wipe it gently, then tap Recheck." = "カメラレンズが汚れている可能性があります。やさしく拭いてから「再チェック」をタップしてください。";
+"The scene looks dark to the camera; brighter, even lighting improves photo evidence quality." = "カメラからはシーンが暗く見えています。明るく均一な照明にすると写真エビデンスの品質が向上します。";
+"Recheck" = "再チェック";
+"Continue anyway" = "このまま続行";

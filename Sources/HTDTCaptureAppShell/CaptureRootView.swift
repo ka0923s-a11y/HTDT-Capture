@@ -109,6 +109,10 @@ public struct CaptureRootActions {
         ) -> Void
     /// #325: reopens a resolved/skipped/unavailable flag.
     public let reopenRevisitFlag: (String) -> Void
+    /// #277: re-runs the bounded source-quality preflight once.
+    public let recheckSourceQuality: () -> Void
+    /// #277: dismisses the source-quality advisory card.
+    public let dismissSourceQualityAdvisory: () -> Void
     /// #352: marks a bound task-plan checklist item in Review.
     /// #364 §10: the optional third argument is the collected
     /// reason, persisted as a mission-level waiver note (#397) when
@@ -539,6 +543,8 @@ public struct CaptureRootActions {
                 String?
             ) -> Void = { _, _, _ in },
         reopenRevisitFlag: @escaping (String) -> Void = { _ in },
+        recheckSourceQuality: @escaping () -> Void = {},
+        dismissSourceQualityAdvisory: @escaping () -> Void = {},
         markTaskPlanItem: @escaping
             (String, TaskPlanItemOutcome, String?) -> Void =
                 { _, _, _ in },
@@ -821,6 +827,9 @@ public struct CaptureRootActions {
         self.updateRevisitFlagDetails = updateRevisitFlagDetails
         self.resolveRevisitFlag = resolveRevisitFlag
         self.reopenRevisitFlag = reopenRevisitFlag
+        self.recheckSourceQuality = recheckSourceQuality
+        self.dismissSourceQualityAdvisory =
+            dismissSourceQualityAdvisory
         self.markTaskPlanItem = markTaskPlanItem
         self.canRecordTaskPlanMarkReason =
             canRecordTaskPlanMarkReason
@@ -1073,6 +1082,8 @@ public struct CaptureRootView: View {
     public let isCapturingEvidence: Bool
     public let automaticEvidenceCount: Int
     public let lowLightGuidanceActive: Bool
+    /// #277: bounded camera-source preflight advisory card.
+    public let sourceQualityAdvisory: CameraSourceAdvisory?
     public let targetScanStatus: TargetScanStatus?
     public let declaredRegions: [DeclaredCoverageRegion]
     public let loopClosureCheckActive: Bool
@@ -1318,6 +1329,7 @@ public struct CaptureRootView: View {
         isCapturingEvidence: Bool = false,
         automaticEvidenceCount: Int = 0,
         lowLightGuidanceActive: Bool = false,
+        sourceQualityAdvisory: CameraSourceAdvisory? = nil,
         targetScanStatus: TargetScanStatus? = nil,
         declaredRegions: [DeclaredCoverageRegion] = [],
         loopClosureCheckActive: Bool = false,
@@ -1444,6 +1456,7 @@ public struct CaptureRootView: View {
         self.isCapturingEvidence = isCapturingEvidence
         self.automaticEvidenceCount = automaticEvidenceCount
         self.lowLightGuidanceActive = lowLightGuidanceActive
+        self.sourceQualityAdvisory = sourceQualityAdvisory
         self.targetScanStatus = targetScanStatus
         self.declaredRegions = declaredRegions
         self.loopClosureCheckActive = loopClosureCheckActive
@@ -1654,6 +1667,7 @@ public struct CaptureRootView: View {
                     automaticEvidenceCount: automaticEvidenceCount,
                     evidenceStorageAdvisory: evidenceStorageAdvisory,
                     lowLightGuidanceActive: lowLightGuidanceActive,
+                    sourceQualityAdvisory: sourceQualityAdvisory,
                     targetScanStatus: targetScanStatus,
                     declaredRegions: declaredRegions,
                     loopClosureCheckActive: loopClosureCheckActive,
@@ -1681,6 +1695,10 @@ public struct CaptureRootView: View {
                     recordLoopClosureOutcome:
                         actions.recordLoopClosureOutcome,
                     discardCapture: actions.discardActiveCapture,
+                    recheckSourceQuality:
+                        actions.recheckSourceQuality,
+                    dismissSourceQualityAdvisory:
+                        actions.dismissSourceQualityAdvisory,
                     probePlacementTarget:
                         actions.probePlacementTarget,
                     recordFieldNote: actions.recordFieldNote,
