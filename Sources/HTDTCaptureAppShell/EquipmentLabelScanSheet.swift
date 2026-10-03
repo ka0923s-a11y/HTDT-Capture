@@ -78,6 +78,26 @@ public struct EquipmentLabelScanSheet: View {
                     }
                 }
             }
+
+            // #270: the experimental advisory lane renders separately
+            // and display-only — it never enters `candidates`, so the
+            // deterministic barcode/matcher lanes and the manual-entry
+            // fallback remain the only pickable rows.
+            if let advisory = result.aiAdvisory {
+                Section {
+                    advisoryContent(advisory)
+                } header: {
+                    Text(
+                        String(localized:
+                            "AI suggestion (experimental)")
+                    )
+                } footer: {
+                    Text(
+                        String(localized:
+                            "Advisory only — raw recognized text stays unchanged and nothing is applied without your confirmation.")
+                    )
+                }
+            }
         }
         .navigationTitle(
             String(localized: "Label scan suggestions")
@@ -86,6 +106,51 @@ public struct EquipmentLabelScanSheet: View {
             ToolbarItem(placement: .cancellationAction) {
                 Button(String(localized: "Cancel")) { dismiss() }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func advisoryContent(
+        _ advisory: EquipmentIdentityAIResult
+    ) -> some View {
+        if let suggestion = advisory.suggestion {
+            let name = [
+                suggestion.manufacturer,
+                suggestion.model,
+            ]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            if !name.isEmpty {
+                Text(name)
+                    .foregroundStyle(.primary)
+            }
+            if let serial = suggestion.serialOrAssetTag {
+                Text(
+                    String(localized: "Serial/asset: ")
+                        + serial
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            if let note = suggestion.advisoryNote {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let reason = suggestion.ambiguityReason {
+                Text(
+                    String(localized: "Ambiguous: ")
+                        + reason
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        } else {
+            Text(
+                String(localized:
+                    "No advisory suggestion was produced.")
+            )
+            .foregroundStyle(.secondary)
         }
     }
 
