@@ -444,6 +444,17 @@ public struct CaptureRootActions {
     /// `flagEvidenceFrameForPrivacy`.
     public let unflagEvidenceFrameForPrivacy:
         (EvidenceFrameID) -> Void
+    /// Promotes a stored derived-geometry candidate into a committed
+    /// annotation entity. The second argument is the operator-chosen
+    /// shape kind for an ambiguous record; nil on a resolved one.
+    public let acceptDerivedCandidate:
+        (DerivedGeometryCandidateID, DerivedShapeKind?) -> Void
+    /// Marks a candidate dismissed (hidden on all review surfaces);
+    /// `restoreDerivedCandidate` is the paired revocation.
+    public let dismissDerivedCandidate:
+        (DerivedGeometryCandidateID) -> Void
+    public let restoreDerivedCandidate:
+        (DerivedGeometryCandidateID) -> Void
     /// legacy bolph71656-ai/HTDT-Capture#389 Support & Diagnostics: collect a privacy-reviewed
     /// diagnostic package independent of any capture bundle.
     public let collectSupportDiagnostics:
@@ -790,6 +801,13 @@ public struct CaptureRootActions {
             (EvidenceFrameID) -> Void = { _ in },
         unflagEvidenceFrameForPrivacy: @escaping
             (EvidenceFrameID) -> Void = { _ in },
+        acceptDerivedCandidate: @escaping
+            (DerivedGeometryCandidateID, DerivedShapeKind?) -> Void =
+                { _, _ in },
+        dismissDerivedCandidate: @escaping
+            (DerivedGeometryCandidateID) -> Void = { _ in },
+        restoreDerivedCandidate: @escaping
+            (DerivedGeometryCandidateID) -> Void = { _ in },
         collectSupportDiagnostics: @escaping
             () async throws -> SupportDiagnosticsPackage = {
                 throw SupportDiagnosticsError.emptyPackage
@@ -992,6 +1010,9 @@ public struct CaptureRootActions {
             flagEvidenceFrameForPrivacy
         self.unflagEvidenceFrameForPrivacy =
             unflagEvidenceFrameForPrivacy
+        self.acceptDerivedCandidate = acceptDerivedCandidate
+        self.dismissDerivedCandidate = dismissDerivedCandidate
+        self.restoreDerivedCandidate = restoreDerivedCandidate
         self.collectSupportDiagnostics = collectSupportDiagnostics
         self.openFieldReturnWorkspace = openFieldReturnWorkspace
         self.persistFieldReturnDraft = persistFieldReturnDraft
@@ -2286,6 +2307,12 @@ public struct CaptureRootView: View {
                             unflagEvidenceFrameForPrivacy:
                                 actions
                                     .unflagEvidenceFrameForPrivacy,
+                            acceptDerivedCandidate:
+                                actions.acceptDerivedCandidate,
+                            dismissDerivedCandidate:
+                                actions.dismissDerivedCandidate,
+                            restoreDerivedCandidate:
+                                actions.restoreDerivedCandidate,
                             roomPlanObjects:
                                 annotationRoomPlanObjects
                         )

@@ -80,6 +80,18 @@ public enum CaptureAdvisoryNoteKind:
     /// rejected by the admission policy (legacy bolph71656-ai/HTDT-Capture#273) — the persisted
     /// provenance for "the operator asked, the policy said no".
     case optionalWorkAdmission = "optional_work_admission"
+    /// The operator promoted a stored derived-geometry candidate into a
+    /// committed annotation entity from Review — detail carries
+    /// `candidate_id`, `entity_id`, and the effective `shape_kind`.
+    case derivedCandidateAccepted = "derived_candidate_accepted"
+    /// The operator dismissed a stored derived-geometry candidate from
+    /// Review — it is filtered from the scene/survey/export surfaces;
+    /// detail carries `candidate_id` and the resolution at dismissal.
+    case derivedCandidateDismissed = "derived_candidate_dismissed"
+    /// The operator undid a prior candidate dismissal — the paired
+    /// revocation of `derived_candidate_dismissed`, mirroring
+    /// declare/revoke and flag/unflag lifecycle pairs.
+    case derivedCandidateRestored = "derived_candidate_restored"
 }
 
 public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
@@ -179,6 +191,15 @@ public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
         case .optionalWorkAdmission:
             code = "optional_work_admission"
             severity = .warning
+        case .derivedCandidateAccepted:
+            code = "derived_candidate_accepted"
+            severity = .info
+        case .derivedCandidateDismissed:
+            code = "derived_candidate_dismissed"
+            severity = .info
+        case .derivedCandidateRestored:
+            code = "derived_candidate_restored"
+            severity = .info
         }
         return QualityDiagnostic(
             code: code,

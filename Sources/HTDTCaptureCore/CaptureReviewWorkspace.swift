@@ -312,6 +312,11 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
     /// evidence.
     public let derivedGeometryCandidates:
         [DerivedGeometryCandidateRecord]
+    /// Operator advisory notes committed so far (legacy bolph71656-ai/HTDT-Capture#325
+    /// family): Review reads per-candidate accept/dismiss/restore
+    /// dispositions from these, so a re-opened working set renders the
+    /// same operator decisions instead of forgetting them.
+    public let advisoryNotes: [CaptureAdvisoryNote]
     /// Decoded mesh anchor snapshots (issue bolph71656-ai/HTDT-Capture#408): the captured
     /// evidence layer of the 3D review surface — full vertex/index
     /// geometry, not a LOD.
@@ -352,6 +357,7 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
         theaterAuthorities: TheaterAuthorityCollection? = nil,
         derivedGeometryCandidates:
             [DerivedGeometryCandidateRecord] = [],
+        advisoryNotes: [CaptureAdvisoryNote] = [],
         meshSnapshots: [MeshAnchorSnapshot] = [],
         issues: [String] = []
     ) {
@@ -382,6 +388,7 @@ public struct CaptureReviewWorkspaceModel: Sendable, Equatable {
         self.contactSheet = contactSheet
         self.theaterAuthorities = theaterAuthorities
         self.derivedGeometryCandidates = derivedGeometryCandidates
+        self.advisoryNotes = advisoryNotes
         self.meshSnapshots = meshSnapshots
         self.issues = issues
     }
@@ -834,6 +841,7 @@ public enum CaptureReviewWorkspaceLoader {
             theaterAuthorities: authorityCollection,
             derivedGeometryCandidates:
                 derivedDocument?.candidates ?? [],
+            advisoryNotes: advisoryNotesDocument?.notes ?? [],
             meshSnapshots: meshSnapshots,
             issues: issues
         )

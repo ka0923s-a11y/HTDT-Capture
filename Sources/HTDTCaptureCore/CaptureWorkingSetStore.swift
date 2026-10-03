@@ -7261,6 +7261,35 @@ public actor CaptureWorkingSetStore {
             }
             return
 
+        case "derived_candidate":
+            // An entity promoted from a derived-geometry candidate
+            // names that candidate's id — resolve it to a committed
+            // record inside the canonical candidates document in the
+            // same coordinate space, or fail closed like any other
+            // spatial link.
+            guard
+                let data = supplementalDocuments[
+                    DerivedGeometryCandidatePackage.path
+                ],
+                let document = try? JSONDecoder().decode(
+                    DerivedGeometryCandidateDocument.self,
+                    from: data
+                ),
+                let candidate = document.candidates.first(where: {
+                    $0.candidateID.description
+                        == value.lowercased()
+                })
+            else {
+                throw CaptureWorkingSetError
+                    .unresolvableSpatialEvidenceLink(ref)
+            }
+            guard candidate.coordinateSpaceID == coordinateSpaceID
+            else {
+                throw CaptureWorkingSetError
+                    .spatialEvidenceSpaceMismatch(ref)
+            }
+            return
+
         default:
             return
         }

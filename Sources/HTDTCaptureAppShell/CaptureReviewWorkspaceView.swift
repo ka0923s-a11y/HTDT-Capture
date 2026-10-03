@@ -83,6 +83,16 @@ public struct CaptureReviewWorkspaceView: View {
     /// `flagEvidenceFrameForPrivacy`.
     public let unflagEvidenceFrameForPrivacy:
         (EvidenceFrameID) -> Void
+    /// Promotes a stored derived-geometry candidate into a committed
+    /// annotation entity (candidate id, operator-chosen shape kind —
+    /// nil when the record resolved to one shape).
+    public let acceptDerivedCandidate:
+        (DerivedGeometryCandidateID, DerivedShapeKind?) -> Void
+    /// Marks a candidate dismissed; the paired restore returns it.
+    public let dismissDerivedCandidate:
+        (DerivedGeometryCandidateID) -> Void
+    public let restoreDerivedCandidate:
+        (DerivedGeometryCandidateID) -> Void
     /// legacy bolph71656-ai/HTDT-Capture#408/legacy bolph71656-ai/HTDT-Capture#409: the accepted RoomPlan bindable objects (loaded by
     /// the host from `roomplan/captured-room.json`) — they drive
     /// both the 3D scene's surface elements and the survey's
@@ -155,6 +165,20 @@ public struct CaptureReviewWorkspaceView: View {
             (EvidenceFrameID) -> Void = { _ in },
         unflagEvidenceFrameForPrivacy: @escaping
             (EvidenceFrameID) -> Void = { _ in },
+        /// Promotes a stored derived-geometry candidate into a
+        /// committed annotation entity. `shapeKind` is nil when the
+        /// candidate resolved to one shape; for an ambiguous record it
+        /// is the operator-chosen kind from `ambiguityShapeKinds`.
+        acceptDerivedCandidate: @escaping
+            (DerivedGeometryCandidateID, DerivedShapeKind?) -> Void =
+                { _, _ in },
+        /// Marks a candidate dismissed — it leaves the scene,
+        /// candidate list, and downstream surfaces until restored.
+        dismissDerivedCandidate: @escaping
+            (DerivedGeometryCandidateID) -> Void = { _ in },
+        /// Undoes a dismissal, returning the candidate to pending.
+        restoreDerivedCandidate: @escaping
+            (DerivedGeometryCandidateID) -> Void = { _ in },
         roomPlanObjects: [RoomPlanBindableObject] = []
     ) {
         self.model = model
@@ -184,6 +208,9 @@ public struct CaptureReviewWorkspaceView: View {
             flagEvidenceFrameForPrivacy
         self.unflagEvidenceFrameForPrivacy =
             unflagEvidenceFrameForPrivacy
+        self.acceptDerivedCandidate = acceptDerivedCandidate
+        self.dismissDerivedCandidate = dismissDerivedCandidate
+        self.restoreDerivedCandidate = restoreDerivedCandidate
     }
 
     public var body: some View {
@@ -320,6 +347,8 @@ public struct CaptureReviewWorkspaceView: View {
             captureMissionSection
 
             revisitFlagsSection
+
+            derivedCandidatesSection
 
             Section(
                 model.readOnly
@@ -1778,6 +1807,261 @@ public struct CaptureReviewWorkspaceView: View {
         }
     }
 
+    // MARK: derived-geometry candidate dispositions
+
+    /// The operator's disposition for one stored candidate, parsed
+    /// from the committed advisory ledger: pending until an
+    /// accept/dismiss note lands, restored notes return it to
+    /// pending. Accept is terminal — the promoted entity exists, so a
+    /// later dismiss does not un-accept it.
+    private enum DerivedCandidateDisposition: Equatable {
+        case pending
+        case accepted(entityID: String?)
+        case dismissed
+    }
+
+    private var candidateDispositions:
+        [DerivedGeometryCandidateID: DerivedCandidateDisposition]
+    {
+        var map:
+            [DerivedGeometryCandidateID:
+                DerivedCandidateDisposition] = [:]
+        for note in model.advisoryNotes {
+            guard note.kind == .derivedCandidateAccepted
+                || note.kind == .derivedCandidateDismissed
+                || note.kind == .derivedCandidateRestored,
+                let raw = Self.detailValue(
+                    "candidate_id", in: note.detail
+                ),
+                let id = DerivedGeometryCandidateID(
+                    canonicalString: raw
+                )
+            else { continue }
+            switch note.kind {
+            case .derivedCandidateAccepted:
+                map[id] = .accepted(
+                    entityID: Self.detailValue(
+                        "entity_id", in: note.detail
+                    )
+                )
+            case .derivedCandidateDismissed:
+                if case .accepted = map[id] ?? .pending {
+                    continue
+                }
+                map[id] = .dismissed
+            case .derivedCandidateRestored:
+                if case .accepted = map[id] ?? .pending {
+                    continue
+                }
+                map[id] = .pending
+            default:
+                break
+            }
+        }
+        return map
+    }
+
+    /// Candidates still visible on review surfaces — dismissed ones
+    /// leave the 3D scene so the operator is never asked to reason
+    /// about geometry they already rejected.
+    private var actionableDerivedCandidates:
+        [DerivedGeometryCandidateRecord]
+    {
+        let dispositions = candidateDispositions
+        return model.derivedGeometryCandidates.filter {
+            dispositions[$0.candidateID] != .dismissed
+        }
+    }
+
+    @ViewBuilder
+    private var derivedCandidatesSection: some View {
+        if !model.derivedGeometryCandidates.isEmpty {
+            Section {
+                ForEach(
+                    model.derivedGeometryCandidates,
+                    id: \.candidateID
+                ) { record in
+                    derivedCandidateRow(record)
+                }
+            } header: {
+                Text("Geometry candidates")
+            } footer: {
+                Text(
+                    "Shape hypotheses derived from captured evidence — never authority themselves. Accept promotes a candidate into a committed entity; Dismiss hides it on every review surface; Restore undoes a dismissal."
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func derivedCandidateRow(
+        _ record: DerivedGeometryCandidateRecord
+    ) -> some View {
+        let disposition =
+            candidateDispositions[record.candidateID] ?? .pending
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "cube.transparent")
+                    .foregroundStyle(
+                        disposition == .dismissed
+                            ? CaptureColorRole.secondary.color
+                            : .purple
+                    )
+                Text(derivedCandidateTitle(record))
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(derivedCandidateResolutionName(record.resolution))
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(derivedCandidateDetail(record))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+
+            if !model.readOnly {
+                switch disposition {
+                case .pending:
+                    HStack(spacing: 10) {
+                        switch record.resolution {
+                        case .resolved:
+                            Button("Accept as entity") {
+                                acceptDerivedCandidate(
+                                    record.candidateID, nil
+                                )
+                            }
+                        case .ambiguousEvidence:
+                            Menu("Accept as…") {
+                                ForEach(
+                                    record.ambiguityShapeKinds,
+                                    id: \.self
+                                ) { kind in
+                                    Button(derivedShapeKindName(kind)) {
+                                        acceptDerivedCandidate(
+                                            record.candidateID, kind
+                                        )
+                                    }
+                                }
+                            }
+                        case .insufficientEvidence:
+                            EmptyView()
+                        }
+                        Button("Dismiss") {
+                            dismissDerivedCandidate(
+                                record.candidateID
+                            )
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                case .accepted(let entityID):
+                    Label(
+                        entityID.map {
+                            String(
+                                localized:
+                                    "Promoted to entity \($0.prefix(8))"
+                            )
+                        } ?? String(localized: "Promoted to entity"),
+                        systemImage: "checkmark.circle.fill"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(CaptureColorRole.success.color)
+                case .dismissed:
+                    Button("Restore") {
+                        restoreDerivedCandidate(record.candidateID)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            } else if disposition == .dismissed {
+                Text("Dismissed by operator")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func derivedCandidateTitle(
+        _ record: DerivedGeometryCandidateRecord
+    ) -> String {
+        if let kind = record.shapeKind {
+            return derivedShapeKindName(kind)
+        }
+        switch record.recordKind {
+        case .object:
+            return String(localized: "Object candidate")
+        case .wallChain:
+            return String(localized: "Wall chain")
+        }
+    }
+
+    private func derivedCandidateResolutionName(
+        _ resolution: DerivedShapeResolution
+    ) -> String {
+        switch resolution {
+        case .resolved:
+            return String(localized: "Resolved")
+        case .ambiguousEvidence:
+            return String(localized: "Ambiguous")
+        case .insufficientEvidence:
+            return String(localized: "Insufficient evidence")
+        }
+    }
+
+    private func derivedCandidateDetail(
+        _ record: DerivedGeometryCandidateRecord
+    ) -> String {
+        var parts = [
+            String(
+                localized:
+                    "\(record.contourPoints.count) contour points"
+            ),
+        ]
+        if let fit = record.fitScore {
+            parts.append(
+                String(format: "fit %.2f", fit)
+            )
+        }
+        if let vertical = record.contourPoints
+            .compactMap(\.verticalPositionMeters).max()
+        {
+            parts.append(
+                String(format: "top %.2f m", vertical)
+            )
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func derivedShapeKindName(
+        _ kind: DerivedShapeKind
+    ) -> String {
+        switch kind {
+        case .orientedRectangle:
+            return String(localized: "Oriented rectangle")
+        case .circle:
+            return String(localized: "Circle")
+        case .ellipse:
+            return String(localized: "Ellipse")
+        case .polygon:
+            return String(localized: "Polygon")
+        }
+    }
+
+    /// Reads one `key=value` field from an advisory note's structured
+    /// detail string.
+    private static func detailValue(
+        _ key: String, in detail: String
+    ) -> String? {
+        for field in detail.split(separator: " ") {
+            let pair = field.split(separator: "=", maxSplits: 1)
+            guard pair.count == 2, pair[0] == key
+            else { continue }
+            return String(pair[1])
+        }
+        return nil
+    }
+
     @ViewBuilder
     private func evidenceRow(
         _ item: ReviewEvidenceItem
@@ -2073,7 +2357,7 @@ public struct CaptureReviewWorkspaceView: View {
             meshSnapshots: model.meshSnapshots,
             roomPlanObjects: roomPlanObjects,
             derivedCandidates:
-                model.derivedGeometryCandidates,
+                actionableDerivedCandidates,
             entities: model.annotations,
             measurements: model.measurements
         )

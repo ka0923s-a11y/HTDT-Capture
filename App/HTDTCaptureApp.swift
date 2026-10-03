@@ -497,6 +497,12 @@ private struct HTDTCaptureHostView: View {
                     coordinator.flagEvidenceFrameForPrivacy,
                 unflagEvidenceFrameForPrivacy:
                     coordinator.unflagEvidenceFrameForPrivacy,
+                acceptDerivedCandidate:
+                    coordinator.acceptDerivedCandidate,
+                dismissDerivedCandidate:
+                    coordinator.dismissDerivedCandidate,
+                restoreDerivedCandidate:
+                    coordinator.restoreDerivedCandidate,
                 collectSupportDiagnostics:
                     coordinator.collectSupportDiagnostics,
                 openFieldReturnWorkspace:
@@ -632,7 +638,21 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
     @Published private(set)
     var scanGuidanceProgress: ScanGuidanceProgress = .empty
     @Published private(set)
-    var derivedShapePreview: DerivedShapePreviewSnapshot = .empty
+    var derivedShapePreview: DerivedShapePreviewSnapshot = .empty {
+        didSet {
+            // A cleared/emptied preview can no longer carry a
+            // re-observation advisory — drop any flagged cells so the
+            // guidance tracker stops coaching a stale region. Advisory
+            // regions are converted to cells at the assignment site
+            // (async aggregator lookup); every other write lands here.
+            if derivedShapePreview.objectDecomposition?
+                .reobservationAdvisory?.region == nil
+            {
+                motionGuidanceTracker
+                    .setDerivedReobservationCellKeys([])
+            }
+        }
+    }
     @Published private(set)
     var scanEvidenceFrameCount = 0
     @Published private(set)
@@ -11434,6 +11454,298 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
         }
     }
 
+    // MARK: - Derived-geometry candidate dispositions
+
+    // The review surface's per-candidate controls
+    // (bolph71656-ai/HTDT-Capture#249/#408 follow-up). Dispositions
+    // persist as advisory notes — the candidates schema is closed, so
+    // the operator's decision lives in the canonical advisory stream
+    // where a reopened draft re-reads it. Accept additionally promotes
+    // the candidate's fitted footprint into a committed annotation
+    // entity through the same validated package path the editor uses,
+    // so the shape becomes canonical entity inventory at finalize.
+
+    func acceptDerivedCandidate(
+        _ candidateID: DerivedGeometryCandidateID,
+        shapeKind: DerivedShapeKind? = nil
+    ) {
+        guard let store = workingSetStore,
+              let workspace = reviewWorkspace,
+              !workspace.readOnly,
+              let record = workspace.derivedGeometryCandidates.first(
+                  where: { $0.candidateID == candidateID }
+              ),
+              let coordinateSpaceID = workspace.coordinateSpaceID
+        else { return }
+
+        // A resolved candidate promotes its committed fit; an ambiguous
+        // one carries no geometry, so the operator's chosen kind is
+        // re-fit from the persisted contour — a re-derivation of the
+        // same evidence, never new evidence.
+        let geometry: DerivedFootprintGeometry
+        let effectiveKind: DerivedShapeKind
+        if let shapeKind {
+            guard record.resolution == .ambiguousEvidence,
+                  record.ambiguityShapeKinds.contains(shapeKind),
+                  let refit = record.refitCandidate(kind: shapeKind)
+            else { return }
+            geometry = refit.geometry
+            effectiveKind = shapeKind
+        } else {
+            guard record.resolution == .resolved,
+                  let storedGeometry = record.geometry,
+                  let storedKind = record.shapeKind
+            else { return }
+            geometry = storedGeometry
+            effectiveKind = storedKind
+        }
+
+        do {
+            // Selection→authority through the post-scan authoring
+            // session — the same pipe point-selection uses. The entity's
+            // `derived_candidate:<id>` evidence link resolves against
+            // the committed candidates document at commit time
+            // (unresolvable links fail closed).
+            var session = PostScanGeometryAuthoringSession(
+                coordinateSpaceID: coordinateSpaceID,
+                meshAnchors: workspace.meshSnapshots,
+                derivedCandidates: [record]
+            )
+            let selection: GeometrySelection
+            if shapeKind == nil {
+                selection = try session
+                    .selectDerivedCandidateCentroid(
+                        candidateID: candidateID
+                    )
+            } else {
+                selection = try session
+                    .selectRefittedCandidateGeometry(
+                        candidateID: candidateID,
+                        geometry: geometry
+                    )
+            }
+            let placementAuthority = try session.placementAuthority(
+                for: selection.selectionID
+            )
+            let evidenceRef =
+                "derived_candidate:\(candidateID.description)"
+            let entity = try ManualAuthorityBuilder.annotation(
+                type: .custom,
+                label: derivedCandidateEntityLabel(
+                    record: record,
+                    shapeKind: effectiveKind
+                ),
+                xMeters: Double(
+                    placementAuthority.worldFromAnnotation.values[12]
+                ),
+                yMeters: Double(
+                    placementAuthority.worldFromAnnotation.values[13]
+                ),
+                zMeters: Double(
+                    placementAuthority.worldFromAnnotation.values[14]
+                ),
+                coordinateSpaceID: coordinateSpaceID,
+                referencePointConstruction: .directPlacement,
+                physicalEnvelope: try derivedCandidateEnvelope(
+                    record: record,
+                    geometry: geometry,
+                    evidenceRef: evidenceRef
+                ),
+                evidenceRefs: [evidenceRef],
+                placementAuthority: placementAuthority
+            )
+
+            // Append into the committed collections through the
+            // dedicated validated path — congruence, provenance, and
+            // relation/authority checks run exactly as in the editor
+            // commit.
+            let priorAnnotations = try? JSONDecoder().decode(
+                CaptureAnnotationCollection.self,
+                from: Data(
+                    contentsOf: store.rootDirectory
+                        .appendingPathComponent(
+                            AnnotationEvidencePackage.path
+                        )
+                )
+            )
+            let priorMeasurements = try? JSONDecoder().decode(
+                CaptureMeasurementCollection.self,
+                from: Data(
+                    contentsOf: store.rootDirectory
+                        .appendingPathComponent(
+                            MeasurementEvidencePackage.path
+                        )
+                )
+            )
+            let annotationPackage =
+                try AnnotationEvidencePackageBuilder.build(
+                    entities: (priorAnnotations?.entities ?? [])
+                        + [entity],
+                    relations: priorAnnotations?.relations ?? [],
+                    priorEntities: priorAnnotations?.entities
+                )
+            let measurementPackage =
+                try MeasurementEvidencePackageBuilder.build(
+                    measurements:
+                        priorMeasurements?.measurements ?? []
+                )
+
+            let generation = captureGeneration
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.captureGeneration == generation
+                else { return }
+                do {
+                    try await store
+                        .replaceAnnotationAndMeasurementPackages(
+                            annotationPackage: annotationPackage,
+                            measurementPackage: measurementPackage
+                        )
+                    try await store.recordAdvisoryNote(
+                        CaptureAdvisoryNote(
+                            kind: .derivedCandidateAccepted,
+                            sessionTimestampSeconds:
+                                self.latestScanTimestampSeconds ?? 0,
+                            detail:
+                                "candidate_id=\(candidateID.description)"
+                                + " shape_kind=\(effectiveKind.rawValue)"
+                                + " entity_id=\(entity.entityID)"
+                        )
+                    )
+                    self.refreshReviewWorkspace()
+                } catch {
+                    self.workingSetStatus = String(
+                        localized:
+                            "Derived candidate could not be promoted"
+                    ) + " ["
+                        + Self.persistenceDiagnostic(error) + "]"
+                }
+            }
+        } catch {
+            workingSetStatus = String(
+                localized: "Derived candidate could not be promoted"
+            ) + " ["
+                + Self.persistenceDiagnostic(error) + "]"
+        }
+    }
+
+    func dismissDerivedCandidate(
+        _ candidateID: DerivedGeometryCandidateID
+    ) {
+        recordDerivedCandidateDisposition(
+            kind: .derivedCandidateDismissed,
+            candidateID: candidateID
+        )
+    }
+
+    func restoreDerivedCandidate(
+        _ candidateID: DerivedGeometryCandidateID
+    ) {
+        recordDerivedCandidateDisposition(
+            kind: .derivedCandidateRestored,
+            candidateID: candidateID
+        )
+    }
+
+    /// Writes the disposition note; the review surface re-reads the
+    /// persisted advisory stream after refresh, so the decision
+    /// survives relaunch and a reopened draft.
+    private func recordDerivedCandidateDisposition(
+        kind: CaptureAdvisoryNoteKind,
+        candidateID: DerivedGeometryCandidateID
+    ) {
+        guard let store = workingSetStore,
+              reviewWorkspace?.readOnly == false
+        else { return }
+        let generation = captureGeneration
+        Task { @MainActor [weak self] in
+            guard let self,
+                  self.captureGeneration == generation
+            else { return }
+            do {
+                try await store.recordAdvisoryNote(
+                    CaptureAdvisoryNote(
+                        kind: kind,
+                        sessionTimestampSeconds:
+                            self.latestScanTimestampSeconds ?? 0,
+                        detail:
+                            "candidate_id=\(candidateID.description)"
+                    )
+                )
+                self.refreshReviewWorkspace()
+            } catch {
+                self.workingSetStatus = String(
+                    localized:
+                        "Candidate decision could not be saved"
+                ) + " ["
+                    + Self.persistenceDiagnostic(error) + "]"
+            }
+        }
+    }
+
+    /// Display label for the promoted entity — stable ASCII so the
+    /// persisted entity reads the same in every locale.
+    private func derivedCandidateEntityLabel(
+        record: DerivedGeometryCandidateRecord,
+        shapeKind: DerivedShapeKind
+    ) -> String {
+        let idPrefix = String(
+            record.candidateID.description.prefix(8)
+        )
+        return "Derived \(shapeKind.rawValue) \(idPrefix)"
+    }
+
+    /// Physical envelope from the fitted footprint plus the observed
+    /// vertical span. Any dimension that is degenerate or unmeasured
+    /// is omitted rather than fabricated.
+    private func derivedCandidateEnvelope(
+        record: DerivedGeometryCandidateRecord,
+        geometry: DerivedFootprintGeometry,
+        evidenceRef: String
+    ) throws -> EntityPhysicalEnvelope? {
+        let width: Double
+        let depth: Double
+        switch geometry {
+        case .orientedRectangle(let rect):
+            width = rect.width
+            depth = rect.depth
+        case .circle(let circle):
+            width = circle.radius * 2
+            depth = circle.radius * 2
+        case .ellipse(let ellipse):
+            width = ellipse.semiMajorAxis * 2
+            depth = ellipse.semiMinorAxis * 2
+        case .polygon(let polygon):
+            let xs = polygon.vertices.map(\.position.x)
+            let ys = polygon.vertices.map(\.position.y)
+            guard let minX = xs.min(), let maxX = xs.max(),
+                  let minY = ys.min(), let maxY = ys.max()
+            else { return nil }
+            width = maxX - minX
+            depth = maxY - minY
+        }
+        let verticals = record.contourPoints.compactMap(
+            \.verticalPositionMeters
+        )
+        var height: Double? = nil
+        if let minY = verticals.min(), let maxY = verticals.max(),
+           maxY - minY > 0
+        {
+            height = maxY - minY
+        }
+        guard (width.isFinite && width > 0)
+                || (depth.isFinite && depth > 0)
+                || height != nil
+        else { return nil }
+        return try EntityPhysicalEnvelope(
+            widthMeters: width.isFinite && width > 0 ? width : nil,
+            heightMeters: height,
+            depthMeters: depth.isFinite && depth > 0 ? depth : nil,
+            provenance: .other,
+            sourceEvidenceRefs: [evidenceRef]
+        )
+    }
+
     /// The annotation workspace's live status binding: the
     /// mission-bound status when one exists (its marks persist
     /// mid-capture), else the standalone imported plan's. nil when
@@ -15306,6 +15618,29 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                                 into: &self.bestDerivedObjectProxies,
                                 from: preview.objectProxies
                             )
+                            // The decomposition's re-observation
+                            // advisory becomes motion guidance:
+                            // convert its world-space region into
+                            // coverage cells under the coverage
+                            // tracker's own reference pose so a flagged
+                            // object prompts a re-observe even where
+                            // cell coverage is nominally complete.
+                            if let advisoryRegion = preview
+                                .objectDecomposition?
+                                .reobservationAdvisory?.region
+                            {
+                                let advisoryCellKeys =
+                                    self.derivedReobservationCellKeys(
+                                        for: advisoryRegion,
+                                        cellSizeMeters:
+                                            spatialSummary
+                                                .cellSizeMeters
+                                    )
+                                self.motionGuidanceTracker
+                                    .setDerivedReobservationCellKeys(
+                                        advisoryCellKeys
+                                    )
+                            }
                         }
                     }
                 }
@@ -15316,6 +15651,64 @@ private final class HTDTCaptureHostCoordinator: ObservableObject {
                 )
             }
         }
+    }
+
+    /// Coverage cells overlapping a world-space advisory region, under
+    /// the latest coverage summary's own reference pose — the same
+    /// world→cell mapping the coverage grid uses. The region is
+    /// sampled on a bounded grid — object footprints are small, but
+    /// the sample count is capped anyway so a degenerate region never
+    /// walks an unbounded cell range.
+    private func derivedReobservationCellKeys(
+        for region: DerivedObservationRegion,
+        cellSizeMeters: Double
+    ) -> Set<SpatialCoverageCellKey> {
+        guard cellSizeMeters.isFinite, cellSizeMeters > 0 else {
+            return []
+        }
+        // At most 9 samples per axis (edge+interior stride), so the
+        // lookup stays bounded regardless of region extent.
+        let maxAxisSamples = 9
+        let xStep = max(
+            cellSizeMeters,
+            (region.maxX - region.minX)
+                / Double(maxAxisSamples - 1)
+        )
+        let zStep = max(
+            cellSizeMeters,
+            (region.maxZ - region.minZ)
+                / Double(maxAxisSamples - 1)
+        )
+        var keys: Set<SpatialCoverageCellKey> = []
+        let midY = (region.minY + region.maxY) / 2
+        // Both edges are sampled explicitly — a stride longer than the
+        // region would otherwise skip the far edge.
+        var xs: [Double] = []
+        var x = region.minX
+        while x < region.maxX {
+            xs.append(x)
+            x += xStep
+        }
+        xs.append(region.maxX)
+        var zs: [Double] = []
+        var z = region.minZ
+        while z < region.maxZ {
+            zs.append(z)
+            z += zStep
+        }
+        zs.append(region.maxZ)
+        for px in xs {
+            for pz in zs {
+                if let key = spatialCoverage.cellKey(
+                    forWorldPoint: SpatialCoveragePoint3D(
+                        x: px, y: midY, z: pz
+                    )
+                ) {
+                    keys.insert(key)
+                }
+            }
+        }
+        return keys
     }
 
     nonisolated private static func buildDerivedShapePreview(

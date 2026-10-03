@@ -287,6 +287,93 @@ public struct PostScanGeometryAuthoringSession: Sendable, Equatable {
         return selection
     }
 
+    /// Selects the candidate's footprint center — the anchor for
+    /// promoting the whole shape into an entity. The horizontal
+    /// anchor is the fitted geometry's center when a shape resolved
+    /// (falling back to the contour mean); the vertical anchor is the
+    /// mean observed contour height.
+    @discardableResult
+    public mutating func selectDerivedCandidateCentroid(
+        candidateID: DerivedGeometryCandidateID
+    ) throws -> GeometrySelection {
+        guard let record = derivedCandidates.first(where: {
+            $0.candidateID == candidateID
+        }) else {
+            throw PostScanAuthoringError.unknownDerivedCandidate
+        }
+        guard record.resolution == .resolved,
+              !record.contourPoints.isEmpty
+        else {
+            throw PostScanAuthoringError.candidateNotSelectable
+        }
+        let center: DerivedPoint2D
+        if let geometry = record.geometry {
+            center = geometry.footprintCenter
+        } else {
+            let count = Double(record.contourPoints.count)
+            center = DerivedPoint2D(
+                x: record.contourPoints.map(\.position.x).reduce(0, +)
+                    / count,
+                y: record.contourPoints.map(\.position.y).reduce(0, +)
+                    / count
+            )
+        }
+        return derivedSelection(record: record, center: center)
+    }
+
+    /// Selects a re-fit geometry's footprint center — the anchor for a
+    /// candidate whose operator picked one of its competing ambiguous
+    /// shape kinds. The vertical anchor is the mean observed contour
+    /// height, the same convention the resolved-centroid path uses.
+    @discardableResult
+    public mutating func selectRefittedCandidateGeometry(
+        candidateID: DerivedGeometryCandidateID,
+        geometry: DerivedFootprintGeometry
+    ) throws -> GeometrySelection {
+        guard let record = derivedCandidates.first(where: {
+            $0.candidateID == candidateID
+        }) else {
+            throw PostScanAuthoringError.unknownDerivedCandidate
+        }
+        guard record.resolution == .ambiguousEvidence,
+              !record.contourPoints.isEmpty
+        else {
+            throw PostScanAuthoringError.candidateNotSelectable
+        }
+        return derivedSelection(
+            record: record,
+            center: geometry.footprintCenter
+        )
+    }
+
+    private mutating func derivedSelection(
+        record: DerivedGeometryCandidateRecord,
+        center: DerivedPoint2D
+    ) -> GeometrySelection {
+        let meanHeight = record.contourPoints.map {
+            Float($0.verticalPositionMeters ?? 0)
+        }.reduce(0, +) / Float(record.contourPoints.count)
+        let selection = GeometrySelection(
+            selectionID: GeometrySelectionID(),
+            source: .derivedCandidate,
+            coordinateSpaceID: coordinateSpaceID,
+            positionWorld: Float3(
+                Float(center.x),
+                meanHeight,
+                Float(center.y)
+            ),
+            sourceMeshAnchorID: nil,
+            sourceRoomPlanObjectID: nil,
+            sourceDerivedCandidateID: record.candidateID,
+            sourceEvidenceRefs: [
+                "derived_candidate:\(record.candidateID)",
+            ],
+            geometryEpoch: geometryEpoch
+        )
+        selections[selection.selectionID] = selection
+        return selection
+    }
+
     /// Produces the annotation placement authority for a selection.
     /// Stale selections (geometry changed since the pick) fail closed.
     public func placementAuthority(
