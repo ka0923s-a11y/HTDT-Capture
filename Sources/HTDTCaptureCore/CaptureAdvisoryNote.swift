@@ -52,6 +52,9 @@ public enum CaptureAdvisoryNoteKind: String, Codable, Sendable {
     /// The bounded camera-source preflight ran (issue #277): records
     /// the stable-frame/smudge outcome and the operator's action.
     case sourceQualityPreflight = "source_quality_preflight"
+    /// A bounded one-shot high-resolution evidence still was requested
+    /// (issue #275): records purpose, visual profile, and outcome.
+    case highResolutionStill = "high_resolution_still"
 }
 
 public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
@@ -132,6 +135,9 @@ public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
             severity = .warning
         case .sourceQualityPreflight:
             code = "source_quality_preflight"
+            severity = .info
+        case .highResolutionStill:
+            code = "high_resolution_still"
             severity = .info
         }
         return QualityDiagnostic(

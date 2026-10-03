@@ -509,6 +509,9 @@ public final class SharedARSessionController {
         RoomPlanSessionInstructionBridge()
     private let sessionDelegateBridge = ARSessionLifecycleBridge()
     private var liveRoomCaptureViewMountObserved = false
+    /// #275: at most one ARKit high-resolution request in flight;
+    /// internal so the HighResolutionEvidence extension enforces it.
+    var highResolutionRequestInFlight = false
 
     /// Handler invoked on the main actor for ARSession lifecycle events:
     /// interruption began/ended, terminal failure, camera tracking

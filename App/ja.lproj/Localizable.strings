@@ -3716,3 +3716,13 @@
 "The scene looks dark to the camera; brighter, even lighting improves photo evidence quality." = "カメラからはシーンが暗く見えています。明るく均一な照明にすると写真エビデンスの品質が向上します。";
 "Recheck" = "再チェック";
 "Continue anyway" = "このまま続行";
+"A high-resolution capture is already in progress; this scan is still active" = "高解像度キャプチャは実行中です。スキャンは継続しています";
+"High-resolution capture is not supported in the current configuration; this scan is still active" = "現在の構成では高解像度キャプチャに対応していません。スキャンは継続しています";
+"High-resolution evidence could not be captured; this scan is still active" = "高解像度の証拠を取得できませんでした。スキャンは継続しています";
+"Equipment label" = "機器ラベル";
+"Targeted object" = "対象物体";
+"Reference fixture" = "参照設備";
+"Review evidence" = "レビュー証拠";
+"Hi-res…" = "高解像度…";
+"Hi-res" = "高解像度";
+"Save high-resolution evidence" = "高解像度の証拠を保存";

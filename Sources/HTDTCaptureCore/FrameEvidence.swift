@@ -104,6 +104,24 @@ public enum DepthEvidenceKind: String, Codable, Sendable, Equatable {
     case smoothedSceneDepth = "smoothed_scene_depth"
 }
 
+/// Why a high-quality visual evidence frame was requested (issue
+/// #275). Deliberate, bounded purposes only — routine frame retention
+/// is never silently upgraded to high-resolution photography.
+public enum HighQualityEvidencePurpose: String, Codable, Sendable,
+    Equatable
+{
+    /// Equipment serial/model label evidence for OCR/barcode/identity
+    /// review.
+    case equipmentLabel = "equipment_label"
+    /// Operator-targeted object pass evidence.
+    case targetedObject = "targeted_object"
+    /// A meaningful fixture/conflict the operator wants preserved at
+    /// higher quality.
+    case referenceFixture = "reference_fixture"
+    /// General review evidence when no narrower purpose applies.
+    case reviewEvidence = "review_evidence"
+}
+
 public enum FrameDepthStatus: String, Codable, Sendable, Equatable {
     case notRequested = "not_requested"
     case unavailable

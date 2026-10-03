@@ -17,6 +17,11 @@ public struct CaptureScanningView: View {
     public let statusMessage: String?
     public let endScanGuidance: String?
     public let captureEvidenceFrame: () -> Void
+    /// #275: bounded one-shot high-resolution still — the operator
+    /// picks a stated purpose; repeated taps reject while one is in
+    /// flight.
+    public let captureHighResolutionEvidence:
+        (HighQualityEvidencePurpose) -> Void
     public let setMovementCapability:
         (ScanMovementCapability) -> Void
     public let endScan: () -> Void
@@ -26,6 +31,9 @@ public struct CaptureScanningView: View {
     public let isEndingScan: Bool
     /// True while a manual evidence save is still in flight.
     public let isCapturingEvidence: Bool
+    /// True while a bounded high-resolution still is in flight
+    /// (#275).
+    public let isCapturingHighResolutionEvidence: Bool
     /// Frames retained by the bounded automatic selector (#216).
     public let automaticEvidenceCount: Int
     /// Live storage accounting for the working revision (#308):
@@ -138,6 +146,7 @@ public struct CaptureScanningView: View {
         endScanGuidance: String? = nil,
         isEndingScan: Bool = false,
         isCapturingEvidence: Bool = false,
+        isCapturingHighResolutionEvidence: Bool = false,
         automaticEvidenceCount: Int = 0,
         evidenceStorageAdvisory:
             CaptureEvidenceStorageAdvisory? = nil,
@@ -179,6 +188,8 @@ public struct CaptureScanningView: View {
              CaptureFieldNoteAnchorRequest) -> Void
                 = { _, _, _, _, _, _ in },
         captureEvidenceFrame: @escaping () -> Void,
+        captureHighResolutionEvidence: @escaping
+            (HighQualityEvidencePurpose) -> Void = { _ in },
         setMovementCapability: @escaping
             (ScanMovementCapability) -> Void,
         endScan: @escaping () -> Void
@@ -195,6 +206,8 @@ public struct CaptureScanningView: View {
         self.endScanGuidance = endScanGuidance
         self.isEndingScan = isEndingScan
         self.isCapturingEvidence = isCapturingEvidence
+        self.isCapturingHighResolutionEvidence =
+            isCapturingHighResolutionEvidence
         self.automaticEvidenceCount = automaticEvidenceCount
         self.evidenceStorageAdvisory = evidenceStorageAdvisory
         self.lowLightGuidanceActive = lowLightGuidanceActive
@@ -226,6 +239,8 @@ public struct CaptureScanningView: View {
         self.probePlacementTarget = probePlacementTarget
         self.recordFieldNote = recordFieldNote
         self.captureEvidenceFrame = captureEvidenceFrame
+        self.captureHighResolutionEvidence =
+            captureHighResolutionEvidence
         self.setMovementCapability = setMovementCapability
         self.endScan = endScan
     }
@@ -804,6 +819,53 @@ public struct CaptureScanningView: View {
             .disabled(isEndingScan || isCapturingEvidence)
             .accessibilityLabel(
                 String(localized: "Save evidence frame")
+            )
+
+            // #275: a deliberate high-resolution still — the operator
+            // states the purpose so the retained evidence keeps honest
+            // provenance; at most one ARKit request is in flight.
+            Menu {
+                Button(
+                    String(localized: "Equipment label")
+                ) {
+                    captureHighResolutionEvidence(.equipmentLabel)
+                }
+                Button(
+                    String(localized: "Targeted object")
+                ) {
+                    captureHighResolutionEvidence(.targetedObject)
+                }
+                Button(
+                    String(localized: "Reference fixture")
+                ) {
+                    captureHighResolutionEvidence(.referenceFixture)
+                }
+                Button(
+                    String(localized: "Review evidence")
+                ) {
+                    captureHighResolutionEvidence(.reviewEvidence)
+                }
+            } label: {
+                Label(
+                    isCapturingHighResolutionEvidence
+                        ? "Hi-res…"
+                        : "Hi-res",
+                    systemImage: "camera.aperture"
+                )
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .frame(minHeight: 38)
+            }
+            .scanControlStyle(prominent: false)
+            .controlSize(.regular)
+            .disabled(
+                isEndingScan
+                    || isCapturingHighResolutionEvidence
+            )
+            .accessibilityLabel(
+                String(
+                    localized: "Save high-resolution evidence"
+                )
             )
 
             // #325: one large tap marks the current view for mandatory
