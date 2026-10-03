@@ -1,7 +1,7 @@
 import Foundation
 
 /// A double-precision world-space vector used by the room reference
-/// frame document (issue #232). Positions/directions observed from
+/// frame document (issue bolph71656-ai/HTDT-Capture#232). Positions/directions observed from
 /// ARKit arrive as Float but persist as Double so downstream HTDT
 /// authoring keeps full precision.
 public struct WorldPoint3D: Codable, Sendable, Equatable {
@@ -40,7 +40,7 @@ public struct WorldPoint3D: Codable, Sendable, Equatable {
 }
 
 /// How the operator established the frame's front direction
-/// (issue #232).
+/// (issue bolph71656-ai/HTDT-Capture#232).
 public enum RoomFrameCaptureMethod: String, Codable, Sendable {
     /// The operator placed the device over the intended room origin,
     /// confirmed it, then aimed/positioned the device along the intended
@@ -49,7 +49,7 @@ public enum RoomFrameCaptureMethod: String, Codable, Sendable {
     case operatorTwoPointPath = "operator_two_point_path"
 }
 
-/// The "up" authority of a v1 room reference frame (issue #232). The
+/// The "up" authority of a v1 room reference frame (issue bolph71656-ai/HTDT-Capture#232). The
 /// frame only names origin and front; up is always inherited from the
 /// AR gravity authority so the frame cannot redefine vertical.
 public enum RoomFrameUpReference: String, Codable, Sendable {
@@ -65,7 +65,7 @@ public enum RoomReferenceFrameError: Error, Sendable, Equatable {
 }
 
 /// Canonical, user-confirmed room reference frame authority
-/// (issue #232), persisted at
+/// (issue bolph71656-ai/HTDT-Capture#232), persisted at
 /// `session/room-reference-frame.json`. The document is typed and
 /// versioned so HTDT consumes the room frame without parsing labels or
 /// free-text annotations: `coordinate_space_id` binds it to the same
@@ -152,7 +152,7 @@ public struct RoomReferenceFrameDocument:
         self.confirmedAtUTC = confirmedAtUTC
     }
 
-    /// Two-point capture convenience (issue #232): the operator confirms
+    /// Two-point capture convenience (issue bolph71656-ai/HTDT-Capture#232): the operator confirms
     /// the device over the intended room origin, then confirms a second
     /// camera position lying toward the room front. The front direction
     /// is the origin→front displacement projected onto the

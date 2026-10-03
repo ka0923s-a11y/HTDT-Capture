@@ -1,7 +1,7 @@
 import Foundation
 import HTDTCaptureCore
 
-/// Workflow composition boundary (issue #410): the seven typed
+/// Workflow composition boundary (issue bolph71656-ai/HTDT-Capture#410): the seven typed
 /// action ports the root routes between, decomposed from the flat
 /// `CaptureRootActions` bag. A view receives only the port(s) its
 /// workflow owns — a Library view can no longer reach scan-session
@@ -13,7 +13,7 @@ import HTDTCaptureCore
 /// added to the bag fails loudly until it is routed — never silently
 /// global again.
 
-/// Spatial Capture workflow (issue #410): scan session, guidance, coverage, target scans, connected regions, permissions, practice, scan-time field notes and revisit flags, strategy/profile selection. Views outside the scan session never see these.
+/// Spatial Capture workflow (issue bolph71656-ai/HTDT-Capture#410): scan session, guidance, coverage, target scans, connected regions, permissions, practice, scan-time field notes and revisit flags, strategy/profile selection. Views outside the scan session never see these.
 public struct SpatialCaptureActions {
     public let beginCapture: () -> Void
     public let beginScanning: () -> Void
@@ -29,7 +29,7 @@ public struct SpatialCaptureActions {
     public let setGuidanceCuesEnabled: (Bool) -> Void
     public let setLoopClosureCheckActive: (Bool) -> Void
     /// Records the operator's response to the armed return-to-start
-    /// check (#273): "accepted", "reobserve", or "continued" — kept as
+    /// check (legacy bolph71656-ai/HTDT-Capture#273): "accepted", "reobserve", or "continued" — kept as
     /// advisory provenance next to the verdict + residuals.
     public let recordLoopClosureOutcome: (String) -> Void
     public let setScanMovementCapability: (ScanMovementCapability) -> Void
@@ -95,7 +95,7 @@ public struct SpatialCaptureActions {
     }
 }
 
-/// Review/authoring workflow (issue #410): annotation + measurement + authority commits, room frame/datum, opening review, evidence curation, semantic correction, as-built verification, revision lineage, field notes, remediation, finalize/export-prep, persisted workspace.
+/// Review/authoring workflow (issue bolph71656-ai/HTDT-Capture#410): annotation + measurement + authority commits, room frame/datum, opening review, evidence curation, semantic correction, as-built verification, revision lineage, field notes, remediation, finalize/export-prep, persisted workspace.
 public struct ReviewAuthoringActions {
     public let beginAnnotation: () -> Void
     public let captureRaycastPlacement: () async throws -> AnnotationPlacementAuthority
@@ -191,13 +191,13 @@ public struct ReviewAuthoringActions {
     }
 }
 
-/// Field Return workflow (issue #410): non-spatial mission field-return lifecycle — open/resume workspace, persist drafts, finalize, list documents.
+/// Field Return workflow (issue bolph71656-ai/HTDT-Capture#410): non-spatial mission field-return lifecycle — open/resume workspace, persist drafts, finalize, list documents.
 public struct FieldReturnActions {
     public let openFieldReturnWorkspace: (String) async -> HTDTFieldReturnWorkspace?
     public let persistFieldReturnDraft: (HTDTFieldReturnWorkspace) async -> Void
     public let finalizeFieldReturn: (HTDTFieldReturnWorkspace) async -> URL?
     public let listFieldReturns: () async -> [HTDTFieldReturnDocument]
-    /// #423: resolves the finalized container's URL for share flows.
+    /// legacy bolph71656-ai/HTDT-Capture#423: resolves the finalized container's URL for share flows.
     public let fieldReturnArtifactURL: (HTDTFieldReturnID) -> URL?
 
     public init(from actions: CaptureRootActions) {
@@ -209,7 +209,7 @@ public struct FieldReturnActions {
     }
 }
 
-/// Mission workflow (issue #410): task-plan import/clear, mission inbox lifecycle, dependency evaluation, checklist outcomes, repair tasks, plan-reference import.
+/// Mission workflow (issue bolph71656-ai/HTDT-Capture#410): task-plan import/clear, mission inbox lifecycle, dependency evaluation, checklist outcomes, repair tasks, plan-reference import.
 public struct MissionActions {
     public let importTaskPlan: (URL) -> Void
     public let clearTaskPlan: () -> Void
@@ -229,7 +229,7 @@ public struct MissionActions {
         (HTDTCaptureTaskPlan) -> Bool
     public let resolveRepairTask: (HTDTRepairTaskRow) -> Void
     public let importPlanReference: (URL) -> Void
-    /// #422: bounded pairing-scoped Mission pull refresh.
+    /// legacy bolph71656-ai/HTDT-Capture#422: bounded pairing-scoped Mission pull refresh.
     public let checkHTDTForMissions:
         () async -> [HTDTMissionReceiveReport]
 
@@ -254,7 +254,7 @@ public struct MissionActions {
     }
 }
 
-/// Library workflow (issue #410): persisted captures/series, quarantine/orphans, recovered drafts, revisions, inbound/archive import-export, metadata, derived exports, failed captures.
+/// Library workflow (issue bolph71656-ai/HTDT-Capture#410): persisted captures/series, quarantine/orphans, recovered drafts, revisions, inbound/archive import-export, metadata, derived exports, failed captures.
 public struct LibraryActions {
     public let openPersistedCapture: (CaptureRevisionID) -> Void
     public let deletePersistedCapture: (CaptureRevisionID) -> Void
@@ -305,7 +305,7 @@ public struct LibraryActions {
     }
 }
 
-/// Transfer workflow (issue #410): HTDT send, destination pairing/lifecycle, delivery queue, preflight, export-archive cleanup.
+/// Transfer workflow (issue bolph71656-ai/HTDT-Capture#410): HTDT send, destination pairing/lifecycle, delivery queue, preflight, export-archive cleanup.
 public struct TransferActions {
     public let sendCaptureToHTDT:
         (HTDTHandoffDestination, HTDTShareSheetOutcome?) async -> Void
@@ -320,7 +320,7 @@ public struct TransferActions {
     public let deliveryCancel: (String) async -> Void
     public let deliveryPurgePayload: (String) async -> Void
     public let preflightDestination: (HTDTHandoffDestination) async -> HTDTCompatibilityVerdict
-    /// #423: field-return deliverable preflight + durable-queue send.
+    /// legacy bolph71656-ai/HTDT-Capture#423: field-return deliverable preflight + durable-queue send.
     public let preflightFieldReturn: (HTDTFieldReturnID, HTDTHandoffDestination) async -> HTDTCompatibilityVerdict
     public let sendFieldReturnToHTDT: (HTDTFieldReturnID, HTDTHandoffDestination) async -> Void
     public let deleteExportArchive: (PersistedCaptureRecord) -> Void
@@ -344,7 +344,7 @@ public struct TransferActions {
     }
 }
 
-/// Administration workflow (issue #410): app settings, equipment catalog cache, support diagnostics.
+/// Administration workflow (issue bolph71656-ai/HTDT-Capture#410): app settings, equipment catalog cache, support diagnostics.
 public struct AdministrationActions {
     public let updateAppSettings: (CaptureAppSettings) -> Void
     public let clearEquipmentCatalogCache: () -> Void
@@ -362,7 +362,7 @@ public struct AdministrationActions {
 }
 
 /// The routed capability surface of the capture root
-/// (issue #410): one value per workflow, built once from the flat
+/// (issue bolph71656-ai/HTDT-Capture#410): one value per workflow, built once from the flat
 /// bag. Constructing it runs the inventory check that keeps the
 /// ownership table honest.
 public struct CaptureWorkflowPorts {
@@ -419,7 +419,7 @@ public struct CaptureWorkflowPorts {
 }
 
 extension CaptureRootActions {
-    /// The decomposed capability surface (issue #410). The flat bag
+    /// The decomposed capability surface (issue bolph71656-ai/HTDT-Capture#410). The flat bag
     /// stays intact for migration; new surfaces take the port they
     /// need instead of the whole bag.
     public var ports: CaptureWorkflowPorts {

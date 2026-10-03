@@ -1,6 +1,6 @@
 import Foundation
 
-/// Bounded automatic evidence-keyframe selection policy (#216).
+/// Bounded automatic evidence-keyframe selection policy (legacy bolph71656-ai/HTDT-Capture#216).
 ///
 /// During an active scan the host periodically offers the tracker a
 /// compact `AutomaticKeyframeSample`. A candidate is retained only when

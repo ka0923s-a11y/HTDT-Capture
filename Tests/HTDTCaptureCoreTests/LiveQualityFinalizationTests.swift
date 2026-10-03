@@ -239,7 +239,7 @@ final class LiveQualityFinalizationTests: XCTestCase {
         _ store: CaptureWorkingSetStore
     ) async throws {
         // The finalized v1 contract requires the foundation payload set
-        // (#194): session/capabilities/configuration/device plus the
+        // (legacy bolph71656-ai/HTDT-Capture#194): session/capabilities/configuration/device plus the
         // timing package, all sharing one session/coordinate authority
         // that every other evidence payload binds to.
         let context = CaptureSessionContext()

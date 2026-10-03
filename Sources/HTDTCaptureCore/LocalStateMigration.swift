@@ -7,7 +7,7 @@ public enum LocalStateMigrationError: Error, Sendable, Equatable {
 }
 
 /// How losing an app-local durable document would hurt the operator
-/// (issue #390): drives both migration care and the failure surface
+/// (issue bolph71656-ai/HTDT-Capture#390): drives both migration care and the failure surface
 /// the host renders when a document cannot be adopted.
 public enum LocalStateCriticality: String, Codable, Sendable {
     /// Names, notes, lifecycle state — canonical captures remain
@@ -24,7 +24,7 @@ public enum LocalStateCriticality: String, Codable, Sendable {
 }
 
 /// Privacy grouping of the durable document for recovery handling
-/// and diagnostics (issue #390).
+/// and diagnostics (issue bolph71656-ai/HTDT-Capture#390).
 public enum LocalStatePrivacyClass: String, Codable, Sendable {
     case operatorMetadata = "operator_metadata"
     case operationalLedger = "operational_ledger"
@@ -51,7 +51,7 @@ public struct LocalStateMigrationStep: Sendable {
 }
 
 /// One durable app-local document in the schema registry (issue
-/// #390): which file it lives in, which versions this build reads,
+/// legacy bolph71656-ai/HTDT-Capture#390): which file it lives in, which versions this build reads,
 /// and how a supported read version migrates forward.
 public struct LocalStateSchema: Sendable {
     public let schemaID: String
@@ -97,7 +97,7 @@ public struct LocalStateSchema: Sendable {
 }
 
 /// Disposition of one document after the launch-time upgrade pass
-/// (issue #390). Migration that succeeds is silent by design; the
+/// (issue bolph71656-ai/HTDT-Capture#390). Migration that succeeds is silent by design; the
 /// journal still records it so a multi-document upgrade leaves an
 /// auditable generation.
 public enum LocalStateUpgradeOutcome: String, Codable, Sendable {
@@ -123,7 +123,7 @@ public struct LocalStateUpgradeEvent:
     Identifiable
 {
     /// One launch-time upgrade run shared by every event it emits —
-    /// the multi-document generation (#390).
+    /// the multi-document generation (legacy bolph71656-ai/HTDT-Capture#390).
     public let upgradeRunID: String
     public let schemaID: String
     public let fileName: String
@@ -185,7 +185,7 @@ public struct LocalStateUpgradeEvent:
 }
 
 /// Versioned wire document for `state-upgrade-journal.json`: the
-/// append-only ledger of upgrade-pass outcomes (issue #390).
+/// append-only ledger of upgrade-pass outcomes (issue bolph71656-ai/HTDT-Capture#390).
 public struct LocalStateUpgradeJournal:
     Codable,
     Sendable,
@@ -229,12 +229,12 @@ public struct LocalStateUpgradeReport: Sendable, Equatable {
 }
 
 /// The registry of app-local durable documents the launch pass owns
-/// (issue #390). Documents are declared with their write version,
+/// (issue bolph71656-ai/HTDT-Capture#390). Documents are declared with their write version,
 /// every version this build may still open, and the migration edges
 /// between them; the migrator walks each file exactly once per
 /// launch before any store mutates it.
 public enum LocalStateSchemaRegistry {
-    /// `library-metadata.json` — operator names/notes plus the #394
+    /// `library-metadata.json` — operator names/notes plus the legacy bolph71656-ai/HTDT-Capture#394
     /// retention lifecycle. v1.0.0 → v1.1.0 adds the `series_states`
     /// and `revision_marks` maps.
     public static let libraryMetadata = LocalStateSchema(
@@ -407,7 +407,7 @@ public enum LocalStateSchemaRegistry {
 }
 
 /// Minimal `{schema, schema_version}` envelope used to classify a
-/// durable document without committing to its contract (issue #390).
+/// durable document without committing to its contract (issue bolph71656-ai/HTDT-Capture#390).
 private struct LocalStateEnvelope: Decodable {
     let schema: String
     let schemaVersion: String
@@ -453,7 +453,7 @@ private enum LocalStateVersion {
     }
 }
 
-/// Launch-time app-local state upgrade pass (issue #390). Runs before
+/// Launch-time app-local state upgrade pass (issue bolph71656-ai/HTDT-Capture#390). Runs before
 /// any store mutates its document: every registered file is
 /// classified by its `{schema, schema_version}` envelope and either
 /// left alone (current), migrated through its registered edges with
@@ -687,7 +687,7 @@ public enum LocalStateMigrator {
     /// Validated temp + atomic replace: the migrated bytes are
     /// written to a sibling temp file and moved over the original
     /// only after the write completes, so an interrupted upgrade can
-    /// never leave a half-written document (#390).
+    /// never leave a half-written document (legacy bolph71656-ai/HTDT-Capture#390).
     private static func replaceAtomically(
         target: URL,
         data: Data

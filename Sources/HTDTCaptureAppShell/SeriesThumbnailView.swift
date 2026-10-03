@@ -5,7 +5,7 @@ import HTDTCaptureCore
 import ImageIO
 #endif
 
-/// Bounded decode cache for library-row previews (issue #411). A
+/// Bounded decode cache for library-row previews (issue bolph71656-ai/HTDT-Capture#411). A
 /// thumbnail is disposable derived data — never authority: rows ask
 /// for it lazily, misses are remembered so a re-render never
 /// re-reads, and `NSCache` caps how many decodes stay resident.
@@ -117,7 +117,7 @@ public final class SeriesThumbnailCache: @unchecked Sendable {
     }
 }
 
-/// One library-row preview (issue #411): a representative frame of
+/// One library-row preview (issue bolph71656-ai/HTDT-Capture#411): a representative frame of
 /// the newest preview-bearing revision, loaded off the main actor
 /// into a fixed 40pt tile — stable row geometry while loading,
 /// aspect-fill crop once decoded, and the semantic placeholder

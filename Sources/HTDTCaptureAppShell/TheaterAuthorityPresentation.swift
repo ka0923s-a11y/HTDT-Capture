@@ -2,7 +2,7 @@ import Foundation
 import HTDTCaptureCore
 
 /// Operator-facing names for the theater-authority enumerations
-/// (issue #365 FORM-10). Persisted `rawValue` schema tokens never
+/// (issue bolph71656-ai/HTDT-Capture#365 FORM-10). Persisted `rawValue` schema tokens never
 /// surface in the primary form path — every picker shows a localized
 /// human label while the record keeps its canonical token. `unknown`
 /// is a deliberate attested answer everywhere it exists, never hidden
@@ -11,7 +11,7 @@ public enum TheaterAuthorityPresentation {
 
     /// Footnote shown under pickers where `unknown` is a first-class
     /// answer — explains it is recorded deliberately rather than
-    /// treated as missing input (issue #365).
+    /// treated as missing input (issue bolph71656-ai/HTDT-Capture#365).
     public static var unknownIsRecordedNote: String {
         String(
             localized:
@@ -214,7 +214,7 @@ public enum TheaterAuthorityPresentation {
         }
     }
 
-    /// Rack-facing labels for placement observations (#402).
+    /// Rack-facing labels for placement observations (legacy bolph71656-ai/HTDT-Capture#402).
     public static func rackFacingName(
         _ value: RackFacing
     ) -> String {
@@ -616,7 +616,7 @@ public enum TheaterAuthorityPresentation {
     }
 
     /// Disposition names shared between the opening list and the plan
-    /// legend (issue #367) — one localized vocabulary for both.
+    /// legend (issue bolph71656-ai/HTDT-Capture#367) — one localized vocabulary for both.
     public static func openingDispositionName(
         _ value: RoomOpeningDisposition
     ) -> String {
@@ -651,7 +651,7 @@ public enum TheaterAuthorityPresentation {
         }
     }
 
-    /// Human retention label for evidence gallery rows (issue #367):
+    /// Human retention label for evidence gallery rows (issue bolph71656-ai/HTDT-Capture#367):
     /// the persisted `retention_reason` token stays in Details.
     public static func retentionReasonName(
         _ reason: EvidenceRetentionReason
@@ -670,7 +670,7 @@ public enum TheaterAuthorityPresentation {
 
     /// Channel-role tokens (`L`, `SBL`, `LFE1`) read as acoustical
     /// labels; unrecognized custom tokens pass through unchanged —
-    /// the token set is intentionally open (#244).
+    /// the token set is intentionally open (legacy bolph71656-ai/HTDT-Capture#244).
     public static func channelRoleName(
         _ value: ChannelRole
     ) -> String {
@@ -700,7 +700,7 @@ public enum TheaterAuthorityPresentation {
         }
     }
 
-    /// How a field-evidence asset entered the capture (issue #367) —
+    /// How a field-evidence asset entered the capture (issue bolph71656-ai/HTDT-Capture#367) —
     /// the record's `acquisition` token stays in the schema.
     public static func fieldEvidenceAcquisitionName(
         _ value: FieldEvidenceAcquisition
@@ -782,7 +782,7 @@ public enum TheaterAuthorityPresentation {
     }
 
     /// Human subject for an evidence "referenced by" token (issue
-    /// #367): entity labels, measurement types, opening kinds — the
+    /// legacy bolph71656-ai/HTDT-Capture#367): entity labels, measurement types, opening kinds — the
     /// raw `entity:<id>` / `measurement:<id>` tokens stay under the
     /// technical detail.
     public static func referencedSubjectLabel(
@@ -821,7 +821,7 @@ public enum TheaterAuthorityPresentation {
         return ref
     }
 
-    /// Marker-kind names shared by the plan legend (issue #367) — only
+    /// Marker-kind names shared by the plan legend (issue bolph71656-ai/HTDT-Capture#367) — only
     /// classes actually present are listed.
     public static func planMarkerKindName(
         _ kind: RoomPlanPreviewModel.PlanMarker.Kind
@@ -865,7 +865,7 @@ public enum TheaterAuthorityPresentation {
     }
 
     /// Human name for the as-built plan→capture alignment mechanism
-    /// (issue #293) — the authority the ghost overlay rests on.
+    /// (issue bolph71656-ai/HTDT-Capture#293) — the authority the ghost overlay rests on.
     public static func planAlignmentMechanismName(
         _ mechanism: PlanAlignmentMechanism
     ) -> String {

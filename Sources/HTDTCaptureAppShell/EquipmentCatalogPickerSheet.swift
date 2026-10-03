@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import HTDTCaptureCore
 
-/// Session-level recents for the equipment picker (#265): the last
+/// Session-level recents for the equipment picker (legacy bolph71656-ai/HTDT-Capture#265): the last
 /// catalog `selectionKey`s the operator chose, most-recent first. Held
 /// by the host/workspace so recents survive sheet dismissal.
 public final class EquipmentRecents: ObservableObject {
@@ -21,7 +21,7 @@ public final class EquipmentRecents: ObservableObject {
     }
 }
 
-/// Searchable equipment-definition sheet (#265). Selection is always
+/// Searchable equipment-definition sheet (legacy bolph71656-ai/HTDT-Capture#265). Selection is always
 /// the exact catalog `selectionKey` — the deterministic
 /// ID/version/SHA-256 tuple — so search and filtering can never change
 /// an already-chosen binding.
@@ -29,7 +29,7 @@ public struct EquipmentCatalogPickerSheet: View {
     public let entries: [HTDTEquipmentCatalogEntry]
     /// Equipment classes relevant to the annotation being authored;
     /// entries outside the set are still shown but marked incompatible
-    /// rather than silently hidden (#237 policy stays advisory here).
+    /// rather than silently hidden (legacy bolph71656-ai/HTDT-Capture#237 policy stays advisory here).
     public let compatibleIdentityKinds: Set<HTDTEquipmentIdentityKind>?
     /// Currently bound selection (shown pinned, never mutated by
     /// filtering).

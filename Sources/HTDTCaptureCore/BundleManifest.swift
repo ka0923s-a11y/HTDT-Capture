@@ -266,7 +266,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         }
 
         // sha256 source_refs must resolve to exactly one payload
-        // authority (#193): identical bytes under different logical
+        // authority (legacy bolph71656-ai/HTDT-Capture#193): identical bytes under different logical
         // paths are distinct authorities (different producer /
         // provenance / lineage), so a shared digest cannot disambiguate
         // them and must be expressed as a path: reference instead.
@@ -462,7 +462,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         }
     }
 
-    /// v1 source_ref budgets (#195): lineage resolution work must stay
+    /// v1 source_ref budgets (legacy bolph71656-ai/HTDT-Capture#195): lineage resolution work must stay
     /// bounded independently of the manifest byte cap. Identical limits
     /// are enforced by the Python validator and reference ingestor.
     /// Public so producers that build `sourceRefs` (e.g. the derived
@@ -728,7 +728,7 @@ enum BundleReservedPaths {
             provenanceClass: .captureAppDerived,
             role: .canonical
         ),
-        // Durable working-revision lifecycle marker (issue #297):
+        // Durable working-revision lifecycle marker (issue bolph71656-ai/HTDT-Capture#297):
         // written by the working set's atomic transactions and carried
         // into the finalized bundle as provenance.
         "session/revision-state.json": Binding(
@@ -755,7 +755,7 @@ enum BundleReservedPaths {
             provenanceClass: .captureAppDerived,
             role: .canonical
         ),
-        // Advanced workflow payloads (issues #222/#227/#240/#249/#293):
+        // Advanced workflow payloads (issues bolph71656-ai/HTDT-Capture#222/legacy bolph71656-ai/HTDT-Capture#227/legacy bolph71656-ai/HTDT-Capture#240/legacy bolph71656-ai/HTDT-Capture#249/legacy bolph71656-ai/HTDT-Capture#293):
         // reserved-path-bound but not schema-owned, matching the
         // coordinate-space-policy precedent.
         "derived/authority-dependencies.json": Binding(
@@ -782,7 +782,7 @@ enum BundleReservedPaths {
             provenanceClass: .importedReference,
             role: .canonical
         ),
-        // Capture-strategy selection (issue #307): persisted
+        // Capture-strategy selection (issue bolph71656-ai/HTDT-Capture#307): persisted
         // provenance of which published advisory policy steered the
         // revision; canonical session metadata, never a quality gate.
         "session/capture-strategy.json": Binding(
@@ -791,7 +791,7 @@ enum BundleReservedPaths {
             provenanceClass: .captureAppDerived,
             role: .canonical
         ),
-        // Semantic-revision intent record (issue #319): declares the
+        // Semantic-revision intent record (issue bolph71656-ai/HTDT-Capture#319): declares the
         // child revision's kind and which parent bundle it derives
         // from; canonical revision metadata.
         "revision/intent.json": Binding(
@@ -800,7 +800,7 @@ enum BundleReservedPaths {
             provenanceClass: .captureAppDerived,
             role: .canonical
         ),
-        // Cross-revision spatial registrations (issue #395): transform
+        // Cross-revision spatial registrations (issue bolph71656-ai/HTDT-Capture#395): transform
         // authority between this revision and other finalized
         // revisions — the v1 `source_refs` grammar cannot name an
         // external revision, so the endpoint IDs live only in the
@@ -811,7 +811,7 @@ enum BundleReservedPaths {
             provenanceClass: .captureAppDerived,
             role: .canonical
         ),
-        // Floor-plan reference underlay (issue #322): imported
+        // Floor-plan reference underlay (issue bolph71656-ai/HTDT-Capture#322): imported
         // reference geometry used only as capture-time guidance —
         // never observed truth.
         "reference/plan-underlay.json": Binding(
@@ -914,7 +914,7 @@ enum BundleReservedPaths {
                     role: .canonical
                 )
             ),
-            // Typed field evidence (issues #300/#314): dedicated
+            // Typed field evidence (issues bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#314): dedicated
             // close-up photos captured for a record live under
             // `evidence/field/captured/`, imported documents/photos
             // under `evidence/field/imported/`. The directory split

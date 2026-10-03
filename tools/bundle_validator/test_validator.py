@@ -173,7 +173,7 @@ class ValidatorTests(unittest.TestCase):
                 self.assertEqual(right, vector["collision_key"])
 
     def test_manifest_casefold_collision_fails(self):
-        # #95: two distinct NFC payload paths sharing one Unicode
+        # legacy bolph71656-ai/HTDT-Capture#95: two distinct NFC payload paths sharing one Unicode
         # case-fold key must be rejected even when the filesystem would
         # happily store both spellings.
         with tempfile.TemporaryDirectory() as td:
@@ -439,7 +439,7 @@ class ValidatorTests(unittest.TestCase):
 
 
 class ManifestBoundTests(unittest.TestCase):
-    """Issue #141: manifest.json has a dedicated sub-file byte bound."""
+    """Issue bolph71656-ai/HTDT-Capture#141: manifest.json has a dedicated sub-file byte bound."""
 
     def test_oversized_manifest_directory_rejected(self):
         with tempfile.TemporaryDirectory() as td:
@@ -493,7 +493,7 @@ class ManifestBoundTests(unittest.TestCase):
 
 
 class RevisionAncestryTests(unittest.TestCase):
-    """Issue #144: a revision cannot be its own parent."""
+    """Issue bolph71656-ai/HTDT-Capture#144: a revision cannot be its own parent."""
 
     def test_self_parent_revision_fails(self):
         with tempfile.TemporaryDirectory() as td:
@@ -575,7 +575,7 @@ class RevisionAncestryTests(unittest.TestCase):
 
 
 class SourceRefTests(unittest.TestCase):
-    """Issue #151: frozen source_refs grammar and target integrity."""
+    """Issue bolph71656-ai/HTDT-Capture#151: frozen source_refs grammar and target integrity."""
 
     def _manifest_with_refs(self, td, target_path, refs):
         dest = Path(td) / "bundle"
@@ -707,7 +707,7 @@ class SourceRefTests(unittest.TestCase):
 
 
 class SourceRefBudgetAndUniquenessTests(unittest.TestCase):
-    """Issues #193/#195: sha256 refs must name exactly one payload
+    """Issues bolph71656-ai/HTDT-Capture#193/legacy bolph71656-ai/HTDT-Capture#195: sha256 refs must name exactly one payload
     authority, and ref work must stay inside explicit budgets."""
 
     def _manifest_with_refs(self, td, target_path, refs):
@@ -817,7 +817,7 @@ class SourceRefBudgetAndUniquenessTests(unittest.TestCase):
 
 
 class FoundationPayloadSetTests(unittest.TestCase):
-    """Issue #194: a finalized v1 bundle must carry the minimum
+    """Issue bolph71656-ai/HTDT-Capture#194: a finalized v1 bundle must carry the minimum
     foundation payload set grounding its manifest identities."""
 
     def test_empty_files_manifest_rejected(self):
@@ -831,7 +831,7 @@ class FoundationPayloadSetTests(unittest.TestCase):
             _rewrite_manifest(dest, mutate)
             # minItems: 4 fires at the schema layer; the dedicated
             # foundation-set check fires for sparser-but-shaped
-            # manifests. Either rejection satisfies #194.
+            # manifests. Either rejection satisfies legacy bolph71656-ai/HTDT-Capture#194.
             with self.assertRaisesRegex(
                 ValidationError, "minItems|foundation"
             ):
@@ -873,7 +873,7 @@ class FoundationPayloadSetTests(unittest.TestCase):
                         validate_bundle(dest)
 
     def test_optional_session_documents_not_required(self):
-        # device/capabilities are intentionally optional (#194).
+        # device/capabilities are intentionally optional (legacy bolph71656-ai/HTDT-Capture#194).
         with tempfile.TemporaryDirectory() as td:
             dest = Path(td) / "bundle"
             shutil.copytree(FIXTURE, dest)
@@ -905,7 +905,7 @@ class FoundationPayloadSetTests(unittest.TestCase):
 
     def test_processed_roomplan_without_raw_rejected(self):
         # A canonical processed RoomPlan payload must never be promoted
-        # without its raw authority (#194).
+        # without its raw authority (legacy bolph71656-ai/HTDT-Capture#194).
         with tempfile.TemporaryDirectory() as td:
             dest = Path(td) / "bundle"
             shutil.copytree(FIXTURE, dest)
@@ -967,7 +967,7 @@ class FoundationPayloadSetTests(unittest.TestCase):
 
 
 class SchemaOwnedPayloadTests(unittest.TestCase):
-    """Issues #135/#188: schema-owned payloads must satisfy the published
+    """Issues bolph71656-ai/HTDT-Capture#135/legacy bolph71656-ai/HTDT-Capture#188: schema-owned payloads must satisfy the published
     schema and use canonical JSON bytes."""
 
     def test_schema_invalid_session_payload_fails(self):
@@ -1124,7 +1124,7 @@ class SchemaOwnedPayloadTests(unittest.TestCase):
 
 
 class BinaryPayloadTests(unittest.TestCase):
-    """Issue #142: structural validation of canonical binary payloads."""
+    """Issue bolph71656-ai/HTDT-Capture#142: structural validation of canonical binary payloads."""
 
     def _bundle_with_meshbin(self, td, mesh_bytes, anchor_overrides=None):
         dest = Path(td) / "bundle"
@@ -1327,7 +1327,7 @@ class BinaryPayloadTests(unittest.TestCase):
 
 
 class DescriptorCrossCheckTests(unittest.TestCase):
-    """Issue #142: frame descriptors bind to validated binaries."""
+    """Issue bolph71656-ai/HTDT-Capture#142: frame descriptors bind to validated binaries."""
 
     FRAME_ID = "20000000-0000-4000-8000-000000000009"
 
@@ -1521,7 +1521,7 @@ class DescriptorCrossCheckTests(unittest.TestCase):
 
 
 class ToctouTests(unittest.TestCase):
-    """Issue #189: reads bind the identity checked at open time."""
+    """Issue bolph71656-ai/HTDT-Capture#189: reads bind the identity checked at open time."""
 
     def test_symlink_swap_after_scan_fails(self):
         if not hasattr(os, "symlink"):
@@ -1729,7 +1729,7 @@ class SchemaEvalTests(unittest.TestCase):
 
 
 class AuthorityDependencyTests(unittest.TestCase):
-    """Issue #337: derived/authority-dependencies.json pins every
+    """Issue bolph71656-ai/HTDT-Capture#337: derived/authority-dependencies.json pins every
     entity-carried external authority to an exact (id, version, hash)
     declaration, and embedded copies must resolve inside the bundle."""
 

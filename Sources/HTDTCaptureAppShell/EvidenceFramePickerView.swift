@@ -5,7 +5,7 @@ import HTDTCaptureCore
 import UIKit
 #endif
 
-/// Why a frame was retained, localized (#255).
+/// Why a frame was retained, localized (legacy bolph71656-ai/HTDT-Capture#255).
 extension EvidenceFrameRetentionKind {
     var displayName: String {
         switch self {
@@ -23,7 +23,7 @@ extension EvidenceFrameRetentionKind {
     }
 }
 
-/// Visual evidence selector (#255): each retained frame renders as a
+/// Visual evidence selector (legacy bolph71656-ai/HTDT-Capture#255): each retained frame renders as a
 /// preview thumbnail plus capture metadata — timestamp, retention
 /// reason, depth availability — so the operator picks evidence by
 /// looking at it. The canonical `path:` ref stays the stored authority;
@@ -49,7 +49,7 @@ public struct EvidenceFramePickerView: View {
     private var horizontalSizeClass
     #endif
 
-    /// #362: regular width renders the frames as a browsing grid
+    /// legacy bolph71656-ai/HTDT-Capture#362: regular width renders the frames as a browsing grid
     /// (bigger thumbnails, tap to select, eye for the full preview);
     /// compact width keeps the dense row list.
     private var usesGrid: Bool {

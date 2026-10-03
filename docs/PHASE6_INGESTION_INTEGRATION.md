@@ -1,7 +1,7 @@
 # Phase 6 HTDT Ingestion Integration Record
 
 Status: In progress  
-Issue: #7
+Issue: legacy bolph71656-ai/HTDT-Capture#7
 
 ## Implemented in this slice
 

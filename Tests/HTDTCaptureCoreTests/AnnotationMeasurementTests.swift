@@ -26,10 +26,10 @@ private func canonicalSpeaker(
     )
 }
 
-// #315: a speaker still requires body orientation, but a logical
+// legacy bolph71656-ai/HTDT-Capture#315: a speaker still requires body orientation, but a logical
 // role is optional — the unbound valid state is covered by
 // SpeakerRoleBindingTests.
-// #228: an unaimed speaker is a first-class record — aim unknown is
+// legacy bolph71656-ai/HTDT-Capture#228: an unaimed speaker is a first-class record — aim unknown is
 // data, never synthesized. The info-level completeness finding is
 // covered by SpeakerRoleBindingTests.
 @Test

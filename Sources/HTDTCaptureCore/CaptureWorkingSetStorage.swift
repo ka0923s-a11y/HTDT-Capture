@@ -1,7 +1,7 @@
 import Foundation
 
 /// Byte accounting for the live working revision, broken into the
-/// categories the product actually spends storage on (issue #308).
+/// categories the product actually spends storage on (issue bolph71656-ai/HTDT-Capture#308).
 /// Computed by scanning the working-set root — the same authority the
 /// manifest's `bytes` fields are built from — so the totals the
 /// operator sees during capture equal the retained bytes of the
@@ -87,7 +87,7 @@ public struct CaptureWorkingSetStorageProfile:
     }
 }
 
-/// Device free-storage band as presented to the operator (issue #308).
+/// Device free-storage band as presented to the operator (issue bolph71656-ai/HTDT-Capture#308).
 /// Mirrors the platform monitor's warning/critical thresholds; an
 /// `unknown` band means the capacity query could not produce a
 /// measured value and the UI says so instead of guessing.
@@ -98,8 +98,8 @@ public enum CaptureStoragePressureBand: String, Sendable, Equatable {
     case unknown
 }
 
-/// Usage of the bounded automatic evidence-frame selector (#216) as
-/// the operator needs it for #308: frames and estimated bytes retained
+/// Usage of the bounded automatic evidence-frame selector (legacy bolph71656-ai/HTDT-Capture#216) as
+/// the operator needs it for legacy bolph71656-ai/HTDT-Capture#308: frames and estimated bytes retained
 /// against the published budget, plus what remains.
 public struct AutomaticKeyframeBudgetStatus:
     Sendable,
@@ -147,7 +147,7 @@ public struct AutomaticKeyframeBudgetStatus:
 }
 
 /// The complete storage advisory the capture HUD surfaces (issue
-/// #308): retained evidence bytes by category, evidence counts,
+/// legacy bolph71656-ai/HTDT-Capture#308): retained evidence bytes by category, evidence counts,
 /// measured device free space with the warning/critical margin, and
 /// the automatic-keyframe budget usage. Advisory only — none of these
 /// values feed `ready_for_htdt_ingestion`; the platform monitor's

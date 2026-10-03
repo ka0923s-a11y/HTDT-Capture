@@ -2,12 +2,12 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issues #360–#364: the shared presentation vocabulary and the pure
+/// Issues bolph71656-ai/HTDT-Capture#360–legacy bolph71656-ai/HTDT-Capture#364: the shared presentation vocabulary and the pure
 /// composition rules behind the GUI redesign stay in Core so the
 /// information hierarchy is verifiable without rendering SwiftUI.
 final class PresentationSemanticsTests: XCTestCase {
 
-    // MARK: - CaptureSemanticStatus (#361)
+    // MARK: - CaptureSemanticStatus (legacy bolph71656-ai/HTDT-Capture#361)
 
     func testEveryStatusHasLabelSymbolAndColor() {
         for status in CaptureSemanticStatus.allCases {
@@ -67,7 +67,7 @@ final class PresentationSemanticsTests: XCTestCase {
         )
     }
 
-    // MARK: - CaptureHomePresentation (#360)
+    // MARK: - CaptureHomePresentation (legacy bolph71656-ai/HTDT-Capture#360)
 
     func testNoticesOrderedByOperatorAction() {
         let notices = CaptureHomePresentation.notices(
@@ -143,7 +143,7 @@ final class PresentationSemanticsTests: XCTestCase {
         )
     }
 
-    // MARK: - CaptureAdaptiveLayoutDecision (#362)
+    // MARK: - CaptureAdaptiveLayoutDecision (legacy bolph71656-ai/HTDT-Capture#362)
 
     func testRegularWidthPrefersPanes() {
         XCTAssertTrue(
@@ -192,7 +192,7 @@ final class PresentationSemanticsTests: XCTestCase {
         )
     }
 
-    // MARK: - CaptureSeriesPresentation (#360)
+    // MARK: - CaptureSeriesPresentation (legacy bolph71656-ai/HTDT-Capture#360)
 
     private func record(
         canOpen: Bool = true,
@@ -320,7 +320,7 @@ final class PresentationSemanticsTests: XCTestCase {
         XCTAssertEqual(three.revisionSummary, "3 revisions")
     }
 
-    // MARK: - Series representative previews (#411)
+    // MARK: - Series representative previews (legacy bolph71656-ai/HTDT-Capture#411)
 
     /// The deterministic policy: latest revision first, then the most
     /// recent revision in the series that still declares a preview;
@@ -399,7 +399,7 @@ final class PresentationSemanticsTests: XCTestCase {
         XCTAssertNil(CaptureSeriesPresentation.dateLabel(for: ""))
     }
 
-    // MARK: - Count phrases and wire-token names (#442/#443)
+    // MARK: - Count phrases and wire-token names (legacy bolph71656-ai/HTDT-Capture#442/legacy bolph71656-ai/HTDT-Capture#443)
 
     func testCountPhraseBranchesOnSingular() {
         XCTAssertEqual(

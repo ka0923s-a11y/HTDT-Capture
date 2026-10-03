@@ -1,6 +1,6 @@
 import Foundation
 
-/// The `htdt.field_return.*` document family (issue #419): typed
+/// The `htdt.field_return.*` document family (issue bolph71656-ai/HTDT-Capture#419): typed
 /// authority documents emitted inside a Field Return container. Each
 /// envelope carries the owner contribution as an explicit
 /// `contribution_ref` (`{kind, id}` — the `HTDTMissionContribution`

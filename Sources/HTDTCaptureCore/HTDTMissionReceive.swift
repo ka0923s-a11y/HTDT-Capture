@@ -1,17 +1,17 @@
 import Foundation
 
-/// Errors raised by the paired Mission receive leg (issue #422).
+/// Errors raised by the paired Mission receive leg (issue bolph71656-ai/HTDT-Capture#422).
 /// Every failure fails closed: a mission whose bytes cannot be
 /// verified is never imported, and a receipt is only ever recorded
 /// for what actually happened.
 public enum HTDTMissionReceiveError: Error, Sendable, Equatable {
     /// The destination is not a paired, unrevoked receiver with a
     /// Mission endpoint — the receive leg never runs against
-    /// unpaired or revoked peers (#422 §privacy/revocation).
+    /// unpaired or revoked peers (legacy bolph71656-ai/HTDT-Capture#422 §privacy/revocation).
     case pairingRequired
     /// The paired receiver advertises no Mission-serving endpoint —
     /// the manual Files/share-sheet import path remains the
-    /// fallback (#422 §offline).
+    /// fallback (legacy bolph71656-ai/HTDT-Capture#422 §offline).
     case missionsNotServed
     case invalidEndpointURL
     case transportFailed(String)
@@ -23,13 +23,13 @@ public enum HTDTMissionReceiveError: Error, Sendable, Equatable {
     case documentTooLarge
     /// Downloaded bytes did not match the descriptor's pinned
     /// digest/size — the mission is refused, never repaired in
-    /// place (#422: a mission is pinned to its issue-time baseline).
+    /// place (legacy bolph71656-ai/HTDT-Capture#422: a mission is pinned to its issue-time baseline).
     case integrityMismatch
 }
 
 /// This device's stable Capture identity, presented to paired
 /// receivers so Mission enumeration is scoped to this pairing
-/// (issue #422: "pending Missions for this paired Capture identity").
+/// (issue bolph71656-ai/HTDT-Capture#422: "pending Missions for this paired Capture identity").
 /// Created once and reused across every retry — a retry never mints
 /// a new identity.
 public struct HTDTCaptureIdentity: Codable, Sendable, Equatable {
@@ -74,7 +74,7 @@ public struct HTDTCaptureIdentityStore: Sendable {
     }
 
     /// Loads the identity, minting and persisting it on first use.
-    /// Retries never mint a second identity (#422 §offline).
+    /// Retries never mint a second identity (legacy bolph71656-ai/HTDT-Capture#422 §offline).
     public func loadOrCreate(
         nowUTC: String = BundleTimestamp.utcString(from: Date())
     ) throws -> HTDTCaptureIdentity {
@@ -102,7 +102,7 @@ public struct HTDTCaptureIdentityStore: Sendable {
 }
 
 /// Metadata-only descriptor of one Mission package a paired
-/// receiver offers this Capture identity (issue #422 §enumeration).
+/// receiver offers this Capture identity (issue bolph71656-ai/HTDT-Capture#422 §enumeration).
 /// Deliberately carries labels, sizes and digests only — never
 /// arbitrary project contents; the exact bytes only move on an
 /// explicit download keyed by `packageID`.
@@ -129,7 +129,7 @@ public struct HTDTPendingMissionDescriptor:
     /// `htdt.capture-mission` schema version the package requires.
     public let requiredSchemaVersion: String?
     /// Minimum receiver-requirement summary the mission carries
-    /// forward for preflight (#374), when the issuer relays it.
+    /// forward for preflight (legacy bolph71656-ai/HTDT-Capture#374), when the issuer relays it.
     public let receiverRequirement: HTDTMissionReceiverRequirement?
 
     public init(
@@ -209,7 +209,7 @@ public struct HTDTPendingMissionListing:
 }
 
 /// What the receive leg reports back to the issuing receiver — and
-/// records locally — for one fetched package (issue #422 §receipt).
+/// records locally — for one fetched package (issue bolph71656-ai/HTDT-Capture#422 §receipt).
 /// "received" means *received and staged in the Mission Inbox*;
 /// it never claims the mission was started, completed or delivered.
 public struct HTDTMissionReceiveReceipt:
@@ -293,7 +293,7 @@ public struct HTDTMissionReceiveReceipt:
 
 /// Append-only ledger of receive receipts at
 /// `<captureRoot>/mission-receive-receipts.json` — provenance kept
-/// even after a pairing is revoked (#422 §revocation).
+/// even after a pairing is revoked (legacy bolph71656-ai/HTDT-Capture#422 §revocation).
 public struct HTDTMissionReceiveReceiptStore: Sendable {
     public struct Document: Codable, Sendable, Equatable {
         public static let schema =
@@ -364,7 +364,7 @@ public struct HTDTMissionReceiveReceiptStore: Sendable {
     }
 }
 
-/// Transport seam for the receive leg (issue #422): the real client
+/// Transport seam for the receive leg (issue bolph71656-ai/HTDT-Capture#422): the real client
 /// runs HTTPS under the paired receiver's TLS pin; tests substitute
 /// scripted fixtures. One artifact, one validator — this seam only
 /// moves bytes; `HTDTMissionInboxStore.importMission` remains the
@@ -390,7 +390,7 @@ public protocol HTDTMissionReceiveTransport: Sendable {
     ) async throws -> Data
 
     /// Posts a receive receipt back to the receiver so its queue
-    /// advances pending → received / failed (#422 §receipt).
+    /// advances pending → received / failed (legacy bolph71656-ai/HTDT-Capture#422 §receipt).
     func postReceipt(
         _ receipt: HTDTMissionReceiveReceipt,
         endpoint: URL,
@@ -426,13 +426,13 @@ public struct HTDTMissionServiceEndpoints: Sendable, Equatable {
     }
 }
 
-/// Real HTTPS transport for the receive leg (issue #422). All calls
+/// Real HTTPS transport for the receive leg (issue bolph71656-ai/HTDT-Capture#422). All calls
 /// run under `HTDTIdentityPinningSession` when the destination is
 /// paired — the pin replaces CA trust only for this receiver's
 /// exact certificate, same contract as the upload path.
 public struct HTDTMissionReceiveClient: HTDTMissionReceiveTransport {
     /// Listings are small metadata documents — anything larger is
-    /// refused rather than parsed (#422 bounded enumeration).
+    /// refused rather than parsed (legacy bolph71656-ai/HTDT-Capture#422 bounded enumeration).
     public static let maxListingBytes: Int64 = 256 * 1024
     /// A Mission package is an envelope JSON, not a bulk artifact;
     /// descriptors claiming more are refused before download.
@@ -586,7 +586,7 @@ public struct HTDTMissionReceiveReport: Sendable, Equatable {
     public var superseded: Int
     /// Packages refused: same mission identity with different bytes
     /// and no declared supersession — a hard conflict, never a
-    /// silent merge (#422 §multiple receivers).
+    /// silent merge (legacy bolph71656-ai/HTDT-Capture#422 §multiple receivers).
     public var conflicts: [String]
     /// Packages refused on integrity/validation grounds.
     public var rejected: [String]
@@ -612,7 +612,7 @@ public struct HTDTMissionReceiveReport: Sendable, Equatable {
     }
 }
 
-/// The Capture-initiated Mission receive service (issue #422).
+/// The Capture-initiated Mission receive service (issue bolph71656-ai/HTDT-Capture#422).
 /// No inbound listener: the app pulls pending missions from each
 /// paired receiver while foregrounded, verifies every byte against
 /// the descriptor's pinned digest, and feeds the canonical Mission
@@ -645,7 +645,7 @@ public struct HTDTMissionReceiveService: Sendable {
         )
     }
 
-    /// Pull pending missions from every active pairing (#422 §UX:
+    /// Pull pending missions from every active pairing (legacy bolph71656-ai/HTDT-Capture#422 §UX:
     /// invoked by "Check HTDT", inbox open, app-active, and
     /// post-pairing refresh — a bounded foreground action, never a
     /// polling loop). Revoked destinations are skipped; their
@@ -679,7 +679,7 @@ public struct HTDTMissionReceiveService: Sendable {
         )
         guard !destination.revoked else {
             // Revocation stops fetching but keeps local records and
-            // provenance (#422 §revocation).
+            // provenance (legacy bolph71656-ai/HTDT-Capture#422 §revocation).
             report.notes.append("destination_revoked")
             return report
         }
@@ -690,7 +690,7 @@ public struct HTDTMissionReceiveService: Sendable {
             return report
         }
         // A cached capability document that explicitly withholds
-        // Mission serving short-circuits the pull (#422 §capability
+        // Mission serving short-circuits the pull (legacy bolph71656-ai/HTDT-Capture#422 §capability
         // handshake); an absent cache means "unknown", not refused.
         if destination.cachedCapability != nil,
            destination.cachedCapability?.document
@@ -721,7 +721,7 @@ public struct HTDTMissionReceiveService: Sendable {
             )
         } catch {
             // Offline or unreachable: pending missions stay pending
-            // and retry cleanly later (#422 §offline).
+            // and retry cleanly later (legacy bolph71656-ai/HTDT-Capture#422 §offline).
             report.notes.append(
                 "listing_failed:" + String(describing: error)
             )
@@ -770,7 +770,7 @@ public struct HTDTMissionReceiveService: Sendable {
             try? receiptStore.append(receipt)
             // Best-effort acknowledgment — a receipt post failure
             // never rolls back a staged import; the next sync's
-            // duplicate retry re-acknowledges (#422 §offline).
+            // duplicate retry re-acknowledges (legacy bolph71656-ai/HTDT-Capture#422 §offline).
             if receipt.receiverMayMarkReceived,
                let receiptURL = endpoints.receiptURL(
                    packageID: descriptor.packageID
@@ -793,7 +793,7 @@ public struct HTDTMissionReceiveService: Sendable {
 
         // Idempotency: an already-imported mission with the same
         // pinned digest is acknowledged again without a download —
-        // duplicate imports are a no-op (#422 §inbox semantics).
+        // duplicate imports are a no-op (legacy bolph71656-ai/HTDT-Capture#422 §inbox semantics).
         if let missionID = descriptor.missionID,
            let existing = try? inboxStore.record(
                missionID: missionID
@@ -842,7 +842,7 @@ public struct HTDTMissionReceiveService: Sendable {
         // Verify the exact bytes: digest + size must match the
         // descriptor before the importer ever sees them — a mission
         // is pinned to its issue-time baseline and never patched
-        // on the way in (#422 §mission immutability).
+        // on the way in (legacy bolph71656-ai/HTDT-Capture#422 §mission immutability).
         guard data.count == descriptor.byteSize,
               EvidenceIntegrity.sha256(of: data).value
                   == HTDTPinnedIdentity.digestText(
@@ -880,7 +880,7 @@ public struct HTDTMissionReceiveService: Sendable {
             case .conflictingIdentity:
                 // Same mission id, different bytes, no declared
                 // supersession — a hard conflict surfaced to the
-                // operator, never silently merged (#422).
+                // operator, never silently merged (legacy bolph71656-ai/HTDT-Capture#422).
                 report.conflicts.append(descriptor.packageID)
                 await recordReceipt(
                     "conflicting_identity", recordID: nil,

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-// #323: relocalization is an authority, not a UI state. The ARKit
+// legacy bolph71656-ai/HTDT-Capture#323: relocalization is an authority, not a UI state. The ARKit
 // "relocalized" label alone is never sufficient — only a versioned
 // acceptance policy may resume a scan into a new scan_segment_id,
 // and everything else fails closed into a fresh coordinate space.

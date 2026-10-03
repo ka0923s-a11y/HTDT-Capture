@@ -1,10 +1,10 @@
 import Foundation
 
-/// Which revisions a Library Export covers (issue #378). Scope is by
+/// Which revisions a Library Export covers (issue bolph71656-ai/HTDT-Capture#378). Scope is by
 /// series or revision identity only — `working/` captures are never
 /// exportable, and the default (`all`) covers every retained revision
 /// including archived series so archiving never hides captures from
-/// portability (#394).
+/// portability (legacy bolph71656-ai/HTDT-Capture#394).
 public enum CaptureLibraryExportScope: Sendable, Equatable {
     case all
     case series(Set<CaptureSeriesID>)
@@ -64,7 +64,7 @@ public struct CaptureLibraryExportResult:
 }
 
 /// Writes a `.htdtcapturelibrary` from the persisted library (issue
-/// #378). Canonical `.htdtcapture` archives ride byte-exact when a
+/// legacy bolph71656-ai/HTDT-Capture#378). Canonical `.htdtcapture` archives ride byte-exact when a
 /// validated derived copy already exists; when it doesn't, the bundle
 /// exporter produces one from the finalized directory (still a valid
 /// canonical archive — the bundle's own validator attests it). The
@@ -266,7 +266,7 @@ public enum CaptureLibraryPackageExporter {
 }
 
 /// How one packaged revision relates to the local library (issue
-/// #378): drives the staged import preview and decides whether the
+/// legacy bolph71656-ai/HTDT-Capture#378): drives the staged import preview and decides whether the
 /// revision can land at all.
 public enum CaptureLibraryImportDisposition:
     String,
@@ -328,7 +328,7 @@ public struct CaptureLibraryImportEntryPreview:
     }
 }
 
-/// A metadata value the package disagrees with locally (issue #378):
+/// A metadata value the package disagrees with locally (issue bolph71656-ai/HTDT-Capture#378):
 /// both sides are retained in the preview so the import can adopt the
 /// local value while surfacing the incoming one as an import
 /// candidate rather than dropping it.
@@ -363,7 +363,7 @@ public struct CaptureLibraryMetadataConflict:
 }
 
 /// The validated, staged import state produced by
-/// `CaptureLibraryImporter.preview` (issue #378): manifest proven,
+/// `CaptureLibraryImporter.preview` (issue bolph71656-ai/HTDT-Capture#378): manifest proven,
 /// every included archive re-validated under the existing bundle
 /// validator, conflicts and duplicates already classified against
 /// the local library, and member bytes extracted into a staging
@@ -446,7 +446,7 @@ public struct CaptureLibraryImportResult:
 }
 
 /// The staged, transactional importer for `.htdtcapturelibrary`
-/// packages (issue #378). `preview` proves the package and classifies
+/// packages (issue bolph71656-ai/HTDT-Capture#378). `preview` proves the package and classifies
 /// every member against the local library without touching any
 /// stored state; `commit` then applies the importable members through
 /// the existing bundle importer, merges metadata and receipts by the
@@ -837,7 +837,7 @@ public enum CaptureLibraryImporter {
 
         // Metadata merge: identical → no-op; one side empty → adopt;
         // both non-empty and different → keep local and surface the
-        // incoming value as a retained conflict (#378).
+        // incoming value as a retained conflict (legacy bolph71656-ai/HTDT-Capture#378).
         var conflictCount = 0
         if preview.manifest.includesLibraryMetadata,
            let package = try? CaptureLibraryPackageReader
@@ -933,7 +933,7 @@ public enum CaptureLibraryImporter {
             }
         }
 
-        // Receipt ledger: append-only, deduped by receipt id (#378).
+        // Receipt ledger: append-only, deduped by receipt id (legacy bolph71656-ai/HTDT-Capture#378).
         var appended = 0
         if preview.manifest.includesHandoffReceipts,
            let package = try? CaptureLibraryPackageReader

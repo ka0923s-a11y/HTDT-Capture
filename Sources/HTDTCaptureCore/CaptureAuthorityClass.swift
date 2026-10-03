@@ -1,6 +1,6 @@
 import Foundation
 
-/// Cross-product authority-ownership classes (#405): the claim a
+/// Cross-product authority-ownership classes (legacy bolph71656-ai/HTDT-Capture#405): the claim a
 /// Capture-authored artifact makes, so observation, attestation,
 /// imported reference, derived diagnostic, bounded field
 /// reconciliation and project authority stay machine-distinct.
@@ -37,7 +37,7 @@ public enum CaptureAuthorityClass: String, Codable, Sendable, CaseIterable {
     }
 
     /// The product that owns the record's canonical interpretation
-    /// after promotion (#405): imported reference and project
+    /// after promotion (legacy bolph71656-ai/HTDT-Capture#405): imported reference and project
     /// authority originate in HTDT; everything else is authored in the
     /// field and reconciled downstream.
     public var canonicalOwnerAfterPromotion: String {

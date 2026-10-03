@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-// Issues #215, #235, #238, #253, #269, #270, #271, #275, #286, #287:
+// Issues bolph71656-ai/HTDT-Capture#215, legacy bolph71656-ai/HTDT-Capture#235, legacy bolph71656-ai/HTDT-Capture#238, legacy bolph71656-ai/HTDT-Capture#253, legacy bolph71656-ai/HTDT-Capture#269, legacy bolph71656-ai/HTDT-Capture#270, legacy bolph71656-ai/HTDT-Capture#271, legacy bolph71656-ai/HTDT-Capture#275, legacy bolph71656-ai/HTDT-Capture#286, legacy bolph71656-ai/HTDT-Capture#287:
 // measurement contract coverage — input parsing/unit conversion,
 // quantity registry dimensionality, manufacturer source authority,
 // derivation lineage, endpoint binding, and measurement points.
@@ -48,7 +48,7 @@ private func testEntity(
     )
 }
 
-// MARK: - Input parsing (#235)
+// MARK: - Input parsing (legacy bolph71656-ai/HTDT-Capture#235)
 
 @Test
 func inputParserAcceptsDotAndCommaDecimals() {
@@ -73,7 +73,7 @@ func inputParserRejectsAmbiguousAndNonNumericText() {
     #expect(MeasurementInputParser.parse("4'2\"") == nil)
 }
 
-// MARK: - Input-unit conversion (#235, #269)
+// MARK: - Input-unit conversion (legacy bolph71656-ai/HTDT-Capture#235, legacy bolph71656-ai/HTDT-Capture#269)
 
 @Test
 func inputUnitsConvertDeterministicallyToCanonicalUnits() {
@@ -117,7 +117,7 @@ func inputUnitsMapToCanonicalWireUnits() {
     #expect(MeasurementInputUnit.fraction.canonicalUnit == .percent)
 }
 
-// MARK: - Unit vocabulary (#269)
+// MARK: - Unit vocabulary (legacy bolph71656-ai/HTDT-Capture#269)
 
 @Test
 func wireUnitDimensionsAreMachineReadable() {
@@ -129,7 +129,7 @@ func wireUnitDimensionsAreMachineReadable() {
     #expect(MeasurementUnit.dimensionless.dimension == .dimensionless)
 }
 
-// MARK: - Quantity registry (#287)
+// MARK: - Quantity registry (legacy bolph71656-ai/HTDT-Capture#287)
 
 @Test
 func registryRejectsDimensionallyWrongUnits() throws {
@@ -193,7 +193,7 @@ func registryEnforcesValueShapeAndEndpointSemantics() throws {
             endpointCount: 2
         )
     }
-    // Environmental quantities never take spatial endpoints (#253).
+    // Environmental quantities never take spatial endpoints (legacy bolph71656-ai/HTDT-Capture#253).
     #expect(
         throws: MeasurementModelError.invalidEndpointCountForQuantity
     ) {
@@ -219,7 +219,7 @@ func registryEnforcesValueShapeAndEndpointSemantics() throws {
 
 @Test
 func customQuantitiesPassRegistryWithDeclaredUnit() throws {
-    // #344: custom quantities remain possible but must carry the
+    // legacy bolph71656-ai/HTDT-Capture#344: custom quantities remain possible but must carry the
     // reserved x_ namespace so they can never collide with future
     // standard vocabulary.
     try MeasurementQuantityRegistry.validate(
@@ -235,7 +235,7 @@ func customQuantitiesPassRegistryWithDeclaredUnit() throws {
     #expect(MeasurementQuantityRegistry.version == "1.1.0")
 }
 
-// MARK: - Manufacturer source authority (#275)
+// MARK: - Manufacturer source authority (legacy bolph71656-ai/HTDT-Capture#275)
 
 @Test
 func sourceAuthorityRequiresAtLeastOneField() {
@@ -308,7 +308,7 @@ func manufacturerSpecCarriesExactSourceAuthority() throws {
     #expect(json.contains("\"document_ref\":\"vendor-spec-sheet\""))
 }
 
-// MARK: - Observation time / provenance (#238)
+// MARK: - Observation time / provenance (legacy bolph71656-ai/HTDT-Capture#238)
 
 @Test
 func observationAndCalibrationMetadataPersist() throws {
@@ -358,7 +358,7 @@ func invalidObservationAndCalibrationTimestampsThrow() {
     }
 }
 
-// MARK: - Endpoint binding (#215)
+// MARK: - Endpoint binding (legacy bolph71656-ai/HTDT-Capture#215)
 
 @Test
 func manualMeasurementBindsEndpointsAndCoordinateSpace() throws {
@@ -378,7 +378,7 @@ func manualMeasurementBindsEndpointsAndCoordinateSpace() throws {
         ]
     )
 
-    // Endpoint-bound + typed-in value: stays user-attested (issue #215).
+    // Endpoint-bound + typed-in value: stays user-attested (issue bolph71656-ai/HTDT-Capture#215).
     #expect(measurement.coordinateSpaceID == space)
     #expect(measurement.endpointRefs.count == 2)
     #expect(measurement.provenanceClass == .userAttestedMeasurement)
@@ -415,7 +415,7 @@ func manualBuilderRejectsDerivedMethods() {
     }
 }
 
-// MARK: - Vector authoring (#270)
+// MARK: - Vector authoring (legacy bolph71656-ai/HTDT-Capture#270)
 
 @Test
 func manualVectorMeasurementPersistsCoordinateSpace() throws {
@@ -434,7 +434,7 @@ func manualVectorMeasurementPersistsCoordinateSpace() throws {
     #expect(measurement.coordinateSpaceID != nil)
 }
 
-// MARK: - Derived measurements (#286)
+// MARK: - Derived measurements (legacy bolph71656-ai/HTDT-Capture#286)
 
 @Test
 func derivedDistanceFromRoomPlanEndpointsIsRoomPlanAuthority() throws {
@@ -569,7 +569,7 @@ func derivedBuilderRejectsSameEndpointTwice() throws {
     }
 }
 
-// MARK: - Provenance mapping invariants (#286)
+// MARK: - Provenance mapping invariants (legacy bolph71656-ai/HTDT-Capture#286)
 
 @Test
 func provenanceMappingIsEnforcedAtConstruction() {
@@ -613,7 +613,7 @@ func provenanceMappingIsEnforcedAtConstruction() {
     }
 }
 
-// MARK: - Measurement point entity (#271)
+// MARK: - Measurement point entity (legacy bolph71656-ai/HTDT-Capture#271)
 
 @Test
 func measurementPointCarriesMicrophoneCapsuleSemanticsAndFullOrientation()
@@ -696,7 +696,7 @@ func purePointTypesStillRejectOrientationAuthority() throws {
     }
 }
 
-// MARK: - Schema conformance (#269, #275, #286)
+// MARK: - Schema conformance (legacy bolph71656-ai/HTDT-Capture#269, legacy bolph71656-ai/HTDT-Capture#275, legacy bolph71656-ai/HTDT-Capture#286)
 
 @Test
 func extendedMeasurementsValidateAgainstEmbeddedSchema() throws {

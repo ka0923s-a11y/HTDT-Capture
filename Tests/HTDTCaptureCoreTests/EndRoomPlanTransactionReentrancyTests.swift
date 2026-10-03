@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #161: the End RoomPlan transaction suspends the store actor at
+/// Issue bolph71656-ai/HTDT-Capture#161: the End RoomPlan transaction suspends the store actor at
 /// writer awaits, so a second identical invocation can re-enter. The
 /// transaction must be attempt-safe: committed bytes are never removed
 /// by another attempt's failure, and logical authority commits exactly

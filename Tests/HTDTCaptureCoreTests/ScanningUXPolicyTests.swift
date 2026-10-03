@@ -2,13 +2,13 @@ import XCTest
 @testable import HTDTCaptureCore
 
 /// Issue-cluster tests for the scanning-UX policies: pre-capture
-/// setup state (#212/#272/#283), capture-mode startup contract (#248),
-/// bounded automatic keyframes (#216), frame usability (#274),
-/// targeted object passes (#250), non-visual cues (#252),
-/// operator-declared regions (#257) and the loop-closure check (#273).
+/// setup state (legacy bolph71656-ai/HTDT-Capture#212/legacy bolph71656-ai/HTDT-Capture#272/legacy bolph71656-ai/HTDT-Capture#283), capture-mode startup contract (legacy bolph71656-ai/HTDT-Capture#248),
+/// bounded automatic keyframes (legacy bolph71656-ai/HTDT-Capture#216), frame usability (legacy bolph71656-ai/HTDT-Capture#274),
+/// targeted object passes (legacy bolph71656-ai/HTDT-Capture#250), non-visual cues (legacy bolph71656-ai/HTDT-Capture#252),
+/// operator-declared regions (legacy bolph71656-ai/HTDT-Capture#257) and the loop-closure check (legacy bolph71656-ai/HTDT-Capture#273).
 final class ScanningUXPolicyTests: XCTestCase {
 
-    // MARK: - #212 pre-capture setup state
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#212 pre-capture setup state
 
     func testSetupStateRequiresExplicitBeginBeforeCapabilityCheck() throws {
         var machine = CaptureStateMachine()
@@ -36,7 +36,7 @@ final class ScanningUXPolicyTests: XCTestCase {
         XCTAssertEqual(machine.state, .capabilityCheck)
     }
 
-    // MARK: - #212 storage preflight
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#212 storage preflight
 
     func testStoragePreflightThresholds() {
         let preflight = CaptureStoragePreflight(
@@ -62,7 +62,7 @@ final class ScanningUXPolicyTests: XCTestCase {
         XCTAssertFalse(unknown.blocksCaptureStart)
     }
 
-    // MARK: - #272 device readiness
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#272 device readiness
 
     func testDeviceReadinessAdvisories() {
         let low = CaptureDeviceReadiness(
@@ -89,7 +89,7 @@ final class ScanningUXPolicyTests: XCTestCase {
         XCTAssertTrue(healthy.advisories.isEmpty)
     }
 
-    // MARK: - #283 lighting assessment
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#283 lighting assessment
 
     func testLightingAssessment() {
         let policy = ScanLightingPolicy()
@@ -129,7 +129,7 @@ final class ScanningUXPolicyTests: XCTestCase {
         )
     }
 
-    // MARK: - #248 startup mode policy (Option B)
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#248 startup mode policy (Option B)
 
     func testStartupModesRequireMeshEligibility() {
         let eligible = CaptureCapabilityMatrix(
@@ -154,7 +154,7 @@ final class ScanningUXPolicyTests: XCTestCase {
         XCTAssertEqual(depthOnly.allowedModes, [])
     }
 
-    // MARK: - #216 automatic keyframe selection
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#216 automatic keyframe selection
 
     private func keyframeSample(
         at seconds: Double,
@@ -318,7 +318,7 @@ final class ScanningUXPolicyTests: XCTestCase {
         )
     }
 
-    // MARK: - #274 frame usability evaluation
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#274 frame usability evaluation
 
     private func metrics(
         meanLuminance: Double = 0.5,
@@ -395,7 +395,7 @@ final class ScanningUXPolicyTests: XCTestCase {
         XCTAssertEqual(normal.status, .usable)
     }
 
-    // MARK: - #252 non-visual cue policy
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#252 non-visual cue policy
 
     private func cueInputs(
         tracking: TrackingQualityState? = .normal,
@@ -480,7 +480,7 @@ final class ScanningUXPolicyTests: XCTestCase {
         )
     }
 
-    // MARK: - #257 operator-declared regions
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#257 operator-declared regions
 
     func testDeclaredRegionExcludedFromGuidanceButNotObserved() {
         let key = SpatialCoverageCellKey(x: 2, z: 2)
@@ -592,7 +592,7 @@ final class ScanningUXPolicyTests: XCTestCase {
         )
     }
 
-    // MARK: - #250 targeted object pass
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#250 targeted object pass
 
     func testTargetedOrbitTracksBucketsAndCompletes() {
         var tracker = TargetedObjectScanTracker(
@@ -674,7 +674,7 @@ final class ScanningUXPolicyTests: XCTestCase {
         XCTAssertEqual(status.guidance, .retreat)
     }
 
-    // MARK: - #273 loop-closure check
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#273 loop-closure check
 
     func testLoopClosureVerdicts() {
         let policy = LoopClosureCheckPolicy()

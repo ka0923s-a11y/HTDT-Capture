@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import HTDTCaptureCore
 
-/// Which plan labels the surface draws (issue #367): default Off —
+/// Which plan labels the surface draws (issue bolph71656-ai/HTDT-Capture#367): default Off —
 /// dense rooms stay readable; Important shows only selected/attention
 /// markers; All shows every labeled marker.
 public enum ReviewPlanLabelMode: String, CaseIterable, Sendable {
@@ -11,7 +11,7 @@ public enum ReviewPlanLabelMode: String, CaseIterable, Sendable {
     case all
 }
 
-/// The interactive spatial-review surface (issue #367): the
+/// The interactive spatial-review surface (issue bolph71656-ai/HTDT-Capture#367): the
 /// platform-independent `RoomPlanPreviewModel` plus overlay markers
 /// composed by `ReviewPlanPresentation`. Selection is UI state only —
 /// it never persists into any authority document.
@@ -54,7 +54,7 @@ public struct ReviewPlanSurface: View {
     private var spanZ: Double { max(model.maxZ - model.minZ, 0.01) }
 
     /// Plan-space tolerance for a tap, ~4% of the larger span so dense
-    /// rooms still get a usable hit radius (issue #367 RVIS-50).
+    /// rooms still get a usable hit radius (issue bolph71656-ai/HTDT-Capture#367 RVIS-50).
     private var tapTolerance: Double {
         max(spanX, spanZ) * 0.045
     }
@@ -71,7 +71,7 @@ public struct ReviewPlanSurface: View {
                         pan: pan
                     )
                     // Layer 1: room geometry — neutral consistent
-                    // stroke, never status-colored (#367).
+                    // stroke, never status-colored (legacy bolph71656-ai/HTDT-Capture#367).
                     for wall in model.walls {
                         var path = Path()
                         path.move(
@@ -90,7 +90,7 @@ public struct ReviewPlanSurface: View {
                             lineWidth: 1.5
                         )
                     }
-                    // Layer 2: deviation connectors (issue #293) —
+                    // Layer 2: deviation connectors (issue bolph71656-ai/HTDT-Capture#293) —
                     // planned ghost → observed actual links drawn under
                     // the markers, dashed so they read as derived
                     // emphasis rather than geometry.
@@ -119,7 +119,7 @@ public struct ReviewPlanSurface: View {
                     }
                     // Layers 3–5: semantic objects, review items and
                     // temporary state — glyph shape carries the
-                    // category, status only adds a badge (#367).
+                    // category, status only adds a badge (legacy bolph71656-ai/HTDT-Capture#367).
                     for marker in markers {
                         draw(marker, in: &context, transform: transform)
                     }
@@ -340,7 +340,7 @@ public struct ReviewPlanSurface: View {
             selection = hits[0]
         default:
             // Overlapping markers never guess — the operator picks
-            // from a nearest-first disambiguation list (#367).
+            // from a nearest-first disambiguation list (legacy bolph71656-ai/HTDT-Capture#367).
             disambiguation = hits
         }
     }
@@ -554,7 +554,7 @@ public struct ReviewPlanSurface: View {
 
         if isSelected {
             // Selection = halo + stronger stroke + the marker's short
-            // label — exactly one primary selection (#367).
+            // label — exactly one primary selection (legacy bolph71656-ai/HTDT-Capture#367).
             context.stroke(
                 Path(ellipseIn: CGRect(
                     x: p.x - 10, y: p.y - 10, width: 20, height: 20
@@ -645,7 +645,7 @@ public struct ReviewPlanSurface: View {
         }
     }
 
-    /// Shape grammar (issue #367 RVIS-30): every marker class draws a
+    /// Shape grammar (issue bolph71656-ai/HTDT-Capture#367 RVIS-30): every marker class draws a
     /// distinct glyph so no class depends on color alone.
     private func drawGlyph(
         _ marker: RoomPlanPreviewModel.PlanMarker,
@@ -763,7 +763,7 @@ public struct ReviewPlanSurface: View {
             // The front arrow is drawn by the direction pass above.
             break
         case .revisitFlag:
-            // Flag: pole plus pennant — operator revisit marker (#325).
+            // Flag: pole plus pennant — operator revisit marker (legacy bolph71656-ai/HTDT-Capture#325).
             var flag = Path()
             flag.move(to: CGPoint(x: p.x - 4, y: p.y - r - 2))
             flag.addLine(to: CGPoint(x: p.x - 4, y: p.y + r + 2))
@@ -775,7 +775,7 @@ public struct ReviewPlanSurface: View {
             pennant.closeSubpath()
             context.fill(pennant, with: .color(color))
         case .plannedTarget:
-            // Ghost ring (issue #293): dashed outline reads as a
+            // Ghost ring (issue bolph71656-ai/HTDT-Capture#293): dashed outline reads as a
             // planned/reference target — design authority, never an
             // observed position. Direction ticks (planned front) are
             // drawn by the direction pass above.
@@ -804,7 +804,7 @@ public struct ReviewPlanSurface: View {
         }
     }
 
-    /// Connector emphasis (issue #293): the deviation status picks
+    /// Connector emphasis (issue bolph71656-ai/HTDT-Capture#293): the deviation status picks
     /// the stroke color; the dashed style carries "derived link",
     /// never geometry.
     private func connectorColor(
@@ -818,7 +818,7 @@ public struct ReviewPlanSurface: View {
         }
     }
 
-    /// Category colors are supportive only (issue #367): kind
+    /// Category colors are supportive only (issue bolph71656-ai/HTDT-Capture#367): kind
     /// differentiation rides on glyph shape; status uses the semantic
     /// badge, not a recolor.
     private func categoryColor(
@@ -986,7 +986,7 @@ public extension RoomPlanPreviewModel.PlanMarker.Kind {
 }
 
 fileprivate extension ReviewPlanSurface {
-    /// Shared category palette for legend glyphs (issue #367).
+    /// Shared category palette for legend glyphs (issue bolph71656-ai/HTDT-Capture#367).
     static let categoryColors: [RoomPlanPreviewModel.PlanMarker.Kind: Color] = [
         .door: .green, .window: .blue, .opening: .teal,
         .object: .gray, .annotation: .orange,

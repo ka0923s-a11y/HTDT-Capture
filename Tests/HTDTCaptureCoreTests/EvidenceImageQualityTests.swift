@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Evidence image quality preflight (#407): the shared advisory
+/// Evidence image quality preflight (legacy bolph71656-ai/HTDT-Capture#407): the shared advisory
 /// assessment contract and the deterministic still-image checks.
 final class EvidenceImageQualityTests: XCTestCase {
     private let stamp = "2026-03-01T12:00:00Z"
@@ -38,7 +38,7 @@ final class EvidenceImageQualityTests: XCTestCase {
         )
     }
 
-    // MARK: - #407 domain verdicts
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#407 domain verdicts
 
     func testCleanImageIsUsable() throws {
         let assessment = try assess(
@@ -136,11 +136,11 @@ final class EvidenceImageQualityTests: XCTestCase {
         )
     }
 
-    // MARK: - #407 profile scoping and unknown honesty
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#407 profile scoping and unknown honesty
 
     func testMissingMetricsNeverPass() throws {
         // Label profile requires legibility: absent signals are
-        // reported unknown, never passed (#407 §14).
+        // reported unknown, never passed (legacy bolph71656-ai/HTDT-Capture#407 §14).
         let noSignals = try assess()
         XCTAssertEqual(noSignals.legibility, .unknown)
         XCTAssertEqual(noSignals.glare, .unknown)
@@ -184,7 +184,7 @@ final class EvidenceImageQualityTests: XCTestCase {
         XCTAssertEqual(wired.legibility, .warning)
     }
 
-    // MARK: - #407/#405 contract and persistence
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#407/legacy bolph71656-ai/HTDT-Capture#405 contract and persistence
 
     func testAssessmentCodableRoundTrip() throws {
         let assessment = try assess(
@@ -221,7 +221,7 @@ final class EvidenceImageQualityTests: XCTestCase {
             imageQuality: quality
         )
         // Distinct from recognition confidence, catalog match and
-        // operator confirmation (#407 §8): attached as advisory
+        // operator confirmation (legacy bolph71656-ai/HTDT-Capture#407 §8): attached as advisory
         // metadata only.
         XCTAssertEqual(result.imageQuality, quality)
         XCTAssertNil(
@@ -235,7 +235,7 @@ final class EvidenceImageQualityTests: XCTestCase {
         )
     }
 
-    // MARK: - #405 cross-product authority classes
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#405 cross-product authority classes
 
     func testAuthorityClassOwnership() {
         XCTAssertEqual(

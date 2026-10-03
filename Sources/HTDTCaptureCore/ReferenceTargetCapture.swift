@@ -35,7 +35,7 @@ public enum ReferenceTargetError: Error, Sendable, Equatable {
 
 /// A fiducial/reference target declared for this capture with its known
 /// physical dimensions and the authority those dimensions come from
-/// (issue #227).
+/// (issue bolph71656-ai/HTDT-Capture#227).
 public struct ReferenceTargetDeclaration: Codable, Sendable, Equatable {
     public let targetID: ReferenceTargetID
     /// Operator-facing target type token (e.g. "checkerboard_6x8",
@@ -221,7 +221,7 @@ public struct ReferenceTargetObservation: Codable, Sendable, Equatable {
     }
 }
 
-/// Advisory per-target diagnostics (issue #227): residuals between
+/// Advisory per-target diagnostics (issue bolph71656-ai/HTDT-Capture#227): residuals between
 /// observed and known dimensions plus revisit displacement. These are
 /// diagnostics surfaced to review — they never feed back as silent
 /// corrections.

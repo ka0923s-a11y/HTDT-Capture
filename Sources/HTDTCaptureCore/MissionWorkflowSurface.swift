@@ -1,24 +1,24 @@
 import Foundation
 
 /// The advanced workflows shipped under the production root (issue
-/// #353): each surface must be reachable from `CaptureRootView`
+/// legacy bolph71656-ai/HTDT-Capture#353): each surface must be reachable from `CaptureRootView`
 /// through ordinary navigation — never through test-only
 /// construction.
 public enum MissionWorkflowSurface: String, Codable, Sendable,
     CaseIterable, Equatable
 {
-    /// Imported capture task plan checklist (#240).
+    /// Imported capture task plan checklist (legacy bolph71656-ai/HTDT-Capture#240).
     case taskPlanChecklist = "task_plan_checklist"
-    /// Connected multi-region capture segments/portals (#222).
+    /// Connected multi-region capture segments/portals (legacy bolph71656-ai/HTDT-Capture#222).
     case connectedSpace = "connected_space"
-    /// Plan-vs-capture as-built verification (#293).
+    /// Plan-vs-capture as-built verification (legacy bolph71656-ai/HTDT-Capture#293).
     case asBuiltVerification = "as_built_verification"
     /// Post-scan authoring: annotations, measurements, evidence
     /// (the annotation workspace).
     case postScanAuthoring = "post_scan_authoring"
-    /// External measurement instrument import (#226/#355).
+    /// External measurement instrument import (legacy bolph71656-ai/HTDT-Capture#226/legacy bolph71656-ai/HTDT-Capture#355).
     case instrumentImport = "instrument_import"
-    /// HTDT repair/follow-up tasks returned to Capture (#321).
+    /// HTDT repair/follow-up tasks returned to Capture (legacy bolph71656-ai/HTDT-Capture#321).
     case repairTasks = "repair_tasks"
 }
 
@@ -61,7 +61,7 @@ public struct MissionWorkflowContext: Sendable, Equatable {
     /// A capture task plan was imported and is loaded.
     public var taskPlanLoaded: Bool
     /// The operator declared a multi-region connected mission before
-    /// acquisition (#353: connected controls appear only when the
+    /// acquisition (legacy bolph71656-ai/HTDT-Capture#353: connected controls appear only when the
     /// mission requires them).
     public var connectedSpaceIntent: Bool
     /// A connected-space tracker exists (segments already recorded).
@@ -101,7 +101,7 @@ public struct MissionWorkflowContext: Sendable, Equatable {
 }
 
 /// Decides which advanced workflows the production root surfaces and
-/// whether each is enterable right now (issue #353). The router is
+/// whether each is enterable right now (issue bolph71656-ai/HTDT-Capture#353). The router is
 /// the single source of truth for reachability: the view lists
 /// exactly these entries and the reachability test asserts on them.
 public enum MissionWorkflowRouter {

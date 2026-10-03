@@ -3,23 +3,23 @@ import SwiftUI
 import UniformTypeIdentifiers
 import HTDTCaptureCore
 
-/// Task-oriented measurement form (#220): the operator picks a common
+/// Task-oriented measurement form (legacy bolph71656-ai/HTDT-Capture#220): the operator picks a common
 /// task — room width/length/height, screen size, speaker distances —
 /// and the form writes the canonical quantity token. A "Custom
 /// measurement" template keeps the free-text path available.
 /// Editing an existing measurement preserves its `measurementID`
-/// (#245).
+/// (legacy bolph71656-ai/HTDT-Capture#245).
 public struct MeasurementFormView: View {
     private let editingMeasurement: CaptureMeasurement?
 
     /// Capture coordinate space the endpoint entity refs resolve in
-    /// (issue #215).
+    /// (issue bolph71656-ai/HTDT-Capture#215).
     public let coordinateSpaceID: CoordinateSpaceID
-    /// Staged entities usable as measurement endpoints (issue #215).
+    /// Staged entities usable as measurement endpoints (issue bolph71656-ai/HTDT-Capture#215).
     public let endpointCandidates: [CaptureAnnotationEntity]
     public let evidenceFrames: [EvidenceFramePresentation]
     public let otherEvidenceRefs: [String]
-    /// Instrument profiles staged for this revision (#331); picking
+    /// Instrument profiles staged for this revision (legacy bolph71656-ai/HTDT-Capture#331); picking
     /// one binds the measurement to the exact immutable profile
     /// version + digest. The legacy make/model text stays fillable
     /// alongside it.
@@ -63,7 +63,7 @@ public struct MeasurementFormView: View {
     ]
 
     /// Physical methods the file/document instrument adapter may
-    /// declare (issue #226/#355). Derived methods are rejected by the
+    /// declare (issue bolph71656-ai/HTDT-Capture#226/legacy bolph71656-ai/HTDT-Capture#355). Derived methods are rejected by the
     /// descriptor itself — an instrument never produces them.
     private let importMethods: [MeasurementAcquisitionMethod] = [
         .externalInstrument,
@@ -393,7 +393,7 @@ public struct MeasurementFormView: View {
         }
     }
 
-    /// The device-reading import flow (issue #226/#355): the
+    /// The device-reading import flow (issue bolph71656-ai/HTDT-Capture#226/legacy bolph71656-ai/HTDT-Capture#355): the
     /// operator describes the instrument, imports the file the
     /// instrument's own tooling produced, reviews the staged reading
     /// — exact received text, unit, device id, calibration — then
@@ -579,7 +579,7 @@ public struct MeasurementFormView: View {
     /// Endpoint pickers apply to new measurements only — the edit
     /// path never exposes endpoint-backed or derived measurements.
     /// Endpoint count semantics come from the quantity registry
-    /// (issue #287): `0` hides the pickers, `2` requires both or
+    /// (issue bolph71656-ai/HTDT-Capture#287): `0` hides the pickers, `2` requires both or
     /// neither, an unregistered quantity leaves endpoints optional.
     private var endpointsVisible: Bool {
         editingMeasurement == nil && !endpointCandidates.isEmpty
@@ -733,7 +733,7 @@ public struct MeasurementFormView: View {
 
 
 /// Picker binding a measurement endpoint to a staged entity by exact
-/// `entityID` (issue #215).
+/// `entityID` (issue bolph71656-ai/HTDT-Capture#215).
 private struct EndpointPicker: View {
     let title: String
     @Binding var selection: String

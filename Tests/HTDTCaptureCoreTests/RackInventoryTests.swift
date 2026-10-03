@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Rack-inventory workflow authority (#402): placement observations
+/// Rack-inventory workflow authority (legacy bolph71656-ai/HTDT-Capture#402): placement observations
 /// live apart from item identity, the collection enforces rack
 /// membership consistency, and duplicate candidates warn without
 /// merging.

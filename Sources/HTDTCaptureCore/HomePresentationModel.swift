@@ -1,6 +1,6 @@
 import Foundation
 
-/// Home information architecture v2 (issue #406): the presentation
+/// Home information architecture v2 (issue bolph71656-ai/HTDT-Capture#406): the presentation
 /// model for the landing surface. The view binds three bounded
 /// primary intents — Work, Library, Send & connections — and this
 /// model decides what the landing answers first: *what should I do
@@ -23,7 +23,7 @@ public enum CaptureHomeIntent: String, Sendable, CaseIterable {
 
 // MARK: - Next action
 
-/// The one dominant answer the landing gives (issue #406 §3).
+/// The one dominant answer the landing gives (issue bolph71656-ai/HTDT-Capture#406 §3).
 public enum HomeNextAction: Sendable, Equatable {
     /// A recovered working revision can be reopened.
     case resumeDraft(RecoverableWorkingRevision)
@@ -43,7 +43,7 @@ public enum HomeNextAction: Sendable, Equatable {
     case none
 }
 
-/// One row of the Work queue (issue #406 §4): everything on it is
+/// One row of the Work queue (issue bolph71656-ai/HTDT-Capture#406 §4): everything on it is
 /// actionable — informational items do not appear.
 public struct HomeWorkItem: Sendable, Equatable, Identifiable {
     public enum Kind: String, Sendable {
@@ -86,7 +86,7 @@ public struct HomeWorkItem: Sendable, Equatable, Identifiable {
 
 // MARK: - Attention badges
 
-/// One readiness problem worth an operator decision (issue #406 §5):
+/// One readiness problem worth an operator decision (issue bolph71656-ai/HTDT-Capture#406 §5):
 /// contextual — hidden entirely when everything is normal.
 public struct HomeReadinessAttention:
     Sendable, Equatable, Identifiable
@@ -108,7 +108,7 @@ public struct HomeReadinessAttention:
     public var id: String { kind.rawValue }
 }
 
-/// Maintenance counts (issue #406 §5): quarantined artifacts,
+/// Maintenance counts (issue bolph71656-ai/HTDT-Capture#406 §5): quarantined artifacts,
 /// working orphans and enumeration failures. The admin row appears
 /// only when `attentionCount > 0` — badges count actionable items
 /// only.
@@ -135,7 +135,7 @@ public struct HomeMaintenanceSummary: Sendable, Equatable {
     public var needsAttention: Bool { attentionCount > 0 }
 }
 
-/// Delivery health (issue #406 §6): jobs are split into in-flight
+/// Delivery health (issue bolph71656-ai/HTDT-Capture#406 §6): jobs are split into in-flight
 /// (healthy, quiet) and actionable (operator decision needed).
 /// Destinations stay a secondary destination row while healthy.
 public struct HomeSendSummary: Sendable, Equatable {

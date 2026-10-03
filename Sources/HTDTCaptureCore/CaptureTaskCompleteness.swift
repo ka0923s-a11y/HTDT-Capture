@@ -8,7 +8,7 @@ public struct CaptureTaskMatch: Sendable, Equatable, Codable {
     public enum Kind: String, Sendable, Equatable, Codable {
         case annotationEntityType = "annotation_entity_type"
         case annotationChannelRole = "annotation_channel_role"
-        /// Logical role binding against a layout profile (#315/#259):
+        /// Logical role binding against a layout profile (legacy bolph71656-ai/HTDT-Capture#315/legacy bolph71656-ai/HTDT-Capture#259):
         /// `value` is the profile `role_id`; `profile_id`/
         /// `profile_version` optionally pin the exact vocabulary.
         case annotationRoleBinding = "annotation_role_binding"
@@ -91,7 +91,7 @@ public struct CaptureTaskRequirement: Sendable, Equatable, Codable {
 
 /// The operator-declared intent for the capture. A profile never feeds
 /// `ready_for_htdt_ingestion`; it evaluates only against the task
-/// completeness layer (#217/#259).
+/// completeness layer (legacy bolph71656-ai/HTDT-Capture#217/legacy bolph71656-ai/HTDT-Capture#259).
 public struct CaptureTaskProfile: Sendable, Equatable, Codable {
     public let identifier: String
     public let title: String
@@ -131,10 +131,10 @@ public struct CaptureTaskProfile: Sendable, Equatable, Codable {
     )
 
     /// Built-in profiles that a device-local default may seed
-    /// (#338). Project/task plans remain the override authority — a
+    /// (legacy bolph71656-ai/HTDT-Capture#338). Project/task plans remain the override authority — a
     /// stored identifier only initializes an unset capture.
     /// `theaterLayout` is included so the batch speaker-layout flow
-    /// (#278) can be chosen as the standalone default task, not only
+    /// (legacy bolph71656-ai/HTDT-Capture#278) can be chosen as the standalone default task, not only
     /// per capture at setup.
     public static let standalonePresets: [CaptureTaskProfile] = [
         .geometryOnly,
@@ -152,7 +152,7 @@ public struct CaptureTaskProfile: Sendable, Equatable, Codable {
     }
 
     /// Builds requirements straight from a versioned layout profile's
-    /// declared cardinality (#315/#259): each role's minimum/maximum
+    /// declared cardinality (legacy bolph71656-ai/HTDT-Capture#315/legacy bolph71656-ai/HTDT-Capture#259): each role's minimum/maximum
     /// count becomes the requirement bounds and the match pins the
     /// exact `(profile_id, profile_version)` vocabulary, so evaluation
     /// counts logical bindings — never arbitrary channel tokens.
@@ -216,7 +216,7 @@ public struct CaptureTaskProfile: Sendable, Equatable, Codable {
     }
 
     /// The "Theater layout" preset offered at Capture setup and in
-    /// the annotation workspace (#426): one shared definition
+    /// the annotation workspace (legacy bolph71656-ai/HTDT-Capture#426): one shared definition
     /// derived from `SpeakerLayoutProfiles.surround7_1_4`, so the two
     /// surfaces can never drift into different role-token sets.
     public static var theaterLayout: CaptureTaskProfile {
@@ -226,7 +226,7 @@ public struct CaptureTaskProfile: Sendable, Equatable, Codable {
     }
 
     /// Theater layout derived from a versioned speaker-layout
-    /// profile (#426): each `speaker_role_<roleID>` requirement takes
+    /// profile (legacy bolph71656-ai/HTDT-Capture#426): each `speaker_role_<roleID>` requirement takes
     /// its token from `layoutProfile.roles`, so the identifier always
     /// names a `role_binding` role ID the annotation vocabulary
     /// offers, and the subwoofer requirement carries the sub roles'
@@ -248,8 +248,8 @@ public struct CaptureTaskProfile: Sendable, Equatable, Codable {
     /// one MLP, at least one screen or display, one annotation per
     /// selected speaker role, and a configurable subwoofer count. The
     /// role list is caller-chosen so nonstandard topologies stay
-    /// representable (#217); the built-in `theaterLayout` preset
-    /// derives its list from `SpeakerLayoutProfiles` instead (#426).
+    /// representable (legacy bolph71656-ai/HTDT-Capture#217); the built-in `theaterLayout` preset
+    /// derives its list from `SpeakerLayoutProfiles` instead (legacy bolph71656-ai/HTDT-Capture#426).
     public static func theaterLayout(
         speakerRoles: [String],
         subwooferCount: Int = 0

@@ -1,7 +1,7 @@
 import Foundation
 
 /// A corrective affordance offered next to a quality finding in Review
-/// (issue #298). Each case maps to an existing host action; the enum
+/// (issue bolph71656-ai/HTDT-Capture#298). Each case maps to an existing host action; the enum
 /// carries the contract, the view carries the localized label, and the
 /// coordinator carries the implementation — so actions never bypass
 /// the quality gate, they only route the operator to the surface that
@@ -15,7 +15,7 @@ public enum CaptureRemediationAction:
     /// Roll back the accepted End transaction and resume the live scan
     /// — the only path that can add spatial evidence. Requires a live
     /// working set; never offered on a relaunch-recovered draft
-    /// (issue #297).
+    /// (issue bolph71656-ai/HTDT-Capture#297).
     case continueScanning = "continue_scanning"
     /// Commit one operator-triggered evidence frame (still capture) —
     /// also live-only.
@@ -27,7 +27,7 @@ public enum CaptureRemediationAction:
     /// Open the measurement workspace for the missing quantity.
     case addMeasurement = "add_measurement"
     /// Open the capture-task profile/requirement surface
-    /// (#217/#259) to reselect the profile or acknowledge a skipped
+    /// (legacy bolph71656-ai/HTDT-Capture#217/legacy bolph71656-ai/HTDT-Capture#259) to reselect the profile or acknowledge a skipped
     /// requirement.
     case reviewTaskRequirements = "review_task_requirements"
     /// Re-run integrity verification against the committed bytes.
@@ -40,7 +40,7 @@ public enum CaptureRemediationAction:
     case discardDraft = "discard_draft"
 
     /// Actions that need a live AR coordinate authority. A recovered
-    /// draft (#297) must never offer them — its spatial evidence set
+    /// draft (legacy bolph71656-ai/HTDT-Capture#297) must never offer them — its spatial evidence set
     /// is sealed by definition.
     public var requiresLiveSpatialAuthority: Bool {
         switch self {
@@ -56,7 +56,7 @@ public enum CaptureRemediationAction:
 
 /// The review-facing remediation for one quality diagnostic: whether
 /// it blocks finalization, whether an action can repair it in place,
-/// and the ordered affordance list (issue #298). `title` and
+/// and the ordered affordance list (issue bolph71656-ai/HTDT-Capture#298). `title` and
 /// `whyItMatters` are symbolic keys resolved by the view layer, which
 /// owns `Localizable.strings` for both locales.
 public struct QualityRemediation: Sendable, Equatable {
@@ -91,7 +91,7 @@ public struct QualityRemediation: Sendable, Equatable {
 }
 
 /// Catalog mapping ruleset diagnostic codes to remediation plans
-/// (issue #298). Every blocking diagnostic the evaluator can emit is
+/// (issue bolph71656-ai/HTDT-Capture#298). Every blocking diagnostic the evaluator can emit is
 /// classified here; advisory (warning/info) findings get the same
 /// surface with non-blocking plans, and unknown codes degrade to a
 /// discard-only plan instead of a dead end.
@@ -252,7 +252,7 @@ public enum QualityRemediationCatalog {
 }
 
 extension CaptureTaskCompletenessReport {
-    /// Remediation for an unmet task profile (#217/#259): the same
+    /// Remediation for an unmet task profile (legacy bolph71656-ai/HTDT-Capture#217/legacy bolph71656-ai/HTDT-Capture#259): the same
     /// affordance surface as quality diagnostics — unsatisfied
     /// annotation/measurement requirements route to the authoring
     /// workspaces, a missing profile or a deliberate-skip correction

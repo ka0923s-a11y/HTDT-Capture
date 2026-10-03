@@ -6,7 +6,7 @@ public enum CaptureConflictStatus: String, Sendable, Equatable, Codable {
     case analyzed
     /// A required input collection was unavailable so the analysis
     /// could not run; an empty `conflicts` list here must NOT be read
-    /// as "no conflicts" (#229).
+    /// as "no conflicts" (legacy bolph71656-ai/HTDT-Capture#229).
     case unavailable
 }
 
@@ -115,7 +115,7 @@ public struct CaptureConflictReport: Sendable, Equatable, Codable {
     }
 }
 
-/// Advisory conflict/reconciliation analyzer (#229). Never mutates or
+/// Advisory conflict/reconciliation analyzer (legacy bolph71656-ai/HTDT-Capture#229). Never mutates or
 /// ranks records: conflicting candidates stay independently preserved
 /// and are reported side by side with their provenance.
 public enum CaptureConflictAnalyzer {

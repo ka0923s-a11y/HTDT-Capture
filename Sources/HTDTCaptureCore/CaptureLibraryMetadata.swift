@@ -1,6 +1,6 @@
 import Foundation
 
-/// App-local library metadata for the capture library (issue #219):
+/// App-local library metadata for the capture library (issue bolph71656-ai/HTDT-Capture#219):
 /// operator-assigned room/project names and freeform notes keyed by the
 /// capture identity. This file lives at `<captureRoot>/library-metadata.json`
 /// — deliberately outside `finalized/`, `exports/`, and `working/` — so it
@@ -28,7 +28,7 @@ public struct CaptureLibraryEntryMetadata:
 }
 
 /// The operator's explicit branch choice for a forked capture series
-/// (issue #396). App-local metadata — never part of any bundle — so an
+/// (issue bolph71656-ai/HTDT-Capture#396). App-local metadata — never part of any bundle — so an
 /// automatic update is impossible: only the operator's explicit action
 /// writes it, and a stored choice that no longer names a current graph
 /// head is ignored rather than silently re-pointed.
@@ -61,7 +61,7 @@ public struct CaptureSeriesPreferredHead:
     }
 }
 
-/// Series-level retention lifecycle state (issue #394): `archived`
+/// Series-level retention lifecycle state (issue bolph71656-ai/HTDT-Capture#394): `archived`
 /// removes a finished series from the default library view without
 /// touching a single canonical byte — revisions, receipts, mission
 /// links and metadata all stay durable, and the series remains
@@ -95,7 +95,7 @@ public struct CaptureSeriesLibraryState:
     }
 }
 
-/// Operator-importance marks on one revision (issue #394). A marked
+/// Operator-importance marks on one revision (issue bolph71656-ai/HTDT-Capture#394). A marked
 /// revision is still deletable, but only through the explicit
 /// protected-override path — retention previews always recommend
 /// keeping it.
@@ -142,10 +142,10 @@ public struct CaptureRevisionMark:
 }
 
 /// Versioned wire document for `library-metadata.json`. v1.1.0 adds
-/// the retention-lifecycle maps (issue #394); `supportedReadVersions`
+/// the retention-lifecycle maps (issue bolph71656-ai/HTDT-Capture#394); `supportedReadVersions`
 /// names the versions this build can still open — v1.0.0 documents
 /// migrate forward through `LocalStateMigrator` before the store
-/// reads them (#390). `preferred_heads` (#396) decodes optionally so
+/// reads them (legacy bolph71656-ai/HTDT-Capture#390). `preferred_heads` (legacy bolph71656-ai/HTDT-Capture#396) decodes optionally so
 /// documents written before the field existed still open.
 public struct CaptureLibraryMetadataDocument:
     Codable,
@@ -163,13 +163,13 @@ public struct CaptureLibraryMetadataDocument:
     /// Revision-level notes keyed by the canonical capture_revision_id.
     public let revisions: [String: CaptureLibraryEntryMetadata]
     /// Series lifecycle state keyed by the canonical
-    /// capture_series_id; absent entries are active (#394).
+    /// capture_series_id; absent entries are active (legacy bolph71656-ai/HTDT-Capture#394).
     public let seriesStates: [String: CaptureSeriesLibraryState]
     /// Revision importance marks keyed by the canonical
-    /// capture_revision_id; absent entries are unmarked (#394).
+    /// capture_revision_id; absent entries are unmarked (legacy bolph71656-ai/HTDT-Capture#394).
     public let revisionMarks: [String: CaptureRevisionMark]
     /// Operator-chosen preferred head per series, keyed by the
-    /// canonical capture_series_id (issue #396). Absent in documents
+    /// canonical capture_series_id (issue bolph71656-ai/HTDT-Capture#396). Absent in documents
     /// written before the field existed — decode is optional.
     public let preferredHeads:
         [String: CaptureSeriesPreferredHead]
@@ -210,8 +210,8 @@ public struct CaptureLibraryMetadataDocument:
         )
         // The v1.0.0 document predates the lifecycle maps; absent keys
         // decode as empty so a supported read-version document still
-        // opens before the migration step rewrites it (#390). The
-        // preferred-head map (#396) follows the same convention.
+        // opens before the migration step rewrites it (legacy bolph71656-ai/HTDT-Capture#390). The
+        // preferred-head map (legacy bolph71656-ai/HTDT-Capture#396) follows the same convention.
         seriesStates = try container.decodeIfPresent(
             [String: CaptureSeriesLibraryState].self,
             forKey: .seriesStates
@@ -394,7 +394,7 @@ public struct CaptureLibraryMetadataStore: Sendable {
     }
 
     /// Records the operator's explicit preferred head for a forked
-    /// series (issue #396): app-local metadata only, never written to
+    /// series (issue bolph71656-ai/HTDT-Capture#396): app-local metadata only, never written to
     /// a bundle. The caller is responsible for validating that
     /// `revisionID` is a current head of the series' revision graph —
     /// stale selections are ignored at read time.
@@ -443,7 +443,7 @@ public struct CaptureLibraryMetadataStore: Sendable {
         )
     }
 
-    /// Sets the retention lifecycle of one series (issue #394): the
+    /// Sets the retention lifecycle of one series (issue bolph71656-ai/HTDT-Capture#394): the
     /// archived timestamp is stamped by the caller; clearing back to
     /// active drops the entry so the document stays minimal.
     public func setSeriesState(
@@ -474,7 +474,7 @@ public struct CaptureLibraryMetadataStore: Sendable {
         )
     }
 
-    /// Replaces the importance marks of one revision (issue #394);
+    /// Replaces the importance marks of one revision (issue bolph71656-ai/HTDT-Capture#394);
     /// an empty mark set is removed like an empty metadata entry.
     public func updateRevisionMark(
         _ revisionID: CaptureRevisionID,
@@ -514,7 +514,7 @@ public struct CaptureLibraryMetadataStore: Sendable {
 
 /// One capture series in the library: all revisions sharing a
 /// `capture_series_id`, ordered oldest-to-newest by the validated
-/// `finalized_at` timestamp (issue #219 series grouping).
+/// `finalized_at` timestamp (issue bolph71656-ai/HTDT-Capture#219 series grouping).
 public struct CaptureSeriesGroup:
     Sendable,
     Equatable,
@@ -523,7 +523,7 @@ public struct CaptureSeriesGroup:
     public let captureSeriesID: CaptureSeriesID
     public let revisions: [PersistedCaptureRecord]
     public let metadata: CaptureLibraryEntryMetadata?
-    /// The read-side lineage graph for this series (issue #396):
+    /// The read-side lineage graph for this series (issue bolph71656-ai/HTDT-Capture#396):
     /// declared parent edges, roots, heads, and lineage diagnostics.
     public let revisionGraph: CaptureSeriesRevisionGraph
     /// The operator's stored preferred-head choice, unvalidated —
@@ -611,7 +611,7 @@ public struct CaptureSeriesGroup:
     }
 
     /// Representative-preview candidates for the library row (issue
-    /// #411): the head the row presents first (`preferredRevision`,
+    /// legacy bolph71656-ai/HTDT-Capture#411): the head the row presents first (`preferredRevision`,
     /// when it resolves), then every other revision newest-first —
     /// filtered to those whose validated manifest declares at least
     /// one `evidence/frames/*.preview.heic` entry. The ordering IS
@@ -691,7 +691,7 @@ public enum CaptureSeriesGrouper {
     }
 
     /// Case-insensitive substring match over the operator-assigned name,
-    /// note, and canonical identifiers (issue #219 search).
+    /// note, and canonical identifiers (issue bolph71656-ai/HTDT-Capture#219 search).
     public static func matches(
         group: CaptureSeriesGroup,
         revisionNotes: [String: CaptureLibraryEntryMetadata],

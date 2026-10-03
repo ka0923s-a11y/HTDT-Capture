@@ -1,6 +1,6 @@
 import Foundation
 
-/// Floor-plan reference mode (issue #322): an imported, operator-scaled
+/// Floor-plan reference mode (issue bolph71656-ai/HTDT-Capture#322): an imported, operator-scaled
 /// drawing or HTDT coordinate reference that guides capture. The
 /// underlay is `.importedReference` provenance — authoritative as a
 /// *reference* only, never as observed truth: no plan geometry is ever
@@ -19,13 +19,13 @@ public enum PlanUnderlaySourceKind: String, Codable, Sendable {
 }
 
 /// How the plan underlay's scale/alignment into the capture's
-/// `coordinate_space_id` was established (issue #322). The method is
+/// `coordinate_space_id` was established (issue bolph71656-ai/HTDT-Capture#322). The method is
 /// always explicit and operator- or authority-supplied — scale is
 /// never inferred from pixel density, image DPI, bounding-box
 /// similarity, or any other implicit cue.
 public enum PlanUnderlayAlignmentMethod: String, Codable, Sendable {
     /// The operator bound the underlay through the capture's HTDT
-    /// datum authority (the room reference frame, issue #232). No
+    /// datum authority (the room reference frame, issue bolph71656-ai/HTDT-Capture#232). No
     /// local points are needed — the datum is the scale authority.
     case htdtDatum = "htdt_datum"
     /// ≥2 operator-marked reference points on the drawing paired with
@@ -36,7 +36,7 @@ public enum PlanUnderlayAlignmentMethod: String, Codable, Sendable {
     /// fixes scale and orientation.
     case knownDistanceAxis = "known_distance_axis"
     /// Alignment through registered fiducials/registration targets
-    /// (issue #227) observed in capture space.
+    /// (issue bolph71656-ai/HTDT-Capture#227) observed in capture space.
     case fiducialAlignment = "fiducial_alignment"
 }
 
@@ -51,7 +51,7 @@ public enum PlanUnderlayError: Error, Sendable, Equatable {
     case encodedDocumentMismatch
 }
 
-/// One operator-marked reference point (issue #322): a labeled point
+/// One operator-marked reference point (issue bolph71656-ai/HTDT-Capture#322): a labeled point
 /// on the drawing plane plus the capture-space position the operator
 /// associated with it. `planXMeters`/`planYMeters` live in the plan's
 /// own coordinate frame (meters at the declared scale), while
@@ -97,7 +97,7 @@ public struct PlanUnderlayReferencePoint:
     }
 }
 
-/// An operator-declared known distance on the plan (issue #322): the
+/// An operator-declared known distance on the plan (issue bolph71656-ai/HTDT-Capture#322): the
 /// only legitimate non-authority scale source. The distance is a real-
 /// world measurement (e.g. "this wall is 8.4 m") the operator attests,
 /// attached to two plan-frame endpoints that also fix orientation.
@@ -153,7 +153,7 @@ public struct PlanUnderlayKnownDistance:
 }
 
 /// The declared alignment of an underlay into capture space
-/// (issue #322). `residualMeters` is the RMS alignment error the
+/// (issue bolph71656-ai/HTDT-Capture#322). `residualMeters` is the RMS alignment error the
 /// operator measured — always surfaced, never folded into observed
 /// geometry; a plan with a large residual is visibly less aligned.
 public struct PlanUnderlayAlignment: Codable, Sendable, Equatable {
@@ -218,7 +218,7 @@ public struct PlanUnderlayAlignment: Codable, Sendable, Equatable {
     }
 }
 
-/// Persisted `reference/plan-underlay.json` (issue #322): the declared
+/// Persisted `reference/plan-underlay.json` (issue bolph71656-ai/HTDT-Capture#322): the declared
 /// underlay for one capture revision — where the source came from
 /// (file hash or HTDT reference identity), how it was explicitly
 /// scaled/aligned, and the visible residual. The document is the
@@ -329,7 +329,7 @@ public struct PlanUnderlayDocument: Codable, Sendable, Equatable {
 }
 
 /// Encoded `reference/plan-underlay.json` ready for the working set
-/// (issue #322). `.importedReference` provenance marks the payload as
+/// (issue bolph71656-ai/HTDT-Capture#322). `.importedReference` provenance marks the payload as
 /// operator-supplied truth-by-declaration, distinct from every derived
 /// or observed payload in the bundle.
 public struct PlanUnderlayPackage: Sendable, Equatable {
@@ -378,7 +378,7 @@ public enum PlanUnderlayPackageBuilder {
     }
 }
 
-/// Per-reference-point support state for the #322 advisory: does the
+/// Per-reference-point support state for the legacy bolph71656-ai/HTDT-Capture#322 advisory: does the
 /// observed coverage map near this plan anchor claim any observation?
 /// `unsupported` means the plan region around the point has no
 /// observed coverage within the search radius — the region stays
@@ -390,7 +390,7 @@ public enum PlanUnderlaySupportState: String, Sendable, Equatable {
 }
 
 /// Which declared plan reference points currently lack observed
-/// support (issue #322). Purely diagnostic: the underlay's geometry is
+/// support (issue bolph71656-ai/HTDT-Capture#322). Purely diagnostic: the underlay's geometry is
 /// never merged into observed coverage and an unsupported point is a
 /// visible mismatch, not an error.
 public struct PlanUnderlaySupportFinding:
@@ -416,7 +416,7 @@ public struct PlanUnderlaySupportFinding:
 }
 
 /// Evaluates the committed underlay's reference points against the
-/// live spatial-coverage summary (#322). A plan anchor maps onto the
+/// live spatial-coverage summary (legacy bolph71656-ai/HTDT-Capture#322). A plan anchor maps onto the
 /// coverage grid through its declared `capture_point` — plan-vs-
 /// observed stays visually distinguishable because the advisory
 /// reports per-point support rather than a merged score.

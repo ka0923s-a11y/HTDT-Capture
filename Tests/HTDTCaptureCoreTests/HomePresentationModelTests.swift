@@ -1,7 +1,7 @@
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #406: Home IA v2 — three bounded intents, a single "what's
+/// Issue bolph71656-ai/HTDT-Capture#406: Home IA v2 — three bounded intents, a single "what's
 /// next" decision, badges that only carry actionable counts.
 final class HomePresentationModelTests: XCTestCase {
 

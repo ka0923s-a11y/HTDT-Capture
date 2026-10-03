@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import HTDTCaptureCore
 
-/// The single settings entry point (issue #338). Groups device-local
+/// The single settings entry point (issue bolph71656-ai/HTDT-Capture#338). Groups device-local
 /// controls into the taxonomy that keeps them out of capture
 /// authority:
 ///
@@ -11,7 +11,7 @@ import HTDTCaptureCore
 /// - B. Device-local workflow defaults — seed a new capture; an
 ///   explicit per-capture or project/task choice always overrides.
 /// - C. Storage & privacy — where finalized data lives and whether
-///   the platform backup may include it (#305).
+///   the platform backup may include it (legacy bolph71656-ai/HTDT-Capture#305).
 /// - D. Managed reference contexts — equipment catalogs and similar
 ///   imported context, surfaced with identity so a capture can show
 ///   exactly which context it used.
@@ -20,14 +20,14 @@ import HTDTCaptureCore
 /// rewrites or reinterprets an existing capture.
 public struct CaptureSettingsView: View {
     public let settings: CaptureAppSettings
-    /// The host-managed equipment catalog reference context (#211).
+    /// The host-managed equipment catalog reference context (legacy bolph71656-ai/HTDT-Capture#211).
     public let equipmentCatalog: HTDTEquipmentCatalogSnapshot?
     /// Total bytes retained by finalized captures + export archives,
     /// for the storage summary row.
     public let retainedByteCount: Int64
     /// Persists a new settings document through the host.
     public let onChange: (CaptureAppSettings) -> Void
-    /// Clears the durable equipment-catalog cache (#338); committed
+    /// Clears the durable equipment-catalog cache (legacy bolph71656-ai/HTDT-Capture#338); committed
     /// captures keep the exact equipment tuples they recorded.
     public let onClearEquipmentCatalog: () -> Void
 

@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #375: field notes — operator-authored supplemental context
+/// Issue bolph71656-ai/HTDT-Capture#375: field notes — operator-authored supplemental context
 /// bound to the scan/revision, never structured authority. Covers
 /// validation, lifecycle (resolve/supersede), collection views, the
 /// parent/child diff, and working-set persistence.
@@ -336,12 +336,12 @@ final class CaptureFieldNoteTests: XCTestCase {
     }
 }
 
-// MARK: - #421 spatial-anchor compat
+// MARK: - legacy bolph71656-ai/HTDT-Capture#421 spatial-anchor compat
 
 extension CaptureFieldNoteTests {
     /// Legacy notes carry no `anchor_kind` — every point written
     /// before the kind existed came from a raycast, so decoding must
-    /// default to `subject_point` (issue #421 compat rule).
+    /// default to `subject_point` (issue bolph71656-ai/HTDT-Capture#421 compat rule).
     func testSpatialPositionWithoutAnchorKindDecodesAsSubjectPoint()
         throws
     {
@@ -364,7 +364,7 @@ extension CaptureFieldNoteTests {
 
     /// Encode/decode preserves the exact coordinate-space id and the
     /// declared anchor kind — the space is carried, never
-    /// reinterpreted (issue #421).
+    /// reinterpreted (issue bolph71656-ai/HTDT-Capture#421).
     func testSpatialPositionRoundTripPreservesSpaceAndKind() throws {
         let spaceID = CoordinateSpaceID()
         for kind in [CaptureFieldNoteAnchorKind.subjectPoint,
@@ -390,7 +390,7 @@ extension CaptureFieldNoteTests {
     }
 
     /// A non-finite point can never be stored — unavailable anchors
-    /// degrade to `nil`, never to a fabricated position (#421).
+    /// degrade to `nil`, never to a fabricated position (legacy bolph71656-ai/HTDT-Capture#421).
     func testNonFiniteSpatialPointIsRejected() {
         XCTAssertThrowsError(
             try CaptureFieldNoteSpatialPosition(
@@ -410,7 +410,7 @@ extension CaptureFieldNoteTests {
 
     /// A superseding note does not inherit the anchor — the child
     /// carries whatever anchor (or none) it was authored with, and
-    /// the parent's position is never rebound (#421 lineage rule).
+    /// the parent's position is never rebound (legacy bolph71656-ai/HTDT-Capture#421 lineage rule).
     func testSupersedingNoteKeepsItsOwnAnchor() async throws {
         let (root, store) = try await makeStore()
         defer { try? FileManager.default.removeItem(at: root) }

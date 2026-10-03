@@ -1,7 +1,7 @@
 import Foundation
 
 /// One of eight principal directions around the capture start point
-/// (issue #342). Shared by the visual coverage labels, the VoiceOver
+/// (issue bolph71656-ai/HTDT-Capture#342). Shared by the visual coverage labels, the VoiceOver
 /// direction summary, and the spatial-region readout so every channel
 /// names a direction identically.
 public enum ScanDirectionOctant:
@@ -70,7 +70,7 @@ public enum ScanDirectionOctant:
 }
 
 /// Compact non-visual description of the direction-coverage grid
-/// (issue #342): one summary instead of 36 near-identical cell labels.
+/// (issue bolph71656-ai/HTDT-Capture#342): one summary instead of 36 near-identical cell labels.
 public struct DirectionCoverageAccessibilitySummary:
     Sendable,
     Equatable
@@ -139,7 +139,7 @@ public struct DirectionCoverageAccessibilitySummary:
     }
 }
 
-/// Non-visual description of the spatial coverage map (issue #342):
+/// Non-visual description of the spatial coverage map (issue bolph71656-ai/HTDT-Capture#342):
 /// observed/weak/unknown counts, prioritized weak regions with
 /// bounded direction+distance labels, and the camera's own position.
 public struct SpatialCoverageAccessibilitySummary:
@@ -283,8 +283,8 @@ public struct SpatialCoverageAccessibilitySummary:
     }
 }
 
-/// Spoken text for the coverage summaries (issue #342). All copy
-/// resolves through `Localizable.strings` (#399) — VoiceOver uses the
+/// Spoken text for the coverage summaries (issue bolph71656-ai/HTDT-Capture#342). All copy
+/// resolves through `Localizable.strings` (legacy bolph71656-ai/HTDT-Capture#399) — VoiceOver uses the
 /// same authority as the rest of the app.
 public enum ScanAccessibilityText {
     public static func directionCoverage(

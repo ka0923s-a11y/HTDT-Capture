@@ -120,8 +120,8 @@ func ruleset12AddsVersionedPoliciesWithoutRedefining11() throws {
         CaptureQualityRequirements.forRuleset(version: "1.2.0")
     )
     // 1.1.0 keeps the binary ever-unavailable rule and the non-empty
-    // depth fallback; the new policies exist only under 1.2.0 (#242,
-    // #284).
+    // depth fallback; the new policies exist only under 1.2.0 (legacy bolph71656-ai/HTDT-Capture#242,
+    // legacy bolph71656-ai/HTDT-Capture#284).
     #expect(ruleset11.trackingRecoveryPolicy == nil)
     #expect(ruleset11.depthFallbackSufficiencyPolicy == nil)
     #expect(ruleset12.trackingRecoveryPolicy != nil)
@@ -368,7 +368,7 @@ func ruleset11KeepsBinaryTrackingUnavailableRule() throws {
         requirements: requirements
     )
     // Legacy 1.1.0 semantics preserved: any unavailable event is an
-    // error even when tracking recovered (#242 versioning rule).
+    // error even when tracking recovered (legacy bolph71656-ai/HTDT-Capture#242 versioning rule).
     #expect(!report.readyForHTDTIngestion)
     #expect(
         report.diagnostics.contains {
@@ -476,7 +476,7 @@ func ruleset11DepthFallbackStillAcceptsOnePixel() throws {
         CaptureQualityRequirements.forRuleset(version: "1.1.0")
     )
     // Legacy semantics preserved for 1.1.0 reports already persisted:
-    // usableDepthSampleCount > 0 satisfies the fallback (#284).
+    // usableDepthSampleCount > 0 satisfies the fallback (legacy bolph71656-ai/HTDT-Capture#284).
     let report = CaptureQualityEvaluator.evaluate(
         CaptureQualityObservation(
             roomPlanStatus: .completed,

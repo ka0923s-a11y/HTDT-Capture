@@ -1,7 +1,7 @@
 import Foundation
 
 /// What the operator can inspect about a failed capture's retained
-/// working set (issue #224): an enumeration of every retained payload
+/// working set (issue bolph71656-ai/HTDT-Capture#224): an enumeration of every retained payload
 /// with byte sizes, plus opportunistically decoded JSON authority so
 /// the report names the session/coordinate space and committed
 /// annotation counts without pretending the failed set is resumable.
@@ -68,7 +68,7 @@ public struct FailedCaptureInspection: Sendable, Equatable {
 }
 
 /// Enumerates and decodes a failed capture's retained working set
-/// without resuming it (issue #224). The inspection is observational:
+/// without resuming it (issue bolph71656-ai/HTDT-Capture#224). The inspection is observational:
 /// it never mutates the working directory and never re-adopts the
 /// abandoned coordinate authority.
 public enum FailedCaptureInspector {
@@ -186,7 +186,7 @@ public enum FailedCaptureInspector {
 /// A diagnostic report is NOT a capture bundle: it deliberately uses a
 /// different schema name and contains no pixel/depth/mesh payload
 /// bytes, only the inspection listing and decoded metadata needed to
-/// triage a failure (issue #224).
+/// triage a failure (issue bolph71656-ai/HTDT-Capture#224).
 public struct CaptureDiagnosticReport: Codable, Sendable, Equatable {
     public static let schema = "htdt.capture.diagnostic-report"
     public static let schemaVersion = "1.0.0"
@@ -276,7 +276,7 @@ public enum CaptureDiagnosticPackageError:
     case unsafeDestination
 }
 
-/// Writes the diagnostic package (issue #224). The package lands in a
+/// Writes the diagnostic package (issue bolph71656-ai/HTDT-Capture#224). The package lands in a
 /// dedicated `diagnostics/` sibling of `finalized/`, `exports/`, and
 /// `working/` — never inside the inventoried roots — so it cannot be
 /// mistaken for a canonical export and cannot be quarantined as an

@@ -1,7 +1,7 @@
 # Phase 4 Working-Set Annotation and Measurement Slice
 
 Date: 2026-09-20  
-Issue: #5
+Issue: legacy bolph71656-ai/HTDT-Capture#5
 
 ## Purpose
 
@@ -52,7 +52,7 @@ annotation/measurement completeness gates.
 The manifest-level provenance class identifies the authority file category.
 Annotation collections must stay homogeneous (a mixed collection fails
 closed). Measurement collections may mix per-record provenance so derived
-and user-attested records coexist for conflict review (issue #286): a
+and user-attested records coexist for conflict review (issue bolph71656-ai/HTDT-Capture#286): a
 homogeneous measurement collection declares its exact class while a mixed
 one declares `capture_app_derived` container authority — the manifest never
 overclaims. Per-record provenance remains authoritative in every case.

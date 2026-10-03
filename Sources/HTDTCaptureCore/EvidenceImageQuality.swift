@@ -1,6 +1,6 @@
 import Foundation
 
-/// Advisory on-device Evidence Image Quality Preflight (#407).
+/// Advisory on-device Evidence Image Quality Preflight (legacy bolph71656-ai/HTDT-Capture#407).
 ///
 /// A persisted still image can be cryptographically valid evidence
 /// while being operationally useless — motion blur, glare over a
@@ -15,7 +15,7 @@ import Foundation
 ///     replaces canonical captured bytes, never blocks finalization,
 ///     and never claims semantic verification.
 ///   * Distinct from recognition confidence, catalog-match confidence
-///     and operator confirmation (#407 §8): those live on the scan
+///     and operator confirmation (legacy bolph71656-ai/HTDT-Capture#407 §8): those live on the scan
 ///     result / identity record, not here.
 ///   * Image quality is per-image: a retake gets a fresh assessment;
 ///     re-evaluation under a new algorithm produces a new derived
@@ -25,11 +25,11 @@ import Foundation
 ///     signals; it never runs on AR capture callbacks and reports
 ///     `unknown` — never a pass — when analysis was unavailable.
 ///
-/// Authority class: `.captureDerivedDiagnostic` (#405) — the artifact
+/// Authority class: `.captureDerivedDiagnostic` (legacy bolph71656-ai/HTDT-Capture#405) — the artifact
 /// is derived acquisition evidence, not observed truth.
 public enum EvidenceImageQualityProfile: String, Codable, Sendable, CaseIterable {
     /// Serial/model label evidence: text/barcode size, sharpness,
-    /// glare and crop dominate (#407 §2).
+    /// glare and crop dominate (legacy bolph71656-ai/HTDT-Capture#407 §2).
     case equipmentLabel = "equipment_label"
     /// Installed-settings screen: focus, display glare, full UI in
     /// frame, readable text.
@@ -49,7 +49,7 @@ public enum EvidenceImageQualityProfile: String, Codable, Sendable, CaseIterable
 
 /// Per-domain categorical outcome — deliberately coarse so the UI
 /// presents "Looks sharp / May be blurred / Unknown" rather than an
-/// internal metric (#407 §3).
+/// internal metric (legacy bolph71656-ai/HTDT-Capture#407 §3).
 public enum EvidenceImageQualityVerdict: String, Codable, Sendable {
     case pass
     case warning
@@ -59,7 +59,7 @@ public enum EvidenceImageQualityVerdict: String, Codable, Sendable {
 
 /// Whole-image advisory status. `unknown` means the assessment could
 /// not run (probe unavailable, analysis skipped under thermal load) —
-/// it is never reported as a pass (#407 §14).
+/// it is never reported as a pass (legacy bolph71656-ai/HTDT-Capture#407 §14).
 public enum EvidenceImageQualityStatus: String, Codable, Sendable {
     case usable
     case suspect
@@ -67,7 +67,7 @@ public enum EvidenceImageQualityStatus: String, Codable, Sendable {
 }
 
 /// Actionable machine-readable reasons behind a warning status —
-/// mapped by the UI to concise retake guidance (#407 §15).
+/// mapped by the UI to concise retake guidance (legacy bolph71656-ai/HTDT-Capture#407 §15).
 public enum EvidenceImageQualityReason: String, Codable, Sendable {
     case imageTooDark = "image_too_dark"
     case imageOverexposed = "image_overexposed"
@@ -82,7 +82,7 @@ public enum EvidenceImageQualityReason: String, Codable, Sendable {
 
 /// Task-dependent signals supplied by the recognizer/capture flow —
 /// all optional; a domain they gate reports `unknown` when the signal
-/// is absent rather than pretending it passed (#407 §14).
+/// is absent rather than pretending it passed (legacy bolph71656-ai/HTDT-Capture#407 §14).
 public struct EvidenceImageTaskMetrics: Sendable, Equatable {
     /// Fraction of the frame covered by the recognized subject region
     /// (label/text), normalized 0...1.
@@ -93,7 +93,7 @@ public struct EvidenceImageTaskMetrics: Sendable, Equatable {
     /// Fraction of the subject region below the darkness bound.
     public let subjectDarkFraction: Double?
     /// The recognized subject touches a frame boundary — likely
-    /// cropped text (#407 §7).
+    /// cropped text (legacy bolph71656-ai/HTDT-Capture#407 §7).
     public let subjectTouchesFrameEdge: Bool?
     /// Recognizer legibility confidence for the task's text, 0...1.
     public let textLegibility: Double?
@@ -125,7 +125,7 @@ public struct EvidenceImageTaskMetrics: Sendable, Equatable {
     }
 }
 
-/// The shared assessment contract (#407 §1). Codable so it can ride
+/// The shared assessment contract (legacy bolph71656-ai/HTDT-Capture#407 §1). Codable so it can ride
 /// as derived metadata; it is per-image (`evidenceRef` binds the exact
 /// canonical bytes) and carries the algorithm version that produced
 /// it so a later algorithm yields a *new* derived record.
@@ -141,7 +141,7 @@ public struct EvidenceImageQualityAssessment: Codable, Sendable, Equatable {
     /// Evidence ref of the exact image assessed (`path:`/`frame:`).
     public let evidenceRef: String
     public let profile: EvidenceImageQualityProfile
-    /// #405 authority class — always `capture_derived_diagnostic`.
+    /// legacy bolph71656-ai/HTDT-Capture#405 authority class — always `capture_derived_diagnostic`.
     public let authorityClass: CaptureAuthorityClass
     public let sharpness: EvidenceImageQualityVerdict
     public let exposure: EvidenceImageQualityVerdict
@@ -236,7 +236,7 @@ public struct EvidenceImageQualityAssessment: Codable, Sendable, Equatable {
     }
 }
 
-/// Deterministic still-image usability checks (#407 IMGQ-20):
+/// Deterministic still-image usability checks (legacy bolph71656-ai/HTDT-Capture#407 IMGQ-20):
 /// sharpness, exposure/clipping, subject framing and legibility over
 /// bounded metrics. Pure — same inputs produce the same verdicts;
 /// the versioned `algorithmVersion` records what measured them.
@@ -293,7 +293,7 @@ public struct EvidenceImageQualityEvaluator: Sendable, Equatable {
     ///
     /// `base` carries bounded frame statistics from the pixel probe —
     /// nil means the image could not be measured and the assessment
-    /// reports `unknown` rather than passing (#407 §14). `task`
+    /// reports `unknown` rather than passing (legacy bolph71656-ai/HTDT-Capture#407 §14). `task`
     /// supplies recognizer-side signals (subject region, legibility,
     /// barcode) when the capture flow ran recognition.
     public func assess(
@@ -355,7 +355,7 @@ public struct EvidenceImageQualityEvaluator: Sendable, Equatable {
         }
 
         // Framing needs a recognized subject region: too small to
-        // read, or cropped at the frame edge (#407 §7).
+        // read, or cropped at the frame edge (legacy bolph71656-ai/HTDT-Capture#407 §7).
         let framing: EvidenceImageQualityVerdict?
         if task?.subjectRegionFraction != nil
             || task?.subjectTouchesFrameEdge != nil

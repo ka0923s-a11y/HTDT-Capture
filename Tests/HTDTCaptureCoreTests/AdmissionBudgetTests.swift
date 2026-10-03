@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #147: the production working-set persistence path must run
+/// Issue bolph71656-ai/HTDT-Capture#147: the production working-set persistence path must run
 /// through the byte/item admission budget — reservations are taken
 /// before evidence becomes queued writer work, released on every exit,
 /// and exhaustion produces typed backpressure plus a bounded

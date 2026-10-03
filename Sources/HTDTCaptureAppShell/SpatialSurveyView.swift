@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import HTDTCaptureCore
 
-/// The spatial survey pass (issue #409): an object-first, state-
+/// The spatial survey pass (issue bolph71656-ai/HTDT-Capture#409): an object-first, state-
 /// driven pass over every reviewable target — RoomPlan boundaries/
 /// objects, mesh regions, committed entities — with the committed
 /// records each one already holds. States are *derived*, never
@@ -20,7 +20,7 @@ public struct SpatialSurveyView: View {
     /// Rebuilds the survey for a mode; the model is derived, so a
     /// mode change is a re-derivation over the same committed set.
     public let makeModel: (SurveyMode) -> SpatialSurveyModel
-    /// Read-only for finalized captures (issue #409 §13).
+    /// Read-only for finalized captures (issue bolph71656-ai/HTDT-Capture#409 §13).
     public let readOnly: Bool
 
     @State private var mode: SurveyMode = .all
@@ -191,7 +191,7 @@ public struct SpatialSurveyView: View {
     }
 }
 
-/// One survey target's object-first detail (issue #409 §5): only the
+/// One survey target's object-first detail (issue bolph71656-ai/HTDT-Capture#409 §5): only the
 /// record families actually present render — an object with no
 /// commissioning record never shows an empty commissioning block.
 public struct SpatialSurveyTargetView: View {

@@ -16,22 +16,22 @@ public enum ManualAuthorityBuilderError:
     /// `AnnotationEntityType.supportsOrientationAuthority`.
     case orientationNotSupportedForType
     /// A typed `listening_role` is required when authoring a
-    /// listening position (#243); legacy records may lack one, new
+    /// listening position (legacy bolph71656-ai/HTDT-Capture#243); legacy records may lack one, new
     /// authoring cannot.
     case listeningRoleRequired
     /// Any evidence-captured placement authority must be paired with
     /// an explicit `referencePointConstruction` — a raycast hit can
     /// never silently claim a semantic point like `ear_center`
-    /// (#291).
+    /// (legacy bolph71656-ai/HTDT-Capture#291).
     case referencePointConstructionRequired
     /// A non-nil acoustic center is only defined for loudspeaker
     /// entities (speaker/subwoofer) and only through an explicit
-    /// offset authority — never inferred (issue #234).
+    /// offset authority — never inferred (issue bolph71656-ai/HTDT-Capture#234).
     case acousticCenterRequiresLoudspeaker
     case derivedAcquisitionNotUserAttestable
     /// An evidence-captured authority is expressed in a different
     /// coordinate space than the annotation it would support (issue
-    /// #199).
+    /// legacy bolph71656-ai/HTDT-Capture#199).
     case authorityCoordinateSpaceMismatch
     /// No point-direction capture is available in this environment
     /// (e.g. no live ARSession); used by default closures only.
@@ -46,7 +46,7 @@ public struct AnnotationPlacementAuthority:
     public let placement: PlacementProvenance
     /// The coordinate space the captured transform and its evidence
     /// refs are expressed in. Evidence-linked authority must be bound
-    /// to the referenced frame's coordinate space (issue #199).
+    /// to the referenced frame's coordinate space (issue bolph71656-ai/HTDT-Capture#199).
     public let coordinateSpaceID: CoordinateSpaceID
     public let evidenceRefs: [String]
 
@@ -84,7 +84,7 @@ public struct AnnotationOrientationAuthority:
 {
     public let orientation: OrientationAxes
     /// The coordinate space the captured orientation and its evidence
-    /// refs are expressed in (issue #199).
+    /// refs are expressed in (issue bolph71656-ai/HTDT-Capture#199).
     public let coordinateSpaceID: CoordinateSpaceID
     public let evidenceRefs: [String]
 
@@ -149,7 +149,7 @@ public enum ManualAuthorityBuilder {
         }
 
         // Evidence-captured authorities are bound to the coordinate
-        // space of the frame they were captured from (issue #199).
+        // space of the frame they were captured from (issue bolph71656-ai/HTDT-Capture#199).
         // Applying one to an annotation in a different space would make
         // the linked evidence geometrically non-comparable; only an
         // explicit transform/alignment authority could bridge spaces,
@@ -169,7 +169,7 @@ public enum ManualAuthorityBuilder {
         }
 
         // Equipment-reference compatibility is enforced below the UI
-        // (#237): an exact catalog tuple can only be attached to an
+        // (legacy bolph71656-ai/HTDT-Capture#237): an exact catalog tuple can only be attached to an
         // annotation type the catalog's authority version actually
         // covers — a cryptographically-correct tuple on the wrong
         // entity kind is still meaningless authority.
@@ -189,7 +189,7 @@ public enum ManualAuthorityBuilder {
         }
 
         // Reference semantics describe the point actually authored,
-        // not merely the entity type (#291). The caller may select a
+        // not merely the entity type (legacy bolph71656-ai/HTDT-Capture#291). The caller may select a
         // type-appropriate token; the default remains the type's
         // convention.
         let semantics =
@@ -200,7 +200,7 @@ public enum ManualAuthorityBuilder {
             throw AnnotationModelError.invalidReferencePointSemantics
         }
 
-        // Reference-point construction is fail-closed (#291): any
+        // Reference-point construction is fail-closed (legacy bolph71656-ai/HTDT-Capture#291): any
         // evidence-captured placement must be paired with an explicit
         // construction record so a surface hit can never silently
         // claim a semantic point.
@@ -226,7 +226,7 @@ public enum ManualAuthorityBuilder {
 
         // `offset_from_surface` constructs the free-space semantic
         // point by applying an explicit world-frame offset to the
-        // captured surface hit (#291).
+        // captured surface hit (legacy bolph71656-ai/HTDT-Capture#291).
         if referencePointConstruction == .offsetFromSurface {
             guard let referencePointOffset else {
                 throw AnnotationModelError
@@ -278,7 +278,7 @@ public enum ManualAuthorityBuilder {
         ).sorted()
 
         // Orientation authority is supported on any type with
-        // body/plane semantics (#230, #244); pure point authorities
+        // body/plane semantics (legacy bolph71656-ai/HTDT-Capture#230, legacy bolph71656-ai/HTDT-Capture#244); pure point authorities
         // (listening position, reference point) reject it.
         if orientationAuthority != nil || orientationYawDegrees != nil {
             guard type.supportsOrientationAuthority else {
@@ -304,7 +304,7 @@ public enum ManualAuthorityBuilder {
                 degrees: orientationYawDegrees
             )
         } else if type == .speaker, speakerYawDegrees != nil {
-            // Aim is optional (#228): no azimuth means an "aim
+            // Aim is optional (legacy bolph71656-ai/HTDT-Capture#228): no azimuth means an "aim
             // unknown" record — nothing is synthesized.
             orientation = try Self.speakerOrientationAxes(
                 azimuthDegrees: speakerYawDegrees,
@@ -319,11 +319,11 @@ public enum ManualAuthorityBuilder {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .uppercased() ?? ""
             if roleText.isEmpty {
-                // #315: no logical role is a valid unbound state —
+                // legacy bolph71656-ai/HTDT-Capture#315: no logical role is a valid unbound state —
                 // never synthesize a placeholder token.
                 channelRole = nil
             } else {
-                // #344: non-standard roles are auto-scoped into the
+                // legacy bolph71656-ai/HTDT-Capture#344: non-standard roles are auto-scoped into the
                 // reserved X_ namespace so they can never collide with
                 // future standard vocabulary.
                 guard let scopedRole = OpenTokenPolicy
@@ -338,7 +338,7 @@ public enum ManualAuthorityBuilder {
                 channelRole = parsedRole
             }
         case .subwoofer:
-            // Subwoofer topology (#244): every sub carries a typed
+            // Subwoofer topology (legacy bolph71656-ai/HTDT-Capture#244): every sub carries a typed
             // channel/instance role so multiple subs are
             // distinguishable without label parsing. The token set is
             // open (LFE1/LFE2/... or custom) — no AVR convention is
@@ -368,13 +368,13 @@ public enum ManualAuthorityBuilder {
             }
         }
 
-        // Typed listening-position role (#243): required for new
+        // Typed listening-position role (legacy bolph71656-ai/HTDT-Capture#243): required for new
         // authored records so the primary MLP is machine-readable.
         if type == .listeningPosition, listeningRole == nil {
             throw ManualAuthorityBuilderError.listeningRoleRequired
         }
 
-        // Component-level authority (#263): the aggregate
+        // Component-level authority (legacy bolph71656-ai/HTDT-Capture#263): the aggregate
         // `verification_state` stays the legacy summary; `authority`
         // records which components are actually evidence-backed so a
         // mixed record never overstates itself.
@@ -428,7 +428,7 @@ public enum ManualAuthorityBuilder {
                 : nil
         )
 
-        // Lifecycle metadata (#267): creation time is always stamped;
+        // Lifecycle metadata (legacy bolph71656-ai/HTDT-Capture#267): creation time is always stamped;
         // observation/source times are recorded only when supplied —
         // never fabricated for manual or imported records.
         let lifecycle = try AnnotationLifecycle(
@@ -481,7 +481,7 @@ public enum ManualAuthorityBuilder {
         )
     }
 
-    /// Speaker front/up axes from an azimuth + optional elevation (#228).
+    /// Speaker front/up axes from an azimuth + optional elevation (legacy bolph71656-ai/HTDT-Capture#228).
     /// Azimuth follows the existing convention: 0° faces −Z, +90° faces
     /// +X. Elevation pitches about the azimuth's right axis, positive up;
     /// at 0° elevation the result is the historical yaw-only aim.
@@ -514,8 +514,8 @@ public enum ManualAuthorityBuilder {
         )
     }
 
-    /// The full user-attested measurement authority (issues #215,
-    /// #238, #253, #275): scalar or vector values, endpoint refs bound
+    /// The full user-attested measurement authority (issues bolph71656-ai/HTDT-Capture#215,
+    /// legacy bolph71656-ai/HTDT-Capture#238, legacy bolph71656-ai/HTDT-Capture#253, legacy bolph71656-ai/HTDT-Capture#275): scalar or vector values, endpoint refs bound
     /// to resolvable spatial authorities, observation time, instrument
     /// calibration metadata, and manufacturer-specification source
     /// identity. Every record this builder emits is
@@ -546,7 +546,7 @@ public enum ManualAuthorityBuilder {
              .manufacturerSpecification, .externalInstrument, .other:
             break
         }
-        // #344: unregistered quantity tokens are scoped into the
+        // legacy bolph71656-ai/HTDT-Capture#344: unregistered quantity tokens are scoped into the
         // reserved x_ namespace at authoring time so the emitted
         // record is wire-legal under the v1.1.0 contract.
         guard let scopedQuantityType =

@@ -5,7 +5,7 @@ public struct OperatorProfileID: CaptureIdentifier {
     public init(rawValue: UUID) { self.rawValue = rawValue }
 }
 
-/// An optional app-local author/operator profile (issue #310). It is
+/// An optional app-local author/operator profile (issue bolph71656-ai/HTDT-Capture#310). It is
 /// explicit identity metadata: created and named by the operator,
 /// stored under a stable identifier, and carried on user-attested
 /// records. It is never an account, a login, or something inferred —
@@ -61,7 +61,7 @@ public struct OperatorProfile: Codable, Sendable, Equatable {
 }
 
 /// The revision-scoped operator registry persisted as the derived
-/// `derived/operator-profiles.json` payload (issue #310). Author
+/// `derived/operator-profiles.json` payload (issue bolph71656-ai/HTDT-Capture#310). Author
 /// bindings on annotations, measurements, field evidence, settings
 /// observations, wiring routes and identity attestations reference
 /// `operator_id` values defined here.
@@ -108,7 +108,7 @@ public struct OperatorProfileDocument: Codable, Sendable, Equatable {
     }
 }
 
-/// App-local operator roster (issue #458): profiles the operator has
+/// App-local operator roster (issue bolph71656-ai/HTDT-Capture#458): profiles the operator has
 /// saved once, reused across captures instead of being re-typed at
 /// every Author attestation. The roster is app-owned identity
 /// metadata — it lives beside the equipment catalog at the capture
@@ -156,7 +156,7 @@ public enum HTDTOperatorRosterError: Error, Sendable, Equatable {
     case unreadableRoster
 }
 
-/// File-backed store for the app-local operator roster (#458).
+/// File-backed store for the app-local operator roster (legacy bolph71656-ai/HTDT-Capture#458).
 /// `load` treats a missing file as an empty roster and a corrupt one
 /// as an error — the operator's saved identities are never silently
 /// dropped. Writes are atomic via a tmp file + move.

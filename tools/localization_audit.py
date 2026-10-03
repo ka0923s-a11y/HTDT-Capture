@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Localization audit for HTDT Capture (issue #399).
+"""Localization audit for HTDT Capture (issue bolph71656-ai/HTDT-Capture#399).
 
 Enforces the single Apple-native localization authority:
 

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Operator revisit flags ("scan bookmarks") — issue #325.
+/// Operator revisit flags ("scan bookmarks") — issue bolph71656-ai/HTDT-Capture#325.
 ///
 /// During capture the operator can drop a single-tap flag on the area
 /// currently in view when something needs mandatory attention later —
@@ -23,15 +23,15 @@ public enum ScanRevisitFlagCategory:
 {
     /// Geometry looks wrong or missing (walls, surfaces).
     case geometry
-    /// A door/window/opening may not have been captured (#231 route).
+    /// A door/window/opening may not have been captured (legacy bolph71656-ai/HTDT-Capture#231 route).
     case opening
     /// Reflective or transparent surface that may have fooled sensors.
     case reflectiveTransparent = "reflective_transparent"
-    /// An object needing closer detail capture (#250 route).
+    /// An object needing closer detail capture (legacy bolph71656-ai/HTDT-Capture#250 route).
     case objectDetail = "object_detail"
-    /// A spot needing a measurement (#298 route).
+    /// A spot needing a measurement (legacy bolph71656-ai/HTDT-Capture#298 route).
     case measurement
-    /// Equipment/furniture to identify in the catalog (#314 route).
+    /// Equipment/furniture to identify in the catalog (legacy bolph71656-ai/HTDT-Capture#314 route).
     case equipment
     /// Anything else worth a human look.
     case other
@@ -41,15 +41,15 @@ public enum ScanRevisitFlagCategory:
 /// category — it is a suggestion for which remediation workflow to
 /// open, never a completed action.
 public enum ScanRevisitRemediation: String, Codable, Sendable {
-    /// Re-observe the region / targeted rescan (#231).
+    /// Re-observe the region / targeted rescan (legacy bolph71656-ai/HTDT-Capture#231).
     case targetedRescan = "targeted_rescan"
-    /// Annotate or re-orbit the object (#250).
+    /// Annotate or re-orbit the object (legacy bolph71656-ai/HTDT-Capture#250).
     case annotation
-    /// Verify or re-capture at another angle (#256).
+    /// Verify or re-capture at another angle (legacy bolph71656-ai/HTDT-Capture#256).
     case reobserve
-    /// Create a measurement (#298).
+    /// Create a measurement (legacy bolph71656-ai/HTDT-Capture#298).
     case measurement
-    /// Match equipment against the catalog (#314).
+    /// Match equipment against the catalog (legacy bolph71656-ai/HTDT-Capture#314).
     case equipmentNote = "equipment_note"
     /// No specific workflow — general review.
     case generalReview = "general_review"
@@ -253,7 +253,7 @@ public struct ScanRevisitFlag:
 }
 
 /// Persisted working-set document listing every revisit flag of the
-/// capture (#325). Written by the host through the supplemental
+/// capture (legacy bolph71656-ai/HTDT-Capture#325). Written by the host through the supplemental
 /// document path so the finalized bundle carries it as a derived
 /// `capture_app_derived` payload at `session/revisit-flags.json`.
 /// It asserts no geometry authority — flags are advisory pointers

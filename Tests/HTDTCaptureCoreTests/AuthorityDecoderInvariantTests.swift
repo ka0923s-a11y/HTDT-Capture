@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-// #150: synthesized decoding must not bypass validating initializers.
+// legacy bolph71656-ai/HTDT-Capture#150: synthesized decoding must not bypass validating initializers.
 // These fixtures mutate otherwise-valid producer JSON so each
 // cross-field invariant is exercised through the decode path.
 
@@ -41,12 +41,12 @@ private func decodeEntity(
 
 @Test
 func speakerDecodeAllowsAimUnknownAndKeepsRoleContract() throws {
-    // #228: nil orientation is a first-class "aim unknown" record —
+    // legacy bolph71656-ai/HTDT-Capture#228: nil orientation is a first-class "aim unknown" record —
     // decode keeps it rather than rejecting the entity.
     let unaimed = try decodeEntity { $0["orientation"] = NSNull() }
     #expect(unaimed.orientation == nil)
     #expect(unaimed.channelRole == .center)
-    // #315: a missing channel_role decodes as a valid unbound
+    // legacy bolph71656-ai/HTDT-Capture#315: a missing channel_role decodes as a valid unbound
     // speaker — never replaced by a placeholder token.
     let unbound = try decodeEntity { $0["channel_role"] = NSNull() }
     #expect(unbound.channelRole == nil)

@@ -33,7 +33,7 @@ public struct BundleValidationReport: Sendable, Equatable {
     public let bundleDigest: EvidenceSHA256
     public let payloadCount: Int
     /// Schema family -> `schema_version` the bundle declared at
-    /// validation time (#332). Lets the library surface each payload's
+    /// validation time (legacy bolph71656-ai/HTDT-Capture#332). Lets the library surface each payload's
     /// source version and its compatibility status under this build.
     public let payloadVersions: [String: String]
 
@@ -51,7 +51,7 @@ public struct BundleValidationReport: Sendable, Equatable {
     }
 
     /// Per-family compatibility of the validated payload versions
-    /// under the published support matrix (#332).
+    /// under the published support matrix (legacy bolph71656-ai/HTDT-Capture#332).
     public var payloadCompatibility:
         [String: CapturePayloadCompatibility]
     {
@@ -171,7 +171,7 @@ public enum BundleDirectoryValidator {
         let declaredSet = Set(declaredByPath.keys)
         let actualSet = Set(actualByPath.keys)
 
-        // Minimum foundation payload set (#194): a manifest whose
+        // Minimum foundation payload set (legacy bolph71656-ai/HTDT-Capture#194): a manifest whose
         // identity arrays have no grounding documents is not a
         // finalized v1 bundle. Same rule as the Python validator.
         let missingFoundation = BundlePayloadCrossCheck
@@ -209,7 +209,7 @@ public enum BundleDirectoryValidator {
 
             let schemaFamily = CaptureBundleSchemaRegistry
                 .schemaName(forPath: path)
-            // #332: a manifest-declared .json payload must be owned by
+            // legacy bolph71656-ai/HTDT-Capture#332: a manifest-declared .json payload must be owned by
             // a published schema or be a declared external authority
             // payload (RoomPlan). Any other .json is a generic
             // supplemental persistence bypass and fails validation —

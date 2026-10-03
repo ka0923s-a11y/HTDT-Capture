@@ -25,7 +25,7 @@ public enum InstrumentMeasurementError: Error, Sendable, Equatable {
 }
 
 /// One scalar reading exactly as received from an external measurement
-/// instrument (issue #226). The received value/unit text is preserved
+/// instrument (issue bolph71656-ai/HTDT-Capture#226). The received value/unit text is preserved
 /// verbatim alongside the parsed scalar so the committed measurement
 /// always shows what the device reported.
 public struct InstrumentReading: Sendable, Equatable {
@@ -84,7 +84,7 @@ public struct InstrumentReading: Sendable, Equatable {
 }
 
 /// Vendor-neutral description of a connected measurement instrument
-/// adapter (issue #226).
+/// adapter (issue bolph71656-ai/HTDT-Capture#226).
 public struct InstrumentAdapterDescriptor: Sendable, Equatable {
     /// Stable adapter identifier (e.g. "bosch-glm50-ble").
     public let adapterID: String
@@ -155,7 +155,7 @@ public enum InstrumentLinkState: String, Sendable, Equatable {
 }
 
 /// Staging surface between an instrument adapter and a committed
-/// `CaptureMeasurement` (issue #226). Readings land in `pending`
+/// `CaptureMeasurement` (issue bolph71656-ai/HTDT-Capture#226). Readings land in `pending`
 /// without touching the measurement collection; only an explicit
 /// `confirm` produces a committed record. Disconnect or adapter
 /// failure leaves the staged pending measurement untouched and the

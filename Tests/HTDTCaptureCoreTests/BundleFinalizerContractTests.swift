@@ -61,7 +61,7 @@ private func makeContractStagingArea(
         at: staging,
         withIntermediateDirectories: true
     )
-    // #194: finalized bundles carry the foundation payload set; stage
+    // legacy bolph71656-ai/HTDT-Capture#194: finalized bundles carry the foundation payload set; stage
     // it up front so every request built for this area validates.
     _ = try BundleValidationFixture.stageFoundationPayloads(
         in: staging
@@ -104,7 +104,7 @@ private func makeContractRequest(
         captureSeriesID: CaptureSeriesID(),
         captureRevisionID: CaptureRevisionID(),
         // Identity arrays must match the fixture session document so
-        // the #194 grounding check holds.
+        // the legacy bolph71656-ai/HTDT-Capture#194 grounding check holds.
         captureSessionIDs: [
             CaptureSessionID(
                 canonicalString: BundleValidationFixture.sessionUUID

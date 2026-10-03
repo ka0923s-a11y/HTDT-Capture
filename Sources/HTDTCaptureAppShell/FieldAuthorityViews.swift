@@ -34,7 +34,7 @@ public enum FieldAuthorityPresentation {
         }
     }
 
-    /// #227: the authority a declared target dimension came from.
+    /// legacy bolph71656-ai/HTDT-Capture#227: the authority a declared target dimension came from.
     public static func targetDimensionAuthorityName(
         _ authority: ReferenceTargetDimensionAuthority
     ) -> String {
@@ -544,19 +544,19 @@ public enum FieldAuthorityPresentation {
     }
 }
 
-/// Operator profiles (issue #310): app-local, revocable-by-absence
+/// Operator profiles (issue bolph71656-ai/HTDT-Capture#310): app-local, revocable-by-absence
 /// identities. No account, no sign-in — a display name plus optional
 /// organization/role, bound to this revision.
 public struct OperatorProfilesView: View {
     @Binding public var operators: [OperatorProfile]
     @Binding public var selectedOperatorID: OperatorProfileID?
     public let onChange: () -> Void
-    /// #458: the app-local roster — profiles saved on this device,
+    /// legacy bolph71656-ai/HTDT-Capture#458: the app-local roster — profiles saved on this device,
     /// reused across captures instead of being re-typed.
     public let roster: [OperatorProfile]
-    /// #458: remember a profile app-wide (upsert by operator_id).
+    /// legacy bolph71656-ai/HTDT-Capture#458: remember a profile app-wide (upsert by operator_id).
     public let onSaveToRoster: (OperatorProfile) -> Void
-    /// #458: forget a roster profile; in-capture records keep the
+    /// legacy bolph71656-ai/HTDT-Capture#458: forget a roster profile; in-capture records keep the
     /// copy they already committed.
     public let onRemoveFromRoster: (OperatorProfileID) -> Void
 
@@ -756,7 +756,7 @@ public struct OperatorProfilesView: View {
             )
             operators.append(profile)
             selectedOperatorID = profile.operatorID
-            // #458: remember the profile app-wide so the next
+            // legacy bolph71656-ai/HTDT-Capture#458: remember the profile app-wide so the next
             // capture offers it in "Saved on this device".
             onSaveToRoster(profile)
             displayName = ""
@@ -770,7 +770,7 @@ public struct OperatorProfilesView: View {
     }
 }
 
-/// Field-evidence capture form (issues #300/#314): a typed record
+/// Field-evidence capture form (issues bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#314): a typed record
 /// bound to the exact item that triggered it, with an asset that is
 /// either a linked scan frame (bytes shared, never duplicated), a
 /// freshly captured close-up photo (preview + retake before commit),
@@ -778,7 +778,7 @@ public struct OperatorProfilesView: View {
 public struct FieldEvidenceFormView: View {
     public let captureRevisionID: CaptureRevisionID
     /// Binding refs the record is prefilled with — the triggering
-    /// entity/measurement plus the task scope, if any (#314).
+    /// entity/measurement plus the task scope, if any (legacy bolph71656-ai/HTDT-Capture#314).
     public let initialTargets: [String]
     public let annotations: [CaptureAnnotationEntity]
     public let measurements: [CaptureMeasurement]
@@ -1305,7 +1305,7 @@ public struct FieldEvidenceFormView: View {
     private var observedUnitValue: MeasurementUnit { observedUnit }
 }
 
-/// Instrument profile form (issue #331): creates a new immutable
+/// Instrument profile form (issue bolph71656-ai/HTDT-Capture#331): creates a new immutable
 /// profile version for an instrument — exact device identity,
 /// calibration state/dates, and an exact calibration evidence
 /// reference. Editing an existing instrument mints
@@ -1572,7 +1572,7 @@ public struct InstrumentProfileFormView: View {
     }
 }
 
-/// Installed-settings observation form (issue #301): a commissioning
+/// Installed-settings observation form (issue bolph71656-ai/HTDT-Capture#301): a commissioning
 /// record of the effective AVR/DSP/processor/subwoofer settings the
 /// operator read off the device, bound to the exact device authority.
 /// Expected values come from the plan when one supplies them; explicit
@@ -1794,7 +1794,7 @@ public struct SettingsObservationFormView: View {
 }
 
 /// Editable draft of one observed setting before it is validated into
-/// an `ObservedSetting` (issue #301).
+/// an `ObservedSetting` (issue bolph71656-ai/HTDT-Capture#301).
 public struct ObservedSettingDraft: Identifiable, Sendable {
     public let id = UUID()
     public var parameter: ObservedSettingParameter = .channelGain
@@ -2064,7 +2064,7 @@ struct ObservedSettingFormView: View {
     }
 }
 
-/// As-built wiring route form (issue #324): two exact termination
+/// As-built wiring route form (issue bolph71656-ai/HTDT-Capture#324): two exact termination
 /// endpoints plus an ordered observed/estimated/hidden-unknown
 /// segment path. Endpoints may be bound to a committed authority,
 /// captured at the reticle, or labeled as a user-defined point; the
@@ -2472,7 +2472,7 @@ public struct WiringRouteFormView: View {
     }
 }
 
-/// Editable endpoint draft (issue #324).
+/// Editable endpoint draft (issue bolph71656-ai/HTDT-Capture#324).
 public struct WiringTerminationDraft: Sendable {
     public var kind: WiringTerminationKind
     public var label = ""
@@ -2507,7 +2507,7 @@ public struct WiringTerminationDraft: Sendable {
     }
 }
 
-/// Editable path-segment draft (issue #324).
+/// Editable path-segment draft (issue bolph71656-ai/HTDT-Capture#324).
 public struct WiringSegmentDraft: Identifiable, Sendable {
     public let id = UUID()
     public var order: Int
@@ -2712,9 +2712,9 @@ extension ReferenceTargetDeclaration: Identifiable {
     public var id: String { targetID.description }
 }
 
-// MARK: #227 reference-target capture
+// MARK: legacy bolph71656-ai/HTDT-Capture#227 reference-target capture
 
-/// Declares a fiducial/reference target (issue #227): the physical
+/// Declares a fiducial/reference target (issue bolph71656-ai/HTDT-Capture#227): the physical
 /// marker's type token, its known dimension, and the authority that
 /// dimension comes from — all operator-declared, never inferred.
 public struct ReferenceTargetDeclarationSheet: View {
@@ -2825,7 +2825,7 @@ public struct ReferenceTargetDeclarationSheet: View {
 }
 
 /// Records one evidence-linked sighting of a declared reference
-/// target (issue #227). A position capture binds the live reticle's
+/// target (issue bolph71656-ai/HTDT-Capture#227). A position capture binds the live reticle's
 /// world point plus its persisted frame evidence; the measured
 /// dimension stays optional because scale reads may come later from
 /// mesh analysis.

@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #376: the pre-finalization evidence contact sheet — tiles
+/// Issue bolph71656-ai/HTDT-Capture#376: the pre-finalization evidence contact sheet — tiles
 /// ordered by capture time, filters/sorts, removal assessment, and
 /// the privacy flag channel.
 final class EvidenceContactSheetTests: XCTestCase {
@@ -163,7 +163,7 @@ final class EvidenceContactSheetTests: XCTestCase {
         XCTAssertFalse(model.items[2].privacyFlagged)
     }
 
-    /// #460: a `privacy_flag_cleared` note recorded after the flag
+    /// legacy bolph71656-ai/HTDT-Capture#460: a `privacy_flag_cleared` note recorded after the flag
     /// lifts it again — the paired revocation of the advisory flag.
     func testPrivacyFlagClearedByPairedNote() throws {
         let item = try evidenceItem(timestamp: 1)

@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import HTDTCaptureCore
 
-/// The operator's inputs for one field note (issue #375). The host —
+/// The operator's inputs for one field note (issue bolph71656-ai/HTDT-Capture#375). The host —
 /// never this view — stamps the revision/session binding, timestamp,
 /// and any evidence frame ref or spatial anchor the operator asked
 /// for.
@@ -15,7 +15,7 @@ public struct FieldNoteDraft: Sendable {
     /// Authority/evidence refs the note binds against (Review-time
     /// binding); empty for an unbound note.
     public var bindingRefs: [String]
-    /// The spatial anchor the operator requested (issue #421); the
+    /// The spatial anchor the operator requested (issue bolph71656-ai/HTDT-Capture#421); the
     /// host resolves it against the live session — the sheet never
     /// fabricates a point itself.
     public var anchorRequest: CaptureFieldNoteAnchorRequest
@@ -39,8 +39,8 @@ public struct FieldNoteDraft: Sendable {
     }
 }
 
-/// Operator field-note composer (issue #375, presentation rework
-/// #420, spatial anchoring #421): free text, a localized extensible
+/// Operator field-note composer (issue bolph71656-ai/HTDT-Capture#375, presentation rework
+/// legacy bolph71656-ai/HTDT-Capture#420, spatial anchoring legacy bolph71656-ai/HTDT-Capture#421): free text, a localized extensible
 /// category, a needs-attention flag, subject binding drawn from
 /// committed authorities, and — during scanning — an optional
 /// validated spatial anchor. The sheet only gathers inputs; the host
@@ -48,11 +48,11 @@ public struct FieldNoteDraft: Sendable {
 public struct FieldNoteComposeSheet: View {
     public let allowsEvidenceAttachment: Bool
     /// Whether a live AR session can satisfy a spatial anchor
-    /// request — scan-time only (issue #421).
+    /// request — scan-time only (issue bolph71656-ai/HTDT-Capture#421).
     public let allowsSpatialAnchor: Bool
     public let bindingCandidates: [FieldNoteBindingCandidate]
     /// Category + bindings preloaded when correcting/binding an
-    /// existing note — supersession lineage keeps them (issue #420).
+    /// existing note — supersession lineage keeps them (issue bolph71656-ai/HTDT-Capture#420).
     public let preselectedCategory: CaptureFieldNoteCategory?
     public let preselectedBindingRefs: [String]
     public let onSave: (FieldNoteDraft) -> Void

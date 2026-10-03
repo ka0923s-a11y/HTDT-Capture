@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #169: quality must observe usable geometry, not containers.
+/// Issue bolph71656-ai/HTDT-Capture#169: quality must observe usable geometry, not containers.
 /// The store exposes bounded, persistence-time metrics on its snapshot
 /// for the quality evaluator to consume.
 final class UsableGeometryMetricsTests: XCTestCase {

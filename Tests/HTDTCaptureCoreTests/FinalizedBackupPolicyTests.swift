@@ -15,7 +15,7 @@ private func makePolicyCaptureRoot() throws -> URL {
     return root
 }
 
-/// Filesystem truth for `isExcludedFromBackup` (#305): the
+/// Filesystem truth for `isExcludedFromBackup` (legacy bolph71656-ai/HTDT-Capture#305): the
 /// `com.apple.metadata:com_apple_backup_excludeItem` extended
 /// attribute is what platform backup honors. `URL.resourceValues`
 /// can serve a stale in-memory value, so assertions read the
@@ -50,7 +50,7 @@ private func backupExcludedEventually(
     return result == expected
 }
 
-// MARK: - #305: finalized backup policy
+// MARK: - legacy bolph71656-ai/HTDT-Capture#305: finalized backup policy
 
 @Test(.serialized)
 func finalizedBackupPolicyMarksRootsAndChildren() throws {
@@ -229,7 +229,7 @@ func captureRootPolicyDefaultKeepsFinalizedBackupEligible() throws {
         withIntermediateDirectories: true
     )
     // Carried-over working flag must be normalized even with the
-    // default policy — this is the rename bug #305 fixes.
+    // default policy — this is the rename bug legacy bolph71656-ai/HTDT-Capture#305 fixes.
     try CaptureStoragePolicy.applyWorkingRevisionPolicy(
         revisionRoot: finalizedRevision
     )

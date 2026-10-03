@@ -28,7 +28,7 @@ public enum CaptureFailureCode: String, Codable, Sendable, Equatable {
 }
 
 public enum CaptureEvent: Sendable, Equatable {
-    /// Enter the pre-capture setup step (#212): the operator reviews
+    /// Enter the pre-capture setup step (legacy bolph71656-ai/HTDT-Capture#212): the operator reviews
     /// device readiness and room-preparation guidance before the
     /// capability/permission pipeline runs. No capture session or
     /// RoomPlan authority exists in this state.
@@ -54,19 +54,19 @@ public enum CaptureEvent: Sendable, Equatable {
     case export
     case fail(CaptureFailureCode)
     /// Operator-owned abort of a live (uncommitted) capture revision
-    /// (issue #254): stops spatial capture, fences further writes, and
+    /// (issue bolph71656-ai/HTDT-Capture#254): stops spatial capture, fences further writes, and
     /// returns to idle so the working set can be discarded. Distinct
     /// from `fail`, which preserves retained evidence for recovery, and
     /// from `reset`, which only resolves terminal/post-capture states.
     case abortCapture
     /// Reopen a persisted end-accepted working revision as a recovered
-    /// draft (issue #297): `.idle` → `.reviewing` with spatial
+    /// draft (issue bolph71656-ai/HTDT-Capture#297): `.idle` → `.reviewing` with spatial
     /// authority sealed. `.resumeScanning` is therefore unreachable on
     /// the recovered draft — the store fails live mutations closed
     /// before a UI affordance can offer them.
     case reopenDraft
     /// Leave Review back to `.idle` without discarding the working
-    /// revision (issue #297): the durable end-accepted draft stays on
+    /// revision (issue bolph71656-ai/HTDT-Capture#297): the durable end-accepted draft stays on
     /// disk and the session can reopen it later.
     case suspendReview
     case reset
@@ -117,7 +117,7 @@ public struct CaptureStateMachine: Sendable, Equatable {
             state = .reviewing
         case (.reviewing, .resumeScanning):
             state = .scanning
-        // #297: relaunch draft recovery — Review without live capture.
+        // legacy bolph71656-ai/HTDT-Capture#297: relaunch draft recovery — Review without live capture.
         case (.idle, .reopenDraft):
             state = .reviewing
             lastFailure = nil
@@ -139,7 +139,7 @@ public struct CaptureStateMachine: Sendable, Equatable {
             state = .finalized
         case (.finalized, .export):
             state = .exported
-        // #254: aborting is legal at every pre-commit capture boundary,
+        // legacy bolph71656-ai/HTDT-Capture#254: aborting is legal at every pre-commit capture boundary,
         // including `.preparing` — working-set creation is cancellable
         // so a stalled preparation never strands the operator.
         // `.validating` is deliberately excluded — the finalization
@@ -151,7 +151,7 @@ public struct CaptureStateMachine: Sendable, Equatable {
              (.reviewing, .abortCapture), (.annotating, .abortCapture):
             state = .idle
             lastFailure = nil
-        // #295: the pre-capture prerequisite states are cancellable —
+        // legacy bolph71656-ai/HTDT-Capture#295: the pre-capture prerequisite states are cancellable —
         // camera denial is a recovery workflow, not a failed capture,
         // so the operator may leave `.permissions` back to idle without
         // fabricating a working revision or a failed capture record.
@@ -168,7 +168,7 @@ public struct CaptureStateMachine: Sendable, Equatable {
 
 extension CaptureFailureCode {
     /// Terminal resource/lifecycle conditions that the finalization
-    /// commit policy can fence while a promotion is in flight (#185).
+    /// commit policy can fence while a promotion is in flight (legacy bolph71656-ai/HTDT-Capture#185).
     /// Non-lifecycle failures (persistence, tracking, RoomPlan, ...)
     /// keep their ordinary immediate handling and still invalidate the
     /// capture generation.
@@ -184,7 +184,7 @@ extension CaptureFailureCode {
     }
 }
 
-/// The phase of a host finalization commit transaction (#160/#185).
+/// The phase of a host finalization commit transaction (legacy bolph71656-ai/HTDT-Capture#160/legacy bolph71656-ai/HTDT-Capture#185).
 public enum FinalizationCommitPhase: String, Sendable, Equatable {
     /// No commit transaction is claimed.
     case inactive
@@ -199,7 +199,7 @@ public enum FinalizationCommitPhase: String, Sendable, Equatable {
     case promoted
 }
 
-/// Commit-point policy for host finalization (#160/#185).
+/// Commit-point policy for host finalization (legacy bolph71656-ai/HTDT-Capture#160/legacy bolph71656-ai/HTDT-Capture#185).
 ///
 /// The coordinator claims the commit transaction when finalization
 /// begins (`claimCommit`), marks the irreversible filesystem promotion
@@ -298,7 +298,7 @@ public struct FinalizationCommitPolicy: Sendable, Equatable {
 }
 
 /// Bounded-wait policy for an unresolved RoomPlan completion at End
-/// (issue #96).
+/// (issue bolph71656-ai/HTDT-Capture#96).
 ///
 /// The RoomPlan completion callback carries no HTDT End-attempt token,
 /// so after `RoomCaptureSession.stop` the host must not blindly restart
@@ -338,7 +338,7 @@ public struct RoomPlanEndTimeoutPolicy: Sendable, Equatable {
     }
 }
 
-/// Transition-compaction gate for canonical tracking history (#148).
+/// Transition-compaction gate for canonical tracking history (legacy bolph71656-ai/HTDT-Capture#148).
 ///
 /// The live scan loop samples AR tracking roughly four times per
 /// second, but the working-set quality authority must record a bounded

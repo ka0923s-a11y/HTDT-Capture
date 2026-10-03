@@ -356,7 +356,7 @@ func finalizationIsAtomicValidatedAndNoOverwrite() async throws {
         )
     )
 
-    // #194: a finalized v1 bundle carries the foundation payload set;
+    // legacy bolph71656-ai/HTDT-Capture#194: a finalized v1 bundle carries the foundation payload set;
     // the manifest identity arrays must match the staged session doc.
     let foundationDeclarations =
         try BundleValidationFixture.stageFoundationPayloads(
@@ -420,7 +420,7 @@ func finalizationIsAtomicValidatedAndNoOverwrite() async throws {
         root: destination
     )
     #expect(validation.bundleDigest == finalized.bundleDigest)
-    // quality + session×3 foundation payloads (#194)
+    // quality + session×3 foundation payloads (legacy bolph71656-ai/HTDT-Capture#194)
     #expect(validation.payloadCount == 4)
 
     let secondStaging = root.appendingPathComponent(

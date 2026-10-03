@@ -26,7 +26,7 @@ private func routerTempFile(
 @Test
 func routerClassifiesTypedContainersByExtension() throws {
     // The ZIP containers carry their own validated manifests — the
-    // router never opens them to guess (#393).
+    // router never opens them to guess (legacy bolph71656-ai/HTDT-Capture#393).
     let bundle = try routerTempFile(named: "cap.htdtcapture")
     defer {
         try? FileManager.default.removeItem(
@@ -55,7 +55,7 @@ func routerClassifiesTypedContainersByExtension() throws {
 @Test
 func routerRoutesJSONByInspectedSchemaNotFilename() throws {
     // A `.json` file's declared schema routes it — the extension
-    // never carries authority for inspectable documents (#393).
+    // never carries authority for inspectable documents (legacy bolph71656-ai/HTDT-Capture#393).
     let missionJSON = """
         {"schema": "htdt.capture-mission", "schema_version": "1.0.0"}
         """.data(using: .utf8)!
@@ -158,7 +158,7 @@ func routerRefusesUnidentifiedDocuments() throws {
 @Test
 func routerGatesAvailabilityByCaptureState() {
     // Bundles and library packages import only while idle; missions
-    // and catalogs may be storable during an active capture (#393).
+    // and catalogs may be storable during an active capture (legacy bolph71656-ai/HTDT-Capture#393).
     #expect(
         InboundDocumentRouter.availability(
             kind: .captureBundle,

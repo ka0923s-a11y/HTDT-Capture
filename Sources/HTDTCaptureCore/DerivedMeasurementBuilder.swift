@@ -1,6 +1,6 @@
 import Foundation
 
-/// One spatial endpoint feeding a derived measurement (issue #286): a
+/// One spatial endpoint feeding a derived measurement (issue bolph71656-ai/HTDT-Capture#286): a
 /// resolvable reference, the position used by the computation, the
 /// authority class the geometry came from, and the lineage refs that
 /// document it.
@@ -94,7 +94,7 @@ public struct MeasurementEndpointAuthority: Sendable, Equatable {
 }
 
 /// Produces provenance-correct derived `CaptureMeasurement` records
-/// (issue #286): a value the app computes from already-recorded spatial
+/// (issue bolph71656-ai/HTDT-Capture#286): a value the app computes from already-recorded spatial
 /// authorities, carrying `roomplan_derived` / `lidar_derived` when both
 /// endpoints share the corresponding geometry authority, or
 /// `capture_app_derived` provenance when the computation rests on
@@ -193,7 +193,7 @@ public enum DerivedMeasurementBuilder {
         default:
             // Mixed or manual endpoint authorities can still produce an
             // honest computed value, but it must be labeled as capture-
-            // app derivation rather than framework evidence (issue #286).
+            // app derivation rather than framework evidence (issue bolph71656-ai/HTDT-Capture#286).
             acquisitionMethod = .other
             provenanceClass = .captureAppDerived
         }

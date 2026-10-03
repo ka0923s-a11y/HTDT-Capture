@@ -1,7 +1,7 @@
 # Phase 5 Live Quality and Finalization Slice
 
 Date: 2026-09-20  
-Issue: #6
+Issue: legacy bolph71656-ai/HTDT-Capture#6
 
 ## Purpose
 
@@ -110,6 +110,6 @@ outside the finalized authority, the host returns to `reviewing` with a typed
 non-spatial corrections remain possible in Details/annotation. A commit that
 reached `validating` but whose revalidation could not confirm the digest is
 adopted as "committed but unverified" with an explicit Re-validate affordance
-(#185 FinalizationCommitPolicy). Only non-commit lifecycle failures move the
+(legacy bolph71656-ai/HTDT-Capture#185 FinalizationCommitPolicy). Only non-commit lifecycle failures move the
 host to the typed failed state; those still preserve a reopenable draft where
-the resource condition allows (#437).
+the resource condition allows (legacy bolph71656-ai/HTDT-Capture#437).

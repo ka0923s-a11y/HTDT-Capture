@@ -1,6 +1,6 @@
 import Foundation
 
-/// Accepted-geometry 3D review surface (issue #408): the platform-
+/// Accepted-geometry 3D review surface (issue bolph71656-ai/HTDT-Capture#408): the platform-
 /// neutral scene model behind the `[Plan] [3D]` review toggle. The
 /// scene composes only *accepted/persisted* sources — mesh anchor
 /// snapshots, RoomPlan surfaces/objects, derived-shape candidates,
@@ -88,7 +88,7 @@ public struct GeometrySceneElement:
     public var id: String { elementID }
 
     /// Accepted-geometry sources are pickable — entity/measurement
-    /// overlays are inspect-only (issue #408 §10: selection writes
+    /// overlays are inspect-only (issue bolph71656-ai/HTDT-Capture#408 §10: selection writes
     /// a `GeometrySelection` against accepted geometry only).
     public var isSelectable: Bool {
         switch kind {
@@ -101,7 +101,7 @@ public struct GeometrySceneElement:
     }
 }
 
-/// A direction arrow in the scene (issue #408 §12): speaker
+/// A direction arrow in the scene (issue bolph71656-ai/HTDT-Capture#408 §12): speaker
 /// orientation and measurement direction render with their full 3D
 /// vector — a horizontal-only arrow is flagged so legacy data never
 /// silently reads as level.
@@ -142,7 +142,7 @@ public struct DirectionalIndicator:
 
 // MARK: - Camera
 
-/// Camera presets (issue #408 §9): named views plus fit/focus.
+/// Camera presets (issue bolph71656-ai/HTDT-Capture#408 §9): named views plus fit/focus.
 public enum GeometryCameraPreset: Sendable, Equatable, Hashable {
     /// Free orbit at a readable diagonal angle (the default).
     case orbit
@@ -182,7 +182,7 @@ public struct GeometryCameraSpec: Sendable, Equatable {
 
 // MARK: - The scene model
 
-/// The accepted-geometry scene for one workspace (issue #408).
+/// The accepted-geometry scene for one workspace (issue bolph71656-ai/HTDT-Capture#408).
 /// `meshSnapshots` carry the real vertex/index data — elements only
 /// hold identity + bounds so the model stays cheap and the renderer
 /// decides tessellation LOD (never replacing evidence).
@@ -363,7 +363,7 @@ public struct AcceptedGeometrySceneModel: Sendable, Equatable {
             )
             // Direction arrows carry the real 3D vector; a
             // horizontal-only source is flagged, never silently
-            // leveled (issue #408 §12).
+            // leveled (issue bolph71656-ai/HTDT-Capture#408 §12).
             if let orientation = entity.orientation {
                 let frontWorld = transform.applying(
                     toDirection: Float3(
@@ -432,7 +432,7 @@ public struct AcceptedGeometrySceneModel: Sendable, Equatable {
     }
 
     /// Resolve a camera preset against the current content
-    /// (issue #408 §9). Falls back to a readable default for the
+    /// (issue bolph71656-ai/HTDT-Capture#408 §9). Falls back to a readable default for the
     /// empty scene.
     public func cameraSpec(
         for preset: GeometryCameraPreset

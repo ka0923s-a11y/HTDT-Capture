@@ -1,7 +1,7 @@
 import Foundation
 
 /// Advisory provenance notes for operator-driven and policy-driven
-/// scan events (#257, #273, #216, #274).
+/// scan events (legacy bolph71656-ai/HTDT-Capture#257, legacy bolph71656-ai/HTDT-Capture#273, legacy bolph71656-ai/HTDT-Capture#216, legacy bolph71656-ai/HTDT-Capture#274).
 ///
 /// Notes are operator/advisory context — they never assert geometry or
 /// canonical evidence authority. They persist into the working set and
@@ -20,24 +20,24 @@ public enum CaptureAdvisoryNoteKind: String, Codable, Sendable {
     case frameUsability = "frame_usability"
     /// The optional end-of-scan return-to-start consistency check ran.
     case loopClosureCheck = "loop_closure_check"
-    /// An operator-targeted object orbit pass completed (#250).
+    /// An operator-targeted object orbit pass completed (legacy bolph71656-ai/HTDT-Capture#250).
     case targetScanPass = "target_scan_pass"
-    /// An operator revisit flag was dropped mid-scan (#325).
+    /// An operator revisit flag was dropped mid-scan (legacy bolph71656-ai/HTDT-Capture#325).
     case revisitFlag = "revisit_flag"
     /// A revisit flag was resolved/skipped/unavailable in Review
-    /// (#325).
+    /// (legacy bolph71656-ai/HTDT-Capture#325).
     case revisitFlagResolution = "revisit_flag_resolution"
     /// A capture mission (generic task profile or imported HTDT task
-    /// plan) was bound to the session before scanning started (#352).
+    /// plan) was bound to the session before scanning started (legacy bolph71656-ai/HTDT-Capture#352).
     case missionBound = "mission_bound"
     /// The bound task profile changed after scanning started — an
-    /// explicit operator action with provenance, never silent (#352).
+    /// explicit operator action with provenance, never silent (legacy bolph71656-ai/HTDT-Capture#352).
     case taskProfileChange = "task_profile_change"
     /// The operator flagged an evidence frame as privacy-sensitive
-    /// (person visible, credentials on a plate, …) for Review (#376).
+    /// (person visible, credentials on a plate, …) for Review (legacy bolph71656-ai/HTDT-Capture#376).
     case privacyFlag = "privacy_flag"
     /// The operator cleared a frame's privacy flag — the paired
-    /// revocation of `privacy_flag`, mirroring declare/revoke (#460).
+    /// revocation of `privacy_flag`, mirroring declare/revoke (legacy bolph71656-ai/HTDT-Capture#460).
     case privacyFlagCleared = "privacy_flag_cleared"
     /// RoomPlan was re-run on the same revision (Continue scanning or
     /// an End-attempt retry). Each `run()` builds a fresh room model,

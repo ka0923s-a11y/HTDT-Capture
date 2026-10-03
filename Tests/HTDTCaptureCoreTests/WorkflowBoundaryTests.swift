@@ -1,7 +1,7 @@
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #410: the workflow composition boundary is enforced data —
+/// Issue bolph71656-ai/HTDT-Capture#410: the workflow composition boundary is enforced data —
 /// every public root action belongs to exactly one workflow, and
 /// mission launch classifies into a typed route instead of
 /// implicitly opening capture.

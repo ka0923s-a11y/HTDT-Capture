@@ -1,7 +1,7 @@
 import Foundation
 
 /// Deterministic compatibility predicates for binding a benchmark
-/// reference to a capture (#285). Every non-nil predicate must match;
+/// reference to a capture (legacy bolph71656-ai/HTDT-Capture#285). Every non-nil predicate must match;
 /// nil fields are wildcards. Predicates never decide per-capture
 /// accuracy — a bound ref only states that immutable benchmark evidence
 /// exists for a compatible configuration.
@@ -125,7 +125,7 @@ public enum BenchmarkReferenceValidator {
 
 /// Registry of benchmark evidence whose compatibility with production
 /// capture configurations has been established. Empty until the physical
-/// benchmark program (#9) publishes rules; production therefore records
+/// benchmark program (legacy bolph71656-ai/HTDT-Capture#9) publishes rules; production therefore records
 /// an explicit empty ref list rather than guessing.
 public enum BenchmarkReferenceAuthority {
     public static let publishedRules: [BenchmarkCompatibilityRule] = []

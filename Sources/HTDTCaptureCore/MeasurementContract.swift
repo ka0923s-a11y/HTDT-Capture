@@ -1,7 +1,7 @@
 import Foundation
 
 /// The physical dimension a measurement expresses. The quantity
-/// registry (issue #287) binds each standardized quantity token to one
+/// registry (issue bolph71656-ai/HTDT-Capture#287) binds each standardized quantity token to one
 /// dimension so a syntactically valid record can still be rejected when
 /// its unit is dimensionally impossible (e.g. `room_width` in radians).
 /// Custom quantity tokens stay allowed: their unit declares their
@@ -19,7 +19,7 @@ public enum MeasurementValueShape: String, Sendable, Equatable {
     case vector3
 }
 
-/// The physical value domain a quantity admits (issue #334). A
+/// The physical value domain a quantity admits (issue bolph71656-ai/HTDT-Capture#334). A
 /// syntactically-valid number is not automatically a physically-
 /// possible one — negative room widths or humidities above 100% are
 /// contract violations at authoring time, not quirks to discover in
@@ -68,7 +68,7 @@ public enum MeasurementValueDomain: Sendable, Equatable {
 }
 
 /// One entry of the versioned measurement quantity registry
-/// (issue #287). Registered quantities pin down the physical dimension,
+/// (issue bolph71656-ai/HTDT-Capture#287). Registered quantities pin down the physical dimension,
 /// the canonical persisted unit, the value shape, and the endpoint
 /// semantics so task templates and producers share one contract instead
 /// of duplicating unit logic in views.
@@ -83,12 +83,12 @@ public struct MeasurementQuantityDefinition: Sendable, Equatable {
     /// Endpoint semantics: `nil` = endpoints unconstrained; `0` =
     /// endpoints meaningless for this quantity and must be empty;
     /// `n > 0` = when endpoints are bound they must number exactly `n`
-    /// (a spatially unbound manual value stays legal — issue #215).
+    /// (a spatially unbound manual value stays legal — issue bolph71656-ai/HTDT-Capture#215).
     public let expectedEndpoints: Int?
     /// Practical input/display units offered for this quantity
-    /// (issue #235); conversion to `canonicalUnit` is deterministic.
+    /// (issue bolph71656-ai/HTDT-Capture#235); conversion to `canonicalUnit` is deterministic.
     public let inputUnits: [MeasurementInputUnit]
-    /// The physical domain the value must lie in (#334).
+    /// The physical domain the value must lie in (legacy bolph71656-ai/HTDT-Capture#334).
     public let domain: MeasurementValueDomain
 
     public init(
@@ -113,10 +113,10 @@ public struct MeasurementQuantityDefinition: Sendable, Equatable {
 public enum MeasurementQuantityRegistry {
     /// Registry version: bump when entries are added or semantics change.
     /// Wire payloads reference quantities by token; the registry is the
-    /// machine-readable meaning of those tokens (issue #269). v1.1.0
+    /// machine-readable meaning of those tokens (issue bolph71656-ai/HTDT-Capture#269). v1.1.0
     /// adds `speaker_to_mlp` and pins a physical value domain per
-    /// standard quantity (#334); it ships with the schema_version 1.1.0
-    /// payloads (#332).
+    /// standard quantity (legacy bolph71656-ai/HTDT-Capture#334); it ships with the schema_version 1.1.0
+    /// payloads (legacy bolph71656-ai/HTDT-Capture#332).
     public static let version = "1.1.0"
 
     private static let lengthInputUnits: [MeasurementInputUnit] = [
@@ -198,7 +198,7 @@ public enum MeasurementQuantityRegistry {
             domain: .nonNegative
         ),
         /// Speaker-to-primary-listener (MLP) distance — the value the
-        /// speaker_to_mlp task template writes (#344: a token used by
+        /// speaker_to_mlp task template writes (legacy bolph71656-ai/HTDT-Capture#344: a token used by
         /// the capture UI must be standard, never an unscoped custom).
         MeasurementQuantityDefinition(
             quantityType: "speaker_to_mlp",
@@ -255,7 +255,7 @@ public enum MeasurementQuantityRegistry {
             domain: .nonNegative
         ),
         // Room-condition quantities for the acoustic environment
-        // authority (issue #253).
+        // authority (issue bolph71656-ai/HTDT-Capture#253).
         MeasurementQuantityDefinition(
             quantityType: "air_temperature",
             dimension: .temperature,
@@ -287,12 +287,12 @@ public enum MeasurementQuantityRegistry {
         })
     }
 
-    /// Contract check every production producer applies (issue #287).
+    /// Contract check every production producer applies (issue bolph71656-ai/HTDT-Capture#287).
     /// Registered quantities must persist their canonical unit,
     /// declared value shape/endpoint semantics, and lie inside their
-    /// physical value domain (#334). Unregistered tokens are the
+    /// physical value domain (legacy bolph71656-ai/HTDT-Capture#334). Unregistered tokens are the
     /// explicit custom path: they must carry the reserved `x_`
-    /// namespace prefix (#344) and declare their own domain via their
+    /// namespace prefix (legacy bolph71656-ai/HTDT-Capture#344) and declare their own domain via their
     /// unit — the registry cannot know their bounds.
     public static func validate(
         quantityType: String,
@@ -343,7 +343,7 @@ public enum MeasurementQuantityRegistry {
     }
 }
 
-/// Operator-facing input/display units (issue #235). These are never
+/// Operator-facing input/display units (issue bolph71656-ai/HTDT-Capture#235). These are never
 /// persisted: `canonicalValue` normalizes to the canonical SI-aligned
 /// `MeasurementUnit` before a measurement authority is written, and the
 /// original operator text survives in `source_value_text`.
@@ -456,7 +456,7 @@ public enum MeasurementInputUnit: String, Sendable, Equatable, CaseIterable {
     }
 }
 
-/// Deterministic numeric parsing for measurement input (issue #235).
+/// Deterministic numeric parsing for measurement input (issue bolph71656-ai/HTDT-Capture#235).
 /// Both `.` and `,` are accepted as the decimal separator so
 /// decimal-comma locales work without locale-dependent `NumberFormatter`
 /// behavior; mixing separators, repeated separators, exponents, or

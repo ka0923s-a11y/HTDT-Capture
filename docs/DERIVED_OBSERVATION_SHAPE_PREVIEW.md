@@ -393,7 +393,7 @@ and complex non-rectangular furniture seen on device.
 The room-scan observation path cannot see items below ~30 cm: depth
 sampling density plus the ambient fit floors (8 points, 8 cm spatial
 scale, 70 % angular support, 12-vertex contour cap) discard them before
-fitting. The "Scan this object" pass (#250) now closes that gap:
+fitting. The "Scan this object" pass (legacy bolph71656-ai/HTDT-Capture#250) now closes that gap:
 
 - While the pass runs, the live depth sampler is re-observed at ~1 Hz
   inside a bounded 3D window around the aimed anchor and fused across

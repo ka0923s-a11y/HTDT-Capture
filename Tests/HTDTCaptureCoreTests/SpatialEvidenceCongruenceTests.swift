@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #199: an evidence-linked annotation's spatial authority must
+/// Issue bolph71656-ai/HTDT-Capture#199: an evidence-linked annotation's spatial authority must
 /// be congruent with the coordinate space of the frame/mesh evidence
 /// it references. The builder rejects captured authorities expressed
 /// in a different space than the annotation, and the working-set store
@@ -430,7 +430,7 @@ final class SpatialEvidenceCongruenceTests: XCTestCase {
         }
     }
 
-    /// Coordinate-space transition fixture (issue #199): a recorded
+    /// Coordinate-space transition fixture (issue bolph71656-ai/HTDT-Capture#199): a recorded
     /// discontinuity is provenance only — v1 keeps exactly one bound
     /// space per revision, so records in the announced next space
     /// still fail closed on `authorityMismatch` rather than acquiring

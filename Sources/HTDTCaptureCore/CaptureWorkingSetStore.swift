@@ -14,7 +14,7 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     /// entity type does not match the reference's contract.
     case unresolvedAuthorityReference(String)
     /// A denormalized authority field disagrees with the canonical
-    /// semantic-relation assertion of the same fact (#333/#403): when
+    /// semantic-relation assertion of the same fact (legacy bolph71656-ai/HTDT-Capture#333/legacy bolph71656-ai/HTDT-Capture#403): when
     /// both forms are present they must agree.
     case conflictingAuthorityValue(String)
     case invalidSessionFoundationPackage
@@ -42,36 +42,36 @@ public enum CaptureWorkingSetError: Error, Sendable, Equatable {
     /// `frame:<uuid>`, `mesh_anchor:<uuid>`, or a placement's
     /// `source_mesh_anchor_id`) cannot be resolved to committed
     /// frame/mesh authority, so its coordinate-space congruence can
-    /// never be proven (issue #199).
+    /// never be proven (issue bolph71656-ai/HTDT-Capture#199).
     case unresolvableSpatialEvidenceLink(String)
     /// A spatial evidence link resolves to committed frame/mesh
     /// authority expressed in a different coordinate space than the
-    /// record referencing it (issue #199).
+    /// record referencing it (issue bolph71656-ai/HTDT-Capture#199).
     case spatialEvidenceSpaceMismatch(String)
     /// A benchmark reference failed the immutable/versioned
-    /// `slug@semver` grammar and was rejected (#285).
+    /// `slug@semver` grammar and was rejected (legacy bolph71656-ai/HTDT-Capture#285).
     case invalidBenchmarkReference(String)
     /// A task profile failed validation (empty identity, empty
-    /// requirement identifier, or invalid counts) (#259).
+    /// requirement identifier, or invalid counts) (legacy bolph71656-ai/HTDT-Capture#259).
     case invalidTaskProfile
     /// A capture-strategy payload failed validation — an unknown
     /// `strategy_id`, a policy echo that does not match the published
-    /// profile, or an invalid `selected_at` timestamp (#307).
+    /// profile, or an invalid `selected_at` timestamp (legacy bolph71656-ai/HTDT-Capture#307).
     case invalidCaptureStrategy
     /// `session/revision-state.json` decoded but with a schema or
-    /// version this build does not own (issue #297).
+    /// version this build does not own (issue bolph71656-ai/HTDT-Capture#297).
     case unsupportedRevisionStateSchema
     /// A relaunch tried to restore a working revision whose phase
     /// marker is absent, undecodable, or still `live_scan_incomplete` —
-    /// none of those prove an accepted End boundary (issue #297).
+    /// none of those prove an accepted End boundary (issue bolph71656-ai/HTDT-Capture#297).
     case workingRevisionNotRecoverable
     /// A mutation that needs live AR authority (frame/depth/mesh
     /// capture, an End transaction, its rollback) reached a working set
     /// restored from disk. Recovered drafts are spatially sealed: their
-    /// coordinate authority ended with the process (issue #297).
+    /// coordinate authority ended with the process (issue bolph71656-ai/HTDT-Capture#297).
     case spatialAuthorityNotLive
     /// Finalization was requested on a practice working set. Practice
-    /// captures never produce a real bundle (issue #320).
+    /// captures never produce a real bundle (issue bolph71656-ai/HTDT-Capture#320).
     case practiceWorkingSetNotFinalizable
 }
 
@@ -107,47 +107,47 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
     public let meshAnchorCount: Int?
     /// Mesh anchors whose decoded geometry carries at least one vertex
     /// and at least one face. `nil` until a mesh index is committed
-    /// (issue #169).
+    /// (issue bolph71656-ai/HTDT-Capture#169).
     public let usableMeshAnchorCount: Int?
     public let evidenceFrameCount: Int
     public let depthEvidenceCount: Int
     /// Total finite, positive, validity-masked depth samples across all
-    /// committed frame depth maps (issue #169).
+    /// committed frame depth maps (issue bolph71656-ai/HTDT-Capture#169).
     public let usableDepthSampleCount: Int
     /// Committed frames whose depth map contains at least one usable
     /// sample — the fallback-satisfying depth evidence count.
     public let usableDepthEvidenceCount: Int
     public let evidenceFrameRefs: [String]
-    /// Committed room reference frame document (issue #232), if any.
+    /// Committed room reference frame document (issue bolph71656-ai/HTDT-Capture#232), if any.
     public let roomReferenceFrame: RoomReferenceFrameDocument?
-    /// Committed room field datum document (issue #232), if any.
+    /// Committed room field datum document (issue bolph71656-ai/HTDT-Capture#232), if any.
     public let roomFieldDatum: RoomFieldDatumDocument?
-    /// Committed opening-review document (issue #231), if any.
+    /// Committed opening-review document (issue bolph71656-ai/HTDT-Capture#231), if any.
     public let openingReview: OpeningReviewDocument?
-    /// Frame ids committed by the accepted End boundary (issue #241);
+    /// Frame ids committed by the accepted End boundary (issue bolph71656-ai/HTDT-Capture#241);
     /// these are the non-removable closing observations of the scan.
     public let endBoundaryFrameIDs: [EvidenceFrameID]
-    /// Committed capture-strategy document (issue #307), if any.
+    /// Committed capture-strategy document (issue bolph71656-ai/HTDT-Capture#307), if any.
     public let captureStrategy: CaptureStrategyDocument?
-    /// Committed plan-reference underlay document (issue #322), if any.
+    /// Committed plan-reference underlay document (issue bolph71656-ai/HTDT-Capture#322), if any.
     public let planUnderlay: PlanUnderlayDocument?
     /// Durable lifecycle phase mirrored to
-    /// `session/revision-state.json` (issue #297).
+    /// `session/revision-state.json` (issue bolph71656-ai/HTDT-Capture#297).
     public let revisionPhase: WorkingRevisionPhase?
     /// False only on a store rebuilt from disk: its AR coordinate
     /// authority ended with the prior process so live spatial mutation
-    /// is permanently unavailable (issue #297).
+    /// is permanently unavailable (issue bolph71656-ai/HTDT-Capture#297).
     public let spatialAuthorityLive: Bool
-    /// True for a practice-mode working set (issue #320): never
+    /// True for a practice-mode working set (issue bolph71656-ai/HTDT-Capture#320): never
     /// finalizable, never a real capture.
     public let practiceCapture: Bool
-    /// Operator field notes committed on this revision (issue #375) —
+    /// Operator field notes committed on this revision (issue bolph71656-ai/HTDT-Capture#375) —
     /// exposed on the snapshot so sealed Review/finalization paths
     /// read the same collection the checkpoint persists.
     public let fieldNotes: [CaptureFieldNote]
     /// `evidence/frames/<id>.json` of the most recently committed
     /// evidence frame (commit order, not id order) — the default
-    /// evidence attachment for a note authored mid-scan (#375).
+    /// evidence attachment for a note authored mid-scan (legacy bolph71656-ai/HTDT-Capture#375).
     public let latestEvidenceDescriptorPath: String?
 
     public init(
@@ -210,7 +210,7 @@ public struct CaptureWorkingSetSnapshot: Sendable, Equatable {
     }
 }
 
-/// Immutable result of a successful `sealForFinalization` (issue #180).
+/// Immutable result of a successful `sealForFinalization` (issue bolph71656-ai/HTDT-Capture#180).
 /// The snapshot is the exact sealed state — every declaration it lists
 /// was verified durable on disk after all in-flight mutations drained —
 /// and `qualityReport` is the report evaluated from, and persisted
@@ -237,7 +237,7 @@ public struct SealedWorkingSet: Sendable, Equatable {
     }
 }
 
-/// v1 coordinate-authority policy for a capture revision (issue #157):
+/// v1 coordinate-authority policy for a capture revision (issue bolph71656-ai/HTDT-Capture#157):
 /// exactly one coordinate space is bound per revision. A spatial
 /// discontinuity never rebinds the revision in place; the persisted
 /// policy requires a new revision so coordinates are never silently
@@ -445,7 +445,7 @@ public enum CoordinateSpacePolicyPackageBuilder {
 }
 
 /// One unresolved or space-mismatched spatial evidence link on a
-/// committed record (issue #236). Reported — never silently repaired —
+/// committed record (issue bolph71656-ai/HTDT-Capture#236). Reported — never silently repaired —
 /// so the host can name the dangling reference for repair.
 public struct SpatialEvidenceIssue:
     Sendable,
@@ -494,20 +494,20 @@ public actor CaptureWorkingSetStore {
     private var measurementCollection: CaptureMeasurementCollection?
     /// Committed supplemental-document bytes keyed by bundle path —
     /// the write-once ledger for feature payloads committed through
-    /// `persistSupplementalDocument` (issues #222/#226/#227/#240/
-    /// #249/#293).
+    /// `persistSupplementalDocument` (issues bolph71656-ai/HTDT-Capture#222/legacy bolph71656-ai/HTDT-Capture#226/legacy bolph71656-ai/HTDT-Capture#227/legacy bolph71656-ai/HTDT-Capture#240/
+    /// legacy bolph71656-ai/HTDT-Capture#249/legacy bolph71656-ai/HTDT-Capture#293).
     private var supplementalDocuments: [String: Data] = [:]
     private var authorityCollection: TheaterAuthorityCollection?
     private var annotationKeysPresent: Set<String> = []
     private var measurementQuantityTypesPresent: Set<String> = []
-    /// User-confirmed room reference frame (issue #232), iff committed.
+    /// User-confirmed room reference frame (issue bolph71656-ai/HTDT-Capture#232), iff committed.
     private var roomReferenceFrame: RoomReferenceFrameDocument?
-    /// Operator-declared field/install datum (issue #232), iff
+    /// Operator-declared field/install datum (issue bolph71656-ai/HTDT-Capture#232), iff
     /// committed.
     private var roomFieldDatum: RoomFieldDatumDocument?
-    /// Operator opening-review document (issue #231), iff committed.
+    /// Operator opening-review document (issue bolph71656-ai/HTDT-Capture#231), iff committed.
     private var openingReviewDocument: OpeningReviewDocument?
-    /// Frames committed by an accepted End boundary (issue #241). The
+    /// Frames committed by an accepted End boundary (issue bolph71656-ai/HTDT-Capture#241). The
     /// marker is in-memory host bookkeeping — cleared when the End
     /// transaction is rolled back by Continue scanning — and never a
     /// persisted field, so it carries no cross-launch semantics.
@@ -523,8 +523,8 @@ public actor CaptureWorkingSetStore {
     private var trackingIntervals: [TrackingInterval] = []
     private var resourceEvents: [CaptureResourceEvent] = []
 
-    // Advisory/provenance state (#223, #259, #260, #268, #277, #284,
-    // #285). None of it feeds canonical geometry; it is persisted as a
+    // Advisory/provenance state (legacy bolph71656-ai/HTDT-Capture#223, legacy bolph71656-ai/HTDT-Capture#259, legacy bolph71656-ai/HTDT-Capture#260, legacy bolph71656-ai/HTDT-Capture#268, legacy bolph71656-ai/HTDT-Capture#277, legacy bolph71656-ai/HTDT-Capture#284,
+    // legacy bolph71656-ai/HTDT-Capture#285). None of it feeds canonical geometry; it is persisted as a
     // derived payload at seal and rendered in Review.
     private var depthSufficiencyAccumulator =
         DepthSufficiencyAccumulator()
@@ -536,7 +536,7 @@ public actor CaptureWorkingSetStore {
     private var taskProfile: CaptureTaskProfile?
     private var skippedTaskRequirementIDs: Set<String> = []
     /// The persisted `session/capture-strategy.json` document, iff the
-    /// host committed a strategy selection for this revision (#307).
+    /// host committed a strategy selection for this revision (legacy bolph71656-ai/HTDT-Capture#307).
     private var captureStrategyDocument: CaptureStrategyDocument?
     private var planUnderlayDocument: PlanUnderlayDocument?
     private var referenceTargetDocument: ReferenceTargetCaptureDocument?
@@ -545,11 +545,11 @@ public actor CaptureWorkingSetStore {
     /// policies; persisted at `advisory/operator-advisories.json` and
     /// surfaced to quality evaluation as advisory findings.
     private var advisoryNotes: [CaptureAdvisoryNote] = []
-    /// Operator field notes bound to this revision (issue #375);
+    /// Operator field notes bound to this revision (issue bolph71656-ai/HTDT-Capture#375);
     /// persisted at `session/field-notes.json` as a canonical
     /// user-annotation payload and carried into the finalized bundle.
     private var fieldNotes: [CaptureFieldNote] = []
-    /// Why each committed evidence frame was retained (#255), keyed by
+    /// Why each committed evidence frame was retained (legacy bolph71656-ai/HTDT-Capture#255), keyed by
     /// its `path:evidence/frames/<id>.json` evidence ref. App-owned
     /// provenance restored through the revision checkpoint so a
     /// relaunched draft labels picker entries honestly instead of
@@ -560,7 +560,7 @@ public actor CaptureWorkingSetStore {
     /// Bounded pending-write admission ledger shared by every mutation
     /// entry point: evidence bytes are reserved before they become
     /// queued writer work and released deterministically on every exit
-    /// path (issue #147).
+    /// path (issue bolph71656-ai/HTDT-Capture#147).
     private let admissionController: CaptureStoreAdmissionController
     /// Set while a `persistence_backlog` pressure diagnostic is active
     /// so sustained pressure emits one bounded event rather than one
@@ -570,21 +570,21 @@ public actor CaptureWorkingSetStore {
     /// call captures it so an `unseal`/`consume` that slips into a
     /// writer suspension deterministically aborts the in-flight seal
     /// instead of letting it return a snapshot the store no longer
-    /// holds (issue #180).
+    /// holds (issue bolph71656-ai/HTDT-Capture#180).
     private var sealGeneration = 0
     /// Mutation entry points currently inside the actor (between their
     /// entry guard and their return). The finalization seal drains this
     /// counter to zero — suspending on `mutationDrainers` until the last
     /// mutation's defer decrements it — before verifying and
     /// snapshotting, so the sealed state deterministically contains
-    /// every write that was already owned (issue #180).
+    /// every write that was already owned (issue bolph71656-ai/HTDT-Capture#180).
     private var inFlightMutations = 0
     /// Canonical quality payload bytes plus declaration persisted by the
     /// active seal, retained so `unseal` can roll back exactly the bytes
     /// the seal committed.
     private var sealedQualityReport:
         (data: Data, declaration: BundlePayloadDeclaration)?
-    /// The advisory payload written inside the seal (#223). Rolled
+    /// The advisory payload written inside the seal (legacy bolph71656-ai/HTDT-Capture#223). Rolled
     /// back with the quality report if the seal is lifted.
     private var sealedAdvisoryReport:
         (data: Data, declaration: BundlePayloadDeclaration)?
@@ -595,7 +595,7 @@ public actor CaptureWorkingSetStore {
     private var sealedMutationRejectionCount = 0
 
     /// Durable lifecycle phase mirrored to
-    /// `session/revision-state.json` (issue #297). Written
+    /// `session/revision-state.json` (issue bolph71656-ai/HTDT-Capture#297). Written
     /// `liveScanIncomplete` at foundation commit, `endAccepted` inside
     /// the End RoomPlan transaction, `semanticAuthoring` on the first
     /// post-End semantic commit, `readyToFinalize` inside the seal.
@@ -605,7 +605,7 @@ public actor CaptureWorkingSetStore {
     /// `unseal` restores the truthful marker rather than a guess.
     private var phaseBeforeSeal: WorkingRevisionPhase?
     /// False only on a store rebuilt from disk by
-    /// `restoreWorkingRevision` (issue #297): its AR coordinate
+    /// `restoreWorkingRevision` (issue bolph71656-ai/HTDT-Capture#297): its AR coordinate
     /// authority ended with the prior process, so every mutation that
     /// presumes live spatial authority fails closed.
     private var liveSpatialAuthority = true
@@ -615,7 +615,7 @@ public actor CaptureWorkingSetStore {
     private var recoveredRoomPlanGuidance: RoomPlanGuidanceSummary?
     /// Recovered mesh-anchor lifecycle summary, same rationale.
     private var recoveredMeshLifecycle: MeshAnchorLifecycleSummary?
-    /// Practice-mode marker (issue #320): practice working sets write
+    /// Practice-mode marker (issue bolph71656-ai/HTDT-Capture#320): practice working sets write
     /// the flag into `session/revision-state.json` and refuse
     /// `sealForFinalization`, so a rehearsal can never produce a real
     /// bundle or pass the inventory as a real draft.
@@ -623,11 +623,11 @@ public actor CaptureWorkingSetStore {
     /// Suspended seal drains waiting for `inFlightMutations` to reach
     /// zero. Resumed by the last mutation exit — a direct wakeup instead
     /// of a writer-actor fence poll, which could starve queued writes
-    /// under the actor executor's non-FIFO job scheduling (issue #180).
+    /// under the actor executor's non-FIFO job scheduling (issue bolph71656-ai/HTDT-Capture#180).
     private var mutationDrainers: [CheckedContinuation<Void, Never>] = []
 
     /// Working-set seal lifecycle for the finalization barrier
-    /// (issue #180): `.mutable` accepts mutations; `.sealed` rejects new
+    /// (issue bolph71656-ai/HTDT-Capture#180): `.mutable` accepts mutations; `.sealed` rejects new
     /// mutations while `sealForFinalization` drains and snapshots;
     /// `.consumed` is the terminal state after successful promotion.
     private enum SealState: Sendable {
@@ -636,7 +636,7 @@ public actor CaptureWorkingSetStore {
         case consumed
     }
 
-    /// Default pending-write admission bounds (issue #147): generous
+    /// Default pending-write admission bounds (issue bolph71656-ai/HTDT-Capture#147): generous
     /// enough for bursts of frame/depth packages plus an end-scan mesh
     /// transaction, while bounding how much materialized evidence can
     /// queue behind the file writer.
@@ -646,11 +646,11 @@ public actor CaptureWorkingSetStore {
     /// Bounded diagnostic history for resource/persistence events.
     public static let maxResourceEvents = 256
     /// Deterministic bound on operator/policy advisory provenance
-    /// notes (#216/#257/#273/#274). Each note is a bounded record; a
+    /// notes (legacy bolph71656-ai/HTDT-Capture#216/legacy bolph71656-ai/HTDT-Capture#257/legacy bolph71656-ai/HTDT-Capture#273/legacy bolph71656-ai/HTDT-Capture#274). Each note is a bounded record; a
     /// count far beyond this indicates abuse rather than legitimate
     /// scan annotations.
     public static let maxAdvisoryNotes = 128
-    /// Deterministic bound on operator field notes (#375).
+    /// Deterministic bound on operator field notes (legacy bolph71656-ai/HTDT-Capture#375).
     public static let maxFieldNotes = 256
 
     public init(
@@ -699,7 +699,7 @@ public actor CaptureWorkingSetStore {
         }
 
         // The session/coordinate binding is part of the logical commit
-        // (issue #202): validate the proposed authority now, but publish
+        // (issue bolph71656-ai/HTDT-Capture#202): validate the proposed authority now, but publish
         // it only after the foundation files are durable. A failed write
         // leaves the working set's identity exactly as it was.
         try validateAuthority(
@@ -708,7 +708,7 @@ public actor CaptureWorkingSetStore {
         )
 
         // The foundation is write-once authority and its four canonical
-        // files are one recoverable transaction (issue #203): an
+        // files are one recoverable transaction (issue bolph71656-ai/HTDT-Capture#203): an
         // identical replay is idempotent, and any other package on a
         // committed foundation is a conflicting canonical payload.
         // Detecting a committed foundation before writing means a
@@ -734,7 +734,7 @@ public actor CaptureWorkingSetStore {
         // attempt creates roll back on a mid-write failure,
         // byte-identical leftovers from an interrupted attempt are
         // adopted, and conflicting pre-existing bytes fail closed.
-        // The revision phase marker (issue #297) joins the same batch so
+        // The revision phase marker (issue bolph71656-ai/HTDT-Capture#297) joins the same batch so
         // every working revision is born with a durable, atomic
         // `live_scan_incomplete` record — a relaunch never has to guess
         // whether a directory died before or after its first commit.
@@ -774,7 +774,7 @@ public actor CaptureWorkingSetStore {
         // No suspension points below: identity binding, all four
         // declarations, and the foundation record publish as one
         // logical commit — never a subset of the foundation files
-        // (issues #202/#203).
+        // (issues bolph71656-ai/HTDT-Capture#202/legacy bolph71656-ai/HTDT-Capture#203).
         try publishAuthority(
             captureSessionID: package.session.captureSessionID,
             coordinateSpaceID: package.session.coordinateSpaceID
@@ -905,7 +905,7 @@ public actor CaptureWorkingSetStore {
 
         // Validate the proposed authority without mutating it: the
         // binding publishes only inside the post-write commit block so a
-        // failed transaction cannot leave ghost identity (issue #202).
+        // failed transaction cannot leave ghost identity (issue bolph71656-ai/HTDT-Capture#202).
         try validateAuthority(
             captureSessionID: raw.descriptor.captureSessionID,
             coordinateSpaceID: raw.descriptor.coordinateSpaceID
@@ -922,7 +922,7 @@ public actor CaptureWorkingSetStore {
         )
 
         // The v1 coordinate-space policy is persisted with the End
-        // RoomPlan commit (issue #157). It records the bound authority and
+        // RoomPlan commit (issue bolph71656-ai/HTDT-Capture#157). It records the bound authority and
         // every declared discontinuity so the finalized bundle states
         // explicitly whether world-origin continuity was preserved.
         let policy = try CoordinateSpacePolicyPackageBuilder.build(
@@ -1084,7 +1084,7 @@ public actor CaptureWorkingSetStore {
         // session/coordinate binding publishes first: if a reentrant
         // commit bound a different authority while this transaction was
         // suspended, publication fails closed instead of rebinding the
-        // revision (issue #202).
+        // revision (issue bolph71656-ai/HTDT-Capture#202).
         try publishAuthority(
             captureSessionID: raw.descriptor.captureSessionID,
             coordinateSpaceID: raw.descriptor.coordinateSpaceID
@@ -1098,7 +1098,7 @@ public actor CaptureWorkingSetStore {
         capturedRoomMetadata = metadata.document
         coordinateSpacePolicy = policy.document
 
-        // Durable phase transition (issue #297): the marker flips to
+        // Durable phase transition (issue bolph71656-ai/HTDT-Capture#297): the marker flips to
         // `end_accepted` only after every End file is durable and bound,
         // and the rewrite re-verifies post-suspension that a racing
         // rollback did not lift the commit mid-write.
@@ -1123,7 +1123,7 @@ public actor CaptureWorkingSetStore {
     ) async throws {
         try requireMutable()
         // Rollback is the live "Continue scanning" path: it must never
-        // run on a store restored from disk (issue #297).
+        // run on a store restored from disk (issue bolph71656-ai/HTDT-Capture#297).
         try requireLiveSpatialAuthority()
         inFlightMutations += 1
         defer { mutationDidFinish() }
@@ -1458,11 +1458,11 @@ public actor CaptureWorkingSetStore {
         coordinateSpacePolicy = nil
         // The End boundary that marked closing frames no longer exists;
         // its markers must not outlive the accepted transaction
-        // (issue #241).
+        // (issue bolph71656-ai/HTDT-Capture#241).
         endBoundaryFrameIDs = []
         // The accepted End context is likewise part of that boundary:
         // keeping it would let a resumed scan advertise coverage for a
-        // transaction that was rolled back (issue #297).
+        // transaction that was rolled back (issue bolph71656-ai/HTDT-Capture#297).
         advisoryEndContext = nil
 
         if removeOwnedMesh {
@@ -1514,7 +1514,7 @@ public actor CaptureWorkingSetStore {
 
         // Validate without mutating: the binding publishes only after
         // the raw artifact and lineage document are durable (issue
-        // #202).
+        // legacy bolph71656-ai/HTDT-Capture#202).
         try validateAuthority(
             captureSessionID: descriptor.captureSessionID,
             coordinateSpaceID: descriptor.coordinateSpaceID
@@ -1523,7 +1523,7 @@ public actor CaptureWorkingSetStore {
         // The lineage document commits alongside the raw artifact so the
         // RoomPlan session/coordinate/runtime authority survives
         // finalization even if no processed artifact ever lands (issue
-        // #152). A later processed commit replaces these exact bytes with
+        // legacy bolph71656-ai/HTDT-Capture#152). A later processed commit replaces these exact bytes with
         // the full raw+processed lineage document.
         let metadata = try CapturedRoomMetadataPackageBuilder.build(
             captureRevisionID: identity.captureRevisionID,
@@ -1559,7 +1559,7 @@ public actor CaptureWorkingSetStore {
 
         // One reservation covering the raw artifact plus its derived
         // lineage document before either becomes queued writer work
-        // (issue #147).
+        // (issue bolph71656-ai/HTDT-Capture#147).
         let admissionReservation = try reserveAdmission(
             bytes: payload.data.count + metadata.data.count
         )
@@ -1603,7 +1603,7 @@ public actor CaptureWorkingSetStore {
         }
 
         // No suspension points below: identity binding, declarations,
-        // and logical state publish as one commit (issue #202).
+        // and logical state publish as one commit (issue bolph71656-ai/HTDT-Capture#202).
         try publishAuthority(
             captureSessionID: descriptor.captureSessionID,
             coordinateSpaceID: descriptor.coordinateSpaceID
@@ -1709,7 +1709,7 @@ public actor CaptureWorkingSetStore {
         }
 
         // Reserve the processed payload plus upgraded lineage document
-        // before either becomes queued writer work (issue #147).
+        // before either becomes queued writer work (issue bolph71656-ai/HTDT-Capture#147).
         let admissionReservation = try reserveAdmission(
             bytes: payload.data.count + metadata.data.count
         )
@@ -1819,7 +1819,7 @@ public actor CaptureWorkingSetStore {
         defer { mutationDidFinish() }
         // One reservation for the whole mesh package: the index plus
         // every geometry blob is one logical pending write, not one
-        // admission item per canonical file (issue #147).
+        // admission item per canonical file (issue bolph71656-ai/HTDT-Capture#147).
         let admissionReservation = try reserveAdmission(
             bytes: package.indexData.count
                 + package.geometryFiles.reduce(0) {
@@ -1866,7 +1866,7 @@ public actor CaptureWorkingSetStore {
         }
 
         // Decode each committed geometry blob once at persistence time
-        // (issue #169): the record's counts must match the actual blob,
+        // (issue bolph71656-ai/HTDT-Capture#169): the record's counts must match the actual blob,
         // and only anchors carrying real geometric primitives count as
         // usable. An anchor object with zero faces or zero vertices must
         // never satisfy a mesh requirement.
@@ -1886,7 +1886,7 @@ public actor CaptureWorkingSetStore {
                 usableAnchors += 1
             }
             // Bounded world-space geometry profile for the advisory
-            // RoomPlan/mesh consistency check (#277).
+            // RoomPlan/mesh consistency check (legacy bolph71656-ai/HTDT-Capture#277).
             meshGeometryProfile.record(
                 worldFromAnchor: record.worldFromAnchor,
                 geometry: geometry
@@ -1903,7 +1903,7 @@ public actor CaptureWorkingSetStore {
                 }
             }
             // Validate without mutating: the authority binding publishes
-            // only inside the post-write commit block (issue #202).
+            // only inside the post-write commit block (issue bolph71656-ai/HTDT-Capture#202).
             try validateAuthority(
                 captureSessionID: first.captureSessionID,
                 coordinateSpaceID: first.coordinateSpaceID
@@ -1955,7 +1955,7 @@ public actor CaptureWorkingSetStore {
 
         // No suspension points below: the authority binding, geometry
         // declarations, and mesh index publish as one commit (issue
-        // #202). An empty-anchor package binds nothing new.
+        // legacy bolph71656-ai/HTDT-Capture#202). An empty-anchor package binds nothing new.
         if let first = package.index.anchors.first {
             try publishAuthority(
                 captureSessionID: first.captureSessionID,
@@ -2143,7 +2143,7 @@ public actor CaptureWorkingSetStore {
         defer { mutationDidFinish() }
         // Reserve the whole frame package — descriptor, pixel, depth,
         // and derived preview payloads — before any of it becomes
-        // queued writer work (issue #147).
+        // queued writer work (issue bolph71656-ai/HTDT-Capture#147).
         let admissionReservation = try reserveAdmission(
             bytes: package.descriptorData.count
                 + package.pixelPayload.count
@@ -2155,7 +2155,7 @@ public actor CaptureWorkingSetStore {
         // Validate without mutating: the session/coordinate binding
         // publishes only after the canonical frame files are durable, so
         // a failed write cannot leave uncommitted authority (issue
-        // #202).
+        // legacy bolph71656-ai/HTDT-Capture#202).
         try validateAuthority(
             captureSessionID: package.descriptor.captureSessionID,
             coordinateSpaceID: package.descriptor.coordinateSpaceID
@@ -2204,7 +2204,7 @@ public actor CaptureWorkingSetStore {
 
         // No suspension points below: the authority binding, canonical
         // declarations, and frame state publish as one commit (issue
-        // #202).
+        // legacy bolph71656-ai/HTDT-Capture#202).
         try publishAuthority(
             captureSessionID: package.descriptor.captureSessionID,
             coordinateSpaceID: package.descriptor.coordinateSpaceID
@@ -2217,7 +2217,7 @@ public actor CaptureWorkingSetStore {
         evidenceFrameCount += 1
         depthEvidenceCount += package.capturedDepthCount
 
-        // Usable-geometry accounting (issue #169): only finite, positive,
+        // Usable-geometry accounting (issue bolph71656-ai/HTDT-Capture#169): only finite, positive,
         // validity-masked depth samples count. The decode happens once at
         // commit time so quality evaluation never re-parses payloads.
         let usableSamples = Self.usableDepthSamples(
@@ -2228,7 +2228,7 @@ public actor CaptureWorkingSetStore {
             usableDepthEvidenceCount += 1
         }
 
-        // Bounded depth-sufficiency accumulation (#284): the decoded
+        // Bounded depth-sufficiency accumulation (legacy bolph71656-ai/HTDT-Capture#284): the decoded
         // payload statistics (valid/spatial/confidence distribution)
         // feed the versioned fallback gate and the advisory payload.
         if let depthData = package.depthPayload,
@@ -2349,7 +2349,7 @@ public actor CaptureWorkingSetStore {
     /// Shared validation for the paired annotation+measurement commit:
     /// decodes both packages, enforces the single-coordinate-space
     /// authority rule, validates the proposed space binding without
-    /// mutating it (issue #202 — callers publish it inside their
+    /// mutating it (issue bolph71656-ai/HTDT-Capture#202 — callers publish it inside their
     /// post-write commit block), and derives the manifest declarations
     /// whose provenance must match record-level authority.
     private func validateAnnotationMeasurementPackages(
@@ -2401,7 +2401,7 @@ public actor CaptureWorkingSetStore {
             try validateCoordinateAuthority(packageSpace)
         }
 
-        // Issue #199: every spatial evidence link must resolve to
+        // Issue bolph71656-ai/HTDT-Capture#199: every spatial evidence link must resolve to
         // committed frame/mesh authority expressed in the record's own
         // coordinate space — manifest membership of both space IDs is
         // not sufficient.
@@ -2616,10 +2616,10 @@ public actor CaptureWorkingSetStore {
     /// Entity-reference checks that bind authority records to committed
     /// annotation entities: the target must exist and, where the record
     /// contract names an entity kind, carry the matching entity type.
-    /// Relation endpoints resolve here too (#403): the `inventory_item`
+    /// Relation endpoints resolve here too (legacy bolph71656-ai/HTDT-Capture#403): the `inventory_item`
     /// namespace points at this collection's `inventoryItems`, and a
     /// denormalized `host_rack_entity_id` must agree with the canonical
-    /// `member_of_rack` relation when both are present (#333).
+    /// `member_of_rack` relation when both are present (legacy bolph71656-ai/HTDT-Capture#333).
     private func validateAuthorityEntityReferences(
         _ collection: TheaterAuthorityCollection,
         entities: [CaptureAnnotationEntity],
@@ -2749,11 +2749,11 @@ public actor CaptureWorkingSetStore {
     }
 
     /// Referential integrity between the annotation relation graph and
-    /// the authority collection (#403): every `inventory_item:`
+    /// the authority collection (legacy bolph71656-ai/HTDT-Capture#403): every `inventory_item:`
     /// endpoint must resolve to an item committed in this collection,
     /// and a denormalized `host_rack_entity_id` must agree with the
     /// canonical `member_of_rack` relation when both are present
-    /// (#333). A nil collection means no inventory exists, so any
+    /// (legacy bolph71656-ai/HTDT-Capture#333). A nil collection means no inventory exists, so any
     /// `inventory_item:` endpoint dangles.
     private func validateRelationAuthorityReferences(
         _ collection: TheaterAuthorityCollection?,
@@ -2806,7 +2806,7 @@ public actor CaptureWorkingSetStore {
         defer { mutationDidFinish() }
         // One reservation for the transaction — the canonical
         // annotation, measurement, and optional authority files commit
-        // together and share one admission item (issue #147).
+        // together and share one admission item (issue bolph71656-ai/HTDT-Capture#147).
         let admissionReservation = try reserveAdmission(
             bytes: annotationPackage.data.count
                 + measurementPackage.data.count
@@ -2834,7 +2834,7 @@ public actor CaptureWorkingSetStore {
             authoritySpace = validated.coordinateSpaceID
         } else if let authorityCollection {
             // No staged authority package: relation endpoints still
-            // resolve against the committed inventory (#403).
+            // resolve against the committed inventory (legacy bolph71656-ai/HTDT-Capture#403).
             try validateAuthorityEntityReferences(
                 authorityCollection,
                 entities: annotationPackage.collection.entities,
@@ -2962,7 +2962,7 @@ public actor CaptureWorkingSetStore {
 
         // No suspension points below: the coordinate-space binding,
         // declarations, and collection state publish as one commit
-        // (issue #202).
+        // (issue bolph71656-ai/HTDT-Capture#202).
         if let effectiveSpace {
             try publishCoordinateAuthority(effectiveSpace)
         }
@@ -2986,14 +2986,14 @@ public actor CaptureWorkingSetStore {
             authorityCollection = authorityPackage.collection
         }
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Replaces the canonical annotation+measurement pair committed
-    /// earlier in this revision (issue #163). Unlike
+    /// earlier in this revision (issue bolph71656-ai/HTDT-Capture#163). Unlike
     /// `persistAnnotationAndMeasurementPackages`, which enforces
     /// write-once authority, this path is for the pre-finalization
     /// editor: the working revision is still mutable, so the operator
@@ -3043,7 +3043,7 @@ public actor CaptureWorkingSetStore {
         } else if let authorityCollection {
             // An entity removed by this replace must not orphan a
             // committed authority reference; relation endpoints
-            // re-resolve against the committed inventory (#403).
+            // re-resolve against the committed inventory (legacy bolph71656-ai/HTDT-Capture#403).
             try validateAuthorityEntityReferences(
                 authorityCollection,
                 entities: annotationPackage.collection.entities,
@@ -3111,7 +3111,7 @@ public actor CaptureWorkingSetStore {
 
         // The replacement stays in the validated space; publishing is a
         // fail-closed re-check in case a different authority committed
-        // while the replace was suspended (issue #202).
+        // while the replace was suspended (issue bolph71656-ai/HTDT-Capture#202).
         if let effectiveSpace {
             try publishCoordinateAuthority(effectiveSpace)
         }
@@ -3139,13 +3139,13 @@ public actor CaptureWorkingSetStore {
             authorityCollection = authorityPackage.collection
         }
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
-    /// Persists the derived equipment-identity document (issue #239).
+    /// Persists the derived equipment-identity document (issue bolph71656-ai/HTDT-Capture#239).
     /// `derived/equipment-identity.json` is a derived-role payload: the
     /// operator may re-record identity evidence before finalization, so
     /// a fresh record set atomically replaces the document and its
@@ -3238,7 +3238,7 @@ public actor CaptureWorkingSetStore {
 
         declarations[declaration.path] = declaration
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
@@ -3275,14 +3275,14 @@ public actor CaptureWorkingSetStore {
             removedPaths: [EquipmentIdentityEvidencePackage.path]
         )
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Persists the derived external-authority dependency manifest
-    /// (#337). `derived/authority-dependencies.json` is a derived-role
+    /// (legacy bolph71656-ai/HTDT-Capture#337). `derived/authority-dependencies.json` is a derived-role
     /// payload rewritten wholesale each commit — the declaration
     /// always reflects the entity collection it was built from, and a
     /// fresh commit atomically replaces it rather than accumulating
@@ -3344,7 +3344,7 @@ public actor CaptureWorkingSetStore {
         // at seal.
         supplementalDocuments[declaration.path] = package.data
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
@@ -3383,14 +3383,14 @@ public actor CaptureWorkingSetStore {
             removedPaths: [ExternalAuthorityDependencyPackage.path]
         )
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
-    /// Commits the field-authority bundle (issues #300/#301/#310/
-    /// #314/#324/#331): operator profiles, typed field-evidence
+    /// Commits the field-authority bundle (issues bolph71656-ai/HTDT-Capture#300/legacy bolph71656-ai/HTDT-Capture#301/legacy bolph71656-ai/HTDT-Capture#310/
+    /// legacy bolph71656-ai/HTDT-Capture#314/legacy bolph71656-ai/HTDT-Capture#324/legacy bolph71656-ai/HTDT-Capture#331): operator profiles, typed field-evidence
     /// records, instrument profiles, installed-settings observations,
     /// and as-built wiring routes — plus any binary assets the field
     /// evidence owns — in one atomic write. Documents not staged in
@@ -3781,14 +3781,14 @@ public actor CaptureWorkingSetStore {
             throw error
         }
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Commits or replaces the operator-confirmed room reference frame
-    /// (issue #232). The frame is one canonical JSON payload bound to
+    /// (issue bolph71656-ai/HTDT-Capture#232). The frame is one canonical JSON payload bound to
     /// the revision's session and coordinate space; replacement before
     /// finalization is a single atomic rewrite so a re-capture never
     /// leaves a half-updated frame behind.
@@ -3853,7 +3853,7 @@ public actor CaptureWorkingSetStore {
             ),
         ])
 
-        // Re-check after the write suspension (#202).
+        // Re-check after the write suspension (legacy bolph71656-ai/HTDT-Capture#202).
         guard let captureSessionIDAfter = self.captureSessionID,
               document.captureSessionID == captureSessionIDAfter
         else {
@@ -3865,14 +3865,14 @@ public actor CaptureWorkingSetStore {
         declarations[declaration.path] = declaration
         roomReferenceFrame = document
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Commits or replaces the operator-declared field/install datum
-    /// (issue #232). Same binding and atomic-rewrite rules as the room
+    /// (issue bolph71656-ai/HTDT-Capture#232). Same binding and atomic-rewrite rules as the room
     /// reference frame; every reference token the datum carries
     /// (origin, axis, vertical, and evidence links) passes spatial
     /// evidence-link congruence against committed authority.
@@ -3937,7 +3937,7 @@ public actor CaptureWorkingSetStore {
             ),
         ])
 
-        // Re-check after the write suspension (#202).
+        // Re-check after the write suspension (legacy bolph71656-ai/HTDT-Capture#202).
         guard let captureSessionIDAfter = self.captureSessionID,
               document.captureSessionID == captureSessionIDAfter
         else {
@@ -3950,13 +3950,13 @@ public actor CaptureWorkingSetStore {
         supplementalDocuments[declaration.path] = package.data
         roomFieldDatum = document
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
-    /// Removes the field datum payload entirely (issue #232). The
+    /// Removes the field datum payload entirely (issue bolph71656-ai/HTDT-Capture#232). The
     /// datum is optional promotion reference and entities never
     /// reference it implicitly, so removal is safe whenever the set is
     /// mutable.
@@ -3975,13 +3975,13 @@ public actor CaptureWorkingSetStore {
             removedPaths: [RoomFieldDatumPackage.path]
         )
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
-    /// Removes the room reference frame payload entirely (issue #232).
+    /// Removes the room reference frame payload entirely (issue bolph71656-ai/HTDT-Capture#232).
     /// The frame is optional authority and entities never reference it
     /// implicitly, so removal is safe whenever the set is mutable.
     public func removeRoomReferenceFrame() async throws {
@@ -3999,14 +3999,14 @@ public actor CaptureWorkingSetStore {
             removedPaths: [RoomReferenceFramePackage.path]
         )
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Commits or replaces the operator's opening-review document
-    /// (issue #231). Upsert semantics: each review pass rewrites the
+    /// (issue bolph71656-ai/HTDT-Capture#231). Upsert semantics: each review pass rewrites the
     /// whole candidate set atomically, so disposition edits never
     /// produce a torn document.
     public func commitOpeningReview(
@@ -4081,13 +4081,13 @@ public actor CaptureWorkingSetStore {
         declarations[declaration.path] = declaration
         openingReviewDocument = document
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
-    /// Removes the opening-review document (issue #231). The document
+    /// Removes the opening-review document (issue bolph71656-ai/HTDT-Capture#231). The document
     /// is operator metadata over RoomPlan inference; removing it leaves
     /// the underlying candidates' source payload intact.
     public func removeOpeningReview() async throws {
@@ -4105,14 +4105,14 @@ public actor CaptureWorkingSetStore {
             removedPaths: [OpeningReviewPackage.path]
         )
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Marks frames committed by the current accepted End boundary
-    /// (issue #241): they are the closing spatial observation of the
+    /// (issue bolph71656-ai/HTDT-Capture#241): they are the closing spatial observation of the
     /// scan and are never removable in the visual evidence review —
     /// replacing them requires Continue scanning → End again. Runs as
     /// a mutation entry point so the marker commits inside the same
@@ -4125,7 +4125,7 @@ public actor CaptureWorkingSetStore {
         defer { mutationDidFinish() }
         endBoundaryFrameIDs.formUnion(frameIDs)
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
@@ -4146,7 +4146,7 @@ public actor CaptureWorkingSetStore {
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
-    /// Records why an evidence frame was retained (#255) so the
+    /// Records why an evidence frame was retained (legacy bolph71656-ai/HTDT-Capture#255) so the
     /// revision checkpoint can carry the picker labels across a
     /// process restart.
     public func recordEvidenceRetention(
@@ -4169,7 +4169,7 @@ public actor CaptureWorkingSetStore {
     }
 
     /// Removes one unreferenced optional evidence frame and all of its
-    /// payloads (issue #241). Refuses when the frame is the
+    /// payloads (issue bolph71656-ai/HTDT-Capture#241). Refuses when the frame is the
     /// End-boundary observation, when any committed authority
     /// (annotation, measurement, opening candidate, or the room
     /// reference frame) still references it, or when any of its
@@ -4436,13 +4436,13 @@ public actor CaptureWorkingSetStore {
             usableDepthEvidenceCount = usableFrames
         }
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
-    /// Post-commit spatial evidence issues (#236): after a re-End the
+    /// Post-commit spatial evidence issues (legacy bolph71656-ai/HTDT-Capture#236): after a re-End the
     /// accepted RoomPlan/mesh authority may have been replaced while
     /// committed annotations still reference the prior mesh anchors or
     /// frames. Reports every record whose spatial evidence link no
@@ -4541,12 +4541,12 @@ public actor CaptureWorkingSetStore {
             throw CaptureWorkingSetError.invalidAnnotationPackage
         }
         // Validate without mutating: the space binding publishes only
-        // after the canonical file is durable (issue #202).
+        // after the canonical file is durable (issue bolph71656-ai/HTDT-Capture#202).
         if let space = spaces.first {
             try validateCoordinateAuthority(space)
         }
 
-        // Issue #199: spatial evidence links must resolve to committed
+        // Issue bolph71656-ai/HTDT-Capture#199: spatial evidence links must resolve to committed
         // frame/mesh authority in the entity's own coordinate space.
         for entity in package.collection.entities {
             try requireSpatialEvidenceCongruence(entity: entity)
@@ -4606,7 +4606,7 @@ public actor CaptureWorkingSetStore {
         }
 
         // No suspension points below: binding, declaration, and
-        // collection state publish as one commit (issue #202).
+        // collection state publish as one commit (issue bolph71656-ai/HTDT-Capture#202).
         if let space = spaces.first {
             try publishCoordinateAuthority(space)
         }
@@ -4616,7 +4616,7 @@ public actor CaptureWorkingSetStore {
             package.collection.entities.map(annotationQualityKey)
         )
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
@@ -4652,12 +4652,12 @@ public actor CaptureWorkingSetStore {
             throw CaptureWorkingSetError.invalidMeasurementPackage
         }
         // Validate without mutating: the space binding publishes only
-        // after the canonical file is durable (issue #202).
+        // after the canonical file is durable (issue bolph71656-ai/HTDT-Capture#202).
         if let space = spaces.first {
             try validateCoordinateAuthority(space)
         }
 
-        // Issue #199: spatial evidence links must resolve to committed
+        // Issue bolph71656-ai/HTDT-Capture#199: spatial evidence links must resolve to committed
         // frame/mesh authority in the measurement's own coordinate
         // space.
         for measurement in package.collection.measurements {
@@ -4720,7 +4720,7 @@ public actor CaptureWorkingSetStore {
         }
 
         // No suspension points below: binding, declaration, and
-        // collection state publish as one commit (issue #202).
+        // collection state publish as one commit (issue bolph71656-ai/HTDT-Capture#202).
         if let space = spaces.first {
             try publishCoordinateAuthority(space)
         }
@@ -4730,14 +4730,14 @@ public actor CaptureWorkingSetStore {
             package.collection.measurements.map(\.quantityType)
         )
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
-    /// Commits a supplemental feature payload (issues #222/#226/#227/
-    /// #240/#249/#293). Same rules as the typed families: admission is
+    /// Commits a supplemental feature payload (issues bolph71656-ai/HTDT-Capture#222/legacy bolph71656-ai/HTDT-Capture#226/legacy bolph71656-ai/HTDT-Capture#227/
+    /// legacy bolph71656-ai/HTDT-Capture#240/legacy bolph71656-ai/HTDT-Capture#249/legacy bolph71656-ai/HTDT-Capture#293). Same rules as the typed families: admission is
     /// reserved, every claimed coordinate space must match the bound
     /// authority, the committed bytes are write-once, and the
     /// declaration registers into the manifest set so integrity and
@@ -4807,14 +4807,14 @@ public actor CaptureWorkingSetStore {
         try validateDerivedSourceRefsResolvable(document)
 
         // No suspension points below: binding, declaration, and ledger
-        // publish as one commit (issue #202).
+        // publish as one commit (issue bolph71656-ai/HTDT-Capture#202).
         for space in document.coordinateSpaceIDs {
             try publishCoordinateAuthority(space)
         }
         declarations[document.path] = document.declaration
         supplementalDocuments[document.path] = document.data
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
@@ -4916,7 +4916,7 @@ public actor CaptureWorkingSetStore {
         declarations[document.path] = document.declaration
         supplementalDocuments[document.path] = document.data
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
@@ -5110,7 +5110,7 @@ public actor CaptureWorkingSetStore {
     ) {
         // Non-throwing observation sink: while the working set is sealed
         // for finalization the event is dropped and counted rather than
-        // mutating sealed quality inputs (issue #180).
+        // mutating sealed quality inputs (issue bolph71656-ai/HTDT-Capture#180).
         guard liveSpatialAuthority else {
             sealedMutationRejectionCount += 1
             return
@@ -5226,7 +5226,7 @@ public actor CaptureWorkingSetStore {
     ) {
         // Non-throwing observation sink: while the working set is sealed
         // for finalization the event is dropped and counted rather than
-        // mutating sealed quality inputs (issue #180).
+        // mutating sealed quality inputs (issue bolph71656-ai/HTDT-Capture#180).
         guard liveSpatialAuthority else {
             sealedMutationRejectionCount += 1
             return
@@ -5239,7 +5239,7 @@ public actor CaptureWorkingSetStore {
         appendResourceEvent(event)
     }
 
-    /// Records one RoomPlan coaching/instruction sample (#260). The
+    /// Records one RoomPlan coaching/instruction sample (legacy bolph71656-ai/HTDT-Capture#260). The
     /// tracker deduplicates consecutive identical instructions and
     /// caps the transition history, so per-frame calls stay bounded.
     /// `instruction` must be the stable framework case identity (e.g.
@@ -5262,7 +5262,7 @@ public actor CaptureWorkingSetStore {
     /// Marks that the RoomPlan instruction delegate path is not
     /// available on this run, so the advisory history can state the
     /// degraded source explicitly instead of looking like a clean
-    /// session (#260).
+    /// session (legacy bolph71656-ai/HTDT-Capture#260).
     public func recordRoomPlanGuidanceUnavailable() {
         guard liveSpatialAuthority else {
             sealedMutationRejectionCount += 1
@@ -5275,7 +5275,7 @@ public actor CaptureWorkingSetStore {
         roomPlanGuidanceAvailable = false
     }
 
-    /// Records a mesh anchor lifecycle event during scanning (#268).
+    /// Records a mesh anchor lifecycle event during scanning (legacy bolph71656-ai/HTDT-Capture#268).
     /// Bounded: the tracker retains at most
     /// `MeshAnchorLifecycleTracker.uniqueAnchorLimit` distinct anchors
     /// and `eventLimit` events.
@@ -5299,7 +5299,7 @@ public actor CaptureWorkingSetStore {
         )
     }
 
-    /// Replaces the advisory End-boundary coverage snapshot (#223). The
+    /// Replaces the advisory End-boundary coverage snapshot (legacy bolph71656-ai/HTDT-Capture#223). The
     /// host records it once per accepted End attempt; the latest call
     /// wins so repeated End presses stay deterministic.
     public func recordAdvisoryEndContext(
@@ -5316,7 +5316,7 @@ public actor CaptureWorkingSetStore {
         advisoryEndContext = summary
     }
 
-    /// Selects (or clears) the operator capture-task profile (#217).
+    /// Selects (or clears) the operator capture-task profile (legacy bolph71656-ai/HTDT-Capture#217).
     /// Task completeness is advisory only — it never feeds
     /// `ready_for_htdt_ingestion`.
     public func recordTaskProfile(
@@ -5336,14 +5336,14 @@ public actor CaptureWorkingSetStore {
         taskProfile = profile
         skippedTaskRequirementIDs = skippedRequirementIDs
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Persists the operator/plan capture-strategy selection as the
-    /// `session/capture-strategy.json` payload (#307). The strategy is
+    /// `session/capture-strategy.json` payload (legacy bolph71656-ai/HTDT-Capture#307). The strategy is
     /// advisory provenance: it records which published guidance and
     /// evidence budgets steered this revision and never feeds
     /// `ready_for_htdt_ingestion`. Idempotent on an identical
@@ -5398,7 +5398,7 @@ public actor CaptureWorkingSetStore {
     }
 
     /// Persists the floor-plan reference underlay as the
-    /// `reference/plan-underlay.json` payload (#322). The underlay is
+    /// `reference/plan-underlay.json` payload (legacy bolph71656-ai/HTDT-Capture#322). The underlay is
     /// `.importedReference` provenance — a declared reference for
     /// guidance/coverage comparison only; it is never merged into
     /// observed geometry, never feeds `ready_for_htdt_ingestion`, and
@@ -5429,7 +5429,7 @@ public actor CaptureWorkingSetStore {
         planUnderlayDocument = package.document
     }
 
-    /// Binds benchmark references into the quality report (#285). Only
+    /// Binds benchmark references into the quality report (legacy bolph71656-ai/HTDT-Capture#285). Only
     /// immutable/versioned `slug@semver` refs pass validation; anything
     /// else fails closed.
     public func recordBenchmarkReferences(_ refs: [String]) async throws {
@@ -5442,14 +5442,14 @@ public actor CaptureWorkingSetStore {
         benchmarkRefs = CaptureQualityEvaluator
             .canonicalBenchmarkRefs(refs)
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
     /// Evaluates the advisory diagnostics layer from current state
-    /// (#223). Read-only: identical state produces identical output.
+    /// (legacy bolph71656-ai/HTDT-Capture#223). Read-only: identical state produces identical output.
     /// Used by Review before seal and persisted at seal.
     public func evaluateAdvisoryDiagnostics() -> CaptureAdvisoryReport? {
         guard let captureSessionID else { return nil }
@@ -5496,7 +5496,7 @@ public actor CaptureWorkingSetStore {
     }
 
     /// Persists the advisory diagnostics payload as a derived bundle
-    /// entry (#223). Role `.derived` with explicit source refs keeps it
+    /// entry (legacy bolph71656-ai/HTDT-Capture#223). Role `.derived` with explicit source refs keeps it
     /// advisory: it is never canonical geometry truth.
     @discardableResult
     private func persistAdvisoryDiagnosticsPayload(
@@ -5573,7 +5573,7 @@ public actor CaptureWorkingSetStore {
         )
         supplementalDocuments[CaptureAdvisoryNoteDocument.path] = data
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
@@ -5583,7 +5583,7 @@ public actor CaptureWorkingSetStore {
     /// quality-evaluation input.
     public var advisoryFindings: [QualityDiagnostic] {
         var findings = advisoryNotes.map(\.qualityDiagnostic)
-        // #227: reference-target residuals join the advisory
+        // legacy bolph71656-ai/HTDT-Capture#227: reference-target residuals join the advisory
         // surface — read-only diagnostics derived from the committed
         // document, never persisted advisories.
         if let data = supplementalDocuments[
@@ -5599,13 +5599,13 @@ public actor CaptureWorkingSetStore {
     }
 
     /// The operator field notes recorded on this revision (issue
-    /// #375), chronological as committed.
+    /// legacy bolph71656-ai/HTDT-Capture#375), chronological as committed.
     public var recordedFieldNotes: [CaptureFieldNote] {
         fieldNotes
     }
 
     /// Records one operator field note and rewrites the canonical
-    /// `session/field-notes.json` payload (issue #375). The note binds
+    /// `session/field-notes.json` payload (issue bolph71656-ai/HTDT-Capture#375). The note binds
     /// this revision and, once the session foundation is committed,
     /// the live capture session. Exact note-id duplicates are a no-op
     /// so a retried record does not grow history; a conflicting id is
@@ -5665,7 +5665,7 @@ public actor CaptureWorkingSetStore {
     }
 
     /// Supersedes an active field note with a replacement note
-    /// (issue #375). The replacement's `supersedes_note_id` must name
+    /// (issue bolph71656-ai/HTDT-Capture#375). The replacement's `supersedes_note_id` must name
     /// the target; both land in one document commit.
     public func supersedeFieldNote(
         _ noteID: CaptureFieldNoteID,
@@ -5701,7 +5701,7 @@ public actor CaptureWorkingSetStore {
     }
 
     /// Marks an active field note resolved — a terminal lifecycle
-    /// transition that keeps the recorded bytes (issue #375).
+    /// transition that keeps the recorded bytes (issue bolph71656-ai/HTDT-Capture#375).
     public func resolveFieldNote(
         _ noteID: CaptureFieldNoteID
     ) async throws {
@@ -5745,7 +5745,7 @@ public actor CaptureWorkingSetStore {
 
     /// Rewrites `session/field-notes.json` from the committed note
     /// collection and re-registers its stable declaration (issue
-    /// #375).
+    /// legacy bolph71656-ai/HTDT-Capture#375).
     private func persistFieldNotes() async throws {
         let document = CaptureFieldNoteDocument(
             captureRevisionID: identity.captureRevisionID,
@@ -5769,7 +5769,7 @@ public actor CaptureWorkingSetStore {
         try register(Self.fieldNotesDeclaration)
         supplementalDocuments[CaptureFieldNoteDocument.path] = data
 
-        // Post-End semantic commit (issue #297): the durable marker
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): the durable marker
         // advances so a relaunch reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
@@ -5807,7 +5807,7 @@ public actor CaptureWorkingSetStore {
         }
 
         // Quality-facing counts pair raw container counts with the
-        // usable-geometry counts (issue #169): a committed mesh anchor
+        // usable-geometry counts (issue bolph71656-ai/HTDT-Capture#169): a committed mesh anchor
         // with zero faces and a depth map whose samples are all invalid
         // must not satisfy the mesh requirement or the depth fallback.
         // The evaluator prefers the usable counts when present.
@@ -5892,7 +5892,7 @@ public actor CaptureWorkingSetStore {
         return (data, declaration)
     }
 
-    /// Seals the working set for finalization (issue #180).
+    /// Seals the working set for finalization (issue bolph71656-ai/HTDT-Capture#180).
     ///
     /// Once this call flips the seal, every mutation entry point fails
     /// with `workingSetSealed`. Mutations that were already inside the
@@ -5919,7 +5919,7 @@ public actor CaptureWorkingSetStore {
             break
         }
         // Practice working sets never produce a real bundle
-        // (issue #320): the rehearsal ends at Review.
+        // (issue bolph71656-ai/HTDT-Capture#320): the rehearsal ends at Review.
         guard !isPracticeWorkingSet else {
             throw CaptureWorkingSetError
                 .practiceWorkingSetNotFinalizable
@@ -5947,7 +5947,7 @@ public actor CaptureWorkingSetStore {
             sealedQualityReport =
                 try await persistQualityReportPayload(report)
 
-            // Advisory provenance payload (#223): derived, bounded, and
+            // Advisory provenance payload (legacy bolph71656-ai/HTDT-Capture#223): derived, bounded, and
             // rolled back with the quality report if the seal lifts.
             // Recorded AFTER the canonical quality write so its
             // path:quality/capture-quality.json source ref resolves.
@@ -5958,7 +5958,7 @@ public actor CaptureWorkingSetStore {
                     )
             }
 
-            // Durable phase transition (issue #297): quality and
+            // Durable phase transition (issue bolph71656-ai/HTDT-Capture#297): quality and
             // advisory verdicts are committed, so the marker records a
             // revision with nothing left but the finalization write.
             // `unseal` restores the pre-seal phase.
@@ -6105,7 +6105,7 @@ public actor CaptureWorkingSetStore {
 
         // The seal had advanced the durable marker to
         // `ready_to_finalize`; lifting it returns the revision to
-        // whatever phase it held before sealing (issue #297).
+        // whatever phase it held before sealing (issue bolph71656-ai/HTDT-Capture#297).
         if let priorPhase = phaseBeforeSeal {
             phaseBeforeSeal = nil
             try? await persistRevisionState(priorPhase)
@@ -6115,7 +6115,7 @@ public actor CaptureWorkingSetStore {
     /// Marks the sealed working set as permanently consumed after the
     /// host promoted the staged bundle. Terminal: every mutation entry
     /// point rejects with `workingSetConsumed` afterwards and the seal
-    /// can no longer be rolled back (issue #180).
+    /// can no longer be rolled back (issue bolph71656-ai/HTDT-Capture#180).
     public func consumeSealedWorkingSet() throws {
         switch sealState {
         case .sealed:
@@ -6143,7 +6143,7 @@ public actor CaptureWorkingSetStore {
 
     /// Mutations rejected with a typed error or dropped by the
     /// non-throwing observation sinks since the first seal (issue
-    /// #180).
+    /// legacy bolph71656-ai/HTDT-Capture#180).
     public var rejectedSealedMutationCount: Int {
         sealedMutationRejectionCount
     }
@@ -6189,13 +6189,13 @@ public actor CaptureWorkingSetStore {
         }
         try await pruneDerivedSourceRefs(removedPaths: [path])
 
-        // Post-End semantic commit (issue #297): advance
+        // Post-End semantic commit (issue bolph71656-ai/HTDT-Capture#297): advance
         // the durable marker to semantic_authoring so a relaunch
         // reports truthful progress.
         try await refreshRevisionStateAfterSemanticCommit()
     }
 
-    /// Terminal discard of the whole working revision (issue #254).
+    /// Terminal discard of the whole working revision (issue bolph71656-ai/HTDT-Capture#254).
     /// Fencing order: the store first flips to `.consumed` so every
     /// queued and future mutation entry point fails closed, then the
     /// writer actor drains already-queued writes, and only then is the
@@ -6286,7 +6286,7 @@ public actor CaptureWorkingSetStore {
     }
 
     /// Byte accounting of the live working revision for the active-
-    /// capture storage UX (issue #308). Scans the same directory the
+    /// capture storage UX (issue bolph71656-ai/HTDT-Capture#308). Scans the same directory the
     /// manifest would be built from, so the operator-visible totals
     /// equal the retained bytes of the bundle that would finalize.
     /// Advisory only — never persisted, never a quality input.
@@ -6457,7 +6457,7 @@ public actor CaptureWorkingSetStore {
         }
 
         // The room reference frame and opening review are operator
-        // authority payloads (issues #231/#232): when committed, their
+        // authority payloads (issues bolph71656-ai/HTDT-Capture#231/legacy bolph71656-ai/HTDT-Capture#232): when committed, their
         // stored bytes must decode byte-exact to the tracked document.
         if let roomReferenceFrame {
             guard roomReferenceFrame.captureRevisionID
@@ -6678,7 +6678,7 @@ public actor CaptureWorkingSetStore {
 
     // Manifest declarations describe the whole collection file, so a
     // collection is accepted only when every record shares one provenance
-    // class (issue #186, homogeneous-collection policy). A mixed-provenance
+    // class (issue bolph71656-ai/HTDT-Capture#186, homogeneous-collection policy). A mixed-provenance
     // payload is rejected rather than mislabeled; an empty collection claims
     // only app-derived container authority.
     private func annotationCollectionProvenance(
@@ -6716,7 +6716,7 @@ public actor CaptureWorkingSetStore {
             if let provenance,
                provenance != measurement.provenanceClass
             {
-                // Issue #286: user-attested and derived measurements
+                // Issue bolph71656-ai/HTDT-Capture#286: user-attested and derived measurements
                 // coexist in one collection for conflict review. A
                 // heterogeneous collection declares capture_app_derived
                 // container authority — the same conservative class an
@@ -6812,7 +6812,7 @@ public actor CaptureWorkingSetStore {
             return entity.type.rawValue + ":" + role.rawValue
         }
         // Listening-position completeness keys on the typed role,
-        // not the free-text label (#243).
+        // not the free-text label (legacy bolph71656-ai/HTDT-Capture#243).
         if entity.type == .listeningPosition,
            let role = entity.listeningRole
         {
@@ -6822,7 +6822,7 @@ public actor CaptureWorkingSetStore {
     }
 
     /// Validates a proposed coordinate-space binding without mutating
-    /// state (issue #202). The authority binding is part of the logical
+    /// state (issue bolph71656-ai/HTDT-Capture#202). The authority binding is part of the logical
     /// persistence commit: it may only be published after the matching
     /// durable writes succeed, so validation and publication are split
     /// across the write suspension.
@@ -6837,7 +6837,7 @@ public actor CaptureWorkingSetStore {
     }
 
     /// Validates a proposed session/coordinate binding without mutating
-    /// state (issue #202).
+    /// state (issue bolph71656-ai/HTDT-Capture#202).
     private func validateAuthority(
         captureSessionID: CaptureSessionID,
         coordinateSpaceID: CoordinateSpaceID
@@ -6858,7 +6858,7 @@ public actor CaptureWorkingSetStore {
     /// post-write commit block, with no suspension point between the
     /// last re-check and this call. The re-check is retained so a
     /// reentrant commit of a different authority fails closed instead
-    /// of silently rebinding the revision (issue #202).
+    /// of silently rebinding the revision (issue bolph71656-ai/HTDT-Capture#202).
     private func publishCoordinateAuthority(
         _ coordinateSpaceID: CoordinateSpaceID
     ) throws {
@@ -6880,7 +6880,7 @@ public actor CaptureWorkingSetStore {
         self.coordinateSpaceID = coordinateSpaceID
     }
 
-    /// Issue #199: an evidence reference of the form
+    /// Issue bolph71656-ai/HTDT-Capture#199: an evidence reference of the form
     /// `path:evidence/frames/<frame-id>.json`, `frame:<uuid>`, or
     /// `mesh_anchor:<uuid>` is a *spatial* evidence link — it claims
     /// support from frame/mesh authority expressed in a coordinate
@@ -7078,7 +7078,7 @@ public actor CaptureWorkingSetStore {
     /// payload carries no mask). An undecodable payload contributes zero
     /// usable samples rather than failing persistence — the canonical
     /// bytes remain byte-exact evidence even when no sample is usable
-    /// (issue #169).
+    /// (issue bolph71656-ai/HTDT-Capture#169).
     private static func usableDepthSamples(
         in payload: Data?
     ) -> Int {
@@ -7137,7 +7137,7 @@ public actor CaptureWorkingSetStore {
         declarations[declaration.path] = declaration
     }
 
-    // MARK: - Working-revision phase marker (issue #297)
+    // MARK: - Working-revision phase marker (issue bolph71656-ai/HTDT-Capture#297)
 
     /// Builds the persisted lifecycle record for `path
     /// session/revision-state.json`. The checkpoint captures every
@@ -7237,7 +7237,7 @@ public actor CaptureWorkingSetStore {
     }
 
     /// Rejects mutations that presume a live AR coordinate authority on
-    /// a store restored from disk (issue #297). Recovered drafts are
+    /// a store restored from disk (issue bolph71656-ai/HTDT-Capture#297). Recovered drafts are
     /// spatially sealed: semantic authoring is allowed, live capture is
     /// not.
     private func requireLiveSpatialAuthority() throws {
@@ -7250,7 +7250,7 @@ public actor CaptureWorkingSetStore {
     /// seal path flips `sealState` before it first suspends, so a
     /// mutation that arrives after seal acquisition fails
     /// deterministically with a typed error instead of mutating the
-    /// sealed working set (issue #180).
+    /// sealed working set (issue bolph71656-ai/HTDT-Capture#180).
     private func requireMutable() throws {
         switch sealState {
         case .mutable:
@@ -7268,7 +7268,7 @@ public actor CaptureWorkingSetStore {
     /// seal after each suspension: an `unseal`/`consumeSealedWorkingSet`
     /// that ran during a writer fence bumps `sealGeneration`, so the
     /// in-flight seal deterministically aborts instead of returning a
-    /// snapshot the store no longer holds (issue #180).
+    /// snapshot the store no longer holds (issue bolph71656-ai/HTDT-Capture#180).
     private func requireSealHeld(_ generation: Int) throws {
         guard sealState == .sealed,
               sealGeneration == generation
@@ -7288,7 +7288,7 @@ public actor CaptureWorkingSetStore {
 
     /// Every mutation entry point decrements through this hook from its
     /// `defer` so a parked seal drain wakes exactly when the last owned
-    /// mutation leaves the actor (issue #180).
+    /// mutation leaves the actor (issue bolph71656-ai/HTDT-Capture#180).
     private func mutationDidFinish() {
         inFlightMutations -= 1
         if inFlightMutations == 0, !mutationDrainers.isEmpty {
@@ -7301,7 +7301,7 @@ public actor CaptureWorkingSetStore {
     }
 
     /// Current pending-write admission budget, exposed for
-    /// diagnostics and tests (issue #147).
+    /// diagnostics and tests (issue bolph71656-ai/HTDT-Capture#147).
     public var admissionBudgetSnapshot: CaptureStoreBudgetSnapshot {
         admissionController.snapshot()
     }
@@ -7358,7 +7358,7 @@ public actor CaptureWorkingSetStore {
 
     /// Releases a held reservation. Called from `defer` at every
     /// mutation entry point so success, failure, and cancellation exits
-    /// all release deterministically (issue #147).
+    /// all release deterministically (issue bolph71656-ai/HTDT-Capture#147).
     private func releaseAdmission(
         _ reservation: CaptureStoreReservation?
     ) {
@@ -7389,7 +7389,7 @@ public actor CaptureWorkingSetStore {
     }
 
 
-    // MARK: - Working-revision restore (issue #297)
+    // MARK: - Working-revision restore (issue bolph71656-ai/HTDT-Capture#297)
 
     /// Reopens an end-accepted working revision left behind by a prior
     /// process. The relaunch reads `session/revision-state.json`,
@@ -8810,7 +8810,7 @@ public actor CaptureWorkingSetStore {
     /// True when every payload of the atomic End RoomPlan batch is
     /// present under `working/<uuid>` — the durable proof that the End
     /// transaction committed even when the separate phase-marker write
-    /// was lost to a kill in between (issue #297).
+    /// was lost to a kill in between (issue bolph71656-ai/HTDT-Capture#297).
     public static func endTransactionEvidencePresent(
         workingRevisionURL url: URL
     ) -> Bool {
@@ -8833,7 +8833,7 @@ public actor CaptureWorkingSetStore {
 
     /// Reads the durable phase marker of a `working/<uuid>` directory
     /// without mutating anything. Used by the inventory to separate
-    /// recoverable post-End drafts from mid-scan leftovers (issue #297).
+    /// recoverable post-End drafts from mid-scan leftovers (issue bolph71656-ai/HTDT-Capture#297).
     public static func peekRevisionPhase(
         workingRevisionURL url: URL
     ) -> WorkingRevisionStateDocument? {
@@ -8859,7 +8859,7 @@ public actor CaptureWorkingSetStore {
 
     /// Bounded append for resource diagnostics so persistence and
     /// backlog events cannot grow the observation history without
-    /// bound (issues #147/#180).
+    /// bound (issues bolph71656-ai/HTDT-Capture#147/legacy bolph71656-ai/HTDT-Capture#180).
     private func appendResourceEvent(_ event: CaptureResourceEvent) {
         resourceEvents.append(event)
         if resourceEvents.count > Self.maxResourceEvents {

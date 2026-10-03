@@ -1,6 +1,6 @@
 import Foundation
 
-/// Typed speaker channel-role catalog for the authoring UI (#220).
+/// Typed speaker channel-role catalog for the authoring UI (legacy bolph71656-ai/HTDT-Capture#220).
 /// `ChannelRole` itself is intentionally un-opinionated; the workspace
 /// presents this closed set through a localized picker and keeps a
 /// free-text path only under Advanced.
@@ -27,7 +27,7 @@ extension ChannelRole {
         ]
     }
 
-    /// Roles offered for a subwoofer channel (#244): typed instance
+    /// Roles offered for a subwoofer channel (legacy bolph71656-ai/HTDT-Capture#244): typed instance
     /// tokens so multiple subs stay distinguishable; the token set is
     /// open, so custom entries remain possible under Advanced.
     public static var subwooferRoles: [ChannelRole] {
@@ -54,7 +54,7 @@ public enum ReferencePointSemanticsCatalog {
     }
 }
 
-/// Seed for editing an existing staged annotation (#245). Captures the
+/// Seed for editing an existing staged annotation (legacy bolph71656-ai/HTDT-Capture#245). Captures the
 /// parts of `CaptureAnnotationEntity` that survive an edit so saving
 /// preserves `entityID`, the coordinate-space authority, and every
 /// field the operator did not touch — reopening a form never mints a
@@ -69,11 +69,11 @@ public struct AnnotationEditSeed: Sendable, Equatable {
     /// Prior speaker yaw in degrees, derived from `orientation`.
     public let yawDegrees: Float?
     /// Prior speaker elevation (pitch) in degrees, derived from
-    /// `orientation` — positive when the front axis aims up (#228).
+    /// `orientation` — positive when the front axis aims up (legacy bolph71656-ai/HTDT-Capture#228).
     public let elevationDegrees: Float?
     public let channelRole: ChannelRole?
     public let equipmentRef: HTDTEquipmentReference?
-    /// Entity's logical role binding (#315); survives an edit verbatim
+    /// Entity's logical role binding (legacy bolph71656-ai/HTDT-Capture#315); survives an edit verbatim
     /// unless the form explicitly re-binds.
     public let originalRoleBinding: SpeakerRoleBinding?
     /// The entity's original provenance fields, reused verbatim when
@@ -90,7 +90,7 @@ public struct AnnotationEditSeed: Sendable, Equatable {
     public let originalListeningRole: ListeningPositionRole?
     public let originalUncertainty: SpatialUncertaintyAuthority?
     /// Lifecycle keeps its original `created_at_utc`; a save stamps
-    /// `updated_at_utc` via `revised(at:)` (#267).
+    /// `updated_at_utc` via `revised(at:)` (legacy bolph71656-ai/HTDT-Capture#267).
     public let originalLifecycle: AnnotationLifecycle?
 
     /// New placement authority produced by a fresh capture during the
@@ -104,7 +104,7 @@ public struct AnnotationEditSeed: Sendable, Equatable {
 
     /// Fresh seed for adding a new annotation — the resulting entity
     /// gets a new `entityID`. Used so add and edit share one assembly
-    /// path (#245).
+    /// path (legacy bolph71656-ai/HTDT-Capture#245).
     public init(freshType type: AnnotationEntityType) {
         self.entityID = AnnotationEntityID()
         self.type = type
@@ -178,7 +178,7 @@ public struct AnnotationEditSeed: Sendable, Equatable {
         equipmentRef: HTDTEquipmentReference?,
         yawDegrees: Float?,
         speakerElevationDegrees: Float? = nil,
-        /// Explicit aim removal (#228): an edit that clears the yaw
+        /// Explicit aim removal (legacy bolph71656-ai/HTDT-Capture#228): an edit that clears the yaw
         /// field drops a previously recorded speaker aim rather than
         /// preserving it. Untouched fields never reach here.
         speakerAimRemoved: Bool = false,
@@ -217,7 +217,7 @@ public struct AnnotationEditSeed: Sendable, Equatable {
 
         // A fresh evidence-captured placement must say how the
         // semantic point was constructed — the contract is
-        // fail-closed here (#291). For a roomplan object binding the
+        // fail-closed here (legacy bolph71656-ai/HTDT-Capture#291). For a roomplan object binding the
         // point is a direct placement, not a surface hit.
         let referencePoint: ReferencePointAuthority?
         if placementAuthority != nil {
@@ -262,8 +262,8 @@ public struct AnnotationEditSeed: Sendable, Equatable {
         }
 
         // The contract requires a typed listening role on authored
-        // listening positions (#243) and channel roles on both
-        // speakers and subwoofers (#244); roles are rejected outright
+        // listening positions (legacy bolph71656-ai/HTDT-Capture#243) and channel roles on both
+        // speakers and subwoofers (legacy bolph71656-ai/HTDT-Capture#244); roles are rejected outright
         // on types that cannot carry them.
         if type == .listeningPosition, listeningRole == nil {
             throw ManualAuthorityBuilderError.listeningRoleRequired
@@ -278,7 +278,7 @@ public struct AnnotationEditSeed: Sendable, Equatable {
             throw AnnotationModelError.invalidAuthorityComponent
         }
         // A logical role binding only makes sense on a physical
-        // loudspeaker (#315).
+        // loudspeaker (legacy bolph71656-ai/HTDT-Capture#315).
         guard type == .speaker || type == .subwoofer
                 || roleBinding == nil
         else {
@@ -312,7 +312,7 @@ public struct AnnotationEditSeed: Sendable, Equatable {
             orientation = replacementOrientation.orientation
             orientationAuthority = replacementOrientation
         } else if let yawDegrees {
-            // Speaker aim (#228): azimuth plus optional elevation — at
+            // Speaker aim (legacy bolph71656-ai/HTDT-Capture#228): azimuth plus optional elevation — at
             // 0° elevation the axes equal the historical yaw-only aim.
             orientation = try ManualAuthorityBuilder
                 .speakerOrientationAxes(
@@ -335,7 +335,7 @@ public struct AnnotationEditSeed: Sendable, Equatable {
         } else {
             // A type that cannot carry orientation semantics drops a
             // stale captured body orientation on save; a cleared
-            // speaker aim is an explicit removal (#228), not a keep.
+            // speaker aim is an explicit removal (legacy bolph71656-ai/HTDT-Capture#228), not a keep.
             orientation = type.supportsOrientationAuthority
                 && !speakerAimRemoved
                 ? originalOrientation
@@ -352,7 +352,7 @@ public struct AnnotationEditSeed: Sendable, Equatable {
             || placement.method != .manualNumeric
 
         // Per-component authority, mirroring
-        // `ManualAuthorityBuilder.annotation` (#263): preserved
+        // `ManualAuthorityBuilder.annotation` (legacy bolph71656-ai/HTDT-Capture#263): preserved
         // evidence-linked placements still count as evidence-linked
         // even though no fresh authority object exists this session.
         let placementEvidence = Array(
@@ -441,7 +441,7 @@ public struct AnnotationEditSeed: Sendable, Equatable {
     }
 
     /// Matches the entity contract: surface-aware constructions only
-    /// apply to surface-derived placement methods (#291).
+    /// apply to surface-derived placement methods (legacy bolph71656-ai/HTDT-Capture#291).
     private static func construction(
         _ construction: ReferencePointConstruction,
         isCompatibleWith method: PlacementMethod
@@ -459,7 +459,7 @@ public struct AnnotationEditSeed: Sendable, Equatable {
     }
 }
 
-/// Seed for editing an existing staged measurement (#245) — preserves
+/// Seed for editing an existing staged measurement (legacy bolph71656-ai/HTDT-Capture#245) — preserves
 /// `measurementID` so corrections update the same conceptual record.
 public struct MeasurementEditSeed: Sendable, Equatable {
     public let measurementID: MeasurementID
@@ -485,7 +485,7 @@ public struct MeasurementEditSeed: Sendable, Equatable {
     }
 }
 
-/// Rebuilds an edited measurement preserving identity (#245). Covers
+/// Rebuilds an edited measurement preserving identity (legacy bolph71656-ai/HTDT-Capture#245). Covers
 /// the scalar path `ManualAuthorityBuilder` supports — the edit form
 /// never exposes endpoint-backed or derived measurements.
 public enum MeasurementEditSupport {

@@ -45,7 +45,7 @@ enum BundleValidationFixture {
     ) throws -> BundleFileEntry {
         // Reserved canonical paths must carry the bound
         // producer/provenance metadata or the manifest rejects them
-        // before any payload check runs (issue #151).
+        // before any payload check runs (issue bolph71656-ai/HTDT-Capture#151).
         let binding = BundleReservedPaths.binding(for: path)
         return try BundleFileEntry(
             path: path,
@@ -69,7 +69,7 @@ enum BundleValidationFixture {
             captureRevisionID: CaptureRevisionID(),
             parentRevisionID: nil,
             // Fixture manifests ground the session document's declared
-            // identities (#194): the session/timing/configuration refs
+            // identities (legacy bolph71656-ai/HTDT-Capture#194): the session/timing/configuration refs
             // all resolve to the fixture constants.
             captureSessionIDs: [
                 CaptureSessionID(canonicalString: sessionUUID)!
@@ -88,7 +88,7 @@ enum BundleValidationFixture {
         _ root: URL,
         payloads: [(path: String, data: Data, mediaType: String)]
     ) throws {
-        // Foundation payloads (#194) are auto-staged so every staged
+        // Foundation payloads (legacy bolph71656-ai/HTDT-Capture#194) are auto-staged so every staged
         // bundle satisfies the finalized-v1 minimum set. Callers may
         // still override any of them by passing the same path.
         let foundation: [(path: String, data: Data, mediaType: String)] = [
@@ -229,7 +229,7 @@ enum BundleValidationFixture {
         }
     }
 
-    /// Writes the minimum foundation payload set (#194) into a staging
+    /// Writes the minimum foundation payload set (legacy bolph71656-ai/HTDT-Capture#194) into a staging
     /// directory and returns the matching payload declarations. The
     /// caller must pass ``sessionUUID``/``spaceUUID`` as the manifest
     /// ``captureSessionIDs``/``coordinateSpaceIDs`` so the session

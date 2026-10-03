@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import HTDTCaptureCore
 
-// MARK: - Fractional-second UTC timing correlation (#156)
+// MARK: - Fractional-second UTC timing correlation (legacy bolph71656-ai/HTDT-Capture#156)
 //
 // The platform layer emits non-manifest UTC timestamps with fractional
 // (millisecond) precision so the declared `estimated_uncertainty_s` is
@@ -136,7 +136,7 @@ func wholeSecondUTCRendersUnchangedForManifestPath() {
     #expect(whole == "2027-01-15T08:00:00Z")
 }
 
-// MARK: - Frame-age-corrected correlation (#206)
+// MARK: - Frame-age-corrected correlation (legacy bolph71656-ai/HTDT-Capture#206)
 //
 // `ARSession.currentFrame` vends the latest already-produced frame;
 // its monotonic timestamp is capture time, not read time, and can lag
@@ -302,7 +302,7 @@ func timingPackageBuildsWithDelayedCurrentFrameFixture() throws {
     #expect(package.document.correlations == [start, end])
 }
 
-// MARK: - Start-boundary correlation identity (#200)
+// MARK: - Start-boundary correlation identity (legacy bolph71656-ai/HTDT-Capture#200)
 //
 // The v1 timing document orders correlations [start, end] and carries
 // no explicit role field, so the boundary semantics ride on `method`.
@@ -311,7 +311,7 @@ func timingPackageBuildsWithDelayedCurrentFrameFixture() throws {
 // persistence work — and the label marks that any framework-internal
 // observation between the run request and that first frame precedes
 // the stored correlation interval. Production samples also carry the
-// `_age_projected` suffix from the frame-age estimator (#206).
+// `_age_projected` suffix from the frame-age estimator (legacy bolph71656-ai/HTDT-Capture#206).
 
 @Test
 func startBoundaryCorrelationCarriesDistinctMethod() throws {

@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #180: the working set needs an actor-owned finalization
+/// Issue bolph71656-ai/HTDT-Capture#180: the working set needs an actor-owned finalization
 /// barrier. `sealForFinalization` rejects new mutations, drains
 /// already-owned writes, re-verifies durable bytes, evaluates quality
 /// from that exact state, and persists the matching canonical quality

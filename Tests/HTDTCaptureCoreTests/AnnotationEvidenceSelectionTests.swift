@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #207: reverting a captured placement/orientation authority
+/// Issue bolph71656-ai/HTDT-Capture#207: reverting a captured placement/orientation authority
 /// back to manual must remove exactly the evidence refs that the
 /// authority exclusively introduced — user-selected refs and refs
 /// still owned by another active authority are retained, and the

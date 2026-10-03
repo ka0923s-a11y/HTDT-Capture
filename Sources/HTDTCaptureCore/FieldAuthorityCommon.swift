@@ -1,7 +1,7 @@
 import Foundation
 
 /// Shared grammar helpers for the field-authority document family
-/// (issues #300, #301, #310, #314, #324, #331): operator profiles,
+/// (issues bolph71656-ai/HTDT-Capture#300, legacy bolph71656-ai/HTDT-Capture#301, legacy bolph71656-ai/HTDT-Capture#310, legacy bolph71656-ai/HTDT-Capture#314, legacy bolph71656-ai/HTDT-Capture#324, legacy bolph71656-ai/HTDT-Capture#331): operator profiles,
 /// typed field evidence, measurement-instrument profiles, installed
 /// settings observations, and as-built wiring routes.
 enum FieldAuthorityGrammar {
@@ -17,11 +17,11 @@ enum FieldAuthorityGrammar {
         "instrument",
         "operator",
         "field_evidence",
-        /// Typed contribution refs (issue #419): `field_return:<uuid>`
+        /// Typed contribution refs (issue bolph71656-ai/HTDT-Capture#419): `field_return:<uuid>`
         /// names a non-spatial contribution exactly, never via UUID
         /// membership inference.
         "field_return",
-        /// Bounded room-state observations (issue #418).
+        /// Bounded room-state observations (issue bolph71656-ai/HTDT-Capture#418).
         "room_state",
     ]
     /// Binding-ref namespaces carrying an opaque non-empty identifier

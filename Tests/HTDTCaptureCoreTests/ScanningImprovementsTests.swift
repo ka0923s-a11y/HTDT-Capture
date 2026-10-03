@@ -2,12 +2,12 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Unit tests for the scanning-improvement batch: #313 movement
-/// safety, #325 revisit flags, #329 3D-aware coverage, #352
+/// Unit tests for the scanning-improvement batch: legacy bolph71656-ai/HTDT-Capture#313 movement
+/// safety, legacy bolph71656-ai/HTDT-Capture#325 revisit flags, legacy bolph71656-ai/HTDT-Capture#329 3D-aware coverage, legacy bolph71656-ai/HTDT-Capture#352
 /// pre-capture mission binding.
 final class ScanningImprovementsTests: XCTestCase {
 
-    // MARK: - #313 movement safety
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#313 movement safety
 
     func testOnlyUnrestrictedCapabilityGuidesTranslation() {
         XCTAssertTrue(ScanMovementCapability.unrestricted
@@ -106,7 +106,7 @@ final class ScanningImprovementsTests: XCTestCase {
         XCTAssertTrue(disclaimer.contains("advisory only"))
     }
 
-    // MARK: - #325 revisit flags
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#325 revisit flags
 
     private func makeFlag(
         coordinateSpaceID: CoordinateSpaceID = CoordinateSpaceID(),
@@ -321,7 +321,7 @@ final class ScanningImprovementsTests: XCTestCase {
         XCTAssertEqual(restored.flags[0].status, .resolved)
     }
 
-    // MARK: - #329 3D-aware coverage
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#329 3D-aware coverage
 
     private func sample3D(
         timestamp: Double,
@@ -383,7 +383,7 @@ final class ScanningImprovementsTests: XCTestCase {
         )
         // A ceiling point seen from three azimuths, all from the same
         // camera height → single elevation bucket (camera below the
-        // point). Orbit alone must not promote it (#329).
+        // point). Orbit alone must not promote it (legacy bolph71656-ai/HTDT-Capture#329).
         let ceiling: (x: Double, y: Double, z: Double) =
             (1.0, 3.1, -1.0)
         for (index, camera) in [
@@ -469,7 +469,7 @@ final class ScanningImprovementsTests: XCTestCase {
                 points: [surface]
             )
         )
-        // 2D classification is azimuth-only (orthogonal to #336
+        // 2D classification is azimuth-only (orthogonal to legacy bolph71656-ai/HTDT-Capture#336
         // budget work and to the additive voxel layer).
         XCTAssertEqual(
             summary.regions.first?.classification,
@@ -554,7 +554,7 @@ final class ScanningImprovementsTests: XCTestCase {
     }
 
     func testEndCoverageSummaryIsBackwardReadableWithout3D() throws {
-        // #329: a payload written before the vertical layer existed
+        // legacy bolph71656-ai/HTDT-Capture#329: a payload written before the vertical layer existed
         // decodes with nil 3D fields (azimuth-only semantics).
         let legacy = """
             {
@@ -657,7 +657,7 @@ final class ScanningImprovementsTests: XCTestCase {
         )
     }
 
-    // MARK: - #352 pre-capture mission binding
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#352 pre-capture mission binding
 
     func testImportedPlanBindsVerbatimAndStartsPending() throws {
         let planJSON = """

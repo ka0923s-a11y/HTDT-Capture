@@ -6,7 +6,7 @@ public struct InstrumentProfileID: CaptureIdentifier {
 }
 
 /// Broad instrument classes for `MeasurementInstrumentProfile`
-/// (issue #331). Stable machine tokens — never display text.
+/// (issue bolph71656-ai/HTDT-Capture#331). Stable machine tokens — never display text.
 public enum MeasurementInstrumentClass: String, Codable, Sendable,
     CaseIterable
 {
@@ -23,7 +23,7 @@ public enum MeasurementInstrumentClass: String, Codable, Sendable,
     case other
 }
 
-/// Calibration state of an instrument profile (issue #331).
+/// Calibration state of an instrument profile (issue bolph71656-ai/HTDT-Capture#331).
 /// `unknown` is explicit — never a silently absent field.
 public enum InstrumentCalibrationState: String, Codable, Sendable,
     CaseIterable
@@ -35,7 +35,7 @@ public enum InstrumentCalibrationState: String, Codable, Sendable,
     case unknown
 }
 
-/// The kind of artifact backing a calibration claim (issue #331):
+/// The kind of artifact backing a calibration claim (issue bolph71656-ai/HTDT-Capture#331):
 /// an external certificate/document kept as immutable source evidence,
 /// a microphone calibration file, a manufacturer record, or — at
 /// weakest — a user attestation recorded as such.
@@ -49,7 +49,7 @@ public enum CalibrationEvidenceKind: String, Codable, Sendable,
     case other
 }
 
-/// Exact device authority for a measurement instrument (issue #331).
+/// Exact device authority for a measurement instrument (issue bolph71656-ai/HTDT-Capture#331).
 /// Replaces bare make/model text on a measurement: the profile names
 /// the concrete instrument (class, manufacturer, model, optional
 /// serial/asset id), its calibration state and exact calibration
@@ -333,7 +333,7 @@ public struct MeasurementInstrumentProfile: Codable, Sendable,
 
 /// The `(instrument_id, profile_version, profile_sha256)` triple a
 /// `CaptureMeasurement` binds to the exact instrument profile version
-/// it relied on (issue #331).
+/// it relied on (issue bolph71656-ai/HTDT-Capture#331).
 public struct MeasurementInstrumentReference: Codable, Sendable,
     Equatable, Hashable
 {
@@ -362,7 +362,7 @@ public struct MeasurementInstrumentReference: Codable, Sendable,
 }
 
 /// The derived `derived/instrument-profiles.json` registry (issue
-/// #331): every instrument profile version ever committed for the
+/// legacy bolph71656-ai/HTDT-Capture#331): every instrument profile version ever committed for the
 /// revision. `(instrument_id, profile_version)` pairs are unique and a
 /// stored digest must still match its fields — a silently edited
 /// profile fails validation instead of changing meaning under the

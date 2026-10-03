@@ -80,7 +80,7 @@ func registryMapsEverySchemaOwnedPath() throws {
     )
 }
 
-/// #452: a registry-owned path missing from the support matrix
+/// legacy bolph71656-ai/HTDT-Capture#452: a registry-owned path missing from the support matrix
 /// silently bypassed payload-version dispatch *and* failed the
 /// remote validator outright. The matrix is the single authority —
 /// every declared path must resolve back to the family that declares
@@ -106,7 +106,7 @@ func everyMatrixPathResolvesBackToItsFamily() throws {
     }
 }
 
-/// #451/#452: session/revisit-flags.json is a declared canonical
+/// legacy bolph71656-ai/HTDT-Capture#451/legacy bolph71656-ai/HTDT-Capture#452: session/revisit-flags.json is a declared canonical
 /// payload — it validates against the published revisit-flags
 /// schema instead of failing as an unowned .json payload.
 @Test
@@ -167,7 +167,7 @@ func revisitFlagsPayloadValidatesAgainstPublishedSchema() throws {
     _ = try BundleDirectoryValidator.validate(root: root)
 }
 
-/// #449: task-plan-status 2.0.0 — a pending item may carry no
+/// legacy bolph71656-ai/HTDT-Capture#449: task-plan-status 2.0.0 — a pending item may carry no
 /// fulfillment decoration in *either* representation; `fulfillment`
 /// and `fulfillment_ref` are the same invariant under two keys.
 @Test
@@ -476,7 +476,7 @@ func entitiesConditionalSchemaApplied() throws {
     }
 }
 
-/// #228: entities-1.3.0 — a speaker's aim is optional, so an
+/// legacy bolph71656-ai/HTDT-Capture#228: entities-1.3.0 — a speaker's aim is optional, so an
 /// aim-unknown record (orientation null or absent) validates while
 /// the channel_role contract is unchanged.
 @Test

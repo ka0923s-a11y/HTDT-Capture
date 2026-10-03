@@ -1,7 +1,7 @@
 import Foundation
 
 /// Which placement target class produced — or would produce — a hit
-/// for the current reticle position (#214/#246).
+/// for the current reticle position (legacy bolph71656-ai/HTDT-Capture#214/legacy bolph71656-ai/HTDT-Capture#246).
 public enum PlacementProbeTarget: String, Sendable, Equatable {
     case mesh
     case roomPlanObject = "roomplan_object"
@@ -23,9 +23,9 @@ public enum PlacementProbeStatus: String, Sendable, Equatable {
 /// Bounded description of what a center-raycast capture would hit
 /// right now. The camera-first placement UI polls this so the reticle
 /// always reports the exact target class and distance before the
-/// operator taps Capture (#214); the capture path uses the same
+/// operator taps Capture (legacy bolph71656-ai/HTDT-Capture#214); the capture path uses the same
 /// classification for `mesh_hit_test` / `roomplan_binding` provenance
-/// (#246).
+/// (legacy bolph71656-ai/HTDT-Capture#246).
 public struct AnnotationPlacementProbe: Sendable, Equatable {
     public let status: PlacementProbeStatus
     public let target: PlacementProbeTarget?
@@ -66,7 +66,7 @@ public struct AnnotationPlacementProbe: Sendable, Equatable {
 }
 
 /// Which placement authority the camera-first capture should target
-/// (#246). `.automatic` resolves to the most specific geometry under
+/// (legacy bolph71656-ai/HTDT-Capture#246). `.automatic` resolves to the most specific geometry under
 /// the reticle (RoomPlan object → mesh → plane), and the resolved class
 /// is always shown before Accept so a fallback is never silent.
 public enum PlacementTargetPreference: String, Sendable, Equatable, CaseIterable {

@@ -2,8 +2,8 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Physical-equipment identity bridge (#403) and rack-membership
-/// canonicalization (#333): the first-class `inventory_item:`
+/// Physical-equipment identity bridge (legacy bolph71656-ai/HTDT-Capture#403) and rack-membership
+/// canonicalization (legacy bolph71656-ai/HTDT-Capture#333): the first-class `inventory_item:`
 /// endpoint, the `same_physical_equipment` identity relation,
 /// cross-collection referential integrity, and the advisory review
 /// surface.
@@ -114,7 +114,7 @@ final class PhysicalEquipmentBindingTests: XCTestCase {
         )
     }
 
-    // MARK: - #403 inventory_item endpoint
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#403 inventory_item endpoint
 
     func testInventoryItemEndpointParsesAndRoundTrips() throws {
         let itemID = AuthorityRecordID()
@@ -178,7 +178,7 @@ final class PhysicalEquipmentBindingTests: XCTestCase {
         }
     }
 
-    // MARK: - #403 same_physical_equipment semantics
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#403 same_physical_equipment semantics
 
     func testSamePhysicalEquipmentBindsEitherDirection() throws {
         let projector = try entity(type: .projector)
@@ -268,7 +268,7 @@ final class PhysicalEquipmentBindingTests: XCTestCase {
             )
         }
 
-        // A seat is not physical equipment (#403 endpoint kinds).
+        // A seat is not physical equipment (legacy bolph71656-ai/HTDT-Capture#403 endpoint kinds).
         let seatBinding = try? CaptureSemanticRelation(
             relationType: .samePhysicalEquipment,
             subjectRef: SemanticRelationEndpoint(
@@ -408,7 +408,7 @@ final class PhysicalEquipmentBindingTests: XCTestCase {
         }
     }
 
-    // MARK: - #403/#333 vocabulary versioning
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#403/legacy bolph71656-ai/HTDT-Capture#333 vocabulary versioning
 
     func testIdentityTokenRequiresTwelve() throws {
         let projector = try entity(type: .projector)
@@ -443,7 +443,7 @@ final class PhysicalEquipmentBindingTests: XCTestCase {
         }
     }
 
-    // MARK: - #333 legacy host_rack_entity_id bridging
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#333 legacy host_rack_entity_id bridging
 
     func testLegacyHostRackDerivesCanonicalMembership() throws {
         let rackA = try entity(type: .equipmentRack, label: "RACK-A")
@@ -495,7 +495,7 @@ final class PhysicalEquipmentBindingTests: XCTestCase {
         )
     }
 
-    // MARK: - #403 review surface
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#403 review surface
 
     func testReviewSurfacesCandidatesNotMerges() throws {
         let ref = try equipmentRef()
@@ -576,7 +576,7 @@ final class PhysicalEquipmentBindingTests: XCTestCase {
         )
     }
 
-    // MARK: - #403/#333 cross-collection commit validation
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#403/legacy bolph71656-ai/HTDT-Capture#333 cross-collection commit validation
 
     func testInventoryEndpointMustResolveInAuthorities() async throws {
         let (store, root) = try makeStore()

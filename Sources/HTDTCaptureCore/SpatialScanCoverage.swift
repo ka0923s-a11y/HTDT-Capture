@@ -173,7 +173,7 @@ public struct SpatialCoverageBounds: Sendable, Equatable {
 }
 
 /// Bounded diagnostics describing how the spatial coverage grid has
-/// used its live region budget (#336). Eviction is never silent: the
+/// used its live region budget (legacy bolph71656-ai/HTDT-Capture#336). Eviction is never silent: the
 /// counters and timestamps here are published in the live summary, the
 /// end-review surface, and the persisted end-coverage advisory so a
 /// saturated grid can always be distinguished from a fully observed
@@ -239,7 +239,7 @@ public struct SpatialCoverageRegion: Sendable, Equatable {
     public let normalTrackingObservationCount: Int
     public let limitedTrackingObservationCount: Int
     public let lastObservedTimestampSeconds: Double
-    /// Azimuth-only view-angle diversity (#329): bits index the 8
+    /// Azimuth-only view-angle diversity (legacy bolph71656-ai/HTDT-Capture#329): bits index the 8
     /// horizontal view sectors the cell was observed from. The vertical
     /// camera-height axis is tracked separately in
     /// `elevationBucketMask` and in the vertical voxel layer — a
@@ -266,7 +266,7 @@ public struct SpatialCoverageRegion: Sendable, Equatable {
 }
 
 /// Vertical viewpoint of the camera relative to an observed surface
-/// point (issue #329): whether the camera looked up at, across at, or
+/// point (issue bolph71656-ai/HTDT-Capture#329): whether the camera looked up at, across at, or
 /// down at the point. Combined with the 8 azimuth buckets it yields the
 /// 3D viewpoint-diversity mask used by the voxel layer.
 public enum SpatialCoverageElevationBucket: Int, Sendable, Equatable {
@@ -278,7 +278,7 @@ public enum SpatialCoverageElevationBucket: Int, Sendable, Equatable {
     case cameraAbove = 2
 }
 
-/// Key of one bounded 3D coverage voxel (issue #329): the same
+/// Key of one bounded 3D coverage voxel (issue bolph71656-ai/HTDT-Capture#329): the same
 /// start-relative X/Z cell grid as the 2D layer plus a coarse
 /// start-relative vertical band, so floor-level and ceiling-level
 /// evidence at the same X/Z never share a single classification.
@@ -312,7 +312,7 @@ public struct SpatialCoverageVoxelKey:
     }
 }
 
-/// One bounded 3D coverage voxel (issue #329). `viewpointBucketMask3D`
+/// One bounded 3D coverage voxel (issue bolph71656-ai/HTDT-Capture#329). `viewpointBucketMask3D`
 /// is azimuth*elevation diverse (8 x 3 bins), so a horizontal orbit
 /// alone accumulates azimuth diversity without elevation diversity.
 public struct SpatialCoverageVoxel: Sendable, Equatable {
@@ -361,7 +361,7 @@ public struct SpatialCoverageVoxel: Sendable, Equatable {
     }
 }
 
-/// Display-level vertical bands (issue #329). Bands partition the
+/// Display-level vertical bands (issue bolph71656-ai/HTDT-Capture#329). Bands partition the
 /// observed start-relative vertical extent into five fixed strata so a
 /// cell can carry an upper-band gap independently of its floor-level
 /// coverage. Band boundaries are derived from the observed y-band
@@ -394,7 +394,7 @@ public struct SpatialVerticalBandSummary: Sendable, Equatable {
     }
 }
 
-/// Live voxel-budget usage for the 3D coverage layer (#329): the
+/// Live voxel-budget usage for the 3D coverage layer (legacy bolph71656-ai/HTDT-Capture#329): the
 /// same contract the 2D `SpatialCoverageCapacityDiagnostics` gives
 /// the region budget — a bounded voxel map can never drop a retained
 /// voxel silently.
@@ -438,12 +438,12 @@ public struct SpatialVoxelCapacityDiagnostics: Sendable, Equatable {
     }
 }
 
-/// Summary of the additive bounded 3D coverage layer (issue #329).
+/// Summary of the additive bounded 3D coverage layer (issue bolph71656-ai/HTDT-Capture#329).
 /// Voxels share the 2D layer's start-relative X/Z grid; the y-band axis
 /// is quantized relative to the scan-start camera height. Bounded to
 /// `maxVoxelCount` by the tracker's own oldest-first eviction —
 /// independent of the 2D `maxRegionCount`/`evictOldestRegion` policy
-/// so in-flight coverage-budget work (#336) stays orthogonal.
+/// so in-flight coverage-budget work (legacy bolph71656-ai/HTDT-Capture#336) stays orthogonal.
 public struct SpatialVerticalCoverageSummary: Sendable, Equatable {
     public let verticalCellSizeMeters: Double
     public let maxVoxelCount: Int
@@ -608,16 +608,16 @@ public struct SpatialScanCoverageSummary: Sendable, Equatable {
     public let meshAvailability: MeshAvailabilityDiagnostic
     public let regions: [SpatialCoverageRegion]
     public let displayBounds: SpatialCoverageBounds?
-    /// Additive 3D-aware layer (issue #329): a bounded voxel map on the
+    /// Additive 3D-aware layer (issue bolph71656-ai/HTDT-Capture#329): a bounded voxel map on the
     /// same start-relative X/Z grid plus a coarse vertical band, so a
     /// cell's `observed` floor-level classification can no longer hide
     /// an unobserved ceiling at the same X/Z.
     public let vertical: SpatialVerticalCoverageSummary
-    /// Live region-budget usage (#336); never silent when the bounded
+    /// Live region-budget usage (legacy bolph71656-ai/HTDT-Capture#336); never silent when the bounded
     /// grid has dropped previously observed cells.
     public let capacity: SpatialCoverageCapacityDiagnostics
     /// Bounded recency list of cell keys dropped by capacity eviction
-    /// (#336). Lets consumers distinguish `unknown` cells that were
+    /// (legacy bolph71656-ai/HTDT-Capture#336). Lets consumers distinguish `unknown` cells that were
     /// never observed from cells previously observed but no longer
     /// retained inside the live budget.
     public let recentlyEvictedKeys: Set<SpatialCoverageCellKey>
@@ -717,7 +717,7 @@ public struct SpatialScanCoverageSummary: Sendable, Equatable {
 
     /// Whether a cell currently classified `unknown` (not retained) was
     /// previously observed and later dropped by the capacity budget
-    /// (#336). A retained region is never reported evicted: the recency
+    /// (legacy bolph71656-ai/HTDT-Capture#336). A retained region is never reported evicted: the recency
     /// list drops the key the moment a fresh observation re-enters.
     public func wasRecentlyEvicted(
         at key: SpatialCoverageCellKey
@@ -757,7 +757,7 @@ public struct SpatialScanCoverageSummary: Sendable, Equatable {
     }
 
     /// The start-relative voxel key containing a world-space point, or
-    /// nil before the reference pose exists (#329).
+    /// nil before the reference pose exists (legacy bolph71656-ai/HTDT-Capture#329).
     public func voxelKey(
         forWorldPoint point: SpatialCoveragePoint3D
     ) -> SpatialCoverageVoxelKey? {
@@ -805,7 +805,7 @@ public struct SpatialScanCoverageSummary: Sendable, Equatable {
 }
 
 public struct SpatialScanCoverageTracker: Sendable {
-    /// Default live region budget (#336). The legacy 256-cell budget
+    /// Default live region budget (legacy bolph71656-ai/HTDT-Capture#336). The legacy 256-cell budget
     /// silently forgot completed regions in an ordinary room once its
     /// 0.5 m grid covered more than ~64 m² of distinct surface cells;
     /// the default now covers a large multi-room path while staying
@@ -820,7 +820,7 @@ public struct SpatialScanCoverageTracker: Sendable {
     public let displayRadiusCells: Int
     /// Vertical quantization of the 3D layer, in meters of
     /// start-relative Y. Coarse on purpose: bands answer "was this
-    /// height range observed", not surface reconstruction (#329).
+    /// height range observed", not surface reconstruction (legacy bolph71656-ai/HTDT-Capture#329).
     public let verticalCellSizeMeters: Double
     /// Bound on the additive voxel layer — independent of
     /// `maxRegionCount` and enforced by the layer's own oldest-first
@@ -867,7 +867,7 @@ public struct SpatialScanCoverageTracker: Sendable {
     private var latestMeshAvailability: MeshAvailabilityDiagnostic = .unavailable
     private var regions: [SpatialCoverageCellKey: StoredRegion] = [:]
     private var voxels: [SpatialCoverageVoxelKey: StoredVoxel] = [:]
-    // #336 capacity diagnostics: bounded counters so eviction is
+    // legacy bolph71656-ai/HTDT-Capture#336 capacity diagnostics: bounded counters so eviction is
     // observable, and a bounded recency list of dropped keys so an
     // `unknown` cell can be distinguished from a previously observed
     // one the budget dropped. The recency list is capped at
@@ -1062,7 +1062,7 @@ public struct SpatialScanCoverageTracker: Sendable {
                 peakRegionCount = max(peakRegionCount, regions.count)
             }
 
-            // #329: the additive 3D layer keys the same point by
+            // legacy bolph71656-ai/HTDT-Capture#329: the additive 3D layer keys the same point by
             // (cell x, cell z, start-relative y-band) so vertical gaps
             // cannot hide inside a 2D "observed" cell. Eviction is the
             // layer's own oldest-first policy, independent of
@@ -1428,9 +1428,9 @@ public struct SpatialScanCoverageTracker: Sendable {
         )
     }
 
-    /// Oldest-first eviction for the additive voxel layer (#329). Kept
+    /// Oldest-first eviction for the additive voxel layer (legacy bolph71656-ai/HTDT-Capture#329). Kept
     /// separate from `evictOldestRegion` so the 2D budget policy
-    /// (including in-flight #336 changes) is untouched. Eviction is
+    /// (including in-flight legacy bolph71656-ai/HTDT-Capture#336 changes) is untouched. Eviction is
     /// recorded: counters plus a bounded recency list let consumers
     /// distinguish a never-observed elevation band from a dropped one.
     private mutating func evictOldestVoxel(
@@ -1465,7 +1465,7 @@ public struct SpatialScanCoverageTracker: Sendable {
         }
     }
 
-    /// Capacity eviction (#336) is value-aware and recorded: low-
+    /// Capacity eviction (legacy bolph71656-ai/HTDT-Capture#336) is value-aware and recorded: low-
     /// information regions (weak/transient) are dropped before a
     /// high-confidence `observed` region, and only among the same tier
     /// does the stalest last-observation lose. The dropped key joins a

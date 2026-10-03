@@ -1,7 +1,7 @@
 # Phase 1 Session Foundation Implementation Record
 
 Status: In progress  
-Issue: #2
+Issue: legacy bolph71656-ai/HTDT-Capture#2
 
 ## Implemented
 
@@ -42,7 +42,7 @@ See `docs/HOST_CAPTURE_WORKFLOW.md` for the host integration boundary.
 ## Intentionally not claimed complete
 
 The following require further implementation and/or real iOS hardware and
-therefore remain open in Issue #2:
+therefore remain open in Issue bolph71656-ai/HTDT-Capture#2:
 
 - prove RoomPlan + scene reconstruction behavior on the target LiDAR device;
 - determine whether sceneDepth survives while RoomPlan is running;

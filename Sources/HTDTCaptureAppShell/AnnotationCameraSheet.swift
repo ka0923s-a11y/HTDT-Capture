@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 import HTDTCaptureCore
 
-/// What the camera sheet is capturing (#214).
+/// What the camera sheet is capturing (legacy bolph71656-ai/HTDT-Capture#214).
 public enum AnnotationCameraCaptureMode: Sendable {
     /// Center-reticle placement: probe + capture a position authority.
     case position
@@ -11,7 +11,7 @@ public enum AnnotationCameraCaptureMode: Sendable {
     case heading
 }
 
-/// Camera-first annotation capture sheet (#214/#246). The shared live
+/// Camera-first annotation capture sheet (legacy bolph71656-ai/HTDT-Capture#214/legacy bolph71656-ai/HTDT-Capture#246). The shared live
 /// AR view is injected by the host — this view never creates a second
 /// session — and overlays a center reticle whose feedback label reports
 /// exactly what the center ray would hit (target class + distance)
@@ -42,7 +42,7 @@ public struct AnnotationCameraCaptureSheet: View {
     public let captureOrientation:
         () async throws -> AnnotationOrientationAuthority
     /// RoomPlan objects the operator can bind to directly without
-    /// aiming the reticle at one (#246).
+    /// aiming the reticle at one (legacy bolph71656-ai/HTDT-Capture#246).
     public let roomPlanObjects: [RoomPlanBindableObject]
     public let coordinateSpaceID: CoordinateSpaceID
     /// Delivers the accepted authority: `.placement` carries the provenance.
@@ -281,7 +281,7 @@ public struct AnnotationCameraCaptureSheet: View {
     }
 
     /// Freeze card shown after a capture so the operator sees the exact
-    /// authority class before it lands on the form (#214/#246).
+    /// authority class before it lands on the form (legacy bolph71656-ai/HTDT-Capture#214/legacy bolph71656-ai/HTDT-Capture#246).
     @ViewBuilder
     private func confirmCard(
         _ result: AnnotationCameraCaptureResult
@@ -405,7 +405,7 @@ public struct AnnotationCameraCaptureSheet: View {
         ) * 180 / .pi
         var summary = String(format:
             String(localized: "Captured heading %.0f°"), yaw)
-        // #228: aim is full-3D — surface the tilt when the front
+        // legacy bolph71656-ai/HTDT-Capture#228: aim is full-3D — surface the tilt when the front
         // axis is not gravity-horizontal.
         let pitch =
             asin(max(-1, min(1, Double(front.y))))

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Semantic color roles for the shared GUI design system (#361/#364).
+/// Semantic color roles for the shared GUI design system (legacy bolph71656-ai/HTDT-Capture#361/legacy bolph71656-ai/HTDT-Capture#364).
 ///
 /// These are *roles*, not brand colors: AppShell maps each role to a
 /// system color so light/dark appearance and Dynamic Type contrast stay
@@ -32,7 +32,7 @@ public enum CaptureColorRole:
     case secondary
 }
 
-/// The canonical presentation status vocabulary (#361/#364 §13).
+/// The canonical presentation status vocabulary (legacy bolph71656-ai/HTDT-Capture#361/legacy bolph71656-ai/HTDT-Capture#364 §13).
 ///
 /// Every status resolves to symbol + human label + color role so no
 /// state is ever conveyed by color alone. `label` returns the
@@ -140,7 +140,7 @@ public enum CaptureSemanticStatus:
 }
 
 /// One required-action or advisory notice for the capture-first home
-/// screen (#360): the landing surface shows device readiness only when
+/// screen (legacy bolph71656-ai/HTDT-Capture#360): the landing surface shows device readiness only when
 /// the operator must act, instead of permanent telemetry rows.
 public enum CaptureHomeNotice:
     Sendable,
@@ -153,7 +153,7 @@ public enum CaptureHomeNotice:
     case deviceUnsupported
     /// Free storage is critically low.
     case storageCritical
-    /// An end-accepted capture draft survived an interruption (#437)
+    /// An end-accepted capture draft survived an interruption (legacy bolph71656-ai/HTDT-Capture#437)
     /// — the persistent stranded-draft indicator. Carries the draft
     /// count.
     case interruptedCapture(draftCount: Int)
@@ -206,7 +206,7 @@ public enum CaptureHomeNotice:
     }
 }
 
-/// Computes the home-screen presentation (#360): which readiness
+/// Computes the home-screen presentation (legacy bolph71656-ai/HTDT-Capture#360): which readiness
 /// notices are visible, and whether New capture is enabled. Pure value
 /// mapping so the information hierarchy stays unit-testable.
 public enum CaptureHomePresentation {
@@ -261,7 +261,7 @@ public enum CaptureHomePresentation {
     }
 }
 
-/// The pure layout-adaptation rule (#362): two-pane compositions are
+/// The pure layout-adaptation rule (legacy bolph71656-ai/HTDT-Capture#362): two-pane compositions are
 /// allowed on regular width — iPad regular size class, a wide Stage
 /// Manager or macOS window — decided by *available* width, never a
 /// device-name check. Very large Dynamic Type always falls back to the
@@ -284,7 +284,7 @@ public enum CaptureAdaptiveLayoutDecision {
     }
 }
 
-/// The series-first visual identity of one library entry (#360):
+/// The series-first visual identity of one library entry (legacy bolph71656-ai/HTDT-Capture#360):
 /// human name first, then recency + revision count + concise status;
 /// the raw revision/series UUIDs are detail-level provenance, never
 /// the default visible identity.
@@ -385,10 +385,10 @@ public struct CaptureSeriesPresentation:
     }
 }
 
-// MARK: - Operator copy helpers (#442/#443)
+// MARK: - Operator copy helpers (legacy bolph71656-ai/HTDT-Capture#442/legacy bolph71656-ai/HTDT-Capture#443)
 
 /// Chooses the singular or plural localized format string for a
-/// count-bearing message (#442). The raw `"(s)"` idiom never reaches
+/// count-bearing message (legacy bolph71656-ai/HTDT-Capture#442). The raw `"(s)"` idiom never reaches
 /// the operator: each call site passes two complete format strings —
 /// one per grammatical form — so the localization audit extracts a
 /// full, translatable sentence for each. Both take the count as their
@@ -402,7 +402,7 @@ public func captureCountPhrase(
 }
 
 /// Humanizes a wire token (`"a_b"` → "a b") as a last-resort display
-/// string where a dedicated localized label does not exist yet (#443).
+/// string where a dedicated localized label does not exist yet (legacy bolph71656-ai/HTDT-Capture#443).
 public func captureHumanizedToken(_ token: String) -> String {
     token
         .replacingOccurrences(of: "_", with: " ")
@@ -410,7 +410,7 @@ public func captureHumanizedToken(_ token: String) -> String {
 }
 
 /// Localized display name for a recoverable working-revision phase
-/// (#441): draft rows lead with this rather than the stored UUID.
+/// (legacy bolph71656-ai/HTDT-Capture#441): draft rows lead with this rather than the stored UUID.
 public func workingRevisionPhaseName(
     _ phase: WorkingRevisionPhase
 ) -> String {
@@ -427,7 +427,7 @@ public func workingRevisionPhaseName(
 }
 
 /// Localized display name for a plan-underlay alignment method
-/// (#443): the raw `alignment.method` enum token never reaches the
+/// (legacy bolph71656-ai/HTDT-Capture#443): the raw `alignment.method` enum token never reaches the
 /// operator.
 public func planUnderlayAlignmentMethodName(
     _ method: PlanUnderlayAlignmentMethod
@@ -445,7 +445,7 @@ public func planUnderlayAlignmentMethodName(
 }
 
 /// Localized display name for the session's geometry-evidence mode
-/// (#443), tolerating a missing summary value.
+/// (legacy bolph71656-ai/HTDT-Capture#443), tolerating a missing summary value.
 public func observationGeometryEvidenceModeName(
     _ mode: ObservationGeometryEvidenceMode?
 ) -> String {
@@ -464,7 +464,7 @@ public func observationGeometryEvidenceModeName(
 }
 
 /// Localized display name for the movement capability guidance
-/// recorded during the scan (#443).
+/// recorded during the scan (legacy bolph71656-ai/HTDT-Capture#443).
 public func scanMovementCapabilityName(
     _ capability: ScanMovementCapability?
 ) -> String {
@@ -481,7 +481,7 @@ public func scanMovementCapabilityName(
 }
 
 /// Localized display name for a directional reference convention
-/// (#443): `"start_relative"` is the only convention producers emit
+/// (legacy bolph71656-ai/HTDT-Capture#443): `"start_relative"` is the only convention producers emit
 /// today; unknown tokens degrade to a humanized phrase rather than a
 /// raw wire value.
 public func directionReferenceName(_ raw: String) -> String {
@@ -497,7 +497,7 @@ public func directionReferenceName(_ raw: String) -> String {
 }
 
 /// Localized display name for an HTDT equipment-catalog identity
-/// kind (#443) — `user_defined` reads "User defined", never the raw
+/// kind (legacy bolph71656-ai/HTDT-Capture#443) — `user_defined` reads "User defined", never the raw
 /// wire token.
 public func equipmentIdentityKindName(
     _ kind: HTDTEquipmentIdentityKind

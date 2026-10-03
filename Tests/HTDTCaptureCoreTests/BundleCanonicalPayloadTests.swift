@@ -313,7 +313,7 @@ func payloadWithTrailingBytesRejected() throws {
 
 @Test
 func unownedJSONPayloadRejected() throws {
-    // #332: a manifest-declared .json payload must be owned by a
+    // legacy bolph71656-ai/HTDT-Capture#332: a manifest-declared .json payload must be owned by a
     // published schema or be a declared external authority payload —
     // generic supplemental persistence cannot bypass validation.
     let root = try makeTemporaryDirectory()

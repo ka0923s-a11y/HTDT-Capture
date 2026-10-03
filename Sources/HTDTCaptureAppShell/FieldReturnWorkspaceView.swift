@@ -6,8 +6,8 @@ import HTDTCaptureCore
 import UIKit
 #endif
 
-/// The non-spatial field-return workspace (issues #400, #417,
-/// #418): the operator-facing surface for completing a mission's
+/// The non-spatial field-return workspace (issues bolph71656-ai/HTDT-Capture#400, legacy bolph71656-ai/HTDT-Capture#417,
+/// legacy bolph71656-ai/HTDT-Capture#418): the operator-facing surface for completing a mission's
 /// inventory/photo/settings/wiring tasks without a RoomPlan capture
 /// revision. Each task row leads with the authoring action its
 /// `task_kind` maps to — inventory units, wiring routes, settings
@@ -21,7 +21,7 @@ import UIKit
 struct HTDTFieldReturnWorkspaceView: View {
     let record: HTDTMissionRecord
     let actions: CaptureRootActions
-    /// #423: active paired receivers offered as send targets —
+    /// legacy bolph71656-ai/HTDT-Capture#423: active paired receivers offered as send targets —
     /// capability-checked per artifact kind before the operator
     /// commits bytes.
     var pairedDestinations: [PairedHTDTDestination] = []
@@ -35,7 +35,7 @@ struct HTDTFieldReturnWorkspaceView: View {
     }
 
     /// Bounded operator-facing error with the technical detail kept
-    /// under a disclosure (issue #417) — the headline never carries
+    /// under a disclosure (issue bolph71656-ai/HTDT-Capture#417) — the headline never carries
     /// a raw `error` description.
     private struct StatusNotice {
         let message: String
@@ -89,7 +89,7 @@ struct HTDTFieldReturnWorkspaceView: View {
     @State private var freeRefDraft = ""
     @State private var addingRefToItem: String?
     /// Per-destination preflight verdicts keyed by pairing id
-    /// (#423 §5/§7) — the Send button disables with the reason
+    /// (legacy bolph71656-ai/HTDT-Capture#423 §5/§7) — the Send button disables with the reason
     /// when a receiver cannot take field returns.
     @State private var sendVerdicts:
         [String: HTDTCompatibilityVerdict] = [:]
@@ -296,7 +296,7 @@ struct HTDTFieldReturnWorkspaceView: View {
         }
     }
 
-    /// #423 §7: the durable-delivery affordances offered once the
+    /// legacy bolph71656-ai/HTDT-Capture#423 §7: the durable-delivery affordances offered once the
     /// `.htdtfieldreturn` exists. Each paired receiver gets its own
     /// row; capability preflight gates the Send button and explains
     /// the refusal — Share stays available on every device.
@@ -467,7 +467,7 @@ struct HTDTFieldReturnWorkspaceView: View {
 
     // MARK: - Readiness
 
-    /// Finalization readiness (issue #418): how many required tasks
+    /// Finalization readiness (issue bolph71656-ai/HTDT-Capture#418): how many required tasks
     /// are fulfilled, which are still open, and whether any ledger
     /// ref is broken. Artifact validity ≠ mission completeness —
     /// this panel reports both without blocking.
@@ -554,7 +554,7 @@ struct HTDTFieldReturnWorkspaceView: View {
 
     /// Ledger fulfillment refs that do not resolve against the
     /// staged authority collections — surfaced pre-finalization so
-    /// the validator's rejection is never a surprise (issue #418).
+    /// the validator's rejection is never a surprise (issue bolph71656-ai/HTDT-Capture#418).
     private func brokenLedgerRefs(
         _ workspace: HTDTFieldReturnWorkspace
     ) -> [String] {
@@ -649,7 +649,7 @@ struct HTDTFieldReturnWorkspaceView: View {
         )
     }
 
-    /// The lead authoring control for a task row (issue #418): the
+    /// The lead authoring control for a task row (issue bolph71656-ai/HTDT-Capture#418): the
     /// action is shaped by the task's kind — an inventory task adds
     /// an inventory unit, a routing task records a wiring route, and
     /// so on — and committing it attaches the typed ref.
@@ -767,7 +767,7 @@ struct HTDTFieldReturnWorkspaceView: View {
     }
 
     /// One fulfillment ref rendered as its human label with the
-    /// exact ref under it (issue #417) — unresolved refs keep the
+    /// exact ref under it (issue bolph71656-ai/HTDT-Capture#417) — unresolved refs keep the
     /// raw token visible since nothing else identifies them.
     @ViewBuilder
     private func fulfillmentRefRow(
@@ -821,7 +821,7 @@ struct HTDTFieldReturnWorkspaceView: View {
     }
 
     /// Operator picked an outcome directly — `declined` and
-    /// `notApplicable` carry a required reason (issue #418), so the
+    /// `notApplicable` carry a required reason (issue bolph71656-ai/HTDT-Capture#418), so the
     /// reason sheet interposes before the record is written.
     private func pickOutcome(
         itemRef: String,
@@ -905,7 +905,7 @@ struct HTDTFieldReturnWorkspaceView: View {
 
     /// Typed refs the staged workspace offers as fulfillment basis —
     /// labels come from the shared authority-ref resolver so no raw
-    /// namespace token reaches the surface (issues #417/#418).
+    /// namespace token reaches the surface (issues bolph71656-ai/HTDT-Capture#417/legacy bolph71656-ai/HTDT-Capture#418).
     private func fulfillmentCandidates(
         _ workspace: HTDTFieldReturnWorkspace
     ) -> [FieldNoteBindingCandidate] {
@@ -1283,7 +1283,7 @@ struct HTDTFieldReturnWorkspaceView: View {
 
     /// Stage asset bytes + record a `field_evidence` row bound to
     /// the task — shared by file import and the camera capture
-    /// path so both land in the same schema (issue #418).
+    /// path so both land in the same schema (issue bolph71656-ai/HTDT-Capture#418).
     private func stageAsset(
         data: Data,
         filename: String,
@@ -1353,7 +1353,7 @@ struct HTDTFieldReturnWorkspaceView: View {
     @State private var inventorySerial = ""
 
     /// Bounded inventory authoring for `inventory_item` tasks
-    /// (issue #418): the operator labels the physical unit — class
+    /// (issue bolph71656-ai/HTDT-Capture#418): the operator labels the physical unit — class
     /// + label + optional model/serial — and the record lands in
     /// `inventory_items.json` as a `SystemInventoryItem`, never as
     /// a freeform evidence title.
@@ -1450,7 +1450,7 @@ struct HTDTFieldReturnWorkspaceView: View {
     @State private var roomStateValue: RoomStateValue = .other
     @State private var roomStateDetail = ""
 
-    /// Bounded room-state authoring (issue #418): a `room_state`
+    /// Bounded room-state authoring (issue bolph71656-ai/HTDT-Capture#418): a `room_state`
     /// observation with a closed kind/value vocabulary — never a
     /// freeform evidence title standing in for the room state.
     @ViewBuilder
@@ -1547,7 +1547,7 @@ struct HTDTFieldReturnWorkspaceView: View {
     // MARK: - Outcome reason
 
     /// `declined`/`notApplicable` require a structured reason
-    /// (issue #418) — collected before the outcome is written so a
+    /// (issue bolph71656-ai/HTDT-Capture#418) — collected before the outcome is written so a
     /// reason-less outcome can never reach the ledger.
     @ViewBuilder
     private func reasonSheet(
@@ -1653,7 +1653,7 @@ extension HTDTFieldReturnTaskLedgerEntry.Outcome:
     }
 }
 
-/// Localized human labels for field-return surfaces (issue #417):
+/// Localized human labels for field-return surfaces (issue bolph71656-ai/HTDT-Capture#417):
 /// task kinds, equipment classes, room-state vocabularies. Core
 /// enums stay serialization tokens — every user-facing name maps
 /// here.
@@ -1948,7 +1948,7 @@ enum FieldReturnPresentation {
 }
 
 #if canImport(UIKit)
-/// Camera capture for field-return evidence (issue #418): a plain
+/// Camera capture for field-return evidence (issue bolph71656-ai/HTDT-Capture#418): a plain
 /// `UIImagePickerController` — permission is requested lazily by
 /// the system on first use, and no RoomPlan/AR session is touched.
 /// The photo lands as a staged `field_evidence` asset bound to the

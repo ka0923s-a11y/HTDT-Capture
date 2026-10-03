@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #379: QR pairing payload validation, pinned-identity
+/// Issue bolph71656-ai/HTDT-Capture#379: QR pairing payload validation, pinned-identity
 /// normalization, and the paired-destination store's pair/forget/
 /// revoke lifecycle.
 final class HTDTPairingTests: XCTestCase {

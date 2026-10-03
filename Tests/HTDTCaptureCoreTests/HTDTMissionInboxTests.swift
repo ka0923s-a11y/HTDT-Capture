@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Issue #386: the mission inbox — import idempotence, conflict
+/// Issue bolph71656-ai/HTDT-Capture#386: the mission inbox — import idempotence, conflict
 /// fail-closed behavior, explicit supersession, dependency gating,
 /// single-active-mission enforcement, and honest resume semantics.
 final class HTDTMissionInboxTests: XCTestCase {
@@ -324,7 +324,7 @@ final class HTDTMissionInboxTests: XCTestCase {
         )
     }
 
-    // MARK: - Post-field lifecycle (#456)
+    // MARK: - Post-field lifecycle (legacy bolph71656-ai/HTDT-Capture#456)
 
     func testFieldCaptureCompletionAdvancesOnlyInProgress() throws {
         let root = try makeRoot()
@@ -481,7 +481,7 @@ final class HTDTMissionInboxTests: XCTestCase {
         XCTAssertNil(try store.record(id: record.recordID)?.userNote)
     }
 
-    /// #454: resume re-opens an in-progress mission only — it is
+    /// legacy bolph71656-ai/HTDT-Capture#454: resume re-opens an in-progress mission only — it is
     /// not a second Start that admits received/ready/blocked
     /// missions while skipping dependency evaluation.
     func testResumeRefusesNonInProgressMission() throws {

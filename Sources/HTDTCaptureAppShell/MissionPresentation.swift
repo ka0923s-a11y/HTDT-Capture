@@ -2,7 +2,7 @@ import Foundation
 import HTDTCaptureCore
 
 /// Operator-facing presentation for the Mission/production surfaces
-/// (issue #412): every persisted enum token maps to a localized task
+/// (issue bolph71656-ai/HTDT-Capture#412): every persisted enum token maps to a localized task
 /// label here so `rawValue`/`String(describing:)` never reach normal
 /// UX. Technical identifiers (item ids, issue codes, plan refs) stay
 /// in secondary Details-style captions. Enum switches carry
@@ -10,9 +10,9 @@ import HTDTCaptureCore
 /// "Unknown" label rather than leaking its token.
 ///
 /// Reuse, per the issue: entity/channel-role/quantity names delegate
-/// to `AnnotationPresentation` (the #220 mapping the annotation
+/// to `AnnotationPresentation` (the legacy bolph71656-ai/HTDT-Capture#220 mapping the annotation
 /// workspace already speaks) and as-built states delegate to
-/// `TheaterAuthorityPresentation.asBuiltStateName` (#365), so one
+/// `TheaterAuthorityPresentation.asBuiltStateName` (legacy bolph71656-ai/HTDT-Capture#365), so one
 /// operator-facing label exists everywhere.
 public enum MissionPresentation {
     // MARK: Task-plan checklist
@@ -149,7 +149,7 @@ public enum MissionPresentation {
 
     /// Display name for a mission ledger task item
     /// (`"measurement:room_width"` → "room width"): the `kind:` prefix
-    /// is provenance, the tail is the operator-facing name (#441).
+    /// is provenance, the tail is the operator-facing name (legacy bolph71656-ai/HTDT-Capture#441).
     public static func taskItemName(_ taskItemID: String) -> String {
         let tail = taskItemID.split(
             separator: ":",
@@ -161,7 +161,7 @@ public enum MissionPresentation {
     }
 
     /// Per-kind field-progress value for a mission's replayed ledger
-    /// (#397): "x/y completed", plus " · n required open" while
+    /// (legacy bolph71656-ai/HTDT-Capture#397): "x/y completed", plus " · n required open" while
     /// required items stay outstanding.
     public static func kindProgressText(
         completedCount: Int,
@@ -322,7 +322,7 @@ public enum MissionPresentation {
         }
     }
 
-    /// #462: operator-facing names for the delivery-queue filters.
+    /// legacy bolph71656-ai/HTDT-Capture#462: operator-facing names for the delivery-queue filters.
     public static func deliveryQueueFilterName(
         _ filter: HTDTDeliveryQueueFilter
     ) -> String {
@@ -499,7 +499,7 @@ public enum MissionPresentation {
     }
 
     /// Caption describing what each reference-point semantics choice
-    /// anchors the item's semantic position to (#291).
+    /// anchors the item's semantic position to (legacy bolph71656-ai/HTDT-Capture#291).
     public static func referencePointSemanticsDescription(
         _ semantics: ReferencePointSemantics
     ) -> String {

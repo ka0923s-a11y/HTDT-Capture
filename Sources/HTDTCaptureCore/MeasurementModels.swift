@@ -12,7 +12,7 @@ public enum MeasurementAcquisitionMethod: String, Codable, Sendable {
     /// A value read from a connected or standalone external instrument
     /// (thermometer, hygrometer, SPL meter, ...) that is neither a tape
     /// nor a laser distance measurement. Keeps external-meter readings
-    /// distinguishable from bare manual entry (issue #253).
+    /// distinguishable from bare manual entry (issue bolph71656-ai/HTDT-Capture#253).
     case externalInstrument = "external_instrument"
     case lidarDerived = "lidar_derived"
     case roomPlanDerived = "roomplan_derived"
@@ -41,8 +41,8 @@ public enum UserAttestationState: String, Codable, Sendable {
 /// Canonical persisted unit tokens (Capture Bundle v1). Only canonical
 /// units are stored; practical input units (cm/mm/ft/in/degF/...) are a
 /// presentation concern and are normalized before a record is written
-/// (issue #235). `degreeCelsius` uses explicit semantics:
-/// `K = degC + 273.15` exactly (issue #269).
+/// (issue bolph71656-ai/HTDT-Capture#235). `degreeCelsius` uses explicit semantics:
+/// `K = degC + 273.15` exactly (issue bolph71656-ai/HTDT-Capture#269).
 public enum MeasurementUnit: String, Codable, Sendable {
     case meter = "m"
     case radian = "rad"
@@ -93,17 +93,17 @@ public enum MeasurementModelError: Error, Sendable, Equatable {
     case derivedProvenanceMismatch
     case missingDerivationAuthority
     /// An unregistered `quantity_type` token lacks the reserved `x_`
-    /// custom namespace prefix on a v1.1.0+ payload (#344).
+    /// custom namespace prefix on a v1.1.0+ payload (legacy bolph71656-ai/HTDT-Capture#344).
     case unscopedCustomQuantity
-    /// The value lies outside the quantity's physical domain (#334).
+    /// The value lies outside the quantity's physical domain (legacy bolph71656-ai/HTDT-Capture#334).
     case valueOutsideQuantityDomain
     /// Structured uncertainty fields are contradictory or malformed
-    /// (#334).
+    /// (legacy bolph71656-ai/HTDT-Capture#334).
     case invalidUncertainty
-    /// Lineage fields are contradictory or malformed (#304).
+    /// Lineage fields are contradictory or malformed (legacy bolph71656-ai/HTDT-Capture#304).
     case invalidMeasurementLineage
     /// The document claims a schema_version this contract does not
-    /// support (#332).
+    /// support (legacy bolph71656-ai/HTDT-Capture#332).
     case unsupportedSchemaVersion
 }
 
@@ -167,7 +167,7 @@ public enum MeasurementValue: Codable, Sendable, Equatable {
     }
 }
 
-/// What the stated `value` number means (#334). The kind never
+/// What the stated `value` number means (legacy bolph71656-ai/HTDT-Capture#334). The kind never
 /// conflates measurement uncertainty with an installation
 /// tolerance or a fit residual — those live on their own records.
 public enum MeasurementUncertaintyKind: String, Codable, Sendable {
@@ -189,7 +189,7 @@ public enum MeasurementUncertaintyKind: String, Codable, Sendable {
     case unknownStated = "unknown_stated"
 }
 
-/// Typed uncertainty authority for a measurement record (#334).
+/// Typed uncertainty authority for a measurement record (legacy bolph71656-ai/HTDT-Capture#334).
 /// Replaces the semantics-free `stated_uncertainty` scalar with a
 /// declared kind, declared unit (or same-as-quantity), optional
 /// coverage metadata, and a provenance basis. `coverage_factor` and
@@ -271,7 +271,7 @@ public struct MeasurementUncertainty: Codable, Sendable, Equatable {
 }
 
 /// A pointer to a measurement record in this or an earlier
-/// capture revision (#304). `capture_revision_id` nil means the
+/// capture revision (legacy bolph71656-ai/HTDT-Capture#304). `capture_revision_id` nil means the
 /// same revision — same-session retakes never need to know the
 /// revision id at authoring time.
 public struct MeasurementLineageReference:
@@ -295,7 +295,7 @@ public struct MeasurementLineageReference:
 }
 
 /// How a measurement observation relates to a prior record
-/// (#304). Repeat vs retake is a semantic distinction the wire
+/// (legacy bolph71656-ai/HTDT-Capture#304). Repeat vs retake is a semantic distinction the wire
 /// must carry — it is not derivable from equal type/unit.
 public enum MeasurementLineageRelation: String, Codable, Sendable {
     /// An independent repeated observation of the same quantity —
@@ -312,7 +312,7 @@ public enum MeasurementLineageRelation: String, Codable, Sendable {
 }
 
 /// Disposition of a measurement record inside the working set
-/// (#304). `superseded` is a declared state, never deletion: prior
+/// (legacy bolph71656-ai/HTDT-Capture#304). `superseded` is a declared state, never deletion: prior
 /// evidence is never removed or rewritten.
 public enum MeasurementDisposition: String, Codable, Sendable {
     /// Authoritative current value.
@@ -326,7 +326,7 @@ public enum MeasurementDisposition: String, Codable, Sendable {
 }
 
 /// Typed binding from a measurement to the task-plan item it was
-/// captured to satisfy (#354) — the stronger endpoint contract that
+/// captured to satisfy (legacy bolph71656-ai/HTDT-Capture#354) — the stronger endpoint contract that
 /// replaces generic type/unit matching when a plan item declares
 /// `endpoint_semantics`.
 public struct MeasurementTaskRef: Codable, Sendable, Equatable {
@@ -350,7 +350,7 @@ public struct MeasurementTaskRef: Codable, Sendable, Equatable {
     }
 }
 
-/// Measurement observation lineage (#304): requested-observation
+/// Measurement observation lineage (legacy bolph71656-ai/HTDT-Capture#304): requested-observation
 /// identity, prior-record relation, and disposition. Nil on a
 /// legacy record means lineage was never asserted — the record is
 /// treated as an active independent observation.
@@ -365,7 +365,7 @@ public struct MeasurementLineage: Codable, Sendable, Equatable {
     /// Required iff `disposition == .rejectedWithReason`.
     public let dispositionReason: String?
     /// The task-plan item this observation was requested to
-    /// satisfy (#354).
+    /// satisfy (legacy bolph71656-ai/HTDT-Capture#354).
     public let taskRef: MeasurementTaskRef?
 
     public init(
@@ -448,7 +448,7 @@ public struct MeasurementLineage: Codable, Sendable, Equatable {
 }
 
 /// Structured source identity for `manufacturer_specification`
-/// measurements (issue #275). A datasheet/catalog value must be able to
+/// measurements (issue bolph71656-ai/HTDT-Capture#275). A datasheet/catalog value must be able to
 /// point at the exact external authority it came from rather than
 /// leaning on free-text notes. All fields optional, but at least one
 /// must be present — an empty source authority carries no identity.
@@ -526,7 +526,7 @@ public struct MeasurementSourceAuthority: Codable, Sendable, Equatable {
     }
 }
 
-/// Algorithmic lineage of a derived measurement (issue #286): which
+/// Algorithmic lineage of a derived measurement (issue bolph71656-ai/HTDT-Capture#286): which
 /// deterministic computation produced the value, its version, and the
 /// exact source authorities it consumed (endpoint/geometry refs).
 public struct MeasurementDerivation: Codable, Sendable, Equatable {
@@ -643,28 +643,28 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
     public let provenanceClass: MeasurementProvenanceClass
     public let sourceValueText: String?
     /// Exact external source authority for
-    /// `manufacturer_specification` values (issue #275). Never used for
+    /// `manufacturer_specification` values (issue bolph71656-ai/HTDT-Capture#275). Never used for
     /// on-site instrument provenance — that lives in `instrument`.
     public let sourceAuthority: MeasurementSourceAuthority?
     /// Algorithmic lineage for derived/app-computed values
-    /// (issue #286). Never present on raw user-entered values.
+    /// (issue bolph71656-ai/HTDT-Capture#286). Never present on raw user-entered values.
     public let derivation: MeasurementDerivation?
-    /// Typed uncertainty authority (#334); supersedes the bare
+    /// Typed uncertainty authority (legacy bolph71656-ai/HTDT-Capture#334); supersedes the bare
     /// `stated_uncertainty` scalar on v1.1.0 payloads. When both are
     /// present `stated_uncertainty` must equal `uncertainty.value` —
     /// the legacy field only mirrors the structured record.
     public let uncertainty: MeasurementUncertainty?
-    /// Observation lineage (#304): repeat/retake/supersession
+    /// Observation lineage (legacy bolph71656-ai/HTDT-Capture#304): repeat/retake/supersession
     /// relation to a prior record, disposition, and optional
-    /// task-plan binding (#354). Nil on legacy records = independent
+    /// task-plan binding (legacy bolph71656-ai/HTDT-Capture#354). Nil on legacy records = independent
     /// observation, lineage unknown.
     public let lineage: MeasurementLineage?
     /// Exact instrument profile version this value relied on
-    /// (issue #331). When present it is the instrument authority; the
+    /// (issue bolph71656-ai/HTDT-Capture#331). When present it is the instrument authority; the
     /// legacy free-text `instrument` field stays populated for
     /// readability and remains loadable on its own.
     public let instrumentAuthority: MeasurementInstrumentReference?
-    /// Optional app-local author/operator binding (issue #310):
+    /// Optional app-local author/operator binding (issue bolph71656-ai/HTDT-Capture#310):
     /// `operator_id` from `derived/operator-profiles.json`. Anonymous
     /// records remain valid — identity is claimed, never assumed.
     public let authorOperatorID: OperatorProfileID?
@@ -724,7 +724,7 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
         }
         // The structured uncertainty record is dimensionally coherent
         // with the measurement and, when the legacy mirror is also
-        // present, identical to it (#334).
+        // present, identical to it (legacy bolph71656-ai/HTDT-Capture#334).
         if let uncertainty {
             if let uncertaintyUnit = uncertainty.unit {
                 guard uncertaintyUnit.dimension == unit.dimension
@@ -778,7 +778,7 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
 
         // Manufacturer-specification source identity may only decorate
         // a `manufacturer_specification` record; an on-site instrument
-        // reading is not a datasheet value (issue #275).
+        // reading is not a datasheet value (issue bolph71656-ai/HTDT-Capture#275).
         if sourceAuthority != nil,
            acquisitionMethod != .manufacturerSpecification
         {
@@ -786,7 +786,7 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
                 .sourceAuthorityRequiresManufacturerSpecification
         }
 
-        // Provenance mapping for computed values (issue #286): a
+        // Provenance mapping for computed values (issue bolph71656-ai/HTDT-Capture#286): a
         // RoomPlan-derived value is apple_roomplan_inference authority,
         // a LiDAR/mesh-derived value is arkit_mesh_reconstruction, and a
         // value the capture app computed from other authorities is
@@ -853,7 +853,7 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
 
     /// A copy of this measurement with `author_operator_id` set to
     /// `operatorID` — used when the workspace applies the selected
-    /// operator profile to a newly authored record (issue #310).
+    /// operator profile to a newly authored record (issue bolph71656-ai/HTDT-Capture#310).
     public func withAuthorOperator(
         _ operatorID: OperatorProfileID?
     ) throws -> CaptureMeasurement {
@@ -881,7 +881,7 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
 
     /// A copy of this measurement with `instrument_authority` set —
     /// the legacy `instrument` text is preserved verbatim so older
-    /// readers keep working (issue #331).
+    /// readers keep working (issue bolph71656-ai/HTDT-Capture#331).
     public func withInstrumentAuthority(
         _ reference: MeasurementInstrumentReference?
     ) throws -> CaptureMeasurement {
@@ -1013,12 +1013,12 @@ public struct CaptureMeasurement: Codable, Sendable, Equatable {
 
 public struct CaptureMeasurementCollection: Codable, Sendable, Equatable {
     public static let expectedSchema = "htdt.capture.measurements"
-    /// The payload version this build emits (#332). v1.1.0 adds
-    /// structured uncertainty (#334), observation lineage/disposition
-    /// (#304), and the open-token namespace policy for `quantity_type`
-    /// (#344).
+    /// The payload version this build emits (legacy bolph71656-ai/HTDT-Capture#332). v1.1.0 adds
+    /// structured uncertainty (legacy bolph71656-ai/HTDT-Capture#334), observation lineage/disposition
+    /// (legacy bolph71656-ai/HTDT-Capture#304), and the open-token namespace policy for `quantity_type`
+    /// (legacy bolph71656-ai/HTDT-Capture#344).
     public static let expectedSchemaVersion = "1.1.0"
-    /// Every payload version this build can decode (#332).
+    /// Every payload version this build can decode (legacy bolph71656-ai/HTDT-Capture#332).
     public static let supportedSchemaVersions: [String] = [
         "1.0.0", "1.1.0",
     ]
@@ -1037,8 +1037,8 @@ public struct CaptureMeasurementCollection: Codable, Sendable, Equatable {
     /// Validates a collection under the contract pinned to
     /// `declaredSchemaVersion`. v1.1.0 payloads enforce the quantity
     /// registry in full — canonical unit/shape/endpoint semantics,
-    /// physical value domain (#334), and the `x_` custom-token
-    /// namespace policy (#344). v1.0.0 payloads stay readable with
+    /// physical value domain (legacy bolph71656-ai/HTDT-Capture#334), and the `x_` custom-token
+    /// namespace policy (legacy bolph71656-ai/HTDT-Capture#344). v1.0.0 payloads stay readable with
     /// unscoped custom quantities and unrestricted values.
     init(
         measurements: [CaptureMeasurement],
@@ -1065,7 +1065,7 @@ public struct CaptureMeasurementCollection: Codable, Sendable, Equatable {
 
     /// Records carrying unscoped custom `quantity_type` tokens —
     /// only possible on legacy v1.0.0 payloads; they classify
-    /// `legacy_custom_unscoped` (#344) and are surfaced for Review
+    /// `legacy_custom_unscoped` (legacy bolph71656-ai/HTDT-Capture#344) and are surfaced for Review
     /// rather than silently reinterpreted.
     public var legacyUnscopedQuantityMeasurements: [CaptureMeasurement]
     {

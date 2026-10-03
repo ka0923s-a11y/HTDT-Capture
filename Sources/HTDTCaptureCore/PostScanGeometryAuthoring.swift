@@ -6,9 +6,9 @@ public struct GeometrySelectionID: CaptureIdentifier {
 }
 
 /// Which accepted geometry a post-scan selection landed on
-/// (issue #282). Canonical sources are the committed mesh anchors and
+/// (issue bolph71656-ai/HTDT-Capture#282). Canonical sources are the committed mesh anchors and
 /// RoomPlan objects; `derivedCandidate` selections are only possible
-/// because the candidate was explicitly stored and labeled per #249.
+/// because the candidate was explicitly stored and labeled per legacy bolph71656-ai/HTDT-Capture#249.
 public enum AcceptedGeometrySource: String, Codable, Sendable,
     Equatable
 {
@@ -29,7 +29,7 @@ public enum PostScanAuthoringError: Error, Sendable, Equatable {
     case coordinateSpaceMismatch
 }
 
-/// A world-space picking ray for post-scan authoring (issue #282).
+/// A world-space picking ray for post-scan authoring (issue bolph71656-ai/HTDT-Capture#282).
 public struct AcceptedGeometryRay: Sendable, Equatable {
     public let origin: Float3
     public let direction: Float3
@@ -55,7 +55,7 @@ public struct AcceptedGeometryRay: Sendable, Equatable {
     }
 }
 
-/// A single point selection on accepted geometry (issue #282). The
+/// A single point selection on accepted geometry (issue bolph71656-ai/HTDT-Capture#282). The
 /// selection records the exact source it landed on plus the geometry
 /// epoch it was made in so a Continue-scanning pass can invalidate it
 /// explicitly instead of silently reprojecting.
@@ -104,7 +104,7 @@ public struct AcceptedRoomPlanObject: Sendable, Equatable {
     }
 }
 
-/// Post-scan 3D authoring session (issue #282): places annotation
+/// Post-scan 3D authoring session (issue bolph71656-ai/HTDT-Capture#282): places annotation
 /// endpoints and measurement endpoints directly on the accepted
 /// RoomPlan/mesh geometry — no live camera raycast required, so a
 /// post-End AR continuity loss does not prevent geometry-backed
@@ -137,7 +137,7 @@ public struct PostScanGeometryAuthoringSession: Sendable, Equatable {
         }
         self.roomPlanObjects = roomPlanObjects
         // Derived candidates are only selectable when they were
-        // explicitly stored (they arrive via the persisted #249
+        // explicitly stored (they arrive via the persisted legacy bolph71656-ai/HTDT-Capture#249
         // document) and resolved to a shape.
         self.derivedCandidates = derivedCandidates.filter {
             $0.coordinateSpaceID == coordinateSpaceID
@@ -246,8 +246,8 @@ public struct PostScanGeometryAuthoringSession: Sendable, Equatable {
     }
 
     /// Selects a contour point on a persisted derived-geometry
-    /// candidate (issue #282: derived geometry is selectable only
-    /// because it was explicitly stored/labeled per #249).
+    /// candidate (issue bolph71656-ai/HTDT-Capture#282: derived geometry is selectable only
+    /// because it was explicitly stored/labeled per legacy bolph71656-ai/HTDT-Capture#249).
     @discardableResult
     public mutating func selectDerivedCandidatePoint(
         candidateID: DerivedGeometryCandidateID,
@@ -324,7 +324,7 @@ public struct PostScanGeometryAuthoringSession: Sendable, Equatable {
         )
     }
 
-    /// The measurement endpoint ref for a selection (issue #282:
+    /// The measurement endpoint ref for a selection (issue bolph71656-ai/HTDT-Capture#282:
     /// endpoints reuse the same selection). The committed measurement
     /// then carries `coordinate_space_id` plus these refs.
     public func endpointRef(

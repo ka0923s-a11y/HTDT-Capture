@@ -3,10 +3,10 @@ import Testing
 @testable import HTDTCaptureCore
 
 // Contract coverage for the equipment-catalog epic:
-//   #302 catalog snapshot identity + multi-catalog library
-//   #315 versioned speaker-layout profile role binding
-//   #337 portable external-authority dependency manifest
-//   #345 label-scan suggestion provenance + matching
+//   legacy bolph71656-ai/HTDT-Capture#302 catalog snapshot identity + multi-catalog library
+//   legacy bolph71656-ai/HTDT-Capture#315 versioned speaker-layout profile role binding
+//   legacy bolph71656-ai/HTDT-Capture#337 portable external-authority dependency manifest
+//   legacy bolph71656-ai/HTDT-Capture#345 label-scan suggestion provenance + matching
 
 private func catalogEntry(
     id: String,
@@ -85,7 +85,7 @@ private func equipmentRef(
     )
 }
 
-// MARK: - #302 catalog identity + library
+// MARK: - legacy bolph71656-ai/HTDT-Capture#302 catalog identity + library
 
 @Test
 func catalogIdentityDecodesSourceAndFreshness() throws {
@@ -287,7 +287,7 @@ func taskPlanCatalogPinIsCheckedDeterministically() throws {
     )
 }
 
-// MARK: - #315 versioned layout profile role binding
+// MARK: - legacy bolph71656-ai/HTDT-Capture#315 versioned layout profile role binding
 
 @Test
 func roleBindingRoundTripsOnEntityAndSchemaValidates() throws {
@@ -517,7 +517,7 @@ func completenessEvaluatesProfileRoleBindings() throws {
     #expect(unboundRoleOutcome.status != .satisfied)
 }
 
-// MARK: - #337 external-authority dependency manifest
+// MARK: - legacy bolph71656-ai/HTDT-Capture#337 external-authority dependency manifest
 
 @Test
 func manifestDeclaresEquipmentProfileAndPlanDependencies() throws {
@@ -745,7 +745,7 @@ func manifestRejectsMalformedJSONSchemaShape() throws {
     }
 }
 
-// MARK: - #345 label-scan matching + provenance
+// MARK: - legacy bolph71656-ai/HTDT-Capture#345 label-scan matching + provenance
 
 @Test
 func labelScanCandidatesRankCatalogAndSerial() throws {

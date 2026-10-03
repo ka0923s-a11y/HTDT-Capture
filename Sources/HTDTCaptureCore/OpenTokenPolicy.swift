@@ -1,6 +1,6 @@
 import Foundation
 
-/// Namespace policy for open vocabulary tokens (issue #344).
+/// Namespace policy for open vocabulary tokens (issue bolph71656-ai/HTDT-Capture#344).
 ///
 /// Several bundle fields are deliberately open token vocabularies —
 /// `quantity_type`, `channel_role`, `reference_point_semantics`, and
@@ -72,7 +72,7 @@ public enum OpenTokenVocabulary: String, Sendable, Equatable, CaseIterable {
     /// become "standard" retroactively.
     ///
     /// `asOf` pins the check to a payload's declared `schema_version`
-    /// (#332): tokens added by a later contract version are not
+    /// (legacy bolph71656-ai/HTDT-Capture#332): tokens added by a later contract version are not
     /// standard vocabulary for older payloads. nil means this build's
     /// latest known vocabulary.
     public func isStandard(
@@ -96,7 +96,7 @@ public enum OpenTokenVocabulary: String, Sendable, Equatable, CaseIterable {
     }
 }
 
-/// How an open-vocabulary token is classified under the #344
+/// How an open-vocabulary token is classified under the legacy bolph71656-ai/HTDT-Capture#344
 /// namespace policy.
 public enum TokenNamespaceClass: String, Sendable, Equatable, Codable {
     /// Standard token — meaning pinned by the contract's vocabulary
@@ -143,7 +143,7 @@ public enum OpenTokenPolicy {
     /// Normalize an authored token for new payloads: standard and
     /// already-scoped tokens pass through verbatim; any other token
     /// gains the reserved extension prefix so it can never collide
-    /// with future standard vocabulary (#344). Returns nil when the
+    /// with future standard vocabulary (legacy bolph71656-ai/HTDT-Capture#344). Returns nil when the
     /// token is empty or cannot be normalized into the vocabulary's
     /// character set.
     public static func scopedForAuthoring(

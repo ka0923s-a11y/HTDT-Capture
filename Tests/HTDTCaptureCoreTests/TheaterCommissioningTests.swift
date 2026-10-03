@@ -2,8 +2,8 @@ import Foundation
 import XCTest
 @testable import HTDTCaptureCore
 
-/// Commissioning authorities + mission contract (#316, #335, #346,
-/// #359): record invariants, collection cross-reference resolution,
+/// Commissioning authorities + mission contract (legacy bolph71656-ai/HTDT-Capture#316, legacy bolph71656-ai/HTDT-Capture#335, legacy bolph71656-ai/HTDT-Capture#346,
+/// legacy bolph71656-ai/HTDT-Capture#359): record invariants, collection cross-reference resolution,
 /// descriptor projection, task-plan semantic/evidence fulfillment,
 /// and canonical packaging against the updated authorities schema.
 final class TheaterCommissioningTests: XCTestCase {
@@ -56,7 +56,7 @@ final class TheaterCommissioningTests: XCTestCase {
         )
     }
 
-    // MARK: - #316 routing verification
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#316 routing verification
 
     func testRoutingRequiresChannelRoleOrLabel() throws {
         XCTAssertThrowsError(
@@ -244,7 +244,7 @@ final class TheaterCommissioningTests: XCTestCase {
         }
     }
 
-    // MARK: - #335 projector commissioning
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#335 projector commissioning
 
     func testLensCenterCannotBeProjectorEntity() throws {
         let projector = try entity(type: .projector, label: "PJ")
@@ -383,7 +383,7 @@ final class TheaterCommissioningTests: XCTestCase {
         XCTAssertEqual(decoded, record)
     }
 
-    // MARK: - #346 installation alignment
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#346 installation alignment
 
     func testAlignmentRequiresPlannedTarget() throws {
         let speaker = try speakerEntity()
@@ -497,7 +497,7 @@ final class TheaterCommissioningTests: XCTestCase {
         XCTAssertEqual(decoded, record)
     }
 
-    // MARK: - descriptor projection (#359)
+    // MARK: - descriptor projection (legacy bolph71656-ai/HTDT-Capture#359)
 
     func testRecordDescriptorsCoverAllSections() throws {
         let speaker = try speakerEntity()
@@ -552,7 +552,7 @@ final class TheaterCommissioningTests: XCTestCase {
         )
     }
 
-    // MARK: - #359 mission contract
+    // MARK: - legacy bolph71656-ai/HTDT-Capture#359 mission contract
 
     private func plan(
         entityChecklist: [HTDTTaskPlanEntityItem] = [],
@@ -908,7 +908,7 @@ final class TheaterCommissioningTests: XCTestCase {
             try status.mark(itemID: "sem-1", as: .completed)
         ) { error in
             // The item exists — .completed is simply not markable
-            // for a semantic task kind (#455).
+            // for a semantic task kind (legacy bolph71656-ai/HTDT-Capture#455).
             XCTAssertEqual(
                 error as? CaptureTaskPlanError,
                 .outcomeNotMarkable

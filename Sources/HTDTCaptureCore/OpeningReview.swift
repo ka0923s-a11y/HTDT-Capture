@@ -5,7 +5,7 @@ public struct OpeningID: CaptureIdentifier {
     public init(rawValue: UUID) { self.rawValue = rawValue }
 }
 
-/// Kind of room opening candidate (issue #231).
+/// Kind of room opening candidate (issue bolph71656-ai/HTDT-Capture#231).
 ///
 /// Door/window/opening are the RoomPlan-inferable portal kinds; the
 /// remaining kinds are the operator-only boundary openings the
@@ -33,7 +33,7 @@ public enum RoomOpeningKind: String, Codable, Sendable, CaseIterable {
 }
 
 /// Whether the boundary opening was open or closed when observed
-/// (issue #231). `unknown` is the default and covers candidates where
+/// (issue bolph71656-ai/HTDT-Capture#231). `unknown` is the default and covers candidates where
 /// the state was not observable or not meaningful to record.
 public enum RoomOpeningState: String, Codable, Sendable, CaseIterable {
     /// Air/people can pass through — e.g. an open duct, transfer
@@ -46,7 +46,7 @@ public enum RoomOpeningState: String, Codable, Sendable, CaseIterable {
     case unknown
 }
 
-/// How the candidate entered the review set (issue #231). Source
+/// How the candidate entered the review set (issue bolph71656-ai/HTDT-Capture#231). Source
 /// lineage is explicit so HTDT can distinguish RoomPlan-inferred
 /// openings from operator-declared ones.
 public enum RoomOpeningSource: String, Codable, Sendable {
@@ -58,7 +58,7 @@ public enum RoomOpeningSource: String, Codable, Sendable {
     case userDeclared = "user_declared"
 }
 
-/// Operator disposition for one candidate (issue #231). Nothing is
+/// Operator disposition for one candidate (issue bolph71656-ai/HTDT-Capture#231). Nothing is
 /// silently dropped: a rejected candidate is marked
 /// `intentionallyIgnored` so the review document records that the
 /// operator saw it and dismissed it.
@@ -76,7 +76,7 @@ public enum RoomOpeningDisposition: String, Codable, Sendable {
     case intentionallyIgnored = "intentionally_ignored"
 }
 
-/// One opening/portal candidate in the review set (issue #231).
+/// One opening/portal candidate in the review set (issue bolph71656-ai/HTDT-Capture#231).
 /// Geometry is expressed in the capture's bound coordinate space when
 /// the source observed it; operator-declared candidates may omit
 /// observed geometry entirely.
@@ -238,7 +238,7 @@ public enum OpeningReviewError: Error, Sendable, Equatable {
     case encodedDocumentMismatch
 }
 
-/// Canonical opening-review document (issue #231), persisted at
+/// Canonical opening-review document (issue bolph71656-ai/HTDT-Capture#231), persisted at
 /// `annotations/opening-review.json`. This is the operator's review of
 /// door/window/portal candidates — confirmation state only; HTDT reads
 /// it as authoring candidates and never treats a candidate as observed
@@ -337,7 +337,7 @@ public enum OpeningReviewPackageBuilder {
 }
 
 /// Pure merge/update operations over an opening-review candidate set
-/// (issue #231), kept separate from persistence so enumeration, UI and
+/// (issue bolph71656-ai/HTDT-Capture#231), kept separate from persistence so enumeration, UI and
 /// tests share exactly one behavior.
 public enum OpeningReviewEditor {
     /// Merges freshly enumerated RoomPlan candidates into `existing`:
@@ -387,7 +387,7 @@ public enum OpeningReviewEditor {
     }
 
     /// Sets the observed open/closed/unknown state of one candidate
-    /// (issue #231). Returns nil when the opening id is not part of the
+    /// (issue bolph71656-ai/HTDT-Capture#231). Returns nil when the opening id is not part of the
     /// review set.
     public static func setOpenState(
         _ openState: RoomOpeningState,
