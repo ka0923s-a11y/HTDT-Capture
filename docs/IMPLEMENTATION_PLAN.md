@@ -3,7 +3,7 @@
 Status: Reviewed v2  
 Review date: 2026-09-20  
 Target repository: `bolph71656-ai/HTDT-Capture`  
-Primary platform: LiDAR-capable iPhone / iPad  
+Primary platform: LiDAR-capable iPhone (iOS 27 baseline; qualified profile iPhone 17 Pro — ADR-0005)  
 Primary integration target: HTDT (Home Theater Digital Twin)
 
 ## 1. Mission

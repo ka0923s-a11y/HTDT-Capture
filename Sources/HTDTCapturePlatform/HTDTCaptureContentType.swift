@@ -1,7 +1,7 @@
 #if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
 
-@available(iOS 17.0, macOS 14.0, *)
+@available(macOS 14.0, *)
 public extension UTType {
     static let htdtCapture = UTType(
         exportedAs: "com.hometheaterdigitaltwin.capture-bundle",

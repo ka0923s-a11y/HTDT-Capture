@@ -1,6 +1,6 @@
 # ADR-0001: iOS platform baseline
 
-Status: Accepted  
+Status: Superseded in part by ADR-0005 (deployment target / device family); capability-probe and same-session requirements remain Accepted  
 Date: 2026-09-20
 
 ## Context

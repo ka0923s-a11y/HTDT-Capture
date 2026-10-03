@@ -1,0 +1,53 @@
+{
+  "schema": "htdt.evaluation.record",
+  "schema_version": "1.0.0",
+  "lane": "baseline-0",
+  "campaign": {
+    "campaign_id": "baseline-0-initial-iphone17pro",
+    "protocol_revision": "v1"
+  },
+  "environment": {
+    "app_commit": "f4c22d8",
+    "ios_version": "27.0",
+    "xcode_version": "27.0",
+    "sdk_version": "iPhoneOS27.0.sdk",
+    "device_model_identifier": "iPhone18,2",
+    "device_family": "iPhone"
+  },
+  "configuration": {
+    "ar_configuration": "ARWorldTrackingConfiguration+sceneDepth+sceneReconstruction",
+    "video_format": "default",
+    "hdr": false,
+    "visual_profile": "default"
+  },
+  "fixture": {
+    "case_id": "staged-living-room-01",
+    "fixture_revision": "v1",
+    "private_fixture": true
+  },
+  "metrics": [
+    {
+      "name": "ar_frame_interval_ms",
+      "kind": "numeric",
+      "value": 16.7,
+      "unit": "ms",
+      "distribution": {"p50": 16.7, "p95": 22.0}
+    },
+    {
+      "name": "scenedepth_present_ratio",
+      "kind": "rate",
+      "value": 0.98,
+      "trials": 300
+    }
+  ],
+  "result": {
+    "aggregate": "pass",
+    "failure_categories": [],
+    "baseline_comparison": "This run defines the baseline."
+  },
+  "decision": {
+    "status": "adopt",
+    "rationale": "Example record demonstrating the envelope — replace with real device data.",
+    "blind_spots": ["sustained-session thermal not measured in this example"]
+  }
+}

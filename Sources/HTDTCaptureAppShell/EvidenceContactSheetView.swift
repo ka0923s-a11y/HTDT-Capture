@@ -47,13 +47,15 @@ struct EvidenceContactSheetView: View {
         }
         .navigationTitle("Contact sheet")
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button(
-                    selecting ? "Done" : "Select"
-                ) {
-                    selecting.toggle()
-                    if !selecting {
-                        selection.removeAll()
+            if !model.readOnly {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(
+                        selecting ? "Done" : "Select"
+                    ) {
+                        selecting.toggle()
+                        if !selecting {
+                            selection.removeAll()
+                        }
                     }
                 }
             }
@@ -315,13 +317,17 @@ struct EvidenceContactSheetView: View {
             }
         }
         .contextMenu {
-            if item.privacyFlagged {
-                Button("Remove privacy flag") {
-                    unflagForPrivacy(item.item.frameID)
-                }
-            } else {
-                Button("Flag for privacy review") {
-                    flagForPrivacy(item.item.frameID)
+            // Privacy flags mutate the workspace; a read-only
+            // (persisted) capture offers browsing only.
+            if !model.readOnly {
+                if item.privacyFlagged {
+                    Button("Remove privacy flag") {
+                        unflagForPrivacy(item.item.frameID)
+                    }
+                } else {
+                    Button("Flag for privacy review") {
+                        flagForPrivacy(item.item.frameID)
+                    }
                 }
             }
         }

@@ -230,9 +230,57 @@ public enum ARSessionLifecycleEvent: Sendable, Equatable {
     /// app does not run collaborative sessions; the event is forwarded so
     /// the host can register unexpected output.
     case didOutputCollaborationData(priorityIsCritical: Bool)
+    /// Anchor-identity evidence that the world origin reset across a
+    /// relocalization: every anchor identifier observed while tracking
+    /// last ran normally is gone after tracking recovered. Emitted only
+    /// when the pre-loss anchor set was non-empty — absent anchors
+    /// cannot prove a reset, so nothing is claimed without evidence.
+    case spatialDiscontinuityDetected(sessionTimestampSeconds: Double)
 }
 
-@available(iOS 17.0, *)
+/// What `configureReferenceObjects` actually achieved on the live
+/// session (#268) — the recorded outcome distinguishes applied sets,
+/// an unsupported tracking request, a refused configuration, and a
+/// post-run read-back mismatch, so provenance never overstates what
+/// ARKit adopted.
+public struct ReferenceObjectReconfigurationResult:
+    Sendable, Equatable
+{
+    public enum Status: String, Sendable, Equatable {
+        /// Requested sets verified on the running configuration.
+        case configured
+        /// The live configuration is not a world-tracking
+        /// configuration — reference objects were not applied.
+        case incompatibleConfiguration
+        /// Tracking objects were requested but this OS/SDK cannot
+        /// adopt them (`trackingObjects` is iOS 27+). Nothing was
+        /// applied or silently demoted to detection.
+        case trackingUnsupported
+        /// `run` was issued but the live configuration's object sets
+        /// differ from what was requested.
+        case verificationMismatch
+    }
+
+    public let status: Status
+    /// Machine-readable detail (`key=value`, space separated) —
+    /// requested vs adopted object names for provenance.
+    public let detail: String
+    /// Whether `ARSession.run` was re-issued. When true the session
+    /// restarted its configuration — the caller treats anchor and
+    /// coordinate continuity accordingly.
+    public let sessionRestarted: Bool
+
+    public init(
+        status: Status,
+        detail: String,
+        sessionRestarted: Bool
+    ) {
+        self.status = status
+        self.detail = detail
+        self.sessionRestarted = sessionRestarted
+    }
+}
+
 @MainActor
 private final class ARSessionLifecycleBridge:
     NSObject,
@@ -281,6 +329,9 @@ private final class ARSessionLifecycleBridge:
     /// callback during a frame gap would stamp `0` — which reads as
     /// "session start" in the recorded history.
     nonisolated(unsafe) private var lastObservedTimestamp: Double?
+    /// Anchor-identity continuity check across relocalization.
+    nonisolated(unsafe) private var relocalizationBaseline =
+        RelocalizationAnchorBaseline()
 
     func session(
         _ session: ARSession,
@@ -288,6 +339,24 @@ private final class ARSessionLifecycleBridge:
     ) {
         if let timestamp = session.currentFrame?.timestamp {
             lastObservedTimestamp = timestamp
+        }
+        if case .limited(.relocalizing) = camera.trackingState {
+            relocalizationBaseline.trackingBecameRelocalizing()
+        }
+        if camera.trackingState == .normal {
+            let currentIdentifiers = Set(
+                session.currentFrame?.anchors.map(\.identifier) ?? []
+            )
+            if relocalizationBaseline.trackingBecameNormal(
+                currentAnchorIdentifiers: currentIdentifiers
+            ) {
+                eventHandler?(
+                    .spatialDiscontinuityDetected(
+                        sessionTimestampSeconds:
+                            lastObservedTimestamp ?? 0
+                    )
+                )
+            }
         }
         eventHandler?(
             .cameraTrackingStateChanged(
@@ -326,22 +395,29 @@ private final class ARSessionLifecycleBridge:
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         lastObservedTimestamp = frame.timestamp
+        relocalizationBaseline.didUpdateFrame(
+            trackingNormal: frame.camera.trackingState == .normal,
+            anchorIdentifiers: Set(frame.anchors.map(\.identifier))
+        )
         frameTimestampHandler?(frame.timestamp)
         passthrough?.session?(session, didUpdate: frame)
     }
 
     func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
         reportMeshAnchors(anchors, kind: .added, session: session)
+        reportObjectAnchors(anchors, kind: .added, session: session)
         passthrough?.session?(session, didAdd: anchors)
     }
 
     func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
         reportMeshAnchors(anchors, kind: .updated, session: session)
+        reportObjectAnchors(anchors, kind: .updated, session: session)
         passthrough?.session?(session, didUpdate: anchors)
     }
 
     func session(_ session: ARSession, didRemove anchors: [ARAnchor]) {
         reportMeshAnchors(anchors, kind: .removed, session: session)
+        reportObjectAnchors(anchors, kind: .removed, session: session)
         passthrough?.session?(session, didRemove: anchors)
     }
 
@@ -364,10 +440,40 @@ private final class ARSessionLifecycleBridge:
         )
     }
 
+    /// Reference-object anchors are forwarded whole: the host needs the
+    /// matched `referenceObject` name, `transform`, and (iOS 27)
+    /// `ARTrackable.isTracked` — none of which a bare UUID carries.
+    private func reportObjectAnchors(
+        _ anchors: [ARAnchor],
+        kind: MeshAnchorLifecycleKind,
+        session: ARSession
+    ) {
+        let objectAnchors = anchors.compactMap {
+            $0 as? ARObjectAnchor
+        }
+        guard !objectAnchors.isEmpty else { return }
+        if let timestamp = session.currentFrame?.timestamp {
+            lastObservedTimestamp = timestamp
+        }
+        objectAnchorHandler?(
+            kind,
+            objectAnchors,
+            lastObservedTimestamp ?? 0
+        )
+    }
+
     var meshAnchorHandler: (
         @MainActor (
             MeshAnchorLifecycleKind,
             [UUID],
+            Double
+        ) -> Void
+    )?
+
+    var objectAnchorHandler: (
+        @MainActor (
+            MeshAnchorLifecycleKind,
+            [ARObjectAnchor],
             Double
         ) -> Void
     )?
@@ -391,7 +497,6 @@ private final class ARSessionLifecycleBridge:
     }
 }
 
-@available(iOS 17.0, *)
 @MainActor
 @objc(HTDTRoomPlanViewDelegateBridge)
 private final class RoomPlanViewDelegateBridge:
@@ -431,7 +536,6 @@ private final class RoomPlanViewDelegateBridge:
 // requirements (unlike the ObjC ARSessionDelegate/RoomCaptureViewDelegate
 // bridges above), so the bridge cannot be MainActor-isolated. The
 // handler is assigned once before `run` and only read afterwards.
-@available(iOS 17.0, *)
 private final class RoomPlanSessionInstructionBridge:
     RoomCaptureSessionDelegate,
     @unchecked Sendable
@@ -441,7 +545,9 @@ private final class RoomPlanSessionInstructionBridge:
     )?
     /// Fires on every RoomCaptureSession end — inside the bounded End
     /// transaction or on its own. The host distinguishes the two by
-    /// capture state; an end outside End is otherwise invisible.
+    /// capture state; an end outside End is otherwise invisible. The
+    /// payload is a stable `domain#code` diagnostic token (nil on a
+    /// clean end), never localized UI text.
     nonisolated(unsafe) var endHandler: (
         @Sendable (String?) -> Void
     )?
@@ -496,11 +602,15 @@ private final class RoomPlanSessionInstructionBridge:
         didEndWith data: CapturedRoomData,
         error: (any Error)?
     ) {
-        endHandler?(error?.localizedDescription)
+        endHandler?(
+            error.map {
+                let nsError = $0 as NSError
+                return "\(nsError.domain)#\(nsError.code)"
+            }
+        )
     }
 }
 
-@available(iOS 17.0, *)
 @MainActor
 public final class SharedARSessionController {
     public let arSession: ARSession
@@ -549,6 +659,130 @@ public final class SharedARSessionController {
         set { sessionDelegateBridge.meshAnchorHandler = newValue }
     }
 
+    /// Reference-object anchor add/update/remove callbacks (#268) from
+    /// the single shared session delegate — never a second delegate.
+    /// Anchors arrive unfiltered so the host can read the matched
+    /// `referenceObject` name, pose transform, and `isTracked`.
+    public var objectAnchorLifecycleHandler: (
+        @MainActor (
+            MeshAnchorLifecycleKind,
+            [ARObjectAnchor],
+            Double
+        ) -> Void
+    )? {
+        get { sessionDelegateBridge.objectAnchorHandler }
+        set { sessionDelegateBridge.objectAnchorHandler = newValue }
+    }
+
+    /// Installs reference-object detection/tracking sets on the live
+    /// `ARWorldTrackingConfiguration` and re-runs the session (#268).
+    ///
+    /// The result is always honest about what the running
+    /// configuration adopted: `trackingObjects` is only reachable on
+    /// iOS 27+, so a tracking request on an older system or an older
+    /// SDK returns `.trackingUnsupported` rather than silently
+    /// degrading the objects to detection. Read-back verification
+    /// compares the live configuration's object names against what was
+    /// requested — a mismatch is surfaced, never claimed as success.
+    ///
+    /// A `.arobject` archive is never accepted: iOS 27 cannot mix
+    /// legacy and `.referenceobject` payloads in one session, and the
+    /// detection-only legacy path is out of scope for this lane.
+    @discardableResult
+    public func configureReferenceObjects(
+        detection: Set<ARReferenceObject>,
+        tracking: Set<ARReferenceObject>
+    ) -> ReferenceObjectReconfigurationResult {
+        guard !detection.isEmpty || !tracking.isEmpty else {
+            return ReferenceObjectReconfigurationResult(
+                status: .configured,
+                detail: "empty_sets no_change",
+                sessionRestarted: false
+            )
+        }
+        guard
+            let configuration = arSession.configuration
+                as? ARWorldTrackingConfiguration
+        else {
+            return ReferenceObjectReconfigurationResult(
+                status: .incompatibleConfiguration,
+                detail:
+                    "live_configuration=\(String(describing: arSession.configuration.flatMap { Swift.type(of: $0) }))",
+                sessionRestarted: false
+            )
+        }
+        // Legacy `.arobject` payloads land in detectionObjects too;
+        // there is no SDK affordance that separates them post-load, so
+        // the host must hold the format gate at load time. This API
+        // only carries `.referenceobject` archives and says so in the
+        // outcome detail for provenance.
+        let trackingSupported: Bool = {
+            guard #available(iOS 27.0, *) else { return false }
+            // `trackingObjects` is an iOS 27 SDK symbol — absent from
+            // earlier SDK surfaces entirely — so it is probed through
+            // KVC rather than referenced directly.
+            return configuration.responds(
+                to: NSSelectorFromString("setTrackingObjects:")
+            )
+        }()
+        if !tracking.isEmpty, !trackingSupported {
+            return ReferenceObjectReconfigurationResult(
+                status: .trackingUnsupported,
+                detail:
+                    "tracking_requested=\(tracking.count) detection_requested=\(detection.count)",
+                sessionRestarted: false
+            )
+        }
+        let requestedDetectionNames = Set(detection.compactMap(\.name))
+        let requestedTrackingNames = Set(tracking.compactMap(\.name))
+        configuration.detectionObjects = detection
+        if trackingSupported {
+            configuration.setValue(
+                NSSet(set: tracking),
+                forKey: "trackingObjects"
+            )
+        }
+        arSession.run(configuration, options: [])
+
+        // Read-back: the live configuration post-run decides what was
+        // actually adopted.
+        guard
+            let adopted = arSession.configuration
+                as? ARWorldTrackingConfiguration
+        else {
+            return ReferenceObjectReconfigurationResult(
+                status: .verificationMismatch,
+                detail:
+                    "post_run_configuration_missing detection_requested=\(requestedDetectionNames.sorted())",
+                sessionRestarted: true
+            )
+        }
+        let adoptedDetection = Set(
+            adopted.detectionObjects.compactMap(\.name)
+        )
+        var adoptedTracking: Set<String> = []
+        if trackingSupported {
+            adoptedTracking = Set(
+                ((adopted.value(forKey: "trackingObjects")
+                    as? Set<ARReferenceObject>) ?? [])
+                    .compactMap(\.name)
+            )
+        }
+        let detectionOK = adoptedDetection == requestedDetectionNames
+        let trackingOK =
+            !trackingSupported || adoptedTracking == requestedTrackingNames
+        return ReferenceObjectReconfigurationResult(
+            status: detectionOK && trackingOK
+                ? .configured : .verificationMismatch,
+            detail:
+                "detection_requested=\(requestedDetectionNames.sorted()) "
+                + "tracking_requested=\(requestedTrackingNames.sorted()) "
+                + "adopted_detection=\(adoptedDetection.sorted()) "
+                + "adopted_tracking=\(adoptedTracking.sorted())",
+            sessionRestarted: true
+        )
+    }
+
     /// RoomPlan coaching/instruction observations (#260). Installed as
     /// `roomCaptureSession.delegate` when RoomPlan runs; invoked from the
     /// framework's delegate queue (nonisolated), so hop to MainActor
@@ -562,11 +796,11 @@ public final class SharedARSessionController {
         }
     }
 
-    /// Fires with the error description (nil on a clean end) every time
-    /// the RoomCaptureSession ends — inside the bounded End transaction
-    /// or on its own. An end outside End stops the room model
-    /// accumulating while the host still shows a scanning surface, so
-    /// the host records it as provenance.
+    /// Fires with a stable `domain#code` error token (nil on a clean
+    /// end) every time the RoomCaptureSession ends — inside the bounded
+    /// End transaction or on its own. An end outside End stops the room
+    /// model accumulating while the host still shows a scanning
+    /// surface, so the host records it as provenance.
     public var roomPlanDidEndHandler: (
         @Sendable (String?) -> Void
     )? {
@@ -643,6 +877,12 @@ public final class SharedARSessionController {
             return
         }
         liveRoomCaptureViewMountObserved = true
+        // #269: bind the layer that displays the ARFrame so iOS 27's
+        // `viewRotationAngle` becomes a live rotation authority for the
+        // segmentation display-transform path.
+        if #available(iOS 27, *) {
+            arSession.viewLayer = roomCaptureView.layer
+        }
         roomCaptureView.setNeedsLayout()
         roomCaptureView.layoutIfNeeded()
     }
@@ -1294,6 +1534,442 @@ public final class SharedARSessionController {
         return Double(rim.count) / Double(points.count)
     }
 
+    /// Result of a mask-gated targeted observation (#269).
+    public struct MaskedTargetedObservationResult: Sendable {
+        /// The observation to feed `DerivedShapeTemporalFusionTracker`.
+        public let observation: DerivedShapeObservation
+        /// Depth/mesh samples inside the mask∩window BEFORE voxel
+        /// reduction — the true spatial-support count for the record's
+        /// downstream depth-confidence policy context.
+        public let supportedSampleCount: Int
+        /// "arkit_confidence_map_nonzero" when a real confidence map
+        /// was enforced, "confidence_map_absent" when the device
+        /// provided none, "mesh_ray_gated" when only mesh support
+        /// survived.
+        public let depthConfidencePolicy: String
+        public let usedMeshFallback: Bool
+
+        public init(
+            observation: DerivedShapeObservation,
+            supportedSampleCount: Int,
+            depthConfidencePolicy: String,
+            usedMeshFallback: Bool
+        ) {
+            self.observation = observation
+            self.supportedSampleCount = supportedSampleCount
+            self.depthConfidencePolicy = depthConfidencePolicy
+            self.usedMeshFallback = usedMeshFallback
+        }
+    }
+
+    /// Mask-gated targeted observation for the #269 segmentation path:
+    /// identical window/plane/rim guards to
+    /// `liveTargetedShapeObservation`, but the depth evidence is
+    /// limited to samples whose source-image position falls inside the
+    /// operator's accepted mask on the RETAINED source frame — the same
+    /// frame's own pose + intrinsics unproject it, so depth authority
+    /// is same-frame by construction. The mesh fallback keeps only
+    /// candidates whose projection through the source frame lands
+    /// inside the mask silhouette (rays constrain mesh support; a 2D
+    /// mask is never extruded into geometry).
+    ///
+    /// The depth decode runs `nonisolated` on the retained snapshot
+    /// inside a utility-priority detached task — Vision/mask work stays
+    /// off the AR delegate and MainActor paths; only the mesh-anchor
+    /// read and observation assembly touch the actor.
+    public func maskedTargetedShapeObservation(
+        snapshot: CapturedFrameSnapshot,
+        mask: SegmentationMaskGrid,
+        target: ScanTargetAnchor,
+        observationID: SegmentationObservationID,
+        windowRadiusMeters: Double? = nil,
+        voxelSizeMeters: Double = 0.012,
+        maxPoints: Int = 256,
+        minimumPointCount: Int = 8
+    ) async -> MaskedTargetedObservationResult? {
+        guard !mask.isEmpty,
+              voxelSizeMeters.isFinite,
+              voxelSizeMeters > 0,
+              maxPoints > 0,
+              minimumPointCount > 0
+        else {
+            return nil
+        }
+
+        let targetPosition = SIMD3<Float>(
+            Float(target.x),
+            Float(target.y),
+            Float(target.z)
+        )
+        let radius = Float(
+            min(
+                windowRadiusMeters ?? target.radiusMeters,
+                Self.maximumTargetedObservationWindowMeters
+            )
+        )
+        guard radius.isFinite, radius > 0 else {
+            return nil
+        }
+
+        let evidenceStem =
+            "live-segmentation:"
+            + observationID.rawValue.uuidString.lowercased()
+
+        let depthResult = await Task.detached(priority: .utility) {
+            Self.maskedSceneDepthWorldPoints(
+                snapshot: snapshot,
+                mask: mask,
+                targetCenter: targetPosition,
+                windowRadiusMeters: radius,
+                maxPoints: 512
+            )
+        }.value
+
+        if !depthResult.points.isEmpty {
+            let planeY = DerivedHorizontalPlaneSegmentation
+                .dominantPlaneY(
+                    verticalPositions: depthResult.points.map {
+                        Double($0.y)
+                    }
+                )
+            let objectPoints = DerivedHorizontalPlaneSegmentation
+                .pointsAbove(
+                    planeY: planeY,
+                    marginMeters: 0.015,
+                    minimumPointCount: minimumPointCount,
+                    in: depthResult.points
+                ) {
+                    Double($0.y)
+                }
+
+            // Same rim guard as the live path: a whole-window survivor
+            // outlining the clip sphere is the support surface, not
+            // the segmented item.
+            if planeY != nil,
+               objectPoints.count == depthResult.points.count,
+               rimFraction(
+                   of: objectPoints,
+                   center: targetPosition,
+                   radius: radius
+               ) > 0.5
+            {
+                // fall through to the mesh path — unresolved there is
+                // still honest (nil), never a fabricated solid.
+            } else if let observation =
+                liveDepthDerivedShapeObservation(
+                    points: objectPoints,
+                    sessionTimestampSeconds:
+                        snapshot.sessionTimestampSeconds,
+                    floorReferenceY: nil,
+                    voxelSizeMeters: voxelSizeMeters,
+                    maxPoints: maxPoints,
+                    minimumPointCount: minimumPointCount,
+                    evidenceRefStem: evidenceStem
+                )
+            {
+                return MaskedTargetedObservationResult(
+                    observation: observation,
+                    supportedSampleCount: depthResult.points.count,
+                    depthConfidencePolicy: depthResult.confidencePolicy,
+                    usedMeshFallback: false
+                )
+            }
+        }
+
+        // Mesh fallback, constrained by the mask's silhouette: only
+        // mesh points whose projection through the SOURCE frame's own
+        // pose/intrinsics lands inside the accepted mask count as
+        // evidence. The frame is explicitly related (same coordinate
+        // space, recorded pose), so this is the "segmented rays
+        // constrain mesh support" path — never an extrusion.
+        guard let frame = arSession.currentFrame else {
+            return nil
+        }
+        let imageWidth = CVPixelBufferGetWidth(snapshot.capturedImage)
+        let imageHeight = CVPixelBufferGetHeight(snapshot.capturedImage)
+        guard imageWidth > 0, imageHeight > 0 else {
+            return nil
+        }
+
+        guard let meshObservation = liveDerivedShapeObservation(
+            anchors: frame.anchors.compactMap { $0 as? ARMeshAnchor },
+            classifications: nil,
+            sessionTimestampSeconds: snapshot.sessionTimestampSeconds,
+            voxelSizeMeters: 0.015,
+            maxPoints: maxPoints,
+            maxInspectedFaces: 1_500,
+            boundingCenter: targetPosition,
+            boundingRadiusMeters: radius,
+            supportPlaneRejection: (
+                marginMeters: 0.015,
+                minimumPointCount: minimumPointCount
+            )
+        ) else {
+            return nil
+        }
+
+        let maskGatedPoints = meshObservation.points.filter { point in
+            SegmentationDepthGate.maskContains(
+                mask: mask,
+                worldX: point.position.x,
+                worldY: point.verticalPositionMeters
+                    ?? Double(targetPosition.y),
+                worldZ: point.position.y,
+                worldFromCamera: snapshot.worldFromCamera,
+                intrinsics: snapshot.intrinsics,
+                imageWidth: imageWidth,
+                imageHeight: imageHeight
+            )
+        }
+        guard maskGatedPoints.count >= minimumPointCount else {
+            return nil
+        }
+
+        if rimFraction(
+            of: maskGatedPoints.map {
+                SIMD3<Float>(
+                    Float($0.position.x),
+                    Float(
+                        $0.verticalPositionMeters
+                            ?? Double(targetPosition.y)
+                    ),
+                    Float($0.position.y)
+                )
+            },
+            center: targetPosition,
+            radius: radius
+        ) > 0.5 {
+            return nil
+        }
+
+        let gated = DerivedShapeObservation(
+            coordinateSpaceID: meshObservation.coordinateSpaceID,
+            points: maskGatedPoints,
+            observationStartSeconds:
+                meshObservation.observationStartSeconds,
+            observationEndSeconds:
+                meshObservation.observationEndSeconds
+        )
+        return MaskedTargetedObservationResult(
+            observation: gated,
+            supportedSampleCount: maskGatedPoints.count,
+            depthConfidencePolicy: "mesh_ray_gated",
+            usedMeshFallback: true
+        )
+    }
+
+    /// Depth-map decode for a mask-gated observation: mirrors
+    /// `liveSceneDepthWorldPoints` exactly (confidence-map filtering,
+    /// depth-range guards, scaled intrinsics, the
+    /// `T_world_from_camera` unproject convention) but reads the
+    /// RETAINED snapshot's own `ARDepthData` — the same-frame guarantee
+    /// is structural — and admits only samples inside the mask and the
+    /// observation window. Never upsamples depth: only real depth-map
+    /// samples produce world points.
+    ///
+    /// `nonisolated`: pixel locks and row walks run wherever the
+    /// caller's task runs (a detached bounded task in practice), never
+    /// on MainActor or the AR delegate.
+    nonisolated static func maskedSceneDepthWorldPoints(
+        snapshot: CapturedFrameSnapshot,
+        mask: SegmentationMaskGrid,
+        targetCenter: SIMD3<Float>,
+        windowRadiusMeters: Float,
+        maxPoints: Int,
+        minimumDepthMeters: Float = 0.15,
+        maximumDepthMeters: Float = 4.5
+    ) -> (points: [SIMD3<Float>], confidencePolicy: String) {
+        let empty: ([SIMD3<Float>], String) = ([], "unavailable")
+        guard maxPoints > 0,
+              minimumDepthMeters > 0,
+              maximumDepthMeters > minimumDepthMeters,
+              windowRadiusMeters.isFinite,
+              windowRadiusMeters > 0,
+              !mask.isEmpty,
+              let depthData =
+                snapshot.smoothedDepthData ?? snapshot.discreteDepthData
+        else {
+            return empty
+        }
+
+        let depthMap = depthData.depthMap
+        let width = CVPixelBufferGetWidth(depthMap)
+        let height = CVPixelBufferGetHeight(depthMap)
+        guard width > 1,
+              height > 1,
+              CVPixelBufferGetPixelFormatType(depthMap)
+                == kCVPixelFormatType_DepthFloat32,
+              CVPixelBufferLockBaseAddress(depthMap, .readOnly)
+                == kCVReturnSuccess
+        else {
+            return empty
+        }
+        defer {
+            CVPixelBufferUnlockBaseAddress(depthMap, .readOnly)
+        }
+        guard let depthBaseAddress =
+                CVPixelBufferGetBaseAddress(depthMap)
+        else {
+            return empty
+        }
+
+        var confidenceMap: CVPixelBuffer?
+        var confidencePolicy = "confidence_map_absent"
+        if let candidateConfidenceMap = depthData.confidenceMap,
+           CVPixelBufferGetWidth(candidateConfidenceMap) == width,
+           CVPixelBufferGetHeight(candidateConfidenceMap) == height,
+           CVPixelBufferGetPixelFormatType(candidateConfidenceMap)
+                == kCVPixelFormatType_OneComponent8,
+           CVPixelBufferLockBaseAddress(
+                candidateConfidenceMap,
+                .readOnly
+           ) == kCVReturnSuccess
+        {
+            if CVPixelBufferGetBaseAddress(candidateConfidenceMap)
+                != nil
+            {
+                confidenceMap = candidateConfidenceMap
+                confidencePolicy = "arkit_confidence_map_nonzero"
+            } else {
+                CVPixelBufferUnlockBaseAddress(
+                    candidateConfidenceMap,
+                    .readOnly
+                )
+            }
+        }
+        defer {
+            if let confidenceMap {
+                CVPixelBufferUnlockBaseAddress(
+                    confidenceMap,
+                    .readOnly
+                )
+            }
+        }
+
+        let imageWidth = CVPixelBufferGetWidth(snapshot.capturedImage)
+        let imageHeight = CVPixelBufferGetHeight(snapshot.capturedImage)
+        guard imageWidth > 0, imageHeight > 0 else {
+            return empty
+        }
+
+        // Intrinsics scale to depth-map resolution exactly like the
+        // live path — depth pixels index the same normalized image
+        // space the mask tests in.
+        let scaleX = Float(width) / Float(imageWidth)
+        let scaleY = Float(height) / Float(imageHeight)
+        let intrinsics = snapshot.intrinsics
+        let fx = intrinsics.fx * scaleX
+        let fy = intrinsics.fy * scaleY
+        let cx = intrinsics.cx * scaleX
+        let cy = intrinsics.cy * scaleY
+        guard fx.isFinite, fy.isFinite, fx > 0, fy > 0 else {
+            return empty
+        }
+
+        let depthBytesPerRow = CVPixelBufferGetBytesPerRow(depthMap)
+        let confidenceBytesPerRow =
+            confidenceMap.map { CVPixelBufferGetBytesPerRow($0) } ?? 0
+        let confidenceBaseAddress =
+            confidenceMap.flatMap { CVPixelBufferGetBaseAddress($0) }
+        guard depthBytesPerRow >= width * MemoryLayout<Float>.size
+        else {
+            return empty
+        }
+        if confidenceMap != nil, confidenceBytesPerRow < width {
+            return empty
+        }
+
+        let step = max(
+            1,
+            Int(
+                ceil(
+                    sqrt(
+                        Double(width) * Double(height)
+                            / Double(maxPoints)
+                    )
+                )
+            )
+        )
+        let radiusSquared =
+            windowRadiusMeters * windowRadiusMeters
+
+        // Column-major worldFromCamera: basis columns 0–2, translation
+        // column 3 — the snapshot's own `T_world_from_camera`.
+        let m = snapshot.worldFromCamera.values
+
+        var points: [SIMD3<Float>] = []
+        points.reserveCapacity(maxPoints)
+
+        var y = step / 2
+        while y < height, points.count < maxPoints {
+            let depthRow = depthBaseAddress
+                .advanced(by: y * depthBytesPerRow)
+                .assumingMemoryBound(to: Float.self)
+            let confidenceRow =
+                confidenceBaseAddress?
+                    .advanced(by: y * confidenceBytesPerRow)
+                    .assumingMemoryBound(to: UInt8.self)
+
+            var x = step / 2
+            while x < width, points.count < maxPoints {
+                defer { x += step }
+                // The mask is the spatial gate: depth pixels outside
+                // the accepted silhouette never become evidence.
+                guard mask.contains(
+                    depthX: x,
+                    depthY: y,
+                    depthWidth: width,
+                    depthHeight: height
+                ) else {
+                    continue
+                }
+                let depth = depthRow[x]
+                guard depth.isFinite,
+                      depth >= minimumDepthMeters,
+                      depth <= maximumDepthMeters
+                else {
+                    continue
+                }
+                if let confidenceRow,
+                   confidenceRow[x] == 0
+                {
+                    continue
+                }
+                let localX = (Float(x) - cx) * depth / fx
+                let localY = -(Float(y) - cy) * depth / fy
+                // camera→world via column-major transform:
+                // world = R * local + t.
+                let worldX =
+                    m[0] * localX + m[4] * localY
+                    - m[8] * depth + m[12]
+                let worldY =
+                    m[1] * localX + m[5] * localY
+                    - m[9] * depth + m[13]
+                let worldZ =
+                    m[2] * localX + m[6] * localY
+                    - m[10] * depth + m[14]
+                guard worldX.isFinite,
+                      worldY.isFinite,
+                      worldZ.isFinite
+                else {
+                    continue
+                }
+                let dx = worldX - targetCenter.x
+                let dy = worldY - targetCenter.y
+                let dz = worldZ - targetCenter.z
+                guard dx * dx + dy * dy + dz * dz
+                        <= radiusSquared
+                else {
+                    continue
+                }
+                points.append(SIMD3<Float>(worldX, worldY, worldZ))
+            }
+            y += step
+        }
+
+        return (points, confidencePolicy)
+    }
+
     public func snapshotActiveMeshAnchors() throws -> [MeshAnchorSnapshot] {
         guard let frame = arSession.currentFrame else {
             throw PlatformCaptureError.currentFrameUnavailable
@@ -1925,7 +2601,11 @@ public final class SharedARSessionController {
         floorReferenceY: Double?,
         voxelSizeMeters: Double,
         maxPoints: Int,
-        minimumPointCount: Int = 8
+        minimumPointCount: Int = 8,
+        // #269: when set, replaces the default
+        // `live-scene-depth:<ts>:` stem so mask-gated evidence carries
+        // its producing observation's id.
+        evidenceRefStem: String? = nil
     ) -> DerivedShapeObservation? {
         guard maxPoints > 0,
               minimumPointCount > 0,
@@ -1957,11 +2637,12 @@ public final class SharedARSessionController {
                     y: Double(point.z)
                 ),
                 evidenceRef:
-                    "live-scene-depth:"
-                    + String(
-                        format: "%.3f",
-                        sessionTimestampSeconds
-                    )
+                    (evidenceRefStem
+                        ?? "live-scene-depth:"
+                            + String(
+                                format: "%.3f",
+                                sessionTimestampSeconds
+                            ))
                     + ":"
                     + String(index),
                 evidenceKind: .sceneDepth,
@@ -2205,8 +2886,11 @@ public final class SharedARSessionController {
             candidateBoundaryPoints.count >= 8
             ? candidateBoundaryPoints
             : candidateFallbackPoints
+        // No-rejection floor matches the depth path's default: a
+        // sub-8-point observation can't carry a shape fit and only
+        // adds noise to the accumulator.
         guard sourcePoints.count
-                >= (supportPlaneRejection?.minimumPointCount ?? 1)
+                >= (supportPlaneRejection?.minimumPointCount ?? 8)
         else {
             return nil
         }
@@ -2679,7 +3363,6 @@ private struct LiveDerivedVoxelKey: Hashable {
 /// live ARMesh triangle, or a persisted RoomPlan object — so the
 /// reticle can name the target class before capture; the capture
 /// then resolves the same candidates and returns bounded provenance.
-@available(iOS 17.0, *)
 extension SharedARSessionController {
     /// Bounded capture result for a targeted placement. `target` names
     /// the resolved target class; the method-specific fields are

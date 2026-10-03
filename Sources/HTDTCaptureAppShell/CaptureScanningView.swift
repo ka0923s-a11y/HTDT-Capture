@@ -37,6 +37,9 @@ public struct CaptureScanningView: View {
     public let lowLightGuidanceActive: Bool
     /// Active targeted-object pass status (#250).
     public let targetScanStatus: TargetScanStatus?
+    /// #269: live iterative-segmentation interaction state for the
+    /// object pass (`.unavailable` when idle or assets unsupported).
+    public let segmentationInteraction: SegmentationInteractionState
     /// Operator-declared unresolved regions (#257).
     public let declaredRegions: [DeclaredCoverageRegion]
     /// Return-to-start check state (#273).
@@ -60,6 +63,17 @@ public struct CaptureScanningView: View {
     public let retakeTargetScan: () -> Void
     public let acceptTargetScan: () -> Void
     public let cancelTargetScan: () -> Void
+    /// #269: forwards an operator seed/refine gesture as a Core
+    /// `SegmentationGesture` (view-normalized points + viewport size);
+    /// the coordinator maps it through the display-transform authority.
+    public let segmentationGesture:
+        (SegmentationGesture) -> Void
+    /// #269: "Use" — fuse + persist the accepted mask.
+    public let useSegmentation: () -> Void
+    /// #269: drop the live run ("Cancel" / "New selection").
+    public let cancelSegmentation: () -> Void
+    /// #269: explicit operator asset-prep request.
+    public let segmentationAssetPrepare: () -> Void
     public let declareNearestUnresolvedRegion:
         (DeclaredRegionReason) -> Void
     public let revokeOperatorRegion:
@@ -86,6 +100,14 @@ public struct CaptureScanningView: View {
     public let recordFieldNote:
         (String, CaptureFieldNoteCategory, Bool, Bool, Bool,
          CaptureFieldNoteAnchorRequest) -> Void
+    /// Latest copilot resolution for this scan (#272); nil until
+    /// the operator asks. Advisory only — the suggestion can never
+    /// act on the capture itself.
+    public let scanCopilotResolution: ScanCopilotResolution?
+    /// True while a copilot request is resolving.
+    public let isScanCopilotResolving: Bool
+    /// #272: asks the host for an advisory next-step suggestion.
+    public let requestScanCopilotSuggestion: () -> Void
 
     @State private var showingEndScanReview = false
     @State private var isHUDExpanded = false
@@ -110,6 +132,15 @@ public struct CaptureScanningView: View {
     /// exit that discards the in-progress capture without ending
     /// into Review.
     @State private var stopScanArmed = false
+    // #269: seed/refine interaction state for the preview overlay —
+    /// which gesture produces a seed (tap / box / lasso→scribble) and
+    /// whether a refinement tap includes or excludes the point.
+    @State private var segmentationSeedMode = SegmentationSeedMode.point
+    @State private var segmentationRefineInclude = true
+    /// Live drag path (view points) for lasso/box strokes on the
+    /// preview; cleared when the gesture ends.
+    @State private var segmentationDragPoints: [CGPoint] = []
+    @State private var segmentationDragAnchor: CGPoint?
 #if os(iOS)
     /// #364 §5/§16: on regular width the expanded HUD presents as a
     /// trailing inspector pane instead of a bottom overlay covering
@@ -150,6 +181,13 @@ public struct CaptureScanningView: View {
         retakeTargetScan: @escaping () -> Void = {},
         acceptTargetScan: @escaping () -> Void = {},
         cancelTargetScan: @escaping () -> Void = {},
+        segmentationInteraction: SegmentationInteractionState =
+            .unavailable,
+        segmentationGesture: @escaping
+            (SegmentationGesture) -> Void = { _ in },
+        useSegmentation: @escaping () -> Void = {},
+        cancelSegmentation: @escaping () -> Void = {},
+        segmentationAssetPrepare: @escaping () -> Void = {},
         declareNearestUnresolvedRegion: @escaping
             (DeclaredRegionReason) -> Void = { _ in },
         revokeOperatorRegion: @escaping
@@ -168,6 +206,9 @@ public struct CaptureScanningView: View {
             (String, CaptureFieldNoteCategory, Bool, Bool, Bool,
              CaptureFieldNoteAnchorRequest) -> Void
                 = { _, _, _, _, _, _ in },
+        scanCopilotResolution: ScanCopilotResolution? = nil,
+        isScanCopilotResolving: Bool = false,
+        requestScanCopilotSuggestion: @escaping () -> Void = {},
         captureEvidenceFrame: @escaping () -> Void,
         setMovementCapability: @escaping
             (ScanMovementCapability) -> Void,
@@ -201,6 +242,11 @@ public struct CaptureScanningView: View {
         self.retakeTargetScan = retakeTargetScan
         self.acceptTargetScan = acceptTargetScan
         self.cancelTargetScan = cancelTargetScan
+        self.segmentationInteraction = segmentationInteraction
+        self.segmentationGesture = segmentationGesture
+        self.useSegmentation = useSegmentation
+        self.cancelSegmentation = cancelSegmentation
+        self.segmentationAssetPrepare = segmentationAssetPrepare
         self.declareNearestUnresolvedRegion =
             declareNearestUnresolvedRegion
         self.revokeOperatorRegion = revokeOperatorRegion
@@ -211,6 +257,10 @@ public struct CaptureScanningView: View {
         self.discardCapture = discardCapture
         self.probePlacementTarget = probePlacementTarget
         self.recordFieldNote = recordFieldNote
+        self.scanCopilotResolution = scanCopilotResolution
+        self.isScanCopilotResolving = isScanCopilotResolving
+        self.requestScanCopilotSuggestion =
+            requestScanCopilotSuggestion
         self.captureEvidenceFrame = captureEvidenceFrame
         self.setMovementCapability = setMovementCapability
         self.endScan = endScan
@@ -224,6 +274,11 @@ public struct CaptureScanningView: View {
 
                 preview
                     .ignoresSafeArea()
+                    // #269: the seed/refine input layer lives inside the
+                    // preview's own bounds — the view-normalized points
+                    // it emits must cover exactly the image region the
+                    // recorded display transform maps.
+                    .overlay(segmentationGestureSurface)
                     // #73: the framework miniature 3D model renders at
                     // the bottom of the preview — reserve unobstructed
                     // space for it above the bottom controls (and the
@@ -984,6 +1039,7 @@ public struct CaptureScanningView: View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 10) {
                 expandedStatusRow
+                scanCopilotSection
                 directionCoverageSection
 
                 if let storage = evidenceStorageAdvisory {
@@ -1229,6 +1285,78 @@ public struct CaptureScanningView: View {
                 )
                 .frame(width: 58, height: 58)
             }
+        }
+    }
+
+    /// #272: on-demand advisory copilot. The button asks the host for
+    /// a suggestion; the chip shows the resolved pick with its source
+    /// (deterministic vs model). Nothing here acts on the capture —
+    /// the suggestion only rewords already-visible guidance.
+    private var scanCopilotSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Copilot")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("Advisory")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let resolution = scanCopilotResolution {
+                VStack(alignment: .leading, spacing: 3) {
+                    Label(
+                        ScanCopilotCopy.instruction(
+                            for: resolution.suggestion.template
+                        ),
+                        systemImage: "lightbulb"
+                    )
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(
+                        CaptureColorRole.informational.color
+                    )
+
+                    if let priority = ScanCopilotCopy
+                        .priorityCaption(
+                            for: resolution.suggestion.priority
+                        )
+                    {
+                        Text(priority)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(
+                                CaptureColorRole.attention.color
+                            )
+                    }
+
+                    Text(
+                        ScanCopilotCopy.sourceCaption(
+                            for: resolution
+                        )
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+            }
+
+            Button {
+                requestScanCopilotSuggestion()
+            } label: {
+                Label(
+                    isScanCopilotResolving
+                        ? String(localized: "Resolving…")
+                        : String(localized: "What next?"),
+                    systemImage: "sparkles"
+                )
+                .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .disabled(isScanCopilotResolving)
+            .accessibilityHint(
+                String(
+                    localized:
+                        "Shows an advisory next step. It never starts, stops, or finishes the capture."
+                )
+            )
         }
     }
 
@@ -1821,6 +1949,10 @@ public struct CaptureScanningView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
+
+                // #269: bounded iterative-segmentation controls inside
+                // the same pass card — never a separate workflow.
+                segmentationPassSection
             }
             .padding(.top, 6)
         } else {
@@ -1837,6 +1969,325 @@ public struct CaptureScanningView: View {
             .controlSize(.small)
             .disabled(isEndingScan)
             .padding(.top, 6)
+        }
+    }
+
+    /// #269: seed/refine input layer over the live preview. Hit-testable
+    /// only inside an object pass while the interaction accepts input;
+    /// points are normalized by the preview's own bounds so the
+    /// coordinator's recorded display transform stays the sole
+    /// mapping authority.
+    private var segmentationGestureSurface: some View {
+        GeometryReader { geo in
+            let active =
+                targetScanStatus != nil
+                && (segmentationInteraction.phase == .seeding
+                    || segmentationInteraction.phase == .maskReady)
+            ZStack {
+                Color.clear
+                    .contentShape(Rectangle())
+                // Live stroke feedback for box/lasso seed gestures.
+                if active,
+                   segmentationSeedMode == SegmentationSeedMode.lasso,
+                   segmentationDragPoints.count > 1
+                {
+                    Path { path in
+                        path.move(to: segmentationDragPoints[0])
+                        for point in segmentationDragPoints
+                            .dropFirst()
+                        {
+                            path.addLine(to: point)
+                        }
+                    }
+                    .stroke(Color.accentColor, lineWidth: 2)
+                }
+                if active,
+                   segmentationSeedMode == SegmentationSeedMode.box,
+                   let anchor = segmentationDragAnchor,
+                   let current = segmentationDragPoints.last
+                {
+                    Path { path in
+                        path.addRect(
+                            CGRect(
+                                x: min(anchor.x, current.x),
+                                y: min(anchor.y, current.y),
+                                width: abs(current.x - anchor.x),
+                                height: abs(current.y - anchor.y)
+                            )
+                        )
+                    }
+                    .stroke(Color.accentColor, lineWidth: 2)
+                }
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard active else {
+                            return
+                        }
+                        switch (
+                            segmentationInteraction.phase,
+                            segmentationSeedMode
+                        ) {
+                        case (.seeding, SegmentationSeedMode.box):
+                            if segmentationDragAnchor == nil {
+                                segmentationDragAnchor =
+                                    value.startLocation
+                            }
+                            segmentationDragPoints =
+                                [value.startLocation, value.location]
+                        case (.seeding, SegmentationSeedMode.lasso):
+                            segmentationDragPoints
+                                .append(value.location)
+                        default:
+                            break
+                        }
+                    }
+                    .onEnded { value in
+                        let stroke = segmentationDragPoints
+                        segmentationDragPoints = []
+                        segmentationDragAnchor = nil
+                        guard active,
+                              geo.size.width > 0,
+                              geo.size.height > 0
+                        else {
+                            return
+                        }
+                        func normalize(
+                            _ point: CGPoint
+                        ) -> NormalizedPoint2D {
+                            NormalizedPoint2D(
+                                x: Double(
+                                    point.x / geo.size.width
+                                ),
+                                y: Double(
+                                    point.y / geo.size.height
+                                )
+                            )
+                        }
+                        func send(
+                            _ kind: SegmentationGestureKind,
+                            _ points: [CGPoint]
+                        ) {
+                            segmentationGesture(
+                                SegmentationGesture(
+                                    kind: kind,
+                                    viewNormalizedPoints:
+                                        points.map(normalize),
+                                    viewportWidthPoints:
+                                        Double(geo.size.width),
+                                    viewportHeightPoints:
+                                        Double(geo.size.height)
+                                )
+                            )
+                        }
+                        switch segmentationInteraction.phase {
+                        case .seeding:
+                            switch segmentationSeedMode {
+                            case .point:
+                                send(.seedPoint, [value.location])
+                            case .box:
+                                send(
+                                    .seedBox,
+                                    [
+                                        value.startLocation,
+                                        value.location,
+                                    ]
+                                )
+                            case .lasso:
+                                if stroke.count >= 2 {
+                                    send(.seedScribble, stroke)
+                                }
+                            }
+                        case .maskReady:
+                            send(
+                                segmentationRefineInclude
+                                    ? .includePoint
+                                    : .excludePoint,
+                                [value.location]
+                            )
+                        default:
+                            break
+                        }
+                    }
+            )
+            .allowsHitTesting(active)
+        }
+    }
+
+    /// #269 object-pass block: asset readiness (explicit prep only)
+    /// plus the bounded seed→refine→use controls.
+    @ViewBuilder
+    private var segmentationPassSection: some View {
+        if segmentationInteraction.phase != .unavailable,
+           targetScanStatus != nil
+        {
+            Divider()
+            switch segmentationInteraction.assetReadiness {
+            case .ready:
+                segmentationControls
+            case .downloading:
+                Label(
+                    "Segmentation model downloading…",
+                    systemImage: "arrow.down.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            case .notReady, .unknown:
+                HStack(spacing: 8) {
+                    Text(
+                        "Segmentation model not on this device"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Prepare") {
+                        segmentationAssetPrepare()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            case .failed:
+                HStack(spacing: 8) {
+                    Text("Segmentation prep failed")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Retry") {
+                        segmentationAssetPrepare()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            case .unsupported:
+                Text(
+                    "Object isolation requires iOS 27 or later"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            if let detail = segmentationInteraction.detail,
+               segmentationInteraction.phase != .accepted
+            {
+                Text(detail)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var segmentationControls: some View {
+        switch segmentationInteraction.phase {
+        case .seeding:
+            VStack(alignment: .leading, spacing: 4) {
+                Picker(
+                    "Isolation mode",
+                    selection: $segmentationSeedMode
+                ) {
+                    Text("Tap").tag(SegmentationSeedMode.point)
+                    Text("Box").tag(SegmentationSeedMode.box)
+                    Text("Lasso")
+                        .tag(SegmentationSeedMode.lasso)
+                }
+                .pickerStyle(.segmented)
+                Text(
+                    "Tap or draw around the aimed object to isolate it"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        case .running:
+            Label(
+                "Isolating object…",
+                systemImage: "square.dashed"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        case .maskReady:
+            VStack(alignment: .leading, spacing: 6) {
+                if let maskPixels =
+                    segmentationInteraction.maskPixelCount
+                {
+                    Text(
+                        String(
+                            format: String(
+                                localized:
+                                    "Mask: %lld px — tap the object to include, the background to exclude"
+                            ),
+                            maskPixels
+                        )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                Picker(
+                    "Refinement",
+                    selection: $segmentationRefineInclude
+                ) {
+                    Text("Include").tag(true)
+                    Text("Exclude").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .disabled(
+                    !segmentationInteraction.canRefine
+                )
+                HStack(spacing: 10) {
+                    Button("Use") { useSegmentation() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    Button("New selection") {
+                        cancelSegmentation()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        case .accepted:
+            VStack(alignment: .leading, spacing: 4) {
+                if let fused =
+                    segmentationInteraction.fusedWorldPointCount,
+                   fused > 0
+                {
+                    Text(
+                        String(
+                            format: String(
+                                localized:
+                                    "Selection applied — %lld supported depth points joined the pass"
+                            ),
+                            fused
+                        )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                } else {
+                    Text(
+                        "Selection saved as 2D evidence only — no depth support under the mask"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                Button("New selection") {
+                    cancelSegmentation()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        case .failed:
+            HStack(spacing: 8) {
+                Text("Isolation failed")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Try again") {
+                    cancelSegmentation()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        case .unavailable:
+            EmptyView()
         }
     }
 
@@ -2135,6 +2586,18 @@ public struct CaptureScanningView: View {
                 plural: String(
                     localized:
                         "Guidance attempt budget used. %lld weak areas may remain — review spatial coverage before ending."
+                )
+            )
+        case .operatorDeclaredUnresolved:
+            return captureCountPhrase(
+                guidanceProgress.unresolvedWeakRegionCount,
+                singular: String(
+                    localized:
+                        "Guidance finished: %lld weak area was marked intentionally unresolved. It remains reviewable in spatial coverage."
+                ),
+                plural: String(
+                    localized:
+                        "Guidance finished: %lld weak areas were marked intentionally unresolved. They remain reviewable in spatial coverage."
                 )
             )
         case .movementConstrained:

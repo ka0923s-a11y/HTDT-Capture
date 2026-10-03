@@ -24,6 +24,10 @@ public enum CaptureAdvisoryNoteKind:
     case loopClosureCheck = "loop_closure_check"
     /// An operator-targeted object orbit pass completed (#250).
     case targetScanPass = "target_scan_pass"
+    /// An operator-seeded iterative-segmentation attempt ran inside an
+    /// object pass (#269): seed kind, mask outcome, bounded refinement
+    /// count and the display-mapping authority are recorded.
+    case segmentationPass = "segmentation_pass"
     /// An operator revisit flag was dropped mid-scan (#325).
     case revisitFlag = "revisit_flag"
     /// A revisit flag was resolved/skipped/unavailable in Review
@@ -51,6 +55,21 @@ public enum CaptureAdvisoryNoteKind:
     /// End transaction — so the room model stopped accumulating while
     /// the operator still sees a scanning surface.
     case roomPlanSessionEnded = "roomplan_session_ended"
+    /// The operator's per-mission reference-object selection was
+    /// resolved and applied to the ARSession (#268) — records selected
+    /// counts plus any dropped requests verbatim.
+    case referenceObjectSelection = "reference_object_selection"
+    /// The session reconfiguration for reference objects completed
+    /// with a non-plain outcome: an artifact failed to load, the
+    /// running configuration did not adopt the object sets, or the
+    /// platform refused (#268).
+    case referenceObjectConfigurationOutcome =
+        "reference_object_configuration_outcome"
+    /// The operator accepted a matched reference-object observation
+    /// into an entity's evidence — the observation ref lands alongside
+    /// existing evidence, never overwriting placement/orientation
+    /// (#268).
+    case referenceObjectAcceptance = "reference_object_acceptance"
     /// An explicit operator-requested optional workload was deferred or
     /// rejected by the admission policy (#273) — the persisted
     /// provenance for "the operator asked, the policy said no".
@@ -109,6 +128,9 @@ public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
         case .targetScanPass:
             code = "target_scan_pass"
             severity = .info
+        case .segmentationPass:
+            code = "segmentation_pass"
+            severity = .info
         case .revisitFlag:
             code = "revisit_flag"
             severity = .info
@@ -133,6 +155,15 @@ public struct CaptureAdvisoryNote: Codable, Sendable, Equatable {
         case .roomPlanSessionEnded:
             code = "roomplan_session_ended"
             severity = .warning
+        case .referenceObjectSelection:
+            code = "reference_object_selection"
+            severity = .info
+        case .referenceObjectConfigurationOutcome:
+            code = "reference_object_configuration_outcome"
+            severity = .warning
+        case .referenceObjectAcceptance:
+            code = "reference_object_acceptance"
+            severity = .info
         case .optionalWorkAdmission:
             code = "optional_work_admission"
             severity = .warning
