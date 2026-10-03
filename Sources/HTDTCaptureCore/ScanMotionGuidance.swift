@@ -49,7 +49,7 @@ public extension ScanMotionGuidanceAction {
 /// `unrestricted` suppresses movement guidance: the app never claims to
 /// know the operator's path is safe, so a constrained mode removes
 /// translation prompts entirely rather than coaching risky movement.
-public enum ScanMovementCapability: String, Sendable, Equatable {
+public enum ScanMovementCapability: String, Codable, Sendable, Equatable {
     case unrestricted
     case stationaryOnly = "stationary_only"
     /// The operator can move, but the current surroundings make guided

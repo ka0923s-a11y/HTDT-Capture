@@ -100,6 +100,14 @@ public struct CaptureScanningView: View {
     public let recordFieldNote:
         (String, CaptureFieldNoteCategory, Bool, Bool, Bool,
          CaptureFieldNoteAnchorRequest) -> Void
+    /// Latest copilot resolution for this scan (#272); nil until
+    /// the operator asks. Advisory only — the suggestion can never
+    /// act on the capture itself.
+    public let scanCopilotResolution: ScanCopilotResolution?
+    /// True while a copilot request is resolving.
+    public let isScanCopilotResolving: Bool
+    /// #272: asks the host for an advisory next-step suggestion.
+    public let requestScanCopilotSuggestion: () -> Void
 
     @State private var showingEndScanReview = false
     @State private var isHUDExpanded = false
@@ -198,6 +206,9 @@ public struct CaptureScanningView: View {
             (String, CaptureFieldNoteCategory, Bool, Bool, Bool,
              CaptureFieldNoteAnchorRequest) -> Void
                 = { _, _, _, _, _, _ in },
+        scanCopilotResolution: ScanCopilotResolution? = nil,
+        isScanCopilotResolving: Bool = false,
+        requestScanCopilotSuggestion: @escaping () -> Void = {},
         captureEvidenceFrame: @escaping () -> Void,
         setMovementCapability: @escaping
             (ScanMovementCapability) -> Void,
@@ -246,6 +257,10 @@ public struct CaptureScanningView: View {
         self.discardCapture = discardCapture
         self.probePlacementTarget = probePlacementTarget
         self.recordFieldNote = recordFieldNote
+        self.scanCopilotResolution = scanCopilotResolution
+        self.isScanCopilotResolving = isScanCopilotResolving
+        self.requestScanCopilotSuggestion =
+            requestScanCopilotSuggestion
         self.captureEvidenceFrame = captureEvidenceFrame
         self.setMovementCapability = setMovementCapability
         self.endScan = endScan
@@ -1024,6 +1039,7 @@ public struct CaptureScanningView: View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 10) {
                 expandedStatusRow
+                scanCopilotSection
                 directionCoverageSection
 
                 if let storage = evidenceStorageAdvisory {
@@ -1269,6 +1285,78 @@ public struct CaptureScanningView: View {
                 )
                 .frame(width: 58, height: 58)
             }
+        }
+    }
+
+    /// #272: on-demand advisory copilot. The button asks the host for
+    /// a suggestion; the chip shows the resolved pick with its source
+    /// (deterministic vs model). Nothing here acts on the capture —
+    /// the suggestion only rewords already-visible guidance.
+    private var scanCopilotSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Copilot")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("Advisory")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let resolution = scanCopilotResolution {
+                VStack(alignment: .leading, spacing: 3) {
+                    Label(
+                        ScanCopilotCopy.instruction(
+                            for: resolution.suggestion.template
+                        ),
+                        systemImage: "lightbulb"
+                    )
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(
+                        CaptureColorRole.informational.color
+                    )
+
+                    if let priority = ScanCopilotCopy
+                        .priorityCaption(
+                            for: resolution.suggestion.priority
+                        )
+                    {
+                        Text(priority)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(
+                                CaptureColorRole.attention.color
+                            )
+                    }
+
+                    Text(
+                        ScanCopilotCopy.sourceCaption(
+                            for: resolution
+                        )
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+            }
+
+            Button {
+                requestScanCopilotSuggestion()
+            } label: {
+                Label(
+                    isScanCopilotResolving
+                        ? String(localized: "Resolving…")
+                        : String(localized: "What next?"),
+                    systemImage: "sparkles"
+                )
+                .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .disabled(isScanCopilotResolving)
+            .accessibilityHint(
+                String(
+                    localized:
+                        "Shows an advisory next step. It never starts, stops, or finishes the capture."
+                )
+            )
         }
     }
 
