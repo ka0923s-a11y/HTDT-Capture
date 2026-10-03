@@ -573,6 +573,50 @@ final class ScanMotionGuidanceTests: XCTestCase {
         XCTAssertNil(guidance)
     }
 
+    func testDeclaredWeakRegionCompletionIsOperatorDeclaredNotObserved() {
+        // A weak region left unresolved by operator declaration must
+        // never report `.observed` — completion was negotiated.
+        var tracker = ScanMotionGuidanceTracker(
+            configuration: ScanMotionGuidanceConfiguration(
+                minimumRepeatedWeakObservations: 1,
+                spatialGuidanceActivationCoverageFraction: 0.55,
+                completionDirectionCoverageFraction: 0.95
+            )
+        )
+        let weakKey = SpatialCoverageCellKey(x: 2, z: 2)
+        tracker.setDeclaredRegionKeys([weakKey])
+
+        let weak = spatial(
+            cameraX: 0,
+            cameraZ: 0,
+            region: region(
+                key: weakKey,
+                observations: 5,
+                diversity: 1,
+                distance: .medium,
+                classification: .weak
+            )
+        )
+        let fullDirection = coverage(
+            gap: nil,
+            observedCellCount: 36
+        )
+
+        let progress = tracker.progress(
+            coverage: fullDirection,
+            spatialCoverage: weak
+        )
+
+        XCTAssertTrue(progress.isComplete)
+        XCTAssertEqual(progress.actionableWeakRegionCount, 0)
+        XCTAssertEqual(progress.operatorDeclaredWeakRegionCount, 1)
+        XCTAssertEqual(progress.unresolvedWeakRegionCount, 1)
+        XCTAssertEqual(
+            progress.completionSource,
+            .operatorDeclaredUnresolved
+        )
+    }
+
     func testStationaryOnlyModeSuppressesPhysicalMovementGuidanceAndCanComplete() {
         var tracker = ScanMotionGuidanceTracker(
             configuration: ScanMotionGuidanceConfiguration(

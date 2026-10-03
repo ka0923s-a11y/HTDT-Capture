@@ -9,7 +9,6 @@ public enum CameraPermissionStatus: String, Sendable, Equatable {
 #if os(iOS) && canImport(AVFoundation)
 import AVFoundation
 
-@available(iOS 17.0, *)
 public enum CameraPermissionController {
     @MainActor
     public static func currentStatus() -> CameraPermissionStatus {

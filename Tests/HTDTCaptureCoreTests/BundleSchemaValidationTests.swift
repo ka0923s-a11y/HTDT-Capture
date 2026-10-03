@@ -50,6 +50,8 @@ func registryMapsEverySchemaOwnedPath() throws {
             "authority-dependencies",
         "derived/geometry-candidates.json":
             "derived-geometry-candidates",
+        "derived/segmentation-observations.json":
+            "segmentation-observations",
         "derived/equipment-identity.json": "equipment-identity",
         "evidence/reference-targets.json": "reference-targets",
         "verification/as-built.json": "as-built",

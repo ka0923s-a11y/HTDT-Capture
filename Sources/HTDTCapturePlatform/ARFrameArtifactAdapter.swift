@@ -97,7 +97,6 @@ public struct CapturedFrameSnapshot: @unchecked Sendable {
     }
 }
 
-@available(iOS 17.0, *)
 public enum ARFrameArtifactAdapter {
     /// Lightweight synchronous SNAPSHOT step, safe on the MainActor/AR
     /// boundary: retains pixel/depth buffers and copies pose metadata
@@ -335,7 +334,6 @@ public enum ARFrameArtifactAdapter {
     }
 }
 
-@available(iOS 17.0, *)
 public enum EXIFEvidenceAllowlist {
     private static let allowedLeafKeys: Set<String> = [
         "ExposureTime",

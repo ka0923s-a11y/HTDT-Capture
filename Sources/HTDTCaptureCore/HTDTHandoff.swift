@@ -460,8 +460,11 @@ public struct HTDTHandoffClient: Sendable {
         } catch let error as HTDTHandoffError {
             throw error
         } catch {
+            // localizedDescription keeps the operator-readable
+            // transport reason; String(describing:) would dump the
+            // NSError's whole UserInfo into the Deliveries row.
             throw HTDTHandoffError.transportFailed(
-                String(describing: error)
+                error.localizedDescription
             )
         }
         guard let http = response as? HTTPURLResponse else {

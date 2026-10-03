@@ -41,11 +41,21 @@
               "frame_usability",
               "loop_closure_check",
               "target_scan_pass",
+              "segmentation_pass",
               "revisit_flag",
               "revisit_flag_resolution",
               "mission_bound",
               "task_profile_change",
-              "privacy_flag"
+              "privacy_flag",
+              "privacy_flag_cleared",
+              "roomplan_rescan",
+              "roomplan_session_ended",
+              "optional_work_admission",
+              "reference_object_selection",
+              "reference_object_configuration_outcome",
+              "reference_object_acceptance",
+              "source_quality_preflight",
+              "high_resolution_still"
             ]
           },
           "session_timestamp_seconds": {
